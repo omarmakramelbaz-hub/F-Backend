@@ -41,11 +41,13 @@ class PendingVendorController extends Controller
             ->orderBy('id', 'desc')
             ->paginate(30);
 
-        return view('admin.pending_vendors.index', compact('pending_vendors'));
+        $professions = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions();
+        return view('admin.pending_vendors.index', compact('pending_vendors', 'professions'));
     }
     public function show(PendingVendor $pending_vendor)
     {
-        return view('admin.pending_vendors.show', compact('pending_vendor'));
+        $professions = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions();
+        return view('admin.pending_vendors.show', compact('pending_vendor', 'professions'));
     }
     public function destroy(PendingVendor $pending_vendor)
     {
@@ -149,15 +151,77 @@ class PendingVendorController extends Controller
         $data = $request->except('_token');
         // dd($data);
             $to_email = $pending_vendor->email;
-            $mail=Mail::send('emails.send_pending_vendor_decline_email', ['order' => $pending_vendor, 'data' => $data], function($message) use ($request, $to_email) {
-                 $message->to($to_email);
-                 $message->subject('Send Notification');
-            });
-        
+            if ($to_email) {
+                Mail::send('emails.send_pending_vendor_decline_email', ['order' => $pending_vendor, 'data' => $data], function($message) use ($request, $to_email) {
+                     $message->to($to_email);
+                     $message->subject('Send Notification');
+                });
+            }
+
         $pending_vendor->update(['status' => 'declined', 'decline_reason' => $request->decline_reason]);
         return redirect()->back()->with('success',trans('messages.EmailSentSuccessfully'));
     }
     
+
+    public function approvePartner(PendingVendor $pending_vendor)
+    {
+        if ($pending_vendor->application_kind !== 'partner') {
+            return redirect()->back()->with('error', 'هذا الطلب ليس طلب انضمام لشريك GO.');
+        }
+
+        if ($pending_vendor->status === 'accepted') {
+            return redirect()->back()->with('success', 'تم قبول الطلب من قبل.');
+        }
+
+        $mobile = preg_replace('/\D+/', '', (string) $pending_vendor->mobile);
+        if (substr($mobile, 0, 2) === '20' && strlen($mobile) > 10) {
+            $mobile = substr($mobile, 2);
+        }
+        $mobile = ltrim($mobile, '0');
+
+        $user = User::where('account_type', 'delegate')
+            ->where('app_scope', 'go_partner')
+            ->where(function ($query) use ($pending_vendor, $mobile) {
+                $query->where('pending_vendor_id', $pending_vendor->id)
+                    ->orWhere('mobile', $mobile);
+            })
+            ->first();
+
+        if (!$user) {
+            $user = User::create([
+                'added_by' => 1,
+                'name' => $pending_vendor->full_name,
+                'mobile' => $mobile,
+                'account_type' => 'delegate',
+                'app_scope' => 'go_partner',
+                'status' => 'pending',
+                'pending_vendor_id' => $pending_vendor->id,
+            ]);
+
+            try {
+                $user->assignRole(13);
+            } catch (\Throwable $e) {
+                // The partner can still activate even if the legacy role is unavailable.
+            }
+        } else {
+            $user->name = $pending_vendor->full_name ?: $user->name;
+            $user->pending_vendor_id = $pending_vendor->id;
+            $user->status = 'pending';
+            $user->save();
+        }
+
+        $pending_vendor->update([
+            'status' => 'accepted',
+            'decline_reason' => null,
+        ]);
+
+        return redirect()->back()->with(
+            'success',
+            'تم قبول الشريك. يمكنه الآن تفعيل حسابه من تطبيق الشركاء باستخدام رقم هاتفه.'
+        );
+    }
+
+
     public function edit(PendingVendor $pending_vendor){
         return view('admin.pending_vendors.edit',compact('pending_vendor'));
     }
