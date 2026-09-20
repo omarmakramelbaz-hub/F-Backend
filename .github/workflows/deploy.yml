@@ -63,6 +63,20 @@ jobs:
             root@187.127.92.124 \
             'set -e; cd /home/fasakhaninja/public_html; php artisan migrate --force; php artisan optimize:clear; php artisan tinker --execute="echo \Illuminate\Support\Facades\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27) ? \x27__SOURCE_APP_OK__\x27 : \x27__SOURCE_APP_MISSING__\x27;" | grep __SOURCE_APP_OK__'
 
+      - name: Repair partner schema on production
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            root@187.127.92.124 \
+            'set -e; cd /home/fasakhaninja/public_html; php artisan tinker --execute="if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->string(\x27source_app\x27, 32)->default(\x27fasakhansta\x27); }); } if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27partner_type\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->string(\x27partner_type\x27, 50)->nullable(); }); } if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27reviewed_at\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->timestamp(\x27reviewed_at\x27)->nullable(); }); } echo \\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27) ? \x27__PARTNER_SCHEMA_OK__\x27 : \x27__PARTNER_SCHEMA_MISSING__\x27;" | grep __PARTNER_SCHEMA_OK__; php artisan optimize:clear'
+
       - name: Bootstrap GO schema and check professions API
         shell: bash
         run: |
