@@ -12,6 +12,7 @@ use Arr;
 use Notification;
 use Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Schema;
 use App\Models\Resturant;
 use App\Models\ResturantArea;
 class AuthRepository implements AuthRepositoryInterface 
@@ -36,7 +37,9 @@ class AuthRepository implements AuthRepositoryInterface
                     ->orWhere('email', $Details['mobile']);
             })
             ->where('account_type', $Details['account_type'])
-            ->where('app_scope', $scopeValue);
+            ->when(Schema::hasColumn('users', 'app_scope'), function ($query) use ($scopeValue) {
+                $query->where('app_scope', $scopeValue);
+            });
         };
 
         $user = $baseQuery($scope)->first();
