@@ -52,6 +52,77 @@
                                     </div>
                                 </div>
                                 @endif
+                                @if($pending_vendor->application_kind === 'partner')
+                                    @php
+                                        $goProfession = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[$pending_vendor->profession_key] ?? null;
+                                        $partnerPhoto = $pending_vendor->getFirstMediaUrl('partner_photo', 'thumb') ?: $pending_vendor->getFirstMediaUrl('partner_photo');
+                                    @endphp
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>نوع الطلب</label>
+                                            <span class="badge bg-primary">طلب انضمام شريك GO</span>
+                                        </div>
+                                    </div>
+                                    @if($partnerPhoto)
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>الصورة الشخصية</label>
+                                            <div>
+                                                <img src="{{ $partnerPhoto }}" style="width:96px;height:96px;object-fit:cover;border-radius:16px;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @endif
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>السن</label>
+                                            <span>{{ $pending_vendor->age ?? '—' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>المهنة</label>
+                                            <span>{{ $goProfession['ar'] ?? $pending_vendor->profession_key ?? '—' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>نطاق العمل</label>
+                                            <span>{{ $pending_vendor->work_radius_km ? $pending_vendor->work_radius_km.' كم' : '—' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>الموقع</label>
+                                            @if($pending_vendor->lat && $pending_vendor->lng)
+                                                <span>{{ $pending_vendor->lat }}, {{ $pending_vendor->lng }}</span>
+                                                <a class="btn btn-sm btn-outline-primary ms-2" target="_blank"
+                                                   href="https://www.google.com/maps?q={{ $pending_vendor->lat }},{{ $pending_vendor->lng }}">فتح الخريطة</a>
+                                            @else
+                                                <span>—</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>طريقة استلام المستحقات</label>
+                                            <span>{{ $pending_vendor->payment_method === 'instapay' ? 'Instapay' : 'Vodafone Cash' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>بيانات الاستلام</label>
+                                            <span>{{ $pending_vendor->payment_identifier ?? '—' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label>الموافقة على الشروط</label>
+                                            <span>{{ $pending_vendor->terms_accepted_at ? 'تمت الموافقة' : '—' }}</span>
+                                        </div>
+                                    </div>
+                                @endif
+
                                 @if($pending_vendor->owner_name)
                                 <div class="col-sm-6">
                                     <div class="form-group">
