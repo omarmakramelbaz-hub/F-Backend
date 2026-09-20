@@ -299,7 +299,7 @@
                         <a href="#" class="nav-link">
                             <i class="nav-icon fa-solid fa-person-biking"></i>
                             <p>
-                                @lang('main.delegates')
+                                الشركاء
                                 <i class="fas fa-angle-down left"></i>
                             </p>
                         </a>
@@ -309,7 +309,7 @@
                                     <a href="{{ url('/admin/users?account_type=delegate') }}"
                                         class="nav-link {{ request()->is('admin/users?account_type=delegate') ? 'active' : '' }}">
                                         <i class="fas fa-eye nav-icon"></i>
-                                        <p>@lang('main.showAll') @lang('main.delegates')</p>
+                                        <p>عرض كل الشركاء</p>
                                     </a>
                                 </li>
                             @endcan
@@ -318,7 +318,7 @@
                                     <a href="{{ url('/admin/users/create?account_type=delegate') }}"
                                         class="nav-link {{ request()->is('admin/users/create?account_type=delegate') ? 'active' : '' }}">
                                         <i class="fas fa-plus nav-icon"></i>
-                                        <p>@lang('main.add') @lang('main.delegates')</p>
+                                        <p>إضافة شريك</p>
                                     </a>
                                 </li>
                             @endcan
@@ -380,7 +380,7 @@
                         <a href="#" class="nav-link">
                             <i class="nav-icon fas fa-question-circle"></i>
                             <p>
-                                @lang('main.pendingvendors')
+                                طلبات انضمام الشركاء
                                 <i class="fas fa-angle-down left"></i>
                             </p>
                         </a>
@@ -389,7 +389,7 @@
                                 <a href="{{ url('/admin/pending_vendors') }}"
                                     class="nav-link {{request()->is('admin/pending_vendors') ? 'active' : ''}}">
                                     <i class="fas fa-eye nav-icon"></i>
-                                    <p>@lang('main.showAll') @lang('main.pendingvendors')</p>
+                                    <p>عرض طلبات انضمام الشركاء</p>
                                 </a>
                             </li>
 
