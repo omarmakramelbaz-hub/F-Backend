@@ -29,11 +29,22 @@ class UserResource extends JsonResource
         $tax = DB::table('settings')->where('name','tax')->first()->payload;
         $app_banner_background_color = app(GeneralSettings::class)->app_banner_background_color;
         $service_fees =$resturant?->service_fees;
+        $partnerApplication = $this->pending_vendor;
+        $professionLabels = $partnerApplication?->profession_key
+            ? (\App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[$partnerApplication->profession_key] ?? null)
+            : null;
         return [
             'id'                  => $this->id,
             'name'                => $this->name,
             'email'               => $this->email,
             'account_type'        => $this->account_type,
+            'app_scope'           => $this->app_scope,
+            'is_go_partner'       => $this->app_scope === 'go_partner',
+            'partner_profession_key' => $partnerApplication?->profession_key,
+            'partner_profession_name_ar' => $professionLabels['ar'] ?? null,
+            'partner_profession_name_en' => $professionLabels['en'] ?? null,
+            'partner_work_radius_km' => $partnerApplication?->work_radius_km,
+            'partner_application_status' => $partnerApplication?->status,
             'country_code'        => $this->country_code,
             'mobile'              => $this->mobile,
             'fcm_id'                 => $this->fcm_id,
