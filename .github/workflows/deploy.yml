@@ -55,7 +55,7 @@ jobs:
             -o BatchMode=yes \
             -o ConnectTimeout=20 \
             root@187.127.92.124 \
-            'set -e; cd /home/fasakhaninja/public_html && php artisan migrate --force && php artisan optimize:clear'
+            'set -e; cd /home/fasakhaninja/public_html; php artisan migrate --force; php artisan optimize:clear; php artisan tinker --execute="echo \Illuminate\Support\Facades\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27) ? \x27__SOURCE_APP_OK__\x27 : \x27__SOURCE_APP_MISSING__\x27;" | grep __SOURCE_APP_OK__'
 
       - name: Bootstrap GO schema and check professions API
         shell: bash
