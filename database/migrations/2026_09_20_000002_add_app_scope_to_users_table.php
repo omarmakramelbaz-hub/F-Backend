@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class AddAppScopeToUsersTable extends Migration
@@ -10,47 +11,56 @@ class AddAppScopeToUsersTable extends Migration
     {
         if (!Schema::hasColumn('users', 'app_scope')) {
             Schema::table('users', function (Blueprint $table) {
-                $table->string('app_scope', 32)->default('fasakhansta')->after('account_type')->index();
+                $table->string('app_scope', 32)
+                    ->default('fasakhansta')
+                    ->after('account_type')
+                    ->index();
             });
         }
 
-        Schema::table('users', function (Blueprint $table) {
+        // The legacy schema made mobile/email globally unique. GO customer
+        // accounts must be able to use the same credentials independently.
+        foreach (['users_mobile_unique', 'users_email_unique'] as $index) {
             try {
-                $table->dropUnique('users_mobile_unique');
+                DB::statement("ALTER TABLE users DROP INDEX {$index}");
             } catch (\Throwable $e) {
+                // Already removed or installed under a different legacy name.
             }
-            try {
-                $table->dropUnique('users_email_unique');
-            } catch (\Throwable $e) {
-            }
-        });
+        }
 
-        Schema::table('users', function (Blueprint $table) {
-            try {
-                $table->unique(['mobile', 'account_type', 'app_scope'], 'users_mobile_type_scope_unique');
-            } catch (\Throwable $e) {
-            }
-            try {
-                $table->unique(['email', 'account_type', 'app_scope'], 'users_email_type_scope_unique');
-            } catch (\Throwable $e) {
-            }
-        });
+        try {
+            DB::statement(
+                'ALTER TABLE users ADD UNIQUE KEY users_mobile_type_scope_unique (mobile, account_type, app_scope)'
+            );
+        } catch (\Throwable $e) {
+            // Index already exists.
+        }
+
+        try {
+            DB::statement(
+                'ALTER TABLE users ADD UNIQUE KEY users_email_type_scope_unique (email, account_type, app_scope)'
+            );
+        } catch (\Throwable $e) {
+            // Index already exists.
+        }
     }
 
     public function down()
     {
-        Schema::table('users', function (Blueprint $table) {
+        foreach ([
+            'users_mobile_type_scope_unique',
+            'users_email_type_scope_unique',
+        ] as $index) {
             try {
-                $table->dropUnique('users_mobile_type_scope_unique');
+                DB::statement("ALTER TABLE users DROP INDEX {$index}");
             } catch (\Throwable $e) {
             }
-            try {
-                $table->dropUnique('users_email_type_scope_unique');
-            } catch (\Throwable $e) {
-            }
-            if (Schema::hasColumn('users', 'app_scope')) {
+        }
+
+        if (Schema::hasColumn('users', 'app_scope')) {
+            Schema::table('users', function (Blueprint $table) {
                 $table->dropColumn('app_scope');
-            }
-        });
+            });
+        }
     }
 }
