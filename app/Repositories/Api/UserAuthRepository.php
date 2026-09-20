@@ -17,11 +17,16 @@ class UserAuthRepository implements UserAuthRepositoryInterface
 {
     use UploadImageTrait;use UserTrait;
 
+    private function appScope(): string
+    {
+        return request()->header('X-App-Scope') === 'go' ? 'go' : 'fasakhansta';
+    }
+
     public function loginUser(array $userDetails) 
     {
         $register=0;
-        if(!$user = User::where('mobile', $userDetails['mobile'])->where('account_type','user')->first()){
-              $user=User::create(['added_by' => 1,'fcm_id'=>$userDetails['fcm_id'],'mobile'=>$userDetails['mobile'],'mobile_code' => '1234','account_type'=>'user','status'=>'accepted','password'=> $userDetails['password']]);
+        if(!$user = User::where('mobile', $userDetails['mobile'])->where('account_type','user')->where('app_scope', $this->appScope())->first()){
+              $user=User::create(['added_by' => 1,'fcm_id'=>$userDetails['fcm_id'],'mobile'=>$userDetails['mobile'],'mobile_code' => '1234','account_type'=>'user','app_scope'=>$this->appScope(),'status'=>'accepted','password'=> $userDetails['password']]);
               $register= 1;
             }
 
@@ -91,6 +96,7 @@ class UserAuthRepository implements UserAuthRepositoryInterface
     }
     public function createUser(array $userDetails) 
     {
+        $userDetails['app_scope'] = $this->appScope();
         // $userDetails['status'] = 'accepted';
         // $userDetails['mobile_verified_at'] = now();
         // $userDetails['mobile_code'] = mt_rand(1111,9999);
