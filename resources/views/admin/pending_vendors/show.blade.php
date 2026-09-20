@@ -27,7 +27,36 @@
                 <div class="row">
                     <div class="col-lg-12 col-md-12">
                         <div class="card show-data">
+
                             <div class="row card-body">
+                                @if($pending_vendor->application_kind === 'partner')
+                                @php
+                                    $profession = $professions[$pending_vendor->profession_key]['ar'] ?? $pending_vendor->profession_key;
+                                    $partnerPhoto = $pending_vendor->getFirstMediaUrl('partner_photo', 'thumb')
+                                        ?: $pending_vendor->getFirstMediaUrl('partner_photo');
+                                @endphp
+                                <div class="col-12 mb-3">
+                                    <div class="alert alert-primary">
+                                        <strong>بيانات شريك GO</strong>
+                                        <div class="small mt-1">سيتم ربط الحساب تلقائياً بكارت المهنة بعد القبول وتفعيل الحساب من تطبيق الشركاء.</div>
+                                    </div>
+                                </div>
+                                @if($partnerPhoto)
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>الصورة الشخصية</label><br>
+                                        <img src="{{ $partnerPhoto }}" alt="Partner photo" style="width:120px;height:120px;object-fit:cover;border-radius:18px">
+                                    </div>
+                                </div>
+                                @endif
+                                <div class="col-sm-4"><div class="form-group"><label>السن</label><span>{{ $pending_vendor->age }} سنة</span></div></div>
+                                <div class="col-sm-4"><div class="form-group"><label>المهنة</label><span>{{ $profession }}</span></div></div>
+                                <div class="col-sm-4"><div class="form-group"><label>نطاق العمل</label><span>{{ $pending_vendor->work_radius_km }} كم</span></div></div>
+                                <div class="col-sm-4"><div class="form-group"><label>طريقة استلام المستحقات</label><span>{{ $pending_vendor->payment_method === 'instapay' ? 'Instapay' : 'Vodafone Cash' }}</span></div></div>
+                                <div class="col-sm-4"><div class="form-group"><label>بيانات الاستلام</label><span>{{ $pending_vendor->payment_identifier }}</span></div></div>
+                                <div class="col-sm-6"><div class="form-group"><label>الموقع</label><span>{{ $pending_vendor->lat }}, {{ $pending_vendor->lng }}</span></div></div>
+                                <div class="col-sm-6"><div class="form-group"><label>الموافقة على الشروط</label><span>{{ $pending_vendor->terms_accepted_at ? $pending_vendor->terms_accepted_at : '—' }}</span></div></div>
+                                @endif
                                 {{--<div class="col-sm-6">
                                     <div class="form-group">
                                         <label> @lang('main.addedBy')</label>
@@ -288,7 +317,16 @@
                                     <div class="form-group">
                                         <label> @lang('main.approve')</label>
                                         <span>
-                                            @if($pending_vendor->type == 'vendor')
+                                            @if($pending_vendor->application_kind === 'partner')
+                                                @if($pending_vendor->status === 'pending')
+                                                    <form method="POST" action="{{ route('pending_vendors.approvePartner', $pending_vendor) }}" style="display:inline">
+                                                        @csrf
+                                                        <button type="submit" class="btn btn-success">قبول الشريك وتفعيل أهلية إنشاء الحساب</button>
+                                                    </form>
+                                                @elseif($pending_vendor->status === 'accepted')
+                                                    <span class="badge bg-success">تم قبول الشريك — في انتظار تفعيل الحساب من التطبيق إن لم يكن قد فعّله.</span>
+                                                @endif
+                                            @elseif($pending_vendor->type == 'vendor')
                                                 @if($pending_vendor->status != 'accepted')
                                                     <a href="{{route('pending_vendors.addVendor',['pending'=> $pending_vendor->id,'account_type'=>'vendor','pending_vendor' =>$pending_vendor->id])}}" class="btn @if($pending_vendor->status == 'pending') btn-warning @else btn-success @endif">@lang('main.add user account')</a>
                                                 @else
