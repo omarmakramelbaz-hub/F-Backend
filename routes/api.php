@@ -106,7 +106,7 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
        
     });
 
-    Route::group(['middleware' => ['auth:api','custom.jwt']], function () {
+    Route::group(['middleware' => ['auth:api','app.scope','custom.jwt']], function () {
     
 Route::post('/pusher/auth', function (Request $request) {
     if (Auth::check()) {
