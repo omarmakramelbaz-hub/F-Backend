@@ -25,7 +25,7 @@ class PendingVendorController extends Controller
     {
         $request = request();
 
-        $fields = ['full_name'];
+        $fields = ['full_name', 'mobile', 'profession_key'];
         $searchQuery = trim($request->query('search'));
 
         $pending_vendors = PendingVendor::whereIn('type',['vendor','delegate'])->where(function($query) use($searchQuery, $fields) {
