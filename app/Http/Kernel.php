@@ -73,5 +73,6 @@ class Kernel extends HttpKernel
         'IsVendor' => \App\Http\Middleware\IsVendor::class,
         'vendorGuest' => \App\Http\Middleware\GuestVendor::class,
     'custom.jwt' => \App\Http\Middleware\CustomJwtAuth::class,
+        'app.scope' => \App\Http\Middleware\AppScopeGuard::class,
     ];
 }
