@@ -110,6 +110,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('pending_vendors/{pending}/addVendor', [PendingVendorController::class,'addVendor'])->name('pending_vendors.addVendor');
 
         Route::post('pending_vendors/transferVendor', [PendingVendorController::class,'transferVendor'])->name('pending_vendors.transferVendor');
+        Route::post('pending_vendors/{pending_vendor}/approve-partner', [PendingVendorController::class,'approvePartner'])->name('pending_vendors.approvePartner');
         Route::post('sending-decline-mail/{pending_vendor}', [PendingVendorController::class,'sendingDeclineMail'])->name('sendingDeclineMail');
 
         Route::resource('/advertisings', AdvertisingController::class);
