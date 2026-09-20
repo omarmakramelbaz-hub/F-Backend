@@ -36,6 +36,11 @@ class UserController extends Controller {
     {      
         $this->userRepository = $userRepository;
     }
+
+    private function appScope(): string
+    {
+        return request()->header('X-App-Scope') === 'go' ? 'go' : 'fasakhansta';
+    }
     
      public function updateUserLocation(Request $request, User $user) {
         $up_Resturant = UserAddress::create([
@@ -69,7 +74,7 @@ public function resend_code(Request $request){
         $user_code=$request['mobile_code'];
         $user_country_code=$request['country_code'];
         $user_mobile=$request['mobile'];
-        $user=User::where('country_code',$user_country_code)->where('mobile_code', $user_code)->where('status','pending')->where('account_type','user')->where('mobile', $user_mobile)->first();
+        $user=User::where('country_code',$user_country_code)->where('mobile_code', $user_code)->where('status','pending')->where('account_type','user')->where('app_scope', $this->appScope())->where('mobile', $user_mobile)->first();
         if($user){
             $user->update([
                 'mobile_verified_at' => now(),
@@ -172,7 +177,7 @@ public function resend_code(Request $request){
         $user_country_code=$request['country_code'];
         $user_mobile=$request['mobile'];
         $code= random_int(1000, 9999);
-        $user=User::where('country_code',$user_country_code)->where('mobile', $user_mobile)->first();
+        $user=User::where('country_code',$user_country_code)->where('account_type','user')->where('app_scope', $this->appScope())->where('mobile', $user_mobile)->first();
         if($user)
         {
             // $user->update([
@@ -205,7 +210,7 @@ public function resend_code(Request $request){
         $user_country_code=$request['country_code'];
         $user_email=$request['email'];
         $user_mobile=$request['mobile'];
-        $user=User::where('mobile',$user_mobile)->where('email', $user_email)->first();
+        $user=User::where('mobile',$user_mobile)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
         if($user)
         {
             $code= random_int(1000, 9999);
@@ -250,7 +255,7 @@ public function resend_code(Request $request){
     public function check_mobile_has_account(Request $request){
         $user_country_code=$request->country_code;
         $mobile=$request->mobile;
-        $user=User::where('country_code',$user_country_code)->where('mobile', $mobile)->first();
+        $user=User::where('country_code',$user_country_code)->where('mobile', $mobile)->where('account_type','user')->where('app_scope', $this->appScope())->first();
         if($user){
             if($user->email){    
              return $this->successResponse($user->email,trans('api.done'));
@@ -264,7 +269,7 @@ public function resend_code(Request $request){
         $user_code=$request['code'];
         $user_country_code=$request['country_code'];
         $user_email=$request['email'];
-        $user=User::where('email_code', $user_code)->where('email', $user_email)->first();
+        $user=User::where('email_code', $user_code)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
         if($user){
             $user->update([
                 'forget_password' => 1,
