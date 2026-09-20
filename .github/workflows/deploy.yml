@@ -45,6 +45,18 @@ jobs:
             -o ConnectTimeout=20 \
             root@187.127.92.124
 
+      - name: Run Laravel migrations and clear caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            root@187.127.92.124 \
+            'set -e; cd /home/fasakhaninja/public_html && php artisan migrate --force && php artisan optimize:clear'
+
       - name: Bootstrap GO schema and check professions API
         shell: bash
         run: |
