@@ -65,6 +65,8 @@ class PartnerApplicationController extends Controller
             'payment_identifier' => 'required|string|min:5|max:120',
             'work_radius_km' => 'required|integer|in:5,10,15,20',
             'terms_accepted' => 'accepted',
+            'source_app' => 'nullable|in:go,fasakhansta',
+            'partner_type' => 'nullable|in:profession,delegate,vendor',
         ]);
 
         if ($validator->fails()) {
@@ -104,7 +106,9 @@ class PartnerApplicationController extends Controller
             'payment_identifier' => $request->payment_identifier,
             'work_radius_km' => (int) $request->work_radius_km,
             'application_kind' => 'partner',
-            'type' => 'delegate',
+            'source_app' => $request->input('source_app', 'go'),
+            'partner_type' => $request->input('partner_type', 'profession'),
+            'type' => $request->input('partner_type') === 'vendor' ? 'vendor' : 'delegate',
             'status' => 'pending',
             'terms_accepted_at' => now(),
         ]);
@@ -153,6 +157,13 @@ class PartnerApplicationController extends Controller
             'profession_key' => $application->profession_key,
             'profession' => self::professions()[$application->profession_key] ?? null,
             'work_radius_km' => $application->work_radius_km,
+            'source_app' => $application->source_app ?: 'fasakhansta',
+            'can_create_account' => $application->status === 'accepted',
+            'message' => $application->status === 'accepted'
+                ? 'تمت الموافقة على طلب انضمامك. يمكنك الآن إنشاء حساب الشريك.'
+                : ($application->status === 'declined'
+                    ? ($application->decline_reason ?: 'لم تتم الموافقة على طلب الانضمام حالياً. يمكنك تقديم طلب جديد.')
+                    : 'طلب الانضمام قيد المراجعة.'),
         ], 'Partner application status');
     }
 
