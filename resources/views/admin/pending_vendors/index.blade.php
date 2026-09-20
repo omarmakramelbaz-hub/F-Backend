@@ -57,6 +57,8 @@
                                         <th>#</th>
                                         <th>@lang('main.full_name')</th>
                                         <th>@lang('main.type')</th>
+                                        <th>المهنة</th>
+                                        <th>نطاق العمل</th>
                                         <th>@lang('main.status')</th>
                                         <th>@lang('main.created_at')</th>
                                         <th>@lang('main.actions')</th>
@@ -72,7 +74,28 @@
                                                     {{$pending_vendor->full_name}}
                                                 </td>
                                                 <td>
-                                                    {{__('main.'.$pending_vendor->type)}}
+                                                    @if($pending_vendor->application_kind === 'partner')
+                                                        <span class="badge bg-primary">GO شريك</span>
+                                                    @else
+                                                        {{__('main.'.$pending_vendor->type)}}
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    @if($pending_vendor->application_kind === 'partner' && $pending_vendor->profession_key)
+                                                        @php
+                                                            $profession = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[$pending_vendor->profession_key] ?? null;
+                                                        @endphp
+                                                        {{ $profession['ar'] ?? $pending_vendor->profession_key }}
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    @if($pending_vendor->application_kind === 'partner' && $pending_vendor->work_radius_km)
+                                                        {{ $pending_vendor->work_radius_km }} كم
+                                                    @else
+                                                        —
+                                                    @endif
                                                 </td>
                                                 <td style="@if($pending_vendor->status == 'accepted') background:#14ff00; @elseif($pending_vendor->status == 'pending') background:#e8e520;  @else background:#ff0030; @endif">
                                                     {{__('main.Vendor'.$pending_vendor->status)}}
@@ -105,7 +128,7 @@
                                                 </td>
                                             </tr>
                                         @empty
-                                            <td class="text-center text-muted" style="font-size: 25px" colspan="7">
+                                            <td class="text-center text-muted" style="font-size: 25px" colspan="9">
                                                 {{ trans('main.Nopending_vendors') }}
                                             </td>
                                         @endforelse
