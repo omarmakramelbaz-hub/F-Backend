@@ -71,11 +71,7 @@ class PartnerApplicationController extends Controller
             return $this->errorResponse($validator->errors()->first(), 422);
         }
 
-        $mobile = preg_replace('/\D+/', '', (string) $request->mobile);
-        if (substr($mobile, 0, 2) === '20' && strlen($mobile) > 10) {
-            $mobile = substr($mobile, 2);
-        }
-        $mobile = ltrim($mobile, '0');
+        $mobile = $this->normalizeMobile($request->mobile);
 
         $existing = PendingVendor::where('application_kind', 'partner')
             ->where('mobile', $mobile)
@@ -160,6 +156,83 @@ class PartnerApplicationController extends Controller
         ], 'Partner application status');
     }
 
+
+    public function activate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'mobile' => 'required|string|min:10|max:20',
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first(), 422);
+        }
+
+        $mobile = $this->normalizeMobile($request->mobile);
+        $application = PendingVendor::where('application_kind', 'partner')
+            ->where('mobile', $mobile)
+            ->latest('id')
+            ->first();
+
+        if (!$application) {
+            return $this->errorResponse('لا يوجد طلب انضمام بهذا الرقم.', 404);
+        }
+
+        if ($application->status === 'pending') {
+            return $this->errorResponse('طلبك ما زال قيد المراجعة.', 422);
+        }
+
+        if ($application->status === 'declined') {
+            return $this->errorResponse(
+                $application->decline_reason ?: 'تم رفض طلب الانضمام. يمكنك تقديم طلب جديد بعد تحديث بياناتك.',
+                422
+            );
+        }
+
+        $user = User::where('account_type', 'delegate')
+            ->where('app_scope', 'go_partner')
+            ->where(function ($query) use ($application, $mobile) {
+                $query->where('pending_vendor_id', $application->id)
+                    ->orWhere('mobile', $mobile);
+            })
+            ->first();
+
+        if (!$user) {
+            $user = User::create([
+                'added_by' => 1,
+                'name' => $application->full_name,
+                'mobile' => $mobile,
+                'password' => $request->password,
+                'account_type' => 'delegate',
+                'app_scope' => 'go_partner',
+                'status' => 'accepted',
+                'pending_vendor_id' => $application->id,
+            ]);
+        } else {
+            $user->name = $application->full_name ?: $user->name;
+            $user->mobile = $mobile;
+            $user->password = $request->password;
+            $user->status = 'accepted';
+            $user->pending_vendor_id = $application->id;
+            $user->app_scope = 'go_partner';
+            $user->save();
+        }
+
+        try {
+            if (!$user->hasRole(13)) {
+                $user->assignRole(13);
+            }
+        } catch (\Throwable $e) {
+            // Role assignment should not block account activation.
+        }
+
+        return $this->successResponse([
+            'status' => 'active',
+            'profession_key' => $application->profession_key,
+            'partner_id' => $user->id,
+        ], 'تم تفعيل حساب الشريك. يمكنك تسجيل الدخول الآن.');
+    }
+
     public function partners(Request $request, string $professionKey)
     {
         if (!array_key_exists($professionKey, self::professions())) {
@@ -217,6 +290,16 @@ class PartnerApplicationController extends Controller
         })->filter()->sortBy('distance_km')->values();
 
         return $this->successResponse($data, 'Available GO partners');
+    }
+
+
+    private function normalizeMobile($value): string
+    {
+        $mobile = preg_replace('/\D+/', '', (string) $value);
+        if (substr($mobile, 0, 2) === '20' && strlen($mobile) > 10) {
+            $mobile = substr($mobile, 2);
+        }
+        return ltrim($mobile, '0');
     }
 
     private function distanceKm(float $lat1, float $lng1, float $lat2, float $lng2): float
