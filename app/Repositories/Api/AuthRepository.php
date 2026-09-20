@@ -32,8 +32,31 @@ class AuthRepository implements AuthRepositoryInterface
     ->where('account_type', $Details['account_type'])
     ->first();
         if(!$user){
-              return 1;
+            if (($Details['account_type'] ?? null) === 'delegate') {
+                $applicationMobile = preg_replace('/\\D+/', '', (string) $Details['mobile']);
+                if (substr($applicationMobile, 0, 2) === '20' && strlen($applicationMobile) > 10) {
+                    $applicationMobile = substr($applicationMobile, 2);
+                }
+                $applicationMobile = ltrim($applicationMobile, '0');
+
+                $application = PendingVendor::where('application_kind', 'partner')
+                    ->where('mobile', $applicationMobile)
+                    ->latest('id')
+                    ->first();
+
+                if ($application) {
+                    if ($application->status === 'declined') {
+                        return 4;
+                    }
+
+                    // Pending, or accepted but the admin has not created the
+                    // partner login yet: account creation remains admin-only.
+                    return 3;
+                }
             }
+
+            return 1;
+        }
          if (!Hash::check($Details['password'], $user->password)) {
           return 2;
         }
