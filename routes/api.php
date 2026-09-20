@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\User\CartController;
 use App\Http\Controllers\Api\V1\User\WalletController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\V1\ShippingController;
+use App\Http\Controllers\Api\V1\PartnerApplicationController;
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
 
@@ -58,6 +59,12 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/advertising', [MainController::class, 'advertising']);
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
+
+    // GO Partners public onboarding and discovery
+    Route::get('/professions', [PartnerApplicationController::class, 'indexProfessions']);
+    Route::post('/partner-applications', [PartnerApplicationController::class, 'store']);
+    Route::post('/partner-applications/status', [PartnerApplicationController::class, 'status']);
+    Route::get('/professions/{professionKey}/partners', [PartnerApplicationController::class, 'partners']);
 
     Route::get('/categorys', [CategoryController::class,'getCategorys']);    
     Route::get('/products', [CategoryController::class,'getProducts']);    
