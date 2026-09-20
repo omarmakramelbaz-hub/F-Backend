@@ -28,7 +28,7 @@ class PendingVendorController extends Controller
         $fields = ['full_name', 'mobile', 'profession_key'];
         $searchQuery = trim($request->query('search'));
 
-        $pending_vendors = PendingVendor::whereIn('type',['vendor','delegate'])->where(function($query) use($searchQuery, $fields) {
+        $pending_vendors = PendingVendor::whereIn('type',['vendor','delegate'])->where('status', 'pending')->where(function($query) use($searchQuery, $fields) {
             foreach ($fields as $field)
                 $query->orWhere($field, 'like',  '%' . $searchQuery .'%');
             })->when($request->query('type'), function($query, $type) {
@@ -158,7 +158,7 @@ class PendingVendorController extends Controller
                 });
             }
 
-        $pending_vendor->update(['status' => 'declined', 'decline_reason' => $request->decline_reason]);
+        $pending_vendor->update(['status' => 'declined', 'decline_reason' => $request->decline_reason, 'reviewed_at' => now()]);
         return redirect()->back()->with('success',trans('messages.EmailSentSuccessfully'));
     }
     
@@ -213,6 +213,7 @@ class PendingVendorController extends Controller
         $pending_vendor->update([
             'status' => 'accepted',
             'decline_reason' => null,
+            'reviewed_at' => now(),
         ]);
 
         return redirect()->back()->with(
