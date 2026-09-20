@@ -45,6 +45,19 @@ jobs:
             -o ConnectTimeout=20 \
             root@187.127.92.124
 
+      - name: Bootstrap GO schema and check professions API
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== GO schema bootstrap / professions ==="
+          curl --fail-with-body -sS \
+            --connect-timeout 8 --max-time 45 \
+            -H 'Accept: application/json' \
+            -H 'Lang: ar' \
+            -H 'X-App-Scope: go' \
+            https://fasakhaninja.com/api/professions
+          echo
+
       - name: Check delegate API reachability
         shell: bash
         run: |
