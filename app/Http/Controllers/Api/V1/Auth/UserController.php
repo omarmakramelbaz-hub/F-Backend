@@ -295,7 +295,7 @@ public function resend_code(Request $request){
             $user_mobile=$request['mobile'];
         $user_country_code=$request['country_code'];
         $user_email=$request['email'];
-        $user=User::where('forget_password',1)->where('mobile', $user_mobile)->where('email', $user_email)->first();
+        $user=User::where('forget_password',1)->where('mobile', $user_mobile)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
         if($user)
         {
             $user->update(['password' => $request->get('new_password'),
