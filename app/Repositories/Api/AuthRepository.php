@@ -51,7 +51,8 @@ class AuthRepository implements AuthRepositoryInterface
             $user = $baseQuery('fasakhansta')->first();
         }
         if(!$user){
-            if (($Details['account_type'] ?? null) === 'delegate') {
+            if (($Details['account_type'] ?? null) === 'delegate'
+                && Schema::hasColumn('pending_vendors', 'application_kind')) {
                 $applicationMobile = preg_replace('/\\D+/', '', (string) $Details['mobile']);
                 if (substr($applicationMobile, 0, 2) === '20' && strlen($applicationMobile) > 10) {
                     $applicationMobile = substr($applicationMobile, 2);
