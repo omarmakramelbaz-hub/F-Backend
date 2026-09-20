@@ -8,6 +8,7 @@ use App\Models\PendingVendor;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 
 class PartnerApplicationController extends Controller
 {
@@ -90,7 +91,9 @@ class PartnerApplicationController extends Controller
             );
         }
 
-        $application = PendingVendor::create([
+        // Production-safe payload: older databases may not yet have the new
+        // partner metadata columns. Store them only when the columns exist.
+        $payload = [
             'added_by' => 1,
             'full_name' => trim($request->full_name),
             'age' => (int) $request->age,
@@ -106,12 +109,19 @@ class PartnerApplicationController extends Controller
             'payment_identifier' => $request->payment_identifier,
             'work_radius_km' => (int) $request->work_radius_km,
             'application_kind' => 'partner',
-            'source_app' => $request->input('source_app', 'go'),
-            'partner_type' => $request->input('partner_type', 'profession'),
             'type' => $request->input('partner_type') === 'vendor' ? 'vendor' : 'delegate',
             'status' => 'pending',
             'terms_accepted_at' => now(),
-        ]);
+        ];
+
+        if (Schema::hasColumn('pending_vendors', 'source_app')) {
+            $payload['source_app'] = $request->input('source_app', 'go');
+        }
+        if (Schema::hasColumn('pending_vendors', 'partner_type')) {
+            $payload['partner_type'] = $request->input('partner_type', 'profession');
+        }
+
+        $application = PendingVendor::create($payload);
 
         if ($request->hasFile('photo') && $request->file('photo')->isValid()) {
             $application->addMediaFromRequest('photo')
@@ -157,7 +167,9 @@ class PartnerApplicationController extends Controller
             'profession_key' => $application->profession_key,
             'profession' => self::professions()[$application->profession_key] ?? null,
             'work_radius_km' => $application->work_radius_km,
-            'source_app' => $application->source_app ?: 'fasakhansta',
+            'source_app' => Schema::hasColumn('pending_vendors', 'source_app')
+                ? ($application->source_app ?: 'fasakhansta')
+                : 'go',
             'can_create_account' => $application->status === 'accepted',
             'message' => $application->status === 'accepted'
                 ? 'تمت الموافقة على طلب انضمامك. يمكنك الآن إنشاء حساب الشريك.'
