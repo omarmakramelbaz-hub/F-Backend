@@ -77,6 +77,24 @@ jobs:
             root@187.127.92.124 \
             'set -e; cd /home/fasakhaninja/public_html; php artisan tinker --execute="if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->string(\x27source_app\x27, 32)->default(\x27fasakhansta\x27); }); } if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27partner_type\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->string(\x27partner_type\x27, 50)->nullable(); }); } if (!\\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27reviewed_at\x27)) { \\Illuminate\\Support\\Facades\\Schema::table(\x27pending_vendors\x27, function (\\Illuminate\\Database\\Schema\\Blueprint \\$table) { \\$table->timestamp(\x27reviewed_at\x27)->nullable(); }); } echo \\Illuminate\\Support\\Facades\\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27) ? \x27__PARTNER_SCHEMA_OK__\x27 : \x27__PARTNER_SCHEMA_MISSING__\x27;" | grep __PARTNER_SCHEMA_OK__; php artisan optimize:clear'
 
+      - name: Verify partner endpoint on the public API
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/partner-check.out -w '%{http_code}' \
+            --connect-timeout 8 --max-time 30 \
+            -X POST \
+            -H 'Accept: application/json' \
+            -H 'X-App-Scope: go' \
+            https://fasakhaninja.com/api/partner-applications)
+          echo "Partner endpoint HTTP $code"
+          head -c 1000 /tmp/partner-check.out
+          echo
+          if grep -q "Unknown column.*source_app" /tmp/partner-check.out; then
+            echo "Public API is using a database/schema without source_app"
+            exit 1
+          fi
+
       - name: Bootstrap GO schema and check professions API
         shell: bash
         run: |
