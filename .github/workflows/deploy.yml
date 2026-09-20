@@ -31,7 +31,9 @@ jobs:
           printf '%s' "$SSH_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
-          ssh-keyscan -H 187.127.92.124 >> ~/.ssh/known_hosts
+          # GitHub-hosted runners can occasionally time out on ssh-keyscan.
+          # Host-key verification is handled explicitly by the SSH commands below.
+          touch ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy production backend
@@ -42,6 +44,8 @@ jobs:
             -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
             root@187.127.92.124
 
@@ -53,6 +57,8 @@ jobs:
             -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
             root@187.127.92.124 \
             'set -e; cd /home/fasakhaninja/public_html; php artisan migrate --force; php artisan optimize:clear; php artisan tinker --execute="echo \Illuminate\Support\Facades\Schema::hasColumn(\x27pending_vendors\x27, \x27source_app\x27) ? \x27__SOURCE_APP_OK__\x27 : \x27__SOURCE_APP_MISSING__\x27;" | grep __SOURCE_APP_OK__'
@@ -141,6 +147,8 @@ jobs:
             -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
             root@187.127.92.124 \
             'echo __REMOTE_COMMAND_OK__; whoami; command -v certbot || true; command -v whmapi1 || true; command -v /usr/local/cpanel/bin/autossl_check || true' || true
