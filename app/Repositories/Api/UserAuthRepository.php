@@ -12,6 +12,7 @@ use Arr;
 use Notification;
 use Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Schema;
 
 class UserAuthRepository implements UserAuthRepositoryInterface 
 {
@@ -25,8 +26,10 @@ class UserAuthRepository implements UserAuthRepositoryInterface
     public function loginUser(array $userDetails) 
     {
         $register=0;
-        if(!$user = User::where('mobile', $userDetails['mobile'])->where('account_type','user')->where('app_scope', $this->appScope())->first()){
-              $user=User::create(['added_by' => 1,'fcm_id'=>$userDetails['fcm_id'],'mobile'=>$userDetails['mobile'],'mobile_code' => '1234','account_type'=>'user','app_scope'=>$this->appScope(),'status'=>'accepted','password'=> $userDetails['password']]);
+        if(!$user = User::where('mobile', $userDetails['mobile'])->where('account_type','user')->when(Schema::hasColumn('users', 'app_scope'), function ($query) { $query->where('app_scope', $this->appScope()); })->first()){
+              $createDetails = ['added_by' => 1,'fcm_id'=>$userDetails['fcm_id'],'mobile'=>$userDetails['mobile'],'mobile_code' => '1234','account_type'=>'user','status'=>'accepted','password'=> $userDetails['password']];
+              if (Schema::hasColumn('users', 'app_scope')) { $createDetails['app_scope'] = $this->appScope(); }
+              $user=User::create($createDetails);
               $register= 1;
             }
 
@@ -96,7 +99,9 @@ class UserAuthRepository implements UserAuthRepositoryInterface
     }
     public function createUser(array $userDetails) 
     {
-        $userDetails['app_scope'] = $this->appScope();
+        if (Schema::hasColumn('users', 'app_scope')) {
+            $userDetails['app_scope'] = $this->appScope();
+        }
         // $userDetails['status'] = 'accepted';
         // $userDetails['mobile_verified_at'] = now();
         // $userDetails['mobile_code'] = mt_rand(1111,9999);
