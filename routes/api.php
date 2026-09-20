@@ -64,6 +64,7 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/professions', [PartnerApplicationController::class, 'indexProfessions']);
     Route::post('/partner-applications', [PartnerApplicationController::class, 'store']);
     Route::post('/partner-applications/status', [PartnerApplicationController::class, 'status']);
+    Route::post('/partner-applications/activate', [PartnerApplicationController::class, 'activate']);
     Route::get('/professions/{professionKey}/partners', [PartnerApplicationController::class, 'partners']);
 
     Route::get('/categorys', [CategoryController::class,'getCategorys']);    
