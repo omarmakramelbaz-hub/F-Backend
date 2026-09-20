@@ -10,10 +10,10 @@
             <div class="row mb-2 align-items-center">
                 <div class="col-sm-8">
                     <h1 class="m-0 text-dark">
-                        طلبات الانضمام والشركاء
+                        طلبات انضمام الشركاء
                         <small class="countModule">( {{ $pending_vendors->total() }} )</small>
                     </h1>
-                    <p class="text-muted mb-0 mt-1">طلبات شركاء GO تظهر هنا بجانب طلبات التجار والمناديب القديمة.</p>
+                    <p class="text-muted mb-0 mt-1">كل طلبات الانضمام من FASAKHANSTA و GO في مكان واحد. بعد الموافقة أو الرفض يختفي الطلب من هذه القائمة.</p>
                 </div>
             </div>
         </div>
@@ -43,6 +43,7 @@
                                 <tr>
                                     <th width="50"><input type="checkbox" id="master"></th>
                                     <th>#</th>
+                                    <th>التطبيق</th>
                                     <th>الاسم</th>
                                     <th>نوع الطلب</th>
                                     <th>المهنة</th>
@@ -64,6 +65,10 @@
                                     <td><input type="checkbox" class="sub_chk" data-id="{{ $pending_vendor->id }}"></td>
                                     <td>{{ $pending_vendor->id }}</td>
                                     <td>
+                                        @php $sourceApp = strtoupper($pending_vendor->source_app ?: 'fasakhansta'); @endphp
+                                        <span class="badge {{ $sourceApp === 'GO' ? 'bg-dark' : 'bg-warning text-dark' }}">{{ $sourceApp }}</span>
+                                    </td>
+                                    <td>
                                         <strong>{{ $pending_vendor->full_name }}</strong>
                                         @if($isPartner)
                                             <div class="text-muted small">{{ $pending_vendor->mobile }}</div>
@@ -71,7 +76,7 @@
                                     </td>
                                     <td>
                                         @if($isPartner)
-                                            <span class="badge bg-primary">شريك GO</span>
+                                            <span class="badge bg-primary">{{ $pending_vendor->partner_type === 'vendor' ? 'صاحب مطعم / تاجر' : ($pending_vendor->partner_type === 'delegate' ? 'مندوب' : 'صاحب مهنة') }}</span>
                                         @else
                                             {{ __('main.'.$pending_vendor->type) }}
                                         @endif
@@ -125,7 +130,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td class="text-center text-muted" style="font-size:20px" colspan="9">
+                                    <td class="text-center text-muted" style="font-size:20px" colspan="10">
                                         لا توجد طلبات حالياً
                                     </td>
                                 </tr>
