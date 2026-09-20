@@ -2,144 +2,142 @@
 @push('custom-css')
     <meta name="csrf-token" content="{{ csrf_token() }}">
 @endpush
+
 @section('content')
-    <!-- Content Wrapper. Contains page content -->
-    <div class="content-wrapper">
-        <!-- Content Header (Page header) -->
-        <div class="content-header">
-            <div class="container-fluid">
-                <div class="row mb-2">
-                    <div class="col-sm-6">
-                        <h1 class="m-0 text-dark">@lang('main.showAll') @lang('main.pendingvendors')
-           
-            <small class="countModule">( {{$pending_vendors->total()}} ) </small>
-                        </h1>
-                    </div><!-- /.col -->
-                    <div class="col-sm-6">
-                        <ol class="breadcrumb float-sm-left">
-         
-                        </ol>
-                    </div><!-- /.col -->
-                </div><!-- /.row -->
-            </div><!-- /.container-fluid -->
+<div class="content-wrapper">
+    <div class="content-header">
+        <div class="container-fluid">
+            <div class="row mb-2 align-items-center">
+                <div class="col-sm-8">
+                    <h1 class="m-0 text-dark">
+                        طلبات الانضمام والشركاء
+                        <small class="countModule">( {{ $pending_vendors->total() }} )</small>
+                    </h1>
+                    <p class="text-muted mb-0 mt-1">طلبات شركاء GO تظهر هنا بجانب طلبات التجار والمناديب القديمة.</p>
+                </div>
+            </div>
         </div>
-        <!-- /.content-header -->
+    </div>
 
-        <!-- Main content -->
-        <section class="content">
-            <div class="container-fluid">
-                <div class="">
-                    <div class="card">
-                        @push('card_title')
-                            @lang('main.pendingvendors')  <small class="countModule">( {{$pending_vendors->count()}} ) </small>
-                        @endpush
-                        @include('admin.partials.card_header_in_index')
+    <section class="content">
+        <div class="container-fluid">
+            <div class="card">
+                <div class="card-body">
+                    @can('pending_vendor-delete')
+                    <div class="btn-group flex-wrap float-left mb-4">
+                        @include('admin.partials.button_group', [
+                            'url' => url('admin/pending_vendorsDeleteAll'),
+                        ])
+                    </div>
+                    @endcan
 
-                        <div class="card-body">
-                            {{-- Buttons part --}}
-                            @can('pending_vendor-delete')
-                            <div class="btn-group flex-wrap float-left mb-4">
-                                @include('admin.partials.button_group', [
-                                    'url' => url('admin/pending_vendorsDeleteAll'),
-                                ])
-                            </div>
-                            @endcan
-                            {{-- search part --}}
-                            <div class="float-right mb-4">
-                                @include('admin.partials.search_part', [
-                                    'route' => route('pending_vendors.index'),
-                                ])
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-bordered table-hover">
-                                    <thead>
-                                        <th width="50px"><input type="checkbox" id="master"></th>
-                                        <th>#</th>
-                                        <th>@lang('main.full_name')</th>
-                                        <th>@lang('main.type')</th>
-                                        <th>المهنة</th>
-                                        <th>نطاق العمل</th>
-                                        <th>@lang('main.status')</th>
-                                        <th>@lang('main.created_at')</th>
-                                        <th>@lang('main.actions')</th>
-    
-                                    </thead>
-                                    <tbody>
-                                        @forelse ($pending_vendors as $pending_vendor)
-                                            <tr>
-                                                <td><input type="checkbox" class="sub_chk" data-id="{{ $pending_vendor->id }}">
-                                                </td>
-                                                <td>{{ $loop->iteration }}</td>
-                                                <td>
-                                                    {{$pending_vendor->full_name}}
-                                                </td>
-                                                <td>
-                                                    @if($pending_vendor->application_kind === 'partner')
-                                                        <span class="badge bg-primary">GO شريك</span>
-                                                    @else
-                                                        {{__('main.'.$pending_vendor->type)}}
-                                                    @endif
-                                                </td>
-                                                <td>
-                                                    @if($pending_vendor->application_kind === 'partner' && $pending_vendor->profession_key)
-                                                        @php
-                                                            $profession = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[$pending_vendor->profession_key] ?? null;
-                                                        @endphp
-                                                        {{ $profession['ar'] ?? $pending_vendor->profession_key }}
-                                                    @else
-                                                        —
-                                                    @endif
-                                                </td>
-                                                <td>
-                                                    @if($pending_vendor->application_kind === 'partner' && $pending_vendor->work_radius_km)
-                                                        {{ $pending_vendor->work_radius_km }} كم
-                                                    @else
-                                                        —
-                                                    @endif
-                                                </td>
-                                                <td style="@if($pending_vendor->status == 'accepted') background:#14ff00; @elseif($pending_vendor->status == 'pending') background:#e8e520;  @else background:#ff0030; @endif">
-                                                    {{__('main.Vendor'.$pending_vendor->status)}}
-                                                </td>
-                                                <td>
-                                                    {{$pending_vendor->created_at->diffForHumans()}}
-                                                </td>
-                                                <td width="250px">
-                                                    @can('pending_vendor-list')
-                                                        <a class="btn btn-info"
-                                                            href="{{ route('pending_vendors.show',[$pending_vendor->id]) }}">@lang('main.show')</a>
-                                                    @endcan
-                                                    @can('pending_vendor-edit')
-                                                       @if($pending_vendor->status=='accepted')
-                                                           <a class="btn btn-warning"
-                                                            href="{{ route('pending_vendors.edit',[$pending_vendor->id]) }}">@lang('main.edit')</a>
-                                                       
-                                                       @endif
-                                                    @endcan
-                                                    @can('pending_vendor-delete')
-                                                        {!! Form::open([
-                                                            'method' => 'DELETE',
-                                                            'route' => ['pending_vendors.destroy', $pending_vendor->id],
-                                                            'style' => 'display:inline',
-                                                        ]) !!}
-                                                        <button type="submit"
-                                                            class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
-                                                    @endcan
-                                                </td>
-                                            </tr>
-                                        @empty
-                                            <td class="text-center text-muted" style="font-size: 25px" colspan="9">
-                                                {{ trans('main.Nopending_vendors') }}
-                                            </td>
-                                        @endforelse
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                    <div class="float-right mb-4">
+                        @include('admin.partials.search_part', [
+                            'route' => route('pending_vendors.index'),
+                        ])
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th width="50"><input type="checkbox" id="master"></th>
+                                    <th>#</th>
+                                    <th>الاسم</th>
+                                    <th>نوع الطلب</th>
+                                    <th>المهنة</th>
+                                    <th>نطاق العمل</th>
+                                    <th>الحالة</th>
+                                    <th>تاريخ الطلب</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @forelse ($pending_vendors as $pending_vendor)
+                                @php
+                                    $isPartner = $pending_vendor->application_kind === 'partner';
+                                    $profession = $isPartner
+                                        ? ($professions[$pending_vendor->profession_key]['ar'] ?? $pending_vendor->profession_key)
+                                        : null;
+                                @endphp
+                                <tr>
+                                    <td><input type="checkbox" class="sub_chk" data-id="{{ $pending_vendor->id }}"></td>
+                                    <td>{{ $pending_vendor->id }}</td>
+                                    <td>
+                                        <strong>{{ $pending_vendor->full_name }}</strong>
+                                        @if($isPartner)
+                                            <div class="text-muted small">{{ $pending_vendor->mobile }}</div>
+                                        @endif
+                                    </td>
+                                    <td>
+                                        @if($isPartner)
+                                            <span class="badge bg-primary">شريك GO</span>
+                                        @else
+                                            {{ __('main.'.$pending_vendor->type) }}
+                                        @endif
+                                    </td>
+                                    <td>{{ $profession ?: '—' }}</td>
+                                    <td>
+                                        @if($isPartner && $pending_vendor->work_radius_km)
+                                            {{ $pending_vendor->work_radius_km }} كم
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td>
+                                        @if($pending_vendor->status === 'accepted')
+                                            <span class="badge bg-success">مقبول</span>
+                                        @elseif($pending_vendor->status === 'declined')
+                                            <span class="badge bg-danger">مرفوض</span>
+                                        @else
+                                            <span class="badge bg-warning text-dark">قيد المراجعة</span>
+                                        @endif
+                                    </td>
+                                    <td>{{ $pending_vendor->created_at->diffForHumans() }}</td>
+                                    <td style="min-width:260px">
+                                        @can('pending_vendor-list')
+                                            <a class="btn btn-info btn-sm" href="{{ route('pending_vendors.show',[$pending_vendor->id]) }}">
+                                                عرض
+                                            </a>
+                                        @endcan
+
+                                        @if($isPartner && $pending_vendor->status === 'pending')
+                                            <form method="POST"
+                                                  action="{{ route('pending_vendors.approvePartner', $pending_vendor) }}"
+                                                  style="display:inline">
+                                                @csrf
+                                                <button type="submit" class="btn btn-success btn-sm">
+                                                    قبول الشريك
+                                                </button>
+                                            </form>
+                                        @endif
+
+                                        @can('pending_vendor-delete')
+                                            {!! Form::open([
+                                                'method' => 'DELETE',
+                                                'route' => ['pending_vendors.destroy', $pending_vendor->id],
+                                                'style' => 'display:inline',
+                                            ]) !!}
+                                            <button type="submit" class="btn btn-danger btn-sm show_confirm">حذف</button>
+                                            {!! Form::close() !!}
+                                        @endcan
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td class="text-center text-muted" style="font-size:20px" colspan="9">
+                                        لا توجد طلبات حالياً
+                                    </td>
+                                </tr>
+                            @endforelse
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                {{ $pending_vendors->withQueryString()->links() }}
             </div>
-        </section>
-    </div>
+
+            {{ $pending_vendors->withQueryString()->links() }}
+        </div>
+    </section>
+</div>
 @endsection
