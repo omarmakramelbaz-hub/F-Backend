@@ -291,6 +291,7 @@ class SocialAuthController extends Controller
         ?string $countryCode = null,
         ?string $fcmId = null
     ) {
+        $scope = request()->header('X-App-Scope') === 'go' ? 'go' : 'fasakhansta';
         $providerId = trim((string) $this->providerValue($providerUser, 'id'));
         $email = $this->providerValue($providerUser, 'email');
         $email = is_string($email) ? trim($email) : null;
@@ -301,6 +302,10 @@ class SocialAuthController extends Controller
 
         $socialAccount = SocialAccount::where('provider', $provider)
             ->where('provider_user_id', $providerId)
+            ->whereHas('user', function ($query) use ($scope) {
+                $query->where('account_type', 'user')
+                    ->where('app_scope', $scope);
+            })
             ->first();
 
         $user = $socialAccount?->user;
@@ -309,6 +314,7 @@ class SocialAuthController extends Controller
         if (!$user && !empty($email)) {
             $user = User::where('email', $email)
                 ->where('account_type', 'user')
+                ->where('app_scope', $scope)
                 ->first();
         }
 
@@ -325,6 +331,7 @@ class SocialAuthController extends Controller
                 'password' => Str::random(32),
                 'email_verified_at' => !empty($email) ? now() : null,
                 'account_type' => 'user',
+                'app_scope' => $scope,
                 'status' => 'accepted',
             ]);
         }
@@ -343,6 +350,7 @@ class SocialAuthController extends Controller
 
         if (!empty($mobile)) {
             $mobileExists = User::where('account_type', 'user')
+                ->where('app_scope', $scope)
                 ->where('mobile', $mobile)
                 ->where('id', '!=', $user->id)
                 ->exists();
