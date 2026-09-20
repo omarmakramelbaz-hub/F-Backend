@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\V1\User\WalletController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\V1\ShippingController;
 use App\Http\Controllers\Api\V1\PartnerApplicationController;
+use App\Http\Controllers\Api\V1\PartnerServiceRequestController;
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
 
@@ -143,6 +144,8 @@ Route::post('/pusher/auth', function (Request $request) {
         
         Route::group(['prefix' => 'delegate'],function(){
             Route::post('/connected/update', [UserController::class,'updateConnected']);
+            Route::get('/service-requests', [PartnerServiceRequestController::class, 'partnerIndex']);
+            Route::post('/service-requests/{serviceRequest}/status', [PartnerServiceRequestController::class, 'updateStatus']);
             Route::get('/orders', [DelegateOrderController::class,'getOrders']);
             Route::get('/orders/{order}', [DelegateOrderController::class,'getSingleOrder']);
             Route::post('accept_decline/orders/{order}', [DelegateOrderController::class,'acceptDeclineOrder']);
@@ -182,6 +185,8 @@ Route::post('/pusher/auth', function (Request $request) {
         });
         Route::group(['prefix' => 'user'],function(){
             Route::post('/check-otp-order', [UserController::class, 'checkOtpFirstOrder']);
+            Route::get('/partner-service-requests', [PartnerServiceRequestController::class, 'customerIndex']);
+            Route::post('/partner-service-requests', [PartnerServiceRequestController::class, 'store']);
 
             Route::get('/profile', [UserController::class,'userProfile'])->withoutMiddleware('custom.jwt');
             Route::get('/notifications', [UserController::class,'get_notifications']);
