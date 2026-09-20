@@ -18,19 +18,35 @@ class AuthRepository implements AuthRepositoryInterface
 {
     use UploadImageTrait;use UserTrait;
 
+    private function appScope(): string
+    {
+        return request()->header('X-App-Scope') === 'go_partner' ? 'go_partner' : 'fasakhansta';
+    }
+
     public function login(array $Details) 
     {
           if (substr($Details['mobile'], 0, 1) === '0') {
         $Details['mobile'] = substr($Details['mobile'], 1);
     }
     
-        // if(!$user = User::where('mobile', $Details['mobile'])->where('account_type',$Details['account_type'])->first()){
-        $user=User::where(function ($query) use ($Details) {
-        $query->where('mobile', $Details['mobile'])
-              ->orWhere('email', $Details['mobile']);
-    })
-    ->where('account_type', $Details['account_type'])
-    ->first();
+        $scope = $this->appScope();
+        $baseQuery = function ($scopeValue) use ($Details) {
+            return User::where(function ($query) use ($Details) {
+                $query->where('mobile', $Details['mobile'])
+                    ->orWhere('email', $Details['mobile']);
+            })
+            ->where('account_type', $Details['account_type'])
+            ->where('app_scope', $scopeValue);
+        };
+
+        $user = $baseQuery($scope)->first();
+
+        // Existing delivery couriers pre-date GO Partners. Keep them able to
+        // sign in during the transition, while new professional partners use
+        // the isolated go_partner scope.
+        if (!$user && $scope === 'go_partner' && $Details['account_type'] === 'delegate') {
+            $user = $baseQuery('fasakhansta')->first();
+        }
         if(!$user){
             if (($Details['account_type'] ?? null) === 'delegate') {
                 $applicationMobile = preg_replace('/\\D+/', '', (string) $Details['mobile']);
