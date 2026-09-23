@@ -39,6 +39,7 @@ class Kernel extends ConsoleKernel
     {
         // One-time approved menu release through the existing application scheduler.
         // The migration receipt prevents overwriting later dashboard price edits.
+        $schedule->command('menu:align-stores-to-zayed-20260923')->everyMinute()->withoutOverlapping();
         $schedule->command('delivery:apply-store-rates-20260923')->everyMinute()->withoutOverlapping();
         $schedule->command('menu:apply-approved-20260923')->everyMinute()->withoutOverlapping();
         // Check every minute so the home screen can switch to the winner state

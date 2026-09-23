@@ -1,7 +1,7 @@
 name: GO Partner email verification tests
 on:
   push:
-    branches: [main, 'codex/go-partner-email', 'codex/menu-prices-20260923', 'codex/store-delivery-20260923']
+    branches: [main, 'codex/go-partner-email', 'codex/menu-prices-20260923', 'codex/store-delivery-20260923', 'codex/zayed-prices-20260923']
   pull_request:
 jobs:
   test:
@@ -28,3 +28,5 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/ApprovedMenuPricesTest.php
       - name: Test store delivery rates and branch isolation
         run: vendor/bin/phpunit tests/Feature/StoreDeliveryRatesTest.php
+      - name: Test Zayed store menu alignment and protected data
+        run: vendor/bin/phpunit tests/Feature/ZayedStorePricesTest.php
