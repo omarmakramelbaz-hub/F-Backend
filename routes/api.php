@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\V1\ShippingController;
 use App\Http\Controllers\Api\V1\PartnerApplicationController;
 use App\Http\Controllers\Api\V1\PartnerServiceRequestController;
+use App\Http\Controllers\Api\V1\PartnerEmailAuthController;
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
 
@@ -62,6 +63,9 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
     // GO Partners public onboarding and discovery
+    Route::post('/partner-auth/email/request', [PartnerEmailAuthController::class, 'requestCode'])->middleware('throttle:10,1');
+    Route::post('/partner-auth/email/verify', [PartnerEmailAuthController::class, 'verifyCode'])->middleware('throttle:20,1');
+    Route::post('/partner-auth/password/reset', [PartnerEmailAuthController::class, 'resetPassword'])->middleware('throttle:10,1');
     Route::get('/professions', [PartnerApplicationController::class, 'indexProfessions']);
     Route::post('/partner-applications', [PartnerApplicationController::class, 'store']);
     Route::post('/partner-applications/status', [PartnerApplicationController::class, 'status']);

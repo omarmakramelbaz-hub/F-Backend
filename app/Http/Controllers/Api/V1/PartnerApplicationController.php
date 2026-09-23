@@ -9,6 +9,9 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Schema;
+use App\Services\PartnerEmailVerification;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
 
 class PartnerApplicationController extends Controller
 {
@@ -18,6 +21,7 @@ class PartnerApplicationController extends Controller
     {
         return [
             'delivery_courier' => ['ar' => 'مندوب توصيل', 'en' => 'Delivery courier'],
+            'store_owner' => ['ar' => 'صاحب مطعم أو متجر', 'en' => 'Shop or restaurant owner'],
             'appliance_technician' => ['ar' => 'فني صيانة ثلاجات وغسالات', 'en' => 'Fridge & washer technician'],
             'plumber' => ['ar' => 'سباك', 'en' => 'Plumber'],
             'painter' => ['ar' => 'نقاش', 'en' => 'Painter'],
@@ -54,6 +58,23 @@ class PartnerApplicationController extends Controller
 
     public function store(Request $request)
     {
+        $data = $request->validate([
+            'mobile' => 'required|string|min:10|max:20',
+            'email' => 'required|email:rfc|max:254',
+            'email_verification_token' => 'required|string|size:64',
+        ]);
+        return Cache::lock('partner-application:'.hash('sha256', $this->normalizeMobile($data['mobile'])), 60)->block(5, function () use ($request, $data) {
+            return app(PartnerEmailVerification::class)->consume($data['email_verification_token'], 'application', $data['mobile'], function ($proof) use ($request, $data) {
+                if ($proof['email'] !== strtolower(trim($data['email']))) {
+                    throw ValidationException::withMessages(['email' => 'استخدم البريد الذي تم تأكيده.']);
+                }
+                return $this->storeVerified($request, $proof['email']);
+            });
+        });
+    }
+
+    private function storeVerified(Request $request, string $email)
+    {
         $validator = Validator::make($request->all(), [
             'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             'full_name' => 'required|string|min:3|max:150',
@@ -76,6 +97,10 @@ class PartnerApplicationController extends Controller
 
         $mobile = $this->normalizeMobile($request->mobile);
 
+        if (User::withoutGlobalScopes()->where('app_scope', 'go_partner')->where('account_type', 'delegate')->where('mobile', $mobile)->exists()) {
+            return $this->errorResponse('هذا الرقم مرتبط بحساب شريك. سجل الدخول أو استخدم استرجاع كلمة المرور.', 422);
+        }
+
         $existing = PendingVendor::where('application_kind', 'partner')
             ->where('mobile', $mobile)
             ->whereIn('status', ['pending', 'accepted'])
@@ -96,6 +121,8 @@ class PartnerApplicationController extends Controller
         $payload = [
             'added_by' => 1,
             'full_name' => trim($request->full_name),
+            'email' => $email,
+            'email_verified_at' => now(),
             'age' => (int) $request->age,
             'profession_key' => $request->profession_key,
             'lat' => $request->lat,
@@ -170,7 +197,9 @@ class PartnerApplicationController extends Controller
             'source_app' => Schema::hasColumn('pending_vendors', 'source_app')
                 ? ($application->source_app ?: 'fasakhansta')
                 : 'go',
-            'can_create_account' => $application->status === 'accepted',
+            'account_active' => (bool) $application->partner_activated_at,
+            'email_required' => !$application->email_verified_at,
+            'can_create_account' => $application->status === 'accepted' && !$application->partner_activated_at && (bool) $application->email_verified_at,
             'message' => $application->status === 'accepted'
                 ? 'تمت الموافقة على طلب انضمامك. يمكنك الآن إنشاء حساب الشريك.'
                 : ($application->status === 'declined'
@@ -182,78 +211,39 @@ class PartnerApplicationController extends Controller
 
     public function activate(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $data = $request->validate([
             'mobile' => 'required|string|min:10|max:20',
-            'password' => 'required|string|min:6|confirmed',
+            'password' => 'required|string|min:8|max:72|confirmed',
+            'email_verification_token' => 'required|string|size:64',
         ]);
-
-        if ($validator->fails()) {
-            return $this->errorResponse($validator->errors()->first(), 422);
-        }
-
-        $mobile = $this->normalizeMobile($request->mobile);
-        $application = PendingVendor::where('application_kind', 'partner')
-            ->where('mobile', $mobile)
-            ->latest('id')
-            ->first();
-
-        if (!$application) {
-            return $this->errorResponse('لا يوجد طلب انضمام بهذا الرقم.', 404);
-        }
-
-        if ($application->status === 'pending') {
-            return $this->errorResponse('طلبك ما زال قيد المراجعة.', 422);
-        }
-
-        if ($application->status === 'declined') {
-            return $this->errorResponse(
-                $application->decline_reason ?: 'تم رفض طلب الانضمام. يمكنك تقديم طلب جديد بعد تحديث بياناتك.',
-                422
-            );
-        }
-
-        $user = User::where('account_type', 'delegate')
-            ->where('app_scope', 'go_partner')
-            ->where(function ($query) use ($application, $mobile) {
-                $query->where('pending_vendor_id', $application->id)
-                    ->orWhere('mobile', $mobile);
-            })
-            ->first();
-
-        if (!$user) {
-            $user = User::create([
-                'added_by' => 1,
-                'name' => $application->full_name,
-                'mobile' => $mobile,
-                'password' => $request->password,
-                'account_type' => 'delegate',
-                'app_scope' => 'go_partner',
-                'status' => 'accepted',
-                'pending_vendor_id' => $application->id,
-            ]);
-        } else {
-            $user->name = $application->full_name ?: $user->name;
-            $user->mobile = $mobile;
-            $user->password = $request->password;
-            $user->status = 'accepted';
-            $user->pending_vendor_id = $application->id;
-            $user->app_scope = 'go_partner';
-            $user->save();
-        }
-
-        try {
-            if (!$user->hasRole(13)) {
-                $user->assignRole(13);
+        return app(PartnerEmailVerification::class)->consume($data['email_verification_token'], 'activation', $data['mobile'], function ($proof) use ($data) {
+            $application = PendingVendor::where('id', $proof['subjectId'])->where('application_kind', 'partner')
+                ->where('mobile', $proof['mobile'])->lockForUpdate()->first();
+            if (!$application || $application->status !== 'accepted' || !$application->email_verified_at
+                || $application->email !== $proof['email'] || $application->partner_activated_at) {
+                throw ValidationException::withMessages(['email_verification_token' => 'لا يمكن تفعيل هذا الطلب. راجع حالة الطلب أو استخدم استرجاع كلمة المرور.']);
             }
-        } catch (\Throwable $e) {
-            // Role assignment should not block account activation.
-        }
-
-        return $this->successResponse([
-            'status' => 'active',
-            'profession_key' => $application->profession_key,
-            'partner_id' => $user->id,
-        ], 'تم تفعيل حساب الشريك. يمكنك تسجيل الدخول الآن.');
+            $user = User::withoutGlobalScopes()->where('account_type', 'delegate')->where('app_scope', 'go_partner')
+                ->where('mobile', $proof['mobile'])->lockForUpdate()->first();
+            if ($user && ($user->status !== 'pending' || (int) $user->pending_vendor_id !== (int) $application->id)) {
+                throw ValidationException::withMessages(['mobile' => 'الحساب موجود بالفعل. استخدم تسجيل الدخول أو استرجاع كلمة المرور.']);
+            }
+            $fields = [
+                'added_by' => 1, 'name' => $application->full_name, 'mobile' => $proof['mobile'],
+                'email' => $proof['email'], 'partner_auth_email' => $proof['email'], 'email_verified_at' => now(),
+                'password' => $data['password'], 'account_type' => 'delegate', 'app_scope' => 'go_partner',
+                'status' => 'accepted', 'pending_vendor_id' => $application->id,
+            ];
+            $user = $user ?: new User();
+            $user->forceFill($fields)->save();
+            try {
+                if (!$user->hasRole(13)) $user->assignRole(13);
+            } catch (\Throwable $e) {
+                // Preserve compatibility when the optional legacy role is unavailable.
+            }
+            $application->update(['partner_activated_at' => now()]);
+            return $this->successResponse(['status' => 'active', 'profession_key' => $application->profession_key, 'partner_id' => $user->id], 'تم تفعيل حساب الشريك. يمكنك تسجيل الدخول الآن.');
+        });
     }
 
     public function partners(Request $request, string $professionKey)
