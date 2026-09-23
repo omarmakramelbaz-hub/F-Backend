@@ -17,6 +17,10 @@ class ApprovedMenuPricesTest extends TestCase
         parent::setUp();
         config(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array']);
         DB::purge('sqlite');
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('account_type')->nullable();
+        });
         Schema::create('resturant_products', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('resturant_id');
