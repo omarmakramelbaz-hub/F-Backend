@@ -26,6 +26,9 @@ class PartnerEmailVerification
     public function issue(string $purpose, string $mobile, ?string $email, ?int $subjectId, string $ip): array
     {
         $mobile = self::mobile($mobile);
+        if (strlen($mobile) < 10 || strlen($mobile) > 15) {
+            throw ValidationException::withMessages(['mobile' => 'اكتب رقم هاتف صحيحًا.']);
+        }
         $email = $email ? strtolower(trim($email)) : null;
         $identity = hash('sha256', $purpose.'|'.$mobile);
         return Cache::lock('partner-email:send-lock:'.$identity, 45)->block(5, function () use ($purpose, $mobile, $email, $subjectId, $ip, $identity) {

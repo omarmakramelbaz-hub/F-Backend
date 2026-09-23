@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -42,6 +44,14 @@ class PartnerEmailAuthTest extends TestCase
             $table->timestamp('partner_activated_at')->nullable();
             $table->timestamps();
         });
+        Schema::table('pending_vendors', function (Blueprint $table) {
+            foreach (['age', 'added_by', 'work_radius_km'] as $field) $table->unsignedInteger($field)->nullable();
+            foreach (['lat', 'lng', 'location', 'vodafone_cash_mobile', 'payment_method', 'payment_identifier', 'type'] as $field) $table->string($field)->nullable();
+            $table->timestamp('terms_accepted_at')->nullable();
+        });
+        require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
+        (new \CreateMediaTable())->up();
+        Storage::fake('pending_vendor');
     }
 
     private function issue(string $purpose = 'application', string $mobile = '01012345678', ?string $email = 'partner@example.com'): array
@@ -113,6 +123,34 @@ class PartnerEmailAuthTest extends TestCase
         $this->postJson('/api/partner-applications', ['mobile' => '01012345678'])->assertStatus(422);
         $this->postJson('/api/partner-applications/activate', ['mobile' => '01012345678', 'password' => 'test-password', 'password_confirmation' => 'test-password'])->assertStatus(422);
         $this->assertSame(0, User::withoutGlobalScopes()->count());
+    }
+
+    public function test_verified_application_persists_email_and_photo_but_still_requires_approval(): void
+    {
+        $proof = $this->proof('application');
+        $this->postJson('/api/partner-applications', [
+            'mobile' => '01012345678', 'email' => 'partner@example.com', 'email_verification_token' => $proof,
+            'full_name' => 'شريك تجريبي', 'age' => 28, 'profession_key' => 'plumber', 'lat' => 30.04, 'lng' => 31.23,
+            'payment_method' => 'instapay', 'payment_identifier' => 'partner@instapay', 'work_radius_km' => 5,
+            'terms_accepted' => 1, 'photo' => UploadedFile::fake()->image('portrait.jpg'),
+        ])->assertSuccessful();
+        $application = PendingVendor::first();
+        $this->assertSame('partner@example.com', $application->email);
+        $this->assertNotNull($application->email_verified_at);
+        $this->assertSame('pending', $application->status);
+        $this->assertSame(1, $application->getMedia('partner_photo')->count());
+        $this->assertSame(0, User::withoutGlobalScopes()->count());
+        $this->issue('activation');
+        $this->assertSame(1, Mail::sent(PartnerVerificationCode::class)->count());
+    }
+
+    public function test_expired_proof_and_invalid_phone_are_rejected(): void
+    {
+        $this->postJson('/api/partner-auth/email/request', ['purpose' => 'application', 'mobile' => '00000000000', 'email' => 'partner@example.com'])->assertStatus(422);
+        $proof = $this->proof('application');
+        $this->travel(11)->minutes();
+        $this->expectException(ValidationException::class);
+        app(PartnerEmailVerification::class)->consume($proof, 'application', '01012345678', function () { $this->fail('Expired proof used'); });
     }
 
     public function test_activation_uses_registered_email_and_cannot_be_replayed(): void

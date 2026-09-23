@@ -197,7 +197,9 @@ class PartnerApplicationController extends Controller
             'source_app' => Schema::hasColumn('pending_vendors', 'source_app')
                 ? ($application->source_app ?: 'fasakhansta')
                 : 'go',
-            'can_create_account' => $application->status === 'accepted',
+            'account_active' => (bool) $application->partner_activated_at,
+            'email_required' => !$application->email_verified_at,
+            'can_create_account' => $application->status === 'accepted' && !$application->partner_activated_at && (bool) $application->email_verified_at,
             'message' => $application->status === 'accepted'
                 ? 'تمت الموافقة على طلب انضمامك. يمكنك الآن إنشاء حساب الشريك.'
                 : ($application->status === 'declined'
