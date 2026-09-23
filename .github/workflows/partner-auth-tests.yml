@@ -1,7 +1,7 @@
 name: GO Partner email verification tests
 on:
   push:
-    branches: [main, 'codex/go-partner-email']
+    branches: [main, 'codex/go-partner-email', 'codex/menu-prices-20260923']
   pull_request:
 jobs:
   test:
@@ -24,3 +24,5 @@ jobs:
           php artisan key:generate
       - name: Test email ownership and account recovery
         run: vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php
+      - name: Test approved menu prices, checkout totals, transaction rollback and branch isolation
+        run: vendor/bin/phpunit tests/Feature/ApprovedMenuPricesTest.php

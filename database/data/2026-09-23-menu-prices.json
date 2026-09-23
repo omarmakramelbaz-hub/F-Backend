@@ -1,0 +1,1323 @@
+{
+  "release": "2026-09-23-approved-menu",
+  "source": "User-approved orange printed menu, الجديد شديد.jpg, 2026-09-23",
+  "branches": {
+    "82": "المنصورة",
+    "363": "المنصورة",
+    "94": "المحلة",
+    "301": "شبرا",
+    "307": "نبروه"
+  },
+  "changes": [
+    {
+      "branch": 82,
+      "id": 220,
+      "name": "علبة فسيخ وزن 200 جرام",
+      "changes": {
+        "extra_medium": {
+          "before": 70,
+          "after": 0
+        }
+      },
+      "product_id": 7,
+      "base_before": 170,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 225,
+      "name": "رنجه هيرنج",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 20,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 226,
+      "name": "رنجه هيرنج مبطرخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 227,
+      "name": "رنجه تدخين اشجار ليمون",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 228,
+      "name": "سردين",
+      "changes": {
+        "extra_clean": {
+          "before": 0,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 0,
+          "after": 50
+        }
+      },
+      "product_id": 37,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 244,
+      "name": "وجبة فسيخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 250,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 375,
+      "name": "ورجبه رنجه",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 376,
+      "name": "وجبه سردين",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 377,
+      "name": "وجبه  فسخانستا ميكس توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 8,
+      "base_before": 900,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 378,
+      "name": "فسخانستا ميكس بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 600,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 379,
+      "name": "وجبه سردين بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 393,
+      "name": "وجبة سردين توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 394,
+      "name": "وجبة فسيخ بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 350,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 395,
+      "name": "وجبة فسيخ توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 500,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 396,
+      "name": "وجبه رنجه بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 397,
+      "name": "وجبة رنجة توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 82,
+      "id": 398,
+      "name": "وجبة فسخانستا ميكس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 561,
+      "name": "رنجه هيرنج",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 20,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 562,
+      "name": "رنجه هيرنج مبطرخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 563,
+      "name": "رنجه تدخين اشجار ليمون",
+      "changes": {
+        "product_price": {
+          "before": 240,
+          "after": 220
+        },
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 240,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 564,
+      "name": "سردين",
+      "changes": {
+        "extra_clean": {
+          "before": 0,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 0,
+          "after": 50
+        }
+      },
+      "product_id": 37,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 571,
+      "name": "فسيخ دسوق 2 قطعه",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 48,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 573,
+      "name": "وجبة فسيخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 250,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 574,
+      "name": "ورجبه رنجه",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 575,
+      "name": "وجبه سردين",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 576,
+      "name": "وجبه  فسخانستا ميكس توب",
+      "changes": {
+        "extra_clean": {
+          "before": 30,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 60,
+          "after": 50
+        }
+      },
+      "product_id": 8,
+      "base_before": 900,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 577,
+      "name": "فسخانستا ميكس بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 600,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 578,
+      "name": "وجبه سردين بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 579,
+      "name": "وجبة سردين توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 580,
+      "name": "وجبة فسيخ بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 350,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 581,
+      "name": "وجبة فسيخ توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 500,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 582,
+      "name": "وجبه رنجه بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 583,
+      "name": "وجبة رنجة توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 94,
+      "id": 584,
+      "name": "وجبة فسخانستا ميكس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 731,
+      "name": "عرض كيلو فسيخ شم النسيم",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 54,
+      "base_before": 400,
+      "status": "hide"
+    },
+    {
+      "branch": 301,
+      "id": 734,
+      "name": "فسيخ نبروه 1 قطعه",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 51,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 735,
+      "name": "فسيخ دسوق 4 قطعه",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 50,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 739,
+      "name": "وجبه  فسخانستا ميكس توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 8,
+      "base_before": 900,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 740,
+      "name": "وجبه سردين",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 741,
+      "name": "ورجبه رنجه",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 742,
+      "name": "وجبة فسيخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 250,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 743,
+      "name": "فسخانستا ميكس بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 600,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 744,
+      "name": "وجبه سردين بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 745,
+      "name": "وجبة سردين توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 746,
+      "name": "وجبة فسيخ بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 350,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 747,
+      "name": "وجبة فسيخ توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 500,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 748,
+      "name": "وجبه رنجه بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 749,
+      "name": "وجبة رنجة توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 750,
+      "name": "وجبة فسخانستا ميكس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 766,
+      "name": "ساندوتش سلطه بطارخ رنجه",
+      "changes": {
+        "extra_combo": {
+          "before": 35,
+          "after": 20
+        }
+      },
+      "product_id": 12,
+      "base_before": 130,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 779,
+      "name": "سردين",
+      "changes": {
+        "extra_clean": {
+          "before": 0,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 0,
+          "after": 50
+        }
+      },
+      "product_id": 37,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 780,
+      "name": "رنجه تدخين اشجار ليمون",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 781,
+      "name": "رنجه هيرنج مبطرخ",
+      "changes": {
+        "product_price": {
+          "before": 240,
+          "after": 220
+        },
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 240,
+      "status": "show"
+    },
+    {
+      "branch": 301,
+      "id": 782,
+      "name": "رنجه هيرنج",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 20,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 840,
+      "name": "فسيخ نبروه 3 سمكات",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 53,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 845,
+      "name": "فسيخ دسوق سمكتين",
+      "changes": {
+        "extra_clear": {
+          "before": 40,
+          "after": 50
+        }
+      },
+      "product_id": 48,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 847,
+      "name": "وجبه  فسخانستا ميكس توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 8,
+      "base_before": 900,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 848,
+      "name": "وجبه سردين",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 849,
+      "name": "ورجبه رنجه",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 850,
+      "name": "وجبة فسيخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 250,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 851,
+      "name": "فسخانستا ميكس بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 600,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 852,
+      "name": "وجبه سردين بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 853,
+      "name": "وجبة سردين توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 854,
+      "name": "وجبة فسيخ بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 350,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 855,
+      "name": "وجبة فسيخ توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 500,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 856,
+      "name": "وجبه رنجه بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 857,
+      "name": "وجبة رنجة توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 858,
+      "name": "وجبة فسخانستا ميكس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 864,
+      "name": "علبة فسيخ 200 جرام",
+      "changes": {
+        "extra_medium": {
+          "before": 70,
+          "after": 0
+        }
+      },
+      "product_id": 7,
+      "base_before": 170,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 872,
+      "name": "ساندوتش برجر فسيح",
+      "changes": {
+        "extra_combo": {
+          "before": 30,
+          "after": 20
+        }
+      },
+      "product_id": 12,
+      "base_before": 130,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 887,
+      "name": "سردين",
+      "changes": {
+        "extra_clean": {
+          "before": 0,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 0,
+          "after": 50
+        }
+      },
+      "product_id": 37,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 888,
+      "name": "رنجه تدخين اشجار ليمون",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 889,
+      "name": "رنجه هيرنج مبطرخ",
+      "changes": {
+        "product_price": {
+          "before": 240,
+          "after": 220
+        },
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 240,
+      "status": "show"
+    },
+    {
+      "branch": 307,
+      "id": 890,
+      "name": "رنجه هيرنج",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 20,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2535,
+      "name": "ورجبه رنجه",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2536,
+      "name": "وجبه سردين",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2537,
+      "name": "وجبه  فسخانستا ميكس توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 8,
+      "base_before": 900,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2538,
+      "name": "فسخانستا ميكس بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 600,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2539,
+      "name": "وجبه سردين بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2540,
+      "name": "وجبة سردين توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 18,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2541,
+      "name": "وجبة فسيخ بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 350,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2542,
+      "name": "وجبة فسيخ توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 500,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2543,
+      "name": "وجبه رنجه بلس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 300,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2544,
+      "name": "وجبة رنجة توب",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 17,
+      "base_before": 450,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2545,
+      "name": "وجبة فسخانستا ميكس",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 46,
+      "base_before": 400,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2546,
+      "name": "وجبة فسيخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 14,
+      "base_before": 250,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2552,
+      "name": "علبة فسيخ وزن 200 جرام",
+      "changes": {
+        "extra_medium": {
+          "before": 70,
+          "after": 0
+        }
+      },
+      "product_id": 7,
+      "base_before": 170,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2575,
+      "name": "رنجه هيرنج",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 50
+        }
+      },
+      "product_id": 20,
+      "base_before": 200,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2576,
+      "name": "رنجه هيرنج مبطرخ",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2577,
+      "name": "رنجه تدخين اشجار ليمون",
+      "changes": {
+        "extra_clear": {
+          "before": 30,
+          "after": 40
+        }
+      },
+      "product_id": 20,
+      "base_before": 220,
+      "status": "show"
+    },
+    {
+      "branch": 363,
+      "id": 2578,
+      "name": "سردين",
+      "changes": {
+        "extra_clean": {
+          "before": 0,
+          "after": 20
+        },
+        "extra_clear": {
+          "before": 0,
+          "after": 50
+        }
+      },
+      "product_id": 37,
+      "base_before": 200,
+      "status": "show"
+    }
+  ]
+}

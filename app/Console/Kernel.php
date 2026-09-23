@@ -37,6 +37,9 @@ class Kernel extends ConsoleKernel
 
     protected function schedule(Schedule $schedule)
     {
+        // One-time approved menu release through the existing application scheduler.
+        // The migration receipt prevents overwriting later dashboard price edits.
+        $schedule->command('menu:apply-approved-20260923')->everyMinute()->withoutOverlapping();
         // Check every minute so the home screen can switch to the winner state
         // as soon as an ended competition becomes eligible for the draw.
         $schedule->command('notify:coupon')->everyMinute();
