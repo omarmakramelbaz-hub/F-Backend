@@ -55,6 +55,13 @@ class AlignApprovedBranchMenuPrices extends Migration
                         throw new RuntimeException('Unexpected menu price field: '.$field);
                     }
                     $old = $field === 'product_price' ? $row->product_price : ($prices[$field] ?? null);
+                    // The API casts unset/blank optional surcharges to 0. Accept that
+                    // representation only when the reviewed surcharge was also zero.
+                    // Keep genuine numeric changes and malformed text as conflicts.
+                    if ($field !== 'product_price' && (float) $values['before'] === 0.0
+                        && ($old === null || (is_string($old) && trim($old) === ''))) {
+                        $old = 0;
+                    }
                     if (!is_numeric($old) || (float) $old !== (float) $values['before']) {
                         throw new RuntimeException('Menu price changed since review: '.$row->id.'/'.$field);
                     }

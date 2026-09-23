@@ -79,6 +79,50 @@ class ApprovedMenuPricesTest extends TestCase
         $this->assertEquals(950, ResturantProduct::find(576)->calculate_price(null, 'extra_clear'));
     }
 
+    public function test_unset_optional_sardine_prices_match_api_zero_and_rollback_exactly(): void
+    {
+        foreach ([228 => null, 564 => '', 779 => 'missing', 887 => '   '] as $id => $value) {
+            $prices = json_decode(DB::table('resturant_products')->where('id', $id)->value('price'), true);
+            foreach (['extra_clean', 'extra_clear'] as $field) {
+                if ($value === 'missing') unset($prices[$field]);
+                else $prices[$field] = $value;
+            }
+            DB::table('resturant_products')->where('id', $id)->update(['price' => json_encode($prices)]);
+        }
+        $before = DB::table('resturant_products')->orderBy('id')->get()->toJson();
+        $migration = new \AlignApprovedBranchMenuPrices();
+        $migration->up();
+        foreach ([228, 564, 779, 887, 2578] as $id) {
+            $prices = json_decode(DB::table('resturant_products')->where('id', $id)->value('price'), true);
+            $this->assertSame(20, $prices['extra_clean']);
+            $this->assertSame(50, $prices['extra_clear']);
+        }
+        $migration->down();
+        $this->assertSame($before, DB::table('resturant_products')->orderBy('id')->get()->toJson());
+    }
+
+    /** @dataProvider conflictingSurcharges */
+    public function test_real_surcharge_conflicts_still_abort_every_change($value): void
+    {
+        $prices = json_decode(DB::table('resturant_products')->where('id', 228)->value('price'), true);
+        $prices['extra_clean'] = $value;
+        DB::table('resturant_products')->where('id', 228)->update(['price' => json_encode($prices)]);
+        $before = DB::table('resturant_products')->orderBy('id')->get()->toJson();
+        try {
+            (new \AlignApprovedBranchMenuPrices())->up();
+            $this->fail('A real surcharge conflict must stop the release.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('228/extra_clean', $e->getMessage());
+        }
+        $this->assertSame($before, DB::table('resturant_products')->orderBy('id')->get()->toJson());
+        $this->assertSame(0, DB::table('menu_price_release_20260923')->count());
+    }
+
+    public function conflictingSurcharges(): array
+    {
+        return [[10], ['10'], ['invalid']];
+    }
+
     public function test_conflicting_price_rolls_back_the_entire_release(): void
     {
         $last = end($this->manifest['changes']);
