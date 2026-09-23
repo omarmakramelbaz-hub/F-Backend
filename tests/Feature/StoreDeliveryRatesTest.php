@@ -44,7 +44,7 @@ class StoreDeliveryRatesTest extends TestCase
         $ids = array_column($this->manifest['stores'], 'id');
         foreach ($before as $row) {
             $expected = (array) $row;
-            if (in_array($row->id, $ids, true)) {
+            if (in_array((int) $row->id, $ids, true)) {
                 foreach ($this->manifest['fields'] as $field) $expected[$field] = 50;
             }
             $this->assertEquals($expected, (array) DB::table('resturants')->find($row->id));
