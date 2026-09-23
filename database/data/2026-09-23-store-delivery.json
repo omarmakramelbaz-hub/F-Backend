@@ -1,0 +1,291 @@
+{
+  "release": "2026-09-23-store-delivery",
+  "fields": [
+    "default_0_1",
+    "default_1_2",
+    "default_2_3"
+  ],
+  "amount": 50,
+  "stores": [
+    {
+      "id": 308,
+      "name": "جُملة ستور",
+      "user_id": 106,
+      "before": {
+        "default_0_1": 300,
+        "default_1_2": 400,
+        "default_2_3": 500
+      }
+    },
+    {
+      "id": 309,
+      "name": "المقطم ستور",
+      "user_id": 407,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 310,
+      "name": "زايد ستور",
+      "user_id": 381,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 311,
+      "name": "التجمع ستور",
+      "user_id": 373,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 312,
+      "name": "مدينتي ستور",
+      "user_id": 377,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 313,
+      "name": "مصر الجديده",
+      "user_id": 7261,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 336,
+      "name": "المهندسين ستور",
+      "user_id": 7262,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 337,
+      "name": "مدينة  نصر ستور",
+      "user_id": 7263,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 338,
+      "name": "زهراء مدينة نصر ستور",
+      "user_id": 7264,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 339,
+      "name": "عين شمس ستور",
+      "user_id": 7265,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 340,
+      "name": "التجمع الثالث ستور",
+      "user_id": 7266,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 341,
+      "name": "15مايو ستور",
+      "user_id": 7267,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 342,
+      "name": "المعادي ستور",
+      "user_id": 7270,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 343,
+      "name": "أكتوبر ستور",
+      "user_id": 7272,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 344,
+      "name": "حدائق أكتوبر ستور",
+      "user_id": 7273,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 345,
+      "name": "الجيزه ستور",
+      "user_id": 7274,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 346,
+      "name": "حلوان ستور",
+      "user_id": 7275,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 347,
+      "name": "الهرم ستور",
+      "user_id": 7276,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 348,
+      "name": "زمالك ستور",
+      "user_id": 7277,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 349,
+      "name": "الشروق ستور",
+      "user_id": 7278,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 350,
+      "name": "الرحاب ستور",
+      "user_id": 7280,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 354,
+      "name": "منصورية ستور",
+      "user_id": 7295,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 355,
+      "name": "قليوب ستور",
+      "user_id": 7297,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 356,
+      "name": "العاصمه ستور",
+      "user_id": 7299,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 357,
+      "name": "العاشر ستور",
+      "user_id": 7300,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 358,
+      "name": "عبور ستور",
+      "user_id": 7281,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 359,
+      "name": "شبرا ستور",
+      "user_id": 7290,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    },
+    {
+      "id": 360,
+      "name": "كرداسة ستور",
+      "user_id": 7291,
+      "before": {
+        "default_0_1": 15,
+        "default_1_2": 15,
+        "default_2_3": 15
+      }
+    }
+  ]
+}
