@@ -13,13 +13,19 @@ class EnsureGoSchema
     public function handle($request, Closure $next)
     {
         $scope = $request->header('X-App-Scope');
-        if (!in_array($scope, ['go', 'go_partner'], true)) {
+        if (!in_array($scope, ['go', 'go_partner'], true) && !$request->is('api/partner-auth/*') && !$request->is('api/partner-applications*')) {
             return $next($request);
         }
 
         if ($this->needsBootstrap()) {
             try {
                 Cache::lock('go-schema-bootstrap', 60)->block(20, function () {
+                    if (!Schema::hasColumn('pending_vendors', 'partner_activated_at') || !Schema::hasColumn('users', 'partner_auth_email')) {
+                        Artisan::call('migrate', [
+                            '--path' => 'database/migrations/2026_09_22_000001_add_partner_verified_email.php',
+                            '--force' => true,
+                        ]);
+                    }
                     if (!Schema::hasColumn('pending_vendors', 'application_kind')) {
                         Artisan::call('migrate', [
                             '--path' => 'database/migrations/2026_09_20_000001_add_go_partner_fields_to_pending_vendors_table.php',
@@ -61,6 +67,8 @@ class EnsureGoSchema
     private function needsBootstrap(): bool
     {
         return !Schema::hasColumn('pending_vendors', 'application_kind')
+            || !Schema::hasColumn('pending_vendors', 'partner_activated_at')
+            || !Schema::hasColumn('users', 'partner_auth_email')
             || !Schema::hasColumn('users', 'app_scope')
             || !Schema::hasTable('partner_service_requests');
     }

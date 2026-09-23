@@ -29,7 +29,7 @@ class User extends Authenticatable implements JWTSubject, HasMedia{
     }
 	protected $table = 'users';
 	protected $guard_name = 'admin';
-	protected $guarded = [];
+	protected $guarded = ['partner_auth_email'];
 	 protected static function booted()
     {           
         static::addGlobalScope(new AdminScope);
@@ -42,6 +42,7 @@ class User extends Authenticatable implements JWTSubject, HasMedia{
 	protected $hidden = [
 		'password',
 		'remember_token',
+		'partner_auth_email',
 	];
    
     protected static function boot()

@@ -1,0 +1,26 @@
+name: GO Partner email verification tests
+on:
+  push:
+    branches: [main, 'codex/go-partner-email']
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          coverage: none
+      # Reproduce the existing Laravel 8 dependency set in this disposable test job.
+      # Legacy package advisories remain visible; production dependencies are unchanged.
+      - name: Install existing dependencies for tests
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare test runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Test email ownership and account recovery
+        run: vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php
