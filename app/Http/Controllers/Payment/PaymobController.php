@@ -53,7 +53,7 @@ $token = $json['token'];
         ]);
 
         $json_final=$response_final->json();
-        $json['token'] = 'Token egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3';
+        // Never hard-code Paymob credentials. Authentication uses PAYMOB_API_KEY from the environment.
          if (isset($json_final['message']) && $json_final['message'] === 'duplicate') {
             //  dd($json_final);
             // Fetch existing order details from Paymob
@@ -371,6 +371,74 @@ $token = $json['token'];
 //         return redirect('https://accept.paymob.com/api/acceptance/iframes/' . $iframe_id_or_wallet_number . '?payment_token=' . $response_final_final_json['token']);
 //     }
 // }
+
+    /**
+     * Create a Paymob Intention for the native mobile SDK.
+     * Keeps the existing unified-checkout flow untouched for backwards compatibility.
+     */
+    public function sdkIntention(Request $request)
+    {
+        $request->validate([
+            'order_id' => 'required|integer|exists:orders,id',
+            'integration_id' => 'nullable|integer',
+        ]);
+
+        $order = Order::where('id', $request->order_id)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+
+        $integrationId = (int) ($request->integration_id ?: env('PAYMOB_INTEGRATION_ID'));
+        if (!$integrationId || !env('PAYMOB_SECRET_KEY') || !env('PAYMOB_PUBLIC_KEY')) {
+            return response()->json(['message' => 'Paymob SDK is not configured'], 503);
+        }
+
+        $user = Auth::user();
+        $parts = preg_split('/\\s+/', trim((string) $user->name), 2);
+        $firstName = $parts[0] ?: 'NA';
+        $lastName = $parts[1] ?? $firstName;
+
+        $response = Http::withToken(env('PAYMOB_SECRET_KEY'))
+            ->acceptJson()
+            ->post('https://accept.paymob.com/v1/intention/', [
+                'amount' => (int) ceil($order->grand_total * 100),
+                'currency' => 'EGP',
+                'payment_methods' => [$integrationId],
+                'items' => [],
+                'billing_data' => [
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'phone_number' => $user->mobile ?: 'NA',
+                    'email' => $user->email ?: 'NA',
+                    'apartment' => 'NA', 'floor' => 'NA', 'street' => 'NA',
+                    'building' => 'NA', 'shipping_method' => 'NA',
+                    'postal_code' => 'NA', 'city' => 'NA', 'state' => 'NA',
+                    'country' => 'EG',
+                ],
+                'extras' => ['ee' => (string) $order->id],
+                'special_reference' => 'fasakhansta_order_' . $order->id . '_' . time(),
+                'notification_url' => url('/api/payment/paymob/webhook'),
+                'redirection_url' => url('/pay-thanks'),
+            ]);
+
+        if (!$response->successful() || !$response->json('client_secret')) {
+            \Log::error('Paymob SDK intention failed', ['status' => $response->status(), 'body' => $response->json()]);
+            return response()->json(['message' => 'Unable to initialize payment'], 502);
+        }
+
+        $data = $response->json();
+        Payment::create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'intention_order_id' => $data['intention_order_id'] ?? null,
+        ]);
+
+        return $this->successResponse([
+            'order_id' => $order->id,
+            'client_secret' => $data['client_secret'],
+            'public_key' => env('PAYMOB_PUBLIC_KEY'),
+            'environment' => env('PAYMOB_ENVIRONMENT', 'production'),
+        ], 'Paymob SDK intention created');
+    }
 
     public function callback(Request $request)
     {
