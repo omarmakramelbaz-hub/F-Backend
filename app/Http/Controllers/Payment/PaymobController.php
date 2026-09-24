@@ -403,7 +403,12 @@ $token = $json['token'];
                 'amount' => (int) ceil($order->grand_total * 100),
                 'currency' => 'EGP',
                 'payment_methods' => [$integrationId],
-                'items' => [],
+                'items' => [[
+                    'name' => 'Fasakhansta Order #' . $order->id,
+                    'amount' => (int) ceil($order->grand_total * 100),
+                    'description' => 'Order #' . $order->id,
+                    'quantity' => 1,
+                ]],
                 'billing_data' => [
                     'first_name' => $firstName,
                     'last_name' => $lastName,
@@ -414,7 +419,7 @@ $token = $json['token'];
                     'postal_code' => 'NA', 'city' => 'NA', 'state' => 'NA',
                     'country' => 'EG',
                 ],
-                'extras' => ['ee' => (string) $order->id],
+                'extras' => ['order_id' => (string) $order->id],
                 'special_reference' => 'fasakhansta_order_' . $order->id . '_' . time(),
                 'notification_url' => url('/api/payment/paymob/webhook'),
                 'redirection_url' => url('/pay-thanks'),
