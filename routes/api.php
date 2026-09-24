@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\V1\PartnerServiceRequestController;
 use App\Http\Controllers\Api\V1\PartnerEmailAuthController;
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
+    Route::post('/payment/paymob/sdk-intention', [PaymobController::class, 'sdkIntention'])->middleware(['auth:api','app.scope','custom.jwt']);
 
 
 // Social Auth Routes
