@@ -397,7 +397,7 @@ $token = $json['token'];
         $firstName = $parts[0] ?: 'NA';
         $lastName = $parts[1] ?? $firstName;
 
-        $response = Http::withToken(env('PAYMOB_SECRET_KEY'))
+        $response = Http::withHeaders(['Authorization' => 'Token ' . env('PAYMOB_SECRET_KEY')])
             ->acceptJson()
             ->post('https://accept.paymob.com/v1/intention/', [
                 'amount' => (int) ceil($order->grand_total * 100),
