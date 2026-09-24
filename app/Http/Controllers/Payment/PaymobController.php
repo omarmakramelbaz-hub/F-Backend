@@ -440,6 +440,56 @@ $token = $json['token'];
         ], 'Paymob SDK intention created');
     }
 
+    /**
+     * Paymob transaction webhook. The webhook is the payment source of truth.
+     */
+    public function webhook(Request $request)
+    {
+        $hmac = (string) $request->query('hmac', $request->input('hmac', ''));
+        $obj = $request->input('obj', $request->all());
+
+        if (!$this->validPaymobHmac($obj, $hmac)) {
+            \Log::warning('Rejected Paymob webhook: invalid HMAC');
+            return response()->json(['message' => 'Invalid signature'], 401);
+        }
+
+        $success = filter_var(data_get($obj, 'success', false), FILTER_VALIDATE_BOOLEAN);
+        $intentionOrderId = data_get($obj, 'order.id') ?: data_get($obj, 'order');
+        $payment = Payment::where('intention_order_id', $intentionOrderId)->first();
+        if (!$payment) {
+            \Log::warning('Paymob webhook payment not found', ['intention_order_id' => $intentionOrderId]);
+            return response()->json(['message' => 'Payment not found'], 404);
+        }
+
+        // checkout_done already contains the established order/wallet fulfilment logic.
+        if ($success) {
+            $payload = json_encode(array_merge(is_array($obj) ? $obj : [], ['success' => true]));
+            (new CheckoutController)->checkout_done($intentionOrderId, $payload);
+        } else {
+            $payment->update([
+                'status' => false,
+                'transaction_id' => data_get($obj, 'id'),
+            ]);
+        }
+
+        return response()->json(['received' => true]);
+    }
+
+    private function validPaymobHmac(array $obj, string $receivedHmac): bool
+    {
+        $secret = (string) env('PAYMOB_HMAC_SECRET');
+        if ($secret === '' || $receivedHmac === '') return false;
+
+        $keys = ['amount_cents','created_at','currency','error_occured','has_parent_transaction','id','integration_id','is_3d_secure','is_auth','is_capture','is_refunded','is_standalone_payment','is_voided','order.id','owner','pending','source_data.pan','source_data.sub_type','source_data.type','success'];
+        $data = '';
+        foreach ($keys as $key) {
+            $value = data_get($obj, $key, '');
+            if (is_bool($value)) $value = $value ? 'true' : 'false';
+            $data .= (string) $value;
+        }
+        return hash_equals(hash_hmac('sha512', $data, $secret), strtolower($receivedHmac));
+    }
+
     public function callback(Request $request)
     {
         $payment_details = json_encode($request->all());
