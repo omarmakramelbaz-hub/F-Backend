@@ -357,7 +357,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                             return $this->errorResponse(__('api.charge your wallet first'));
                         }
 
-                        DB::transaction(function () use ($order, $delegate, $commission, $finalPrice) {
+                        DB::transaction(function () use ($order, $delegate, $offer, $commission, $finalPrice) {
                             $order->update([
                                 'status'=>'accepted',
                                 'delegate_id'=>$delegate->id,
@@ -384,6 +384,10 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                                     'order_id'=>$order->id,
                                 ]);
                             }
+                            // Persist exactly what was charged for this mutually
+                            // accepted final fare. Future revisions settle against
+                            // this amount, never against an unaccepted offer.
+                            $offer->update(['commission_amount'=>$commission]);
                         });
 
                         $order->refresh();
