@@ -47,7 +47,9 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
-            root@187.127.92.124
+            root@187.127.92.124 \
+            -- \
+            'set -e; cd /home/fasakhaninja/public_html; git fetch origin main; git reset --hard origin/main; php artisan optimize:clear; echo "=== Current version ==="; git log -1 --oneline'
 
       - name: Run Laravel migrations and clear caches
         shell: bash

@@ -53,13 +53,7 @@ $token = $json['token'];
         ]);
 
         $json_final=$response_final->json();
-        $paymobSecretKey = env('PAYMOB_SECRET_KEY');
-        $paymobPublicKey = env('PAYMOB_PUBLIC_KEY');
-        if (!$paymobSecretKey || !$paymobPublicKey) {
-            \Log::error('Paymob SDK credentials are not configured.');
-            return response()->json(['message' => 'Paymob SDK credentials are not configured.'], 503);
-        }
-        $json['token'] = 'Token ' . $paymobSecretKey;
+        $json['token'] = 'Token egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3';
          if (isset($json_final['message']) && $json_final['message'] === 'duplicate') {
             //  dd($json_final);
             // Fetch existing order details from Paymob
@@ -137,16 +131,9 @@ $token = $json['token'];
                 'intention_order_id' => $intention_order_id,
             ]);
             if(auth('api')->check()){
-            $checkoutLink = 'https://accept.paymob.com/unifiedcheckout/?publicKey=' . urlencode($paymobPublicKey) . '&clientSecret=' . urlencode($client_secret);
-            return $this->successResponse([
-                'order_id' => $order->id,
-                'link' => $checkoutLink, // Backward compatibility for currently released apps.
-                'client_secret' => $client_secret, // Native Paymob SDK clients use this value.
-                'public_key' => $paymobPublicKey,
-                'payment_flow' => 'paymob_sdk',
-            ], __('api.wallet charge successfully'));
+            return $this->successResponse(['order_id' => $order->id ,'link' => 'https://accept.paymob.com/unifiedcheckout/?publicKey=egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX&clientSecret='.$client_secret],__('api.wallet charge successfully'));
             }
-            return redirect('https://accept.paymob.com/unifiedcheckout/?publicKey=' . urlencode($paymobPublicKey) . '&clientSecret=' . urlencode($client_secret));
+            return redirect('https://accept.paymob.com/unifiedcheckout/?publicKey=egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX&clientSecret='.$client_secret);
                 
         }
        
