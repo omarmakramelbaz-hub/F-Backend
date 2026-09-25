@@ -25,6 +25,7 @@ use Notification;
 use Mail;
 use App\Events\DelegateUpdated;
 use App\Models\DelegateNotification;
+use Illuminate\Support\Facades\DB;
 class ShippingController extends Controller {
 
     use ApiResponses;
@@ -321,12 +322,57 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
        
             if($request->status=='accepted'){
                  if($order->status=='pending'){
-                        $order->update(['status'=>'accepted','delegate_id'=>$request->delegate_id]);
+                        $delegate = User::where('account_type','delegate')
+                            ->where('id', $request->delegate_id)
+                            ->lockForUpdate()
+                            ->first();
+                        if(!$delegate){
+                            return $this->errorResponse(__('api.delegate not found'));
+                        }
+
+                        // The delegate's offer is stored on the shipping order before
+                        // customer confirmation. Commission is charged only here, after
+                        // both sides have agreed to the request.
+                        $setting = app(GeneralSettings::class);
+                        $finalPrice = (float) optional($order->shipping)->actual_price;
+                        $commissionRate = max(0, (float) $setting->shipping_min_price);
+                        $commission = round($finalPrice * ($commissionRate / 100), 2);
+
+                        if($commission > 0 && (float) $delegate->balance < $commission){
+                            return $this->errorResponse(__('api.charge your wallet first'));
+                        }
+
+                        DB::transaction(function () use ($order, $delegate, $commission) {
+                            $order->update([
+                                'status'=>'accepted',
+                                'delegate_id'=>$delegate->id,
+                                'delivery_price'=>optional($order->shipping)->actual_price,
+                            ]);
+
+                            // Make the accepted driver exclusive; all other offers are closed.
+                            DelegateNotification::where('order_id',$order->id)
+                                ->where('delegate_id','!=',$delegate->id)
+                                ->delete();
+
+                            if($commission > 0){
+                                $delegate->decrement('balance', $commission);
+                                Wallet::create([
+                                    'from_user'=>$delegate->id,
+                                    'to_user'=>null,
+                                    'status'=>'completed',
+                                    'payment'=>'wallet',
+                                    'type'=>'transfer',
+                                    'amount'=>$commission,
+                                    'order_id'=>$order->id,
+                                ]);
+                            }
+                        });
+
+                        $order->refresh();
                         $order_data=ShippingResource::make($order);
-                        //notify delegate after user accepted
-                        $delegate = User::where('account_type','delegate')->where('id', $order->delegate_id)->first();
                         Notification::send($delegate,new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
-                                             broadcast(new DelegateUpdated($order,1,$delegate->id));
+                        broadcast(new DelegateUpdated($order,1,$delegate->id));
+                        broadcast(new ShippingUpdated($order,1,$order->user_id));
                         return $this->successResponse($order_data,__('api.accept order successfully'));
                  }else{
                      return $this->errorResponse(__('api.already accepted delegate'));
