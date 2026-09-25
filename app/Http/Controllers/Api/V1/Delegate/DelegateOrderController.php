@@ -182,9 +182,7 @@ class DelegateOrderController extends Controller {
 
         // Keep the order pending: this is only an offer. No commission is
         // charged until the customer explicitly accepts this delegate.
-        $notification->update(['status' => 'accepted']);
-        $order->shipping->update(['actual_price' => $request->price]);
-        $order->update(['delivery_price' => $request->price]);
+        $notification->update(['status' => 'accepted', 'offer_price' => $request->price]);
 
         $user = User::find($order->user_id);
         $delegate = auth('api')->user();
