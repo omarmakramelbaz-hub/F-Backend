@@ -312,12 +312,12 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         $offers=DelegateNotification::where('order_id',$order_id)
             ->whereIn('status' , ['accepted','price_revision'])->get()->keyBy('delegate_id');
         $delegates=User::whereIn('id',$offers->keys())->get();
-        $usersData=UserDataResource::collection($delegates)->resolve();
-        $usersData=collect($usersData)->map(function($delegate) use ($offers){
-            $offer=$offers->get($delegate['id']);
-            $delegate['offer_price']=$offer ? (float) $offer->offer_price : null;
-            $delegate['offer_status']=$offer ? $offer->status : null;
-            return $delegate;
+        $usersData=$delegates->map(function($delegate) use ($offers){
+            $offer=$offers->get($delegate->id);
+            $data=(new UserDataResource($delegate))->resolve();
+            $data['offer_price']=$offer ? (float) $offer->offer_price : null;
+            $data['offer_status']=$offer ? $offer->status : null;
+            return $data;
         })->values();
         $order=Order::find($order_id);
          $order_data=ShippingResource::make($order);
