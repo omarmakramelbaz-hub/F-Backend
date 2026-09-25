@@ -153,6 +153,7 @@ Route::post('/pusher/auth', function (Request $request) {
             Route::get('/orders', [DelegateOrderController::class,'getOrders']);
             Route::get('/orders/{order}', [DelegateOrderController::class,'getSingleOrder']);
             Route::post('accept_decline/orders/{order}', [DelegateOrderController::class,'acceptDeclineOrder']);
+            Route::post('shipping/orders/{order}/offer', [DelegateOrderController::class,'submitShippingOffer']);
             Route::post('orders/{order}/completed', [DelegateOrderController::class,'orderCompleted']);
             Route::get('/reports', [DelegateOrderController::class, 'reports']);
             Route::post('transfer/order/{order}/price',[DelegateOrderController::class,'transfer_order_price']);
