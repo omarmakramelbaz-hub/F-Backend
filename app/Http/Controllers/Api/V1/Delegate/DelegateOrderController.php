@@ -230,37 +230,56 @@ class DelegateOrderController extends Controller {
         if(!$offer){
             return $this->errorResponse(__('api.order not found'));
         }
+
+        // Rejecting a proposal is purely a state change: the current final
+        // price and the previously charged commission remain untouched.
         if($request->status === 'declined'){
-            $offer->update(['status'=>'accepted']);
+            $offer->update(['status'=>'accepted', 'offer_price'=>optional($order->shipping)->actual_price]);
             return $this->successResponse(OrderResource::make($order), __('api.declined order successfully'));
         }
 
-        $oldPrice = (float) optional($order->shipping)->actual_price;
         $newPrice = (float) $offer->offer_price;
         $setting = app(GeneralSettings::class);
-        $oldCommission = round($oldPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
         $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
-        $difference = round($newCommission - $oldCommission, 2);
+        $chargedCommission = (float) ($offer->commission_amount ?? 0);
+        $difference = round($newCommission - $chargedCommission, 2);
         $delegate = User::where('id',$order->delegate_id)->lockForUpdate()->first();
-        if($difference > 0 && (!$delegate || (float)$delegate->balance < $difference)){
+
+        if(!$delegate){
+            return $this->errorResponse(__('api.delegate not found'));
+        }
+        if($difference > 0 && (float)$delegate->balance < $difference){
             return $this->errorResponse(__('api.charge your wallet first'));
         }
 
-        DB::transaction(function() use($order,$offer,$delegate,$newPrice,$difference){
+        // Customer acceptance makes this proposal the new final fare. Only now
+        // do we settle the commission to exactly match that accepted final fare.
+        DB::transaction(function() use($order,$offer,$delegate,$newPrice,$newCommission,$difference){
             $order->shipping->update(['actual_price'=>$newPrice]);
             $order->update(['delivery_price'=>$newPrice]);
+
             if($difference > 0){
                 $delegate->decrement('balance',$difference);
-                Wallet::create(['from_user'=>$delegate->id,'to_user'=>null,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$order->id]);
+                Wallet::create([
+                    'from_user'=>$delegate->id,'to_user'=>null,'status'=>'completed',
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$order->id
+                ]);
             } elseif($difference < 0){
                 $refund=abs($difference);
                 $delegate->increment('balance',$refund);
-                Wallet::create(['from_user'=>null,'to_user'=>$delegate->id,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$order->id]);
+                Wallet::create([
+                    'from_user'=>null,'to_user'=>$delegate->id,'status'=>'completed',
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$order->id
+                ]);
             }
-            $offer->update(['status'=>'accepted']);
+
+            $offer->update([
+                'status'=>'accepted',
+                'offer_price'=>$newPrice,
+                'commission_amount'=>$newCommission,
+            ]);
         });
+
         broadcast(new ShippingUpdated($order->fresh(),1,$order->user_id));
         broadcast(new DelegateUpdated($order->fresh(),1,$order->delegate_id));
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.order updated successfully'));
