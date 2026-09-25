@@ -166,6 +166,36 @@ class DelegateOrderController extends Controller {
         return $this->successResponse($carts,__('api.success data'));
     }
     
+    public function submitShippingOffer(Request $request, Order $order){
+        if(auth('api')->user()->status != 'accepted'){
+            return $this->errorResponse(__('api.contact admin for account activation'));
+        }
+        if($order->type != 'shipping' || !in_array($order->status, ['pending','another_delegate']) || $order->delegate_id != null){
+            return $this->errorResponse(__('api.sorry another delegate accept order'));
+        }
+        $request->validate(['price' => 'required|numeric|min:1']);
+        $notification = DelegateNotification::where('delegate_id', auth('api')->user()->id)
+            ->where('order_id', $order->id)->first();
+        if(!$notification){
+            return $this->errorResponse(__('api.order not found'));
+        }
+
+        // Keep the order pending: this is only an offer. No commission is
+        // charged until the customer explicitly accepts this delegate.
+        $notification->update(['status' => 'accepted']);
+        $order->shipping->update(['actual_price' => $request->price]);
+        $order->update(['delivery_price' => $request->price]);
+
+        $user = User::find($order->user_id);
+        $delegate = auth('api')->user();
+        if($user){
+            Notification::send($user,new \App\Notifications\NotifyUserAfterOrderShippingAccepted($order));
+            broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$request->price));
+            broadcast(new ShippingUpdated($order,1,$user->id));
+        }
+        return $this->successResponse(OrderResource::make($order->fresh()), __('api.accepted order successfully'));
+    }
+
     public function acceptDeclineOrder(Request $request,Order $order){
         if(auth('api')->user()->status != 'accepted'){
             return $this->errorResponse(__('api.contact admin for account activation'));
