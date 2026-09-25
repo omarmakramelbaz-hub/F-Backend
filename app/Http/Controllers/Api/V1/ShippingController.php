@@ -309,12 +309,14 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
 
     }
     public function accepted_delegates($order_id){
-        $offers=DelegateNotification::where('order_id',$order_id)->where('status' , 'accepted')->get()->keyBy('delegate_id');
+        $offers=DelegateNotification::where('order_id',$order_id)
+            ->whereIn('status' , ['accepted','price_revision'])->get()->keyBy('delegate_id');
         $delegates=User::whereIn('id',$offers->keys())->get();
         $usersData=UserDataResource::collection($delegates)->resolve();
         $usersData=collect($usersData)->map(function($delegate) use ($offers){
             $offer=$offers->get($delegate['id']);
             $delegate['offer_price']=$offer ? (float) $offer->offer_price : null;
+            $delegate['offer_status']=$offer ? $offer->status : null;
             return $delegate;
         })->values();
         $order=Order::find($order_id);
