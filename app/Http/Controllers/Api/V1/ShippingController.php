@@ -321,7 +321,21 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         })->values();
         $order=Order::find($order_id);
          $order_data=ShippingResource::make($order);
-        return $this->successResponse(['delegates'=>$usersData,'order'=>$order_data],__('api.success data'));
+        $activeOffer = null;
+        if($order && $order->delegate_id){
+            $activeOffer = DelegateNotification::where('order_id',$order->id)
+                ->where('delegate_id',$order->delegate_id)
+                ->where('status','price_revision')->first();
+        }
+        return $this->successResponse([
+            'delegates'=>$usersData,
+            'order'=>$order_data,
+            'active_offer'=>$activeOffer ? [
+                'delegate_id'=>$activeOffer->delegate_id,
+                'price'=>(float)$activeOffer->offer_price,
+                'status'=>$activeOffer->status,
+            ] : null,
+        ],__('api.success data'));
     }
     
     public function accept_delegate(AcceptDelegateRequest $request){
