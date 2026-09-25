@@ -194,6 +194,78 @@ class DelegateOrderController extends Controller {
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.accepted order successfully'));
     }
 
+    public function reviseShippingOffer(Request $request, Order $order){
+        if($order->type != 'shipping' || $order->status != 'accepted' ||
+           $order->delegate_id != auth('api')->user()->id){
+            return $this->errorResponse(__('api.order not found'));
+        }
+        $request->validate(['price' => 'required|numeric|min:1']);
+        $offer = DelegateNotification::firstOrCreate([
+            'delegate_id' => auth('api')->user()->id,
+            'order_id' => $order->id,
+        ]);
+        $offer->update([
+            'status' => 'price_revision',
+            'offer_price' => $request->price,
+        ]);
+        $user = User::find($order->user_id);
+        if($user){
+            broadcast(new ShippingUpdated($order,1,$user->id));
+        }
+        return $this->successResponse([
+            'order' => OrderResource::make($order),
+            'offer_price' => (float) $request->price,
+        ], __('api.success data'));
+    }
+
+    public function respondShippingRevision(Request $request, Order $order){
+        if($order->type != 'shipping' || $order->status != 'accepted' ||
+           $order->user_id != auth('api')->user()->id || !$order->delegate_id){
+            return $this->errorResponse(__('api.order not found'));
+        }
+        $request->validate(['status' => 'required|in:accepted,declined']);
+        $offer = DelegateNotification::where('order_id',$order->id)
+            ->where('delegate_id',$order->delegate_id)
+            ->where('status','price_revision')->first();
+        if(!$offer){
+            return $this->errorResponse(__('api.order not found'));
+        }
+        if($request->status === 'declined'){
+            $offer->update(['status'=>'accepted']);
+            return $this->successResponse(OrderResource::make($order), __('api.declined order successfully'));
+        }
+
+        $oldPrice = (float) optional($order->shipping)->actual_price;
+        $newPrice = (float) $offer->offer_price;
+        $setting = app(GeneralSettings::class);
+        $oldCommission = round($oldPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
+        $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
+        $difference = round($newCommission - $oldCommission, 2);
+        $delegate = User::where('id',$order->delegate_id)->lockForUpdate()->first();
+        if($difference > 0 && (!$delegate || (float)$delegate->balance < $difference)){
+            return $this->errorResponse(__('api.charge your wallet first'));
+        }
+
+        DB::transaction(function() use($order,$offer,$delegate,$newPrice,$difference){
+            $order->shipping->update(['actual_price'=>$newPrice]);
+            $order->update(['delivery_price'=>$newPrice]);
+            if($difference > 0){
+                $delegate->decrement('balance',$difference);
+                Wallet::create(['from_user'=>$delegate->id,'to_user'=>null,'status'=>'completed',
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$order->id]);
+            } elseif($difference < 0){
+                $refund=abs($difference);
+                $delegate->increment('balance',$refund);
+                Wallet::create(['from_user'=>null,'to_user'=>$delegate->id,'status'=>'completed',
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$order->id]);
+            }
+            $offer->update(['status'=>'accepted']);
+        });
+        broadcast(new ShippingUpdated($order->fresh(),1,$order->user_id));
+        broadcast(new DelegateUpdated($order->fresh(),1,$order->delegate_id));
+        return $this->successResponse(OrderResource::make($order->fresh()), __('api.order updated successfully'));
+    }
+
     public function acceptDeclineOrder(Request $request,Order $order){
         if(auth('api')->user()->status != 'accepted'){
             return $this->errorResponse(__('api.contact admin for account activation'));
