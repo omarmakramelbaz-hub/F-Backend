@@ -309,9 +309,14 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
 
     }
     public function accepted_delegates($order_id){
-        $delegate=DelegateNotification::where('order_id',$order_id)->where('status' , 'accepted')->pluck('delegate_id')->toArray();
-        $delegates=User::whereIn('id',$delegate)->get();
-        $usersData=UserDataResource::collection($delegates);
+        $offers=DelegateNotification::where('order_id',$order_id)->where('status' , 'accepted')->get()->keyBy('delegate_id');
+        $delegates=User::whereIn('id',$offers->keys())->get();
+        $usersData=UserDataResource::collection($delegates)->resolve();
+        $usersData=collect($usersData)->map(function($delegate) use ($offers){
+            $offer=$offers->get($delegate['id']);
+            $delegate['offer_price']=$offer ? (float) $offer->offer_price : null;
+            return $delegate;
+        })->values();
         $order=Order::find($order_id);
          $order_data=ShippingResource::make($order);
         return $this->successResponse(['delegates'=>$usersData,'order'=>$order_data],__('api.success data'));
@@ -322,6 +327,14 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
        
             if($request->status=='accepted'){
                  if($order->status=='pending'){
+                        $offer = DelegateNotification::where('order_id',$order->id)
+                            ->where('delegate_id',$request->delegate_id)
+                            ->where('status','accepted')
+                            ->lockForUpdate()
+                            ->first();
+                        if(!$offer || $offer->offer_price === null){
+                            return $this->errorResponse(__('api.delegate not found'));
+                        }
                         $delegate = User::where('account_type','delegate')
                             ->where('id', $request->delegate_id)
                             ->lockForUpdate()
@@ -334,7 +347,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                         // customer confirmation. Commission is charged only here, after
                         // both sides have agreed to the request.
                         $setting = app(GeneralSettings::class);
-                        $finalPrice = (float) optional($order->shipping)->actual_price;
+                        $finalPrice = (float) $offer->offer_price;
                         $commissionRate = max(0, (float) $setting->shipping_min_price);
                         $commission = round($finalPrice * ($commissionRate / 100), 2);
 
@@ -342,12 +355,15 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                             return $this->errorResponse(__('api.charge your wallet first'));
                         }
 
-                        DB::transaction(function () use ($order, $delegate, $commission) {
+                        DB::transaction(function () use ($order, $delegate, $commission, $finalPrice) {
                             $order->update([
                                 'status'=>'accepted',
                                 'delegate_id'=>$delegate->id,
-                                'delivery_price'=>optional($order->shipping)->actual_price,
+                                'delivery_price'=>$finalPrice,
                             ]);
+                            if($order->shipping){
+                                $order->shipping->update(['actual_price'=>$finalPrice]);
+                            }
 
                             // Make the accepted driver exclusive; all other offers are closed.
                             DelegateNotification::where('order_id',$order->id)
