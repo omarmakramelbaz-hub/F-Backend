@@ -1,0 +1,12 @@
+{
+  "name": "go/partner-work-area-tests",
+  "description": "Isolated dashboard coverage tests, never loaded in production",
+  "require": {
+    "php": "^8.2",
+    "illuminate/database": "^8.83",
+    "illuminate/events": "^8.83",
+    "illuminate/validation": "^8.83",
+    "illuminate/view": "^8.83"
+  },
+  "config": {"sort-packages": true}
+}

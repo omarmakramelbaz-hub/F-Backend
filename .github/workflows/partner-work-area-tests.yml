@@ -1,0 +1,51 @@
+name: Partner work area tests
+on:
+  push:
+    branches: [feat/admin-partner-work-area-20260926]
+  pull_request:
+    paths:
+      - 'app/Support/PartnerWorkArea.php'
+      - 'app/Repositories/UserRepository.php'
+      - 'app/Http/Requests/Dashboard/User/StoreUserRequest.php'
+      - 'resources/views/admin/users/**'
+      - 'public/dashboard/js/partner-work-area.js'
+      - 'tests/partner_work_area/**'
+      - '.github/workflows/partner-work-area-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, mbstring
+          tools: composer:2.7
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply checksum-guarded edits on isolated feature branch only
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/admin-partner-work-area-20260926'
+        run: |
+          if ! grep -q "admin.users.partials.work_area" resources/views/admin/users/form.blade.php; then
+            python3 tools/apply_partner_work_area.py
+          fi
+      - run: php -l app/Repositories/UserRepository.php && php -l app/Http/Requests/Dashboard/User/StoreUserRequest.php && php -l app/Services/GoServices/Marketplace.php && php -l app/Support/PartnerWorkArea.php
+      - run: php tests/partner_work_area/unit.php && node tests/partner_work_area/map.test.js
+      - run: composer install --working-dir=tests/partner_work_area --no-interaction --prefer-dist
+      - run: php tests/partner_work_area/runtime.php
+      - name: Save tested source changes on isolated feature branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/admin-partner-work-area-20260926'
+        run: |
+          git add resources/views/admin/users/form.blade.php app/Repositories/UserRepository.php app/Http/Requests/Dashboard/User/StoreUserRequest.php app/Services/GoServices/Marketplace.php
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Connect tested partner coverage form, validation and persistence'
+            git push origin HEAD:refs/heads/feat/admin-partner-work-area-20260926
+          fi
