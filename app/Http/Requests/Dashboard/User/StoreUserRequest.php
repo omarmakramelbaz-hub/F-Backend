@@ -4,6 +4,7 @@ namespace App\Http\Requests\Dashboard\User;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Support\PartnerWorkArea;
 
 class StoreUserRequest extends FormRequest
 {
@@ -22,10 +23,48 @@ class StoreUserRequest extends FormRequest
      *
      * @return array
      */
+    protected function prepareForValidation()
+    {
+        foreach (PartnerWorkArea::FIELDS as $field) {
+            if ($this->has($field)) {
+                $value = PartnerWorkArea::normalize($this->input($field));
+                if ($field === 'work_radius_km' && is_string($value) && preg_match('/^[0-9]+$/D', $value)) {
+                    $value = ltrim($value, '0') ?: '0';
+                }
+                $this->merge([$field => $value]);
+            }
+        }
+    }
+
+    private function needsWorkArea(): bool
+    {
+        $user = $this->route('user');
+        return ($user instanceof \App\Models\User ? $user->account_type : $this->input('account_type')) === 'delegate';
+    }
+
+    public function messages()
+    {
+        return [
+            'work_lat.required' => 'حدد موقع الشريك بدبوس على الخريطة.',
+            'work_lng.required' => 'حدد موقع الشريك بدبوس على الخريطة.',
+            'work_lat.numeric' => 'موقع الدبوس غير صالح.',
+            'work_lat.between' => 'موقع الدبوس غير صالح.',
+            'work_lng.numeric' => 'موقع الدبوس غير صالح.',
+            'work_lng.between' => 'موقع الدبوس غير صالح.',
+            'work_radius_km.required' => 'أدخل حدود منطقة العمل بالكيلومتر.',
+            'work_radius_km.integer' => 'أدخل عددًا صحيحًا من 1 إلى 255 كم.',
+            'work_radius_km.between' => 'أدخل عددًا صحيحًا من 1 إلى 255 كم.',
+            'work_radius_km.regex' => 'أدخل عددًا صحيحًا من 1 إلى 255 كم.',
+        ];
+    }
+
     public function rules()
     {
         // dd(request()->pending_vendor_id);
         return [
+            'work_lat' => $this->needsWorkArea() ? 'required|numeric|between:-90,90' : 'prohibited',
+            'work_lng' => $this->needsWorkArea() ? 'required|numeric|between:-180,180' : 'prohibited',
+            'work_radius_km' => $this->needsWorkArea() ? ['required', 'integer', 'between:1,255', 'regex:/^[1-9][0-9]{0,2}$/D'] : 'prohibited',
             'name' => ['required','min:2', 'max:130'],
             'mobile' => ['sometimes','nullable','required_if:account_type,==,user','required_if:account_type,==,vendor','required_if:account_type,==,delegate','numeric','digits:10'],
             'email' => ['sometimes','nullable','required_if:account_type,==,admin','email'],

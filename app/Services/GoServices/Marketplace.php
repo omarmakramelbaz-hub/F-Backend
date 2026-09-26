@@ -22,8 +22,8 @@ class Marketplace {
   if($u->connected!=='active')return false;
   $p=DB::table('pending_vendors')->where('id',$u->pending_vendor_id)->where('application_kind','partner')->where('status','accepted')->where('profession_key',$j->profession_key)->first();
   if(!$p||$p->lat===null||$p->lng===null)return false;
-  $radius=(int)($p->work_radius_km?:5);
-  return in_array($radius,[5,10,15,20],true)&&Money::distance((float)$j->lat,(float)$j->lng,(float)$p->lat,(float)$p->lng)<=$radius;
+  $radius=(int)($p->work_radius_km??5);
+  return ($radius>=1&&$radius<=255)&&Money::distance((float)$j->lat,(float)$j->lng,(float)$p->lat,(float)$p->lng)<=$radius;
  }
  public function create(int $actor,array $data,string $hash):int {
   $id=DB::transaction(function()use($actor,$data,$hash){
@@ -53,8 +53,8 @@ class Marketplace {
      ->whereNotExists(function($q){$q->selectRaw('1')->from('go_service_assignments as a')->whereColumn('a.partner_id','u.id');})->select(['u.id','u.delegate_fees','p.lat','p.lng','p.work_radius_km']);
     foreach($q->cursor() as $p){
      try{Money::rate($p->delegate_fees);}catch(\InvalidArgumentException $e){continue;}
-     $radius=(int)($p->work_radius_km?:5);$d=Money::distance((float)$j->lat,(float)$j->lng,(float)$p->lat,(float)$p->lng);
-     if(in_array($radius,[5,10,15,20],true)&&$d<=$radius){$candidates[]=['id'=>(int)$p->id,'distance'=>$d];usort($candidates,fn($a,$b)=>[$a['distance'],$a['id']]<=>[$b['distance'],$b['id']]);$candidates=array_slice($candidates,0,$take);}
+     $radius=(int)($p->work_radius_km??5);$d=Money::distance((float)$j->lat,(float)$j->lng,(float)$p->lat,(float)$p->lng);
+     if(($radius>=1&&$radius<=255)&&$d<=$radius){$candidates[]=['id'=>(int)$p->id,'distance'=>$d];usort($candidates,fn($a,$b)=>[$a['distance'],$a['id']]<=>[$b['distance'],$b['id']]);$candidates=array_slice($candidates,0,$take);}
     }
    }
    $round=(int)$j->dispatch_round+1;

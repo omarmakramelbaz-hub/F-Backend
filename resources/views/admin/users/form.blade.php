@@ -323,11 +323,7 @@
                                      
                                      @endif
                                       @if(request()->account_type=='delegate')
-                                      <div class="form-group col-sm-6">
-                                            <label for="location"> @lang('main.location')</label><span class="text-danger">*</span>
-                                            <input type="text" name="location" required value=" {{ old('location', $pending_vendor?->location) }} " class="form-control @error('location') is-invalid @enderror"
-                                                id="location">
-                                        </div>
+                                      @include('admin.users.partials.work_area')
                                      
                                      @endif
                                      @if(request()->account_type=='vendor'||request()->account_type=='delegate')
@@ -345,6 +341,12 @@
     
     
     
+
+@if(\Route::currentRouteName() != 'users.create' && $user->account_type == 'delegate')
+    <div class="row">
+        @include('admin.users.partials.work_area')
+    </div>
+@endif
 
 <div class="form-group col-sm-6">
     <button type="submit" class="btn btn-success">@lang('main.save')</button>
