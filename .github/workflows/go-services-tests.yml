@@ -1,0 +1,38 @@
+name: GO service marketplace tests
+on:
+  push:
+    branches: [feat/go-service-marketplace-20260926]
+  pull_request:
+    paths: ['app/Services/GoServices/**', 'app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php', 'database/migrations/*go_service_marketplace.php', 'tests/go_services*', 'tests/go_services_runtime/**', '.github/workflows/go-services-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        db: [sqlite, mysql]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: go_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, pdo_mysql, pcntl, mbstring
+          tools: composer:2.7
+          coverage: none
+      - run: find app/Services/GoServices -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: php -l app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php && php -l routes/go_services.php && php -l app/Providers/RouteServiceProvider.php && php -l database/migrations/2026_09_26_090000_create_go_service_marketplace.php
+      - run: php tests/go_services_unit.php
+      - run: composer install --working-dir=tests/go_services_runtime --no-interaction --prefer-dist
+      - run: php tests/go_services_runtime/run.php
+        env:
+          TEST_DB: ${{ matrix.db }}

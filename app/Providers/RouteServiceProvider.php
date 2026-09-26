@@ -10,48 +10,27 @@ use Illuminate\Support\Facades\Route;
 
 class RouteServiceProvider extends ServiceProvider
 {
-    /**
-     * The path to the "home" route for your application.
-     *
-     * Typically, users are redirected here after authentication.
-     *
-     * @var string
-     */
     public const HOME = '/home';
 
-    /**
-     * Define your route model bindings, pattern filters, and other route configuration.
-     *
-     * @return void
-     */
     public function boot()
     {
         $this->configureRateLimiting();
 
+        // Append the new scheduler job without changing any legacy schedules.
+        $this->app->afterResolving(\Illuminate\Console\Scheduling\Schedule::class, function ($schedule) {
+            $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
+        });
+
         $this->routes(function () {
-            Route::middleware('api')
-                ->prefix('api')
-                ->group(base_path('routes/api.php'));
-
-            // Registered after api.php so this route safely overrides the
-            // legacy customer cancellation handler without disturbing the
-            // rest of the existing API routes.
-            Route::middleware('api')
-                ->prefix('api')
-                ->group(base_path('routes/api_cancel.php'));
-
-            Route::middleware('web')
-                ->group(base_path('routes/web.php'));
-            Route::middleware('web')
-                ->group(base_path('routes/admin.php'));
+            Route::middleware('api')->prefix('api')->group(base_path('routes/api.php'));
+            // Preserve the legacy cancellation override and all existing routes.
+            Route::middleware('api')->prefix('api')->group(base_path('routes/api_cancel.php'));
+            Route::middleware('api')->prefix('api')->group(base_path('routes/go_services.php'));
+            Route::middleware('web')->group(base_path('routes/web.php'));
+            Route::middleware('web')->group(base_path('routes/admin.php'));
         });
     }
 
-    /**
-     * Configure the rate limiters for the application.
-     *
-     * @return void
-     */
     protected function configureRateLimiting()
     {
         RateLimiter::for('api', function (Request $request) {

@@ -1,0 +1,7 @@
+{
+ "name":"go/service-marketplace-test-runtime",
+ "description":"Isolated Laravel 8 database runtime; never used by production",
+ "require":{"php":"^8.2","illuminate/database":"^8.83","illuminate/events":"^8.83"},
+ "config":{"sort-packages":true},
+ "minimum-stability":"stable"
+}
