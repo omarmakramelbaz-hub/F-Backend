@@ -6,7 +6,8 @@
     "illuminate/database": "^8.83",
     "illuminate/events": "^8.83",
     "illuminate/validation": "^8.83",
-    "illuminate/view": "^8.83"
+    "illuminate/view": "^8.83",
+    "ramsey/uuid": "^4.7"
   },
   "config": {"sort-packages": true}
 }
