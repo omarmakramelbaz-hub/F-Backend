@@ -25,14 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-          # These isolated tests do not need legacy unregistered website gitlinks.
+          # Remove the read-only token below without traversing legacy gitlinks
+          # whose missing .gitmodules entry breaks checkout's recursive cleanup.
+          persist-credentials: true
           sparse-checkout: |
             app
             config
             resources/views/admin/users
             public/dashboard/js
             tests/partner_work_area
+      - name: Remove checkout credentials before running code
+        run: git config --local --unset-all http.https://github.com/.extraheader
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
