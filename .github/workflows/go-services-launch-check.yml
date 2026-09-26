@@ -35,9 +35,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          output=$(mktemp)
           ssh -T -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes \
             -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
-            root@187.127.92.124 bash -s -- "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'REMOTE'
+            root@187.127.92.124 bash -s -- "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'REMOTE' | tee "$output"
           set -euo pipefail
           umask 077
           sha="$1"; run="$2"
@@ -59,5 +60,10 @@ jobs:
           mkdir -p "$stage/storage/framework/cache" "$stage/storage/framework/sessions" "$stage/storage/framework/views" "$stage/storage/logs" "$stage/bootstrap/cache"
           APP_BASE_PATH="$stage" php "$stage/deployment/go_service_release.php" inspect "$stage" "$run"
           APP_BASE_PATH="$stage" php "$stage/deployment/go_service_release.php" test "$stage" "$run"
-          echo 'LIVE SOURCE, LIVE DATA AND LIVE FEATURE FLAGS WERE NOT CHANGED.'
+          echo '__GO_ISOLATED_PREFLIGHT_COMPLETED__'
           REMOTE
+          if ! grep -Fxq '__GO_ISOLATED_PREFLIGHT_COMPLETED__' "$output" || \
+             ! grep -Eq '^PASS [0-9]+ isolated Laravel marketplace checks;' "$output"; then
+            echo '::error::SSH did not execute the requested preflight. A deploy-wrapper success is NOT a schema, backup, financial-test or activation result. Use an authorized server console; do not bypass the deploy-only identity.'
+            exit 1
+          fi
