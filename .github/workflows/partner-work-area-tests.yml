@@ -1,0 +1,51 @@
+name: Partner work area tests
+on:
+  push:
+    branches: [feat/admin-partner-work-area-20260926]
+  pull_request:
+    paths:
+      - 'app/Support/PartnerWorkArea.php'
+      - 'app/Repositories/UserRepository.php'
+      - 'app/Http/Requests/Dashboard/User/StoreUserRequest.php'
+      - 'app/Services/GoServices/Marketplace.php'
+      - 'config/partner_work_area.php'
+      - 'resources/views/admin/users/**'
+      - 'public/dashboard/js/partner-work-area.js'
+      - 'tests/partner_work_area/**'
+      - '.github/workflows/partner-work-area-tests.yml'
+permissions:
+  contents: read
+concurrency:
+  group: partner-work-area-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Remove the read-only token below without traversing legacy gitlinks
+          # whose missing .gitmodules entry breaks checkout's recursive cleanup.
+          persist-credentials: true
+          sparse-checkout: |
+            app
+            config
+            resources/views/admin/users
+            public/dashboard/js
+            tests/partner_work_area
+      - name: Remove checkout credentials before running code
+        run: git config --local --unset-all http.https://github.com/.extraheader
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, mbstring
+          tools: composer:2.8
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: php -l app/Repositories/UserRepository.php && php -l app/Http/Requests/Dashboard/User/StoreUserRequest.php && php -l app/Services/GoServices/Marketplace.php && php -l app/Support/PartnerWorkArea.php && php -l config/partner_work_area.php
+      - run: php tests/partner_work_area/unit.php && node tests/partner_work_area/map.test.js
+      - run: composer install --working-dir=tests/partner_work_area --no-interaction --prefer-dist
+      - run: php tests/partner_work_area/runtime.php
