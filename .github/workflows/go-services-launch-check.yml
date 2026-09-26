@@ -1,0 +1,69 @@
+name: GO services launch preflight
+on:
+  push:
+    branches: [feat/go-service-marketplace-20260926]
+    paths:
+      - deployment/go_service_release.php
+      - .github/workflows/go-services-launch-check.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fasakhansta-production-deploy
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release script syntax
+        run: php -l deployment/go_service_release.php
+      - name: Prepare existing deployment identity
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
+      - name: Inspect live schema and test isolated Laravel controller cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=$(mktemp)
+          ssh -T -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+            root@187.127.92.124 bash -s -- "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'REMOTE' | tee "$output"
+          set -euo pipefail
+          umask 077
+          sha="$1"; run="$2"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]] && [[ "$run" =~ ^[0-9]+$ ]]
+          live=/home/fasakhaninja/public_html
+          stage=/home/fasakhaninja/go-services-preflight-$run
+          test -f "$live/artisan" && test -d "$live/vendor"
+          git -C "$live" diff --quiet
+          git -C "$live" diff --cached --quiet
+          git -C "$live" fetch --no-tags origin feat/go-service-marketplace-20260926
+          test ! -e "$stage"
+          git -C "$live" worktree add --detach "$stage" "$sha"
+          chmod 700 "$stage"
+          trap 'git -C "$live" worktree remove --force "$stage" >/dev/null 2>&1 || true' EXIT
+          test ! -e "$stage/vendor"
+          cp -a "$live/vendor" "$stage/vendor"
+          cp -p "$live/.env" "$stage/.env"
+          chmod 600 "$stage/.env"
+          mkdir -p "$stage/storage/framework/cache" "$stage/storage/framework/sessions" "$stage/storage/framework/views" "$stage/storage/logs" "$stage/bootstrap/cache"
+          APP_BASE_PATH="$stage" php "$stage/deployment/go_service_release.php" inspect "$stage" "$run"
+          APP_BASE_PATH="$stage" php "$stage/deployment/go_service_release.php" test "$stage" "$run"
+          echo '__GO_ISOLATED_PREFLIGHT_COMPLETED__'
+          REMOTE
+          if ! grep -Fxq '__GO_ISOLATED_PREFLIGHT_COMPLETED__' "$output" || \
+             ! grep -Eq '^PASS [0-9]+ isolated Laravel marketplace checks;' "$output"; then
+            echo '::error::SSH did not execute the requested preflight. A deploy-wrapper success is NOT a schema, backup, financial-test or activation result. Use an authorized server console; do not bypass the deploy-only identity.'
+            exit 1
+          fi
