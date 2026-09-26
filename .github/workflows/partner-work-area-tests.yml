@@ -26,6 +26,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # These isolated tests do not need legacy unregistered website gitlinks.
+          sparse-checkout: |
+            app
+            config
+            resources/views/admin/users
+            public/dashboard/js
+            tests/partner_work_area
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
