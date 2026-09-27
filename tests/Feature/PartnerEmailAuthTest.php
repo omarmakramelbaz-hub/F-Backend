@@ -51,6 +51,7 @@ class PartnerEmailAuthTest extends TestCase
         });
         require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
         (new \CreateMediaTable())->up();
+        Storage::fake('local');
         Storage::fake('pending_vendor');
         Storage::fake('public');
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
@@ -311,5 +312,121 @@ class PartnerEmailAuthTest extends TestCase
         $this->assertSame(0, DB::table('media')->count());
         $this->assertSame([], Storage::disk('public')->allFiles());
         $this->assertSame([], Storage::disk('pending_vendor')->allFiles());
+    }
+
+    private function uploadSession(): string
+    {
+        return $this->postJson('/api/partner-applications/catalog-upload', [
+            'mobile'=>'01012345678', 'email'=>'partner@example.com',
+            'email_verification_token'=>$this->proof('application'),
+        ])->assertOk()->json('data.upload_token');
+    }
+
+    private function stagedPayload(string $token, int $count = 1): array
+    {
+        $payload = $this->storeApplicationPayload('unused');
+        unset($payload['email_verification_token'], $payload['store_logo'], $payload['product_images']);
+        $store = json_decode($payload['storefront'], true);
+        $product = $store['products'][0];
+        $store['products'] = [];
+        for ($i = 0; $i < $count; $i++) $store['products'][] = array_replace($product, ['name'=>'منتج '.$i, 'price'=>($i + 1).'.50']);
+        $payload['storefront'] = json_encode($store);
+        return $payload + ['catalog_upload_token'=>$token];
+    }
+
+    public function test_sixty_products_upload_in_batches_and_transfer_after_approval_only(): void
+    {
+        $token = $this->uploadSession();
+        $images = ['logo'=>UploadedFile::fake()->image('logo.png')];
+        $hashes = [];
+        for ($i = 0; $i < 60; $i++) {
+            $file = UploadedFile::fake()->image('product.png');
+            // More than the old 6 MB combined limit; each request remains small.
+            $content = file_get_contents($file->getPathname()).str_repeat(chr(65 + $i % 26), 130000);
+            $images['p'.$i] = UploadedFile::fake()->createWithContent('product.png', $content);
+            $hashes[$i] = hash('sha256', $content);
+        }
+        foreach (array_chunk($images, 5, true) as $batch) {
+            $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token, 'images'=>$batch])->assertOk();
+        }
+        $this->assertSame(0, PendingVendor::count());
+        $this->assertSame(0, DB::table('media')->count());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->postJson('/api/partner-applications', $this->stagedPayload($token, 61))->assertStatus(422);
+        $id = $this->postJson('/api/partner-applications', $this->stagedPayload($token, 60))->assertOk()->json('data.application_id');
+        $application = PendingVendor::findOrFail($id);
+        $products = $application->getMedia('go_store_draft_product');
+        $this->assertCount(60, $products);
+        foreach ($products as $i => $media) {
+            $this->assertSame('منتج '.$i, $media->getCustomProperty('name'));
+            $this->assertSame(($i + 1) * 100 + 50, $media->getCustomProperty('price_cents'));
+            $this->assertSame($hashes[$i], hash_file('sha256', $media->getPath()));
+        }
+        $this->assertCount(1, Storage::disk('local')->allFiles('go-store-signup')); // receipt only
+        $this->postJson('/api/partner-applications', $this->stagedPayload($token, 60))->assertOk()->assertJsonPath('data.application_id', $id);
+        $this->assertSame(1, PendingVendor::count());
+        $this->assertSame(0, DB::table('go_store_products')->count());
+        $admin = User::create(['id'=>1,'name'=>'Admin','account_type'=>'admin','app_scope'=>'fasakhansta']);
+        $this->actingAs($admin, 'admin');
+        $this->post(route('pending_vendors.approvePartner', $application))->assertRedirect();
+        $this->assertSame(60, DB::table('go_store_products')->count());
+        $this->post(route('pending_vendors.approvePartner', $application))->assertRedirect();
+        $this->assertSame(60, DB::table('go_store_products')->count());
+    }
+
+    public function test_staged_uploads_enforce_identity_slots_batch_size_and_expiry(): void
+    {
+        $this->postJson('/api/partner-applications/catalog-upload', ['mobile'=>'01012345678','email'=>'partner@example.com',
+            'email_verification_token'=>str_repeat('a',64)])->assertStatus(422);
+        $token = $this->uploadSession();
+        foreach (['p60', '../logo', 'anything'] as $slot) {
+            $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,
+                'images'=>[$slot=>UploadedFile::fake()->image('bad.png')]])->assertStatus(422);
+        }
+        $batch = [];
+        for ($i=0;$i<6;$i++) $batch['p'.$i] = UploadedFile::fake()->image('image.png');
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,'images'=>$batch])->assertStatus(422);
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,
+            'images'=>['logo'=>UploadedFile::fake()->image('large.png')->size(1025)]])->assertStatus(422);
+        foreach (['mobile'=>'01099999999','email'=>'other@example.com','profession_key'=>'plumber'] as $key=>$value) {
+            $this->postJson('/api/partner-applications', array_replace($this->stagedPayload($token),[$key=>$value]))->assertStatus(422);
+        }
+        $this->postJson('/api/partner-applications', $this->stagedPayload($token))->assertStatus(422); // incomplete
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>str_repeat('z',64),
+            'images'=>['logo'=>UploadedFile::fake()->image('logo.png')]])->assertStatus(422);
+        $this->assertSame(0, PendingVendor::count());
+        $this->travel(121)->minutes();
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,
+            'images'=>['logo'=>UploadedFile::fake()->image('logo.png')]])->assertStatus(422);
+        $this->travel(61)->minutes();
+        Storage::disk('public')->put('existing.png', 'keep');
+        $this->assertSame(1, app(\App\Services\GoStores\ApplicationUploads::class)->prune());
+        $this->assertSame([], Storage::disk('local')->allFiles('go-store-signup'));
+        Storage::disk('public')->assertExists('existing.png');
+    }
+
+    public function test_staged_capture_failure_preserves_uploads_and_can_retry_without_new_proof(): void
+    {
+        $token = $this->uploadSession();
+        $batch = ['catalog_upload_token'=>$token,'images'=>[
+            'logo'=>UploadedFile::fake()->image('logo.png'), 'p0'=>UploadedFile::fake()->image('old.png')]];
+        $this->postJson('/api/partner-applications/catalog-images', $batch)->assertOk();
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,
+            'images'=>['p0'=>UploadedFile::fake()->image('replacement.jpg')]])->assertOk();
+        $this->assertCount(3, Storage::disk('local')->allFiles('go-store-signup')); // fixed slots + manifest
+        app()->instance(\App\Services\GoStores\ApplicationCatalog::class, new class extends \App\Services\GoStores\ApplicationCatalog {
+            public function capture(PendingVendor $application, \Illuminate\Http\Request $request, array $store): void {
+                parent::capture($application, $request, $store);
+                throw new \RuntimeException('upload fixture failure');
+            }
+        });
+        $this->postJson('/api/partner-applications', $this->stagedPayload($token))->assertStatus(500);
+        $this->assertSame(0, PendingVendor::count());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->assertCount(3, Storage::disk('local')->allFiles('go-store-signup'));
+        app()->instance(\App\Services\GoStores\ApplicationCatalog::class, new \App\Services\GoStores\ApplicationCatalog());
+        Cache::flush(); // release cache clear must not lose private upload manifests
+        $this->postJson('/api/partner-applications', $this->stagedPayload($token))->assertOk();
+        $this->assertSame(1, PendingVendor::count());
     }
 }

@@ -68,6 +68,8 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::post('/partner-auth/password/reset', [PartnerEmailAuthController::class, 'resetPassword'])->middleware('throttle:10,1');
     Route::get('/professions', [PartnerApplicationController::class, 'indexProfessions']);
     Route::post('/partner-applications', [PartnerApplicationController::class, 'store']);
+    Route::post('/partner-applications/catalog-upload', [PartnerApplicationController::class, 'startCatalogUpload'])->middleware('throttle:5,1');
+    Route::post('/partner-applications/catalog-images', [PartnerApplicationController::class, 'uploadCatalogImages']);
     Route::post('/partner-applications/status', [PartnerApplicationController::class, 'status']);
     Route::post('/partner-applications/activate', [PartnerApplicationController::class, 'activate']);
     Route::get('/professions/{professionKey}/partners', [PartnerApplicationController::class, 'partners']);

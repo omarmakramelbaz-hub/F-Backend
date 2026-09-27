@@ -56,8 +56,24 @@ class PartnerApplicationController extends Controller
         return $this->successResponse($data, 'GO professions');
     }
 
+    public function startCatalogUpload(Request $request)
+    {
+        return $this->successResponse(app(\App\Services\GoStores\ApplicationUploads::class)->start($request), 'جلسة رفع الصور جاهزة.');
+    }
+
+    public function uploadCatalogImages(Request $request)
+    {
+        return $this->successResponse(app(\App\Services\GoStores\ApplicationUploads::class)->upload($request), 'تم رفع الصور.');
+    }
+
     public function store(Request $request)
     {
+        if ($request->has('catalog_upload_token')) {
+            return app(\App\Services\GoStores\ApplicationUploads::class)->submit($request, function ($email, $stagedRequest) {
+                $storefront = app(\App\Services\GoStores\ApplicationCatalog::class)->validate($stagedRequest);
+                return $this->storeVerified($stagedRequest, $email, $storefront);
+            });
+        }
         $data = $request->validate([
             'mobile' => 'required|string|min:10|max:20',
             'email' => 'required|email:rfc|max:254',
