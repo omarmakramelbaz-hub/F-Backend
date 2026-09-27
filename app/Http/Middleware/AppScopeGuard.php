@@ -32,6 +32,6 @@ class AppScopeGuard
             ], 401);
         }
 
-        return $next($request);
+        return (new GoWalletMinimum())->handle($request, $next);
     }
 }

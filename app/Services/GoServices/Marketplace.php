@@ -27,9 +27,10 @@ class Marketplace {
  }
  public function create(int $actor,array $data,string $hash):int {
   $id=DB::transaction(function()use($actor,$data,$hash){
-   $this->actor($actor,'customer',true);
+   $customer=$this->actor($actor,'customer',true);
    $old=DB::table('go_service_jobs')->where('customer_id',$actor)->where('request_key',$data['request_key'])->first();
    if($old){if(!hash_equals($old->payload_hash,$hash))$this->fail('مفتاح الطلب مستخدم لبيانات مختلفة.',409);return (int)$old->id;}
+   WalletPolicy::requireMinimum($customer);
    if(DB::table('go_service_jobs')->where('customer_id',$actor)->whereIn('status',array_merge(['searching'],self::ACTIVE))->count()>=(int)config('go_services.max_open_jobs',5))$this->fail('أكمل أو ألغِ الطلبات المفتوحة أولًا.');
    // Keep legacy NOT NULL columns empty; neither field is collected for new GO requests.
    return (int)DB::table('go_service_jobs')->insertGetId(['customer_id'=>$actor,'request_key'=>$data['request_key'],'payload_hash'=>$hash,'profession_key'=>$data['profession_key'],'description'=>trim($data['description']),'area'=>'','address'=>trim($data['address']),'phone'=>'','lat'=>$data['lat'],'lng'=>$data['lng'],'photos'=>json_encode($data['photos']??[]),'scheduled_at'=>$data['scheduled_at']??null,'status'=>'searching','search_until'=>now()->addMinutes((int)config('go_services.search_minutes',60)),'next_dispatch_at'=>now(),'created_at'=>now(),'updated_at'=>now()]);
@@ -49,7 +50,7 @@ class Marketplace {
    $count=DB::table('go_service_recipients')->where('job_id',$id)->count();
    $take=min((int)config('go_services.batch_size',5),max(0,(int)config('go_services.max_recipients',100)-$count));$candidates=[];
    if($take>0){
-    $q=DB::table('users as u')->join('pending_vendors as p','p.id','=','u.pending_vendor_id')->where('u.account_type','delegate')->where('u.app_scope','go_partner')->where('u.status','accepted')->where('u.connected','active')->where('p.application_kind','partner')->where('p.status','accepted')->where('p.profession_key',$j->profession_key)->whereNotNull('p.lat')->whereNotNull('p.lng')
+    $q=DB::table('users as u')->join('pending_vendors as p','p.id','=','u.pending_vendor_id')->where('u.account_type','delegate')->where('u.app_scope','go_partner')->where('u.status','accepted')->where('u.connected','active')->where('u.balance','>=','50.00')->where('p.application_kind','partner')->where('p.status','accepted')->where('p.profession_key',$j->profession_key)->whereNotNull('p.lat')->whereNotNull('p.lng')
      ->whereNotExists(function($q)use($id){$q->selectRaw('1')->from('go_service_recipients as r')->whereColumn('r.partner_id','u.id')->where('r.job_id',$id);})
      ->whereNotExists(function($q){$q->selectRaw('1')->from('go_service_assignments as a')->whereColumn('a.partner_id','u.id');})->select(['u.id','u.delegate_fees','p.lat','p.lng','p.work_radius_km']);
     foreach($q->cursor() as $p){
@@ -70,12 +71,12 @@ class Marketplace {
    if(!$r||!in_array($r->status,['invited','quoted'],true))$this->fail('هذا الطلب غير متاح لإرسال عرض.',403);
    if(!$this->matches($j,$p)||DB::table('go_service_assignments')->where('partner_id',$actor)->exists())$this->fail('يجب أن تكون متاحًا وداخل نطاق الخدمة لإرسال عرض.');
    $price=Money::minor($data['price']);$bps=$this->rate($p);if($price<100||$price>100000000)$this->fail('قيمة العرض غير صالحة.');
-   if(Money::minor($p->balance)<Money::commission($price,$bps))$this->fail('اشحن محفظتك بقيمة العمولة المطلوبة. لن تخصم إلا عند قبول العميل.');
    $old=DB::table('go_service_offers')->where('job_id',$id)->where('partner_id',$actor)->first();
    if($old){
     if($old->status!=='offered'||(int)$old->price_cents!==$price||$old->scope!==trim($data['scope'])||(int)$old->arrival_minutes!==(int)$data['arrival_minutes']||(int)$old->duration_minutes!==(int)$data['duration_minutes']||(bool)$old->materials_included!==(bool)$data['materials_included'])$this->fail('العرض مسجل بالفعل ولا يمكن تغييره من طرف واحد.',409);
     return (int)$old->id;
    }
+   WalletPolicy::requireMinimum($p);
    $offer=(int)DB::table('go_service_offers')->insertGetId(['job_id'=>$id,'partner_id'=>$actor,'price_cents'=>$price,'commission_bps'=>$bps,'scope'=>trim($data['scope']),'materials_included'=>(bool)$data['materials_included'],'arrival_minutes'=>$data['arrival_minutes'],'duration_minutes'=>$data['duration_minutes'],'status'=>'offered','expires_at'=>now()->addMinutes((int)config('go_services.offer_minutes',30))->min(Carbon::parse($j->search_until)),'created_at'=>now(),'updated_at'=>now()]);
    DB::table('go_service_recipients')->where('id',$r->id)->update(['status'=>'quoted','updated_at'=>now()]);$this->notify($id,(int)$j->customer_id,'offer:'.$offer,'وصلك عرض سعر جديد. راجع السعر ونطاق الشغل قبل الموافقة.');return $offer;
   },3);
@@ -87,11 +88,12 @@ class Marketplace {
    $this->searching($j);if(!in_array($method,$this->paymentMethods(),true))$this->fail('طريقة الدفع غير مفعلة حاليًا.');
    $o=DB::table('go_service_offers')->where('id',$offerId)->where('job_id',$id)->lockForUpdate()->first();
    if(!$o||$o->status!=='offered'||Carbon::parse($o->expires_at)->lte(now()))$this->fail('هذا العرض انتهى أو لم يعد متاحًا.',409);
-   DB::table('users')->whereIn('id',[$actor,$o->partner_id])->orderBy('id')->lockForUpdate()->get();$this->actor($actor,'customer');$p=$this->actor((int)$o->partner_id,'partner');
+   DB::table('users')->whereIn('id',[$actor,$o->partner_id])->orderBy('id')->lockForUpdate()->get();$customer=$this->actor($actor,'customer');$p=$this->actor((int)$o->partner_id,'partner');
+   WalletPolicy::requireMinimum($customer);WalletPolicy::requireMinimum($p);
    if(!$this->matches($j,$p))$this->fail('الصنايعي غير متاح الآن. اختر عرضًا آخر.',409);
    $bps=$this->rate($p);if($bps!==(int)$o->commission_bps)$this->fail('تغيرت عمولة الصنايعي بعد إرسال العرض. اختر عرضًا آخر أو أنشئ طلبًا جديدًا.',409);
    if(DB::table('go_service_assignments')->where('partner_id',$p->id)->exists())$this->fail('الصنايعي مرتبط بطلب آخر. اختر عرضًا آخر.',409);
-   $fee=Money::commission((int)$o->price_cents,$bps);if(Money::minor($p->balance)<$fee)$this->fail('رصيد الصنايعي لا يغطي العمولة. اختر عرضًا آخر أو انتظر شحن محفظته.',409);
+   $fee=Money::commission((int)$o->price_cents,$bps);
    DB::table('go_service_assignments')->insert(['partner_id'=>$p->id,'job_id'=>$id,'created_at'=>now()]);$this->move($id,'commission',(int)$p->id,null,$fee);
    $payment=$method==='cash'?'cash_due':'unpaid';$held=0;
    if($method==='wallet'){$this->move($id,'customer_hold',$actor,null,(int)$o->price_cents);$payment='held';$held=(int)$o->price_cents;}
@@ -131,7 +133,6 @@ class Marketplace {
      if($j->payment_method==='wallet'&&(int)$j->held_cents>0)$this->move($id,'customer_refund',null,(int)$j->customer_id,(int)$j->held_cents);
      if($system){$this->move($id,'commission_refund',null,(int)$j->partner_id,$fee);}
      elseif($owner){
-      if(Money::minor(DB::table('users')->where('id',$actor)->value('balance'))<$fee)$this->fail('رصيد محفظتك لا يغطي قيمة خدمة التطبيق للإلغاء. اشحن المحفظة أولًا؛ الطلب ما زال قائمًا.',409);
       $this->move($id,'cancellation_fee',$actor,null,$fee);
       $this->move($id,'commission_refund',null,(int)$j->partner_id,$fee);
      }
@@ -164,7 +165,13 @@ class Marketplace {
  /** Caller holds job/user locks. Unique ledger keys make retries harmless. */
  private function move(int $job,string $kind,?int $from,?int $to,int $amount):void {
   $key='job:'.$job.':'.$kind;if(DB::table('go_service_ledger')->where('event_key',$key)->exists())return;if($amount<0)throw new \LogicException('Negative transfer');$decimal=Money::decimal($amount);
-  if($from&&$amount>0&&!DB::table('users')->where('id',$from)->where('balance','>=',$decimal)->decrement('balance',$decimal))$this->fail('رصيد المحفظة غير كافٍ. لم يتم تأكيد الاتفاق أو خصم العمولة.');
+  if($from&&$amount>0){
+   // Only earned app fees may create debt. Customer purchase/payment holds still
+   // require sufficient funds; debt blocks new orders, never existing-job follow-up.
+   $debit=DB::table('users')->where('id',$from);
+   if(!in_array($kind,['commission','cancellation_fee'],true))$debit->where('balance','>=',$decimal);
+   if(!$debit->decrement('balance',$decimal))$this->fail('رصيد المحفظة غير كافٍ لتغطية قيمة الطلب.');
+  }
   if($to&&$amount>0&&!DB::table('users')->where('id',$to)->increment('balance',$decimal))throw new \RuntimeException('Wallet owner missing');
   if(in_array($kind,['commission','commission_refund','cancellation_fee'],true)){
    if(config('settings.cache.enabled',false)||config('settings.default_repository','database')!=='database')throw new \RuntimeException('GO services require the uncached database settings repository for atomic app balance updates.');
@@ -211,6 +218,6 @@ class Marketplace {
    else $q->where(function($q)use($actor){$q->where(function($q){$q->where('j.status','searching')->whereIn('r.status',['invited','quoted']);})->orWhere(function($q)use($actor){$q->where('j.partner_id',$actor)->whereIn('j.status',self::ACTIVE);});});
   }else{$q->where('j.customer_id',$actor);if($scope!=='all')$q->whereIn('j.status',$scope==='history'?['completed','cancelled','expired']:array_merge(['searching'],self::ACTIVE));}
   $ids=$q->orderByDesc('j.id')->offset(($page-1)*20)->limit(21)->pluck('j.id');$rate=null;if($partner){try{$rate=Money::decimal($this->rate($u));}catch(\Throwable $e){}}
-  return ['items'=>$ids->take(20)->map(fn($id)=>$this->read((int)$id,$actor))->all(),'next_page'=>$ids->count()>20?$page+1:null,'balance'=>(string)$u->balance,'commission_rate'=>$rate,'payment_methods'=>$this->paymentMethods()];
+  return ['items'=>$ids->take(20)->map(fn($id)=>$this->read((int)$id,$actor))->all(),'next_page'=>$ids->count()>20?$page+1:null,'balance'=>(string)$u->balance,'wallet'=>WalletPolicy::summary($u),'commission_rate'=>$rate,'payment_methods'=>$this->paymentMethods()];
  }
 }

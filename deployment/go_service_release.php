@@ -134,7 +134,7 @@ function smoke(string $root): int {
         $j=$create('launch-cancel-job-0003');$o=$quote($j,10);$as(1);$api->accept($request(['payment_method'=>'wallet']),$j,$o);
         $api->status($request(['status'=>'cancelled','reason'=>'Fixture cancellation','cancellation_fee'=>'10.00']),$j);$api->status($request(['status'=>'cancelled','reason'=>'Fixture retry']),$j);
         $eq($balance(1),89000,'customer refund less cancellation fee once');$eq($balance(10),109000,'commission refund once');$eq($appBalance(),104000,'cancelling customer bears fee once');
-        $j=$create('launch-insufficient-0004');$o=$quote($j,10);DB::table('users')->where('id',1)->update(['balance'=>'0.00']);$as(1);
+        $j=$create('launch-insufficient-0004');$o=$quote($j,10);DB::table('users')->where('id',1)->update(['balance'=>'50.00']);$as(1);
         try{$api->accept($request(['payment_method'=>'wallet']),$j,$o);throw new GoLaunchFailure('Insufficient funds were accepted.');}
         catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){$eq($e->getStatusCode(),422,'insufficient funds rejected');}
         $eq($balance(10),109000,'failed acceptance rolls back partner debit');$eq($appBalance(),104000,'failed acceptance rolls back app credit');

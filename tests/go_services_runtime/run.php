@@ -13,7 +13,7 @@ use App\Services\GoServices\Money;
 use App\Services\GoServices\Payments;
 use App\Services\GoServices\PaymobHmac;
 $root=dirname(__DIR__,2);
-foreach(['Money','PaymobHmac','Marketplace','Payments'] as $class)require $root.'/app/Services/GoServices/'.$class.'.php';
+foreach(['Money','WalletPolicy','PaymobHmac','Marketplace','Payments'] as $class)require $root.'/app/Services/GoServices/'.$class.'.php';
 require $root.'/database/migrations/2026_09_26_090000_create_go_service_marketplace.php';
 function now(){return Carbon::now('UTC');}
 function abort($code,$message=''){throw new DomainException($message,(int)$code);}
@@ -90,8 +90,8 @@ eq($m->listing(10,'current')['items'][0]['commission_rate'],'12.50','orders boar
 eq($m->read($j,11)['commission_rate'],null,'other partner cannot see chosen partner commission');eq($m->read($j,1)['commission_rate'],null,'customer cannot see selected partner fee');
 $m->transition($j,1,'cancelled','Customer cancelled',false,1263);$view=$m->read($j,10);
 eq($view['commission_status'],'refunded','cancelled agreement reports refund');eq($view['commission_rate'],'12.50','refund retains historical rate');
-resetDb();DB::table('users')->where('id',10)->update(['delegate_fees'=>'0.00','balance'=>'0.00']);$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'cash');$view=$m->read($j,10);
-eq($view['commission_rate'],'0.00','explicit zero rate retained');eq($view['commission'],'0.00','explicit zero amount retained');eq($view['commission_status'],'charged','zero rate still has a committed acceptance ledger');eq(bal(10),0,'zero rate does not debit wallet');eq(appBal(),100000,'zero rate does not credit app');
+resetDb();DB::table('users')->where('id',10)->update(['delegate_fees'=>'0.00','balance'=>'50.00']);$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'cash');$view=$m->read($j,10);
+eq($view['commission_rate'],'0.00','explicit zero rate retained');eq($view['commission'],'0.00','explicit zero amount retained');eq($view['commission_status'],'charged','zero rate still has a committed acceptance ledger');eq(bal(10),5000,'zero rate does not debit wallet');eq(appBal(),100000,'zero rate does not credit app');
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'wallet');$m->transition($j,1,'cancelled','Changed plan',false,1000);$m->transition($j,1,'cancelled','Retry');eq(bal(1),99000,'hold refunded and customer cancellation fee charged once');eq(bal(10),10000,'commission refunded once');eq(appBal(),101000,'one service fee retained after customer cancellation');eq($m->read($j,10)['phone'],null,'refunded cancellation closes contact access');
 // Cancellation is never a free escape after an accepted agreement.
 foreach(['cash','wallet'] as $method){
@@ -106,15 +106,27 @@ foreach(['cash','wallet'] as $method){
  eq($m->read($j,10)['cancellation']['charged_to'],'partner','partner cancellation liability shown');eq($m->read($j,10)['phone'],null,'contact closes even when cancellation fee is retained');
 }
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'cash');DB::table('users')->where('id',1)->update(['balance'=>'5.00']);
-deny(fn()=> $m->transition($j,1,'cancelled','Cannot pay',false,1000),409,'cash customer needs funds for cancellation');eq($m->read($j,1)['status'],'booked','failed cancellation keeps agreement');eq(bal(10),9000,'failed cancellation does not refund partner');eq(appBal(),101000,'failed cancellation does not change revenue');eq(DB::table('go_service_ledger')->where('kind','cancellation_by')->count(),0,'failed cancellation has no audit event');
-DB::table('users')->where('id',1)->update(['balance'=>'10.00']);$m->transition($j,1,'cancelled','Customer cancelled',false,1000);$m->transition($j,1,'cancelled','Retry',false,1000);
-eq(bal(1),0,'customer charged exact recorded fee');eq(bal(10),10000,'non-cancelling partner gets commission back');eq(appBal(),101000,'liability transfer does not double revenue');eq($m->read($j,1)['cancellation']['charged_to'],'customer','customer cancellation liability shown');
+$m->transition($j,1,'cancelled','Customer bears debt',false,1000);$m->transition($j,1,'cancelled','Retry',false,1000);
+eq($m->read($j,1)['status'],'cancelled','existing order cancellation can create debt');eq(bal(1),-500,'available five pounds plus five pounds debt covers fee');eq(bal(10),10000,'non-cancelling partner gets full commission back');eq(appBal(),101000,'fee liability transfer does not double revenue');eq($m->read($j,1)['cancellation']['charged_to'],'customer','customer cancellation liability shown');
 resetDb();DB::table('users')->where('id',1)->update(['balance'=>'100.00']);$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'wallet');$m->transition($j,1,'cancelled','Use released hold',false,1000);eq(bal(1),9000,'released wallet hold covers cancellation fee');
 resetDb();$j=job($m);$m->transition($j,1,'cancelled','Before agreement');eq(bal(1),100000,'pre-acceptance cancellation is free');eq(appBal(),100000,'no fee without agreement');
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'cash');$m->transition($j,10,'in_progress');deny(fn()=> $m->transition($j,1,'cancelled','Already started',false,1000),422,'after start requires dispute');
-resetDb();$j=job($m);$o=offer($m,$j);DB::table('users')->where('id',1)->update(['balance'=>0]);deny(fn()=> $m->accept($j,$o,1,'wallet'),422,'insufficient customer funds');eq(bal(10),10000,'partner debit rolled back');eq(appBal(),100000,'app credit rolled back');eq($m->read($j,10)['phone'],null,'failed acceptance never releases customer phone');eq(DB::table('go_service_assignments')->count(),0,'reservation rolled back');eq(DB::table('go_service_ledger')->count(),0,'ledger rolled back');
+resetDb();$j=job($m);$o=offer($m,$j);DB::table('users')->where('id',1)->update(['balance'=>50]);deny(fn()=> $m->accept($j,$o,1,'wallet'),422,'insufficient customer funds');eq(bal(10),10000,'partner debit rolled back');eq(appBal(),100000,'app credit rolled back');eq($m->read($j,10)['phone'],null,'failed acceptance never releases customer phone');eq(DB::table('go_service_assignments')->count(),0,'reservation rolled back');eq(DB::table('go_service_ledger')->count(),0,'ledger rolled back');
 DB::table('users')->where('id',10)->update(['connected'=>'inactive']);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'offline partner denied');DB::table('users')->where('id',10)->update(['connected'=>'active','delegate_fees'=>20]);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'changed commission not silently charged');
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'cash');$m->transition($j,10,'in_progress');$m->transition($j,1,'disputed','Work not as agreed');deny(fn()=> $m->transition($j,1,'completed'),409,'dispute blocks payout');
+// Minimum EGP 50 applies to admission, while earned app fees can create debt.
+foreach(['49.99','0.00','-5.00'] as $balance){
+ resetDb();DB::table('users')->where('id',1)->update(['balance'=>$balance]);deny(fn()=>job($m),409,'low-balance customer cannot create a new job');
+ eq(DB::table('go_service_jobs')->count(),0,'blocked request creates no job');
+}
+resetDb();DB::table('users')->where('id',10)->update(['balance'=>'49.99']);$j=job($m);eq(DB::table('go_service_recipients')->where('job_id',$j)->where('partner_id',10)->count(),0,'underfunded partner excluded from dispatch');
+resetDb();$j=job($m);DB::table('users')->where('id',10)->update(['balance'=>'49.99']);deny(fn()=>offer($m,$j),409,'partner cannot quote below minimum');
+resetDb();DB::table('users')->whereIn('id',[1,10])->update(['balance'=>'50.00']);DB::table('users')->where('id',10)->update(['delegate_fees'=>'100.00']);$j=job($m);$o=offer($m,$j);
+$m->accept($j,$o,1,'cash');$m->accept($j,$o,1,'cash');eq(bal(10),-5000,'agreed commission debits full amount into debt once');eq(appBal(),110000,'full fee including debt credited to app');
+$wallet=$m->listing(10,'current')['wallet'];eq($wallet['can_accept_orders'],false,'debt blocks future requests');eq($wallet['top_up_required'],'100.00','topup first clears debt then restores fifty pound minimum');
+$m->transition($j,10,'in_progress');$m->transition($j,10,'awaiting_confirmation');$m->transition($j,1,'completed');eq(bal(10),-5000,'existing work can finish while wallet is in debt');
+resetDb();$j=job($m);$o=offer($m,$j);DB::table('users')->where('id',10)->update(['balance'=>'49.99']);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'offer cannot be accepted when partner falls below minimum');eq(appBal(),100000,'minimum rejection charges nothing');
+resetDb();$j=job($m);$o=offer($m,$j);DB::table('users')->where('id',1)->update(['balance'=>'49.99']);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'customer cannot accept another quote below minimum');
 resetDb();$settings['go_services']['paymob']['enabled']=true;$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'card');
 DB::table('go_service_payments')->insert(['job_id'=>$j,'reference'=>'00000000-0000-0000-0000-000000000001','integration_id'=>9,'amount_cents'=>10000,'gateway_order_id'=>'200','status'=>'pending','expires_at'=>now()->addMinutes(10),'created_at'=>now(),'updated_at'=>now()]);
 $p=new Payments();$obj=['id'=>300,'order'=>['id'=>200],'amount_cents'=>10000,'currency'=>'EGP','integration_id'=>9,'is_live'=>false,'success'=>true,'pending'=>false,'is_auth'=>false,'is_capture'=>false,'is_standalone_payment'=>true,'error_occured'=>false];$sig=PaymobHmac::digest($obj,'fixture-hmac');

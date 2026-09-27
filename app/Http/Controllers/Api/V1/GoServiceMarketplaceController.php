@@ -18,7 +18,12 @@ class GoServiceMarketplaceController extends Controller {
  private function actor():int {$this->ready();$id=(int)auth('api')->id();$this->market->actor($id);return $id;}
  private function decorate(array $j):array {$j['photos']=[];for($i=0;$i<$j['photo_count'];$i++)$j['photos'][]=URL::temporarySignedRoute('go-services.photo',now()->addMinutes(10),['job'=>$j['id'],'index'=>$i]);unset($j['photo_count']);return $j;}
  private function result(int $id){try{(new Outbox())->flush(10);}catch(\Throwable $e){report($e);}return $this->successResponse($this->decorate($this->market->read($id,$this->actor())));}
- public function capabilities(){return $this->successResponse(['schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled'),'version'=>1,'payment_methods'=>$this->market->paymentMethods(),'currency'=>'EGP','cancellation_policy'=>'cancelling_party_v1']);}
+ public function capabilities(){return $this->successResponse(['schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled'),'version'=>1,'payment_methods'=>$this->market->paymentMethods(),'currency'=>'EGP','cancellation_policy'=>'cancelling_party_v1','minimum_wallet_balance'=>'50.00','fee_overdraft'=>true]);}
+ public function walletStatus(){
+  $user=DB::table('users')->where('id',auth('api')->id())->first();
+  abort_unless($user&&in_array($user->account_type,['user','delegate','vendor','resturant_owner'],true),403);
+  return $this->successResponse(\App\Services\GoServices\WalletPolicy::summary($user));
+ }
  public function index(Request $r){$r->validate(['scope'=>'nullable|in:open,new,current,history,all','page'=>'nullable|integer|min:1|max:10000']);$d=$this->market->listing($this->actor(),$r->input('scope','open'),(int)$r->input('page',1));$d['items']=array_map(fn($j)=>$this->decorate($j),$d['items']);return $this->successResponse($d);}
  public function show(int $job){return $this->successResponse($this->decorate($this->market->read($job,$this->actor())));}
  public function store(Request $r){
