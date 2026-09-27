@@ -33,7 +33,9 @@
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline-danger'; remove.textContent = 'حذف الاختيار'; remove.onclick = () => row.remove();
         row.append(label, price, remove); holder.append(row);
     }
-    (typeof initial === 'string' ? JSON.parse(initial || '[]') : initial).forEach(add);
+    let options = [];
+    try { options = typeof initial === 'string' ? JSON.parse(initial || '[]') : initial; } catch (_) {}
+    if (Array.isArray(options)) options.forEach(add);
     document.getElementById('add-option').onclick = () => add();
     hidden.form.addEventListener('submit', () => {
         hidden.value = JSON.stringify(Array.from(holder.children).map(row => ({ ...(row.dataset.id ? {id: row.dataset.id} : {}), label: row.children[0].value, price: row.children[1].value })));
