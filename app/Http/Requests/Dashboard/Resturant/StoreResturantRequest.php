@@ -24,6 +24,7 @@ class StoreResturantRequest extends FormRequest
     public function rules()
     {
         return [
+            'service_fees' => ['sometimes', 'required', 'numeric', 'between:0,100', 'regex:/^\d{1,3}(?:\.\d{1,2})?$/D'],
             'added_by' => 'required|exists:users,id',
             'name' => 'required|string|min:3|max:500',
             'status' => 'required|string|in:opened,busy,closed,hide',

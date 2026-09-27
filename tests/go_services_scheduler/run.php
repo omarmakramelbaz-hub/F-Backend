@@ -60,7 +60,7 @@ if (!in_array('POST /api/go-services/jobs is missing auth:api.', goServiceRouteI
     throw new RuntimeException('The release check accepted a GO write route without authentication.');
 }
 $router->setRoutes(new \Illuminate\Routing\RouteCollection());
-if (count(goServiceRouteIssues($router)) !== 13) {
+if (count(goServiceRouteIssues($router)) !== 14) {
     throw new RuntimeException('The release check must reject missing GO routes.');
 }
 echo "PASS GO route matching with missing legacy controller; wrong targets, absent auth and missing routes rejected. No controllers executed.\n";

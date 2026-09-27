@@ -62,8 +62,9 @@ class UserResource extends JsonResource
             'photo_profile'       => $this->getFirstMediaUrl('photo_profile','thumb'),
             'mobile_verified_at'  => $this->mobile_verified_at,
             'balance'             => $this->balance,
-            'min_wallet'          =>$this->min_wallet,
-            'min_wallet_disabled'          =>$this->min_wallet?$this->min_wallet/2:null,
+            'min_wallet'          =>in_array($request->header('X-App-Scope'),['go','go_partner'],true)?50:$this->min_wallet,
+            'go_wallet'           =>in_array($request->header('X-App-Scope'),['go','go_partner'],true)?\App\Services\GoServices\WalletPolicy::summary($this->resource):null,
+            'min_wallet_disabled'          =>in_array($request->header('X-App-Scope'),['go','go_partner'],true)?50:($this->min_wallet?$this->min_wallet/2:null),
             
             'resturant_id'        => ($resturant)? (int) $resturant->id:null,
             'resturant_lat'        => ($resturant)? $resturant->lat:null,

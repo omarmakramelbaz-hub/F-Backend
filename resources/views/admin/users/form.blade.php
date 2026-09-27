@@ -120,13 +120,14 @@
         @endif
     @elseif(request('account_type') == 'delegate')
      <div class="form-group col-sm-6">
-        <label for="delegate_fees"> @lang('main.delegate_fees')</label><span class="text-danger">*</span>
+        <label for="delegate_fees">{{ __('go_fees.account_rate') }}</label><span class="text-danger">*</span>
              <div class="input-group mb-3">
      <span class="input-group-text" id="basic-addon1">%</span>
 
-        <input type="text" name="delegate_fees" @if(request('pending_vendor')) value="{{ old('delegate_fees', $pending_vendor?->delegate_fees) }}" @else value="{{ old('delegate_fees', $user->delegate_fees) }}" @endif
-            class="form-control  @error('delegate_fees') is-invalid @enderror" id="delegate_fees" placeholder="@lang('main.enter') @lang('main.delegate_fees')">
+        <input type="number" min="0" max="100" step="0.01" name="delegate_fees" @if(request('pending_vendor')) value="{{ old('delegate_fees', $pending_vendor?->delegate_fees) }}" @else value="{{ old('delegate_fees', $user->delegate_fees) }}" @endif
+            class="form-control  @error('delegate_fees') is-invalid @enderror" id="delegate_fees" aria-describedby="delegate_fees_help" placeholder="0.00">
    </div>
+   <small id="delegate_fees_help" class="text-muted">{{ __('go_fees.professional_help') }}</small>
     </div>
       <input type="hidden" name="roles_name[0]" value="delegate"/>
     @elseif(request('account_type') == 'vendor')

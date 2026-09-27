@@ -181,7 +181,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         $longitude = $order->shipping?->from_lng;
         $setting=app(GeneralSettings::class);
         // return [$latitude,$longitude];
-        $delegates = User::where('connected','active')->where('status','accepted')->where('account_type','delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians('.$latitude.') ) * cos( radians( lat ) ) * 
+        $delegates = User::where('connected','active')->where('status','accepted')->where('account_type','delegate')->when($order->user?->app_scope==='go',fn($q)=>$q->where('balance','>=','50.00'))->select(\DB::raw('*, ( 6367 * acos( cos( radians('.$latitude.') ) * cos( radians( lat ) ) * 
           cos( radians( lng ) - radians('.$longitude.') ) + sin( radians('.$latitude.') ) * sin( radians( lat ) ) ) ) AS distance'))
         ->having('distance', '<', 10)
         ->orderBy('distance')->get();

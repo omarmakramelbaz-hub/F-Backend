@@ -8,6 +8,7 @@ function goServiceRouteIssues(\Illuminate\Routing\Router $router): array
         ['POST', 'paymob/webhook', 'webhook'],
         ['GET', 'payment-return', 'paymentReturn'],
         ['GET', 'jobs', 'index'],
+        ['GET', 'wallet-status', 'walletStatus'],
         ['POST', 'jobs', 'store'],
         ['GET', 'jobs/1', 'show'],
         ['POST', 'jobs/1/offers', 'quote'],
@@ -30,7 +31,7 @@ function goServiceRouteIssues(\Illuminate\Routing\Router $router): array
         if ($route->getActionName() !== $controller.'@'.$action) {
             $issues[] = $method.' '.$uri.' targets the wrong action.';
         }
-        if (str_starts_with($path, 'jobs')) {
+        if (str_starts_with($path, 'jobs') || $path === 'wallet-status') {
             foreach (['auth:api', 'app.scope', 'custom.jwt'] as $middleware) {
                 if (!in_array($middleware, $route->middleware(), true)) {
                     $issues[] = $method.' '.$uri.' is missing '.$middleware.'.';

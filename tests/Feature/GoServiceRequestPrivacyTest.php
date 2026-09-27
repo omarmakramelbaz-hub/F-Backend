@@ -86,4 +86,44 @@ class GoServiceRequestPrivacyTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->submit(['address' => '']);
     }
+    public function test_cancellation_requires_fee_confirmation_and_charges_the_customer_once(): void
+    {
+        config(['settings.cache.enabled' => false, 'settings.default_repository' => 'database']);
+        Schema::create('settings', function (Blueprint $t) {
+            $t->id(); $t->string('group'); $t->string('name'); $t->text('payload');
+        });
+        Schema::create('wallets', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('from_user')->nullable(); $t->unsignedBigInteger('to_user')->nullable();
+            $t->string('status'); $t->string('payment'); $t->string('type'); $t->decimal('amount', 14, 2); $t->timestamps();
+        });
+        DB::table('settings')->insert(['group' => 'general', 'name' => 'app_balance', 'payload' => '"1000.00"']);
+        DB::table('pending_vendors')->insert(['id' => 10, 'application_kind' => 'partner', 'status' => 'accepted',
+            'profession_key' => 'plumber', 'lat' => 30, 'lng' => 31, 'work_radius_km' => 5]);
+        DB::table('users')->insert(['id' => 10, 'name' => 'Partner fixture', 'status' => 'accepted', 'account_type' => 'delegate',
+            'app_scope' => 'go_partner', 'connected' => 'active', 'mobile' => '01000000000', 'email' => 'partner@example.test',
+            'balance' => '100.00', 'delegate_fees' => '12.50', 'pending_vendor_id' => 10]);
+        $market = new Marketplace(); $id = $this->submit()['id'];
+        $offer = $market->quote($id, 10, ['price' => '100.00', 'scope' => 'Repair the pipe', 'materials_included' => false, 'arrival_minutes' => 30, 'duration_minutes' => 60]);
+        $this->assertSame('12.50', $market->read($id, 1)['offers'][0]['cancellation_fee']);
+        $market->accept($id, $offer, 1, 'wallet');
+        $controller = new GoServiceMarketplaceController($market);
+        $payload = ['status' => 'cancelled', 'reason' => 'Customer cancelled'];
+        try {
+            $controller->status(Request::create('/api/go-services/jobs/'.$id.'/status', 'POST', $payload), $id);
+            $this->fail('Old clients must confirm the exact cancellation fee.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+        $payload['cancellation_fee'] = '12.50';
+        $controller->status(Request::create('/api/go-services/jobs/'.$id.'/status', 'POST', $payload), $id);
+        $controller->status(Request::create('/api/go-services/jobs/'.$id.'/status', 'POST', $payload), $id);
+        $this->assertEquals(87.50, DB::table('users')->where('id', 1)->value('balance'));
+        $this->assertEquals(100.00, DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame('1012.50', json_decode(DB::table('settings')->where('name', 'app_balance')->value('payload'), true));
+        $this->assertSame(1, DB::table('go_service_ledger')->where('kind', 'cancellation_fee')->count());
+        $this->assertSame('customer', $market->read($id, 1)['cancellation']['charged_to']);
+        $this->assertNull($market->read($id, 10)['phone']);
+        Http::assertNothingSent();
+    }
+
 }
