@@ -3,7 +3,10 @@
 # SSH key. Backups remain outside the public web directory. No gateway settings
 # or existing customer/partner wallet balances are edited by this launcher.
 set -euo pipefail
-umask 077
+# Laravel rebuilds shared PHP manifests after optimize:clear. They must remain
+# readable by the web worker when this authorized console is running as root.
+# The PHP release guard applies a private mask only to backup/receipt writes.
+umask 022
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$ROOT"
 RUN=$(date -u +%Y%m%d%H%M%S)
@@ -19,8 +22,23 @@ php deployment/go_service_release.php test "$ROOT" "$RUN"
 # menu/price migrations as an accidental side effect of enabling GO services.
 php artisan migrate --force --path=database/migrations/2026_09_26_090000_create_go_service_marketplace.php
 php artisan optimize:clear
-php artisan route:list --path=go-services | grep -F 'go-services/capabilities'
-php artisan schedule:list | grep -F 'go-services:dispatch'
+verify_listing() {
+  local expected="$1"
+  shift
+  local output
+  if ! output=$("$@" 2>&1); then
+    printf '%s\n' "$output" >&2
+    printf 'STOP: %s failed before GO activation.\n' "$*" >&2
+    return 1
+  fi
+  if ! grep -F "$expected" <<< "$output"; then
+    printf '%s\n' "$output" >&2
+    printf 'STOP: expected entry %s was not found; GO was not activated.\n' "$expected" >&2
+    return 1
+  fi
+}
+verify_listing 'go-services/capabilities' php artisan route:list --path=go-services
+verify_listing 'go-services:dispatch' php artisan schedule:list
 
 # Confirm a scheduler for this exact app. If none is visible, stop rather than
 # silently installing duplicate cron entries or promising timed dispatch.
