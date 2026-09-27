@@ -29,6 +29,7 @@
                         <div class="card show-data">
 
                             <div class="row card-body">
+                                @include('admin.go_stores.application_review', ['draft' => $storeDraft ?? null])
                                 @if($pending_vendor->application_kind === 'partner')
                                 @php
                                     $profession = $professions[$pending_vendor->profession_key]['ar'] ?? $pending_vendor->profession_key;

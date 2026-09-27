@@ -37,7 +37,9 @@ class Catalog
     public function store(int $id): ?array
     {
         $row = DB::table('go_stores')->where('user_id', $id)->first();
-        return $row ? (array) $row : null;
+        if (!$row) return null;
+        $owner = User::withoutGlobalScopes()->find($id);
+        return (array) $row + ['logo_url' => $owner ? $owner->getFirstMediaUrl('go_store_logo') : ''];
     }
 
     public function saveStore(int $id, Request $request): array

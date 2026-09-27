@@ -52,6 +52,13 @@ class PartnerEmailAuthTest extends TestCase
         require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
         (new \CreateMediaTable())->up();
         Storage::fake('pending_vendor');
+        Storage::fake('public');
+        require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
+        (new \CreateGoStoreCatalog())->up();
+        Schema::table('pending_vendors', function (Blueprint $table) {
+            $table->timestamp('reviewed_at')->nullable();
+            $table->string('decline_reason')->nullable();
+        });
     }
 
     private function issue(string $purpose = 'application', string $mobile = '01012345678', ?string $email = 'partner@example.com'): array
@@ -225,5 +232,84 @@ class PartnerEmailAuthTest extends TestCase
     {
         Mail::shouldReceive('mailer')->once()->andThrow(new \RuntimeException('SMTP unavailable'));
         $this->postJson('/api/partner-auth/email/request', ['purpose' => 'application', 'mobile' => '01012345678', 'email' => 'partner@example.com'])->assertStatus(503);
+    }
+
+    private function storeApplicationPayload(string $proof): array
+    {
+        return ['mobile'=>'01012345678','email'=>'partner@example.com','email_verification_token'=>$proof,
+            'full_name'=>'صاحب متجر تجريبي','age'=>28,'profession_key'=>'store_owner','lat'=>30.04,'lng'=>31.23,
+            'payment_method'=>'instapay','payment_identifier'=>'partner@instapay','work_radius_km'=>5,'terms_accepted'=>1,
+            'photo'=>UploadedFile::fake()->image('portrait.jpg'), 'store_logo'=>UploadedFile::fake()->image('logo.png'),
+            'product_images'=>[UploadedFile::fake()->image('rice.png')],
+            'storefront'=>json_encode(['name'=>'متجر المدينة','kind'=>'supermarket','address'=>'شارع النيل القاهرة',
+                'user_id'=>999,'commission_rate'=>0,'products'=>[['name'=>'أرز','unit'=>'كيلو','price'=>'80.50',
+                    'price_cents'=>1,'user_id'=>999,'options'=>[['label'=>'نصف كيلو','price'=>'42.75']]]]], JSON_UNESCAPED_UNICODE)];
+    }
+
+    public function test_store_application_review_approval_and_activation_keep_catalog_and_logo(): void
+    {
+        $this->postJson('/api/partner-applications', $this->storeApplicationPayload($this->proof('application')))->assertOk();
+        $application = PendingVendor::firstOrFail();
+        $catalog = app(\App\Services\GoStores\ApplicationCatalog::class);
+        $review = $catalog->review($application);
+        $this->assertSame('متجر المدينة', $review['name']);
+        $this->assertSame(8050, $review['products'][0]['price_cents']);
+        $this->assertSame(4275, $review['products'][0]['options'][0]['price_cents']);
+        $this->assertNotEmpty($review['logo_url']);
+        $this->assertSame(0, DB::table('go_stores')->count());
+        $this->assertSame(0, User::withoutGlobalScopes()->count());
+        $admin = User::create(['id'=>1,'name'=>'Admin','account_type'=>'admin','app_scope'=>'fasakhansta']);
+        $this->actingAs($admin, 'admin');
+        $this->post(route('pending_vendors.approvePartner', $application))->assertRedirect();
+        $owner = User::withoutGlobalScopes()->where('app_scope','go_partner')->firstOrFail();
+        $this->assertSame('pending', $owner->status);
+        $this->assertSame('vendor', $owner->account_type);
+        $this->assertSame(1, DB::table('go_store_products')->count());
+        $this->assertSame($owner->id, (int) DB::table('go_store_products')->value('user_id'));
+        $this->assertSame(8050, (int) DB::table('go_store_products')->value('price_cents'));
+        $this->assertNotEmpty(app(\App\Services\GoStores\Catalog::class)->store($owner->id)['logo_url']);
+        $this->assertSame('متجر المدينة', $catalog->review($application->fresh())['name']);
+        $this->post(route('pending_vendors.approvePartner', $application))->assertRedirect();
+        $this->assertSame(1, DB::table('go_store_products')->count());
+        $this->postJson('/api/partner-applications/activate', ['mobile'=>'01012345678',
+            'email_verification_token'=>$this->proof('activation'),'password'=>'store-password','password_confirmation'=>'store-password'])->assertOk();
+        $this->assertSame('accepted', $owner->fresh()->status);
+        $this->assertSame(1, DB::table('go_store_products')->count());
+        $imagePath = DB::table('go_store_products')->value('image_path');
+        $application->delete();
+        Storage::disk('public')->assertExists($imagePath);
+        $this->assertNotEmpty($owner->fresh()->getFirstMediaUrl('go_store_logo'));
+    }
+
+    public function test_invalid_store_draft_is_rejected_before_consuming_proof_or_creating_accounts(): void
+    {
+        $proof = $this->proof('application');
+        $payload = $this->storeApplicationPayload($proof);
+        $draft = json_decode($payload['storefront'], true);
+        foreach ([['price'=>'-1'], ['price'=>'1.234'], ['options'=>[['label'=>'نصف','price'=>'10'],['label'=>'نصف','price'=>'20']]]] as $invalid) {
+            $bad = $draft; $bad['products'][0] = array_replace($bad['products'][0], $invalid);
+            $this->postJson('/api/partner-applications', array_replace($payload,['storefront'=>json_encode($bad)]))->assertStatus(422);
+        }
+        $this->postJson('/api/partner-applications', array_replace($payload,['product_images'=>[]]))->assertStatus(422);
+        $this->postJson('/api/partner-applications', array_replace($payload,['profession_key'=>'plumber']))->assertStatus(422);
+        $this->assertSame(0, PendingVendor::count());
+        $this->assertSame(0, DB::table('media')->count());
+        $this->postJson('/api/partner-applications', $payload)->assertOk();
+        $this->assertSame(1, PendingVendor::count());
+    }
+
+    public function test_failed_store_upload_rolls_back_application_and_files(): void
+    {
+        app()->instance(\App\Services\GoStores\ApplicationCatalog::class, new class extends \App\Services\GoStores\ApplicationCatalog {
+            public function capture(PendingVendor $application, \Illuminate\Http\Request $request, array $store): void {
+                parent::capture($application, $request, $store);
+                throw new \RuntimeException('upload fixture failure');
+            }
+        });
+        $this->postJson('/api/partner-applications', $this->storeApplicationPayload($this->proof('application')))->assertStatus(500);
+        $this->assertSame(0, PendingVendor::count());
+        $this->assertSame(0, DB::table('media')->count());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->assertSame([], Storage::disk('pending_vendor')->allFiles());
     }
 }

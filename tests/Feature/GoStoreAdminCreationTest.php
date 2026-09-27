@@ -44,6 +44,8 @@ class GoStoreAdminCreationTest extends TestCase
         });
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
         (new \CreateGoStoreCatalog())->up();
+        require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
+        (new \CreateMediaTable())->up();
         require_once base_path('database/migrations/2022_08_05_174522_create_permission_tables.php');
         (new \CreatePermissionTables())->up();
         app(PermissionRegistrar::class)->forgetCachedPermissions();
