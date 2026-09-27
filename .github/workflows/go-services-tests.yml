@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/go-service-marketplace-20260926]
   pull_request:
-    paths: ['app/Services/GoServices/**', 'app/Console/Kernel.php', 'app/Console/Commands/GoServiceDispatch.php', 'app/Providers/RouteServiceProvider.php', 'app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php', 'deployment/go_service_release.php', 'database/migrations/*go_service_marketplace.php', 'tests/go_services*', 'tests/go_services_runtime/**', 'tests/go_services_scheduler/**', '.github/workflows/go-services-tests.yml']
+    paths: ['app/Services/GoServices/**', 'app/Console/Kernel.php', 'app/Console/Commands/GoServiceDispatch.php', 'app/Providers/RouteServiceProvider.php', 'app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php', 'deployment/go_service_release.php', 'deployment/launch_go_services.sh', 'database/migrations/*go_service_marketplace.php', 'tests/go_services*', 'tests/go_services_runtime/**', 'tests/go_services_scheduler/**', '.github/workflows/go-services-tests.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -33,6 +33,7 @@ jobs:
       - run: php -l app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php && php -l routes/go_services.php && php -l app/Providers/RouteServiceProvider.php && php -l database/migrations/2026_09_26_090000_create_go_service_marketplace.php
       - run: php tests/go_services_unit.php
       - run: php -l app/Console/Kernel.php && php -l app/Console/Commands/GoServiceDispatch.php && php -l deployment/go_service_release.php
+      - run: bash -n deployment/launch_go_services.sh
       - run: composer install --working-dir=tests/go_services_scheduler --no-interaction --prefer-dist
       - run: php tests/go_services_scheduler/run.php
       - run: composer install --working-dir=tests/go_services_runtime --no-interaction --prefer-dist

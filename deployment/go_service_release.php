@@ -153,7 +153,9 @@ function flag(string $root,bool $value):void {
 }
 $stage='arguments';
 try {
-    umask(0077);$mode=$argv[1]??'';$root=realpath($argv[2]??'');$run=$argv[3]??'0';
+    // Bootstrap can rebuild Laravel's shared package/service manifests. Keep
+    // these readable by the web worker; private artifacts get a separate mask.
+    umask(0022);$mode=$argv[1]??'';$root=realpath($argv[2]??'');$run=$argv[3]??'0';
     must(in_array($mode,['inspect','backup','test','activate','disable'],true),'Unknown release mode.');
     must($root!==false&&is_file($root.'/artisan')&&is_file($root.'/.env'),'Invalid Laravel application directory.');must(ctype_digit($run),'Invalid release run identifier.');
     $stage='bootstrap';require $root.'/vendor/autoload.php';$app=require $root.'/bootstrap/app.php';$app->make(Kernel::class)->bootstrap();
@@ -165,13 +167,14 @@ try {
     }
     $stage='schema and wallet preflight';$report=inspect();
     if($mode==='inspect'){echo json_encode($report,JSON_THROW_ON_ERROR)."\n";exit;}
-    if($mode==='backup'){$stage='private backup';backup($root,$dir);echo "Private database/environment backup verified. No deployment performed by this step.\n";exit;}
+    if($mode==='backup'){$stage='private backup';umask(0077);backup($root,$dir);echo "Private database/environment backup verified. No deployment performed by this step.\n";exit;}
     $stage='isolated Laravel controller test';$checks=smoke($root);echo 'PASS '.$checks." isolated Laravel marketplace checks; no real balances or gateway calls.\n";
     if($mode==='test')exit;
     $stage='activation preconditions';must(is_file($dir.'/backup.ok'),'A verified backup for this deployment run is required.');must($report['schema_ready'],'The marketplace migration is not installed.');
     must(!config('go_services.paymob.enabled',false),'Dedicated electronic checkout needs separate gateway acceptance; refusing automatic activation.');
     if(is_file($receipt)){echo "Launch already recorded. Existing feature-flag choice retained.\n";exit;}
     $stage='enable cash and application-wallet marketplace';flag($root,true);
+    umask(0077); // The operator-only launch receipt is not a Laravel cache file.
     must(file_put_contents($receipt,json_encode(['run'=>$run,'checks'=>$checks,'activated_at'=>date(DATE_ATOM),'backup_directory'=>$dir],JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR))!==false,'Cannot record launch receipt.');
     echo "__GO_RELEASE_ENABLED__\n";
 } catch(Throwable $e) {
