@@ -25,11 +25,12 @@ class ApplicationCatalog
         }
         $price = ['required', 'numeric', 'min:0.01', 'max:1000000', 'regex:/^\d{1,7}(?:\.\d{1,2})?$/D'];
         $data = $request->validate([
+            'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             'storefront' => 'required|array',
             'storefront.name' => 'required|string|min:2|max:150',
             'storefront.kind' => 'required|in:supermarket,restaurant,pharmacy',
             'storefront.address' => 'required|string|min:5|max:500',
-            'storefront.products' => 'required|array|min:1|max:15',
+            'storefront.products' => 'required|array|min:1|max:60',
             'storefront.products.*.name' => 'required|string|min:2|max:150',
             'storefront.products.*.description' => 'nullable|string|max:2000',
             'storefront.products.*.unit' => 'required|string|min:1|max:40',
@@ -38,7 +39,7 @@ class ApplicationCatalog
             'storefront.products.*.options.*.label' => 'required|string|min:1|max:60',
             'storefront.products.*.options.*.price' => $price,
             'store_logo' => 'required|image|mimes:jpg,jpeg,png,webp|max:1024|dimensions:max_width=4096,max_height=4096',
-            'product_images' => 'required|array|min:1|max:15',
+            'product_images' => 'required|array|min:1|max:60',
             'product_images.*' => 'required|image|mimes:jpg,jpeg,png,webp|max:1024|dimensions:max_width=4096,max_height=4096',
         ]);
         $store = $data['storefront'];
@@ -59,19 +60,19 @@ class ApplicationCatalog
         }
         $size = $request->file('store_logo')->getSize() + ($request->file('photo')?->getSize() ?? 0);
         foreach ($request->file('product_images') as $image) $size += $image->getSize();
-        if ($size > 6 * 1024 * 1024) throw ValidationException::withMessages(['product_images' => 'إجمالي الصور يجب ألا يتجاوز 6 ميجا. قلّل حجم الصور أو عدد المنتجات.']);
+        if (!$request->attributes->get('go_staged_catalog') && $size > 6 * 1024 * 1024) throw ValidationException::withMessages(['product_images' => 'إجمالي الصور يجب ألا يتجاوز 6 ميجا. قلّل حجم الصور أو عدد المنتجات.']);
         return $store;
     }
 
     public function capture(PendingVendor $application, Request $request, array $store): void
     {
-        $application->addMediaFromRequest('store_logo')->withCustomProperties([
+        $application->addMedia($request->file('store_logo'))->preservingOriginal()->withCustomProperties([
             'catalog_version' => 1, 'name' => $store['name'], 'kind' => $store['kind'], 'address' => $store['address'],
         ])->toMediaCollection('go_store_draft_logo', 'public');
         foreach ($store['products'] as $index => $product) {
             $options = array_map(fn ($option) => ['id' => (string) Str::uuid(), 'label' => trim($option['label']),
                 'price_cents' => $this->cents((string) $option['price'])], $product['options']);
-            $application->addMedia($request->file('product_images.'.$index))->withCustomProperties([
+            $application->addMedia($request->file('product_images.'.$index))->preservingOriginal()->withCustomProperties([
                 'name' => trim($product['name']), 'description' => trim($product['description'] ?? ''),
                 'unit' => trim($product['unit']), 'price_cents' => $this->cents((string) $product['price']),
                 'options' => $options, 'request_key' => (string) Str::uuid(),
