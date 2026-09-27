@@ -14,6 +14,8 @@ class GoWalletMinimum
         if (!in_array($request->header('X-App-Scope'), ['go', 'go_partner'], true) || !$request->isMethod('POST')) return $next($request);
         $action = $request->route()?->getActionName() ?? '';
         $action = str_replace('App\\Http\\Controllers\\Api\\V1\\', '', $action);
+        $routeOrder = $request->route('order');
+        if (!$routeOrder instanceof Order) $routeOrder = null;
         $new = in_array($action, ['ShippingController@store', 'ShippingController@order_payment',
             'User\\CartController@order_payment', 'User\\CartController@reorder',
             'PartnerServiceRequestController@store', 'Delegate\\DelegateOrderController@submitShippingOffer',
@@ -22,6 +24,7 @@ class GoWalletMinimum
             || ($action === 'Delegate\\DelegateOrderController@acceptDeclineOrder' && in_array($request->input('status'), ['accept', 'accepted'], true))
             || ($action === 'PartnerServiceRequestController@updateStatus' && $request->input('status') === 'accepted')
             || ($action === 'Vendor\\OrderController@updateOrderStatus' && $request->input('status') === 'accepted');
+        $new = $new || ($action === 'Vendor\\OrderController@updateOrder' && in_array($request->input('type'), ['in_resturant', 'out_resturant'], true) && $routeOrder?->accepted_notify !== 'yes');
         if (!$new) return $next($request);
         $actor = auth('api')->user();
         if (!$actor) return $next($request);
@@ -34,9 +37,8 @@ class GoWalletMinimum
             if ($partner && !WalletPolicy::summary($partner)['can_accept_orders']) abort(409, 'محفظة مقدم الخدمة أقل من الحد الأدنى 50 ج.م. اختر شريكًا آخر أو انتظر شحن محفظته.');
         }
         if ($action === 'User\\CartController@order_payment') {
-            $order = Order::where('user_id', $actor->id)->whereNull('status')->first();
-            $store = $order?->resturant?->user;
-            if ($store && !WalletPolicy::summary($store)['can_accept_orders']) abort(409, 'المتجر غير متاح لقبول طلبات جديدة لحين شحن محفظته إلى 50 ج.م.');
+            $stores = DB::table('carts')->join('resturants','resturants.id','=','carts.resturant_id')->join('users as owner','owner.id','=','resturants.user_id')->where('carts.user_id',$actor->id)->where('carts.is_order',false)->select('owner.balance')->get();
+            foreach ($stores as $store) if (!WalletPolicy::summary($store)['can_accept_orders']) abort(409, 'المتجر غير متاح لقبول طلبات جديدة لحين شحن محفظته إلى 50 ج.م.');
         }
         return $next($request);
     }
