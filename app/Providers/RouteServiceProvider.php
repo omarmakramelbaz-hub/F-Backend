@@ -16,11 +16,6 @@ class RouteServiceProvider extends ServiceProvider
     {
         $this->configureRateLimiting();
 
-        // Append the new scheduler job without changing any legacy schedules.
-        $this->app->afterResolving(\Illuminate\Console\Scheduling\Schedule::class, function ($schedule) {
-            $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
-        });
-
         $this->routes(function () {
             Route::middleware('api')->prefix('api')->group(base_path('routes/api.php'));
             // Preserve the legacy cancellation override and all existing routes.

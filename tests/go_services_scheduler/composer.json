@@ -1,0 +1,8 @@
+{
+  "name": "go/service-scheduler-test-runtime",
+  "description": "Isolated Laravel scheduler regression test; never used by production",
+  "require": {
+    "php": "^8.2",
+    "laravel/framework": "^8.83"
+  }
+}
