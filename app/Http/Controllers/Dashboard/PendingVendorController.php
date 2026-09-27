@@ -47,7 +47,8 @@ class PendingVendorController extends Controller
     public function show(PendingVendor $pending_vendor)
     {
         $professions = \App\Http\Controllers\Api\V1\PartnerApplicationController::professions();
-        return view('admin.pending_vendors.show', compact('pending_vendor', 'professions'));
+        $storeDraft = app(\App\Services\GoStores\ApplicationCatalog::class)->review($pending_vendor);
+        return view('admin.pending_vendors.show', compact('pending_vendor', 'professions', 'storeDraft'));
     }
     public function destroy(PendingVendor $pending_vendor)
     {
@@ -165,6 +166,10 @@ class PendingVendorController extends Controller
 
     public function approvePartner(PendingVendor $pending_vendor)
     {
+        $admin = auth('admin')->user();
+        abort_unless($admin && $admin->account_type === 'admin' && ((int) $admin->id === 1 || $admin->can('pending_vendor-edit')), 403);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($pending_vendor) {
+        $pending_vendor = PendingVendor::whereKey($pending_vendor->id)->lockForUpdate()->firstOrFail();
         if ($pending_vendor->application_kind !== 'partner') {
             return redirect()->back()->with('error', 'هذا الطلب ليس طلب انضمام لشريك GO.');
         }
@@ -204,12 +209,14 @@ class PendingVendorController extends Controller
                 // The partner can still activate even if the legacy role is unavailable.
             }
         } else {
+            abort_unless((int) $user->pending_vendor_id === (int) $pending_vendor->id && $user->status === 'pending', 409, 'الحساب مرتبط بطلب آخر أو مفعّل بالفعل.');
             $user->name = $pending_vendor->full_name ?: $user->name;
             $user->pending_vendor_id = $pending_vendor->id;
             $user->status = 'pending';
             $user->save();
         }
 
+        app(\App\Services\GoStores\ApplicationCatalog::class)->promote($pending_vendor, $user);
         $pending_vendor->update([
             'status' => 'accepted',
             'decline_reason' => null,
@@ -220,6 +227,7 @@ class PendingVendorController extends Controller
             'success',
             'تم قبول الشريك. يمكنه الآن تفعيل حسابه من تطبيق الشركاء باستخدام رقم هاتفه.'
         );
+        });
     }
 
 

@@ -2,6 +2,7 @@
 @section('content')
 <div class="content-wrapper"><section class="content p-4" dir="rtl">
     <a href="{{ route('go-stores.index') }}">متاجر GO</a>
+    @if(!empty($store['logo_url']))<img src="{{ $store['logo_url'] }}" alt="لوجو المتجر" style="width:96px;height:96px;object-fit:contain">@endif
     <h1>{{ $store['name'] ?? 'بيانات المتجر' }}</h1><p>صاحب الحساب: {{ $account->name }} — رقم الدخول: <bdi>{{ $account->mobile }}</bdi></p>
     @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif

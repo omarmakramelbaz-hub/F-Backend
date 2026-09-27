@@ -63,17 +63,18 @@ class PartnerApplicationController extends Controller
             'email' => 'required|email:rfc|max:254',
             'email_verification_token' => 'required|string|size:64',
         ]);
-        return Cache::lock('partner-application:'.hash('sha256', $this->normalizeMobile($data['mobile'])), 60)->block(5, function () use ($request, $data) {
-            return app(PartnerEmailVerification::class)->consume($data['email_verification_token'], 'application', $data['mobile'], function ($proof) use ($request, $data) {
+        $storefront = app(\App\Services\GoStores\ApplicationCatalog::class)->validate($request);
+        return Cache::lock('partner-application:'.hash('sha256', $this->normalizeMobile($data['mobile'])), 60)->block(5, function () use ($request, $data, $storefront) {
+            return app(PartnerEmailVerification::class)->consume($data['email_verification_token'], 'application', $data['mobile'], function ($proof) use ($request, $data, $storefront) {
                 if ($proof['email'] !== strtolower(trim($data['email']))) {
                     throw ValidationException::withMessages(['email' => 'استخدم البريد الذي تم تأكيده.']);
                 }
-                return $this->storeVerified($request, $proof['email']);
+                return $this->storeVerified($request, $proof['email'], $storefront);
             });
         });
     }
 
-    private function storeVerified(Request $request, string $email)
+    private function storeVerified(Request $request, string $email, ?array $storefront = null)
     {
         $validator = Validator::make($request->all(), [
             'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
@@ -150,9 +151,16 @@ class PartnerApplicationController extends Controller
 
         $application = PendingVendor::create($payload);
 
-        if ($request->hasFile('photo') && $request->file('photo')->isValid()) {
-            $application->addMediaFromRequest('photo')
-                ->toMediaCollection('partner_photo', 'pending_vendor');
+        try {
+            if ($request->hasFile('photo') && $request->file('photo')->isValid()) {
+                $application->addMediaFromRequest('photo')->toMediaCollection('partner_photo', 'pending_vendor');
+            }
+            if ($storefront) app(\App\Services\GoStores\ApplicationCatalog::class)->capture($application, $request, $storefront);
+        } catch (\Throwable $error) {
+            // Database rollback alone cannot remove uploaded files.
+            $application->load('media');
+            foreach ($application->media as $media) $media->delete();
+            throw $error;
         }
 
         return $this->successResponse([
@@ -241,6 +249,7 @@ class PartnerApplicationController extends Controller
             } catch (\Throwable $e) {
                 // Preserve compatibility when the optional legacy role is unavailable.
             }
+            app(\App\Services\GoStores\ApplicationCatalog::class)->promote($application, $user);
             $application->update(['partner_activated_at' => now()]);
             return $this->successResponse(['status' => 'active', 'profession_key' => $application->profession_key, 'partner_id' => $user->id], 'تم تفعيل حساب الشريك. يمكنك تسجيل الدخول الآن.');
         });

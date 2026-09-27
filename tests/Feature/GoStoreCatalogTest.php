@@ -34,6 +34,8 @@ class GoStoreCatalogTest extends TestCase
         Schema::create('pending_vendors', function (Blueprint $t) { $t->id(); $t->string('profession_key'); });
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
         (new \CreateGoStoreCatalog())->up();
+        require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
+        (new \CreateMediaTable())->up();
         Storage::fake('public');
         $this->owner = User::forceCreate(['name'=>'متجر أول', 'account_type'=>'vendor', 'app_scope'=>'go_partner', 'status'=>'accepted', 'balance'=>-10]);
         $this->actingAs($this->owner, 'api');
