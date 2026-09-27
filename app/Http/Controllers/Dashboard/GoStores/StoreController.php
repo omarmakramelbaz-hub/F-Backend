@@ -37,7 +37,11 @@ class StoreController extends Controller
     {
         $catalog->ready();
         $owner = $creator->create($request->validated(), (int) auth('admin')->id());
-        return redirect()->route('go-stores.show', $owner->id)->with('success',
+        $admin = auth('admin')->user();
+        $destination = $request->input('after_save') === 'products'
+            && ((int) $admin->id === 1 || $admin->can('resturant-edit'))
+                ? 'go-stores.products.create' : 'go-stores.show';
+        return redirect()->route($destination, $owner->id)->with('success',
             'تم إنشاء المتجر وحساب صاحبه. يمكنه تسجيل الدخول إلى جو بارتنر برقم الموبايل وكلمة المرور التي حددتها، ويمكنك الآن إضافة المنتجات.');
     }
 
