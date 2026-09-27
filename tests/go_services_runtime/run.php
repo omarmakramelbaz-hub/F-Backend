@@ -47,13 +47,26 @@ function resetDb():void {
 function job(Marketplace $m,string $key='test-job-key-0001'):int{return $m->create(1,['request_key'=>$key,'profession_key'=>'plumber','description'=>'Fix the kitchen sink and leaking pipe','area'=>'Fixture area','address'=>'Private fixture address','phone'=>'01010000000','lat'=>30,'lng'=>31,'photos'=>[]],hash('sha256',$key));}
 function offer(Marketplace $m,int $job,int $partner=10,string $price='100.00'):int{return $m->quote($job,$partner,['price'=>$price,'scope'=>'Fix pipe, workmanship only','materials_included'=>false,'arrival_minutes'=>30,'duration_minutes'=>60]);}
 $m=new Marketplace();resetDb();$j=job($m);
+// Time-driven waves keep searching without another customer action.
+$m->distribute($j);eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),2,'no early duplicate wave');
+Carbon::setTestNow(now()->addSeconds(121));$m->distribute($j);
+eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'next timed wave reaches new partners');
+$m->distribute($j);eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'timed wave retry is harmless');
+resetDb();$j=job($m);
 eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),2,'initial batch');eq(job($m),$j,'idempotent create');
 $o=offer($m,$j);eq(bal(10),10000,'quote charges nothing');eq(offer($m,$j),$o,'idempotent quote');
 eq($m->read($j,10)['location'],null,'unselected address hidden');eq($m->read($j,10)['phone'],null,'unselected phone hidden');deny(fn()=> $m->read($j,2),403,'other customer denied');deny(fn()=>offer($m,$j,15),403,'uninvited quote denied');
 $m->reject($j,$o,1);eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'rejection dispatches next batch');$m->reject($j,$o,1);eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'rejection retry no extra wave');eq(bal(10),10000,'rejection charges nothing');deny(fn()=> $m->accept($j,$o,1,'cash'),409,'rejected offer denied');
 $o2=offer($m,$j,11);$m->accept($j,$o2,1,'cash');$m->accept($j,$o2,1,'cash');eq(bal(11),9000,'commission once');eq(appBal(),101000,'main app wallet credited');eq(DB::table('go_service_ledger')->where('kind','commission')->count(),1,'one commission record');eq($m->read($j,11)['location']['address'],'Private fixture address','selected address visible');
+$m->distribute($j,true);eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'dispatch stops after agreement');
 $m->transition($j,11,'in_progress');$m->transition($j,11,'awaiting_confirmation');$m->transition($j,1,'completed');$m->transition($j,1,'completed');eq(bal(11),9000,'cash no second commission');eq(DB::table('go_service_assignments')->count(),0,'reservation released');
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'wallet');eq(bal(1),90000,'customer funds held');$m->transition($j,10,'in_progress');$m->transition($j,10,'awaiting_confirmation');$m->transition($j,1,'completed');$m->transition($j,1,'completed');eq(bal(10),19000,'gross payout avoids double commission');eq(appBal(),101000,'only commission is revenue');
+resetDb();$j=job($m);DB::table('users')->where('id',11)->update(['delegate_fees'=>'20.00']);
+$declined=offer($m,$j,10,'150.00');$chosen=offer($m,$j,11,'120.00');
+$m->reject($j,$declined,1);eq(DB::table('go_service_offers')->where('id',$chosen)->value('status'),'offered','reject keeps other quotes available');
+eq(appBal(),100000,'reject does not credit main wallet');
+$m->accept($j,$chosen,1,'cash');$m->accept($j,$chosen,1,'cash');
+eq(bal(11),7600,'selected partner individual 20 percent rate');eq(bal(10),10000,'unselected partner never charged');eq(appBal(),102400,'individual commission credited exactly once');
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'wallet');$m->transition($j,1,'cancelled','Changed plan');$m->transition($j,1,'cancelled','Retry');eq(bal(1),100000,'hold refunded once');eq(bal(10),10000,'commission refunded once');eq(appBal(),100000,'main wallet reversal');
 resetDb();$j=job($m);$o=offer($m,$j);DB::table('users')->where('id',1)->update(['balance'=>0]);deny(fn()=> $m->accept($j,$o,1,'wallet'),422,'insufficient customer funds');eq(bal(10),10000,'partner debit rolled back');eq(appBal(),100000,'app credit rolled back');eq(DB::table('go_service_assignments')->count(),0,'reservation rolled back');eq(DB::table('go_service_ledger')->count(),0,'ledger rolled back');
 DB::table('users')->where('id',10)->update(['connected'=>'inactive']);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'offline partner denied');DB::table('users')->where('id',10)->update(['connected'=>'active','delegate_fees'=>20]);deny(fn()=> $m->accept($j,$o,1,'cash'),409,'changed commission not silently charged');
