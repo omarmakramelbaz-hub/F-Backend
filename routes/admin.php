@@ -56,6 +56,8 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
 
     Route::group([ 'middleware' => 'IsAdmin'], function () {
         Route::get('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'index'])->name('go-stores.index');
+        Route::get('go-stores/create', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'create'])->name('go-stores.create');
+        Route::post('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'store'])->name('go-stores.store');
         Route::get('go-stores/{owner}', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'show'])->name('go-stores.show');
         Route::post('go-stores/{owner}', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'update'])->name('go-stores.update');
         Route::get('go-stores/{owner}/products/create', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'editProduct'])->name('go-stores.products.create');

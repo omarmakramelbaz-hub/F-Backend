@@ -1,9 +1,14 @@
 @extends('admin.index')
 @section('content')
 <div class="content-wrapper"><section class="content p-4" dir="rtl">
-    <h1>متاجر GO</h1>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3" style="gap:12px">
+        <h1 class="mb-0">متاجر GO</h1>
+        @if((int) auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-create'))
+            <a href="{{ route('go-stores.create') }}" class="btn btn-primary"><i class="fas fa-plus" aria-hidden="true"></i> إضافة متجر</a>
+        @endif
+    </div>
     <p>سوبر ماركت • مطاعم • صيدليات</p>
-    <p>تظهر هنا حسابات المتاجر المقبولة من طلبات انضمام شركاء GO.</p>
+    <p>إدارة المتاجر المضافة من الأدمن والمتاجر المقبولة من طلبات انضمام شركاء GO.</p>
     <div class="card"><div class="card-body table-responsive"><table class="table">
         <thead><tr><th>المتجر</th><th>النشاط</th><th>صاحب الحساب</th><th>الحالة</th><th>خدمة التطبيق</th><th></th></tr></thead>
         <tbody>@forelse($stores as $account)
