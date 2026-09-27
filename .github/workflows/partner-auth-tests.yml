@@ -24,6 +24,8 @@ jobs:
           php artisan key:generate
       - name: Test email ownership and account recovery
         run: vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php
+      - name: Test GO request fields and customer contact privacy
+        run: vendor/bin/phpunit tests/Feature/GoServiceRequestPrivacyTest.php
       - name: Test approved menu prices, checkout totals, transaction rollback and branch isolation
         run: vendor/bin/phpunit tests/Feature/ApprovedMenuPricesTest.php
       - name: Test store delivery rates and branch isolation
