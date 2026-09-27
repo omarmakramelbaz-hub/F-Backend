@@ -2,7 +2,7 @@
 @section('content')
 <div class="content-wrapper"><section class="content p-4" dir="rtl">
     <a href="{{ route('go-stores.index') }}">متاجر GO</a>
-    <h1>{{ $store['name'] ?? 'بيانات المتجر' }}</h1><p>صاحب الحساب: {{ $account->name }}</p>
+    <h1>{{ $store['name'] ?? 'بيانات المتجر' }}</h1><p>صاحب الحساب: {{ $account->name }} — رقم الدخول: <bdi>{{ $account->mobile }}</bdi></p>
     @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
     <form class="card card-body" method="POST" action="{{ route('go-stores.update', $account->id) }}">

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Dashboard\GoStores;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\GoStores\Catalog;
+use App\Services\GoStores\AccountCreator;
+use App\Http\Requests\Dashboard\GoStores\CreateStoreRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -16,11 +18,27 @@ class StoreController extends Controller
             $admin = auth('admin')->user();
             abort_unless($admin && $admin->account_type === 'admin'
                 && ($admin->id === 1 || $admin->can('resturant-list')), 403);
-            if ($request->isMethod('POST')) {
+            if (in_array($request->route()->getActionMethod(), ['create', 'store'], true)) {
+                abort_unless($admin->id === 1 || $admin->can('resturant-create'), 403);
+            } elseif ($request->isMethod('POST')) {
                 abort_unless($admin->id === 1 || $admin->can('resturant-edit'), 403);
             }
             return $next($request);
         });
+    }
+
+    public function create(Catalog $catalog)
+    {
+        $catalog->ready();
+        return view('admin.go_stores.create');
+    }
+
+    public function store(CreateStoreRequest $request, Catalog $catalog, AccountCreator $creator)
+    {
+        $catalog->ready();
+        $owner = $creator->create($request->validated(), (int) auth('admin')->id());
+        return redirect()->route('go-stores.show', $owner->id)->with('success',
+            'تم إنشاء المتجر وحساب صاحبه. يمكنه تسجيل الدخول إلى جو بارتنر برقم الموبايل وكلمة المرور التي حددتها، ويمكنك الآن إضافة المنتجات.');
     }
 
     public function index(Catalog $catalog)
