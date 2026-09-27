@@ -18,7 +18,7 @@ class GoServiceMarketplaceController extends Controller {
  private function actor():int {$this->ready();$id=(int)auth('api')->id();$this->market->actor($id);return $id;}
  private function decorate(array $j):array {$j['photos']=[];for($i=0;$i<$j['photo_count'];$i++)$j['photos'][]=URL::temporarySignedRoute('go-services.photo',now()->addMinutes(10),['job'=>$j['id'],'index'=>$i]);unset($j['photo_count']);return $j;}
  private function result(int $id){try{(new Outbox())->flush(10);}catch(\Throwable $e){report($e);}return $this->successResponse($this->decorate($this->market->read($id,$this->actor())));}
- public function capabilities(){return $this->successResponse(['schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled'),'version'=>1,'payment_methods'=>$this->market->paymentMethods(),'currency'=>'EGP']);}
+ public function capabilities(){return $this->successResponse(['schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled'),'version'=>1,'payment_methods'=>$this->market->paymentMethods(),'currency'=>'EGP','cancellation_policy'=>'cancelling_party_v1']);}
  public function index(Request $r){$r->validate(['scope'=>'nullable|in:open,new,current,history,all','page'=>'nullable|integer|min:1|max:10000']);$d=$this->market->listing($this->actor(),$r->input('scope','open'),(int)$r->input('page',1));$d['items']=array_map(fn($j)=>$this->decorate($j),$d['items']);return $this->successResponse($d);}
  public function show(int $job){return $this->successResponse($this->decorate($this->market->read($job,$this->actor())));}
  public function store(Request $r){
@@ -34,9 +34,9 @@ class GoServiceMarketplaceController extends Controller {
  public function reject(int $job,int $offer){$this->market->reject($job,$offer,$this->actor());return $this->result($job);}
  public function skip(int $job){$this->market->skip($job,$this->actor());return $this->result($job);}
  public function status(Request $r,int $job){
-  $r->validate(['status'=>'required|in:in_progress,awaiting_confirmation,completed,cancelled,disputed','reason'=>'required_if:status,cancelled,disputed|nullable|string|min:3|max:500','cash_paid'=>'nullable|boolean']);$actor=$this->actor();
+  $r->validate(['status'=>'required|in:in_progress,awaiting_confirmation,completed,cancelled,disputed','reason'=>'required_if:status,cancelled,disputed|nullable|string|min:3|max:500','cash_paid'=>'nullable|boolean','cancellation_fee'=>['nullable','regex:/^\d{1,7}(\.\d{1,2})?$/']]);$actor=$this->actor();
   if($r->status==='completed'){$d=$this->market->read($job,$actor);if($d['payment_method']==='cash')abort_unless($r->boolean('cash_paid'),422,'أكد دفع المبلغ المتفق عليه للصنايعي نقدًا.');}
-  $this->market->transition($job,$actor,$r->status,$r->input('reason','')?:'');return $this->result($job);
+  $this->market->transition($job,$actor,$r->status,$r->input('reason','')?:'',false,$r->filled('cancellation_fee')?\App\Services\GoServices\Money::minor($r->input('cancellation_fee')):null);return $this->result($job);
  }
  public function checkout(int $job){return $this->successResponse((new Payments())->checkout($job,$this->actor()));}
  public function webhook(Request $r){$this->ready();$r->validate(['obj'=>'required|array']);(new Payments())->callback($r->input('obj'),(string)$r->query('hmac'));try{(new Outbox())->flush(5);}catch(\Throwable $e){report($e);}return response()->json(['received'=>true]);}

@@ -115,16 +115,29 @@ class Marketplace {
    DB::table('go_service_recipients')->where('id',$r->id)->update(['status'=>'declined','updated_at'=>now()]);DB::table('go_service_offers')->where('job_id',$id)->where('partner_id',$actor)->where('status','offered')->update(['status'=>'withdrawn','updated_at'=>now()]);return true;
   },3);if($changed)$this->distribute($id,true);
  }
- public function transition(int $id,int $actor,string $state,string $reason='',bool $system=false):void {
-  DB::transaction(function()use($id,$actor,$state,$reason,$system){
+ public function transition(int $id,int $actor,string $state,string $reason='',bool $system=false,?int $confirmedCancellationFee=null):void {
+  DB::transaction(function()use($id,$actor,$state,$reason,$system,$confirmedCancellationFee){
    $j=$this->job($id);
    if($system){if($actor!==0||$state!=='cancelled')throw new \LogicException('Invalid system transition');if($j->status!=='booked'||$j->payment_status!=='unpaid'||Carbon::parse($j->payment_due_at)->gt(now()))return;}else{$this->actor($actor);}
    $owner=$system||(int)$j->customer_id===$actor;$partner=(int)$j->partner_id===$actor;if(!$owner&&!$partner)$this->fail('غير مسموح بهذا الطلب.',403);if($j->status===$state)return;
    if($state==='cancelled'){
     if(!in_array($j->status,['searching','booked'],true))$this->fail('بعد بدء العمل استخدم الاعتراض بدل الإلغاء.');
     if($j->status==='booked'){
-     DB::table('users')->whereIn('id',[$j->customer_id,$j->partner_id])->orderBy('id')->lockForUpdate()->get();$this->move($id,'commission_refund',null,(int)$j->partner_id,(int)$j->commission_cents);
+     $fee=(int)$j->commission_cents;
+     if(!$system&&$confirmedCancellationFee!==$fee)$this->fail('الإلغاء بعد الاتفاق يحمّل الطرف الذي يلغي قيمة خدمة التطبيق. حدّث الطلب وأكد المبلغ قبل الإلغاء.',409);
+     DB::table('users')->whereIn('id',[$j->customer_id,$j->partner_id])->orderBy('id')->lockForUpdate()->get();
+     // Release a wallet hold inside this transaction before testing the customer's
+     // cancellation debit. Any failure rolls back the refund and the cancellation.
      if($j->payment_method==='wallet'&&(int)$j->held_cents>0)$this->move($id,'customer_refund',null,(int)$j->customer_id,(int)$j->held_cents);
+     if($system){$this->move($id,'commission_refund',null,(int)$j->partner_id,$fee);}
+     elseif($owner){
+      if(Money::minor(DB::table('users')->where('id',$actor)->value('balance'))<$fee)$this->fail('رصيد محفظتك لا يغطي قيمة خدمة التطبيق للإلغاء. اشحن المحفظة أولًا؛ الطلب ما زال قائمًا.',409);
+      $this->move($id,'cancellation_fee',$actor,null,$fee);
+      $this->move($id,'commission_refund',null,(int)$j->partner_id,$fee);
+     }
+     // A cancelling partner already paid at acceptance: retain that debit, never
+     // charge it a second time. This zero-value audit event records who cancelled.
+     if(!$system)DB::table('go_service_ledger')->insert(['job_id'=>$id,'event_key'=>'job:'.$id.':cancellation_by','kind'=>'cancellation_by','from_user'=>$actor,'to_user'=>null,'amount_cents'=>0,'wallet_id'=>null,'created_at'=>now()]);
     }
     $refund=!in_array($j->payment_method,[null,'cash','wallet'],true)&&(int)$j->held_cents>0;
     DB::table('go_service_jobs')->where('id',$id)->update(['status'=>'cancelled','close_reason'=>$reason,'payment_status'=>$refund?'refund_pending':($j->payment_method==='wallet'?'refunded':'cancelled'),'held_cents'=>$refund?$j->held_cents:0,'updated_at'=>now()]);
@@ -153,10 +166,10 @@ class Marketplace {
   $key='job:'.$job.':'.$kind;if(DB::table('go_service_ledger')->where('event_key',$key)->exists())return;if($amount<0)throw new \LogicException('Negative transfer');$decimal=Money::decimal($amount);
   if($from&&$amount>0&&!DB::table('users')->where('id',$from)->where('balance','>=',$decimal)->decrement('balance',$decimal))$this->fail('رصيد المحفظة غير كافٍ. لم يتم تأكيد الاتفاق أو خصم العمولة.');
   if($to&&$amount>0&&!DB::table('users')->where('id',$to)->increment('balance',$decimal))throw new \RuntimeException('Wallet owner missing');
-  if(in_array($kind,['commission','commission_refund'],true)){
+  if(in_array($kind,['commission','commission_refund','cancellation_fee'],true)){
    if(config('settings.cache.enabled',false)||config('settings.default_repository','database')!=='database')throw new \RuntimeException('GO services require the uncached database settings repository for atomic app balance updates.');
    $s=DB::table('settings')->where('group','general')->where('name','app_balance')->lockForUpdate()->first();if(!$s)throw new \RuntimeException('Main application wallet setting missing');
-   $current=Money::minor(json_decode($s->payload,true,512,JSON_THROW_ON_ERROR));$next=$current+($kind==='commission'?$amount:-$amount);DB::table('settings')->where('id',$s->id)->update(['payload'=>json_encode(Money::decimal($next))]);
+   $current=Money::minor(json_decode($s->payload,true,512,JSON_THROW_ON_ERROR));$next=$current+($kind==='commission_refund'?-$amount:$amount);DB::table('settings')->where('id',$s->id)->update(['payload'=>json_encode(Money::decimal($next))]);
   }
   $wallet=$amount>0?DB::table('wallets')->insertGetId(['from_user'=>$from,'to_user'=>$to,'status'=>'completed','payment'=>'wallet','type'=>'transfer','amount'=>$decimal,'created_at'=>now(),'updated_at'=>now()]):null;
   DB::table('go_service_ledger')->insert(['job_id'=>$job,'event_key'=>$key,'kind'=>$kind,'from_user'=>$from,'to_user'=>$to,'amount_cents'=>$amount,'wallet_id'=>$wallet,'created_at'=>now()]);
@@ -168,21 +181,25 @@ class Marketplace {
  }
  public function notify(int $job,int $user,string $event,string $message):void {DB::table('go_service_outbox')->insertOrIgnore(['event_key'=>'job:'.$job.':'.$event.':user:'.$user,'user_id'=>$user,'job_id'=>$job,'message'=>$message,'available_at'=>now(),'created_at'=>now()]);}
  public function read(int $id,int $actor):array {
-  $this->actor($actor);$j=DB::table('go_service_jobs')->where('id',$id)->first();if(!$j)$this->fail('الطلب غير موجود.',404);
+  $viewer=$this->actor($actor);$j=DB::table('go_service_jobs')->where('id',$id)->first();if(!$j)$this->fail('الطلب غير موجود.',404);
   $owner=(int)$j->customer_id===$actor;$selected=(int)$j->partner_id===$actor;$invited=DB::table('go_service_recipients')->where('job_id',$id)->where('partner_id',$actor)->first();
   if(!$owner&&!$selected&&!$invited)$this->fail('غير مسموح بهذا الطلب.',403);$private=$owner||$selected;
   // Contact unlocks only for the chosen professional after the commission ledger
   // proves the debit committed. A cancelled/refunded agreement closes access.
-  $canContact=$selected&&$j->accepted_offer_id&&in_array($j->status,array_merge(self::ACTIVE,['completed']),true)
-   &&DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission')->where('from_user',$actor)->where('amount_cents',(int)$j->commission_cents)->exists()
-   &&!DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission_refund')->exists();
+  $charged=$selected&&DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission')->where('from_user',$actor)->where('amount_cents',(int)$j->commission_cents)->exists();
+  $refunded=$charged&&DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission_refund')->exists();
+  $canContact=$charged&&!$refunded&&$j->accepted_offer_id&&in_array($j->status,array_merge(self::ACTIVE,['completed']),true);
+  $accountRate=null;if(!$owner){try{$accountRate=Money::decimal($this->rate($viewer));}catch(\Throwable $e){}}
+  $cancelledBy=$private&&$j->status==='cancelled'?DB::table('go_service_ledger')->where('job_id',$id)->where('kind','cancellation_by')->value('from_user'):null;
+  $cancellation=$private?['allowed'=>($owner&&$j->status==='searching')||$j->status==='booked','requires_fee_confirmation'=>$j->status==='booked','fee'=>Money::decimal($j->accepted_offer_id?(int)$j->commission_cents:0),'rate'=>$j->accepted_offer_id?Money::decimal((int)$j->commission_bps):null,'charged_to'=>$cancelledBy?((int)$cancelledBy===(int)$j->customer_id?'customer':'partner'):null]:null;
   $offers=DB::table('go_service_offers as o')->join('users as u','u.id','=','o.partner_id')->where('o.job_id',$id)->when(!$owner,fn($q)=>$q->where('o.partner_id',$actor))->select('o.*','u.name')->orderBy('o.price_cents')->orderBy('o.id')->get();
   return ['id'=>(int)$j->id,'profession_key'=>$j->profession_key,'status'=>$j->status,'description'=>$j->description,'area'=>$j->area,'scheduled_at'=>$j->scheduled_at?Carbon::parse($j->scheduled_at)->toIso8601String():null,
    'location'=>$private?['lat'=>(float)$j->lat,'lng'=>(float)$j->lng,'address'=>$j->address]:null,'phone'=>$canContact?DB::table('users')->where('id',$j->customer_id)->value('mobile'):null,'can_contact_customer'=>$canContact,
    'partner_id'=>$j->partner_id?(int)$j->partner_id:null,'partner_name'=>$j->partner_id?DB::table('users')->where('id',$j->partner_id)->value('name'):null,'partner_phone'=>$private&&$j->partner_id?DB::table('users')->where('id',$j->partner_id)->value('mobile'):null,
    'accepted_offer_id'=>$j->accepted_offer_id?(int)$j->accepted_offer_id:null,'price'=>Money::decimal((int)$j->price_cents),'commission'=>$selected?Money::decimal((int)$j->commission_cents):null,
+   'commission_rate'=>$selected?Money::decimal((int)$j->commission_bps):null,'account_commission_rate'=>$accountRate,'cancellation'=>$cancellation,'commission_status'=>$selected?($refunded?'refunded':($charged?'charged':'unconfirmed')):null,
    'payment_method'=>$j->payment_method,'payment_status'=>$j->payment_status,'payment_due_at'=>$j->payment_due_at?Carbon::parse($j->payment_due_at)->toIso8601String():null,'search_until'=>Carbon::parse($j->search_until)->toIso8601String(),'dispatch_round'=>(int)$j->dispatch_round,'recipient_status'=>$invited?->status,'photo_count'=>count(json_decode($j->photos?:'[]',true)),
-   'offers'=>$offers->map(fn($o)=>['id'=>(int)$o->id,'partner_id'=>(int)$o->partner_id,'name'=>$o->name,'price'=>Money::decimal((int)$o->price_cents),'scope'=>$o->scope,'materials_included'=>(bool)$o->materials_included,'arrival_minutes'=>(int)$o->arrival_minutes,'duration_minutes'=>(int)$o->duration_minutes,'status'=>$o->status==='offered'&&Carbon::parse($o->expires_at)->lte(now())?'expired':$o->status,'expires_at'=>Carbon::parse($o->expires_at)->toIso8601String(),'commission'=>(int)$o->partner_id===$actor?Money::decimal(Money::commission((int)$o->price_cents,(int)$o->commission_bps)):null])->all()];
+   'offers'=>$offers->map(fn($o)=>['id'=>(int)$o->id,'partner_id'=>(int)$o->partner_id,'name'=>$o->name,'price'=>Money::decimal((int)$o->price_cents),'scope'=>$o->scope,'materials_included'=>(bool)$o->materials_included,'arrival_minutes'=>(int)$o->arrival_minutes,'duration_minutes'=>(int)$o->duration_minutes,'status'=>$o->status==='offered'&&Carbon::parse($o->expires_at)->lte(now())?'expired':$o->status,'expires_at'=>Carbon::parse($o->expires_at)->toIso8601String(),'commission'=>(int)$o->partner_id===$actor?Money::decimal(Money::commission((int)$o->price_cents,(int)$o->commission_bps)):null,'commission_rate'=>(int)$o->partner_id===$actor?Money::decimal((int)$o->commission_bps):null,'cancellation_fee'=>$owner?Money::decimal(Money::commission((int)$o->price_cents,(int)$o->commission_bps)):null,'cancellation_rate'=>$owner?Money::decimal((int)$o->commission_bps):null])->all()];
  }
  public function listing(int $actor,string $scope='open',int $page=1):array {
   $u=$this->actor($actor);$partner=$u->account_type==='delegate';$q=DB::table('go_service_jobs as j');

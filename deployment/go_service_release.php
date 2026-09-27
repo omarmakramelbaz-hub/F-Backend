@@ -132,12 +132,12 @@ function smoke(string $root): int {
         $as(1);$api->status($request(['status'=>'completed']),$j);$api->status($request(['status'=>'completed']),$j);
         $eq($balance(10),109000,'gross payout prevents double commission');$eq($appBalance(),103000,'only commissions are revenue');
         $j=$create('launch-cancel-job-0003');$o=$quote($j,10);$as(1);$api->accept($request(['payment_method'=>'wallet']),$j,$o);
-        $api->status($request(['status'=>'cancelled','reason'=>'Fixture cancellation']),$j);$api->status($request(['status'=>'cancelled','reason'=>'Fixture retry']),$j);
-        $eq($balance(1),90000,'customer refund once');$eq($balance(10),109000,'commission refund once');$eq($appBalance(),103000,'commission reversal once');
+        $api->status($request(['status'=>'cancelled','reason'=>'Fixture cancellation','cancellation_fee'=>'10.00']),$j);$api->status($request(['status'=>'cancelled','reason'=>'Fixture retry']),$j);
+        $eq($balance(1),89000,'customer refund less cancellation fee once');$eq($balance(10),109000,'commission refund once');$eq($appBalance(),104000,'cancelling customer bears fee once');
         $j=$create('launch-insufficient-0004');$o=$quote($j,10);DB::table('users')->where('id',1)->update(['balance'=>'0.00']);$as(1);
         try{$api->accept($request(['payment_method'=>'wallet']),$j,$o);throw new GoLaunchFailure('Insufficient funds were accepted.');}
         catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){$eq($e->getStatusCode(),422,'insufficient funds rejected');}
-        $eq($balance(10),109000,'failed acceptance rolls back partner debit');$eq($appBalance(),103000,'failed acceptance rolls back app credit');
+        $eq($balance(10),109000,'failed acceptance rolls back partner debit');$eq($appBalance(),104000,'failed acceptance rolls back app credit');
         $eq(DB::table('go_service_assignments')->count(),0,'failed acceptance rolls back assignment');
         $as(2);try{$api->show($j);throw new GoLaunchFailure('Another customer read a private job.');}
         catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){$eq($e->getStatusCode(),403,'ownership enforced');}

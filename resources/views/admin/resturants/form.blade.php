@@ -93,10 +93,10 @@
                   </div>
                 </div>
  <div class="form-group col-sm-6">
-         <label for="service_fees"> @lang('main.service_fees')</label><span class="text-danger">*</span>
+         <label for="service_fees">{{ __('go_fees.store_rate') }}</label><span class="text-danger">*</span>
      <div class="input-group mb-3">
      <span class="input-group-text" id="basic-addon1">%</span>
-    <input type="number" min="0"  name="service_fees" @if(auth()->user()->roles->pluck("id")->first() == 2||auth()->user()->roles->pluck("id")->first() == 13) readonly @endif value="{{ old('service_fees', $resturant->service_fees?$resturant->service_fees:auth('admin')->user()->owner_resturant?->service_fees) }}"
+    <input type="number" min="0" max="100" step="0.01" name="service_fees" @if(auth()->user()->roles->pluck("id")->first() == 2||auth()->user()->roles->pluck("id")->first() == 13) readonly @endif value="{{ old('service_fees', $resturant->service_fees ?? auth('admin')->user()?->owner_resturant?->service_fees) }}"
         class="form-control @error('service_fees') is-invalid @enderror" id="service_fees" placeholder="">
         </div>
 </div>

@@ -26,6 +26,7 @@ class StoreUserRequest extends FormRequest
     {
         // dd(request()->pending_vendor_id);
         return [
+            'delegate_fees' => ['sometimes', 'required', 'numeric', 'between:0,100', 'regex:/^\d{1,3}(?:\.\d{1,2})?$/D'],
             'name' => ['required','min:2', 'max:130'],
             'mobile' => ['sometimes','nullable','required_if:account_type,==,user','required_if:account_type,==,vendor','required_if:account_type,==,delegate','numeric','digits:10'],
             'email' => ['sometimes','nullable','required_if:account_type,==,admin','email'],
