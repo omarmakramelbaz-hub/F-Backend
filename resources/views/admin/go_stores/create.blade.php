@@ -33,20 +33,38 @@
         </div></div>
         <div class="d-flex flex-wrap" style="gap:12px">
             <button class="btn btn-primary" type="submit" id="save-store">إنشاء المتجر وحساب الدخول</button>
+            @if((int) auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-edit'))
+                <button class="btn btn-success" type="submit" id="save-store-products" name="after_save" value="products">حفظ وإضافة منتجات</button>
+            @endif
             <a class="btn btn-outline-secondary" href="{{ route('go-stores.index') }}">رجوع</a>
         </div>
     </form>
 </section></div>
 <script>
-document.getElementById('create-go-store').addEventListener('submit', function () {
-    const button = document.getElementById('save-store');
-    button.disabled = true;
-    button.textContent = 'جارٍ إنشاء المتجر…';
+document.getElementById('create-go-store').addEventListener('submit', function (event) {
+    // Disabled submit buttons are omitted from the request; keep the chosen action.
+    const selected = event.submitter;
+    if (selected && selected.name) {
+        const action = document.createElement('input');
+        action.type = 'hidden';
+        action.name = selected.name;
+        action.value = selected.value;
+        action.dataset.submitAction = 'true';
+        this.appendChild(action);
+    }
+    this.querySelectorAll('button[type="submit"]').forEach(function (button) {
+        button.dataset.label = button.textContent;
+        button.disabled = true;
+        button.textContent = 'جارٍ حفظ المتجر…';
+    });
 });
 window.addEventListener('pageshow', function () {
-    const button = document.getElementById('save-store');
-    button.disabled = false;
-    button.textContent = 'إنشاء المتجر وحساب الدخول';
+    const form = document.getElementById('create-go-store');
+    form.querySelectorAll('[data-submit-action]').forEach(function (input) { input.remove(); });
+    form.querySelectorAll('button[type="submit"]').forEach(function (button) {
+        button.disabled = false;
+        if (button.dataset.label) button.textContent = button.dataset.label;
+    });
 });
 </script>
 @endsection

@@ -77,17 +77,24 @@ class GoStoreAdminCreationTest extends TestCase
     {
         $this->get('/admin/go-stores')->assertOk()->assertSee(route('go-stores.create'), false)->assertSee('إضافة متجر');
         $this->get('/admin/go-stores/create')->assertOk()->assertSee('name="password_confirmation"', false)
-            ->assertSee('name="kind"', false)->assertSee('name="commission_rate"', false);
+            ->assertSee('name="kind"', false)->assertSee('name="commission_rate"', false)->assertSee('حفظ وإضافة منتجات');
     }
 
     public function test_all_store_types_get_independent_login_zero_wallet_and_saved_catalog_profile(): void
     {
         foreach (array_keys(Catalog::KINDS) as $index => $kind) {
             $mobile = '101234567'.$index;
-            $this->post('/admin/go-stores', $this->payload(['mobile'=>'+20 '.$mobile,'email'=>'OWNER'.$index.'@example.test','kind'=>$kind,
+            $response = $this->post('/admin/go-stores', $this->payload(['mobile'=>'+20 '.$mobile,'email'=>'OWNER'.$index.'@example.test','kind'=>$kind,
+                'after_save'=>$index === 0 ? 'products' : null,
                 'balance'=>5000,'account_type'=>'admin','app_scope'=>'fasakhansta','status'=>'pending','added_by'=>999,'partner_auth_email'=>'fake@example.test']))
                 ->assertSessionHasNoErrors()->assertRedirect();
             $owner = User::withoutGlobalScopes()->where('mobile',$mobile)->firstOrFail();
+            $response->assertRedirect(route($index === 0 ? 'go-stores.products.create' : 'go-stores.show', $owner->id));
+            if ($index === 0) {
+                $this->get(route('go-stores.products.create', $owner->id))->assertOk()
+                    ->assertSee('تم إنشاء المتجر وحساب صاحبه.')->assertSee('name="image"', false)
+                    ->assertSee(route('go-stores.products.store', $owner->id), false);
+            }
             $this->assertSame('vendor', $owner->account_type);
             $this->assertSame('go_partner', $owner->app_scope);
             $this->assertSame('accepted', $owner->status);
@@ -119,8 +126,10 @@ class GoStoreAdminCreationTest extends TestCase
         $manager->givePermissionTo('resturant-create');
         $manager->revokePermissionTo('resturant-edit');
         $this->actingAs($manager->fresh(), 'admin');
-        $this->post('/admin/go-stores', $this->payload())->assertRedirect()->assertSessionHasNoErrors();
+        $this->get('/admin/go-stores/create')->assertOk()->assertDontSee('حفظ وإضافة منتجات');
+        $response = $this->post('/admin/go-stores', $this->payload(['after_save'=>'products']))->assertRedirect()->assertSessionHasNoErrors();
         $owner = User::withoutGlobalScopes()->where('app_scope','go_partner')->firstOrFail();
+        $response->assertRedirect(route('go-stores.show', $owner->id));
         $this->assertSame($manager->id, (int) $owner->added_by);
         $owner->givePermissionTo(['resturant-list','resturant-create']);
         $this->actingAs($owner, 'admin');

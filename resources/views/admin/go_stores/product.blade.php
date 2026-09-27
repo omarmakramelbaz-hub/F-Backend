@@ -2,6 +2,7 @@
 @section('content')
 <div class="content-wrapper"><section class="content p-4" dir="rtl">
     <a href="{{ route('go-stores.show', $account->id) }}">العودة للمتجر</a><h1>{{ $item ? 'تعديل المنتج' : 'إضافة منتج' }}</h1>
+    @if(session('success'))<div class="alert alert-success" role="status">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
     <form class="card card-body" method="POST" enctype="multipart/form-data" action="{{ $item ? route('go-stores.products.update', [$account->id, $item['id']]) : route('go-stores.products.store', $account->id) }}">
         @csrf
