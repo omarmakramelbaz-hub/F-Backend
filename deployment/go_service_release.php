@@ -109,7 +109,7 @@ function smoke(string $root): int {
         $balance = static fn(int $id)=>Money::minor(DB::table('users')->where('id',$id)->value('balance'));
         $appBalance = static fn()=>Money::minor(json_decode(DB::table('settings')->where('name','app_balance')->value('payload'),true));
         $create = static function(string $key)use($as,$request,$api,$data):int {
-            $as(1);return $data($api->store($request(['request_key'=>$key,'profession_key'=>'plumber','description'=>'Fix the leaking kitchen sink pipe','area'=>'Fixture area','address'=>'Private fixture address','phone'=>'01010000000','lat'=>30,'lng'=>31])))['id'];
+            $as(1);return $data($api->store($request(['request_key'=>$key,'profession_key'=>'plumber','description'=>'Fix the leaking kitchen sink pipe','address'=>'Private fixture address','lat'=>30,'lng'=>31])))['id'];
         };
         $quote = static function(int $job,int $partner)use($as,$request,$api,$data):int {
             $as($partner);$j=$data($api->quote($request(['price'=>'100.00','scope'=>'Fix the pipe; final labour price','materials_included'=>false,'arrival_minutes'=>30,'duration_minutes'=>60]),$job));return $j['offers'][0]['id'];
@@ -117,12 +117,13 @@ function smoke(string $root): int {
         $j=$create('launch-cash-job-0001');$eq($create('launch-cash-job-0001'),$j,'create retry');
         $eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),2,'initial dispatch');
         $o=$quote($j,10);$other=$quote($j,11);$eq($balance(10),100000,'quotation has no charge');
-        $as(10);$eq($data($api->show($j))['phone'],null,'phone protected before selection');
+        DB::table('go_service_jobs')->where('id',$j)->update(['phone'=>'01012345678']);
+        $as(10);$eq($data($api->show($j))['phone'],null,'legacy phone protected before selection');
         $as(1);$api->reject($j,$o);$eq(DB::table('go_service_recipients')->where('job_id',$j)->count(),4,'rejection dispatches others');
         $eq(DB::table('go_service_offers')->where('id',$other)->value('status'),'offered','other quote retained');
         $api->accept($request(['payment_method'=>'cash']),$j,$other);$api->accept($request(['payment_method'=>'cash']),$j,$other);
         $eq($balance(11),98000,'individual 20 percent commission once');$eq($appBalance(),102000,'main wallet credited once');
-        $as(11);$api->status($request(['status'=>'in_progress']),$j);$api->status($request(['status'=>'awaiting_confirmation']),$j);
+        $as(11);$eq($data($api->show($j))['phone'],'1010000000','account phone released after selection and commission');$api->status($request(['status'=>'in_progress']),$j);$api->status($request(['status'=>'awaiting_confirmation']),$j);
         $as(1);$api->status($request(['status'=>'completed','cash_paid'=>true]),$j);$api->status($request(['status'=>'completed','cash_paid'=>true]),$j);
         $eq($balance(11),98000,'cash completion no second debit');$eq(DB::table('go_service_assignments')->count(),0,'assignment released');
         $j=$create('launch-wallet-job-0002');$o=$quote($j,10);$as(1);$api->accept($request(['payment_method'=>'wallet']),$j,$o);

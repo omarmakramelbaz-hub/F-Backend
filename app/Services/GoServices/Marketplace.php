@@ -31,7 +31,8 @@ class Marketplace {
    $old=DB::table('go_service_jobs')->where('customer_id',$actor)->where('request_key',$data['request_key'])->first();
    if($old){if(!hash_equals($old->payload_hash,$hash))$this->fail('مفتاح الطلب مستخدم لبيانات مختلفة.',409);return (int)$old->id;}
    if(DB::table('go_service_jobs')->where('customer_id',$actor)->whereIn('status',array_merge(['searching'],self::ACTIVE))->count()>=(int)config('go_services.max_open_jobs',5))$this->fail('أكمل أو ألغِ الطلبات المفتوحة أولًا.');
-   return (int)DB::table('go_service_jobs')->insertGetId(['customer_id'=>$actor,'request_key'=>$data['request_key'],'payload_hash'=>$hash,'profession_key'=>$data['profession_key'],'description'=>trim($data['description']),'area'=>trim($data['area']),'address'=>trim($data['address']),'phone'=>$data['phone'],'lat'=>$data['lat'],'lng'=>$data['lng'],'photos'=>json_encode($data['photos']??[]),'scheduled_at'=>$data['scheduled_at']??null,'status'=>'searching','search_until'=>now()->addMinutes((int)config('go_services.search_minutes',60)),'next_dispatch_at'=>now(),'created_at'=>now(),'updated_at'=>now()]);
+   // Keep legacy NOT NULL columns empty; neither field is collected for new GO requests.
+   return (int)DB::table('go_service_jobs')->insertGetId(['customer_id'=>$actor,'request_key'=>$data['request_key'],'payload_hash'=>$hash,'profession_key'=>$data['profession_key'],'description'=>trim($data['description']),'area'=>'','address'=>trim($data['address']),'phone'=>'','lat'=>$data['lat'],'lng'=>$data['lng'],'photos'=>json_encode($data['photos']??[]),'scheduled_at'=>$data['scheduled_at']??null,'status'=>'searching','search_until'=>now()->addMinutes((int)config('go_services.search_minutes',60)),'next_dispatch_at'=>now(),'created_at'=>now(),'updated_at'=>now()]);
   },3);$this->distribute($id);return $id;
  }
  public function distribute(int $id,bool $force=false):void {
@@ -170,9 +171,14 @@ class Marketplace {
   $this->actor($actor);$j=DB::table('go_service_jobs')->where('id',$id)->first();if(!$j)$this->fail('الطلب غير موجود.',404);
   $owner=(int)$j->customer_id===$actor;$selected=(int)$j->partner_id===$actor;$invited=DB::table('go_service_recipients')->where('job_id',$id)->where('partner_id',$actor)->first();
   if(!$owner&&!$selected&&!$invited)$this->fail('غير مسموح بهذا الطلب.',403);$private=$owner||$selected;
+  // Contact unlocks only for the chosen professional after the commission ledger
+  // proves the debit committed. A cancelled/refunded agreement closes access.
+  $canContact=$selected&&$j->accepted_offer_id&&in_array($j->status,array_merge(self::ACTIVE,['completed']),true)
+   &&DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission')->where('from_user',$actor)->where('amount_cents',(int)$j->commission_cents)->exists()
+   &&!DB::table('go_service_ledger')->where('job_id',$id)->where('kind','commission_refund')->exists();
   $offers=DB::table('go_service_offers as o')->join('users as u','u.id','=','o.partner_id')->where('o.job_id',$id)->when(!$owner,fn($q)=>$q->where('o.partner_id',$actor))->select('o.*','u.name')->orderBy('o.price_cents')->orderBy('o.id')->get();
   return ['id'=>(int)$j->id,'profession_key'=>$j->profession_key,'status'=>$j->status,'description'=>$j->description,'area'=>$j->area,'scheduled_at'=>$j->scheduled_at?Carbon::parse($j->scheduled_at)->toIso8601String():null,
-   'location'=>$private?['lat'=>(float)$j->lat,'lng'=>(float)$j->lng,'address'=>$j->address]:null,'phone'=>$private?$j->phone:null,
+   'location'=>$private?['lat'=>(float)$j->lat,'lng'=>(float)$j->lng,'address'=>$j->address]:null,'phone'=>$canContact?DB::table('users')->where('id',$j->customer_id)->value('mobile'):null,'can_contact_customer'=>$canContact,
    'partner_id'=>$j->partner_id?(int)$j->partner_id:null,'partner_name'=>$j->partner_id?DB::table('users')->where('id',$j->partner_id)->value('name'):null,'partner_phone'=>$private&&$j->partner_id?DB::table('users')->where('id',$j->partner_id)->value('mobile'):null,
    'accepted_offer_id'=>$j->accepted_offer_id?(int)$j->accepted_offer_id:null,'price'=>Money::decimal((int)$j->price_cents),'commission'=>$selected?Money::decimal((int)$j->commission_cents):null,
    'payment_method'=>$j->payment_method,'payment_status'=>$j->payment_status,'payment_due_at'=>$j->payment_due_at?Carbon::parse($j->payment_due_at)->toIso8601String():null,'search_until'=>Carbon::parse($j->search_until)->toIso8601String(),'dispatch_round'=>(int)$j->dispatch_round,'recipient_status'=>$invited?->status,'photo_count'=>count(json_decode($j->photos?:'[]',true)),
