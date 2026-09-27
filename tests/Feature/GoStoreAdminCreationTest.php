@@ -55,7 +55,9 @@ class GoStoreAdminCreationTest extends TestCase
         $this->views = sys_get_temp_dir().'/go-store-admin-'.bin2hex(random_bytes(6));
         File::makeDirectory($this->views.'/admin', 0755, true);
         File::put($this->views.'/admin/index.blade.php', '<main>@yield("content")</main>');
-        app('view.finder')->setPaths([$this->views, resource_path('views')]);
+        $finder = app('view')->getFinder();
+        $finder->setPaths([$this->views, resource_path('views')]);
+        $finder->flush();
     }
 
     protected function tearDown(): void
