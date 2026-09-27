@@ -6,6 +6,7 @@ use App\Interfaces\UserRepositoryInterface;
 use App\Models\User;
 use App\Models\Area;
 use App\Models\PendingVendor;
+use App\Support\PartnerWorkArea;
 use App\Http\Traits\UploadImageTrait;
 use Arr;
 use DB;
@@ -47,6 +48,7 @@ class UserRepository implements UserRepositoryInterface
     }
     public function createUser(array $userDetails) 
     {  
+        $workArea = PartnerWorkArea::take($userDetails);
         if(User::where('account_type',$userDetails['account_type'])->where('mobile',$userDetails['mobile'])->first()){
             return 2;
         }
@@ -80,6 +82,7 @@ class UserRepository implements UserRepositoryInterface
         $password[]=$request->password;
 
         //send emails by number of branches
+        $emailFailed = false;
         $to_email = $user->email;
         if($to_email){
             try{
@@ -88,7 +91,7 @@ class UserRepository implements UserRepositoryInterface
                 $message->subject('Send Notification');
             });
             } catch (\Exception $e) {
-                return false;
+                $emailFailed = true; // Finish saving profile/coverage even when mail is unavailable.
             }
         }
         
@@ -112,6 +115,7 @@ class UserRepository implements UserRepositoryInterface
         $pending_vendor->branches_no=request()->branches_no;
         $pending_vendor->location=request()->location;
         $pending_vendor-> vodafone_cash_mobile=request()->vodafone_cash_mobile;
+        PartnerWorkArea::apply($pending_vendor, $workArea);
         $pending_vendor->save();
                    $user->update(['pending_vendor_id'=>$pending_vendor->id]);
 
@@ -138,11 +142,12 @@ class UserRepository implements UserRepositoryInterface
             $pending_vendor->clearMediaCollection('tax_no_image');
             $pending_vendor->addMediaFromRequest('tax_no_image')->toMediaCollection('tax_no_image','pending_vendor');
         }
-        return $user;
+        return $emailFailed ? false : $user;
     }
 
     public function updateUser($userId, array $newDetails) 
     {
+        $workArea = PartnerWorkArea::take($newDetails);
 
         unset($newDetails['photo_profile']);
         unset($newDetails["national_id_image"],$newDetails["commercial_registration_no_image"],$newDetails["driving_license_image"],$newDetails["tax_no_image"]);
@@ -178,14 +183,15 @@ class UserRepository implements UserRepositoryInterface
         $pending_vendor->status='accepted';
         $pending_vendor->mobile=request()->mobile;
         $pending_vendor->email=request()->email;
-        $pending_vendor->national_id=request()->national_id;
-        $pending_vendor->commercial_registration_no=request()->commercial_registration_no;
-        $pending_vendor->driving_license_no=request()->driving_license_no;
-        $pending_vendor->tax_no=request()->tax_no;
-        $pending_vendor->owner_name=request()->owner_name;
-        $pending_vendor->branches_no=request()->branches_no;
-        $pending_vendor->location=request()->location;
-        $pending_vendor-> vodafone_cash_mobile=request()->vodafone_cash_mobile;
+        if (request()->has('national_id')) { $pending_vendor->national_id=request()->national_id; }
+        if (request()->has('commercial_registration_no')) { $pending_vendor->commercial_registration_no=request()->commercial_registration_no; }
+        if (request()->has('driving_license_no')) { $pending_vendor->driving_license_no=request()->driving_license_no; }
+        if (request()->has('tax_no')) { $pending_vendor->tax_no=request()->tax_no; }
+        if (request()->has('owner_name')) { $pending_vendor->owner_name=request()->owner_name; }
+        if (request()->has('branches_no')) { $pending_vendor->branches_no=request()->branches_no; }
+        if (request()->has('location')) { $pending_vendor->location=request()->location; }
+        if (request()->has('vodafone_cash_mobile')) { $pending_vendor->vodafone_cash_mobile=request()->vodafone_cash_mobile; }
+        PartnerWorkArea::apply($pending_vendor, $workArea);
         $pending_vendor->save();
 
         // $get_user->update(['pending_vendor_id'=>$pending_vendor->id]);
