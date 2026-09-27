@@ -179,7 +179,7 @@ class PendingVendorController extends Controller
         }
         $mobile = ltrim($mobile, '0');
 
-        $user = User::where('account_type', 'delegate')
+        $user = User::whereIn('account_type', ['delegate', 'vendor'])
             ->where('app_scope', 'go_partner')
             ->where(function ($query) use ($pending_vendor, $mobile) {
                 $query->where('pending_vendor_id', $pending_vendor->id)
@@ -192,14 +192,14 @@ class PendingVendorController extends Controller
                 'added_by' => 1,
                 'name' => $pending_vendor->full_name,
                 'mobile' => $mobile,
-                'account_type' => 'delegate',
+                'account_type' => $pending_vendor->profession_key === 'store_owner' ? 'vendor' : 'delegate',
                 'app_scope' => 'go_partner',
                 'status' => 'pending',
                 'pending_vendor_id' => $pending_vendor->id,
             ]);
 
             try {
-                $user->assignRole(13);
+                if ($user->account_type === 'delegate') $user->assignRole(13);
             } catch (\Throwable $e) {
                 // The partner can still activate even if the legacy role is unavailable.
             }

@@ -21,7 +21,7 @@ class PartnerApplicationController extends Controller
     {
         return [
             'delivery_courier' => ['ar' => 'مندوب توصيل', 'en' => 'Delivery courier'],
-            'store_owner' => ['ar' => 'صاحب مطعم أو متجر', 'en' => 'Shop or restaurant owner'],
+            'store_owner' => ['ar' => 'متجر', 'en' => 'Store'],
             'appliance_technician' => ['ar' => 'فني صيانة ثلاجات وغسالات', 'en' => 'Fridge & washer technician'],
             'plumber' => ['ar' => 'سباك', 'en' => 'Plumber'],
             'painter' => ['ar' => 'نقاش', 'en' => 'Painter'],
@@ -97,7 +97,7 @@ class PartnerApplicationController extends Controller
 
         $mobile = $this->normalizeMobile($request->mobile);
 
-        if (User::withoutGlobalScopes()->where('app_scope', 'go_partner')->where('account_type', 'delegate')->where('mobile', $mobile)->exists()) {
+        if (User::withoutGlobalScopes()->where('app_scope', 'go_partner')->whereIn('account_type', ['delegate', 'vendor'])->where('mobile', $mobile)->exists()) {
             return $this->errorResponse('هذا الرقم مرتبط بحساب شريك. سجل الدخول أو استخدم استرجاع كلمة المرور.', 422);
         }
 
@@ -136,7 +136,7 @@ class PartnerApplicationController extends Controller
             'payment_identifier' => $request->payment_identifier,
             'work_radius_km' => (int) $request->work_radius_km,
             'application_kind' => 'partner',
-            'type' => $request->input('partner_type') === 'vendor' ? 'vendor' : 'delegate',
+            'type' => $request->profession_key === 'store_owner' ? 'vendor' : 'delegate',
             'status' => 'pending',
             'terms_accepted_at' => now(),
         ];
@@ -223,7 +223,7 @@ class PartnerApplicationController extends Controller
                 || $application->email !== $proof['email'] || $application->partner_activated_at) {
                 throw ValidationException::withMessages(['email_verification_token' => 'لا يمكن تفعيل هذا الطلب. راجع حالة الطلب أو استخدم استرجاع كلمة المرور.']);
             }
-            $user = User::withoutGlobalScopes()->where('account_type', 'delegate')->where('app_scope', 'go_partner')
+            $user = User::withoutGlobalScopes()->whereIn('account_type', ['delegate', 'vendor'])->where('app_scope', 'go_partner')
                 ->where('mobile', $proof['mobile'])->lockForUpdate()->first();
             if ($user && ($user->status !== 'pending' || (int) $user->pending_vendor_id !== (int) $application->id)) {
                 throw ValidationException::withMessages(['mobile' => 'الحساب موجود بالفعل. استخدم تسجيل الدخول أو استرجاع كلمة المرور.']);
@@ -231,13 +231,13 @@ class PartnerApplicationController extends Controller
             $fields = [
                 'added_by' => 1, 'name' => $application->full_name, 'mobile' => $proof['mobile'],
                 'email' => $proof['email'], 'partner_auth_email' => $proof['email'], 'email_verified_at' => now(),
-                'password' => $data['password'], 'account_type' => 'delegate', 'app_scope' => 'go_partner',
+                'password' => $data['password'], 'account_type' => $application->profession_key === 'store_owner' ? 'vendor' : 'delegate', 'app_scope' => 'go_partner',
                 'status' => 'accepted', 'pending_vendor_id' => $application->id,
             ];
             $user = $user ?: new User();
             $user->forceFill($fields)->save();
             try {
-                if (!$user->hasRole(13)) $user->assignRole(13);
+                if ($user->account_type === 'delegate' && !$user->hasRole(13)) $user->assignRole(13);
             } catch (\Throwable $e) {
                 // Preserve compatibility when the optional legacy role is unavailable.
             }

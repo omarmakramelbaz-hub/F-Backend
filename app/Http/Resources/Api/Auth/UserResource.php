@@ -40,6 +40,7 @@ class UserResource extends JsonResource
             'account_type'        => $this->account_type,
             'app_scope'           => $this->app_scope,
             'is_go_partner'       => $this->app_scope === 'go_partner',
+            'is_go_store'         => \App\Services\GoStores\Catalog::isStore($this->resource),
             'partner_profession_key' => $partnerApplication?->profession_key,
             'partner_profession_name_ar' => $professionLabels['ar'] ?? null,
             'partner_profession_name_en' => $professionLabels['en'] ?? null,

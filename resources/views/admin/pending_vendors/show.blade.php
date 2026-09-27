@@ -38,7 +38,7 @@
                                 <div class="col-12 mb-3">
                                     <div class="alert alert-primary">
                                         <strong>بيانات شريك GO</strong>
-                                        <div class="small mt-1">سيتم ربط الحساب تلقائياً بكارت المهنة بعد القبول وتفعيل الحساب من تطبيق الشركاء.</div>
+                                        <div class="small mt-1">{{ $pending_vendor->profession_key === 'store_owner' ? 'حساب متجر لإدارة السلع والصور والأسعار والخيارات بعد القبول والتفعيل.' : 'سيتم ربط الحساب تلقائياً بكارت المهنة بعد القبول وتفعيل الحساب من تطبيق الشركاء.' }}</div>
                                     </div>
                                 </div>
                                 @if($partnerPhoto)
