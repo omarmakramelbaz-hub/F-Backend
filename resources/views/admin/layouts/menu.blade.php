@@ -41,6 +41,9 @@
             <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" style="padding:0px"
                 data-accordion="false">
 
+                @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
+                <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
+                @endif
                 <!-- الصفحة الرئيسيه -->
                 <li class="nav-item">
                     <a href="{{ url('/admin/dashboard') }}"

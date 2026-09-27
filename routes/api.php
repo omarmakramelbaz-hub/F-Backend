@@ -111,6 +111,11 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     });
 
     Route::group(['middleware' => ['auth:api','app.scope','custom.jwt']], function () {
+        Route::get('go-stores/catalog', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'index']);
+        Route::post('go-stores/profile', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'store']);
+        Route::post('go-stores/products', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'save']);
+        Route::post('go-stores/products/{product}', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'save'])->whereNumber('product');
+
     
 Route::post('/pusher/auth', function (Request $request) {
     if (Auth::check()) {

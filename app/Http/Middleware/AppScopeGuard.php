@@ -32,6 +32,14 @@ class AppScopeGuard
             ], 401);
         }
 
+        // GO store catalogs are independent of the legacy F merchant menus and
+        // courier workflow. Store sessions must not mutate those shared routes.
+        if ($expectedScope === 'go_partner' && \App\Services\GoStores\Catalog::isStore($user)) {
+            $action = $request->route()?->getActionName() ?? '';
+            foreach (['Api\\V1\\Vendor\\', 'Api\\V1\\Delegate\\', 'PartnerServiceRequestController@'] as $prefix) {
+                abort_if(strpos($action, $prefix) !== false, 403, 'استخدم إدارة المتجر داخل جو بارتنر.');
+            }
+        }
         return (new GoWalletMinimum())->handle($request, $next);
     }
 }

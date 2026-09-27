@@ -28,6 +28,8 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/GoServiceRequestPrivacyTest.php
       - name: Test individual partner commission settings
         run: vendor/bin/phpunit tests/Feature/PartnerCommissionSettingsTest.php
+      - name: Test GO stores, images, option prices and ownership
+        run: vendor/bin/phpunit tests/Feature/GoStoreCatalogTest.php
       - name: Test GO wallet minimum across account types
         run: vendor/bin/phpunit tests/Feature/GoWalletMinimumTest.php
       - name: Test approved menu prices, checkout totals, transaction rollback and branch isolation

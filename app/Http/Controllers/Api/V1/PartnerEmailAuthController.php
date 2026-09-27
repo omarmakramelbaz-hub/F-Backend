@@ -33,7 +33,7 @@ class PartnerEmailAuthController extends Controller
                 $subjectId = $application->id;
             }
         } else {
-            $user = User::withoutGlobalScopes()->where('app_scope', 'go_partner')->where('account_type', 'delegate')
+            $user = User::withoutGlobalScopes()->where('app_scope', 'go_partner')->whereIn('account_type', ['delegate', 'vendor'])
                 ->where('mobile', $mobile)->where('status', 'accepted')->first();
             if ($user && $user->partner_auth_email) {
                 $email = $user->partner_auth_email;
@@ -64,7 +64,7 @@ class PartnerEmailAuthController extends Controller
         ]);
         return $verification->consume($data['email_verification_token'], 'password_reset', $data['mobile'], function ($proof) use ($data) {
             $user = User::withoutGlobalScopes()->where('id', $proof['subjectId'])->where('mobile', $proof['mobile'])
-                ->where('app_scope', 'go_partner')->where('account_type', 'delegate')->where('status', 'accepted')->lockForUpdate()->first();
+                ->where('app_scope', 'go_partner')->whereIn('account_type', ['delegate', 'vendor'])->where('status', 'accepted')->lockForUpdate()->first();
             if (!$user || $user->partner_auth_email !== $proof['email']) {
                 throw ValidationException::withMessages(['email_verification_token' => 'تعذر تأكيد الحساب. اطلب كودًا جديدًا.']);
             }

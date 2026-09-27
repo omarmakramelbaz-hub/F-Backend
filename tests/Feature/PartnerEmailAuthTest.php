@@ -167,6 +167,29 @@ class PartnerEmailAuthTest extends TestCase
         $this->postJson('/api/partner-applications/activate', $body)->assertStatus(422);
     }
 
+    public function test_store_activation_and_recovery_keep_vendor_identity_in_go_scope(): void
+    {
+        $application = $this->application();
+        $application->update(['profession_key' => 'store_owner']);
+        $proof = $this->proof('activation');
+        $this->postJson('/api/partner-applications/activate', ['mobile'=>'01012345678', 'email_verification_token'=>$proof,
+            'password'=>'store-password', 'password_confirmation'=>'store-password'])->assertOk();
+        $user = User::withoutGlobalScopes()->first();
+        $this->assertSame('vendor', $user->account_type);
+        $this->assertSame('go_partner', $user->app_scope);
+        $this->assertTrue(\App\Services\GoStores\Catalog::isStore($user));
+        // The same Partner login recognizes stores even on older clients sending delegate.
+        $request = \Illuminate\Http\Request::create('/api/login','POST',[],[],[],['HTTP_X_APP_SCOPE'=>'go_partner']);
+        app()->instance('request', $request);
+        $signedIn = app(\App\Repositories\Api\AuthRepository::class)->login(['mobile'=>'1012345678', 'password'=>'store-password', 'account_type'=>'delegate']);
+        $this->assertSame($user->id, $signedIn->id);
+        $this->travel(61)->seconds();
+        $proof = $this->proof('password_reset');
+        $this->postJson('/api/partner-auth/password/reset', ['mobile'=>'01012345678', 'email_verification_token'=>$proof,
+            'password'=>'updated-password', 'password_confirmation'=>'updated-password'])->assertOk();
+        $this->assertTrue(Hash::check('updated-password', $user->fresh()->password));
+    }
+
     public function test_pending_or_unverified_applications_receive_no_activation_code(): void
     {
         $this->application('pending');

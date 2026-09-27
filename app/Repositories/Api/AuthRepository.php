@@ -36,7 +36,7 @@ class AuthRepository implements AuthRepositoryInterface
                 $query->where('mobile', $Details['mobile'])
                     ->orWhere('email', $Details['mobile']);
             })
-            ->where('account_type', $Details['account_type'])
+            ->whereIn('account_type', $scopeValue === 'go_partner' ? ['delegate', 'vendor'] : [$Details['account_type']])
             ->when(Schema::hasColumn('users', 'app_scope'), function ($query) use ($scopeValue) {
                 $query->where('app_scope', $scopeValue);
             });
