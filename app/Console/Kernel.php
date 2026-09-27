@@ -37,6 +37,10 @@ class Kernel extends ConsoleKernel
 
     protected function schedule(Schedule $schedule)
     {
+        // Continue quotation waves and retry notices even while clients are closed.
+        // The command checks schema/readiness before touching marketplace tables.
+        $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
+
         // One-time approved menu release through the existing application scheduler.
         // The migration receipt prevents overwriting later dashboard price edits.
         $schedule->command('menu:align-stores-to-zayed-20260923')->everyMinute()->withoutOverlapping();

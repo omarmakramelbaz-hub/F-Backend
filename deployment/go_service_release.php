@@ -23,6 +23,10 @@ function command(array $args, ?string $cwd = null): string {
 }
 function inspect(): array {
     must(PHP_VERSION_ID >= 80200, 'PHP 8.2 or later is required.');
+    $dispatch = array_values(array_filter(app(\Illuminate\Console\Scheduling\Schedule::class)->events(),
+        static fn($event)=>str_contains($event->command??'', 'go-services:dispatch')));
+    must(count($dispatch)===1 && $dispatch[0]->expression==='* * * * *' && $dispatch[0]->withoutOverlapping,
+        'GO service dispatch must be scheduled once every minute with overlap protection.');
     must(DB::connection()->getDriverName() === 'mysql', 'This release expects the existing MySQL deployment.');
     must(!config('settings.cache.enabled', false), 'Settings caching must be disabled for atomic application-wallet updates.');
     must(config('settings.default_repository', 'database') === 'database', 'The database settings repository is required.');
