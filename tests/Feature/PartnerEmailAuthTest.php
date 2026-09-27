@@ -24,7 +24,7 @@ class PartnerEmailAuthTest extends TestCase
     {
         parent::setUp();
         config(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:',
-            'cache.default' => 'array', 'partner_auth.mailer' => 'array', 'app.key' => 'partner-email-tests-only-key']);
+            'cache.default' => 'array', 'partner_auth.mailer' => 'array', 'app.key' => '12345678901234567890123456789012']);
         DB::purge('sqlite');
         Cache::flush();
         Mail::fake();
