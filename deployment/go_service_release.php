@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\GoServiceMarketplaceController;
 use App\Services\GoServices\Marketplace;
 use App\Services\GoServices\Money;
 use App\Models\User;
+require_once __DIR__.'/go_service_routes.php';
 class GoLaunchFailure extends RuntimeException {}
 function must($condition, string $message): void { if (!$condition) throw new GoLaunchFailure($message); }
 function command(array $args, ?string $cwd = null): string {
@@ -23,6 +24,8 @@ function command(array $args, ?string $cwd = null): string {
 }
 function inspect(): array {
     must(PHP_VERSION_ID >= 80200, 'PHP 8.2 or later is required.');
+    $routeIssues = goServiceRouteIssues(app('router'));
+    must($routeIssues === [], 'GO route verification failed: '.implode(' ', $routeIssues));
     $dispatch = array_values(array_filter(app(\Illuminate\Console\Scheduling\Schedule::class)->events(),
         static fn($event)=>str_contains($event->command??'', 'go-services:dispatch')));
     must(count($dispatch)===1 && $dispatch[0]->expression==='* * * * *' && $dispatch[0]->withoutOverlapping,
@@ -45,7 +48,7 @@ function inspect(): array {
     must($wallet->count() === 1, 'Exactly one main application-wallet setting is required.');
     $balance = json_decode($wallet[0]->payload, true, 512, JSON_THROW_ON_ERROR);
     must(is_numeric($balance), 'Main application-wallet balance is not numeric.');
-    return ['database'=>'mysql','transactional_wallets'=>true,'settings_cache'=>false,'schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled',false)];
+    return ['database'=>'mysql','transactional_wallets'=>true,'settings_cache'=>false,'routes_ready'=>true,'dispatch_ready'=>true,'schema_ready'=>Schema::hasTable('go_service_jobs'),'enabled'=>(bool)config('go_services.enabled',false)];
 }
 function backup(string $root, string $directory): void {
     must(command(['git','status','--porcelain','--untracked-files=no'],$root) === '', 'Tracked server edits exist. Refusing to overwrite them.');

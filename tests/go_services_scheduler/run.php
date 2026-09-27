@@ -40,3 +40,27 @@ if ($app->make(Schedule::class) !== $schedule) {
     throw new RuntimeException('The scheduler must remain a shared singleton.');
 }
 echo "PASS real Laravel Kernel/provider schedule: one GO event, every minute, overlap protected. No commands executed.\n";
+
+require $root.'/deployment/go_service_routes.php';
+$router = new \Illuminate\Routing\Router($app['events'], $app);
+$app->instance('router', $router);
+Facade::clearResolvedInstance('router');
+// Reproduce the production failure: a legacy route references a missing class.
+$router->get('/dashboard/blogs', 'App\\Http\\Controllers\\Dashboard\\BlogController@index');
+$router->prefix('api')->group($root.'/routes/go_services.php');
+if (goServiceRouteIssues($router) !== []) {
+    throw new RuntimeException('Valid GO routes must pass despite an unrelated missing controller.');
+}
+$router->get('/api/go-services/capabilities', static fn () => null);
+if (!in_array('GET /api/go-services/capabilities targets the wrong action.', goServiceRouteIssues($router), true)) {
+    throw new RuntimeException('The release check accepted an incorrectly routed GO endpoint.');
+}
+$router->post('/api/go-services/jobs', [\App\Http\Controllers\Api\V1\GoServiceMarketplaceController::class, 'store']);
+if (!in_array('POST /api/go-services/jobs is missing auth:api.', goServiceRouteIssues($router), true)) {
+    throw new RuntimeException('The release check accepted a GO write route without authentication.');
+}
+$router->setRoutes(new \Illuminate\Routing\RouteCollection());
+if (count(goServiceRouteIssues($router)) !== 13) {
+    throw new RuntimeException('The release check must reject missing GO routes.');
+}
+echo "PASS GO route matching with missing legacy controller; wrong targets, absent auth and missing routes rejected. No controllers executed.\n";

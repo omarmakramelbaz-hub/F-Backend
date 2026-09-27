@@ -22,23 +22,10 @@ php deployment/go_service_release.php test "$ROOT" "$RUN"
 # menu/price migrations as an accidental side effect of enabling GO services.
 php artisan migrate --force --path=database/migrations/2026_09_26_090000_create_go_service_marketplace.php
 php artisan optimize:clear
-verify_listing() {
-  local expected="$1"
-  shift
-  local output
-  if ! output=$("$@" 2>&1); then
-    printf '%s\n' "$output" >&2
-    printf 'STOP: %s failed before GO activation.\n' "$*" >&2
-    return 1
-  fi
-  if ! grep -F "$expected" <<< "$output"; then
-    printf '%s\n' "$output" >&2
-    printf 'STOP: expected entry %s was not found; GO was not activated.\n' "$expected" >&2
-    return 1
-  fi
-}
-verify_listing 'go-services/capabilities' php artisan route:list --path=go-services
-verify_listing 'go-services:dispatch' php artisan schedule:list
+# Verify GO route matching/auth middleware and the real scheduler again after
+# clearing caches. Laravel 8 route:list instantiates unrelated legacy controllers
+# before applying --path, which can stop an otherwise valid GO deployment.
+php deployment/go_service_release.php inspect "$ROOT" "$RUN"
 
 # Confirm a scheduler for this exact app. If none is visible, stop rather than
 # silently installing duplicate cron entries or promising timed dispatch.
