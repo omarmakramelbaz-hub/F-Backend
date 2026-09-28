@@ -6,6 +6,7 @@ use App\Events\BalanceUpdated;
 use App\Models\User;
 use App\Notifications\NotifyTransferWallet;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
@@ -62,7 +63,7 @@ class WalletTransferTest extends TestCase
         return $payload + ['recipient_id'=>$preview['user_id'], 'transfer_token'=>$preview['transfer_token']];
     }
 
-    public function test_every_sender_can_choose_each_of_the_three_wallets_without_phone_collision(): void
+    public function test_allowed_destinations_stay_separate_and_partners_can_send_and_receive_with_both_apps(): void
     {
         $roles = [['user','go'], ['user','fasakhansta'], ['delegate','go_partner'],
             ['vendor','go_partner'], ['delegate','fasakhansta'], ['vendor','fasakhansta']];
@@ -71,14 +72,44 @@ class WalletTransferTest extends TestCase
             $this->user($sender, $role, $scope, '109999990'.$index, 500);
             $this->actingAs(User::withoutGlobalScopes()->findOrFail($sender), 'api');
             foreach (['go_customer'=>10, 'go_partner'=>11, 'fasakhansta_customer'=>12] as $target=>$recipient) {
+                if ($scope === 'go' && $target === 'fasakhansta_customer') continue;
                 $data = $this->confirm($this->payload($target));
                 $this->assertSame($recipient, $data['recipient_id']);
                 $this->postJson('/api/transfer/wallet', $data)->assertOk()->assertJsonPath('data.to_user', $recipient);
             }
-            $this->assertEquals(468.50, DB::table('users')->where('id',$sender)->value('balance'));
+            $this->assertEquals($scope === 'go' ? 479 : 468.50, DB::table('users')->where('id',$sender)->value('balance'));
         }
-        foreach ([10,11,12] as $id) $this->assertEquals(63, DB::table('users')->where('id',$id)->value('balance'));
-        $this->assertSame(18, DB::table('wallets')->count());
+        foreach ([10=>63,11=>63,12=>52.50] as $id=>$balance) {
+            $this->assertEquals($balance, DB::table('users')->where('id',$id)->value('balance'));
+        }
+        $this->assertSame(17, DB::table('wallets')->count());
+    }
+
+    public function test_go_customer_cannot_preview_or_execute_an_old_fasakhansta_confirmation(): void
+    {
+        // A still-valid token from before this change must not move money.
+        $payload = $this->payload('fasakhansta_customer') + [
+            'recipient_id'=>12,
+            'transfer_token'=>Crypt::encryptString(json_encode([
+                'sender_id'=>1, 'recipient_id'=>12, 'target_wallet'=>'fasakhansta_customer',
+                'mobile'=>'1012345678', 'amount'=>'10.50',
+                'reference'=>(string) \Illuminate\Support\Str::uuid(),
+                'expires_at'=>now()->addMinutes(10)->timestamp,
+            ])),
+        ];
+        foreach (['go', 'go_partner', 'fasakhansta', ''] as $header) {
+            $this->withHeader('X-App-Scope', $header);
+            $this->postJson('/api/check/user/transfer', $this->payload('fasakhansta_customer'))
+                ->assertStatus(422)->assertJsonPath('message', __('wallet_transfer.go_customer_destination'));
+            $this->postJson('/api/transfer/wallet', $payload)->assertStatus(422)
+                ->assertJsonPath('transfer_rejected', true)
+                ->assertJsonPath('message', __('wallet_transfer.go_customer_destination'));
+        }
+        $this->assertEquals(500, DB::table('users')->where('id',1)->value('balance'));
+        $this->assertEquals(0, DB::table('users')->where('id',12)->value('balance'));
+        $this->assertSame(0, DB::table('wallets')->count());
+        Event::assertNotDispatched(BalanceUpdated::class);
+        Notification::assertNothingSent();
     }
 
     public function test_partner_wallet_includes_stores_and_legacy_couriers_but_not_fasakhansta_stores(): void
