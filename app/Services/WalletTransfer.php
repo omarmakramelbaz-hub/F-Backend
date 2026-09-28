@@ -17,6 +17,16 @@ class WalletTransfer
 {
     public const TARGETS = ['go_customer', 'go_partner', 'fasakhansta_customer'];
 
+    private function ensureSenderDestination(User $sender, string $target): void
+    {
+        // GO Customer cannot pay into the independent Fasakhansta app.
+        // GO Partner (including legacy couriers) still serves both apps.
+        // Use the authenticated account, not a client-supplied app header.
+        if ($sender->app_scope === 'go' && $target === 'fasakhansta_customer') {
+            $this->fail('go_customer_destination');
+        }
+    }
+
     private function fail(string $key): void
     {
         throw ValidationException::withMessages(['target_wallet' => __('wallet_transfer.'.$key)]);
@@ -63,6 +73,7 @@ class WalletTransfer
 
     public function preview(User $sender, array $data): array
     {
+        $this->ensureSenderDestination($sender, $data['target_wallet']);
         $this->ensureReady();
         $recipient = $this->recipient($data['mobile'], $data['target_wallet']);
         if ((int) $sender->id === (int) $recipient->id) $this->fail('self');
@@ -88,6 +99,8 @@ class WalletTransfer
 
     public function transfer(User $sender, array $data): Wallet
     {
+        // Recheck confirmations issued before the GO Customer option was removed.
+        $this->ensureSenderDestination($sender, $data['target_wallet']);
         $this->ensureReady();
         try {
             $claim = json_decode(Crypt::decryptString($data['transfer_token']), true, 512, JSON_THROW_ON_ERROR);
