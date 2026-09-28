@@ -100,6 +100,10 @@ class DelegateOrderController extends Controller {
     // }
     
     public function getOrders(Request $request){
+        $viewer = auth('api')->user();
+        if ($request->status === 'pending' && ($viewer->app_scope === 'go_partner' || $request->header('X-App-Scope') === 'go_partner')) {
+            app(\App\Services\GoDelivery\Dispatch::class)->syncInbox($viewer);
+        }
         $delegate_id = auth('api')->user()->id;
         $order = Order::query();
         if(! empty($request->status) ){

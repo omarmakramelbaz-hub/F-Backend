@@ -28,7 +28,7 @@ class ApplicationCatalog
             'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             'storefront' => 'required|array',
             'storefront.name' => 'required|string|min:2|max:150',
-            'storefront.kind' => 'required|in:supermarket,restaurant,pharmacy',
+            'storefront.kind' => 'required|in:supermarket,restaurant,pharmacy,clinic',
             'storefront.address' => 'required|string|min:5|max:500',
             'storefront.products' => 'required|array|min:1|max:60',
             'storefront.products.*.name' => 'required|string|min:2|max:150',

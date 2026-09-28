@@ -62,6 +62,9 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
+    Route::get('/go-stores/browse', [\App\Http\Controllers\Api\V1\GoStores\BrowseController::class, 'index']);
+    Route::get('/go-stores/browse/{store}', [\App\Http\Controllers\Api\V1\GoStores\BrowseController::class, 'show'])->whereNumber('store');
+
     // GO Partners public onboarding and discovery
     Route::post('/partner-auth/email/request', [PartnerEmailAuthController::class, 'requestCode'])->middleware('throttle:10,1');
     Route::post('/partner-auth/email/verify', [PartnerEmailAuthController::class, 'verifyCode'])->middleware('throttle:20,1');
