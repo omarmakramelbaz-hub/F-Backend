@@ -192,6 +192,21 @@ class WalletTransferTest extends TestCase
         $this->assertSame(0, DB::table('wallets')->count());
     }
 
+    public function test_code_only_deployment_rejects_transfers_until_migration_is_ready(): void
+    {
+        $confirmed = $this->confirm($this->payload());
+        (new \AddTransferReferenceToWallets())->down();
+        $this->postJson('/api/check/user/transfer', $this->payload())->assertStatus(422)
+            ->assertJsonPath('message', __('wallet_transfer.not_ready'));
+        $this->postJson('/api/transfer/wallet', $confirmed)->assertStatus(422)
+            ->assertJsonPath('transfer_rejected', true);
+        $this->assertEquals(500, DB::table('users')->where('id', 1)->value('balance'));
+        $this->assertEquals(0, DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(0, DB::table('wallets')->count());
+        Event::assertNotDispatched(BalanceUpdated::class);
+        Notification::assertNothingSent();
+    }
+
     public function test_ledger_failure_rolls_back_both_balance_changes(): void
     {
         $confirmed = $this->confirm($this->payload());

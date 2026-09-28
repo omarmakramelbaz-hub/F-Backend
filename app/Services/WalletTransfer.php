@@ -9,6 +9,7 @@ use App\Notifications\NotifyTransferWallet;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +20,12 @@ class WalletTransfer
     private function fail(string $key): void
     {
         throw ValidationException::withMessages(['target_wallet' => __('wallet_transfer.'.$key)]);
+    }
+
+    private function ensureReady(): void
+    {
+        // Code-only deployments must fail clearly until the console migration runs.
+        if (!Schema::hasColumn('wallets', 'transfer_reference')) $this->fail('not_ready');
     }
 
     private function recipient(string $mobile, string $target): User
@@ -56,6 +63,7 @@ class WalletTransfer
 
     public function preview(User $sender, array $data): array
     {
+        $this->ensureReady();
         $recipient = $this->recipient($data['mobile'], $data['target_wallet']);
         if ((int) $sender->id === (int) $recipient->id) $this->fail('self');
         $sender = User::withoutGlobalScopes()->findOrFail($sender->id);
@@ -80,6 +88,7 @@ class WalletTransfer
 
     public function transfer(User $sender, array $data): Wallet
     {
+        $this->ensureReady();
         try {
             $claim = json_decode(Crypt::decryptString($data['transfer_token']), true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $e) {
