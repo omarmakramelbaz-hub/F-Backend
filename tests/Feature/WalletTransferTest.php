@@ -195,7 +195,9 @@ class WalletTransferTest extends TestCase
     public function test_code_only_deployment_rejects_transfers_until_migration_is_ready(): void
     {
         $confirmed = $this->confirm($this->payload());
-        (new \AddTransferReferenceToWallets())->down();
+        // Model the pre-migration SQLite fixture without the optional DBAL driver.
+        DB::statement('DROP INDEX wallets_transfer_reference_unique');
+        DB::statement('ALTER TABLE wallets DROP COLUMN transfer_reference');
         $this->postJson('/api/check/user/transfer', $this->payload())->assertStatus(422)
             ->assertJsonPath('message', __('wallet_transfer.not_ready'));
         $this->postJson('/api/transfer/wallet', $confirmed)->assertStatus(422)
