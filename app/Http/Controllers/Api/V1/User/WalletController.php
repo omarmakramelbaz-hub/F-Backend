@@ -108,52 +108,21 @@ class WalletController extends Controller {
     }
     
     public function check_user(TransferWalletRequest $request){
-        $user=User::where('mobile',$request->mobile)->where('account_type',$request->account_type)->first();
-        if($user){
-            if(auth('api')->user()->balance >= $request->amount){
-                $data=[
-                    'user_id'=>$user->id,
-                    'username'=>$user->name,
-                    ];
-                return $this->successResponse($data,__('api.success data'));
-            }else{
-                
-                return $this->errorResponse(__('api.charge your wallet first'));
-            }
-        }else{
-            return $this->errorResponse(__('api.user not found'));
+        try {
+            $data = app(\App\Services\WalletTransfer::class)->preview(auth('api')->user(), $request->validated());
+            return $this->successResponse($data, __('api.success data'));
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->errorResponse(collect($e->errors())->flatten()->first(), 422);
         }
     }
-    
-     public function transfer_wallet(TransferWalletRequest $request){
-        $user=User::where('mobile',$request->mobile)->where('account_type',$request->account_type)->first();
-        if($user){
-            if(auth('api')->user()->balance >= $request->amount){
-                 $wallet=Wallet::create([
-                'from_user'=>auth('api')->user()->id,
-                'to_user'=>$user->id,
-                'type'=>'transfer',
-                'amount'=>$request->amount,
-                'status' => 'completed',
-                ]);
-                $user->update(['balance'=>$user->balance+$request->amount]);
-                if($user->balance > $user->min_wallet/2 && $user->status=='disabled'){
-                    $user->update(['status' =>'accepted']);
-                }
-                $own_user=auth('api')->user();
-                $own_user->update(['balance'=>$own_user->balance-$request->amount]);
-                 Notification::send($user,new \App\Notifications\NotifyTransferWallet($own_user,$request->amount));
-                return $this->successResponse($wallet,__('api.transfer successfully'));
-            }else{
-                
-                return $this->errorResponse(__('api.charge your wallet first'));
-            }
-        }else{
-            return $this->errorResponse(__('api.user not found'));
-        }
-    }
-    
-    
 
-  
+    public function transfer_wallet(TransferWalletRequest $request){
+        try {
+            $wallet = app(\App\Services\WalletTransfer::class)->transfer(auth('api')->user(), $request->validated());
+            return $this->successResponse($wallet, __('api.transfer successfully'));
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['status' => 'Error', 'message' => collect($e->errors())->flatten()->first(),
+                'data' => null, 'transfer_rejected' => true], 422);
+        }
+    }
 }

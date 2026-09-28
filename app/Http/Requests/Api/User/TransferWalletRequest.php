@@ -30,12 +30,20 @@ class TransferWalletRequest extends FormRequest
     public function rules()
     {
         return [
-            'mobile'             =>'required|exists:users,mobile',
-            'amount'            =>'required|numeric|min:1|max:5000',
-            'account_type'       =>'required|in:user,vendor,delegate',
-            
-
+            'mobile' => 'required|string|regex:/^[+0-9 ()-]{7,24}$/',
+            'amount' => ['required', 'numeric', 'min:1', 'max:5000', 'regex:/^\d+(\.\d{1,2})?$/'],
+            'target_wallet' => 'required|in:go_customer,go_partner,fasakhansta_customer',
+            'recipient_id' => ($this->is('api/transfer/wallet') ? 'required' : 'sometimes').'|integer|min:1',
+            'transfer_token' => ($this->is('api/transfer/wallet') ? 'required' : 'sometimes').'|string|max:4096',
         ];
+    }
+
+    public function messages()
+    {
+        return ['target_wallet.required' => __('wallet_transfer.select_wallet'),
+            'target_wallet.in' => __('wallet_transfer.select_wallet'),
+            'recipient_id.required' => __('wallet_transfer.confirm_again'),
+            'transfer_token.required' => __('wallet_transfer.confirm_again')];
     }
     
     public function attributes() {
@@ -49,7 +57,7 @@ class TransferWalletRequest extends FormRequest
 
     protected function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException($this->errorResponse($validator->errors()->first()));
+        throw new HttpResponseException($this->errorResponse($validator->errors()->first(), 422));
 
     }
 }

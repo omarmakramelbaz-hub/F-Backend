@@ -1,0 +1,30 @@
+name: Scoped wallet transfer checks
+on:
+  pull_request:
+    paths:
+      - 'app/Services/WalletTransfer.php'
+      - 'app/Http/Controllers/Api/V1/User/WalletController.php'
+      - 'app/Http/Requests/Api/User/TransferWalletRequest.php'
+      - 'database/migrations/*transfer_reference*'
+      - 'tests/Feature/WalletTransferTest.php'
+      - '.github/workflows/wallet-transfer-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare isolated test runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - run: vendor/bin/phpunit tests/Feature/WalletTransferTest.php
