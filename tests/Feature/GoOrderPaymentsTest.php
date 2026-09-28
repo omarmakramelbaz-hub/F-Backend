@@ -45,7 +45,7 @@ class GoOrderPaymentsTest extends TestCase
     {
         return array_replace(['id'=>300,'order'=>['id'=>200],'amount_cents'=>10000,'currency'=>'EGP','integration_id'=>9,'is_live'=>false,'success'=>true,'pending'=>false,'is_auth'=>false,'is_capture'=>false,'is_standalone_payment'=>true,'error_occured'=>false,'is_refunded'=>false,'is_voided'=>false],$changes);
     }
-    private function callback(array $object): void { (new OrderPayments())->callback($object,PaymobHmac::digest($object,'fixture-hmac')); }
+    private function confirmPayment(array $object): void { (new OrderPayments())->callback($object,PaymobHmac::digest($object,'fixture-hmac')); }
     private function balance(int $id=2): float { return (float)DB::table('users')->where('id',$id)->value('balance'); }
     private function denied(callable $fn, int $status): void
     {
@@ -54,50 +54,50 @@ class GoOrderPaymentsTest extends TestCase
     }
     public function test_verified_card_payment_credits_full_gross_once_and_completion_never_pays_twice(): void
     {
-        $this->order();$p=new OrderPayments();$this->callback($this->object());$this->callback($this->object());
+        $this->order();$p=new OrderPayments();$this->confirmPayment($this->object());$this->confirmPayment($this->object());
         $this->assertSame(190.0,$this->balance());$this->assertSame('paid',OrderPayments::record(20)->status);
-        $p->finish(20,2);$p->finish(20,2);$this->callback($this->object());
+        $p->finish(20,2);$p->finish(20,2);$this->confirmPayment($this->object());
         $this->assertSame(190.0,$this->balance());$this->assertSame(1,DB::table('wallets')->count());
         $this->assertSame('completed',DB::table('orders')->where('id',20)->value('status'));
     }
     public function test_wallet_gateway_method_and_exact_minor_units_are_bound_to_intention(): void
     {
-        $this->order('v_cash');$this->denied(fn()=> $this->callback($this->object()),422);
-        $this->denied(fn()=> $this->callback($this->object(['integration_id'=>10,'amount_cents'=>9999])),422);
-        $this->denied(fn()=> $this->callback($this->object(['integration_id'=>10,'currency'=>'USD'])),422);
-        $this->denied(fn()=> $this->callback($this->object(['integration_id'=>10,'is_live'=>true])),422);
+        $this->order('v_cash');$this->denied(fn()=> $this->confirmPayment($this->object()),422);
+        $this->denied(fn()=> $this->confirmPayment($this->object(['integration_id'=>10,'amount_cents'=>9999])),422);
+        $this->denied(fn()=> $this->confirmPayment($this->object(['integration_id'=>10,'currency'=>'USD'])),422);
+        $this->denied(fn()=> $this->confirmPayment($this->object(['integration_id'=>10,'is_live'=>true])),422);
         $this->assertSame(90.0,$this->balance());
-        $this->callback($this->object(['integration_id'=>10]));$this->assertSame(190.0,$this->balance());
+        $this->confirmPayment($this->object(['integration_id'=>10]));$this->assertSame(190.0,$this->balance());
     }
     public function test_forged_failed_pending_and_authorization_only_transactions_never_credit(): void
     {
         $order=$this->order();$p=new OrderPayments();
         $this->denied(fn()=> $p->callback($this->object(),'forged'),403);
-        foreach([['success'=>false],['pending'=>true],['is_auth'=>true],['error_occured'=>true],['is_standalone_payment'=>false]] as $flags)$this->callback($this->object($flags));
+        foreach([['success'=>false],['pending'=>true],['is_auth'=>true],['error_occured'=>true],['is_standalone_payment'=>false]] as $flags)$this->confirmPayment($this->object($flags));
         $this->assertSame(90.0,$this->balance());$this->assertSame(0,DB::table('wallets')->count());
         $this->denied(fn()=> $p->assertPayableWork($order,2),409);
         $this->denied(fn()=> $p->checkout(20,3),403);
     }
     public function test_second_capture_is_refund_due_and_reversal_is_once_even_after_balance_spent(): void
     {
-        $this->order();$this->callback($this->object());$this->callback($this->object(['id'=>301]));
+        $this->order();$this->confirmPayment($this->object());$this->confirmPayment($this->object(['id'=>301]));
         $this->assertSame(190.0,$this->balance());$this->assertSame('refund_due',DB::table('go_order_payment_receipts')->where('transaction_id','301')->value('status'));
-        $this->callback($this->object(['id'=>301,'is_refunded'=>true]));$this->assertSame(190.0,$this->balance());
+        $this->confirmPayment($this->object(['id'=>301,'is_refunded'=>true]));$this->assertSame(190.0,$this->balance());
         DB::table('users')->where('id',2)->update(['balance'=>20]);
-        $this->callback($this->object(['is_refunded'=>true]));$this->callback($this->object(['is_refunded'=>true]));
+        $this->confirmPayment($this->object(['is_refunded'=>true]));$this->confirmPayment($this->object(['is_refunded'=>true]));
         $this->assertSame(-80.0,$this->balance());$this->assertSame('review',OrderPayments::record(20)->status);
     }
     public function test_cancellation_reverses_credit_once_and_never_fakes_an_external_refund(): void
     {
-        $this->order();$this->callback($this->object());$p=new OrderPayments();
-        $p->cancel(20,1);$p->cancel(20,1);$this->callback($this->object());
+        $this->order();$this->confirmPayment($this->object());$p=new OrderPayments();
+        $p->cancel(20,1);$p->cancel(20,1);$this->confirmPayment($this->object());
         $this->assertSame(90.0,$this->balance());$this->assertSame(500.0,$this->balance(1));
         $this->assertSame('refund_pending',OrderPayments::record(20)->status);
-        $this->callback($this->object(['is_refunded'=>true]));$this->assertSame(90.0,$this->balance());
+        $this->confirmPayment($this->object(['is_refunded'=>true]));$this->assertSame(90.0,$this->balance());
     }
     public function test_late_payment_cannot_reactivate_a_cancelled_order(): void
     {
-        $this->order();(new OrderPayments())->cancel(20,1);$this->callback($this->object());
+        $this->order();(new OrderPayments())->cancel(20,1);$this->confirmPayment($this->object());
         $this->assertSame(90.0,$this->balance());$this->assertSame('cancelled',DB::table('orders')->where('id',20)->value('status'));
         $this->assertSame('refund_due',DB::table('go_order_payment_receipts')->value('status'));
     }
@@ -134,16 +134,17 @@ class GoOrderPaymentsTest extends TestCase
     public function test_without_hmac_merchant_inquiry_replaces_untrusted_callback_fields(): void
     {
         $this->order();config(['go_payments.hmac_secret'=>null]);
-        Http::fake(['*/api/auth/tokens'=>Http::response(['token'=>'fixture-token']), '*/api/acceptance/transactions/300'=>Http::response($this->object(['success'=>false]))]);
+        $verified=$this->object(['success'=>false]);
+        Http::fake(function ($request) use (&$verified) { return Http::response(str_contains($request->url(),'/auth/tokens')?['token'=>'fixture-token']:$verified); });
         (new OrderPayments())->callback($this->object(),'');$this->assertSame(90.0,$this->balance());
-        Http::fake(['*/api/auth/tokens'=>Http::response(['token'=>'fixture-token']), '*/api/acceptance/transactions/300'=>Http::response($this->object())]);
+        $verified=$this->object();
         (new OrderPayments())->callback(['id'=>300,'success'=>false],'');$this->assertSame(190.0,$this->balance());
         Http::assertSent(fn($r)=>str_contains($r->url(),'/api/acceptance/transactions/300') && $r->hasHeader('Authorization','Bearer fixture-token'));
     }
     public function test_store_gross_credit_does_not_repeat_and_fees_settle_separately(): void
     {
         $this->order('online','pending','current');DB::table('carts')->insert(['order_id'=>20,'price'=>100,'qty'=>1]);
-        $this->callback($this->object());$this->assertSame(190.0,$this->balance());
+        $this->confirmPayment($this->object());$this->assertSame(190.0,$this->balance());
         DB::table('orders')->where('id',20)->update(['status'=>'accepted']);
         $p=new OrderPayments();$p->finish(20);$p->finish(20);
         $this->assertSame(180.0,$this->balance());$this->assertSame('"1010.00"',DB::table('settings')->where('name','app_balance')->value('payload'));

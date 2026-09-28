@@ -578,6 +578,8 @@ if ($resturant_owner) {
 
     public function transfer_order_price($id)
     {
+        if (app(\App\Services\GoPayments\OrderPayments::class)->complete((int)$id)) return;
+
         try {
             $order = Order::find($id);
             $vendor = $order->resturant?->user;

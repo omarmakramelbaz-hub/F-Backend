@@ -364,6 +364,10 @@ class CartController extends Controller
                         $order->user_address?->mobile
                     );
                 } else if ($request->payment_type == 'wallet') {
+                    if (auth('api')->user()->app_scope === 'go') {
+                        app(\App\Services\GoPayments\OrderPayments::class)->payStoreWallet((int)$order->id,(int)auth('api')->id());
+                        $order->refresh();
+                    } else
                     if (auth('api')->user()->balance >= $order->grand_total) {
                         Wallet::create([
                             'from_user' => auth('api')->user()->id,

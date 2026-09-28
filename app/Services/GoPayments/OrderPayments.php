@@ -50,6 +50,22 @@ class OrderPayments
         DB::table('go_order_payments')->where('id',$p->id)->update(['partner_id'=>$order->delegate_id,'amount_cents'=>$amount,'status'=>$status,'updated_at'=>now()]);
     }
 
+    public function payStoreWallet(int $orderId, int $actor): void
+    {
+        DB::transaction(function () use ($orderId,$actor) {
+            $order=Order::withoutGlobalScopes()->where('id',$orderId)->lockForUpdate()->firstOrFail();
+            abort_unless((int)$order->user_id===$actor && $order->type==='current' && $order->payment_type==='wallet',403);
+            $p=self::record($orderId) ?? $this->insert($order,'ready');
+            if ($p->status==='held') return;
+            abort_unless($order->status===null && $p->status==='ready',409,'سبق دفع الطلب أو إغلاقه.');
+            $partner=$order->resturant?->user_id;abort_unless($partner,409,'حساب المتجر غير متاح.');
+            $amount=$this->amount($order);$this->lockUsers([$actor,$partner]);
+            $this->move($p,'wallet_hold',$actor,null,$amount);
+            DB::table('go_order_payments')->where('id',$p->id)->update(['partner_id'=>$partner,'amount_cents'=>$amount,'status'=>'held','updated_at'=>now()]);
+            $order->update(['status'=>'pending']);
+        },3);
+    }
+
     private function amount(Order $order): int
     {
         $amount = Money::minor(number_format((float)$order->grand_total,2,'.',''));
@@ -127,7 +143,7 @@ class OrderPayments
         $transaction=(string)($o['id']??''); abort_unless(preg_match('/^\d{1,30}$/D',$transaction),422,'Invalid transaction');
         $reversed=PaymobHmac::truth($o['is_refunded']??false)||PaymobHmac::truth($o['is_voided']??false);
         if (!$reversed && !Gateway::successful($o)) return;
-        DB::transaction(function () use ($p,$o,$transaction,$reversed) {
+        $credited=DB::transaction(function () use ($p,$o,$transaction,$reversed) {
             $order=Order::withoutGlobalScopes()->where('id',$p->order_id)->lockForUpdate()->firstOrFail();
             $p=self::record((int)$order->id); $receipt=DB::table('go_order_payment_receipts')->where('transaction_id',$transaction)->first();
             if ($receipt && (int)$receipt->payment_id!==(int)$p->id) abort(409,'Transaction already bound');
@@ -153,7 +169,17 @@ class OrderPayments
             // Maintain legacy paid-order queries without exposing their unsafe redirect path.
             if (Schema::hasTable('payments')) DB::table('payments')->updateOrInsert(['order_id'=>$order->id,'intention_order_id'=>$p->gateway_order_id],
                 ['user_id'=>$p->customer_id,'total_price'=>Money::decimal((int)$p->amount_cents),'status'=>'1','transaction_id'=>$transaction,'created_at'=>now(),'updated_at'=>now()]);
+            return true;
         },3);
+        if ($credited) {
+            try {
+                $order=Order::withoutGlobalScopes()->find($p->order_id);
+                if ($order->type==='current') {
+                    $partner=\App\Models\User::withoutGlobalScopes()->find($p->partner_id);
+                    \Illuminate\Support\Facades\Notification::send($partner,new \App\Notifications\NotifyResturantOrderCreatedNotification($order));
+                }
+            } catch (\Throwable $e) { \Log::warning('GO paid-order notification unavailable',['order_id'=>$p->order_id]); }
+        }
     }
 
     public function assertPayableWork(Order $order, ?int $partner=null): void
@@ -182,7 +208,7 @@ class OrderPayments
             // Courier commission was charged when the customer accepted the fare.
             // Store gross receipts include delivery and app fees: redistribute those
             // once at completion instead of issuing the old second vendor payout.
-            if ($order->type==='current' && $p->status==='paid') {
+            if ($order->type==='current' && in_array($p->status,['paid','held'],true)) {
                 $fee=Money::minor(number_format((float)$order->app_percentage,2,'.',''));
                 if ($fee>0) $this->move($p,'store_fee',(int)$p->partner_id,null,$fee,true);
                 if ($order->delegate_id && !$order->reason) {
