@@ -199,6 +199,8 @@ class DelegateOrderController extends Controller {
     }
 
     public function reviseShippingOffer(Request $request, Order $order){
+        app(\App\Services\GoPayments\OrderPayments::class)->assertCanReprice($order);
+
         if($order->type != 'shipping' || $order->status != 'accepted' ||
            $order->delegate_id != auth('api')->user()->id){
             return $this->errorResponse(__('api.order not found'));
@@ -223,6 +225,8 @@ class DelegateOrderController extends Controller {
     }
 
     public function respondShippingRevision(Request $request, Order $order){
+        app(\App\Services\GoPayments\OrderPayments::class)->assertCanReprice($order);
+
         if($order->type != 'shipping' || $order->status != 'accepted' ||
            $order->user_id != auth('api')->user()->id || !$order->delegate_id){
             return $this->errorResponse(__('api.order not found'));
@@ -304,6 +308,7 @@ class DelegateOrderController extends Controller {
                      broadcast(new DelegateUpdated($order->id,1,$delegate->delegate_id));
                     }
                 }elseif($request->status=='shipped'){
+                    app(\App\Services\GoPayments\OrderPayments::class)->assertPayableWork($order,(int)auth('api')->id());
                     $title=__('api.shipped order successfully');
                     $order->update(['status'=>'shipped']);
                 }elseif($request->status=='declined'){
@@ -357,6 +362,7 @@ class DelegateOrderController extends Controller {
                     broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$order->grand_total));
     
                 }elseif($request->status=='shipped'){
+                    app(\App\Services\GoPayments\OrderPayments::class)->assertPayableWork($order,(int)auth('api')->id());
                     $title=__('api.shipped order successfully');
                     $order->update(['status'=>'shipped']);
                     
@@ -385,6 +391,12 @@ class DelegateOrderController extends Controller {
     }
     
     public function orderCompleted(Order $order){
+        app(\App\Services\GoPayments\OrderPayments::class)->assertPayableWork($order,(int)auth('api')->id());
+        if (\App\Services\GoPayments\OrderPayments::record((int)$order->id)) {
+            app(\App\Services\GoPayments\OrderPayments::class)->finish((int)$order->id,(int)auth('api')->id());
+            return $this->successResponse("success",__('api.order updated successfully'));
+        }
+
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
@@ -628,6 +640,8 @@ class DelegateOrderController extends Controller {
     }
     
     public function transfer_order_price($id){
+        if (app(\App\Services\GoPayments\OrderPayments::class)->complete((int)$id)) return;
+
         try{
             $order=Order::find($id);
             $delegate=$order->delegate;

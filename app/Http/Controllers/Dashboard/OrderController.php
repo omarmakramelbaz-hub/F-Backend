@@ -501,6 +501,8 @@ class OrderController extends Controller
     
     
     public function transferPrice($id){
+        if (app(\App\Services\GoPayments\OrderPayments::class)->complete((int)$id)) return redirect()->back()->with('success',__('api.successfully transfer'));
+
         try{
             $order=Order::find($id);
             $delegate=$order->delegate;

@@ -237,6 +237,19 @@ event(new OrderStatusUpdated($order));
 
     public function updateOrderStatus(Request $request, Order $order)
     {
+        if (\App\Services\GoPayments\OrderPayments::record((int)$order->id)) {
+            abort_unless(auth('admin')->check() || (int)$order->resturant?->user_id===(int)auth('api')->id(),403);
+            if ($request->status==='completed') {
+                app(\App\Services\GoPayments\OrderPayments::class)->finish((int)$order->id);
+                return $this->successResponse('success',__('api.order updated successfully'));
+            }
+            if ($request->status==='declined') {
+                app(\App\Services\GoPayments\OrderPayments::class)->cancel((int)$order->id,(int)$order->user_id);
+                return $this->successResponse('success',__('api.order updated successfully'));
+            }
+            app(\App\Services\GoPayments\OrderPayments::class)->assertPayableWork($order);
+        }
+
     
 \Log::info('UPDATE_ORDER_STATUS', [
     'order_id' => $order->id,
@@ -611,6 +624,8 @@ if ($resturant_owner) {
 
     public function updateOrderTotalPrice(UpdateOrderTotalRequest $request, Order $order)
     {
+        app(\App\Services\GoPayments\OrderPayments::class)->assertCanReprice($order);
+
         $setting = app(GeneralSettings::class);
         //   return $order;
         if ($order->status == 'pending' || $order->status == 'accepted' || $order->status == 'another_delegate') {

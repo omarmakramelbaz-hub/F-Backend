@@ -24,6 +24,8 @@ use App\Http\Resources\Api\ShippingResource;
 use Notification;
 use Mail;
 use App\Events\DelegateUpdated;
+use App\Events\ShippingUpdated;
+use App\Services\GoPayments\OrderPayments;
 use App\Models\DelegateNotification;
 use Illuminate\Support\Facades\DB;
 class ShippingController extends Controller {
@@ -54,6 +56,12 @@ class ShippingController extends Controller {
              'order_id'=>$order->id,
              ],$request->except('payment_type')));
              
+
+                if (auth('api')->user()->app_scope === 'go') {
+                    DB::transaction(fn() => app(OrderPayments::class)->deferShipping($order),3);
+                    $this->searchDelegates($order->id);
+                    return $this->successResponse(ShippingResource::make($order->refresh()), __('api.order created successfully'));
+                }
 
                 if($request->payment_type == 'online'){
                 return (new PaymobController)->checkingOut(
@@ -268,7 +276,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
            if( $request->new_price < $new_price){
                return $this->errorResponse(__('api.price must be greater than or  equal ').$new_price);
            }else{
-                    if($order->payment_type!='cash'){
+                    if($order->payment_type!='cash' && !OrderPayments::record((int)$order->id)){
                             $user_price=$shipping->actual_price-$request->new_price;
                             $user_order_owner=$order->user;
                             if($user_price>0 && $user_order_owner){
@@ -356,7 +364,9 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
     }
     
     public function accept_delegate(AcceptDelegateRequest $request){
-        $order=Order::find($request->order_id);
+        // Serialize selection and the existing commission charge together.
+        return DB::transaction(function () use ($request) {
+        $order=Order::where('user_id',auth('api')->id())->where('type','shipping')->where('id',$request->order_id)->lockForUpdate()->firstOrFail();
        
             if($request->status=='accepted'){
                  if($order->status=='pending'){
@@ -419,13 +429,14 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                             // accepted final fare. Future revisions settle against
                             // this amount, never against an unaccepted offer.
                             $offer->update(['commission_amount'=>$commission]);
+                            app(OrderPayments::class)->acceptShipping($order->refresh());
                         });
 
                         $order->refresh();
                         $order_data=ShippingResource::make($order);
-                        Notification::send($delegate,new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
+                        try { Notification::send($delegate,new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
                         broadcast(new DelegateUpdated($order,1,$delegate->id));
-                        broadcast(new ShippingUpdated($order,1,$order->user_id));
+                        broadcast(new ShippingUpdated($order,1,$order->user_id)); } catch (\Throwable $e) { \Log::warning('GO accepted-order notification unavailable', ['order_id'=>$order->id]); }
                         return $this->successResponse($order_data,__('api.accept order successfully'));
                  }else{
                      return $this->errorResponse(__('api.already accepted delegate'));
@@ -445,6 +456,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
             }
         
          
+        },3);
     }
     
     

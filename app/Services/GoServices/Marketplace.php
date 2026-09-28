@@ -130,6 +130,7 @@ class Marketplace {
      DB::table('users')->whereIn('id',[$j->customer_id,$j->partner_id])->orderBy('id')->lockForUpdate()->get();
      // Release a wallet hold inside this transaction before testing the customer's
      // cancellation debit. Any failure rolls back the refund and the cancellation.
+     if($j->payment_status==='paid'&&!in_array($j->payment_method,['cash','wallet'],true))$this->reverseGateway($j);
      if($j->payment_method==='wallet'&&(int)$j->held_cents>0)$this->move($id,'customer_refund',null,(int)$j->customer_id,(int)$j->held_cents);
      if($system){$this->move($id,'commission_refund',null,(int)$j->partner_id,$fee);}
      elseif($owner){
@@ -140,16 +141,16 @@ class Marketplace {
      // charge it a second time. This zero-value audit event records who cancelled.
      if(!$system)DB::table('go_service_ledger')->insert(['job_id'=>$id,'event_key'=>'job:'.$id.':cancellation_by','kind'=>'cancellation_by','from_user'=>$actor,'to_user'=>null,'amount_cents'=>0,'wallet_id'=>null,'created_at'=>now()]);
     }
-    $refund=!in_array($j->payment_method,[null,'cash','wallet'],true)&&(int)$j->held_cents>0;
-    DB::table('go_service_jobs')->where('id',$id)->update(['status'=>'cancelled','close_reason'=>$reason,'payment_status'=>$refund?'refund_pending':($j->payment_method==='wallet'?'refunded':'cancelled'),'held_cents'=>$refund?$j->held_cents:0,'updated_at'=>now()]);
+    $refund=!in_array($j->payment_method,[null,'cash','wallet'],true)&&((int)$j->held_cents>0||$j->payment_status==='paid');
+    DB::table('go_service_jobs')->where('id',$id)->update(['status'=>'cancelled','close_reason'=>$reason,'payment_status'=>$refund?'refund_pending':($j->payment_method==='wallet'?'refunded':'cancelled'),'held_cents'=>$refund?($j->payment_status==='paid'?$j->price_cents:$j->held_cents):0,'updated_at'=>now()]);
     DB::table('go_service_offers')->where('job_id',$id)->where('status','offered')->update(['status'=>'closed','updated_at'=>now()]);DB::table('go_service_recipients')->where('job_id',$id)->whereIn('status',['invited','quoted'])->update(['status'=>'closed','updated_at'=>now()]);DB::table('go_service_assignments')->where('job_id',$id)->delete();
    }elseif($state==='in_progress'&&$partner&&$j->status==='booked'){
-    if(!in_array($j->payment_status,['cash_due','held'],true))$this->fail('يجب تأكيد الدفع على الخادم قبل بدء العمل.');DB::table('go_service_jobs')->where('id',$id)->update(['status'=>$state,'started_at'=>now(),'updated_at'=>now()]);
+    if(!in_array($j->payment_status,['cash_due','held','paid'],true))$this->fail('يجب تأكيد الدفع على الخادم قبل بدء العمل.');DB::table('go_service_jobs')->where('id',$id)->update(['status'=>$state,'started_at'=>now(),'updated_at'=>now()]);
    }elseif($state==='awaiting_confirmation'&&$partner&&$j->status==='in_progress'){
     DB::table('go_service_jobs')->where('id',$id)->update(['status'=>$state,'updated_at'=>now()]);
    }elseif($state==='completed'&&$owner&&$j->status==='awaiting_confirmation'){
-    if(!in_array($j->payment_status,['cash_due','held'],true))$this->fail('الدفع تحت المراجعة. لا يمكن صرف المبلغ الآن.');
-    if($j->payment_method!=='cash'){
+    if(!in_array($j->payment_status,['cash_due','held','paid'],true))$this->fail('الدفع تحت المراجعة. لا يمكن صرف المبلغ الآن.');
+    if($j->payment_method!=='cash'&&$j->payment_status!=='paid'){
      if((int)$j->held_cents!==(int)$j->price_cents)$this->fail('مبلغ التسوية غير مطابق. يلزم مراجعة الدعم.',409);
      DB::table('users')->where('id',$j->partner_id)->lockForUpdate()->first();
      // Gross payout: the commission was already charged at agreement.
@@ -169,7 +170,7 @@ class Marketplace {
    // Only earned app fees may create debt. Customer purchase/payment holds still
    // require sufficient funds; debt blocks new orders, never existing-job follow-up.
    $debit=DB::table('users')->where('id',$from);
-   if(!in_array($kind,['commission','cancellation_fee'],true))$debit->where('balance','>=',$decimal);
+   if(!in_array($kind,['commission','cancellation_fee','gateway_reversal'],true))$debit->where('balance','>=',$decimal);
    if(!$debit->decrement('balance',$decimal))$this->fail('رصيد المحفظة غير كافٍ لتغطية قيمة الطلب.');
   }
   if($to&&$amount>0&&!DB::table('users')->where('id',$to)->increment('balance',$decimal))throw new \RuntimeException('Wallet owner missing');
@@ -181,10 +182,19 @@ class Marketplace {
   $wallet=$amount>0?DB::table('wallets')->insertGetId(['from_user'=>$from,'to_user'=>$to,'status'=>'completed','payment'=>'wallet','type'=>'transfer','amount'=>$decimal,'created_at'=>now(),'updated_at'=>now()]):null;
   DB::table('go_service_ledger')->insert(['job_id'=>$job,'event_key'=>$key,'kind'=>$kind,'from_user'=>$from,'to_user'=>$to,'amount_cents'=>$amount,'wallet_id'=>$wallet,'created_at'=>now()]);
  }
+ public function creditGateway(object $job):void {
+  DB::table('users')->where('id',$job->partner_id)->lockForUpdate()->first();
+  $this->move((int)$job->id,'payout',null,(int)$job->partner_id,(int)$job->price_cents);
+ }
+ public function reverseGateway(object $job):void {
+  if(!DB::table('go_service_ledger')->where('event_key','job:'.$job->id.':payout')->exists())return;
+  DB::table('users')->where('id',$job->partner_id)->lockForUpdate()->first();
+  // Reversing a credited payment must remain possible after it was spent. The
+  // resulting debt blocks new work through the existing wallet policy.
+  $this->move((int)$job->id,'gateway_reversal',(int)$job->partner_id,null,(int)$job->price_cents);
+ }
  public function paymentMethods():array {
-  $methods=['cash','wallet'];$c=config('go_services.paymob',[]);
-  if(!empty($c['enabled'])&&!empty($c['secret_key'])&&!empty($c['public_key'])&&!empty($c['hmac_secret']))foreach($c['methods']??[] as $m=>$id)if(filter_var($id,FILTER_VALIDATE_INT)&&(int)$id>0)$methods[]=$m;
-  return $methods;
+  return array_merge(['cash','wallet'],\App\Services\GoPayments\Gateway::methods(true));
  }
  public function notify(int $job,int $user,string $event,string $message):void {DB::table('go_service_outbox')->insertOrIgnore(['event_key'=>'job:'.$job.':'.$event.':user:'.$user,'user_id'=>$user,'job_id'=>$job,'message'=>$message,'available_at'=>now(),'created_at'=>now()]);}
  public function read(int $id,int $actor):array {

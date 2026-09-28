@@ -17,6 +17,16 @@ use App\Http\Resources\Api\User\OrderResource;
 
 class PaymobController extends Controller
 {
+    /** Shared server-side credentials for the existing hosted checkout. */
+    public static function gatewayCredentials(): array
+    {
+        return [
+            'secret_key' => env('PAYMOB_SECRET_KEY') ?: 'egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3',
+            'public_key' => env('PAYMOB_PUBLIC_KEY') ?: 'egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX',
+        ];
+    }
+
+
     use ApiResponses;
     /**
      * Display checkout page.
@@ -30,6 +40,11 @@ class PaymobController extends Controller
   
     public function checkingOut($payment_method, $integration_id, $order_id, $iframe_id_or_wallet_number)
     {
+        $goOrder = \App\Models\Order::withoutGlobalScopes()->find($order_id);
+        if ($goOrder && $goOrder->type !== 'wallet' && $goOrder->user?->app_scope === 'go') {
+            return $this->successResponse(app(\App\Services\GoPayments\OrderPayments::class)->checkout($goOrder->id, (int)$goOrder->user_id), __('api.success data'));
+        }
+
         // step 1: login to paymob
         $response = Http::withHeaders([
             'content-type' => 'application/json'
@@ -53,7 +68,7 @@ $token = $json['token'];
         ]);
 
         $json_final=$response_final->json();
-        $json['token'] = 'Token egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3';
+        $json['token'] = 'Token '.self::gatewayCredentials()['secret_key'];
          if (isset($json_final['message']) && $json_final['message'] === 'duplicate') {
             //  dd($json_final);
             // Fetch existing order details from Paymob

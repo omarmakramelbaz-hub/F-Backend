@@ -25,6 +25,10 @@ class CheckoutController extends Controller
     //redirects to this method after a successfull checkout
     public function checkout_done($order_id, $payment)
     {
+         // GO purchases can only be settled by verified Paymob callbacks/inquiry.
+         if (\Illuminate\Support\Facades\Schema::hasTable('go_order_payments') && \Illuminate\Support\Facades\DB::table('go_order_payments')->where('gateway_order_id',(string)$order_id)->exists()) {
+             return redirect()->route('go-orders.payment-return');
+         }
          $pay = Payment::where('intention_order_id',$order_id)->first();
         $order = Order::findOrFail($pay->order_id);
         if($order->resturant_id){

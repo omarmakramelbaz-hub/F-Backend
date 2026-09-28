@@ -22,6 +22,7 @@ class ShippingResource extends JsonResource
     {
         $admin=User::where('account_type','admin')->first();
         $setting=app(GeneralSettings::class);
+        $goPayment=\App\Services\GoPayments\OrderPayments::record((int)$this->id);
         return [
             'id'                        =>$this->id,
             'order_no'                  => $this->order_no,
@@ -43,6 +44,9 @@ class ShippingResource extends JsonResource
             'type'                      => $this->type,
             'order_type'                      => $this->order_type,
             'payment_type'              => $this->payment_type,
+            'payment_deferred'          => $goPayment !== null,
+            'payment_status'            => $goPayment?->status,
+            'payment_required'          => $goPayment && $this->status==='accepted' && in_array($goPayment->status,['ready','pending','creating'],true),
 
             'created_at'                => $this->created_at,
             'updated_at'                => $this->updated_at,

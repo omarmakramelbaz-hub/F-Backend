@@ -24,6 +24,8 @@ class OrderResource extends JsonResource
     
     public function toArray($request)
     {
+        $goPayment=\App\Services\GoPayments\OrderPayments::record((int)$this->id);
+
         return [
             'id'                        =>$this->id,
             'order_no'                  => $this->order_no,
@@ -58,6 +60,8 @@ class OrderResource extends JsonResource
             'schedule_date'             => $this->schedule_date,
             'accepted_notify'           =>$this->accepted_notify,
             'payment_type'              => $this->payment_type,
+            'payment_status'            => $goPayment?->status,
+            'payment_required'          => $goPayment && !in_array($goPayment->status,['cash_due','held','paid'],true),
             'delivery_price'            => (double)$this->delivery_price,
             'tax'                       => $this->tax,
             'total_item_price'          =>(double) $this->total,
