@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\BalanceUpdated;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Notifications\NotifyTransferWallet;
@@ -126,12 +127,24 @@ class WalletTransfer
         // A notification outage must not turn a committed transfer into a
         // reported failure that encourages the sender to pay again.
         if ($created) {
-            try {
-                Notification::send(User::withoutGlobalScopes()->findOrFail($wallet->to_user),
-                    new NotifyTransferWallet($sender, $wallet->amount));
-            } catch (\Throwable $e) {
-                report($e);
-            }
+            DB::afterCommit(function () use ($wallet, $sender) {
+                // Atomic balance updates bypass UserObserver. Notify both apps
+                // only after the ledger and balances have committed together.
+                foreach ([$wallet->from_user, $wallet->to_user] as $userId) {
+                    try {
+                        $user = User::withoutGlobalScopes()->findOrFail($userId);
+                        event(new BalanceUpdated($user, $userId));
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
+                try {
+                    Notification::send(User::withoutGlobalScopes()->findOrFail($wallet->to_user),
+                        new NotifyTransferWallet($sender, $wallet->amount));
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            });
         }
         return $wallet;
     }

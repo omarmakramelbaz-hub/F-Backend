@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Events\BalanceUpdated;
 use App\Models\User;
 use App\Notifications\NotifyTransferWallet;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -20,6 +22,7 @@ class WalletTransferTest extends TestCase
         Schema::clearResolvedInstance('db.schema');
         $this->withoutMiddleware();
         Notification::fake();
+        Event::fake([BalanceUpdated::class]);
         Schema::create('users', function (Blueprint $t) {
             $t->id();
             foreach (['name','mobile','account_type','app_scope','status'] as $field) $t->string($field)->nullable();
@@ -143,6 +146,30 @@ class WalletTransferTest extends TestCase
         $this->assertEquals(489.50, DB::table('users')->where('id',1)->value('balance'));
         $this->assertEquals(10.50, DB::table('users')->where('id',10)->value('balance'));
         Notification::assertSentToTimes(User::withoutGlobalScopes()->find(10), NotifyTransferWallet::class, 1);
+        Event::assertDispatchedTimes(BalanceUpdated::class, 2);
+        foreach ([1=>489.50, 10=>10.50] as $userId=>$balance) {
+            Event::assertDispatched(BalanceUpdated::class, function ($event) use ($userId, $balance) {
+                return (int) $event->senderId === $userId
+                    && (float) $event->broadcastWith()['user_balance'] === $balance
+                    && DB::table('wallets')->count() === 1;
+            });
+        }
+    }
+
+    public function test_live_balance_updates_wait_for_commit_and_disappear_on_rollback(): void
+    {
+        $sender = User::withoutGlobalScopes()->findOrFail(1);
+        $data = $this->confirm($this->payload());
+        DB::beginTransaction();
+        app(\App\Services\WalletTransfer::class)->transfer($sender, $data);
+        Event::assertNotDispatched(BalanceUpdated::class);
+        Notification::assertNothingSent();
+        DB::rollBack();
+        Event::assertNotDispatched(BalanceUpdated::class);
+        $this->assertEquals(500, DB::table('users')->where('id',1)->value('balance'));
+        $this->assertSame(0, DB::table('wallets')->count());
+        $this->postJson('/api/transfer/wallet', $data)->assertOk();
+        Event::assertDispatchedTimes(BalanceUpdated::class, 2);
     }
 
     public function test_balance_and_recipient_scope_are_rechecked_at_commit(): void
@@ -176,5 +203,6 @@ class WalletTransferTest extends TestCase
         $this->assertEquals(0, DB::table('users')->where('id',10)->value('balance'));
         $this->assertSame(0, DB::table('wallets')->count());
         Notification::assertNothingSent();
+        Event::assertNotDispatched(BalanceUpdated::class);
     }
 }
