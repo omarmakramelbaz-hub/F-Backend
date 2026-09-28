@@ -12,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 class Catalog
 {
-    public const KINDS = ['supermarket' => 'سوبر ماركت', 'restaurant' => 'مطعم', 'pharmacy' => 'صيدلية'];
+    public const KINDS = ['supermarket' => 'سوبر ماركت', 'restaurant' => 'مطعم', 'pharmacy' => 'صيدلية', 'clinic' => 'عيادات'];
 
     public static function isStore(User $user): bool
     {
@@ -49,7 +49,7 @@ class Catalog
         }
         $data = $request->validate([
             'name' => 'required|string|min:2|max:150',
-            'kind' => 'required|in:supermarket,restaurant,pharmacy',
+            'kind' => 'required|in:supermarket,restaurant,pharmacy,clinic',
             'address' => 'required|string|min:5|max:500',
             'revision' => 'required|integer|min:0',
         ]);

@@ -32,6 +32,8 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/GoStoreCatalogTest.php
       - name: Test direct admin store creation and account isolation
         run: vendor/bin/phpunit tests/Feature/GoStoreAdminCreationTest.php
+      - name: Test GO courier dispatch, radius and missed inbox recovery
+        run: vendor/bin/phpunit tests/Feature/GoDeliveryDispatchTest.php
       - name: Test GO wallet minimum across account types
         run: vendor/bin/phpunit tests/Feature/GoWalletMinimumTest.php
       - name: Test approved menu prices, checkout totals, transaction rollback and branch isolation

@@ -177,6 +177,10 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
     public function searchDelegates($order_id){
         // dd(request()->all());
         $order = Order::where('id',$order_id)->first();
+        if ($order?->user?->app_scope === 'go') {
+            app(\App\Services\GoDelivery\Dispatch::class)->dispatch($order);
+            return 'success';
+        }
         $latitude = $order->shipping?->from_lat;
         $longitude = $order->shipping?->from_lng;
         $setting=app(GeneralSettings::class);
@@ -211,15 +215,28 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
     
     
     public function search_deleagates(Request $request){
+        if (auth('api')->user()->app_scope === 'go') {
+            $request->validate(['lat' => 'required|numeric|between:-90,90', 'lng' => 'required|numeric|between:-180,180']);
+        }
+
         // dd(request()->all());
         $latitude = $request->lat;
         $longitude = $request->lng;
         $setting=app(GeneralSettings::class);
         // return [$latitude,$longitude];
+        if (auth('api')->user()->app_scope === 'go') {
+            $candidates = app(\App\Services\GoDelivery\Dispatch::class)->candidates($latitude, $longitude)->keyBy('id');
+            $delegates = User::withoutGlobalScopes()->whereIn('id', $candidates->keys())->get();
+            foreach ($delegates as $delegate) {
+                $delegate->lat = $candidates[$delegate->id]->lat;
+                $delegate->lng = $candidates[$delegate->id]->lng;
+            }
+        } else {
         $delegates = User::where('connected','active')->where('account_type','delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians('.$latitude.') ) * cos( radians( lat ) ) * 
           cos( radians( lng ) - radians('.$longitude.') ) + sin( radians('.$latitude.') ) * sin( radians( lat ) ) ) ) AS distance'))
         ->having('distance', '<', 10)
         ->orderBy('distance')->get();
+        }
         // dd($delegates);
 
         if (request()->wantsJson() || request()->is('api/*')) {

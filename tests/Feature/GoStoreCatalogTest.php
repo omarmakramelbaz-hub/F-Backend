@@ -91,6 +91,24 @@ class GoStoreCatalogTest extends TestCase
         $this->getJson('/api/go-stores/catalog?search=لبن')->assertOk()->assertJsonPath('data.total', 0);
     }
 
+    public function test_customer_can_browse_clinics_and_products_without_private_account_fields(): void
+    {
+        $this->profile('clinic')->assertOk();
+        $this->post('/api/go-stores/products', $this->product())->assertOk();
+        $storeId = (int) DB::table('go_stores')->value('id');
+        $list = $this->getJson('/api/go-stores/browse?kind=clinic')->assertOk()->json('data');
+        $this->assertSame(1, $list['total']);
+        $this->assertSame('clinic', $list['stores'][0]['kind']);
+        foreach (['balance','email','mobile','user_id','delegate_fees'] as $private) $this->assertArrayNotHasKey($private, $list['stores'][0]);
+        $this->getJson('/api/go-stores/browse?kind=pharmacy')->assertOk()->assertJsonPath('data.total', 0);
+        $this->getJson('/api/go-stores/browse/'.$storeId)->assertOk()->assertJsonPath('data.products.0.price', '80.50');
+        DB::table('go_store_products')->update(['available'=>false]);
+        $this->getJson('/api/go-stores/browse/'.$storeId)->assertOk()->assertJsonPath('data.products', []);
+        DB::table('users')->where('id',$this->owner->id)->update(['status'=>'disabled']);
+        $this->getJson('/api/go-stores/browse?kind=clinic')->assertOk()->assertJsonPath('data.total', 0);
+        $this->getJson('/api/go-stores/browse/'.$storeId)->assertNotFound();
+    }
+
     public function test_ownership_scope_roles_and_status_cannot_be_bypassed(): void
     {
         $this->profile()->assertOk();
