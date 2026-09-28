@@ -95,7 +95,7 @@ class GoStoreCatalogTest extends TestCase
     {
         $this->profile('clinic')->assertOk();
         $this->post('/api/go-stores/products', $this->product())->assertOk();
-        $storeId = (int) DB::table('go_stores')->value('id');
+        $storeId = (int) DB::table('go_stores')->value('user_id');
         $list = $this->getJson('/api/go-stores/browse?kind=clinic')->assertOk()->json('data');
         $this->assertSame(1, $list['total']);
         $this->assertSame('clinic', $list['stores'][0]['kind']);

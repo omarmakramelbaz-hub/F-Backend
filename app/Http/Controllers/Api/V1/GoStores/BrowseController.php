@@ -22,13 +22,13 @@ class BrowseController extends Controller
                         $q->selectRaw('1')->from('pending_vendors as p')->whereColumn('p.id', 'u.pending_vendor_id')->where('p.profession_key', 'store_owner');
                     });
                 });
-            })->select(['s.id', 's.user_id', 's.name', 's.kind', 's.address']);
+            })->select(['s.user_id', 's.name', 's.kind', 's.address']);
     }
 
     private function present(object $store): array
     {
         $owner = User::withoutGlobalScopes()->find($store->user_id);
-        return ['id' => (int)$store->id, 'name' => $store->name, 'kind' => $store->kind,
+        return ['id' => (int)$store->user_id, 'name' => $store->name, 'kind' => $store->kind,
             'address' => $store->address, 'logo_url' => $owner?->getFirstMediaUrl('go_store_logo') ?? ''];
     }
 
@@ -45,7 +45,7 @@ class BrowseController extends Controller
     {
         $catalog->ready();
         $request->validate(['page' => 'sometimes|integer|min:1']);
-        $row = $this->stores()->where('s.id', $store)->first();
+        $row = $this->stores()->where('s.user_id', $store)->first();
         abort_unless($row, 404);
         $page = $catalog->products((int)$row->user_id)->where('available', true)->paginate(30);
         return $this->successResponse(['store' => $this->present($row), 'products' => $page->getCollection()->map(fn ($p) => $catalog->present($p))->all(),
