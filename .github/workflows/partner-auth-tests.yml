@@ -53,3 +53,6 @@ jobs:
 
       - name: Test GO order payment confirmation and exactly-once wallet settlement
         run: vendor/bin/phpunit tests/Feature/GoOrderPaymentsTest.php
+
+      - name: Test GO store cart quotes, checkout, wallet settlement and merchant inbox
+        run: vendor/bin/phpunit tests/Feature/GoStoreOrdersTest.php
