@@ -101,7 +101,7 @@ class OrderController extends Controller
     public function paymentReturn(Request $request, Payments $payments)
     {
         if ($request->filled('id') && Orders::ready()) {
-            try { $payments->settleVerified((new Gateway())->inquire((string)$request->query('id'), Gateway::settings())); }
+            try { $payments->settleVerified((new Gateway())->inquire((string)$request->query('id'), Gateway::settings()), true); }
             catch (\Throwable $e) { /* Only authenticated server status confirms payment. */ }
         }
         return response('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GO</title><h2>ارجع إلى التطبيق لمتابعة حالة الطلب</h2><p>Return to the app to check your verified payment status.</p></html>')

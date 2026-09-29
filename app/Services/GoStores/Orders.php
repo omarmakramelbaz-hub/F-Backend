@@ -198,7 +198,7 @@ class Orders
                 } elseif ($payment === 'paid') {
                     $this->move($o, 'reversal', (int)$o->store_id, null, (int)$o->total_cents, true);
                     $payment = 'refund_pending';
-                } else $payment = 'cancelled';
+                } elseif (!in_array($payment, ['review', 'refund_pending', 'refunded'], true)) $payment = 'cancelled';
             }
             if ($action === 'complete' && $payment === 'held') {
                 $this->move($o, 'gross', null, (int)$o->store_id, (int)$o->total_cents);

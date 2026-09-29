@@ -162,7 +162,14 @@ class GoStoreOrdersTest extends TestCase
         $orders->transition($o['id'],2,true,'reject',2,'Unavailable');
         $this->assertSame('100.00',$this->balance(2));
         $this->assertSame('refund_pending',DB::table('go_store_orders')->value('payment_status'));
-        $this->confirmPayment($this->object());$this->confirmPayment($this->object(['is_refunded'=>true]));
+        $this->confirmPayment($this->object());
+        // Signed refund flag alone cannot prove the unsigned cumulative amount.
+        $this->confirmPayment($this->object(['is_refunded'=>true,'refunded_amount_cents'=>8550]));
+        $this->assertSame('refund_pending',DB::table('go_store_orders')->value('payment_status'));
+        config(['go_payments.api_key'=>'fixture-api']);
+        Http::fake(['accept.paymob.com/api/auth/tokens'=>Http::response(['token'=>'fixture-token']),
+            'accept.paymob.com/api/acceptance/transactions/300'=>Http::response($this->object(['is_refunded'=>true,'refunded_amount_cents'=>8550]))]);
+        $this->confirmPayment($this->object(['is_refunded'=>true]));
         $this->assertSame('100.00',$this->balance(2));$this->assertSame('refunded',DB::table('go_store_orders')->value('payment_status'));
     }
     public function test_out_of_order_refund_and_extra_capture_cannot_create_extra_wallet_credit(): void
@@ -181,5 +188,18 @@ class GoStoreOrdersTest extends TestCase
         $this->assertSame('185.50',$this->balance(2));
         $this->assertSame('refund_due',DB::table('go_store_payment_receipts')->where('transaction_id','301')->value('status'));
         $this->assertSame(1,DB::table('wallets')->count());
+    }
+    public function test_partial_refund_requires_review_without_full_debit_and_later_full_refund_reverses_once(): void
+    {
+        $o=$this->preparePayment();$this->confirmPayment($this->object());
+        (new Payments())->settleVerified($this->object(['is_refunded'=>true,'refunded_amount_cents'=>1000]),true);
+        $this->assertSame('185.50',$this->balance(2));
+        $this->assertSame('review',DB::table('go_store_orders')->value('payment_status'));
+        $this->denied(fn()=> (new Orders())->transition($o['id'],2,true,'accept',3),409);
+        $this->confirmPayment($this->object());
+        (new Payments())->settleVerified($this->object(['is_refunded'=>true,'refunded_amount_cents'=>8550]),true);
+        (new Payments())->settleVerified($this->object(['is_refunded'=>true,'refunded_amount_cents'=>8550]),true);
+        $this->assertSame('100.00',$this->balance(2));
+        $this->assertSame(2,DB::table('wallets')->count());
     }
 }
