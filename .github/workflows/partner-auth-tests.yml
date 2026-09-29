@@ -26,6 +26,8 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php
       - name: Test safe email transport diagnostics without sending mail
         run: vendor/bin/phpunit tests/Feature/PartnerMailDiagnosticsTest.php
+      - name: Test Brevo HTTPS delivery with fake requests only
+        run: vendor/bin/phpunit tests/Feature/PartnerBrevoApiTest.php
       - name: Test GO request fields and customer contact privacy
         run: vendor/bin/phpunit tests/Feature/GoServiceRequestPrivacyTest.php
       - name: Test individual partner commission settings

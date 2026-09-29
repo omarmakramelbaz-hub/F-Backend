@@ -15,6 +15,7 @@ class PartnerMailDiagnosticsTest extends TestCase
         parent::setUp();
         config([
             'cache.default' => 'array',
+            'partner_auth.delivery' => 'smtp',
             'partner_auth.mailer' => 'partner_smtp',
             'mail.from.address' => 'sender@example.test',
             'mail.mailers.partner_smtp' => [

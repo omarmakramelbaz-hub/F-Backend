@@ -24,6 +24,9 @@ class PartnerMailFailure
 
     public static function describe(\Throwable $error): array
     {
+        if ($error instanceof PartnerBrevoException) {
+            return ['category' => $error->getMessage(), 'smtp_code' => null, 'http_code' => $error->httpStatus()];
+        }
         $message = strtolower($error->getMessage());
         $smtpCode = null;
         if (preg_match('/got (?:code )?["\x27]?([45][0-9]{2})\b/', $message, $match)

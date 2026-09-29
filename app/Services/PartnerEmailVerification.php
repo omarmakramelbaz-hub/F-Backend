@@ -46,13 +46,19 @@ class PartnerEmailVerification
             $record['attempts'] = 0;
             $record['expires_at'] = now()->addMinutes(10)->timestamp;
             if ($email) {
+                $delivery = config('partner_auth.delivery', 'smtp');
                 $mailer = config('partner_auth.mailer');
                 $transport = config('mail.mailers.'.$mailer.'.transport');
-                if (!app()->environment('testing') && in_array($transport, [null, 'log', 'array'], true)) {
+                if (!in_array($delivery, ['smtp', 'brevo_api'], true)
+                    || ($delivery === 'smtp' && !app()->environment('testing') && in_array($transport, [null, 'log', 'array'], true))) {
                     throw new HttpException(503, 'خدمة إرسال البريد غير جاهزة. حاول لاحقًا أو تواصل مع الدعم.');
                 }
                 try {
-                    Mail::mailer($mailer)->to($email)->send(new PartnerVerificationCode($code));
+                    if ($delivery === 'brevo_api') {
+                        app(PartnerBrevoApi::class)->send($email, $code);
+                    } else {
+                        Mail::mailer($mailer)->to($email)->send(new PartnerVerificationCode($code));
+                    }
                 } catch (\Throwable $e) {
                     // Do not log SMTP credentials, addresses, or OTP content.
                     PartnerMailFailure::record($e);

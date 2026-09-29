@@ -11,6 +11,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -24,7 +25,7 @@ class PartnerEmailAuthTest extends TestCase
     {
         parent::setUp();
         config(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:',
-            'cache.default' => 'array', 'partner_auth.mailer' => 'array', 'app.key' => '12345678901234567890123456789012']);
+            'cache.default' => 'array', 'partner_auth.delivery' => 'smtp', 'partner_auth.mailer' => 'array', 'app.key' => '12345678901234567890123456789012']);
         DB::purge('sqlite');
         Cache::flush();
         Mail::fake();
@@ -65,6 +66,22 @@ class PartnerEmailAuthTest extends TestCase
     private function issue(string $purpose = 'application', string $mobile = '01012345678', ?string $email = 'partner@example.com'): array
     {
         return $this->postJson('/api/partner-auth/email/request', compact('purpose', 'mobile', 'email'))->assertOk()->json('data');
+    }
+
+    public function test_brevo_rejection_returns_safe_failure_without_a_challenge_or_smtp_fallback(): void
+    {
+        config(['partner_auth.delivery' => 'brevo_api', 'partner_auth.brevo_api_key' => 'private-api-fixture',
+            'mail.from.address' => 'sender@example.test']);
+        Http::fake(['*' => Http::response(['message' => 'private-api-fixture partner@example.com'], 401)]);
+        $response = $this->postJson('/api/partner-auth/email/request', [
+            'purpose' => 'application', 'mobile' => '01012345678', 'email' => 'partner@example.com',
+        ])->assertStatus(503);
+        $this->assertStringNotContainsString('private-api-fixture', $response->getContent());
+        $this->assertStringNotContainsString('partner@example.com', $response->getContent());
+        $this->assertStringNotContainsString('challenge_id', $response->getContent());
+        $this->assertSame('brevo_authentication_failed', \App\Services\PartnerMailFailure::latest()['category']);
+        Http::assertSentCount(1);
+        Mail::assertNothingSent();
     }
 
     private function lastCode(): string

@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Services\PartnerMailFailure;
+use App\Services\PartnerBrevoApi;
+use App\Services\PartnerBrevoException;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
@@ -10,9 +12,9 @@ use Illuminate\Support\Facades\Mail;
 class CheckPartnerMail extends Command
 {
     protected $signature = 'go-partner:check-mail
-        {--connect : Test encrypted SMTP login without sending a message}
+        {--connect : Test SMTP login or Brevo HTTPS authentication without sending a message}
         {--last-failure : Show the safe failure category from the last 15 minutes without connecting}';
-    protected $description = 'Check GO email verification settings and optionally SMTP login, without exposing secrets';
+    protected $description = 'Check GO email verification settings and connection, without exposing secrets';
 
     public function handle(): int
     {
@@ -24,6 +26,13 @@ class CheckPartnerMail extends Command
                 'result' => $failure ? 'failure_found' : 'no_recent_failure',
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             return 0;
+        }
+        $delivery = config('partner_auth.delivery', 'smtp');
+        if ($delivery === 'brevo_api') {
+            return $this->checkBrevoApi();
+        }
+        if ($delivery !== 'smtp') {
+            return $this->finish(['email_sent' => false], 'mail_delivery_not_supported');
         }
         $mailer = (string) config('partner_auth.mailer');
         $settings = (array) config('mail.mailers.'.$mailer, []);
@@ -82,6 +91,37 @@ class CheckPartnerMail extends Command
             if ($transport instanceof \Swift_Transport_EsmtpTransport) {
                 try { $transport->stop(); } catch (\Throwable $ignored) {}
             }
+        }
+        return $this->finish($report);
+    }
+
+    private function checkBrevoApi(): int
+    {
+        $report = [
+            'delivery' => 'brevo_api', 'api_host' => 'api.brevo.com',
+            'api_key_configured' => trim((string) config('partner_auth.brevo_api_key')) !== '',
+            'sender_valid' => (bool) filter_var(config('mail.from.address'), FILTER_VALIDATE_EMAIL),
+            'tls_verification' => true, 'template' => 'not_checked',
+            'api_authentication' => 'not_attempted', 'email_sent' => false,
+        ];
+        try {
+            view('emails.partner_verification_code', ['code' => '000000'])->render();
+            $report['template'] = 'ok';
+        } catch (\Throwable $error) {
+            return $this->finish($report, 'template_render_failed');
+        }
+        if (!$report['sender_valid']) return $this->finish($report, 'mail_settings_incomplete');
+        if (!$report['api_key_configured']) return $this->finish($report, 'brevo_api_key_missing');
+        if (!$this->option('connect')) return $this->finish($report);
+        try {
+            app(PartnerBrevoApi::class)->checkConnection();
+            $report['api_authentication'] = 'ok';
+        } catch (PartnerBrevoException $error) {
+            $report['api_authentication'] = 'failed';
+            $report['http_code'] = $error->httpStatus();
+            return $this->finish($report, $error->getMessage());
+        } catch (\Throwable $error) {
+            return $this->finish($report, 'brevo_connection_failed');
         }
         return $this->finish($report);
     }
