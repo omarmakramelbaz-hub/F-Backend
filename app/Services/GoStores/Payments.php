@@ -80,6 +80,19 @@ class Payments
             abort_if($receipt && (int)$receipt->order_id !== (int)$o->id, 409, 'Transaction already bound');
             $orders = new Orders();
             if ($reversed) {
+                if (!$receipt) {
+                    // Refund/void callbacks may arrive before the capture callback.
+                    // Record the transaction so a delayed success cannot credit it.
+                    DB::table('go_store_payment_receipts')->insert(['order_id' => $o->id, 'transaction_id' => $transaction,
+                        'amount_cents' => $o->total_cents, 'status' => 'refunded', 'created_at' => now(), 'updated_at' => now()]);
+                    if (in_array($o->payment_status, ['pending', 'cancelled', 'refund_pending'], true)) {
+                        DB::table('go_store_orders')->where('id', $o->id)->update([
+                            'payment_status' => in_array($o->status, ['cancelled', 'rejected'], true) ? 'refunded' : 'review',
+                            'revision' => $o->revision + 1, 'updated_at' => now(),
+                        ]);
+                    }
+                    return false;
+                }
                 if ($receipt && $receipt->status === 'credited') {
                     $orders->lockUsers([$o->store_id]);
                     $orders->move($o, 'reversal', (int)$o->store_id, null, (int)$o->total_cents, true);
@@ -89,6 +102,9 @@ class Payments
                     ]);
                 }
                 if ($receipt) DB::table('go_store_payment_receipts')->where('id', $receipt->id)->update(['status' => 'refunded', 'updated_at' => now()]);
+                if ($o->payment_status === 'refund_pending' && !DB::table('go_store_payment_receipts')->where('order_id', $o->id)->where('status', 'refund_due')->exists()) {
+                    DB::table('go_store_orders')->where('id', $o->id)->update(['payment_status' => 'refunded', 'updated_at' => now()]);
+                }
                 return false;
             }
             if ($receipt) return false;

@@ -165,4 +165,21 @@ class GoStoreOrdersTest extends TestCase
         $this->confirmPayment($this->object());$this->confirmPayment($this->object(['is_refunded'=>true]));
         $this->assertSame('100.00',$this->balance(2));$this->assertSame('refunded',DB::table('go_store_orders')->value('payment_status'));
     }
+    public function test_out_of_order_refund_and_extra_capture_cannot_create_extra_wallet_credit(): void
+    {
+        $this->preparePayment();
+        $this->confirmPayment($this->object(['is_refunded'=>true]));
+        $this->confirmPayment($this->object());
+        $this->assertSame('100.00',$this->balance(2));
+        $this->assertSame('review',DB::table('go_store_orders')->value('payment_status'));
+        $this->assertSame(0,DB::table('wallets')->count());
+    }
+    public function test_second_successful_transaction_is_a_refund_liability_not_another_credit(): void
+    {
+        $this->preparePayment();$this->confirmPayment($this->object());
+        $this->confirmPayment($this->object(['id'=>301]));
+        $this->assertSame('185.50',$this->balance(2));
+        $this->assertSame('refund_due',DB::table('go_store_payment_receipts')->where('transaction_id','301')->value('status'));
+        $this->assertSame(1,DB::table('wallets')->count());
+    }
 }
