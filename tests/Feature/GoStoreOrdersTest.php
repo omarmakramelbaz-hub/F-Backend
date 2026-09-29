@@ -130,16 +130,16 @@ class GoStoreOrdersTest extends TestCase
     {
         return array_replace(['id'=>300,'order'=>['id'=>200],'amount_cents'=>8550,'currency'=>'EGP','integration_id'=>9,'is_live'=>false,'success'=>true,'pending'=>false,'is_auth'=>false,'is_capture'=>false,'is_standalone_payment'=>true,'error_occured'=>false,'is_refunded'=>false,'is_voided'=>false],$changes);
     }
-    private function callback(array $object): void { (new Payments())->callback($object,PaymobHmac::digest($object,'fixture-hmac')); }
+    private function confirmPayment(array $object): void { (new Payments())->callback($object,PaymobHmac::digest($object,'fixture-hmac')); }
     public function test_online_checkout_is_hidden_until_verified_and_credits_full_total_once(): void
     {
         $o=$this->preparePayment();$p=new Payments();$p->checkout($o['id'],1);Http::assertSentCount(1);
         $this->login(2)->getJson('/api/go-stores/orders')->assertOk()->assertJsonPath('data.total',0);
         $this->denied(fn()=> $p->callback($this->object(),'forged'),403);
-        foreach([['pending'=>true],['success'=>false],['is_auth'=>true]] as $flags)$this->callback($this->object($flags));
+        foreach([['pending'=>true],['success'=>false],['is_auth'=>true]] as $flags)$this->confirmPayment($this->object($flags));
         $this->assertSame('100.00',$this->balance(2));
-        $this->denied(fn()=> $this->callback($this->object(['amount_cents'=>1])),422);
-        $this->callback($this->object());$this->callback($this->object());
+        $this->denied(fn()=> $this->confirmPayment($this->object(['amount_cents'=>1])),422);
+        $this->confirmPayment($this->object());$this->confirmPayment($this->object());
         $this->assertSame('185.50',$this->balance(2));
         $this->getJson('/api/go-stores/orders')->assertOk()->assertJsonPath('data.orders.0.payment_status','paid');
         $orders=new Orders();$o=$orders->present($orders->visible($o['id'],2,true),true);
@@ -149,20 +149,20 @@ class GoStoreOrdersTest extends TestCase
     public function test_gateway_wallet_method_and_cancelled_late_second_capture_are_not_double_credited(): void
     {
         $o=$this->preparePayment('mobile_wallet');
-        $this->denied(fn()=> $this->callback($this->object()),422);
+        $this->denied(fn()=> $this->confirmPayment($this->object()),422);
         $orders=new Orders();$orders->transition($o['id'],1,false,'cancel',1);
-        $this->callback($this->object(['integration_id'=>10]));
+        $this->confirmPayment($this->object(['integration_id'=>10]));
         $this->assertSame('100.00',$this->balance(2));
         $this->assertSame('refund_due',DB::table('go_store_payment_receipts')->value('status'));
         $this->assertSame('cancelled',DB::table('go_store_orders')->value('status'));
     }
     public function test_reject_paid_order_reverses_once_and_refund_is_not_falsely_reported_complete(): void
     {
-        $o=$this->preparePayment();$this->callback($this->object());$orders=new Orders();
+        $o=$this->preparePayment();$this->confirmPayment($this->object());$orders=new Orders();
         $orders->transition($o['id'],2,true,'reject',2,'Unavailable');
         $this->assertSame('100.00',$this->balance(2));
         $this->assertSame('refund_pending',DB::table('go_store_orders')->value('payment_status'));
-        $this->callback($this->object());$this->callback($this->object(['is_refunded'=>true]));
+        $this->confirmPayment($this->object());$this->confirmPayment($this->object(['is_refunded'=>true]));
         $this->assertSame('100.00',$this->balance(2));$this->assertSame('refunded',DB::table('go_store_orders')->value('payment_status'));
     }
 }
