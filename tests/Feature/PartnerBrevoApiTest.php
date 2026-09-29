@@ -165,8 +165,9 @@ class PartnerBrevoApiTest extends TestCase
         Http::assertNothingSent();
         config(['partner_auth.brevo_api_key' => 'private-api-fixture']);
         $this->assertSame(1, Artisan::call('go-partner:check-mail', ['--connect' => true]));
-        $this->assertSame('brevo_authentication_failed', $this->report()['result']);
-        $this->assertSame(401, $this->report()['http_code']);
+        $report = $this->report();
+        $this->assertSame('brevo_authentication_failed', $report['result']);
+        $this->assertSame(401, $report['http_code']);
         PartnerMailFailure::record(new PartnerBrevoException('brevo_authentication_failed', 401));
         $this->assertSame(0, Artisan::call('go-partner:check-mail', ['--last-failure' => true]));
         $this->assertSame(401, $this->report()['recent_failure']['http_code']);
