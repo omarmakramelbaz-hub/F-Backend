@@ -231,8 +231,18 @@ class PartnerEmailAuthTest extends TestCase
 
     public function test_mail_failure_does_not_report_delivery(): void
     {
-        Mail::shouldReceive('mailer')->once()->andThrow(new \RuntimeException('SMTP unavailable'));
-        $this->postJson('/api/partner-auth/email/request', ['purpose' => 'application', 'mobile' => '01012345678', 'email' => 'partner@example.com'])->assertStatus(503);
+        Mail::shouldReceive('mailer')->once()->andThrow(new \Swift_TransportException(
+            'Expected response code "250" but got code "550", with message "550 Sender is not valid: private@example.test code=123456 password=private-fixture"'
+        ));
+        $response = $this->postJson('/api/partner-auth/email/request', ['purpose' => 'application', 'mobile' => '01012345678', 'email' => 'partner@example.com'])->assertStatus(503);
+        $this->assertStringNotContainsString('private-fixture', $response->getContent());
+        $this->assertStringNotContainsString('private@example.test', $response->getContent());
+        $failure = \App\Services\PartnerMailFailure::latest();
+        $this->assertSame('smtp_sender_rejected', $failure['category']);
+        $this->assertSame(550, $failure['smtp_code']);
+        $this->assertArrayNotHasKey('message', $failure);
+        $this->assertStringNotContainsString('123456', json_encode($failure));
+        $this->assertStringNotContainsString('private', json_encode($failure));
     }
 
     private function storeApplicationPayload(string $proof): array
