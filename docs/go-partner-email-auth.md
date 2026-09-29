@@ -25,4 +25,6 @@ Codes expire after 10 minutes, have five attempts, and are invalidated by succes
 
 ## Validation
 
+From the authorized hosting console, run `php artisan go-partner:check-mail --connect` to validate the template, configuration, TLS handshake and SMTP login. Without `--connect`, it performs local checks only. It never sends a message, changes configuration, or outputs usernames, passwords, OTPs, provider replies or exception traces. Results such as `tls_validation_failed`, `smtp_authentication_failed`, and `smtp_connection_timeout` distinguish delivery setup failures. A successful connection does not prove sender acceptance or inbox delivery. Do not run this through the deploy-only SSH identity or weaken TLS verification to make it pass.
+
 `vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php` covers code expiry/reuse/attempts, resend, proof binding, approval, legacy bypass rejection, destination selection, scope separation and mail failure. The isolated CI job reproduces the existing Laravel 8 dependencies, including their existing advisories; it does not upgrade or relax production dependency settings.

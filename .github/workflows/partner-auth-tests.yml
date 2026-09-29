@@ -24,6 +24,8 @@ jobs:
           php artisan key:generate
       - name: Test email ownership and account recovery
         run: vendor/bin/phpunit tests/Feature/PartnerEmailAuthTest.php
+      - name: Test safe email transport diagnostics without sending mail
+        run: vendor/bin/phpunit tests/Feature/PartnerMailDiagnosticsTest.php
       - name: Test GO request fields and customer contact privacy
         run: vendor/bin/phpunit tests/Feature/GoServiceRequestPrivacyTest.php
       - name: Test individual partner commission settings
