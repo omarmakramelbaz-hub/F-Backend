@@ -74,7 +74,7 @@ class UserRepository implements UserRepositoryInterface
         // $userDetails['password'] = bcrypt($userDetails['password']);
         $userDetails['roles_name'] = json_encode($userDetails['roles_name']);
 
-        $user = User::create($userDetails);
+        $user = app(\App\Services\GoAccountCreator::class)->create($userDetails);
         $user->status = 'accepted';
         if(request('pending_vendor_id')){
             $user->pending_vendor_id = request('pending_vendor_id');

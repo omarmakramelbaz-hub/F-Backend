@@ -258,8 +258,12 @@ class PartnerApplicationController extends Controller
                 'password' => $data['password'], 'account_type' => $application->profession_key === 'store_owner' ? 'vendor' : 'delegate', 'app_scope' => 'go_partner',
                 'status' => 'accepted', 'pending_vendor_id' => $application->id,
             ];
-            $user = $user ?: new User();
-            $user->forceFill($fields)->save();
+            if ($user) {
+                $user->forceFill($fields)->save();
+            } else {
+                $user = app(\App\Services\GoAccountCreator::class)->create(\Illuminate\Support\Arr::except($fields, ['partner_auth_email']));
+                $user->forceFill(['partner_auth_email' => $fields['partner_auth_email']])->save();
+            }
             try {
                 if ($user->account_type === 'delegate' && !$user->hasRole(13)) $user->assignRole(13);
             } catch (\Throwable $e) {

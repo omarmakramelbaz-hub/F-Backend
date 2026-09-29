@@ -26,7 +26,9 @@ class WalletResource extends JsonResource
             'order_id'=>$this->order_id,
             'order_no'=>$this->cart_order?->order_no,
 
-            'payment' => $this->payment,
+            'payment' => $this->type === 'charging'
+                && $this->transfer_reference === \App\Services\GoAccountCreator::openingReference((int) $this->to_user)
+                    ? 'opening_balance' : $this->payment,
             'created_at'=>$this->created_at,
             
         ];

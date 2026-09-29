@@ -19,6 +19,7 @@ use Tests\TestCase;
 
 class GoStoreAdminCreationTest extends TestCase
 {
+    use \Tests\Support\CreatesOpeningWalletLedger;
     private $root;
     private $views;
 
@@ -28,6 +29,7 @@ class GoStoreAdminCreationTest extends TestCase
         config(['database.default'=>'sqlite', 'database.connections.sqlite.database'=>':memory:', 'cache.default'=>'array']);
         DB::purge('sqlite');
         Cache::flush();
+        $this->createOpeningWalletLedger();
         Schema::create('users', function (Blueprint $t) {
             $t->id();
             foreach (['name','account_type','app_scope','status','mobile','email','password','partner_auth_email'] as $field) $t->string($field)->nullable();
@@ -82,7 +84,7 @@ class GoStoreAdminCreationTest extends TestCase
             ->assertSee('name="kind"', false)->assertSee('name="commission_rate"', false)->assertSee('حفظ وإضافة منتجات');
     }
 
-    public function test_all_store_types_get_independent_login_zero_wallet_and_saved_catalog_profile(): void
+    public function test_all_store_types_get_independent_login_opening_credit_and_saved_catalog_profile(): void
     {
         foreach (array_keys(Catalog::KINDS) as $index => $kind) {
             $mobile = '101234567'.$index;
@@ -101,7 +103,8 @@ class GoStoreAdminCreationTest extends TestCase
             $this->assertSame('go_partner', $owner->app_scope);
             $this->assertSame('accepted', $owner->status);
             $this->assertSame(1, (int) $owner->added_by);
-            $this->assertSame(0.0, $owner->balance);
+            $this->assertSame(50.0, $owner->balance);
+            $this->assertSame(1, DB::table('wallets')->where('to_user', $owner->id)->count());
             $this->assertSame(12.5, (float) $owner->delegate_fees);
             $this->assertSame('owner'.$index.'@example.test', $owner->email);
             $this->assertNull($owner->email_verified_at);
@@ -187,6 +190,7 @@ class GoStoreAdminCreationTest extends TestCase
         } catch (QueryException $error) {
             $this->assertSame(1, DB::table('users')->count());
             $this->assertSame(0, DB::table('go_stores')->count());
+            $this->assertSame(0, DB::table('wallets')->count());
         }
     }
 }

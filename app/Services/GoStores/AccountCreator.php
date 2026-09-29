@@ -33,11 +33,11 @@ class AccountCreator
 
                     // Only explicit owner fields are accepted. Roles, balances,
                     // scope and activation cannot be overridden by form inputs.
-                    $owner = User::create([
+                    $owner = app(\App\Services\GoAccountCreator::class)->create([
                         'added_by' => $adminId, 'name' => $data['owner_name'], 'mobile' => $mobile,
                         'email' => $email, 'password' => $data['password'],
                         'account_type' => 'vendor', 'app_scope' => 'go_partner', 'status' => 'accepted',
-                        'balance' => 0, 'delegate_fees' => $data['commission_rate'],
+                        'delegate_fees' => $data['commission_rate'],
                     ]);
                     DB::table('go_stores')->insert([
                         'user_id' => $owner->id, 'name' => $data['name'], 'kind' => $data['kind'],
