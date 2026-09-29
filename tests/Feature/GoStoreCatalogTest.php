@@ -31,7 +31,11 @@ class GoStoreCatalogTest extends TestCase
             $t->unsignedBigInteger('pending_vendor_id')->nullable();
             $t->timestamps();
         });
-        Schema::create('pending_vendors', function (Blueprint $t) { $t->id(); $t->string('profession_key'); });
+        Schema::create('pending_vendors', function (Blueprint $t) {
+            $t->id(); $t->string('profession_key');
+            $t->decimal('lat', 10, 7)->nullable(); $t->decimal('lng', 11, 7)->nullable();
+            $t->unsignedTinyInteger('work_radius_km')->nullable();
+        });
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
         (new \CreateGoStoreCatalog())->up();
         require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
@@ -107,6 +111,38 @@ class GoStoreCatalogTest extends TestCase
         DB::table('users')->where('id',$this->owner->id)->update(['status'=>'disabled']);
         $this->getJson('/api/go-stores/browse?kind=clinic')->assertOk()->assertJsonPath('data.total', 0);
         $this->getJson('/api/go-stores/browse/'.$storeId)->assertNotFound();
+    }
+
+    public function test_store_search_and_distance_sort_cover_all_pages_without_claiming_unknown_delivery_data(): void
+    {
+        for ($i = 1; $i <= 22; $i++) {
+            $application = DB::table('pending_vendors')->insertGetId(['profession_key' => 'store_owner',
+                'lat' => 30 + (23 - $i) / 100, 'lng' => 31, 'work_radius_km' => 5]);
+            $owner = User::forceCreate(['name' => 'Owner '.$i, 'account_type' => 'vendor',
+                'app_scope' => 'go_partner', 'status' => 'accepted', 'pending_vendor_id' => $application]);
+            DB::table('go_stores')->insert(['user_id' => $owner->id, 'name' => sprintf('Store %02d', $i),
+                'address' => 'Test address', 'kind' => 'supermarket', 'revision' => 1,
+                'created_at' => now(), 'updated_at' => now()]);
+        }
+        $data = $this->getJson('/api/go-stores/browse?kind=supermarket&lat=30&lng=31&sort=nearest')->assertOk()->json('data');
+        $this->assertSame(22, $data['total']);
+        $this->assertSame(2, $data['last_page']);
+        $this->assertCount(20, $data['stores']);
+        $this->assertSame('Store 22', $data['stores'][0]['name']);
+        $this->assertSame('Store 22', $data['nearby_stores'][0]['name']);
+        $this->assertEquals(1.11, $data['stores'][0]['distance_km']);
+        $this->assertTrue($data['stores'][0]['nearby']);
+        $this->assertSame(4, $data['nearby_total']);
+        foreach (['lat', 'lng', 'email', 'mobile', 'balance', 'delivery_time', 'service_fees', 'avg_rate'] as $field) {
+            $this->assertArrayNotHasKey($field, $data['stores'][0]);
+        }
+        $this->getJson('/api/go-stores/browse?kind=supermarket&search=Store%2022')->assertOk()
+            ->assertJsonPath('data.total', 1)->assertJsonPath('data.stores.0.name', 'Store 22')
+            ->assertJsonPath('data.stores.0.distance_km', null)->assertJsonPath('data.nearby_stores', []);
+        $this->getJson('/api/go-stores/browse?kind=supermarket&lat=91&lng=31')->assertStatus(422);
+        $this->getJson('/api/go-stores/browse?kind=supermarket&lat=30')->assertStatus(422);
+        $this->getJson('/api/go-stores/browse?kind=supermarket&lat=30&lng=31&sort=nearest&page=2')->assertOk()
+            ->assertJsonCount(2, 'data.stores')->assertJsonPath('data.stores.0.name', 'Store 02');
     }
 
     public function test_ownership_scope_roles_and_status_cannot_be_bypassed(): void

@@ -6,15 +6,15 @@ use Illuminate\Support\Facades\Schema;
 
 trait CreatesOpeningWalletLedger
 {
-    protected function createOpeningWalletLedger(): void
+    protected function createOpeningWalletLedger(bool $withReference = true): void
     {
-        Schema::create('wallets', function (Blueprint $table) {
+        Schema::create('wallets', function (Blueprint $table) use ($withReference) {
             $table->id();
             $table->unsignedBigInteger('from_user');
             $table->unsignedBigInteger('to_user');
             $table->decimal('amount', 12, 2);
             foreach (['type', 'payment', 'status'] as $field) $table->string($field);
-            $table->uuid('transfer_reference')->nullable()->unique();
+            if ($withReference) $table->uuid('transfer_reference')->nullable()->unique();
             $table->timestamps();
         });
     }

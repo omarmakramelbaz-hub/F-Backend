@@ -118,10 +118,8 @@ class GoOpeningBalanceTest extends TestCase
 
     public function test_opening_credit_also_works_before_the_optional_transfer_reference_migration(): void
     {
-        Schema::table('wallets', function (Blueprint $table) {
-            $table->dropUnique(['transfer_reference']);
-            $table->dropColumn('transfer_reference');
-        });
+        Schema::drop('wallets');
+        $this->createOpeningWalletLedger(false);
         $user = app(GoAccountCreator::class)->create($this->attributes());
         $this->assertSame(50.0, $user->fresh()->balance);
         $this->assertSame(1, Wallet::count());
