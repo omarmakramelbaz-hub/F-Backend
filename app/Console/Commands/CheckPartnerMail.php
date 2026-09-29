@@ -2,17 +2,29 @@
 
 namespace App\Console\Commands;
 
+use App\Services\PartnerMailFailure;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
 /** Operator-only diagnostics: no recipient, message delivery, or configuration writes. */
 class CheckPartnerMail extends Command
 {
-    protected $signature = 'go-partner:check-mail {--connect : Test encrypted SMTP login without sending a message}';
+    protected $signature = 'go-partner:check-mail
+        {--connect : Test encrypted SMTP login without sending a message}
+        {--last-failure : Show the safe failure category from the last 15 minutes without connecting}';
     protected $description = 'Check GO email verification settings and optionally SMTP login, without exposing secrets';
 
     public function handle(): int
     {
+        if ($this->option('last-failure')) {
+            $failure = PartnerMailFailure::latest();
+            $this->line(json_encode([
+                'recent_failure' => $failure,
+                'email_sent' => false,
+                'result' => $failure ? 'failure_found' : 'no_recent_failure',
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            return 0;
+        }
         $mailer = (string) config('partner_auth.mailer');
         $settings = (array) config('mail.mailers.'.$mailer, []);
         $host = (string) ($settings['host'] ?? '');

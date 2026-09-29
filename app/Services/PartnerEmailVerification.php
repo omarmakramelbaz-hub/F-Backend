@@ -55,6 +55,7 @@ class PartnerEmailVerification
                     Mail::mailer($mailer)->to($email)->send(new PartnerVerificationCode($code));
                 } catch (\Throwable $e) {
                     // Do not log SMTP credentials, addresses, or OTP content.
+                    PartnerMailFailure::record($e);
                     throw new HttpException(503, 'تعذر إرسال كود البريد الآن. حاول لاحقًا.');
                 }
             }
