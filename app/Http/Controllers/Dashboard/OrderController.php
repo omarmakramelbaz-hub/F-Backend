@@ -176,6 +176,13 @@ class OrderController extends Controller
     }
      public function changeStatus(Order $order, Request $request)
     {
+        if (\App\Services\GoPayments\OrderPayments::record((int)$order->id)) {
+            if ($request->status==='completed') app(\App\Services\GoPayments\OrderPayments::class)->finish((int)$order->id);
+            elseif (in_array($request->status,['cancelled','declined','new_order'],true)) app(\App\Services\GoPayments\OrderPayments::class)->cancel((int)$order->id,(int)$order->user_id);
+            else { app(\App\Services\GoPayments\OrderPayments::class)->assertPayableWork($order); $order->update(['status'=>$request->status]); }
+            return redirect()->back()->with('success',trans('messages.UpdatedSuccessfully'));
+        }
+
         if($order->status!= $request->status){
         $update = $order->update([
             'status' => $request->status,
@@ -236,6 +243,11 @@ class OrderController extends Controller
 
     public function cancel_order_delegate(Request $request , $id, GeneralSettings $setting){
         $order = Order::findOrFail($id);
+        if (\App\Services\GoPayments\OrderPayments::record((int)$id)) {
+            app(\App\Services\GoPayments\OrderPayments::class)->cancel((int)$id,(int)$order->user_id);
+            return redirect()->back()->with('success',trans('messages.UpdatedSuccessfully'));
+        }
+
          $update = $order->update([
             'status' => 'new_order',
             'reason'=>'تم إلغاء الطلب بسبب تعطل المندوب برجاء تنفيذ طلب جديد',
@@ -464,6 +476,8 @@ class OrderController extends Controller
     
     
     public function transferCancelledOrderPrice($id){
+        if (\App\Services\GoPayments\OrderPayments::record((int)$id)) return $this->errorResponse('تسوية طلب جو مسجلة في سجل الدفع؛ راجع حالة الاسترداد قبل أي تحويل إضافي.',409);
+
         try{
             // $order=Order::where('status','cancelled')->find($id);
              $order=Order::whereIn('status',['cancelled','declined'])->find($id);
@@ -501,6 +515,8 @@ class OrderController extends Controller
     
     
     public function transferPrice($id){
+        if (app(\App\Services\GoPayments\OrderPayments::class)->complete((int)$id)) return redirect()->back()->with('success',__('api.successfully transfer'));
+
         try{
             $order=Order::find($id);
             $delegate=$order->delegate;
@@ -559,6 +575,8 @@ class OrderController extends Controller
     
     
     public function transfer_order_total_from_delegate($id, GeneralSettings $setting){
+        if (\App\Services\GoPayments\OrderPayments::record((int)$id)) return $this->errorResponse('تسوية طلب جو مسجلة في سجل الدفع؛ راجع حالة الاسترداد قبل أي تحويل إضافي.',409);
+
       
         try{
             $order=Order::find($id);

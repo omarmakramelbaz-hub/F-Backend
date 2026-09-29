@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/go-service-marketplace-20260926]
   pull_request:
-    paths: ['app/Services/GoServices/**', 'app/Console/Kernel.php', 'app/Console/Commands/GoServiceDispatch.php', 'app/Providers/RouteServiceProvider.php', 'app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php', 'deployment/go_service*.php', 'deployment/launch_go_services.sh', 'database/migrations/*go_service_marketplace.php', 'tests/go_services*', 'tests/go_services_runtime/**', 'tests/go_services_scheduler/**', '.github/workflows/go-services-tests.yml']
+    paths: ['app/Services/GoPayments/**', 'config/go_payments.php', 'app/Services/GoServices/**', 'app/Console/Kernel.php', 'app/Console/Commands/GoServiceDispatch.php', 'app/Providers/RouteServiceProvider.php', 'app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php', 'deployment/go_service*.php', 'deployment/launch_go_services.sh', 'database/migrations/*go_service_marketplace.php', 'tests/go_services*', 'tests/go_services_runtime/**', 'tests/go_services_scheduler/**', '.github/workflows/go-services-tests.yml']
   workflow_dispatch:
 permissions:
   contents: read

@@ -42,3 +42,6 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/StoreDeliveryRatesTest.php
       - name: Test Zayed store menu alignment and protected data
         run: vendor/bin/phpunit tests/Feature/ZayedStorePricesTest.php
+
+      - name: Test GO order payment confirmation and exactly-once wallet settlement
+        run: vendor/bin/phpunit tests/Feature/GoOrderPaymentsTest.php

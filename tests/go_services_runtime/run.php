@@ -13,6 +13,7 @@ use App\Services\GoServices\Money;
 use App\Services\GoServices\Payments;
 use App\Services\GoServices\PaymobHmac;
 $root=dirname(__DIR__,2);
+require $root.'/app/Services/GoPayments/Gateway.php';
 foreach(['Money','WalletPolicy','PaymobHmac','Marketplace','Payments'] as $class)require $root.'/app/Services/GoServices/'.$class.'.php';
 require $root.'/database/migrations/2026_09_26_090000_create_go_service_marketplace.php';
 function now(){return Carbon::now('UTC');}
@@ -131,9 +132,14 @@ resetDb();$settings['go_services']['paymob']['enabled']=true;$j=job($m);$o=offer
 DB::table('go_service_payments')->insert(['job_id'=>$j,'reference'=>'00000000-0000-0000-0000-000000000001','integration_id'=>9,'amount_cents'=>10000,'gateway_order_id'=>'200','status'=>'pending','expires_at'=>now()->addMinutes(10),'created_at'=>now(),'updated_at'=>now()]);
 $p=new Payments();$obj=['id'=>300,'order'=>['id'=>200],'amount_cents'=>10000,'currency'=>'EGP','integration_id'=>9,'is_live'=>false,'success'=>true,'pending'=>false,'is_auth'=>false,'is_capture'=>false,'is_standalone_payment'=>true,'error_occured'=>false];$sig=PaymobHmac::digest($obj,'fixture-hmac');
 $bad=$obj;$bad['amount_cents']=1;deny(fn()=> $p->callback($bad,$sig),403,'forged payment denied');
-$p->callback($obj,$sig);$p->callback($obj,$sig);eq(DB::table('go_service_payment_receipts')->count(),1,'duplicate callback once');eq((int)DB::table('go_service_jobs')->where('id',$j)->value('held_cents'),10000,'gateway funds held');eq(appBal(),101000,'gateway receipt not revenue');
+$p->callback($obj,$sig);$p->callback($obj,$sig);eq(DB::table('go_service_payment_receipts')->count(),1,'duplicate callback once');eq((int)DB::table('go_service_jobs')->where('id',$j)->value('held_cents'),0,'gateway funds credited immediately');eq(bal(10),19000,'gross amount credited once after separate commission');eq(appBal(),101000,'gateway receipt not revenue');
 $obj['id']=301;$p->callback($obj,PaymobHmac::digest($obj,'fixture-hmac'));eq(DB::table('go_service_payment_receipts')->where('status','refund_due')->count(),1,'duplicate capture requires refund');
-$m->transition($j,1,'cancelled','Cancelled before work',false,1000);eq($m->read($j,1)['payment_status'],'refund_pending','gateway refund is not faked');eq(appBal(),101000,'customer bears fee on gateway cancellation');
+$m->transition($j,1,'cancelled','Cancelled before work',false,1000);eq($m->read($j,1)['payment_status'],'refund_pending','gateway refund is not faked');eq(appBal(),101000,'customer bears fee on gateway cancellation');eq(bal(10),10000,'cancellation reverses gross credit and refunds commission once');
+resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'card');
+DB::table('go_service_payments')->insert(['job_id'=>$j,'reference'=>'00000000-0000-0000-0000-000000000002','integration_id'=>9,'amount_cents'=>10000,'gateway_order_id'=>'200','status'=>'pending','expires_at'=>now()->addMinutes(10),'created_at'=>now(),'updated_at'=>now()]);
+$obj['id']=300;$p->callback($obj,PaymobHmac::digest($obj,'fixture-hmac'));eq(bal(10),19000,'payment credits full gross before work');
+$m->transition($j,10,'in_progress');$m->transition($j,10,'awaiting_confirmation');$m->transition($j,1,'completed');$m->transition($j,1,'completed');eq(bal(10),19000,'completion never credits gateway funds a second time');
+$obj['is_refunded']=true;$p->callback($obj,PaymobHmac::digest($obj,'fixture-hmac'));$p->callback($obj,PaymobHmac::digest($obj,'fixture-hmac'));eq(bal(10),9000,'verified reversal removes credited gross once');unset($obj['is_refunded']);
 resetDb();$j=job($m);$o=offer($m,$j);$m->accept($j,$o,1,'card');Carbon::setTestNow(now()->addMinutes(11));$m->transition($j,0,'cancelled','Payment timeout',true);eq(bal(10),10000,'expired reservation reverses commission');
 resetDb();$j=job($m);Carbon::setTestNow(now()->addMinutes(61));$m->distribute($j);eq($m->read($j,1)['status'],'expired','finite search lifetime');
 if($mysql&&function_exists('pcntl_fork')){

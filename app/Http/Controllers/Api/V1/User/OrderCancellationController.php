@@ -19,6 +19,8 @@ class OrderCancellationController extends Controller
 
     public function cancel($id)
     {
+        if (app(\App\Services\GoPayments\OrderPayments::class)->cancel((int)$id,(int)auth('api')->id())) return $this->successResponse(true,__('api.cancelled successfully'));
+
         $order = auth('api')->user()->orders()->where('id', $id)->first();
 
         if (!$order) {

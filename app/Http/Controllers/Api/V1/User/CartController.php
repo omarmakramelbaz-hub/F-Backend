@@ -364,6 +364,10 @@ class CartController extends Controller
                         $order->user_address?->mobile
                     );
                 } else if ($request->payment_type == 'wallet') {
+                    if (auth('api')->user()->app_scope === 'go') {
+                        app(\App\Services\GoPayments\OrderPayments::class)->payStoreWallet((int)$order->id,(int)auth('api')->id());
+                        $order->refresh();
+                    } else
                     if (auth('api')->user()->balance >= $order->grand_total) {
                         Wallet::create([
                             'from_user' => auth('api')->user()->id,
@@ -458,6 +462,8 @@ class CartController extends Controller
 
     public function cancel_order($id)
     {
+        if (app(\App\Services\GoPayments\OrderPayments::class)->cancel((int)$id,(int)auth('api')->id())) return $this->successResponse(true,__('api.cancelled successfully'));
+
         $order = auth('api')->user()->orders()->where('id', $id)->first();
         if ($order && $order->status == 'cancelled') {
             return $this->errorResponse(__('api.already cancelled'));
