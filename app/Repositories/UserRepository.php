@@ -16,23 +16,40 @@ class UserRepository implements UserRepositoryInterface
 
     public function getAllUsers($request) 
     {
-        
-        $searchQuery = trim($request->query('search'));
+        $accountType = $request->query('account_type');
+        $admin = auth('admin')->user();
+        $includeGoStores = $accountType === 'delegate' && $admin && $admin->account_type === 'admin'
+            && ((int) $admin->id === 1 || $admin->can('vendor-list') || $admin->can('resturant-list'));
+        $searchQuery = trim((string) $request->query('search', ''));
         $users = User::query();
-        if(!empty($searchQuery)){
-            $users= $users->where('account_type',request('account_type'))->where('name', 'like', '%' . $searchQuery . '%')->orWhere('email', 'like', '%' . $searchQuery . '%')->orWhere('mobile', 'like', '%' . $searchQuery . '%')  ;
+        // The partners directory also includes GO store owners. Keep their
+        // vendor identity and existing store-view permissions intact.
+        $users->where(function ($query) use ($accountType, $includeGoStores) {
+            $query->where('account_type', $accountType);
+            if ($includeGoStores) {
+                $query->orWhere(function ($stores) {
+                    $stores->where('account_type', 'vendor')->where('app_scope', 'go_partner');
+                });
+            }
+        });
+        if ($accountType === 'delegate') {
+            $users->with('pending_vendor');
         }
-        if($request->has('from_date') && request('from_date')!=null){
-            
-            $users= $users->where('created_at', '>=', request('from_date'));
+        if ($searchQuery !== '') {
+            $users->where(function ($query) use ($searchQuery) {
+                $query->where('name', 'like', '%' . $searchQuery . '%')
+                    ->orWhere('email', 'like', '%' . $searchQuery . '%')
+                    ->orWhere('mobile', 'like', '%' . $searchQuery . '%');
+            });
         }
-        if($request->has('to_date') && request('to_date')!=null){
-            $users= $users->where('created_at', '<=', request('to_date'));
+        if ($request->filled('from_date')) {
+            $users->where('created_at', '>=', $request->query('from_date'));
         }
-        
-        $users= $users->where('account_type',request('account_type'))->orderBy('id', 'desc')->paginate(30);
-        
-        return $users;
+        if ($request->filled('to_date')) {
+            $users->where('created_at', '<=', $request->query('to_date'));
+        }
+
+        return $users->orderBy('id', 'desc')->paginate(30)->withQueryString();
     }
 
     public function getUserById($userId) 

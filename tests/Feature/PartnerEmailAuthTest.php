@@ -292,6 +292,12 @@ class PartnerEmailAuthTest extends TestCase
         $owner = User::withoutGlobalScopes()->where('app_scope','go_partner')->firstOrFail();
         $this->assertSame('pending', $owner->status);
         $this->assertSame('vendor', $owner->account_type);
+        $directory = app(\App\Repositories\UserRepository::class)->getAllUsers(
+            \Illuminate\Http\Request::create('/admin/users', 'GET', ['account_type' => 'delegate'])
+        );
+        $this->assertTrue($directory->contains('id', $owner->id));
+        $this->getJson('/api/go-stores/browse?kind=supermarket')->assertOk()->assertJsonPath('data.total', 0);
+        $this->getJson('/api/go-stores/browse/'.$owner->id)->assertNotFound();
         $this->assertSame(1, DB::table('go_store_products')->count());
         $this->assertSame($owner->id, (int) DB::table('go_store_products')->value('user_id'));
         $this->assertSame(8050, (int) DB::table('go_store_products')->value('price_cents'));
@@ -302,6 +308,10 @@ class PartnerEmailAuthTest extends TestCase
         $this->postJson('/api/partner-applications/activate', ['mobile'=>'01012345678',
             'email_verification_token'=>$this->proof('activation'),'password'=>'store-password','password_confirmation'=>'store-password'])->assertOk();
         $this->assertSame('accepted', $owner->fresh()->status);
+        $this->getJson('/api/go-stores/browse?kind=supermarket')->assertOk()
+            ->assertJsonPath('data.total', 1)->assertJsonPath('data.stores.0.id', $owner->id)
+            ->assertJsonPath('data.stores.0.name', 'متجر المدينة');
+        $this->getJson('/api/go-stores/browse/'.$owner->id)->assertOk()->assertJsonPath('data.total', 1);
         $this->assertSame(1, DB::table('go_store_products')->count());
         $imagePath = DB::table('go_store_products')->value('image_path');
         $application->delete();
