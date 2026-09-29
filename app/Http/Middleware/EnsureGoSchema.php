@@ -46,6 +46,13 @@ class EnsureGoSchema
                             '--force' => true,
                         ]);
                     }
+
+                    if ($this->needsPaymentSchema()) {
+                        Artisan::call('migrate', [
+                            '--path' => 'database/migrations/2026_09_29_100000_create_go_order_payments.php',
+                            '--force' => true,
+                        ]);
+                    }
                 });
             } catch (\Throwable $e) {
                 Log::error('GO schema bootstrap failed', [
@@ -70,6 +77,13 @@ class EnsureGoSchema
             || !Schema::hasColumn('pending_vendors', 'partner_activated_at')
             || !Schema::hasColumn('users', 'partner_auth_email')
             || !Schema::hasColumn('users', 'app_scope')
-            || !Schema::hasTable('partner_service_requests');
+            || !Schema::hasTable('partner_service_requests')
+            || $this->needsPaymentSchema();
+    }
+
+    private function needsPaymentSchema(): bool
+    {
+        return config('go_payments.enabled', false)
+            && (!Schema::hasTable('go_order_payments') || !Schema::hasTable('go_order_payment_receipts'));
     }
 }

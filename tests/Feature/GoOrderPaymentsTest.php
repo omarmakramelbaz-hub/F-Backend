@@ -52,6 +52,22 @@ class GoOrderPaymentsTest extends TestCase
         try { $fn(); $this->fail('Expected rejection'); }
         catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) { $this->assertSame($status,$e->getStatusCode()); }
     }
+    public function test_existing_go_bootstrap_provisions_payment_tables_once_without_wallet_changes(): void
+    {
+        Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('application_kind')->nullable();$t->timestamp('partner_activated_at')->nullable();});
+        Schema::create('partner_service_requests',function(Blueprint $t){$t->id();});
+        Schema::table('users',function(Blueprint $t){$t->string('partner_auth_email')->nullable();});
+        Schema::create('migrations',function(Blueprint $t){$t->id();$t->string('migration');$t->integer('batch');});
+        Schema::drop('go_order_payment_receipts');Schema::drop('go_order_payments');
+        $middleware=new \App\Http\Middleware\EnsureGoSchema();
+        $request=\Illuminate\Http\Request::create('/api/go-orders/capabilities');$request->headers->set('X-App-Scope','go');
+        $next=fn()=>response()->json(['ready'=>true]);
+        $this->assertSame(200,$middleware->handle($request,$next)->getStatusCode());
+        $this->assertTrue(Schema::hasTable('go_order_payments'));$this->assertTrue(Schema::hasTable('go_order_payment_receipts'));
+        $this->assertSame(200,$middleware->handle($request,$next)->getStatusCode());
+        $this->assertSame(1,DB::table('migrations')->where('migration','2026_09_29_100000_create_go_order_payments')->count());
+        $this->assertSame(500.0,$this->balance(1));$this->assertSame(90.0,$this->balance());$this->assertSame(0,DB::table('wallets')->count());
+    }
     public function test_verified_card_payment_credits_full_gross_once_and_completion_never_pays_twice(): void
     {
         $this->order();$p=new OrderPayments();$this->confirmPayment($this->object());$this->confirmPayment($this->object());
