@@ -324,7 +324,7 @@ class SocialAuthController extends Controller
                 ?: $this->providerValue($providerUser, 'nickname')
                 ?: ucfirst($provider) . ' User';
 
-            $user = User::create([
+            $user = app(\App\Services\GoAccountCreator::class)->create([
                 'added_by' => 1,
                 'name' => $name,
                 'email' => $email,

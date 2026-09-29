@@ -21,6 +21,7 @@ use Tests\TestCase;
 
 class PartnerEmailAuthTest extends TestCase
 {
+    use \Tests\Support\CreatesOpeningWalletLedger;
     protected function setUp(): void
     {
         parent::setUp();
@@ -36,8 +37,10 @@ class PartnerEmailAuthTest extends TestCase
             $table->unsignedBigInteger('pending_vendor_id')->nullable();
             $table->unsignedBigInteger('added_by')->nullable();
             $table->timestamp('email_verified_at')->nullable();
+            $table->decimal('balance', 12, 2)->default(0);
             $table->timestamps();
         });
+        $this->createOpeningWalletLedger();
         Schema::create('pending_vendors', function (Blueprint $table) {
             $table->id();
             foreach (['full_name', 'email', 'mobile', 'status', 'profession_key', 'application_kind'] as $field) $table->string($field)->nullable();
@@ -292,6 +295,8 @@ class PartnerEmailAuthTest extends TestCase
         $owner = User::withoutGlobalScopes()->where('app_scope','go_partner')->firstOrFail();
         $this->assertSame('pending', $owner->status);
         $this->assertSame('vendor', $owner->account_type);
+        $this->assertSame(50.0, $owner->balance);
+        $this->assertSame(1, DB::table('wallets')->where('to_user', $owner->id)->count());
         $directory = app(\App\Repositories\UserRepository::class)->getAllUsers(
             \Illuminate\Http\Request::create('/admin/users', 'GET', ['account_type' => 'delegate'])
         );
@@ -308,6 +313,8 @@ class PartnerEmailAuthTest extends TestCase
         $this->postJson('/api/partner-applications/activate', ['mobile'=>'01012345678',
             'email_verification_token'=>$this->proof('activation'),'password'=>'store-password','password_confirmation'=>'store-password'])->assertOk();
         $this->assertSame('accepted', $owner->fresh()->status);
+        $this->assertSame(50.0, $owner->fresh()->balance);
+        $this->assertSame(1, DB::table('wallets')->where('to_user', $owner->id)->count());
         $this->getJson('/api/go-stores/browse?kind=supermarket')->assertOk()
             ->assertJsonPath('data.total', 1)->assertJsonPath('data.stores.0.id', $owner->id)
             ->assertJsonPath('data.stores.0.name', 'متجر المدينة');

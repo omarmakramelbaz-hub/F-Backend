@@ -29,7 +29,7 @@ class UserAuthRepository implements UserAuthRepositoryInterface
         if(!$user = User::where('mobile', $userDetails['mobile'])->where('account_type','user')->when(Schema::hasColumn('users', 'app_scope'), function ($query) { $query->where('app_scope', $this->appScope()); })->first()){
               $createDetails = ['added_by' => 1,'fcm_id'=>$userDetails['fcm_id'],'mobile'=>$userDetails['mobile'],'mobile_code' => '1234','account_type'=>'user','status'=>'accepted','password'=> $userDetails['password']];
               if (Schema::hasColumn('users', 'app_scope')) { $createDetails['app_scope'] = $this->appScope(); }
-              $user=User::create($createDetails);
+              $user=app(\App\Services\GoAccountCreator::class)->create($createDetails);
               $register= 1;
             }
 
@@ -105,7 +105,7 @@ class UserAuthRepository implements UserAuthRepositoryInterface
         // $userDetails['status'] = 'accepted';
         // $userDetails['mobile_verified_at'] = now();
         // $userDetails['mobile_code'] = mt_rand(1111,9999);
-        $user = User::create($userDetails);
+        $user = app(\App\Services\GoAccountCreator::class)->create($userDetails);
         // $user->update(['mobile' => request('country_code'). $user->mobile]);
             // $bearer = '3f33b7b5c6a2f0f46b20fd3de61cd85a';
             // $taqnyt = new TaqnyatSms($bearer);

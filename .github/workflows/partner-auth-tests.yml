@@ -42,6 +42,8 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/GoDeliveryDispatchTest.php
       - name: Test GO wallet minimum across account types
         run: vendor/bin/phpunit tests/Feature/GoWalletMinimumTest.php
+      - name: Test GO opening credit, duplicate registration and atomic ledger writes
+        run: vendor/bin/phpunit tests/Feature/GoOpeningBalanceTest.php
       - name: Test approved menu prices, checkout totals, transaction rollback and branch isolation
         run: vendor/bin/phpunit tests/Feature/ApprovedMenuPricesTest.php
       - name: Test store delivery rates and branch isolation
