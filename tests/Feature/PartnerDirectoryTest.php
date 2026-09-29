@@ -32,7 +32,15 @@ class PartnerDirectoryTest extends TestCase
             $table->id();
             $table->string('profession_key')->nullable();
             $table->string('source_app')->nullable();
+            $table->timestamps();
         });
+        Schema::create('orders', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('shipping_cancelled_block')->nullable();
+        });
+        // Existing directory actions read the unrelated courier blocking setting.
+        app()->instance(\App\Models\GeneralSettings::class, (object) ['shipping_cancelled_block_no' => 3]);
         require_once base_path('database/migrations/2022_08_05_174522_create_permission_tables.php');
         (new \CreatePermissionTables())->up();
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
