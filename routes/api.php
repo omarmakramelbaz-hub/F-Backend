@@ -62,6 +62,10 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
+    Route::get('/go-stores/order-capabilities', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'capabilities']);
+    Route::post('/go-stores/paymob/webhook', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'webhook'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('go-stores.paymob-webhook');
+    Route::get('/go-stores/payment-return', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'paymentReturn'])->name('go-stores.payment-return');
+
     Route::get('/go-stores/browse', [\App\Http\Controllers\Api\V1\GoStores\BrowseController::class, 'index']);
     Route::get('/go-stores/browse/{store}', [\App\Http\Controllers\Api\V1\GoStores\BrowseController::class, 'show'])->whereNumber('store');
 
@@ -116,6 +120,13 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     });
 
     Route::group(['middleware' => ['auth:api','app.scope','custom.jwt']], function () {
+        Route::post('go-stores/quote', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'quote'])->middleware('throttle:20,1');
+        Route::get('go-stores/orders', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'index']);
+        Route::post('go-stores/orders', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'store'])->middleware('throttle:20,1');
+        Route::get('go-stores/orders/{order}', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'show'])->whereNumber('order');
+        Route::post('go-stores/orders/{order}/action', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'action'])->whereNumber('order')->middleware('throttle:20,1');
+        Route::post('go-stores/orders/{order}/checkout', [\App\Http\Controllers\Api\V1\GoStores\OrderController::class, 'checkout'])->whereNumber('order')->middleware('throttle:20,1');
+
         Route::get('go-stores/catalog', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'index']);
         Route::post('go-stores/profile', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'store']);
         Route::post('go-stores/products', [\App\Http\Controllers\Api\V1\GoStores\CatalogController::class, 'save']);
