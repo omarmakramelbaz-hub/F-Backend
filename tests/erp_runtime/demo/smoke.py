@@ -61,7 +61,9 @@ try:
     request("/state/app.key", expected=404)
     request("/tests/erp_runtime/demo/state/demo.sqlite", expected=404)
     request("/api/profile", expected=404)
-    request("/erp/workspace.css")
+    assert request("/erp-assets/workspace.css") == (root / "public/erp-assets/workspace.css").read_text()
+    assert request("/erp-assets/workspace.js") == (root / "public/erp-assets/workspace.js").read_text()
+    request("/erp/workspace.css", expected=404)
     assert "نائب المدير" in enter("deputy")
     for screen in ["", "branches", "inventory", "employees", "payroll", "orders", "audit", "purchases", "production", "finance"]:
         assert "نسخة تجربة" in request("/erp/" + screen)
