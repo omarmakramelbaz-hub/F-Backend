@@ -17,3 +17,7 @@ summary { cursor: pointer; }
 @media (max-width: 760px) { .permission-grid { grid-template-columns: 1fr; } .user-block { gap: 6px; } }
 
 [hidden] { display: none !important; }
+
+.document-line { display: grid; grid-template-columns: minmax(200px,2fr) 1fr 1fr auto; gap: 12px; align-items: end; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.subheading { margin-top: 20px; }
+@media(max-width:760px) { .document-line { grid-template-columns: 1fr; } }

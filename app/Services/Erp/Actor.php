@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 
 class Actor
 {
-    public const CAPABILITIES = ['branches.manage','inventory.manage','employees.manage','payroll.manage','orders.view','audit.view','access.manage'];
+    public const CAPABILITIES = ['branches.manage','inventory.manage','employees.manage','payroll.manage','purchasing.manage','production.manage','finance.manage','orders.view','audit.view','access.manage'];
     public const ROLES = ['deputy_manager','branch_manager','inventory_manager','hr_manager'];
 
     public $key;
@@ -28,8 +28,8 @@ class Actor
     {
         $map = [
             'deputy_manager' => array_diff(self::CAPABILITIES, ['access.manage']),
-            'branch_manager' => ['inventory.manage','employees.manage','orders.view','audit.view'],
-            'inventory_manager' => ['inventory.manage','audit.view'],
+            'branch_manager' => ['inventory.manage','production.manage','employees.manage','orders.view','audit.view'],
+            'inventory_manager' => ['inventory.manage','production.manage','audit.view'],
             'hr_manager' => ['employees.manage','payroll.manage','audit.view'],
         ];
         return array_values($map[$role] ?? []);
@@ -37,7 +37,7 @@ class Actor
 
     public function can(string $capability): bool
     {
-        if ($this->role === 'branch_manager' && in_array($capability, ['branches.manage','payroll.manage'], true)) { return false; }
+        if ($this->role === 'branch_manager' && in_array($capability, ['branches.manage','payroll.manage','purchasing.manage','finance.manage'], true)) { return false; }
         return $this->role === 'owner' || ($capability !== 'access.manage' && in_array($capability, $this->permissions, true));
     }
 

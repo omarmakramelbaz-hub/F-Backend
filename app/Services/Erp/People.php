@@ -91,12 +91,14 @@ class People
         $this->month($month);
         abort_if($month > now('Africa/Cairo')->format('Y-m'), 422, 'لا يمكن اعتماد شهر مستقبلي.');
         return DB::transaction(function () use ($actor, $employeeId, $month) {
+            Ledger::lock();
             $employee = $this->employee($actor, $employeeId, true);
             $statement = $this->statement($actor, $employeeId, $month);
             if ($statement['closed']) { return (int) $statement['id']; }
             abort_if($statement['net_minor'] < 0, 422, 'الخصومات تتجاوز المستحق؛ راجع التسويات قبل الاعتماد.');
             unset($statement['closed']);
             $id = DB::table('erp_payrolls')->insertGetId($statement + ['actor_key' => $actor->key, 'created_at' => now()]);
+            Ledger::payroll($actor,(int)$id,$statement);
             $actor->audit('payroll.close', 'payroll', $id, $statement, (int) $employee->branch_id);
             return (int) $id;
         }, 3);

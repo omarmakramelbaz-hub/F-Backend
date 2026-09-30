@@ -1,6 +1,6 @@
 # Fasakhansta ERP foundation
 
-This is the first operational ERP release in the Laravel backend. `F-admin` is a WebView wrapper; the dashboard and new `/erp` workspace belong here. Existing marketplace, GO, restaurant, payment, and order mutation flows remain unchanged.
+This document describes the ERP foundation in the Laravel backend. The same branch now also includes purchasing, production and accounting; see [ERP_OPERATIONS.md](ERP_OPERATIONS.md) for those workflows, ledger initialization and the second required migration. `F-admin` is a WebView wrapper; the dashboard and new `/erp` workspace belong here. Existing marketplace, GO, restaurant, payment, and order mutation flows remain unchanged.
 
 ## Delivered workflows
 
@@ -17,12 +17,12 @@ This is the first operational ERP release in the Laravel backend. `F-admin` is a
 | Role | Branch scope | Default capabilities |
 | --- | --- | --- |
 | Owner | All enrolled branches and central warehouses | All ERP actions, including creating accounts and assigning permissions |
-| Deputy manager | All enrolled branches and central warehouses | Branches, stock, employees, payroll, order monitoring, audit |
-| Branch manager | One assigned active branch | Stock in that branch, employees/attendance, orders, branch audit |
-| Inventory manager | All enrolled branches and central warehouses | Stock and permitted audit |
+| Deputy manager | All enrolled branches and central warehouses | Branches, stock, purchasing, production, finance, employees, payroll, order monitoring, audit |
+| Branch manager | One assigned active branch | Stock/production in that branch, employees/attendance, orders, branch audit |
+| Inventory manager | All enrolled branches and central warehouses | Stock, production and permitted audit |
 | HR manager | All enrolled branches | Employees, payroll and permitted audit |
 
-The owner may reduce or extend central-role capabilities. Account administration is always owner-only. Branch managers cannot manage branch enrollment or payroll even if these capabilities are submitted manually. Branch filters and IDs are checked on the server; central warehouses cannot be accessed by branch managers. Inactive staff sessions and revoked permissions are checked on every request. Staff login never grants legacy admin/GO permissions. Payroll/account audit details require their corresponding capabilities.
+The owner may reduce or extend central-role capabilities. Account administration is always owner-only. Branch managers cannot manage branch enrollment, purchasing, finance or payroll even if these capabilities are submitted manually. Branch filters and IDs are checked on the server; central warehouses cannot be accessed by branch managers. Inactive staff sessions and revoked permissions are checked on every request. Staff login never grants legacy admin/GO permissions. Payroll/account audit details require their corresponding capabilities.
 
 ## Ledger and payroll semantics
 
@@ -44,13 +44,14 @@ After backup and a staging review using the real application dependencies and sc
 
    ```sh
    php artisan migrate --path=database/migrations/2026_09_30_180000_create_erp_foundation.php --force
+   php artisan migrate --path=database/migrations/2026_09_30_193000_create_erp_operations.php --force
    ```
 
 2. Set `ERP_ENABLED=true` and `ERP_OWNER_USER_ID=<verified legacy admin user ID>` in that environment. The compatibility default owner ID is `1`; explicitly verify and configure the real owner's ID before enabling. This user must have `account_type=admin` or `super_admin`. Use HTTPS and secure Laravel session cookies.
 3. Clear/rebuild configuration and view caches using the existing deployment procedure.
 4. Sign in as that owner at the existing `/admin/login`, then open `/erp` (also linked in the admin sidebar). Enroll only Fasakhansta branches; external marketplace/GO restaurants are excluded unless an authorized central user deliberately enrolls them.
 5. Under **الحسابات والصلاحيات**, create the named deputy account with a unique email and password of at least 12 characters. The role defaults to **نائب المدير** and all operational capabilities. Staff sign in at `/erp/login`.
-6. Review the item catalog, enter reconciled opening quantities/costs, and add employees and salary rates before posting daily operations. Test the real owner and one staff login in staging.
+6. Review the item catalog and existing balances. The owner must initialize the ledger in **الحسابات والكاش** as described in `ERP_OPERATIONS.md` before posting stock or approving payroll. Then enter reconciled opening quantities/costs and add employees and salary rates before daily operations. Test the real owner and one staff login in staging.
 
 To disable access, set `ERP_ENABLED=false` and clear cached configuration. Preserve ERP tables and history. The migration's `down()` refuses to drop tables containing audited business history; use a reviewed backup/recovery procedure instead of a destructive rollback.
 
@@ -70,4 +71,4 @@ The test runtime inherits Laravel 8 compatibility constraints; its Composer audi
 
 ## Later ERP phases
 
-Purchasing and supplier balances; production recipes, yield and batch tracking; automatic raw-material deduction from orders; POS/KDS operational mutations; in-transit inventory approvals; advances and cash disbursement ledgers; chart of accounts, balanced journal entries, taxes and financial profit reports. The existing vendor-proceeds figure is not presented as profit. These are not implemented by this foundation release.
+Purchasing, supplier payments, production recipes/batches, cash movements and a balanced accounting ledger are now implemented in the operations extension. Remaining phases: automatic consumption from app/POS sales, POS/KDS operational mutations, in-transit inventory approvals, a complete employee-advance ledger, tax handling, period closing and comprehensive profit reporting. The existing vendor-proceeds figure is not presented as profit.

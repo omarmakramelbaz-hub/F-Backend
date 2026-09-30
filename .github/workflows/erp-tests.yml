@@ -13,7 +13,7 @@ on:
       - 'resources/views/erp/**'
       - 'resources/views/admin/layouts/menu.blade.php'
       - 'public/erp/**'
-      - 'database/migrations/*erp_foundation.php'
+      - 'database/migrations/*erp_*.php'
       - 'tests/erp_runtime/**'
       - '.github/workflows/erp-tests.yml'
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.2'
           extensions: pdo_sqlite, pdo_mysql, pcntl, mbstring, dom, xml, xmlwriter
           tools: composer:2
           coverage: none
@@ -48,7 +48,7 @@ jobs:
           php -l app/Http/Middleware/ErpAccess.php
           php -l routes/erp.php
           php -l app/Providers/RouteServiceProvider.php
-          php -l database/migrations/2026_09_30_180000_create_erp_foundation.php
+          find database/migrations -name '*erp_*.php' -print0 | xargs -0 -n1 php -l
       - name: Install isolated test dependencies
         run: composer install --working-dir=tests/erp_runtime --no-interaction --prefer-dist --no-progress
       - name: Run integration and authorization tests

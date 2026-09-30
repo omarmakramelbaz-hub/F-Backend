@@ -8,9 +8,21 @@ class Stock
 {
     public function post(Actor $actor, array $data): int
     {
+        return $this->move($actor,$data,null);
+    }
+
+    public function purchaseReceipt(Actor $actor, array $data, int $supplier): int
+    {
+        $actor->require('purchasing.manage');
+        $data['type']='purchase';
+        return $this->move($actor,$data,$supplier);
+    }
+
+    private function move(Actor $actor, array $data, ?int $supplier): int
+    {
         $actor->require('inventory.manage');
         $type = $data['type'];
-        abort_unless(in_array($type, ['opening','receipt','transfer','waste','count'], true), 422, 'نوع حركة غير صالح.');
+        abort_unless(in_array($type, ['opening','receipt','transfer','waste','count'], true) || ($type==='purchase' && $supplier !== null), 422, 'نوع حركة غير صالح.');
         abort_unless(preg_match('/^[a-zA-Z0-9-]{16,64}$/D', $data['request_key'] ?? ''), 422, 'مرجع العملية غير صالح.');
         abort_unless(trim($data['reason'] ?? '') !== '' && mb_strlen($data['reason']) <= 500, 422, 'سبب الحركة مطلوب.');
         $item = DB::table('erp_items')->where('id', $data['item_id'])->where('active', true)->first();
@@ -20,12 +32,13 @@ class Stock
         $source = $this->warehouse($actor, (int) $data['warehouse_id']);
         $destination = $type === 'transfer' ? $this->warehouse($actor, (int) ($data['destination_id'] ?? 0)) : null;
         abort_if($destination && $destination->id === $source->id, 422, 'اختر مخزنًا مختلفًا للاستلام.');
-        $unitCost = in_array($type, ['opening','receipt','count'], true) ? Decimal::money($data['unit_cost'] ?? '0') : 0;
+        $unitCost = in_array($type, ['opening','receipt','count','purchase'], true) ? Decimal::money($data['unit_cost'] ?? '0') : 0;
         $expected = $type === 'count' ? Decimal::quantity($data['expected_quantity'] ?? '', $item->unit) : null;
         $payload = [$type, (int) $item->id, (int) $source->id, $destination ? (int) $destination->id : null, $qty, $unitCost, $expected, trim($data['reason']), $data['reference'] ?? null];
         $hash = hash('sha256', json_encode($payload));
 
-        return DB::transaction(function () use ($actor, $data, $type, $item, $qty, $source, $destination, $unitCost, $expected, $hash) {
+        return DB::transaction(function () use ($actor, $data, $type, $item, $qty, $source, $destination, $unitCost, $expected, $hash, $supplier) {
+            Ledger::lock();
             $ids = [(int) $source->id];
             if ($destination) { $ids[] = (int) $destination->id; }
             sort($ids, SORT_NUMERIC);
@@ -73,12 +86,13 @@ class Stock
             if ($destination) {
                 $this->entry($id, $balances[$destination->id], $qty, $movementValue);
             }
+            Ledger::stock($actor,(int)$id,$type,$item,$source,$destination,$delta,$movementValue,$supplier);
             $actor->audit('stock.'.$type, 'stock_document', $id, ['item_id' => $item->id, 'quantity_milli' => $delta, 'value_minor' => $movementValue, 'destination_id' => $destination ? $destination->id : null], $source->branch_id ? (int) $source->branch_id : null);
             return (int) $id;
         }, 3);
     }
 
-    private function warehouse(Actor $actor, int $id)
+    public function warehouse(Actor $actor, int $id)
     {
         $warehouse = DB::table('erp_warehouses')->where('id', $id)->first();
         abort_unless($warehouse, 404, 'المخزن غير موجود.');
@@ -86,7 +100,7 @@ class Stock
         return $warehouse;
     }
 
-    private function entry(int $document, $balance, int $qty, int $value): void
+    public function entry(int $document, $balance, int $qty, int $value): void
     {
         $newQty = (int) $balance->quantity_milli + $qty;
         $newValue = (int) $balance->value_minor + $value;

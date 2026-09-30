@@ -9,7 +9,7 @@ class Access
 {
     public static function ready(): bool
     {
-        return config('erp.enabled') && Schema::hasTable('erp_users') && Schema::hasTable('erp_audit');
+        return config('erp.enabled') && Schema::hasTable('erp_users') && Schema::hasTable('erp_audit') && Schema::hasTable('erp_ledger_state');
     }
 
     public static function actor(): ?Actor

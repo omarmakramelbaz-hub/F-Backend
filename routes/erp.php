@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Erp\AuthController;
 use App\Http\Controllers\Erp\WorkspaceController;
+use App\Http\Controllers\Erp\OperationsController;
 use App\Http\Middleware\ErpAccess;
 
 Route::prefix('erp')->name('erp.')->group(function () {
@@ -10,6 +11,15 @@ Route::prefix('erp')->name('erp.')->group(function () {
     Route::post('login', [AuthController::class, 'signin'])->name('signin');
     Route::post('logout', [AuthController::class, 'logout'])->name('logout');
     Route::middleware(ErpAccess::class)->group(function () {
+        Route::get('purchases', [OperationsController::class, 'purchases'])->name('purchases');
+        Route::post('suppliers', [OperationsController::class, 'supplier'])->name('suppliers.save');
+        Route::post('purchases', [OperationsController::class, 'receive'])->name('purchases.receive');
+        Route::get('production', [OperationsController::class, 'production'])->name('production');
+        Route::post('recipes', [OperationsController::class, 'recipe'])->name('recipes.save');
+        Route::post('production', [OperationsController::class, 'produce'])->name('production.post');
+        Route::get('finance', [OperationsController::class, 'finance'])->name('finance');
+        Route::post('finance/initialize', [OperationsController::class, 'initialize'])->name('finance.initialize');
+        Route::post('finance/cash', [OperationsController::class, 'cash'])->name('finance.cash');
         Route::get('/', [WorkspaceController::class, 'home'])->name('home');
         Route::get('branches', [WorkspaceController::class, 'branches'])->name('branches');
         Route::post('branches', [WorkspaceController::class, 'saveBranch'])->name('branches.save');

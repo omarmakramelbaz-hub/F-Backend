@@ -22,7 +22,7 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
     const extension = path.extname(file);
     return route.fulfill({ path: file, contentType: ({ '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png' })[extension] || 'text/html' });
   });
-  for (const screen of ['home', 'branches', 'inventory', 'employees', 'payroll', 'orders', 'accounts', 'audit']) {
+  for (const screen of ['home', 'branches', 'inventory', 'employees', 'payroll', 'orders', 'accounts', 'audit', 'purchases', 'production', 'finance']) {
     await page.goto(`http://localhost/${screen}.html`);
     assert.equal(await page.locator('main').count(), 1, screen);
     assert.equal(await page.locator('h1').count(), 1, screen);
@@ -47,13 +47,28 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
   assert(await stockForm.locator('[name="unit_cost"]').isDisabled());
   await stockForm.locator('[name="type"]').selectOption('count');
   assert(await stockForm.locator('[name="expected_quantity"]').isVisible());
+  await page.goto('http://localhost/purchases.html');
+  const editor = page.locator('[data-line-editor]');
+  await editor.locator('[data-line-rows] input[name$="[quantity]"]').fill('1.125');
+  await editor.locator('[data-line-rows] input[name$="[unit_cost]"]').fill('12.34');
+  assert.equal(await editor.locator('[data-line-total]').innerText(), '13.88 ج.م');
+  await editor.locator('[data-add-line]').click();
+  assert.equal(await editor.locator('[data-line-rows] [data-line-row]').count(), 2);
+  await editor.locator('[data-line-rows] [data-remove-line]').last().click();
+  assert.equal(await editor.locator('[data-line-rows] [data-line-row]').count(), 1);
+  await page.goto('http://localhost/finance.html');
+  await page.locator('details.card').first().locator('summary').click();
+  const cashForm = page.locator('[data-cash-form]');
+  await cashForm.locator('[name="type"]').selectOption('supplier_payment');
+  assert(await cashForm.locator('[name="supplier_id"]').isVisible());
+  assert(await cashForm.locator('[name="branch_id"]').isDisabled());
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const screen of ['home', 'inventory', 'employees', 'payroll', 'accounts', 'orders']) {
+  for (const screen of ['home', 'inventory', 'employees', 'payroll', 'accounts', 'orders', 'purchases', 'production', 'finance']) {
     await page.goto(`http://localhost/${screen}.html`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${screen}: mobile page overflow`);
     await page.screenshot({ path: path.join(folder, `${screen}-mobile.png`), fullPage: true });
   }
   assert.deepEqual(errors, [], 'No JavaScript errors');
   await browser.close();
-  console.log('8 desktop screens, 6 mobile screens, role permissions and stock form controls passed.');
+  console.log('11 desktop screens, 9 mobile screens, role permissions and operational form controls passed.');
 })().catch(error => { console.error(error); process.exit(1); });

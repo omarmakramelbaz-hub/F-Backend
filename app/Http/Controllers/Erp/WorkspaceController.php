@@ -264,6 +264,9 @@ class WorkspaceController extends Controller
         // HR/payroll details are not exposed via audit to an operator without payroll access.
         if (!$actor->can('payroll.manage')) { $query->where('action','not like','payroll.%')->where('action','!=','employee.salary'); }
         if (!$actor->can('access.manage')) { $query->where('action','not like','access.%'); }
+        if (!$actor->can('finance.manage')) { $query->where('action','not like','finance.%'); }
+        if (!$actor->can('purchasing.manage')) { $query->where('action','not like','purchase.%'); }
+        if (!$actor->can('production.manage')) { $query->where('action','not like','production.%'); }
         $events = $query->orderByDesc('id')->paginate(40);
         return view('erp.audit', compact('events'));
     }
