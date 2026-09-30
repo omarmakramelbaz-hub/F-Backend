@@ -175,17 +175,29 @@ try {
     $repository=$app->make('migrator')->getRepository();
     check($repository->repositoryExists(),'Migration history missing');
     $ran=$repository->getRan(); sort($ran);
+    $migrations=['2026_09_30_180000_create_erp_foundation','2026_09_30_193000_create_erp_operations'];
     if ($mode==='before') {
-        foreach (['erp_users','erp_branches','erp_ledger_state'] as $t) check(!Schema::hasTable($t),'Existing ERP schema requires reconciliation');
         $required=['users'=>['id','name','account_type','password'],'resturants'=>['id','name'],'orders'=>['id','resturant_id','order_no','status','type','payment_type','created_at']];
         foreach($required as $t=>$cols) foreach($cols as $c) check(Schema::hasColumn($t,$c),'Legacy schema mismatch');
+        $present=array_values(array_intersect($migrations,$ran));
+        check(count($present)===0 || count($present)===count($migrations),'Partial ERP migration history requires reconciliation');
+        if (count($present)===0) {
+            foreach (['erp_users','erp_branches','erp_ledger_state'] as $t) check(!Schema::hasTable($t),'ERP tables exist without migration history');
+        } else {
+            foreach (['erp_users','erp_branches','erp_ledger_state','erp_accounts'] as $t) check(Schema::hasTable($t),'Recorded ERP migration is missing tables');
+            check(DB::table('erp_ledger_state')->where('id',1)->exists() && DB::table('erp_ledger_state')->where('id',1)->value('initialized_at')===null,'Opening ledger must remain uninitialized');
+            foreach (['erp_branches','erp_users','erp_warehouses','erp_items','erp_stock_balances','erp_stock_documents','erp_stock_entries','erp_employees','erp_salary_rates','erp_attendance','erp_payroll_adjustments','erp_payrolls','erp_audit','erp_suppliers','erp_purchases','erp_purchase_lines','erp_recipes','erp_recipe_lines','erp_productions','erp_journals','erp_journal_lines','erp_cash_documents'] as $t) {
+                check(!DB::table($t)->exists(),'Existing ERP business data requires reconciliation');
+            }
+        }
         file_put_contents("$run/baseline.json",json_encode(['ran'=>$ran,'routes'=>routeDigest($app),'url'=>$url],JSON_THROW_ON_ERROR));
         file_put_contents("$run/url",$url);
         echo "OWNER_AND_LIVE_BASELINE_CONFIRMED\n"; exit;
     }
     $before=json_decode(file_get_contents("$run/baseline.json"),true,512,JSON_THROW_ON_ERROR);
-    $migrations=['2026_09_30_180000_create_erp_foundation','2026_09_30_193000_create_erp_operations'];
-    $expected=array_merge($before['ran'],$migrations); sort($expected);
+    $expected=$before['ran'];
+    foreach($migrations as $migration) if(!in_array($migration,$expected,true)) $expected[]=$migration;
+    sort($expected);
     check($ran===$expected,'Unrelated migration history changed');
     check(routeDigest($app)===$before['routes'],'Legacy routes changed');
     check(config('app.debug')===false && config('session.secure')===true,'Security configuration not effective');
