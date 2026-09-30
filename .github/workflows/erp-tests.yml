@@ -1,0 +1,59 @@
+name: ERP foundation tests
+on:
+  push:
+    branches: ['codex/fasakhansta-erp-*']
+  pull_request:
+    paths:
+      - 'app/**/Erp/**'
+      - 'app/Http/Middleware/ErpAccess.php'
+      - 'app/Providers/RouteServiceProvider.php'
+      - 'config/auth.php'
+      - 'config/erp.php'
+      - 'routes/erp.php'
+      - 'resources/views/erp/**'
+      - 'resources/views/admin/layouts/menu.blade.php'
+      - 'public/erp/**'
+      - 'database/migrations/*erp_foundation.php'
+      - 'tests/erp_runtime/**'
+      - '.github/workflows/erp-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        db: [sqlite, mysql]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: erp_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, pdo_mysql, pcntl, mbstring, dom, xml, xmlwriter
+          tools: composer:2
+          coverage: none
+      - name: Check PHP syntax
+        run: |
+          find app/Services/Erp app/Models/Erp app/Http/Controllers/Erp -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l app/Http/Middleware/ErpAccess.php
+          php -l routes/erp.php
+          php -l app/Providers/RouteServiceProvider.php
+          php -l database/migrations/2026_09_30_180000_create_erp_foundation.php
+      - name: Install isolated test dependencies
+        run: composer install --working-dir=tests/erp_runtime --no-interaction --prefer-dist --no-progress
+      - name: Run integration and authorization tests
+        working-directory: tests/erp_runtime
+        run: php vendor/bin/phpunit
+        env:
+          ERP_TEST_MYSQL: ${{ matrix.db == 'mysql' && '1' || '0' }}
+          ERP_TEST_MYSQL_PASSWORD: test-only

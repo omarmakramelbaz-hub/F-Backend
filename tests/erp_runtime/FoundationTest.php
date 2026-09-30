@@ -1,0 +1,388 @@
+<?php
+
+namespace ErpTests;
+
+use App\Models\Erp\StaffUser;
+use App\Services\Erp\Actor;
+use App\Services\Erp\Decimal;
+use App\Services\Erp\People;
+use App\Services\Erp\Stock;
+use Carbon\Carbon;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+use Orchestra\Testbench\TestCase;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+
+class FoundationTest extends TestCase
+{
+    protected function getEnvironmentSetUp($app)
+    {
+        $root = dirname(__DIR__, 2);
+        $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('t', 32)));
+        $app['config']->set('app.timezone', 'UTC');
+        $app['config']->set('erp', ['enabled'=>true,'legacy_owner_id'=>1,'timezone'=>'Africa/Cairo']);
+        $app['config']->set('auth.defaults.guard', 'admin');
+        $app['config']->set('auth.guards.admin', ['driver'=>'session','provider'=>'legacy']);
+        $app['config']->set('auth.providers.legacy', ['driver'=>'eloquent','model'=>LegacyOwner::class]);
+        $app['config']->set('auth.guards.erp', ['driver'=>'session','provider'=>'erp_staff']);
+        $app['config']->set('auth.providers.erp_staff', ['driver'=>'eloquent','model'=>StaffUser::class]);
+        $app['config']->set('view.paths', [$root.'/resources/views']);
+        $app['config']->set('session.driver', 'array');
+        $app['config']->set('cache.default', 'array');
+        // Existing non-ERP error templates read site branding from the settings package.
+        $app->instance('App\\Models\\GeneralSettings', (object) ['site_name'=>'ERP Test','favicon'=>'']);
+        if (getenv('ERP_TEST_MYSQL') === '1') {
+            $app['config']->set('database.default', 'mysql');
+            $app['config']->set('database.connections.mysql', ['driver'=>'mysql','host'=>'127.0.0.1','port'=>getenv('ERP_TEST_MYSQL_PORT') ?: 3306,'database'=>'erp_test','username'=>'root','password'=>getenv('ERP_TEST_MYSQL_PASSWORD') ?: '', 'charset'=>'utf8mb4','collation'=>'utf8mb4_unicode_ci','prefix'=>'','strict'=>true]);
+        } else {
+            $app['config']->set('database.default', 'sqlite');
+            $app['config']->set('database.connections.sqlite', ['driver'=>'sqlite','database'=>':memory:','prefix'=>'','foreign_key_constraints'=>true]);
+        }
+    }
+
+    protected function defineRoutes($router)
+    {
+        Route::middleware('web')->group(function () { require dirname(__DIR__, 2).'/routes/erp.php'; });
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow(Carbon::parse('2026-09-30 12:00:00', 'UTC'));
+        // The MySQL runtime is deliberately fixed to an isolated CI-only database.
+        $this->assertTrue(DB::connection()->getDriverName() === 'sqlite' || DB::connection()->getDatabaseName() === 'erp_test');
+        Schema::dropAllTables();
+        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('account_type'); $t->string('password')->nullable(); $t->rememberToken(); $t->timestamps(); });
+        Schema::create('resturants', function (Blueprint $t) { $t->id(); $t->string('name'); });
+        Schema::create('orders', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('resturant_id'); $t->string('order_no'); $t->string('status'); $t->string('type'); $t->string('payment_type'); $t->timestamp('created_at'); });
+        require_once dirname(__DIR__, 2).'/database/migrations/2026_09_30_180000_create_erp_foundation.php';
+        (new \CreateErpFoundation)->up();
+        DB::table('users')->insert([['id'=>1,'name'=>'المالك','account_type'=>'admin'],['id'=>2,'name'=>'صاحب مطعم خارجي','account_type'=>'resturant_owner']]);
+        DB::table('resturants')->insert([['id'=>1,'name'=>'فرع مدينة نصر'],['id'=>2,'name'=>'فرع المعادي'],['id'=>999,'name'=>'مطعم خارج ERP']]);
+        DB::table('erp_branches')->insert([['id'=>1,'restaurant_id'=>1,'name'=>'مدينة نصر','active'=>1],['id'=>2,'restaurant_id'=>2,'name'=>'المعادي','active'=>1]]);
+        DB::table('erp_warehouses')->insert([['id'=>1,'name'=>'المخزن المركزي','branch_id'=>null],['id'=>2,'name'=>'مخزن مدينة نصر','branch_id'=>1],['id'=>3,'name'=>'مخزن المعادي','branch_id'=>2]]);
+        DB::table('erp_items')->insert([['id'=>1,'sku'=>'RAW-001','name'=>'فسيخ خام','unit'=>'kg','category'=>'raw','minimum_milli'=>5000,'active'=>1],['id'=>2,'sku'=>'PACK-001','name'=>'علبة تغليف','unit'=>'piece','category'=>'packaging','minimum_milli'=>10000,'active'=>1]]);
+        foreach ([1,2] as $id) {
+            DB::table('erp_employees')->insert(['id'=>$id,'branch_id'=>$id,'name'=>$id === 1 ? 'أحمد محمد':'محمود علي','phone'=>'01000000000','job_title'=>'مسؤول تجهيز','hired_on'=>'2026-08-15','salary_minor'=>600000,'active'=>1]);
+            DB::table('erp_salary_rates')->insert(['employee_id'=>$id,'effective_month'=>'2026-08','salary_minor'=>600000]);
+        }
+        foreach (['pending','accepted','shipped','completed','cancelled','declined'] as $index=>$status) {
+            DB::table('orders')->insert(['resturant_id'=>$index % 2 + 1,'order_no'=>'FS-'.(100+$index),'status'=>$status,'type'=>'current','payment_type'=>'cash','created_at'=>now()]);
+        }
+        DB::table('orders')->insert(['resturant_id'=>999,'order_no'=>'EXTERNAL-SECRET','status'=>'pending','type'=>'current','payment_type'=>'cash','created_at'=>now()]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    private function actor(string $role = 'deputy_manager', ?int $branch = null): Actor
+    {
+        return new Actor('staff:1','نائب المدير',$role,$branch,Actor::defaults($role));
+    }
+
+    private function staff(string $role = 'deputy_manager', ?int $branch = null): StaffUser
+    {
+        return StaffUser::create(['name'=>'نائب المدير','email'=>'deputy@example.test','password'=>Hash::make('Test-only-password-123'),'role'=>$role,'branch_id'=>$branch,'permissions'=>Actor::defaults($role),'active'=>1]);
+    }
+
+    private function stock(array $changes = []): array
+    {
+        return array_replace(['request_key'=>(string) \Illuminate\Support\Str::uuid(),'type'=>'opening','item_id'=>1,'warehouse_id'=>1,'quantity'=>'10.000','unit_cost'=>'200.00','reason'=>'رصيد بداية الفترة'], $changes);
+    }
+
+    private function rejects(int $status, callable $fn): void
+    {
+        try { $fn(); $this->fail('Expected HTTP '.$status); }
+        catch (HttpExceptionInterface $e) { $this->assertSame($status, $e->getStatusCode(), $e->getMessage()); }
+    }
+
+    public function test_owner_can_render_every_screen_and_the_login_form(): void
+    {
+        $this->get('/erp/login')->assertOk()->assertSee('البريد الإلكتروني');
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        (new Stock)->post($this->actor(), $this->stock());
+        $this->staff();
+        foreach (['','branches','inventory','employees','payroll','orders','accounts','audit'] as $page) {
+            $response = $this->get('/erp/'.$page);
+            $response->assertOk()->assertSee('فسخانستا');
+            if ($folder = getenv('ERP_RENDER_DIR')) {
+                if (!is_dir($folder)) { mkdir($folder, 0700, true); }
+                file_put_contents($folder.'/'.($page ?: 'home').'.html', $response->getContent());
+            }
+        }
+        $this->get('/erp/orders')->assertDontSee('EXTERNAL-SECRET')->assertSee('FS-100');
+        $this->get('/erp/payroll?month=2026-02')->assertOk();
+    }
+
+    public function test_feature_gate_guest_and_legacy_restaurant_owner_are_isolated(): void
+    {
+        $this->get('/erp/inventory')->assertRedirect('/erp/login');
+        $this->actingAs(LegacyOwner::findOrFail(2),'admin')->get('/erp/accounts')->assertRedirect('/erp/login');
+        config(['erp.enabled'=>false]);
+        $this->get('/erp')->assertNotFound();
+        $this->get('/erp/login')->assertNotFound();
+        $this->post('/erp/stock', $this->stock())->assertNotFound();
+        $this->assertSame(0, DB::table('erp_stock_documents')->count());
+    }
+
+    public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
+    {
+        $this->actingAs($this->staff(),'erp');
+        $this->get('/erp/branches')->assertOk()->assertSee('مدينة نصر')->assertSee('المعادي');
+        $this->get('/erp/inventory')->assertOk()->assertSee('المخزن المركزي');
+        $this->get('/erp/employees')->assertOk()->assertSee('أحمد محمد')->assertSee('محمود علي');
+        $this->get('/erp/accounts')->assertForbidden();
+        $this->post('/erp/accounts', [])->assertForbidden();
+        $this->post('/erp/stock',$this->stock())->assertRedirect()->assertSessionHas('success');
+        $this->post('/erp/employees/2/attendance',['day'=>'2026-09-30','status'=>'present'])->assertRedirect()->assertSessionHas('success');
+        $this->assertSame(1,DB::table('erp_attendance')->where('employee_id',2)->count());
+        $this->assertSame(3,DB::table('resturants')->count());
+        $this->assertSame(7,DB::table('orders')->count());
+    }
+
+    public function test_branch_scope_is_enforced_on_reads_and_forged_writes(): void
+    {
+        $user = $this->staff('branch_manager',1);
+        $user->permissions = array_diff(Actor::CAPABILITIES,['access.manage']); $user->save();
+        $this->actingAs($user,'erp');
+        $this->get('/erp/employees')->assertOk()->assertSee('أحمد محمد')->assertDontSee('محمود علي');
+        $this->get('/erp/employees?branch=2')->assertForbidden();
+        $this->get('/erp/payroll')->assertForbidden();
+        $this->get('/erp/branches')->assertForbidden();
+        $this->get('/erp/inventory')->assertOk()->assertDontSee('المخزن المركزي')->assertDontSee('مخزن المعادي');
+        $this->post('/erp/employees/2/attendance',['day'=>'2026-09-30','status'=>'absent'])->assertForbidden();
+        $this->post('/erp/stock',$this->stock(['warehouse_id'=>3]))->assertForbidden();
+        $this->post('/erp/stock',$this->stock(['warehouse_id'=>2,'type'=>'transfer','destination_id'=>3]))->assertForbidden();
+        $this->assertSame(0,DB::table('erp_stock_documents')->count());
+        $this->assertSame(0,DB::table('erp_attendance')->count());
+    }
+
+    public function test_disabling_a_staff_account_or_removing_permission_applies_to_current_session(): void
+    {
+        $staff=$this->staff(); $this->actingAs($staff,'erp')->get('/erp/inventory')->assertOk();
+        DB::table('erp_users')->where('id',$staff->id)->update(['permissions'=>'[]']);
+        $this->get('/erp/inventory')->assertForbidden();
+        DB::table('erp_users')->where('id',$staff->id)->update(['active'=>0]);
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $this->get('/erp')->assertRedirect('/erp/login');
+    }
+
+    public function test_owner_creates_real_hashed_deputy_account_and_validates_branch_role(): void
+    {
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $data=['name'=>'نائب المدير','email'=>'DEPUTY@example.test','role'=>'deputy_manager','permissions'=>Actor::defaults('deputy_manager'),'active'=>'1','password'=>'New-password-long-123','password_confirmation'=>'New-password-long-123'];
+        $this->post('/erp/accounts',$data)->assertRedirect()->assertSessionHasNoErrors();
+        $account=StaffUser::firstOrFail();
+        $this->assertSame('deputy@example.test',$account->email);
+        $this->assertTrue(Hash::check($data['password'],$account->password));
+        $this->assertNull($account->branch_id);
+        $this->assertStringNotContainsString('password',DB::table('erp_audit')->value('details'));
+        $this->from('/erp/accounts')->post('/erp/accounts',array_replace($data,['email'=>'manager@example.test','role'=>'branch_manager']))->assertSessionHasErrors('operation');
+        $this->assertSame(1,StaffUser::count());
+    }
+
+    public function test_login_logout_and_failed_login_throttling(): void
+    {
+        $this->staff();
+        $this->post('/erp/login',['email'=>'deputy@example.test','password'=>'Test-only-password-123'])->assertRedirect('/erp');
+        $this->assertAuthenticated('erp');
+        $this->post('/erp/logout')->assertRedirect('/erp/login');
+        $this->assertGuest('erp');
+        for($i=0;$i<6;$i++) { $response=$this->from('/erp/login')->post('/erp/login',['email'=>'deputy@example.test','password'=>'wrong']); }
+        $response->assertSessionHasErrors('email');
+        $this->assertStringContainsString('محاولات كثيرة',session('errors')->first('email'));
+        $this->assertGuest('erp');
+    }
+
+    public function test_stock_transfers_conserve_quantity_and_value_and_retries_do_not_duplicate(): void
+    {
+        $stock=new Stock; $actor=$this->actor(); $opening=$this->stock();
+        $id=$stock->post($actor,$opening);
+        $this->assertSame($id,$stock->post($actor,$opening));
+        $transfer=$this->stock(['type'=>'transfer','destination_id'=>2,'quantity'=>'2.500']);
+        $transferId=$stock->post($actor,$transfer);
+        $this->assertSame($transferId,$stock->post($actor,$transfer));
+        $balances=DB::table('erp_stock_balances')->get()->keyBy('warehouse_id');
+        $this->assertSame(7500,(int)$balances[1]->quantity_milli);
+        $this->assertSame(2500,(int)$balances[2]->quantity_milli);
+        $this->assertSame(200000,(int)$balances->sum('value_minor'));
+        $entries=DB::table('erp_stock_entries')->where('document_id',$transferId);
+        $this->assertSame(0,(int)(clone $entries)->sum('quantity_milli'));
+        $this->assertSame(0,(int)(clone $entries)->sum('value_minor'));
+        $this->assertSame(2,DB::table('erp_stock_documents')->count());
+        $this->assertSame(2,DB::table('erp_audit')->count());
+        $this->rejects(409,fn()=>$stock->post($actor,array_replace($transfer,['quantity'=>'1.000'])));
+    }
+
+    public function test_weighted_cost_fractional_weights_and_full_depletion_have_no_rounding_residue(): void
+    {
+        $stock=new Stock;$actor=$this->actor();
+        $stock->post($actor,$this->stock(['quantity'=>'0.125','unit_cost'=>'123.45']));
+        $stock->post($actor,$this->stock(['type'=>'receipt','quantity'=>'0.375','unit_cost'=>'200.00']));
+        $this->assertSame(9043,(int)DB::table('erp_stock_balances')->value('value_minor'));
+        $stock->post($actor,$this->stock(['type'=>'waste','quantity'=>'0.100']));
+        $this->assertSame(7234,(int)DB::table('erp_stock_balances')->value('value_minor'));
+        $stock->post($actor,$this->stock(['type'=>'waste','quantity'=>'0.400']));
+        $this->assertSame(0,(int)DB::table('erp_stock_balances')->value('quantity_milli'));
+        $this->assertSame(0,(int)DB::table('erp_stock_balances')->value('value_minor'));
+    }
+
+    public function test_invalid_and_stale_stock_movements_leave_no_partial_changes(): void
+    {
+        $stock=new Stock;$actor=$this->actor();
+        $stock->post($actor,$this->stock());
+        $this->rejects(422,fn()=>$stock->post($actor,$this->stock(['type'=>'transfer','destination_id'=>2,'quantity'=>'11'])));
+        $this->rejects(422,fn()=>$stock->post($actor,$this->stock(['item_id'=>2,'quantity'=>'1.5'])));
+        $this->rejects(409,fn()=>$stock->post($actor,$this->stock()));
+        $this->rejects(409,fn()=>$stock->post($actor,$this->stock(['type'=>'count','quantity'=>'8','expected_quantity'=>'9'])));
+        $this->assertSame(1,DB::table('erp_stock_balances')->count());
+        $this->assertSame(1,DB::table('erp_stock_documents')->count());
+        $this->assertSame(10000,(int)DB::table('erp_stock_balances')->value('quantity_milli'));
+        $stock->post($actor,$this->stock(['type'=>'count','quantity'=>'8.125','expected_quantity'=>'10']));
+        $this->assertSame(8125,(int)DB::table('erp_stock_balances')->value('quantity_milli'));
+        $this->assertSame(162500,(int)DB::table('erp_stock_balances')->value('value_minor'));
+        $this->assertSame(-1875,(int)DB::table('erp_stock_entries')->orderByDesc('id')->value('quantity_milli'));
+    }
+
+    public function test_decimal_validation_rejects_silent_truncation_negative_values_and_exponents(): void
+    {
+        foreach(['1.2345','-1','1e3','NaN','1000001',''] as $value) { $this->rejects(422,fn()=>Decimal::quantity($value,'kg')); }
+        $this->assertSame(125,Decimal::quantity('0.125','kg'));
+        $this->assertSame(1000,Decimal::quantity('1.000','piece'));
+        $this->assertSame(12345,Decimal::money('123.45'));
+    }
+
+    public function test_salary_effective_dates_and_closed_payroll_remain_unchanged(): void
+    {
+        $people=new People;$actor=$this->actor();
+        $people->salary($actor,1,'2026-09','6500');
+        $this->assertSame(600000,$people->statement($actor,1,'2026-08')['base_minor']);
+        $adjustment=['month'=>'2026-09','type'=>'bonus','amount'=>'500','reason'=>'مكافأة أداء','request_key'=>'adjustment-september-001'];
+        $id=$people->adjustment($actor,1,$adjustment);
+        $this->assertSame($id,$people->adjustment($actor,1,$adjustment));
+        $people->adjustment($actor,1,array_replace($adjustment,['type'=>'advance_repayment','amount'=>'200','request_key'=>'adjustment-september-002']));
+        $people->attendance($actor,1,['day'=>'2026-09-30','status'=>'absent']);
+        $this->assertSame(680000,$people->statement($actor,1,'2026-09')['net_minor']);
+        $closed=$people->close($actor,1,'2026-09');
+        $this->assertSame($closed,$people->close($actor,1,'2026-09'));
+        $this->rejects(409,fn()=>$people->salary($actor,1,'2026-09','7000'));
+        $this->rejects(409,fn()=>$people->attendance($actor,1,['day'=>'2026-09-30','status'=>'present']));
+        $this->rejects(409,fn()=>$people->adjustment($actor,1,array_replace($adjustment,['request_key'=>'after-close-rejected-001'])));
+        $people->salary($actor,1,'2026-10','7000');
+        $this->assertSame(680000,(int)$people->statement($actor,1,'2026-09')['net_minor']);
+        $this->assertSame(700000,$people->statement($actor,1,'2026-10')['base_minor']);
+        $this->assertSame(1,DB::table('erp_payrolls')->count());
+    }
+
+    public function test_invalid_payroll_months_negative_net_and_future_attendance_are_rejected(): void
+    {
+        $people=new People;$actor=$this->actor();
+        $this->rejects(422,fn()=>$people->month('2026-13'));
+        $this->rejects(422,fn()=>$people->close($actor,1,'2026-10'));
+        $this->rejects(422,fn()=>$people->attendance($actor,1,['day'=>'2026-10-01','status'=>'present']));
+        $this->rejects(422,fn()=>$people->attendance($actor,1,['day'=>'2026-02-30','status'=>'present']));
+        $people->adjustment($actor,1,['month'=>'2026-09','type'=>'deduction','amount'=>'7000','reason'=>'اختبار','request_key'=>'deduction-negative-net-001']);
+        $this->rejects(422,fn()=>$people->close($actor,1,'2026-09'));
+        $this->assertSame(0,DB::table('erp_payrolls')->count());
+    }
+
+    public function test_audit_does_not_leak_salary_or_accounts_to_inventory_staff(): void
+    {
+        (new People)->salary($this->actor(),1,'2026-09','7777.77');
+        (new Actor('legacy:1','المالك','owner',null,Actor::CAPABILITIES))->audit('access.save','staff_account',1,['email'=>'private@example.test']);
+        $this->actingAs($this->staff('inventory_manager'),'erp');
+        $this->get('/erp/audit')->assertOk()->assertDontSee('777777')->assertDontSee('private@example.test');
+        $this->get('/erp/payroll')->assertForbidden();
+        $this->get('/erp/employees')->assertForbidden();
+    }
+
+    public function test_branch_enrollment_and_new_employee_create_complete_related_records(): void
+    {
+        $this->actingAs($this->staff(),'erp');
+        DB::table('resturants')->insert(['id'=>3,'name'=>'فرع جديد']);
+        $this->post('/erp/branches',['restaurant_id'=>3,'name'=>'الفرع الثالث','active'=>'1'])->assertSessionHasNoErrors();
+        $branch=DB::table('erp_branches')->where('restaurant_id',3)->first();
+        $this->assertNotNull($branch);
+        $this->assertSame(1,DB::table('erp_warehouses')->where('branch_id',$branch->id)->count());
+        $this->post('/erp/employees',['name'=>'موظف جديد','job_title'=>'كاشير','branch_id'=>$branch->id,'hired_on'=>'2026-09-01','active'=>'1','salary'=>'4500'])->assertSessionHasNoErrors();
+        $employee=DB::table('erp_employees')->where('name','موظف جديد')->first();
+        $this->assertSame(450000,(int)DB::table('erp_salary_rates')->where('employee_id',$employee->id)->value('salary_minor'));
+    }
+
+    public function test_rollback_refuses_to_erase_business_history(): void
+    {
+        (new Stock)->post($this->actor(),$this->stock());
+        try { (new \CreateErpFoundation)->down(); $this->fail('Rollback must preserve history'); }
+        catch (\RuntimeException $e) { $this->assertStringContainsString('business history',$e->getMessage()); }
+        $this->assertSame(1,DB::table('erp_stock_documents')->count());
+    }
+
+    public function test_post_requests_require_csrf_tokens_outside_the_test_bypass(): void
+    {
+        $this->app['env'] = 'local';
+        $this->post('/erp/login',['email'=>'deputy@example.test','password'=>'wrong'])->assertStatus(419);
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $this->post('/erp/stock',$this->stock())->assertStatus(419);
+        $this->assertSame(0,DB::table('erp_stock_documents')->count());
+    }
+
+    public function test_mysql_serializes_duplicate_receipts_and_competing_withdrawals(): void
+    {
+        if (DB::connection()->getDriverName() !== 'mysql' || !function_exists('pcntl_fork')) {
+            $this->markTestSkipped('Real row-lock contention requires MySQL and pcntl; covered in the MySQL CI job.');
+        }
+        $receipt=$this->stock();
+        $results=$this->raceStock([$receipt,$receipt]);
+        $this->assertSame(['ok','ok'],array_column($results,'status'));
+        $this->assertSame($results[0]['id'],$results[1]['id']);
+        $this->assertSame(1,DB::table('erp_stock_documents')->count());
+        $this->assertSame(10000,(int)DB::table('erp_stock_balances')->value('quantity_milli'));
+        $results=$this->raceStock([$this->stock(['type'=>'waste','quantity'=>'7']),$this->stock(['type'=>'waste','quantity'=>'7'])]);
+        $statuses=array_column($results,'status');sort($statuses);
+        $this->assertSame(['422','ok'],$statuses,json_encode($results));
+        $this->assertSame(3000,(int)DB::table('erp_stock_balances')->value('quantity_milli'));
+        $this->assertSame(60000,(int)DB::table('erp_stock_balances')->value('value_minor'));
+        $this->assertSame(2,DB::table('erp_stock_documents')->count());
+    }
+
+    private function raceStock(array $requests): array
+    {
+        DB::disconnect();
+        $workers=[];
+        foreach($requests as $request) {
+            $pair=stream_socket_pair(STREAM_PF_UNIX,STREAM_SOCK_STREAM,STREAM_IPPROTO_IP);
+            $pid=pcntl_fork();
+            if ($pid === -1) { throw new \RuntimeException('Cannot fork concurrency test'); }
+            if ($pid === 0) {
+                fclose($pair[0]);
+                foreach($workers as $worker) { fclose($worker['socket']); }
+                fread($pair[1],1);
+                DB::purge();
+                try {
+                    DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
+                    $result=['status'=>'ok','id'=>(new Stock)->post($this->actor(),$request)];
+                } catch (HttpExceptionInterface $e) { $result=['status'=>(string)$e->getStatusCode()]; }
+                catch (\Throwable $e) { $result=['status'=>'error','message'=>$e->getMessage()]; }
+                fwrite($pair[1],json_encode($result));fclose($pair[1]);exit(0);
+            }
+            fclose($pair[1]);stream_set_timeout($pair[0],15);
+            $workers[]=['pid'=>$pid,'socket'=>$pair[0]];
+        }
+        foreach($workers as $worker) { fwrite($worker['socket'],'1'); }
+        $results=[];
+        foreach($workers as $worker) {
+            $results[]=json_decode(stream_get_contents($worker['socket']),true) ?? ['status'=>'timeout'];
+            fclose($worker['socket']);pcntl_waitpid($worker['pid'],$status);
+            $this->assertSame(0,pcntl_wexitstatus($status));
+        }
+        DB::purge();
+        return $results;
+    }
+}

@@ -36,6 +36,10 @@ return [
     */
 
     'guards' => [
+        'erp' => [
+            'driver' => 'session',
+            'provider' => 'erp_staff',
+        ],
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
@@ -70,6 +74,10 @@ return [
     */
 
     'providers' => [
+        'erp_staff' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Erp\StaffUser::class,
+        ],
         'users' => [
             'driver' => 'eloquent',
             'model' => App\Models\User::class,

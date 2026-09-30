@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>@yield('title', 'إدارة فسخانستا') | فسخانستا ERP</title><link rel="stylesheet" href="{{ asset('erp/workspace.css') }}"></head>
+<body>
+@php
+$roleNames = ['owner'=>'المالك','deputy_manager'=>'نائب المدير','branch_manager'=>'مدير الفرع','inventory_manager'=>'مسؤول المخزون','hr_manager'=>'مسؤول الموظفين'];
+$nav = [['erp.home','الرئيسية','◈',null],['erp.orders','طلبات التطبيق','▤','orders.view'],['erp.branches','الفروع والمخازن','▦','branches.manage'],['erp.inventory','المخزون والحركات','▣','inventory.manage'],['erp.employees','الموظفون والحضور','♙','employees.manage'],['erp.payroll','الرواتب والاستحقاقات','▧','payroll.manage'],['erp.audit','سجل العمليات','◷','audit.view'],['erp.accounts','الحسابات والصلاحيات','⚙','access.manage']];
+@endphp
+<aside class="sidebar"><a class="brand" href="{{ route('erp.home') }}"><img src="{{ asset('dashboard/dist/img/logo image.png') }}" alt="شعار فسخانستا"><div><strong>فسخانستا</strong><small>إدارة الفروع والعمليات</small></div></a><div class="nav-caption">مساحة العمل</div><nav>@foreach($nav as [$route,$label,$icon,$permission])@if(!$permission || $actor->can($permission))<a class="nav-item {{ request()->routeIs($route) ? 'active' : '' }}" href="{{ route($route) }}"><span class="nav-icon" aria-hidden="true">{{ $icon }}</span>{{ $label }}</a>@endif @endforeach</nav><div class="nav-footer">FASAKHANSTA<br>إدارة مترابطة لكل فرع</div></aside>
+<div class="main"><header class="topbar"><div><span class="mobile-brand">فسخانستا ERP</span><span class="date-label">{{ now(config('erp.timezone'))->format('Y/m/d') }} <small>• توقيت القاهرة</small></span></div><div class="user-block"><div class="avatar">{{ mb_substr($actor->name,0,1) }}</div><div><strong>{{ $actor->name }}</strong><br><small>{{ $roleNames[$actor->role] ?? $actor->role }}</small></div><form method="post" action="{{ route('erp.logout') }}">@csrf<button class="secondary small" type="submit">خروج</button></form></div></header>
+<main class="content"><div class="page-heading"><div><span class="eyebrow">FASAKHANSTA / ERP</span><h1>@yield('title')</h1><p>@yield('subtitle')</p></div>@yield('heading-action')</div>
+@if(session('success'))<div class="notice success" role="status">{{ session('success') }}</div>@endif
+@if($errors->any())<div class="notice error" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+@yield('content')</main></div><script src="{{ asset('erp/workspace.js') }}" defer></script></body></html>

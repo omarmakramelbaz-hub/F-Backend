@@ -1,0 +1,1 @@
+@if($paginator->hasPages())<nav class="pagination" aria-label="صفحات النتائج">@if(!$paginator->onFirstPage())<a href="{{ $paginator->previousPageUrl() }}">السابق</a>@endif<span>{{ $paginator->currentPage() }} / {{ $paginator->lastPage() }}</span>@if($paginator->hasMorePages())<a href="{{ $paginator->nextPageUrl() }}">التالي</a>@endif</nav>@endif

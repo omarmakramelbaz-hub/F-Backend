@@ -1,0 +1,7 @@
+@extends('erp.layout')
+@section('title','سجل العمليات')
+@section('subtitle','من نفذ العملية، ومتى، وفي أي فرع')
+@section('content')
+@php($actions = ['branch.save'=>'حفظ فرع','warehouse.create'=>'إضافة مخزن','item.create'=>'إضافة صنف','stock.opening'=>'رصيد افتتاحي','stock.receipt'=>'استلام مخزون','stock.transfer'=>'تحويل مخزون','stock.waste'=>'تسجيل هالك','stock.count'=>'تسوية جرد','employee.save'=>'حفظ موظف','employee.attendance'=>'تسجيل حضور','employee.salary'=>'تعديل راتب','payroll.adjustment'=>'تسوية راتب','payroll.close'=>'اعتماد كشف','access.save'=>'تعديل حساب وصلاحيات'])
+<section class="card"><div class="table-wrap"><table><thead><tr><th>التوقيت</th><th>المستخدم</th><th>العملية</th><th>المرجع</th><th>تفاصيل التسجيل</th></tr></thead><tbody>@forelse($events as $e)<tr><td class="number">{{ \Carbon\Carbon::parse($e->created_at)->timezone(config('erp.timezone'))->format('Y-m-d H:i:s') }}</td><td>{{ $e->actor_name }}</td><td>{{ $actions[$e->action] ?? $e->action }}</td><td>#{{ $e->entity_id }}</td><td><details><summary>عرض التفاصيل</summary><pre class="audit-json" dir="ltr">{{ json_encode(json_decode($e->details,true),JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE) }}</pre></details></td></tr>@empty<tr><td colspan="5" class="empty">ستظهر هنا عمليات النظام فور تسجيلها.</td></tr>@endforelse</tbody></table></div>@include('erp.pagination',['paginator'=>$events])</section>
+@endsection
