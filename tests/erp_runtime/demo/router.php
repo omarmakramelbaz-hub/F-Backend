@@ -3,8 +3,8 @@ if (PHP_SAPI !== 'cli-server' || getenv('ERP_DEMO') !== '1') { http_response_cod
 // Never delegate arbitrary paths to PHP's file server or the repository public/index.php.
 $path=rawurldecode(parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH));
 $assets=[
-    '/erp/workspace.css'=>['erp/workspace.css','text/css'],
-    '/erp/workspace.js'=>['erp/workspace.js','application/javascript'],
+    '/erp-assets/workspace.css'=>['erp-assets/workspace.css','text/css'],
+    '/erp-assets/workspace.js'=>['erp-assets/workspace.js','application/javascript'],
     '/dashboard/dist/img/logo image.png'=>['dashboard/dist/img/logo image.png','image/png'],
 ];
 if (isset($assets[$path])) {

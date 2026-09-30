@@ -16,7 +16,7 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
     const url = new URL(route.request().url());
     if (url.hostname !== 'localhost') return route.abort();
     const pathname = decodeURIComponent(url.pathname);
-    const root = pathname.startsWith('/erp/') || pathname.startsWith('/dashboard/') ? publicRoot : folder;
+    const root = pathname.startsWith('/erp-assets/') || pathname.startsWith('/dashboard/') ? publicRoot : folder;
     const file = path.resolve(root, '.' + pathname);
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: 'Fixture not found' });
     const extension = path.extname(file);

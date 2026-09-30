@@ -1,4 +1,4 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>جرّب فسخانستا ERP</title><link rel="stylesheet" href="{{ asset('erp/workspace.css') }}"></head>
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>جرّب فسخانستا ERP</title><link rel="stylesheet" href="{{ asset('erp-assets/workspace.css') }}"></head>
 <body class="login-page" style="grid-template-columns:minmax(0,1fr);gap:24px;align-content:center;padding:20px"><main class="login-panel" style="max-width:680px;width:100%;min-width:0;padding:24px"><div class="brand"><img src="{{ asset('dashboard/dist/img/logo image.png') }}" alt="فسخانستا"><div><strong>فسخانستا ERP</strong><small>مساحة التجربة</small></div></div>
 <h1>جرّب النظام بنفسك</h1><p>اختر الحساب الذي تريد تجربته. كل الأسماء والكميات والأرصدة هنا بيانات تجريبية؛ تغييراتك تُحفظ في هذه النسخة.</p>
 @if($errors->any())<div class="notice error">{{ $errors->first() }}</div>@endif
