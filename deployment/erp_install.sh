@@ -215,7 +215,7 @@ try {
         $response=$app['router']->dispatch($r);
         check($response->getStatusCode()===200,'ERP read-only page failed: '.$page);
     }
-    Auth::guard('admin')->forgetUser(); Auth::guard('erp')->forgetUser();
+    Auth::guard('admin')->logout(); Auth::guard('erp')->logout();
     foreach(['/erp/login'=>200,'/erp'=>302] as $path=>$status) {
         $r=Request::create($url.$path,'GET'); $app->instance('request',$r); Facade::clearResolvedInstance('request'); $app['url']->setRequest($r);
         check($app['router']->dispatch($r)->getStatusCode()===$status,'Guest access check failed');
