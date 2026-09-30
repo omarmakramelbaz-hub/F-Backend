@@ -22,7 +22,7 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
     const extension = path.extname(file);
     return route.fulfill({ path: file, contentType: ({ '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png' })[extension] || 'text/html' });
   });
-  for (const screen of ['home', 'branches', 'inventory', 'employees', 'payroll', 'orders', 'accounts', 'audit', 'purchases', 'production', 'finance']) {
+  for (const screen of ['home', 'branches', 'inventory', 'employees', 'payroll', 'orders', 'accounts', 'audit', 'purchases', 'production', 'finance', 'trial']) {
     await page.goto(`http://localhost/${screen}.html`);
     assert.equal(await page.locator('main').count(), 1, screen);
     assert.equal(await page.locator('h1').count(), 1, screen);
@@ -63,12 +63,12 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
   assert(await cashForm.locator('[name="supplier_id"]').isVisible());
   assert(await cashForm.locator('[name="branch_id"]').isDisabled());
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const screen of ['home', 'inventory', 'employees', 'payroll', 'accounts', 'orders', 'purchases', 'production', 'finance']) {
+  for (const screen of ['home', 'inventory', 'employees', 'payroll', 'accounts', 'orders', 'purchases', 'production', 'finance', 'trial']) {
     await page.goto(`http://localhost/${screen}.html`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${screen}: mobile page overflow`);
     await page.screenshot({ path: path.join(folder, `${screen}-mobile.png`), fullPage: true });
   }
   assert.deepEqual(errors, [], 'No JavaScript errors');
   await browser.close();
-  console.log('11 desktop screens, 9 mobile screens, role permissions and operational form controls passed.');
+  console.log('12 desktop screens, 10 mobile screens, role permissions and operational form controls passed.');
 })().catch(error => { console.error(error); process.exit(1); });

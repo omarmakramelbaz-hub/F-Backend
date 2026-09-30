@@ -1,0 +1,13 @@
+{
+  "name": "Fasakhansta ERP trial",
+  "build": { "dockerfile": "Dockerfile" },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "تجربة فسخانستا ERP", "onAutoForward": "openBrowser", "protocol": "http" }
+  },
+  "postCreateCommand": "bash tests/erp_runtime/demo/install.sh",
+  "postStartCommand": "bash tests/erp_runtime/demo/start.sh",
+  "waitFor": "postCreateCommand",
+  "remoteUser": "root",
+  "customizations": { "codespaces": { "openFiles": ["docs/ERP_TRIAL.md"] } }
+}

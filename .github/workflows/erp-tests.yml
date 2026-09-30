@@ -15,11 +15,24 @@ on:
       - 'public/erp/**'
       - 'database/migrations/*erp_*.php'
       - 'tests/erp_runtime/**'
+      - '.devcontainer/**'
       - '.github/workflows/erp-tests.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  trial:
+    name: Codespaces trial runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact trial container
+        run: docker build -t erp-trial .devcontainer
+      - name: Install and seed the isolated trial
+        run: docker run --rm -v "$PWD:/work" -w /work erp-trial bash tests/erp_runtime/demo/install.sh
+      - name: Exercise trial HTTP sessions and mutations
+        run: docker run --rm -v "$PWD:/work" -w /work erp-trial python3 tests/erp_runtime/demo/smoke.py
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -61,6 +74,7 @@ jobs:
       - name: Verify desktop and mobile screens
         if: matrix.db == 'sqlite'
         run: |
+          python3 tests/erp_runtime/demo/smoke.py
           npm install --prefix "$RUNNER_TEMP/erp-browser" playwright@1.52.0 --no-audit --no-fund
           node tests/erp_runtime/browser.cjs
         env:
