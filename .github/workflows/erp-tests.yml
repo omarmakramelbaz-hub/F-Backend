@@ -16,6 +16,7 @@ on:
       - 'database/migrations/*erp_*.php'
       - 'tests/erp_runtime/**'
       - '.devcontainer/**'
+      - 'deployment/erp_backup.php'
       - '.github/workflows/erp-tests.yml'
   workflow_dispatch:
 permissions:
@@ -62,6 +63,10 @@ jobs:
           php -l routes/erp.php
           php -l app/Providers/RouteServiceProvider.php
           find database/migrations -name '*erp_*.php' -print0 | xargs -0 -n1 php -l
+          php -l deployment/erp_backup.php
+      - name: Install database backup client for isolated verification
+        if: matrix.db == 'mysql'
+        run: sudo apt-get update -qq && sudo apt-get install -y mysql-client
       - name: Install isolated test dependencies
         run: composer install --working-dir=tests/erp_runtime --no-interaction --prefer-dist --no-progress
       - name: Run integration and authorization tests
