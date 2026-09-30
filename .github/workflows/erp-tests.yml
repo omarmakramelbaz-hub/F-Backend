@@ -57,3 +57,20 @@ jobs:
         env:
           ERP_TEST_MYSQL: ${{ matrix.db == 'mysql' && '1' || '0' }}
           ERP_TEST_MYSQL_PASSWORD: test-only
+          ERP_RENDER_DIR: ${{ runner.temp }}/erp-render
+      - name: Verify desktop and mobile screens
+        if: matrix.db == 'sqlite'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/erp-browser" playwright@1.52.0 --no-audit --no-fund
+          node tests/erp_runtime/browser.cjs
+        env:
+          ERP_RENDER_DIR: ${{ runner.temp }}/erp-render
+          ERP_PLAYWRIGHT_MODULE: ${{ runner.temp }}/erp-browser/node_modules/playwright
+          ERP_CHROME: /usr/bin/google-chrome
+      - name: Preserve UI review screenshots
+        if: always() && matrix.db == 'sqlite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-ui-review
+          path: ${{ runner.temp }}/erp-render/*.png
+          if-no-files-found: ignore
