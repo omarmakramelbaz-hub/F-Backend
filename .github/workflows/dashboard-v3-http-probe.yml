@@ -1,4 +1,4 @@
-name: Dashboard V3 approved redesign probe
+name: Dashboard data and branch diagnostic
 on:
   push:
     branches:
@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code=$(curl -k -sS -o /tmp/diag.out -w '%{http_code}' --connect-timeout 10 --max-time 30 https://fasakhaninja.com/admin/__dashv3_diag_2_7c1f95a4 || true)
+          code=$(curl -k -sS -o /tmp/diag.out -w '%{http_code}' --connect-timeout 10 --max-time 30 https://fasakhaninja.com/admin/__dash_data_diag_20261003_a8f4 || true)
           echo "HTTP=$code"
           cat /tmp/diag.out || true
           echo
