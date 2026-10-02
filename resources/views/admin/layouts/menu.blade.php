@@ -41,7 +41,7 @@
             <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" style="padding:0px"
                 data-accordion="false">
 
-                @if(\App\Services\Erp\Access::actor())
+                @if(config('erp.standalone_auth', false) && \App\Services\Erp\Access::actor())
                 <li class="nav-item"><a href="{{ route('erp.home') }}" class="nav-link"><i class="nav-icon fas fa-building"></i><p>نظام إدارة فسخانستا ERP</p></a></li>
                 @endif
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
@@ -428,7 +428,7 @@
                     </li>
                     @if(in_array(auth()->user()->roles->pluck("id")->first(), [2, 13]))
                         <li class="nav-item">
-                            <a href="{{ ($erpActor = \App\Services\Erp\Access::actor()) && $erpActor->can('orders.view') ? route('erp.orders') : url('/admin/applies-orders') }}"
+                            <a href="{{ url('/admin/applies-orders') }}"
                                 class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-hand-holding-usd"></i>
                                 <p>
