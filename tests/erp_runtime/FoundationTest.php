@@ -124,6 +124,56 @@ class FoundationTest extends ErpTestCase
         $this->assertFileExists($root.'/public/erp-assets/admin-app-orders.js');
     }
 
+    public function test_dashboard_branch_registry_links_fasakhansta_restaurants_and_orders(): void
+    {
+        Schema::table('users', function (Blueprint $t) {
+            $t->unsignedBigInteger('added_by')->nullable();
+            $t->string('app_scope')->nullable();
+        });
+        Schema::table('resturants', function (Blueprint $t) {
+            $t->unsignedBigInteger('added_by')->nullable();
+        });
+
+        DB::table('users')->insert([
+            ['id'=>10,'name'=>'مدير فرع جديد','email'=>'branch10@example.test','account_type'=>'vendor','owner_resturant_id'=>10,'added_by'=>1,'app_scope'=>null],
+            ['id'=>11,'name'=>'شريك GO','email'=>'go11@example.test','account_type'=>'vendor','owner_resturant_id'=>11,'added_by'=>1,'app_scope'=>'go_partner'],
+        ]);
+
+        DB::table('resturants')->insert([
+            ['id'=>10,'name'=>'فسخانستا فرع جديد','user_id'=>10,'added_by'=>1],
+            ['id'=>11,'name'=>'متجر GO تجريبي','user_id'=>11,'added_by'=>1],
+            ['id'=>12,'name'=>'مطعم خارجي','user_id'=>null,'added_by'=>2],
+        ]);
+
+        DB::table('orders')->insert([
+            'resturant_id'=>10,'order_no'=>'FS-LINK-10','status'=>'pending',
+            'type'=>'current','payment_type'=>'cash','created_at'=>now(),
+        ]);
+
+        $created = app(\App\Services\Erp\BranchRegistry::class)->syncDashboardBranches();
+        $this->assertGreaterThanOrEqual(1, $created);
+
+        $branch = DB::table('erp_branches')->where('restaurant_id',10)->first();
+        $this->assertNotNull($branch);
+        $this->assertSame('فسخانستا فرع جديد',$branch->name);
+        $this->assertFalse(DB::table('erp_branches')->where('restaurant_id',11)->exists());
+        $this->assertFalse(DB::table('erp_branches')->where('restaurant_id',12)->exists());
+        $this->assertTrue(DB::table('erp_warehouses')->where('branch_id',$branch->id)->exists());
+
+        $dashboard = app(\App\Services\Erp\UnifiedOrders::class)->dashboard(
+            $this->actor('deputy_manager'),
+            (int) $branch->id,
+            now(config('erp.timezone'))->format('Y-m-d'),
+            ['app'=>'fasakhansta','kind'=>'branch']
+        );
+
+        $numbers = collect($dashboard['columns'])
+            ->flatMap(fn ($column) => collect($column['rows'])->pluck('number'))
+            ->all();
+
+        $this->assertContains('FS-LINK-10',$numbers);
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');
