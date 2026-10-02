@@ -48,6 +48,36 @@ class FoundationTest extends ErpTestCase
         $this->assertSame(0, DB::table('erp_stock_documents')->count());
     }
 
+    public function test_designated_legacy_admin_opens_app_orders_with_all_enrolled_erp_branches_only(): void
+    {
+        DB::table('users')->insert([
+            'id'=>3,
+            'name'=>'Omar Administrative Admin',
+            'email'=>'Omarmakramelbazz@gmail.com',
+            'account_type'=>'admin',
+        ]);
+
+        $admin=LegacyOwner::findOrFail(3);
+        $this->actingAs($admin,'admin');
+
+        $this->get('/erp/orders')
+            ->assertOk()
+            ->assertSee('طلبات التطبيق')
+            ->assertSee('مدينة نصر')
+            ->assertSee('المعادي')
+            ->assertSee('FS-100')
+            ->assertSee('FS-101');
+
+        $this->get('/erp/orders?branch=1')
+            ->assertOk()
+            ->assertSee('FS-100')
+            ->assertDontSee('FS-101')
+            ->assertDontSee('EXTERNAL-SECRET');
+
+        $this->get('/erp/inventory')->assertForbidden();
+        $this->get('/erp/accounts')->assertForbidden();
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');

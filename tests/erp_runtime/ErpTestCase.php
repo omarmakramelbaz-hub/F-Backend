@@ -24,7 +24,7 @@ abstract class ErpTestCase extends TestCase
         $root = dirname(__DIR__, 2);
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('t', 32)));
         $app['config']->set('app.timezone', 'UTC');
-        $app['config']->set('erp', ['enabled'=>true,'legacy_owner_id'=>1,'timezone'=>'Africa/Cairo']);
+        $app['config']->set('erp', ['enabled'=>true,'legacy_owner_id'=>1,'legacy_order_admin_emails'=>['omarmakramelbazz@gmail.com'],'timezone'=>'Africa/Cairo']);
         $app['config']->set('auth.defaults.guard', 'admin');
         $app['config']->set('auth.guards.admin', ['driver'=>'session','provider'=>'legacy']);
         $app['config']->set('auth.providers.legacy', ['driver'=>'eloquent','model'=>LegacyOwner::class]);
@@ -56,7 +56,7 @@ abstract class ErpTestCase extends TestCase
         // The MySQL runtime is deliberately fixed to an isolated CI-only database.
         $this->assertTrue(DB::connection()->getDriverName() === 'sqlite' || DB::connection()->getDatabaseName() === 'erp_test');
         Schema::dropAllTables();
-        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('account_type'); $t->string('password')->nullable(); $t->rememberToken(); $t->timestamps(); });
+        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('email')->nullable(); $t->string('account_type'); $t->string('password')->nullable(); $t->rememberToken(); $t->timestamps(); });
         Schema::create('resturants', function (Blueprint $t) { $t->id(); $t->string('name'); });
         Schema::create('orders', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('resturant_id'); $t->string('order_no'); $t->string('status'); $t->string('type'); $t->string('payment_type'); $t->timestamp('created_at'); });
         require_once dirname(__DIR__, 2).'/database/migrations/2026_09_30_180000_create_erp_foundation.php';
@@ -64,7 +64,7 @@ abstract class ErpTestCase extends TestCase
         require_once dirname(__DIR__,2).'/database/migrations/2026_09_30_193000_create_erp_operations.php';
         (new \CreateErpOperations)->up();
         (new \App\Services\Erp\Ledger)->initialize(new Actor('legacy:1','المالك','owner',null,Actor::CAPABILITIES),'0',true);
-        DB::table('users')->insert([['id'=>1,'name'=>'المالك','account_type'=>'admin'],['id'=>2,'name'=>'صاحب مطعم خارجي','account_type'=>'resturant_owner']]);
+        DB::table('users')->insert([['id'=>1,'name'=>'المالك','email'=>'owner@example.test','account_type'=>'admin'],['id'=>2,'name'=>'صاحب مطعم خارجي','email'=>'external@example.test','account_type'=>'resturant_owner']]);
         DB::table('resturants')->insert([['id'=>1,'name'=>'فرع مدينة نصر'],['id'=>2,'name'=>'فرع المعادي'],['id'=>999,'name'=>'مطعم خارج ERP']]);
         DB::table('erp_branches')->insert([['id'=>1,'restaurant_id'=>1,'name'=>'مدينة نصر','active'=>1],['id'=>2,'restaurant_id'=>2,'name'=>'المعادي','active'=>1]]);
         DB::table('erp_warehouses')->insert([['id'=>1,'name'=>'المخزن المركزي','branch_id'=>null],['id'=>2,'name'=>'مخزن مدينة نصر','branch_id'=>1],['id'=>3,'name'=>'مخزن المعادي','branch_id'=>2]]);
