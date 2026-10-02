@@ -47,7 +47,7 @@ const { chromium } = require(process.env.ERP_PLAYWRIGHT_MODULE || 'playwright');
   const legacyRole = page.locator('[data-role-picker]').nth(1);
   const legacyForm = legacyRole.locator('xpath=ancestor::form');
   assert.equal(await legacyRole.inputValue(), '');
-  assert(await legacyRole.locator('option[value=""]').isDisabled());
+  assert.equal(await legacyRole.locator('option[value=""]').evaluate(option => option.disabled), true);
   assert.equal(await legacyRole.evaluate(select => select.checkValidity()), false);
   await legacyRole.selectOption('branch_manager');
   const legacyBranch = legacyForm.locator('[name="branch_id"]');
