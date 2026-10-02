@@ -17,6 +17,7 @@ on:
       - 'tests/erp_runtime/**'
       - '.devcontainer/**'
       - 'deployment/erp_backup.php'
+      - 'deployment/erp_update_roles.sh'
       - '.github/workflows/erp-tests.yml'
   workflow_dispatch:
 permissions:
@@ -50,6 +51,11 @@ jobs:
         options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify guarded five-file rollout and rollback
+        if: matrix.db == 'sqlite'
+        run: python3 tests/erp_runtime/test_role_updater.py
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
