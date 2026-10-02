@@ -249,6 +249,46 @@ class OrderController extends Controller
         }
     }
 
+    public function appOrdersMenuStatus(Request $request, int $product)
+    {
+        $actor = \App\Services\Erp\Access::actor();
+        abort_unless($actor && $actor->can('orders.view'), 403);
+
+        $data = $request->validate([
+            'branch_id' => 'required|integer|min:1',
+            'status' => ['required', \Illuminate\Validation\Rule::in(['show','hide'])],
+        ]);
+
+        $branchId = (int) $data['branch_id'];
+        $actor->branch($branchId, true);
+
+        $erpBranch = \Illuminate\Support\Facades\DB::table('erp_branches')
+            ->where('id', $branchId)
+            ->where('active', true)
+            ->first();
+        abort_unless($erpBranch, 404, 'الفرع غير موجود.');
+
+        $item = \Illuminate\Support\Facades\DB::table('resturant_products')
+            ->where('id', $product)
+            ->where('resturant_id', $erpBranch->restaurant_id)
+            ->first();
+        abort_unless($item, 404, 'الصنف غير موجود في هذا الفرع.');
+
+        \Illuminate\Support\Facades\DB::table('resturant_products')
+            ->where('id', $product)
+            ->update(['status' => $data['status'], 'updated_at' => now()]);
+
+        $actor->audit('menu.availability', 'resturant_product', $product, [
+            'status' => $data['status'],
+            'restaurant_id' => (int) $erpBranch->restaurant_id,
+        ], $branchId);
+
+        return back()->with(
+            'success',
+            $data['status'] === 'show' ? 'تم إتاحة الصنف.' : 'تم إيقاف الصنف مؤقتًا.'
+        );
+    }
+
     public function changeStatus(Order $order, Request $request)
     {
         if (\App\Services\GoPayments\OrderPayments::record((int)$order->id)) {
