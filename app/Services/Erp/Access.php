@@ -26,6 +26,18 @@ class Access
         if ($owner && (int) $owner->id === (int) config('erp.legacy_owner_id') && in_array($owner->account_type, ['admin','super_admin'], true)) {
             return new Actor('legacy:'.$owner->id, $owner->name, 'owner', null, Actor::CAPABILITIES);
         }
+
+        // Keep the existing legacy administrative-admin login, but scope its ERP
+        // access to the application-orders workspace only. The Actor remains a
+        // central role so it can select any branch enrolled in erp_branches.
+        if ($owner && in_array($owner->account_type, ['admin','super_admin'], true)) {
+            $email = mb_strtolower(trim((string) ($owner->email ?? '')));
+            $allowed = config('erp.legacy_order_admin_emails', []);
+            if ($email !== '' && in_array($email, $allowed, true)) {
+                return new Actor('legacy-orders:'.$owner->id, $owner->name, 'deputy_manager', null, ['orders.view']);
+            }
+        }
+
         return null;
     }
 }
