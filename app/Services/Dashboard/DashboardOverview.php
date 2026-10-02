@@ -194,7 +194,8 @@ class DashboardOverview
             $base = DB::table('orders')
                 ->whereIn('resturant_id', $restaurantIds)
                 ->whereNotNull('status')
-                ->whereBetween('created_at', [$from, $until]);
+                ->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until);
 
             if (Schema::hasColumn('orders', 'type')) {
                 $base->where('type', 'current');
@@ -208,7 +209,8 @@ class DashboardOverview
 
         if ($actor->allBranches() && $branchId === null) {
             if (Schema::hasTable('go_store_orders')) {
-                $base = DB::table('go_store_orders')->whereBetween('created_at', [$from, $until]);
+                $base = DB::table('go_store_orders')->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until);
                 $attention = (clone $base)->whereIn('payment_status', ['review','refund_pending'])->count();
                 $counts['new'] += (clone $base)
                     ->whereIn('status', ['awaiting_payment','pending'])
@@ -225,7 +227,8 @@ class DashboardOverview
             }
 
             if (Schema::hasTable('go_service_jobs')) {
-                $base = DB::table('go_service_jobs')->whereBetween('created_at', [$from, $until]);
+                $base = DB::table('go_service_jobs')->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until);
                 $attention = (clone $base)->where(function ($q) {
                     $q->where('status', 'disputed')
                         ->orWhereIn('payment_status', ['review','refund_pending']);
@@ -243,7 +246,8 @@ class DashboardOverview
             }
 
             if (Schema::hasTable('partner_service_requests')) {
-                $base = DB::table('partner_service_requests')->whereBetween('created_at', [$from, $until]);
+                $base = DB::table('partner_service_requests')->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until);
                 $counts['new'] += (clone $base)->where('status', 'pending')->count();
                 $counts['preparing'] += (clone $base)->where('status', 'accepted')->count();
                 $counts['done'] += (clone $base)->whereIn('status', ['completed','declined'])->count();
@@ -265,7 +269,8 @@ class DashboardOverview
             $query = DB::table('orders')
                 ->whereIn('resturant_id', $restaurantIds)
                 ->where('status', 'completed')
-                ->whereBetween('created_at', [$from, $until]);
+                ->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until);
 
             if (Schema::hasColumn('orders', 'type')) {
                 $query->where('type', 'current');
@@ -277,14 +282,16 @@ class DashboardOverview
         if ($actor->allBranches() && $branchId === null && Schema::hasTable('go_store_orders')) {
             $sales += ((float) DB::table('go_store_orders')
                 ->where('status', 'completed')
-                ->whereBetween('created_at', [$from, $until])
+                ->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until)
                 ->sum('total_cents')) / 100;
         }
 
         if ($actor->allBranches() && $branchId === null && Schema::hasTable('go_service_jobs')) {
             $sales += ((float) DB::table('go_service_jobs')
                 ->where('status', 'completed')
-                ->whereBetween('created_at', [$from, $until])
+                ->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until)
                 ->sum('price_cents')) / 100;
         }
 
@@ -385,7 +392,8 @@ class DashboardOverview
         if (Schema::hasTable('erp_audit')) {
             [$from, $until] = $this->utcBounds($start, $end);
             $audit = DB::table('erp_audit')
-                ->whereBetween('created_at', [$from, $until])
+                ->where('created_at', '>=', $from)
+                ->where('created_at', '<', $until)
                 ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
                 ->orderByDesc('id')
                 ->limit(5)
