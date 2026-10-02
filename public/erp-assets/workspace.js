@@ -214,3 +214,15 @@ document.querySelectorAll('[data-supplier-picker]').forEach(picker => picker.add
     window.setInterval(() => refreshOrders(false), 12000);
   }
 })();
+
+
+// App orders menu search
+document.addEventListener('input', event => {
+  const input = event.target.closest('[data-menu-search]');
+  if (!input) return;
+  const term = input.value.trim().toLocaleLowerCase('ar');
+  document.querySelectorAll('[data-menu-item]').forEach(item => {
+    const name = (item.dataset.menuName || '').toLocaleLowerCase('ar');
+    item.hidden = term !== '' && !name.includes(term);
+  });
+});
