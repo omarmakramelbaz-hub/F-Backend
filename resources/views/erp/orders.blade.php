@@ -1,34 +1,39 @@
 @extends('erp.layout')
-@section('title','مركز الطلبات')
-@section('subtitle', $actor->allBranches() ? 'استقبال ومتابعة طلبات Fasakhansta وGO من شاشة تشغيل موحدة' : 'استقبال ومتابعة طلبات فرعك فقط')
+@section('page-mode','orders-console-page')
+@section('title','طلبات التطبيق')
+@section('subtitle','إدارة الطلبات الواردة من Fasakhansta وGO')
 @section('content')
 @php
-$stageLabels = [
-    'new' => 'الطلبات الجديدة',
-    'preparing' => 'قيد التنفيذ / التجهيز',
-    'delivery' => 'في الطريق',
-    'attention' => 'يحتاج تدخل',
-    'done' => 'منتهي',
-];
 $kindLabels = [
-    'branch' => 'فرع فسخانستا',
+    'branch' => 'فرع',
     'restaurant' => 'مطعم',
     'delivery' => 'مندوب',
     'store' => 'متجر',
-    'service' => 'صنايعي / خدمة',
+    'service' => 'صنايعي',
 ];
 $paymentStatuses = [
-    'ready' => 'جاهز للدفع',
-    'pending' => 'الدفع قيد التنفيذ',
-    'held' => 'محجوز بالمحفظة',
-    'paid' => 'مدفوع',
-    'cash_due' => 'كاش عند التنفيذ',
-    'cash_collected' => 'تم تحصيل الكاش',
-    'review' => 'مراجعة دفع',
-    'refund_pending' => 'استرداد معلق',
-    'refunded' => 'تم الاسترداد',
-    'cancelled' => 'الدفع ملغي',
-    'unpaid' => 'غير مدفوع',
+    'ready'=>'جاهز للدفع','pending'=>'قيد الدفع','held'=>'محجوز بالمحفظة','paid'=>'مدفوع',
+    'cash_due'=>'كاش','cash_collected'=>'تم تحصيل الكاش','review'=>'مراجعة دفع',
+    'refund_pending'=>'استرداد معلق','refunded'=>'تم الاسترداد','cancelled'=>'ملغي','unpaid'=>'غير مدفوع',
+];
+$boardColumns = [
+    'new' => [
+        'label'=>'الطلبات الجديدة','color'=>'purple','icon'=>'🛒',
+        'count'=>($columns['new']['count'] ?? 0) + ($columns['attention']['count'] ?? 0),
+        'rows'=>array_merge($columns['new']['rows'] ?? [], $columns['attention']['rows'] ?? []),
+    ],
+    'preparing' => [
+        'label'=>'قيد التجهيز','color'=>'orange','icon'=>'♨',
+        'count'=>$columns['preparing']['count'] ?? 0,'rows'=>$columns['preparing']['rows'] ?? [],
+    ],
+    'delivery' => [
+        'label'=>'مع المندوب','color'=>'blue','icon'=>'🛵',
+        'count'=>$columns['delivery']['count'] ?? 0,'rows'=>$columns['delivery']['rows'] ?? [],
+    ],
+    'done' => [
+        'label'=>'الطلبات المنتهية','color'=>'green','icon'=>'✓',
+        'count'=>$columns['done']['count'] ?? 0,'rows'=>$columns['done']['rows'] ?? [],
+    ],
 ];
 $ageLabel = function ($minutes) {
     $minutes = (int) $minutes;
@@ -39,278 +44,196 @@ $ageLabel = function ($minutes) {
 };
 @endphp
 
-<form class="card orders-filter no-print" method="get" action="{{ route('erp.orders') }}">
-    <div class="orders-filter-grid">
-        <div class="field">
-            <label for="orders-day">اليوم</label>
-            <input id="orders-day" type="date" name="day" value="{{ $day }}" required>
+<div class="orders-console">
+    <header class="orders-console-top no-print">
+        <div class="orders-notify"><span class="notify-bell">♢</span><strong>{{ $stats['new'] }}</strong><small>الإشعارات</small></div>
+
+        <div class="orders-kpis">
+            <div class="kpi green"><span>✓</span><div><b>{{ $boardColumns['done']['count'] }}</b><small>تم الاستلام اليوم</small></div></div>
+            <div class="kpi blue"><span>🛵</span><div><b>{{ $boardColumns['delivery']['count'] }}</b><small>مع المندوب</small></div></div>
+            <div class="kpi orange"><span>♨</span><div><b>{{ $boardColumns['preparing']['count'] }}</b><small>قيد التجهيز</small></div></div>
+            <div class="kpi purple"><span>🛒</span><div><b>{{ $boardColumns['new']['count'] }}</b><small>الطلبات الجديدة</small></div></div>
         </div>
 
-        @if($actor->allBranches())
-        <div class="field">
-            <label for="orders-branch">الفرع</label>
-            <select id="orders-branch" name="branch">
-                <option value="">كل الفروع والأنشطة</option>
-                @foreach($branches as $item)
-                    <option value="{{ $item->id }}" {{ (int)$branch === (int)$item->id ? 'selected' : '' }}>{{ $item->name }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div class="field">
-            <label for="orders-app">التطبيق</label>
-            <select id="orders-app" name="app">
-                <option value="">Fasakhansta + GO</option>
-                <option value="fasakhansta" {{ ($filters['app'] ?? '') === 'fasakhansta' ? 'selected' : '' }}>Fasakhansta</option>
-                <option value="go" {{ ($filters['app'] ?? '') === 'go' ? 'selected' : '' }}>GO</option>
-            </select>
-        </div>
-        <div class="field">
-            <label for="orders-kind">نوع الطلب</label>
-            <select id="orders-kind" name="kind">
-                <option value="">كل الأنواع</option>
-                @foreach($kindLabels as $key=>$label)
-                    <option value="{{ $key }}" {{ ($filters['kind'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
-        @else
-        <div class="field">
-            <label>نطاق الحساب</label>
-            <div class="scope-lock">🔒 {{ optional($branches->firstWhere('id',$branch))->name ?: 'الفرع المحدد' }} فقط</div>
-        </div>
-        @endif
-
-        <div class="field">
-            <label for="orders-stage">الحالة التشغيلية</label>
-            <select id="orders-stage" name="stage">
-                <option value="">كل الحالات</option>
-                @foreach($stageLabels as $key=>$label)
-                    <option value="{{ $key }}" {{ ($filters['stage'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div class="field">
-            <label for="orders-payment">طريقة الدفع</label>
-            <select id="orders-payment" name="payment">
-                <option value="">كل طرق الدفع</option>
-                @foreach(['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'كارت بنكي','mobile_wallet'=>'محفظة إلكترونية','apple_pay'=>'Apple Pay','google_pay'=>'Google Pay'] as $key=>$label)
-                    <option value="{{ $key }}" {{ ($filters['payment'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div class="field orders-search-field">
-            <label for="orders-q">بحث</label>
-            <input id="orders-q" type="search" name="q" maxlength="100" value="{{ $filters['q'] ?? '' }}" placeholder="رقم الطلب، العميل، الهاتف، المتجر...">
-        </div>
-        <div class="orders-filter-actions">
-            <button type="submit">تطبيق الفلاتر</button>
-            <a class="button secondary" href="{{ route('erp.orders', ['day'=>$day]) }}">مسح الفلاتر</a>
-            <button class="secondary" type="button" data-orders-refresh>تحديث الآن</button>
-        </div>
-    </div>
-</form>
-
-<section data-orders-live data-orders-version="{{ $version }}" data-live-new="{{ $stats['new'] }}">
-    <div class="orders-summary">
-        <article class="card stat">
-            <span class="stat-icon">▤</span>
-            <div class="stat-label">إجمالي الطلبات</div>
-            <div class="stat-value">{{ $stats['total'] }}</div>
-            <small>حسب الفلاتر الحالية</small>
-        </article>
-        <article class="card stat">
-            <span class="stat-icon">●</span>
-            <div class="stat-label">طلبات نشطة</div>
-            <div class="stat-value">{{ $stats['active'] }}</div>
-            <small>لم تنتهِ بعد</small>
-        </article>
-        <article class="card stat">
-            <span class="stat-icon">＋</span>
-            <div class="stat-label">طلبات جديدة</div>
-            <div class="stat-value">{{ $stats['new'] }}</div>
-            <small>تحتاج متابعة أولية</small>
-        </article>
-        @if($actor->allBranches())
-        <article class="card stat">
-            <span class="stat-icon">F</span>
-            <div class="stat-label">Fasakhansta</div>
-            <div class="stat-value">{{ $stats['fasakhansta'] }}</div>
-            <small>الفروع والمطاعم</small>
-        </article>
-        <article class="card stat">
-            <span class="stat-icon">GO</span>
-            <div class="stat-label">GO</div>
-            <div class="stat-value">{{ $stats['go'] }}</div>
-            <small>متاجر، مندوبون وخدمات</small>
-        </article>
-        @else
-        <article class="card stat">
-            <span class="stat-icon">🔒</span>
-            <div class="stat-label">نطاق الفرع</div>
-            <div class="stat-value">{{ $stats['fasakhansta'] }}</div>
-            <small>لا تظهر أي طلبات خارج الفرع</small>
-        </article>
-        @endif
-        @if($stats['attention'] > 0)
-        <article class="card stat attention-stat">
-            <span class="stat-icon">!</span>
-            <div class="stat-label">يحتاج تدخل</div>
-            <div class="stat-value">{{ $stats['attention'] }}</div>
-            <small>نزاع أو مراجعة دفع</small>
-        </article>
-        @endif
-    </div>
-
-    <div class="orders-live-strip">
-        <span class="live-dot" aria-hidden="true"></span>
-        <strong>متابعة لايف</strong>
-        <span>يتم جلب أي تغيير تلقائيًا بدون Refresh كامل للصفحة.</span>
-        <small data-orders-last-sync>آخر مزامنة: الآن</small>
-    </div>
-
-    <div class="board orders-board">
-        @foreach($columns as $stageKey=>$column)
-        <section class="board-column orders-column" data-stage="{{ $stageKey }}">
-            <div class="section-header">
-                <h2>{{ $stageLabels[$stageKey] }}</h2>
-                <span class="badge">{{ $column['count'] }}</span>
-            </div>
-
-            @forelse($column['rows'] as $order)
-            <article class="order-card order-card-clickable" data-order-card data-source="{{ $order['source_app'] }}">
-                <div class="order-card-head">
-                    <div>
-                        <strong class="order-number">{{ $order['number'] }}</strong>
-                        <div class="order-pills">
-                            <span class="source-pill {{ $order['source_app'] }}">{{ $order['source_app'] === 'go' ? 'GO' : 'Fasakhansta' }}</span>
-                            <span class="kind-pill">{{ $kindLabels[$order['kind']] ?? $order['kind'] }}</span>
-                        </div>
-                    </div>
-                    <div class="order-age">
-                        <strong>{{ $order['created_display'] }}</strong>
-                        <small>{{ $ageLabel($order['age_minutes']) }}</small>
-                    </div>
-                </div>
-
-                <div class="order-entity">
-                    <strong>{{ $order['entity_name'] ?: 'طلب' }}</strong>
-                    @if($order['branch_name'] && $order['branch_name'] !== $order['entity_name'])
-                        <small>{{ $order['branch_name'] }}</small>
-                    @endif
-                </div>
-
-                <div class="order-person">
-                    <span>👤</span>
-                    <div><strong>{{ $order['customer_name'] ?: 'عميل' }}</strong>@if($order['customer_mobile'])<small>{{ $order['customer_mobile'] }}</small>@endif</div>
-                </div>
-
-                @if($order['assignee_name'])
-                <div class="order-person">
-                    <span>{{ $order['assignee_type'] === 'مندوب' ? '🛵' : ($order['assignee_type'] === 'صنايعي' ? '🛠' : '🏪') }}</span>
-                    <div><strong>{{ $order['assignee_name'] }}</strong><small>{{ $order['assignee_type'] }}</small></div>
-                </div>
-                @elseif(in_array($order['kind'], ['delivery','service'], true) && $order['stage'] !== 'done')
-                <div class="order-person waiting">
-                    <span>⌛</span><div><strong>لم يتم التعيين بعد</strong><small>{{ $order['kind'] === 'delivery' ? 'بانتظار مندوب' : 'بانتظار صنايعي / عرض' }}</small></div>
-                </div>
-                @endif
-
-                @if($order['description'])
-                    <p class="order-description">{{ mb_strimwidth($order['description'], 0, 95, '…', 'UTF-8') }}</p>
-                @endif
-
-                <div class="order-status-row">
-                    <span class="badge {{ $order['stage'] === 'done' ? 'green' : ($order['stage'] === 'attention' ? 'red' : ($order['stage'] === 'new' ? 'orange' : 'blue')) }}">{{ $order['status_label'] }}</span>
-                    @if($order['amount_cents'] !== null)
-                        <strong class="order-amount">{{ number_format($order['amount_cents']/100, 2) }} ج.م</strong>
-                    @endif
-                </div>
-
-                <div class="order-card-foot">
-                    <span>{{ $order['payment_label'] }}</span>
-                    @if($order['payment_status'])
-                        <small>{{ $paymentStatuses[$order['payment_status']] ?? $order['payment_status'] }}</small>
-                    @endif
-                    <button type="button" class="secondary small" data-order-open>عرض التفاصيل</button>
-                </div>
-
-                <div data-order-detail-source hidden>
-                    <div class="drawer-order-heading">
-                        <div>
-                            <span class="source-pill {{ $order['source_app'] }}">{{ $order['source_app'] === 'go' ? 'GO' : 'Fasakhansta' }}</span>
-                            <span class="kind-pill">{{ $kindLabels[$order['kind']] ?? $order['kind'] }}</span>
-                        </div>
-                        <h2>{{ $order['number'] }}</h2>
-                        <p>{{ $order['entity_name'] }}</p>
-                    </div>
-
-                    <div class="drawer-grid">
-                        <div><small>الحالة</small><strong>{{ $order['status_label'] }}</strong></div>
-                        <div><small>وقت الطلب</small><strong>{{ $order['created_date'] }} · {{ $order['created_display'] }}</strong></div>
-                        <div><small>العميل</small><strong>{{ $order['customer_name'] ?: 'غير مسجل' }}</strong></div>
-                        <div><small>هاتف العميل</small><strong dir="ltr">{{ $order['customer_mobile'] ?: '—' }}</strong></div>
-                        <div><small>المسؤول الحالي</small><strong>{{ $order['assignee_name'] ?: 'لم يتم التعيين' }}</strong></div>
-                        <div><small>النوع</small><strong>{{ $order['assignee_type'] ?: ($kindLabels[$order['kind']] ?? '—') }}</strong></div>
-                        <div><small>طريقة الدفع</small><strong>{{ $order['payment_label'] }}</strong></div>
-                        <div><small>حالة الدفع</small><strong>{{ $order['payment_status'] ? ($paymentStatuses[$order['payment_status']] ?? $order['payment_status']) : '—' }}</strong></div>
-                        @if($order['amount_cents'] !== null)
-                        <div><small>إجمالي الطلب</small><strong>{{ number_format($order['amount_cents']/100, 2) }} ج.م</strong></div>
-                        @endif
-                        @if($order['location'] ?? null)
-                        <div class="drawer-span"><small>العنوان</small><strong>{{ $order['location'] }}</strong></div>
-                        @endif
-                    </div>
-
-                    @if($order['description'])
-                    <div class="drawer-section">
-                        <small>الوصف / الملاحظات</small>
-                        <p>{{ $order['description'] }}</p>
-                    </div>
-                    @endif
-
-                    @if(!empty($order['items']))
-                    <div class="drawer-section">
-                        <small>الأصناف</small>
-                        <div class="drawer-items">
-                            @foreach($order['items'] as $item)
-                            <div>
-                                <span>{{ $item['name'] }} @if($item['option_label'])<small>({{ $item['option_label'] }})</small>@endif</span>
-                                <strong>× {{ $item['quantity'] }}</strong>
-                            </div>
-                            @endforeach
-                        </div>
-                    </div>
-                    @endif
-
-                    <div class="drawer-contact-actions">
-                        @if($order['customer_mobile'])
-                            <a class="button secondary" href="tel:{{ $order['customer_mobile'] }}">اتصال بالعميل</a>
-                            <a class="button secondary" target="_blank" rel="noopener" href="https://wa.me/{{ preg_replace('/\D+/', '', $order['customer_mobile']) }}">واتساب</a>
-                        @endif
-                        @if($order['assignee_mobile'])
-                            <a class="button secondary" href="tel:{{ $order['assignee_mobile'] }}">اتصال بـ {{ $order['assignee_type'] ?: 'المسؤول' }}</a>
-                        @endif
-                    </div>
-                </div>
-            </article>
-            @empty
-                <div class="empty"><strong>لا توجد طلبات</strong><span>لا توجد طلبات في هذه المرحلة حسب الفلاتر الحالية.</span></div>
-            @endforelse
-
-            @if($column['count'] > 60)
-                <p class="note">يظهر أحدث 60 طلبًا من {{ $column['count'] }} في هذه المرحلة.</p>
+        <form class="branch-selector" method="get" action="{{ route('erp.orders') }}">
+            <input type="hidden" name="day" value="{{ $day }}">
+            @if(($filters['app'] ?? null))<input type="hidden" name="app" value="{{ $filters['app'] }}">@endif
+            <label>نطاق العرض</label>
+            @if($actor->allBranches())
+                <select name="branch" onchange="this.form.submit()">
+                    <option value="">جميع الفروع والأنشطة</option>
+                    @foreach($branches as $item)
+                        <option value="{{ $item->id }}" {{ (int)$branch === (int)$item->id ? 'selected' : '' }}>{{ $item->name }}</option>
+                    @endforeach
+                </select>
+            @else
+                <div class="locked-branch">● {{ optional($branches->firstWhere('id',$branch))->name ?: 'الفرع' }}</div>
             @endif
+        </form>
+    </header>
+
+    <details class="orders-compact-filter no-print">
+        <summary>فلترة وبحث</summary>
+        <form method="get" action="{{ route('erp.orders') }}">
+            <input type="date" name="day" value="{{ $day }}" required>
+            @if($actor->allBranches())
+                <select name="branch">
+                    <option value="">كل الفروع</option>
+                    @foreach($branches as $item)
+                        <option value="{{ $item->id }}" {{ (int)$branch === (int)$item->id ? 'selected' : '' }}>{{ $item->name }}</option>
+                    @endforeach
+                </select>
+                <select name="app">
+                    <option value="">Fasakhansta + GO</option>
+                    <option value="fasakhansta" {{ ($filters['app'] ?? '') === 'fasakhansta' ? 'selected' : '' }}>Fasakhansta</option>
+                    <option value="go" {{ ($filters['app'] ?? '') === 'go' ? 'selected' : '' }}>GO</option>
+                </select>
+                <select name="kind">
+                    <option value="">كل الأنواع</option>
+                    @foreach($kindLabels as $key=>$label)
+                        <option value="{{ $key }}" {{ ($filters['kind'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+            @endif
+            <select name="payment">
+                <option value="">كل طرق الدفع</option>
+                <option value="cash" {{ ($filters['payment'] ?? '') === 'cash' ? 'selected' : '' }}>كاش</option>
+                <option value="wallet" {{ ($filters['payment'] ?? '') === 'wallet' ? 'selected' : '' }}>محفظة التطبيق</option>
+                <option value="card" {{ ($filters['payment'] ?? '') === 'card' ? 'selected' : '' }}>كارت بنكي</option>
+                <option value="mobile_wallet" {{ ($filters['payment'] ?? '') === 'mobile_wallet' ? 'selected' : '' }}>محفظة إلكترونية</option>
+            </select>
+            <input type="search" name="q" maxlength="100" value="{{ $filters['q'] ?? '' }}" placeholder="رقم الطلب، العميل، الهاتف، المتجر...">
+            <button type="submit">تطبيق</button>
+            <a class="button secondary" href="{{ route('erp.orders', ['day'=>$day]) }}">مسح</a>
+        </form>
+    </details>
+
+    <div class="orders-workspace {{ $showMenu && $menuBranch ? 'with-menu' : 'without-menu' }}">
+        @if($showMenu && $menuBranch)
+        <aside class="menu-control-panel no-print">
+            <div class="menu-panel-head">
+                <div><strong>إدارة المينيو</strong><small>{{ $menuBranch->name }}</small></div>
+                <span>⚙</span>
+            </div>
+            <div class="menu-status-cards">
+                <div class="available"><b>{{ $menuCounts['available'] }}</b><small>متوفر</small></div>
+                <div class="unavailable"><b>{{ $menuCounts['unavailable'] }}</b><small>غير متوفر</small></div>
+            </div>
+            <div class="menu-search"><span>⌕</span><input type="search" placeholder="ابحث عن صنف" data-menu-search></div>
+            <div class="menu-items" data-menu-items>
+                @forelse($menuItems as $item)
+                <div class="menu-item" data-menu-item data-menu-name="{{ mb_strtolower($item->product_name) }}">
+                    <form method="post" action="{{ route('erp.orders.menu.status', $item->id) }}">
+                        @csrf
+                        <input type="hidden" name="branch_id" value="{{ $menuBranch->id }}">
+                        <input type="hidden" name="status" value="{{ $item->status === 'show' ? 'hide' : 'show' }}">
+                        <button class="menu-toggle {{ $item->status === 'show' ? 'on' : 'off' }}" type="submit" title="{{ $item->status === 'show' ? 'إيقاف الصنف' : 'إتاحة الصنف' }}"><span></span></button>
+                    </form>
+                    <div class="menu-item-text">
+                        <strong>{{ $item->product_name }}</strong>
+                        <small>{{ number_format((float)$item->product_price, 0) }} ج · {{ $item->status === 'show' ? 'متوفر' : 'غير متوفر' }}</small>
+                    </div>
+                    <div class="menu-item-icon">◉</div>
+                </div>
+                @empty
+                    <div class="empty">لا توجد أصناف مرتبطة بهذا الفرع.</div>
+                @endforelse
+            </div>
+            <a class="menu-manage-button" href="{{ url('admin/resturants/'.$menuBranch->restaurant_id) }}">إدارة الأصناف <span>▱</span></a>
+        </aside>
+        @endif
+
+        <section class="orders-board-area" data-orders-live data-orders-version="{{ $version }}" data-live-new="{{ $stats['new'] }}">
+            <div class="live-mini"><span class="live-dot"></span><small>متابعة لايف</small><span data-orders-last-sync>آخر تحديث الآن</span></div>
+
+            <div class="reference-board">
+                @foreach($boardColumns as $stageKey=>$column)
+                <section class="reference-column {{ $column['color'] }}" data-stage="{{ $stageKey }}">
+                    <header>
+                        <div><span class="column-icon">{{ $column['icon'] }}</span><strong>{{ $column['label'] }}</strong></div>
+                        <b>{{ $column['count'] }}</b>
+                    </header>
+
+                    <div class="reference-column-body">
+                        @forelse($column['rows'] as $order)
+                        <article class="reference-order-card" data-order-card data-source="{{ $order['source_app'] }}">
+                            <div class="ref-card-top">
+                                <strong>#{{ ltrim($order['number'], '#') }}</strong>
+                                <span class="source-mini {{ $order['source_app'] }}">{{ $order['source_app'] === 'go' ? 'GO' : 'Fasakhansta' }}</span>
+                                <small>{{ $ageLabel($order['age_minutes']) }}</small>
+                            </div>
+
+                            <div class="ref-customer">
+                                <strong>{{ $order['customer_name'] ?: 'عميل' }}</strong>
+                                @if($order['customer_mobile'])<span dir="ltr">☎ {{ $order['customer_mobile'] }}</span>@endif
+                                <span>⌖ {{ $order['entity_name'] ?: ($order['branch_name'] ?: 'طلب تطبيق') }}</span>
+                                <span>▣ الدفع: {{ $order['payment_label'] }}</span>
+                            </div>
+
+                            @if(!empty($order['items']))
+                            <div class="ref-items">
+                                <small>الأصناف المطلوبة</small>
+                                @foreach(array_slice($order['items'],0,4) as $item)
+                                <div><span>{{ $item['name'] }}</span><b>× {{ $item['quantity'] }}</b></div>
+                                @endforeach
+                            </div>
+                            @elseif($order['description'])
+                            <div class="ref-items"><small>تفاصيل الطلب</small><p>{{ mb_strimwidth($order['description'],0,110,'…','UTF-8') }}</p></div>
+                            @endif
+
+                            @if($order['assignee_name'])
+                            <div class="ref-assignee"><span>{{ $order['assignee_type'] === 'مندوب' ? '🛵' : '🛠' }}</span><div><small>{{ $order['assignee_type'] }}</small><strong>{{ $order['assignee_name'] }}</strong></div></div>
+                            @endif
+
+                            <div class="ref-total">
+                                <span class="badge {{ $order['stage'] === 'attention' ? 'red' : ($stageKey === 'done' ? 'green' : 'blue') }}">{{ $order['status_label'] }}</span>
+                                @if($order['amount_cents'] !== null)<strong>{{ number_format($order['amount_cents']/100,2) }} <small>جنيه</small></strong>@endif
+                            </div>
+
+                            <div class="ref-actions">
+                                @if($order['customer_mobile'])
+                                    <a class="ref-action" href="tel:{{ $order['customer_mobile'] }}">☎ اتصال</a>
+                                @endif
+                                <button class="ref-action primary" type="button" data-order-open>عرض التفاصيل</button>
+                            </div>
+
+                            <div data-order-detail-source hidden>
+                                <div class="drawer-order-heading">
+                                    <div><span class="source-pill {{ $order['source_app'] }}">{{ $order['source_app'] === 'go' ? 'GO' : 'Fasakhansta' }}</span><span class="kind-pill">{{ $kindLabels[$order['kind']] ?? $order['kind'] }}</span></div>
+                                    <h2>{{ $order['number'] }}</h2><p>{{ $order['entity_name'] }}</p>
+                                </div>
+                                <div class="drawer-grid">
+                                    <div><small>الحالة</small><strong>{{ $order['status_label'] }}</strong></div>
+                                    <div><small>وقت الطلب</small><strong>{{ $order['created_date'] }} · {{ $order['created_display'] }}</strong></div>
+                                    <div><small>العميل</small><strong>{{ $order['customer_name'] ?: 'غير مسجل' }}</strong></div>
+                                    <div><small>هاتف العميل</small><strong dir="ltr">{{ $order['customer_mobile'] ?: '—' }}</strong></div>
+                                    <div><small>المسؤول الحالي</small><strong>{{ $order['assignee_name'] ?: 'لم يتم التعيين' }}</strong></div>
+                                    <div><small>طريقة الدفع</small><strong>{{ $order['payment_label'] }}</strong></div>
+                                    @if($order['payment_status'])<div><small>حالة الدفع</small><strong>{{ $paymentStatuses[$order['payment_status']] ?? $order['payment_status'] }}</strong></div>@endif
+                                    @if($order['amount_cents'] !== null)<div><small>الإجمالي</small><strong>{{ number_format($order['amount_cents']/100,2) }} ج.م</strong></div>@endif
+                                    @if($order['location'] ?? null)<div class="drawer-span"><small>العنوان</small><strong>{{ $order['location'] }}</strong></div>@endif
+                                </div>
+                                @if($order['description'])<div class="drawer-section"><small>الوصف / الملاحظات</small><p>{{ $order['description'] }}</p></div>@endif
+                                @if(!empty($order['items']))<div class="drawer-section"><small>الأصناف</small><div class="drawer-items">@foreach($order['items'] as $item)<div><span>{{ $item['name'] }}</span><strong>× {{ $item['quantity'] }}</strong></div>@endforeach</div></div>@endif
+                                <div class="drawer-contact-actions">
+                                    @if($order['customer_mobile'])<a class="button secondary" href="tel:{{ $order['customer_mobile'] }}">اتصال بالعميل</a><a class="button secondary" target="_blank" rel="noopener" href="https://wa.me/{{ preg_replace('/\D+/', '', $order['customer_mobile']) }}">واتساب</a>@endif
+                                </div>
+                            </div>
+                        </article>
+                        @empty
+                            <div class="empty"><strong>لا توجد طلبات</strong><span>لا توجد طلبات في هذه المرحلة.</span></div>
+                        @endforelse
+                    </div>
+                </section>
+                @endforeach
+            </div>
         </section>
-        @endforeach
     </div>
-</section>
+</div>
 
 <div class="orders-drawer-backdrop" data-orders-drawer hidden>
     <aside class="orders-drawer" role="dialog" aria-modal="true" aria-label="تفاصيل الطلب">
-        <div class="orders-drawer-top">
-            <strong>تفاصيل الطلب</strong>
-            <button class="secondary small" type="button" data-order-close>إغلاق ×</button>
-        </div>
+        <div class="orders-drawer-top"><strong>تفاصيل الطلب</strong><button class="secondary small" type="button" data-order-close>إغلاق ×</button></div>
         <div class="orders-drawer-content" data-orders-drawer-content></div>
     </aside>
 </div>
