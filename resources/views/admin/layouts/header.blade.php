@@ -2,6 +2,7 @@
 <html lang="en" @if(App::getLocale() == 'ar') dir="rtl" @elseif (App::getLocale() == 'en') dir="ltr" @endif>
 
 <head>
+    @php($fasV3Actor = \App\Services\Erp\Access::actor())
     	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>{{ app(App\Models\GeneralSettings::class)->site_name }}</title>
@@ -59,6 +60,9 @@
      <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/select2.min.css"> 
        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
+        @if($fasV3Actor)
+        <link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-001">
+        @endif
         
     <style>
     .cke_notification_warning{
@@ -184,5 +188,5 @@ firebase.initializeApp(firebaseConfig);
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
 </head>
 
-<body class="hold-transition sidebar-mini layout-fixed">
+<body class="hold-transition sidebar-mini layout-fixed {{ $fasV3Actor ? 'fas-v3-shell' : '' }}">
     <div class="wrapper">
