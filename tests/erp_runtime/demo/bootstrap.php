@@ -21,7 +21,7 @@ class ErpTrialApplication extends \Orchestra\Testbench\Foundation\Application
         $app['config']->set([
             'app.env'=>'erp-trial', 'app.debug'=>false, 'app.timezone'=>'UTC', 'app.url'=>$url,
             'app.key'=>trim(file_get_contents($state.'/app.key')),
-            'erp'=>['enabled'=>true, 'legacy_owner_id'=>1, 'timezone'=>'Africa/Cairo'],
+            'erp'=>['enabled'=>true, 'standalone_auth'=>true, 'legacy_owner_id'=>1, 'administrative_admin_emails'=>[], 'legacy_order_admin_emails'=>[], 'timezone'=>'Africa/Cairo'],
             'auth.defaults.guard'=>'admin',
             'auth.guards'=>[
                 'admin'=>['driver'=>'session','provider'=>'legacy'],
