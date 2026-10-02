@@ -190,6 +190,31 @@ class FoundationTest extends ErpTestCase
         $this->assertCount(7, $overview['chart']['labels']);
         $this->assertCount(7, $overview['chart']['sales']);
         $this->assertCount(7, $overview['chart']['orders']);
+        $this->assertCount(3, $overview['quick_reports']);
+        $this->assertArrayHasKey('events', $overview);
+        $this->assertSame('day', $overview['period']['key']);
+
+        $week = app(\App\Services\Dashboard\DashboardOverview::class)->build(
+            $this->actor('deputy_manager'),
+            null,
+            now(config('erp.timezone'))->format('Y-m-d'),
+            'week'
+        );
+        $this->assertSame('week', $week['period']['key']);
+        $this->assertCount(7, $week['chart']['labels']);
+
+        $custom = app(\App\Services\Dashboard\DashboardOverview::class)->build(
+            $this->actor('deputy_manager'),
+            null,
+            '2026-09-30',
+            'custom',
+            '2026-09-28',
+            '2026-09-30'
+        );
+        $this->assertSame('custom', $custom['period']['key']);
+        $this->assertSame('2026-09-28', $custom['period']['from']);
+        $this->assertSame('2026-09-30', $custom['period']['to']);
+        $this->assertCount(3, $custom['chart']['labels']);
 
         $root = dirname(__DIR__, 2);
         $home = file_get_contents($root.'/resources/views/admin/home_v3.blade.php');
@@ -205,6 +230,10 @@ class FoundationTest extends ErpTestCase
         }
         $this->assertStringContainsString('نوع الحساب الحالي', $home);
         $this->assertStringContainsString('جميع الفروع', $home);
+        $this->assertStringContainsString('فترة التقرير', $home);
+        $this->assertStringContainsString('تحديد تواريخ', $home);
+        $this->assertStringContainsString('الأحداث والنشاطات', $home);
+        $this->assertStringContainsString('التقارير السريعة', $home);
 
         $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
         $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
@@ -220,7 +249,9 @@ class FoundationTest extends ErpTestCase
         $css = file_get_contents($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertStringContainsString('height:calc(100vh - 60px)!important', $css);
         $this->assertStringContainsString('overflow-y:auto!important', $css);
-        $this->assertStringContainsString('grid-template-rows:54px 50px 84px minmax(0,1fr) 182px', $css);
+        $this->assertStringContainsString('grid-template-rows:44px auto 82px minmax(0,1fr) 176px', $css);
+        $this->assertStringContainsString('grid-template-areas:"sales live events"', $css);
+        $this->assertStringContainsString('.custom-period-form.open', $css);
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
     }
