@@ -308,6 +308,7 @@ class WorkspaceController extends Controller
 
     public function accounts(Request $r)
     {
+        abort_unless(config('erp.standalone_auth', false), 404);
         $actor = $this->actor($r); $actor->require('access.manage');
         $accounts = DB::table('erp_users')->select('id','name','email','role','branch_id','permissions','active')->orderBy('name')->get();
         $branches = $this->branchesFor($actor);
@@ -316,6 +317,7 @@ class WorkspaceController extends Controller
 
     public function saveAccount(Request $r)
     {
+        abort_unless(config('erp.standalone_auth', false), 404);
         $actor = $this->actor($r); $actor->require('access.manage');
         $r->merge(['email' => mb_strtolower(trim((string) $r->email))]);
         $data = $r->validate(['id' => 'nullable|integer|min:1|exists:erp_users,id', 'name' => 'required|string|max:120', 'email' => ['required','email','max:190',Rule::unique('erp_users','email')->ignore($r->input('id'))], 'role' => ['required',Rule::in(Actor::ROLES)], 'branch_id' => 'nullable|integer|min:1', 'permissions' => 'nullable|array', 'permissions.*' => ['string',Rule::in(array_diff(Actor::CAPABILITIES, ['access.manage']))], 'active' => 'required|boolean', 'password' => ($r->filled('id') ? 'nullable' : 'required').'|string|min:12|max:200|confirmed']);
