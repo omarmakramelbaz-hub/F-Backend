@@ -78,6 +78,25 @@ class FoundationTest extends ErpTestCase
         $this->get('/erp/accounts')->assertForbidden();
     }
 
+    public function test_designated_admin_reuses_existing_admin_session_without_second_erp_login(): void
+    {
+        config(['erp.legacy_order_admin_emails'=>['orders-admin@example.test']]);
+        DB::table('users')->insert([
+            'id'=>3,
+            'name'=>'Orders Admin',
+            'email'=>'orders-admin@example.test',
+            'account_type'=>'vendor',
+        ]);
+
+        $admin=LegacyOwner::findOrFail(3);
+        $this->actingAs($admin,'admin');
+
+        $this->get('/erp/orders')->assertOk()->assertSee('طلبات التطبيق');
+        $this->get('/erp/login')->assertRedirect('/erp');
+        $this->get('/erp/inventory')->assertForbidden();
+        $this->get('/erp/accounts')->assertForbidden();
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');
