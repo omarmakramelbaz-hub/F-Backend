@@ -31,14 +31,14 @@ jobs:
           set -euo pipefail
           ssh -T -i ~/.ssh/id_ed25519             -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20             root@187.127.92.124 'bash -se' <<'REMOTE'
           set -euo pipefail
-          cd /home/fasakha/public_html
+          cd /home/fasakhaninja/public_html
           echo "HEAD=$(git rev-parse HEAD)"
           echo "__LAST_ERRORS__"
           tail -n 260 storage/logs/laravel.log 2>/dev/null | grep -E 'production.ERROR|local.ERROR|ErrorException|ParseError|TypeError|QueryException|ViewException|dashboard|home_v3|DashboardOverview|BranchRegistry' | tail -n 100 || true
 
           echo "__RENDER_PROBE__"
           runuser -u fasakha -- php -r '
-          chdir("/home/fasakha/public_html");
+          chdir("/home/fasakhaninja/public_html");
           require "vendor/autoload.php";
           $app=require "bootstrap/app.php";
           $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
