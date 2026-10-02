@@ -48,6 +48,7 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
 Route::get('__dash_data_diag_20261003_a8f4', function () {
+    try {
     $now = now(config('erp.timezone'));
     $startDay = $now->copy()->startOfDay()->setTimezone(config('app.timezone','UTC'));
     $startWeek = $now->copy()->subDays(6)->startOfDay()->setTimezone(config('app.timezone','UTC'));
@@ -130,6 +131,15 @@ Route::get('__dash_data_diag_20261003_a8f4', function () {
         'restaurant_status_counts'=>$restaurantStats,
         'branches'=>$branches,
     ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok'=>false,
+            'class'=>get_class($e),
+            'message'=>$e->getMessage(),
+            'file'=>basename($e->getFile()),
+            'line'=>$e->getLine(),
+        ], 500);
+    }
 });
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
 Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
