@@ -136,12 +136,9 @@ class OrderController extends Controller
     
     public function applies()
     {
-        $admin = auth('admin')->user();
-        if ($admin) {
-            $email = mb_strtolower(trim((string) ($admin->email ?? '')));
-            if ($email !== '' && in_array($email, config('erp.administrative_admin_emails', []), true)) {
-                return redirect()->route('erp.orders');
-            }
+        $erpActor = \App\Services\Erp\Access::actor();
+        if ($erpActor && $erpActor->can('orders.view')) {
+            return redirect()->route('erp.orders');
         }
 
         $orders = Order::query()->with('carts');
