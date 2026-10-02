@@ -1,4 +1,5 @@
-name: Dashboard data and branch diagnostic
+name: Verify Fasakhansta customer branch visibility
+
 on:
   push:
     branches:
@@ -14,11 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe temporary diagnostic route
+      - name: Check restaurant API around Mansoura
         shell: bash
         run: |
           set -euo pipefail
-          code=$(curl -k -sS -o /tmp/diag.out -w '%{http_code}' --connect-timeout 10 --max-time 30 https://fasakhaninja.com/admin/__dash_data_diag_20261003_a8f4 || true)
-          echo "HTTP=$code"
-          cat /tmp/diag.out || true
-          echo
+          curl -k -sS --connect-timeout 10 --max-time 30             -H 'Accept: application/json' -H 'Lang: ar'             'https://fasakhaninja.com/api/resturants?lat=31.0409&lng=31.3785'             -o /tmp/restaurants.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/restaurants.json',encoding='utf-8'))
+          rows=d.get('data') or []
+          selected=[{'id':r.get('id'),'name':r.get('name'),'status':r.get('status')} for r in rows if r.get('id') in (361,362,363) or 'المنصورة' in str(r.get('name',''))]
+          print(json.dumps({'count':len(rows),'mansoura':selected},ensure_ascii=False))
+          if not selected:
+              raise SystemExit('NO_MANSOURA_BRANCHES')
+          PY
