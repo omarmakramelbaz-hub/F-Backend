@@ -111,6 +111,7 @@ class UnifiedOrders
         $hasUserId = Schema::hasColumn('orders', 'user_id');
         $hasDelegateId = Schema::hasColumn('orders', 'delegate_id');
         $hasOrderUpdatedAt = Schema::hasColumn('orders', 'updated_at');
+        $hasOrderTotal = Schema::hasColumn('orders', 'total_price');
         $hasRestaurantOwner = Schema::hasColumn('resturants', 'user_id');
         $hasMobile = Schema::hasColumn('users', 'mobile');
         $hasAppScope = Schema::hasColumn('users', 'app_scope');
@@ -138,6 +139,7 @@ class UnifiedOrders
         $select = [
             'o.id', 'o.order_no', 'o.resturant_id', 'o.type', 'o.status',
             'o.payment_type', 'o.created_at', 'r.name as restaurant_name',
+            $hasOrderTotal ? 'o.total_price' : DB::raw('NULL as total_price'),
             $hasUserId ? 'o.user_id' : DB::raw('NULL as user_id'),
             $hasDelegateId ? 'o.delegate_id' : DB::raw('NULL as delegate_id'),
             $hasOrderUpdatedAt ? 'o.updated_at' : DB::raw('NULL as updated_at'),
@@ -179,7 +181,7 @@ class UnifiedOrders
                     'status_label' => $this->legacyStatus((string) $order->status),
                     'payment_method' => $this->paymentKey($order->payment_type),
                     'payment_status' => null,
-                    'amount_cents' => null,
+                    'amount_cents' => $order->total_price !== null ? (int) round(((float) $order->total_price) * 100) : null,
                     'description' => $shipping ? 'طلب توصيل / مندوب عبر GO' : null,
                     'items' => [],
                     'created_at' => $order->created_at,
