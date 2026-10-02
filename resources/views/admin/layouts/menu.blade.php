@@ -438,7 +438,7 @@
                                 class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-hand-holding-usd"></i>
                                 <p>
-                                    @lang('main.orders applies')
+                                    {{ $fasV3Actor ? 'طلبات التطبيق' : trans('main.orders applies') }}
                                 </p>
                             </a>
                         </li>
