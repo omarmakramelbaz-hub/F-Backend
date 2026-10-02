@@ -35,6 +35,7 @@ Route::prefix('erp')->name('erp.')->group(function () {
         Route::post('employees/{employee}/adjustment', [WorkspaceController::class, 'adjustment'])->whereNumber('employee')->name('adjustment');
         Route::post('employees/{employee}/payroll', [WorkspaceController::class, 'closePayroll'])->whereNumber('employee')->name('payroll.close');
         Route::get('orders', [WorkspaceController::class, 'orders'])->name('orders');
+        Route::post('orders/menu/{product}/status', [WorkspaceController::class, 'menuProductStatus'])->whereNumber('product')->name('orders.menu.status');
         Route::get('accounts', [WorkspaceController::class, 'accounts'])->name('accounts');
         Route::post('accounts', [WorkspaceController::class, 'saveAccount'])->name('accounts.save');
         Route::get('audit', [WorkspaceController::class, 'audit'])->name('audit');
