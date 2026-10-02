@@ -1,4 +1,4 @@
-name: Dashboard V3 account probe verified
+name: Dashboard V3 approved redesign probe
 on:
   push:
     branches:
