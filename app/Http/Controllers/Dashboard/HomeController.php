@@ -92,10 +92,23 @@ class HomeController extends Controller
                 $branch = $actor->allBranches() ? null : $actor->branchId;
             }
 
-            $day = now(config('erp.timezone'))->format('Y-m-d');
-            $dashboard = $overview->build($actor, $branch, $day);
+            $request->validate([
+                'period' => 'nullable|in:day,week,month,custom',
+                'from' => 'nullable|date_format:Y-m-d',
+                'to' => 'nullable|date_format:Y-m-d',
+            ]);
 
-            return view('admin.home_v3', compact('actor','branches','branch','day','dashboard'));
+            $period = $request->query('period', 'day');
+            $today = now(config('erp.timezone'))->format('Y-m-d');
+            $to = $request->query('to', $today);
+            $from = $request->query('from');
+            $day = $to ?: $today;
+
+            $dashboard = $overview->build($actor, $branch, $day, $period, $from, $to);
+
+            return view('admin.home_v3', compact(
+                'actor','branches','branch','day','period','from','to','dashboard'
+            ));
         }
 
         if(auth()->user()->roles->pluck("id")->first() == 11){
