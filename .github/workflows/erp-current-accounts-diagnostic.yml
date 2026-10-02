@@ -1,0 +1,50 @@
+name: ERP current accounts diagnostic
+
+on:
+  push:
+    branches:
+      - codex/erp-admin-sso-fix-20261002
+    paths:
+      - '.github/workflows/erp-current-accounts-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Inspect current dashboard accounts and ERP branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -T -i ~/.ssh/id_ed25519             -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20             root@187.127.92.124 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/fasakha/public_html
+          runuser -u fasakha -- php artisan tinker --execute='
+          echo "__CURRENT_ACCOUNTS__".PHP_EOL;
+          foreach (\Illuminate\Support\Facades\DB::table("users")
+            ->whereIn("account_type",["admin","vendor","resturant_owner"])
+            ->select("id","name","email","mobile","account_type","owner_resturant_id")
+            ->orderBy("id")->get() as $u) {
+              $roles = \Illuminate\Support\Facades\DB::table("model_has_roles")->where("model_id",$u->id)->pluck("role_id")->implode(",");
+              echo json_encode(["id"=>$u->id,"name"=>$u->name,"email"=>$u->email,"mobile"=>$u->mobile,"account_type"=>$u->account_type,"owner_resturant_id"=>$u->owner_resturant_id,"roles"=>$roles],JSON_UNESCAPED_UNICODE).PHP_EOL;
+          }
+          echo "__ERP_BRANCHES__".PHP_EOL;
+          foreach (\Illuminate\Support\Facades\DB::table("erp_branches")->orderBy("id")->get() as $b) {
+              $r=\Illuminate\Support\Facades\DB::table("resturants")->where("id",$b->restaurant_id)->first(["id","name","user_id","added_by","parent_id","status"]);
+              echo json_encode(["erp"=>$b,"restaurant"=>$r],JSON_UNESCAPED_UNICODE).PHP_EOL;
+          }
+          '
+          REMOTE
