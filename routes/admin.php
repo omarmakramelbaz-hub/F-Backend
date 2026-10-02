@@ -47,6 +47,90 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
         })->middleware('IsAdmin');
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
+Route::get('__dash_data_diag_20261003_a8f4', function () {
+    $now = now(config('erp.timezone'));
+    $startDay = $now->copy()->startOfDay()->setTimezone(config('app.timezone','UTC'));
+    $startWeek = $now->copy()->subDays(6)->startOfDay()->setTimezone(config('app.timezone','UTC'));
+    $startMonth = $now->copy()->startOfMonth()->setTimezone(config('app.timezone','UTC'));
+    $until = $now->copy()->addDay()->startOfDay()->setTimezone(config('app.timezone','UTC'));
+
+    $statusCounts = \Illuminate\Support\Facades\DB::table('orders')
+        ->select('status', \Illuminate\Support\Facades\DB::raw('COUNT(*) total'))
+        ->groupBy('status')->orderByDesc('total')->get();
+
+    $typeCounts = \Illuminate\Support\Facades\DB::table('orders')
+        ->select('type', \Illuminate\Support\Facades\DB::raw('COUNT(*) total'))
+        ->groupBy('type')->orderByDesc('total')->get();
+
+    $erpRestaurantIds = \Illuminate\Support\Facades\Schema::hasTable('erp_branches')
+        ? \Illuminate\Support\Facades\DB::table('erp_branches')->where('active',true)->pluck('restaurant_id')
+        : collect();
+
+    $range = function ($start) use ($until, $erpRestaurantIds) {
+        $q = \Illuminate\Support\Facades\DB::table('orders')
+            ->where('created_at','>=',$start)
+            ->where('created_at','<',$until);
+        $mapped = clone $q;
+        if ($erpRestaurantIds->isNotEmpty()) {
+            $mapped->whereIn('resturant_id',$erpRestaurantIds);
+        }
+
+        return [
+            'all_orders'=>(clone $q)->count(),
+            'mapped_orders'=>$erpRestaurantIds->isEmpty() ? null : $mapped->count(),
+            'completed'=>(clone $q)->where('status','completed')->count(),
+            'sum_total_price'=>(float) ((clone $q)->sum('total_price')),
+        ];
+    };
+
+    $restaurantStats = \Illuminate\Support\Facades\DB::table('resturants')
+        ->select('status', \Illuminate\Support\Facades\DB::raw('COUNT(*) total'))
+        ->groupBy('status')->orderByDesc('total')->get();
+
+    $fasBranches = \Illuminate\Support\Facades\Schema::hasTable('erp_branches')
+        ? \Illuminate\Support\Facades\DB::table('erp_branches as b')
+            ->join('resturants as r','r.id','=','b.restaurant_id')
+            ->where('b.active',true)
+            ->select('b.id','b.restaurant_id','b.name','r.status','r.under_contract','r.lat','r.lng')
+            ->orderBy('b.id')->limit(80)->get()
+        : collect();
+
+    $areaCoverage = \Illuminate\Support\Facades\Schema::hasTable('resturant_areas')
+        ? \Illuminate\Support\Facades\DB::table('resturant_areas')
+            ->selectRaw('resturant_id, COUNT(*) total, SUM(CASE WHEN lat IS NOT NULL AND lng IS NOT NULL AND expected_delivery IS NOT NULL THEN 1 ELSE 0 END) usable')
+            ->groupBy('resturant_id')->get()->keyBy('resturant_id')
+        : collect();
+
+    $branches = $fasBranches->map(function ($b) use ($areaCoverage) {
+        $area = $areaCoverage->get($b->restaurant_id);
+        return [
+            'branch_id'=>$b->id,
+            'restaurant_id'=>$b->restaurant_id,
+            'name'=>$b->name,
+            'status'=>$b->status,
+            'under_contract'=>$b->under_contract,
+            'has_direct_location'=>!empty($b->lat) && !empty($b->lng),
+            'area_rows'=>(int)($area->total ?? 0),
+            'usable_area_rows'=>(int)($area->usable ?? 0),
+        ];
+    });
+
+    return response()->json([
+        'ok'=>true,
+        'now'=>$now->toIso8601String(),
+        'orders_total'=>\Illuminate\Support\Facades\DB::table('orders')->count(),
+        'orders_min'=>\Illuminate\Support\Facades\DB::table('orders')->min('created_at'),
+        'orders_max'=>\Illuminate\Support\Facades\DB::table('orders')->max('created_at'),
+        'status_counts'=>$statusCounts,
+        'type_counts'=>$typeCounts,
+        'day'=>$range($startDay),
+        'week'=>$range($startWeek),
+        'month'=>$range($startMonth),
+        'erp_active_branches'=>$erpRestaurantIds->count(),
+        'restaurant_status_counts'=>$restaurantStats,
+        'branches'=>$branches,
+    ]);
+});
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
 Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
 
