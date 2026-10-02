@@ -67,6 +67,9 @@ class AuthController extends Controller
     {
         if (config('erp.standalone_auth', false)) {
             Auth::guard('erp')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            return redirect()->route('erp.login');
         }
 
         Auth::guard('admin')->logout();
