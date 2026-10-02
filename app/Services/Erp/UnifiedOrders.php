@@ -108,12 +108,23 @@ class UnifiedOrders
 
     private function legacyOrders(Actor $actor, Collection $branches, Carbon $start, Carbon $end): array
     {
-        $query = DB::table('orders as o')
-            ->leftJoin('resturants as r', 'r.id', '=', 'o.resturant_id')
-            ->leftJoin('users as customer', 'customer.id', '=', 'o.user_id')
-            ->leftJoin('users as delegate', 'delegate.id', '=', 'o.delegate_id');
+        $hasUserId = Schema::hasColumn('orders', 'user_id');
+        $hasDelegateId = Schema::hasColumn('orders', 'delegate_id');
+        $hasOrderUpdatedAt = Schema::hasColumn('orders', 'updated_at');
+        $hasRestaurantOwner = Schema::hasColumn('resturants', 'user_id');
+        $hasMobile = Schema::hasColumn('users', 'mobile');
+        $hasAppScope = Schema::hasColumn('users', 'app_scope');
 
-        if (Schema::hasColumn('users', 'app_scope')) {
+        $query = DB::table('orders as o')
+            ->leftJoin('resturants as r', 'r.id', '=', 'o.resturant_id');
+
+        if ($hasUserId) {
+            $query->leftJoin('users as customer', 'customer.id', '=', 'o.user_id');
+        }
+        if ($hasDelegateId) {
+            $query->leftJoin('users as delegate', 'delegate.id', '=', 'o.delegate_id');
+        }
+        if ($hasRestaurantOwner && $hasAppScope) {
             $query->leftJoin('users as owner', 'owner.id', '=', 'r.user_id');
         }
 
@@ -125,15 +136,17 @@ class UnifiedOrders
         }
 
         $select = [
-            'o.id', 'o.order_no', 'o.resturant_id', 'o.user_id', 'o.delegate_id',
-            'o.type', 'o.status', 'o.payment_type', 'o.created_at', 'o.updated_at',
-            'r.name as restaurant_name',
-            'customer.name as customer_name', 'customer.mobile as customer_mobile',
-            'delegate.name as delegate_name', 'delegate.mobile as delegate_mobile',
+            'o.id', 'o.order_no', 'o.resturant_id', 'o.type', 'o.status',
+            'o.payment_type', 'o.created_at', 'r.name as restaurant_name',
+            $hasUserId ? 'o.user_id' : DB::raw('NULL as user_id'),
+            $hasDelegateId ? 'o.delegate_id' : DB::raw('NULL as delegate_id'),
+            $hasOrderUpdatedAt ? 'o.updated_at' : DB::raw('NULL as updated_at'),
+            $hasUserId ? 'customer.name as customer_name' : DB::raw('NULL as customer_name'),
+            ($hasUserId && $hasMobile) ? 'customer.mobile as customer_mobile' : DB::raw('NULL as customer_mobile'),
+            $hasDelegateId ? 'delegate.name as delegate_name' : DB::raw('NULL as delegate_name'),
+            ($hasDelegateId && $hasMobile) ? 'delegate.mobile as delegate_mobile' : DB::raw('NULL as delegate_mobile'),
+            ($hasRestaurantOwner && $hasAppScope) ? 'owner.app_scope as owner_scope' : DB::raw('NULL as owner_scope'),
         ];
-        $select[] = Schema::hasColumn('users', 'app_scope')
-            ? 'owner.app_scope as owner_scope'
-            : DB::raw('NULL as owner_scope');
 
         return $query
             ->whereNotNull('o.status')
