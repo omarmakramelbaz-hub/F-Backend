@@ -1,7 +1,7 @@
 @extends('admin.index')
 
 @push('custom-css')
-<link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-001">
+<link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-002">
 @endpush
 
 @section('content')

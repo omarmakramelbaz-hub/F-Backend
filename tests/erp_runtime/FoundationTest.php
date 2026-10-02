@@ -210,7 +210,15 @@ class FoundationTest extends ErpTestCase
         $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
         $this->assertStringContainsString('fas-modern-brand', $menu);
         $this->assertStringContainsString('طلبات التطبيق', $menu);
+        $this->assertStringContainsString("@lang('main.Roles')", $menu);
+        $this->assertStringContainsString("@lang('main.Admins')", $menu);
+        $this->assertStringContainsString('طلبات انضمام الشركاء', $menu);
         $this->assertStringContainsString('fas-topbar-search', $navbar);
+
+        $css = file_get_contents($root.'/public/dashboard-v3/dashboard-v3.css');
+        $this->assertStringContainsString('height:calc(100vh - 60px)!important', $css);
+        $this->assertStringContainsString('overflow-y:auto!important', $css);
+        $this->assertStringContainsString('grid-template-rows:54px 50px 84px minmax(0,1fr) 182px', $css);
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
     }

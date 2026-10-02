@@ -60,7 +60,7 @@
        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
         @if($fasV3Actor)
-        <link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-001">
+        <link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-002">
         @endif
         
     <style>
