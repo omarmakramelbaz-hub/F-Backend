@@ -139,7 +139,7 @@ class OrderController extends Controller
         $admin = auth('admin')->user();
         if ($admin) {
             $email = mb_strtolower(trim((string) ($admin->email ?? '')));
-            if ($email !== '' && in_array($email, config('erp.legacy_order_admin_emails', []), true)) {
+            if ($email !== '' && in_array($email, config('erp.administrative_admin_emails', []), true)) {
                 return redirect()->route('erp.orders');
             }
         }
