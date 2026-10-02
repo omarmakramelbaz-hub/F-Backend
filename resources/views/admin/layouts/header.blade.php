@@ -2,7 +2,6 @@
 <html lang="en" @if(App::getLocale() == 'ar') dir="rtl" @elseif (App::getLocale() == 'en') dir="ltr" @endif>
 
 <head>
-    @php($fasV3Actor = \App\Services\Erp\Access::actor())
     	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>{{ app(App\Models\GeneralSettings::class)->site_name }}</title>

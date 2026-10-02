@@ -207,6 +207,20 @@ class FoundationTest extends ErpTestCase
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
     }
 
+    public function test_dashboard_v3_actor_is_defined_in_parent_layout_before_includes(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $index = file_get_contents($root.'/resources/views/admin/index.blade.php');
+        $header = file_get_contents($root.'/resources/views/admin/layouts/header.blade.php');
+        $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
+        $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
+
+        $this->assertStringStartsWith('@php($fasV3Actor = \\App\\Services\\Erp\\Access::actor())', $index);
+        $this->assertStringNotContainsString('@php($fasV3Actor = \\App\\Services\\Erp\\Access::actor())', $header);
+        $this->assertStringContainsString('$fasV3Actor', $menu);
+        $this->assertStringContainsString('$fasV3Actor', $navbar);
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');
