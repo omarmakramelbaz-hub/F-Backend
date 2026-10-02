@@ -1,4 +1,4 @@
-name: Dashboard V3 HTTP probe
+name: Dashboard V3 HTTP probe verified
 
 on:
   push:
