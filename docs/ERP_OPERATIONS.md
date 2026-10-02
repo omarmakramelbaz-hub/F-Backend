@@ -46,7 +46,7 @@ The screen reports posted balances and a trial balance, **not comprehensive prof
 - `purchasing.manage`: suppliers, purchase history/debt; receipt additionally requires `inventory.manage`.
 - `production.manage`: view recipes and post batches in authorized warehouses; additionally requires `inventory.manage`. Recipe creation is central-role only; managers may execute recipes in their branch.
 - `finance.manage`: central treasury and ledger. Initialization remains owner-only, regardless of financial capability.
-- New deputy accounts default to all operational capabilities; new branch/inventory accounts include production capability. **Existing accounts retain their saved permissions**. The owner must explicitly enable the new capabilities where appropriate; role changes still reset the form to the chosen role's defaults.
+- New administrative admin accounts default to all operational capabilities; new branch manager accounts include production capability. **Existing accounts retain their saved permissions**. The owner must explicitly enable the new capabilities where appropriate; role changes still reset the form to the chosen role's defaults.
 - A branch manager cannot obtain purchasing, finance, payroll or branch administration through forged capability arrays. Financial/purchase audit events are filtered by capability.
 
 All financial/stock writers acquire one short-lived ledger-state row lock before other locks. This deliberately serializes these operations to keep initialization snapshots, debt/cash checks and multi-line transactions consistent. It trades peak throughput for correctness in this first operational release; row-lock concurrency tests cover stock duplication, competing withdrawals, supplier overpayment and cash overdraft on MySQL.
@@ -60,7 +60,7 @@ php artisan migrate --path=database/migrations/2026_09_30_180000_create_erp_foun
 php artisan migrate --path=database/migrations/2026_09_30_193000_create_erp_operations.php --force
 ```
 
-Enable the ERP feature and verify the owner ID as described in `ERP_FOUNDATION.md`. Clear application configuration/view caches with the normal deployment process. Enroll branches, create items and reconcile opening data. Initialize the ledger using the owner account, then grant the deputy the new operational permissions. Test one purchase, one production batch, one supplier payment and payroll payment in staging. No credentials, suppliers, branch registrations or production business records are seeded by this code.
+Enable the ERP feature and verify the owner ID as described in `ERP_FOUNDATION.md`. Clear application configuration/view caches with the normal deployment process. Enroll branches, create items and reconcile opening data. Initialize the ledger using the owner account, then grant the administrative admin the new operational permissions. Test one purchase, one production batch, one supplier payment and payroll payment in staging. No credentials, suppliers, branch registrations or production business records are seeded by this code.
 
 Both migrations preserve posted history; rollback refuses to drop operational tables containing business data. Disable ERP access through its feature flag when required and use a reviewed backup/recovery plan for posted history.
 

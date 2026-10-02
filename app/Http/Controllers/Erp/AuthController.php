@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Erp;
 
 use App\Http\Controllers\Controller;
 use App\Services\Erp\Access;
+use App\Services\Erp\Actor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -28,8 +29,8 @@ class AuthController extends Controller
             return back()->withErrors(['email' => 'محاولات كثيرة؛ حاول بعد دقيقة.'])->withInput(['email' => $email]);
         }
         RateLimiter::hit($key, 60);
-        if (!Auth::guard('erp')->attempt(['email' => $email, 'password' => $data['password'], 'active' => true])) {
-            return back()->withErrors(['email' => 'بيانات الدخول غير صحيحة أو الحساب متوقف.'])->withInput(['email' => $email]);
+        if (!Auth::guard('erp')->attempt(['email' => $email, 'password' => $data['password'], 'active' => true, 'role' => Actor::ROLES])) {
+            return back()->withErrors(['email' => 'بيانات الدخول غير صحيحة أو الحساب غير متاح؛ راجع المالك.'])->withInput(['email' => $email]);
         }
         RateLimiter::clear($key);
         $request->session()->regenerate();

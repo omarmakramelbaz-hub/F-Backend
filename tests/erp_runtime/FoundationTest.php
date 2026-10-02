@@ -93,7 +93,7 @@ class FoundationTest extends ErpTestCase
     public function test_owner_creates_real_hashed_deputy_account_and_validates_branch_role(): void
     {
         $this->actingAs(LegacyOwner::findOrFail(1),'admin');
-        $data=['name'=>'نائب المدير','email'=>'DEPUTY@example.test','role'=>'deputy_manager','permissions'=>Actor::defaults('deputy_manager'),'active'=>'1','password'=>'New-password-long-123','password_confirmation'=>'New-password-long-123'];
+        $data=['name'=>'أدمن إداري','email'=>'DEPUTY@example.test','role'=>'deputy_manager','permissions'=>Actor::defaults('deputy_manager'),'active'=>'1','password'=>'New-password-long-123','password_confirmation'=>'New-password-long-123'];
         $this->post('/erp/accounts',$data)->assertRedirect()->assertSessionHasNoErrors();
         $account=StaffUser::firstOrFail();
         $this->assertSame('deputy@example.test',$account->email);
@@ -102,6 +102,139 @@ class FoundationTest extends ErpTestCase
         $this->assertStringNotContainsString('password',DB::table('erp_audit')->where('action','access.save')->value('details'));
         $this->from('/erp/accounts')->post('/erp/accounts',array_replace($data,['email'=>'manager@example.test','role'=>'branch_manager']))->assertSessionHasErrors('operation');
         $this->assertSame(1,StaffUser::count());
+    }
+
+    public function test_only_administrative_admin_and_branch_manager_are_staff_roles(): void
+    {
+        $this->assertSame(['deputy_manager','branch_manager'],Actor::ROLES);
+        foreach (['inventory_manager','hr_manager','unknown_role'] as $role) {
+            $actor=new Actor('staff:1','حساب قديم',$role,1,Actor::CAPABILITIES);
+            $this->assertSame([],Actor::defaults($role));
+            $this->assertFalse($actor->allBranches(),$role);
+            $this->rejects(403,fn()=>$actor->branch(null));
+            $this->rejects(403,fn()=>$actor->branch(1));
+            $this->assertSame(0,$actor->scope(DB::table('erp_employees'))->count());
+            foreach (Actor::CAPABILITIES as $capability) {
+                $this->assertFalse($actor->can($capability),$role.' must not grant '.$capability);
+                $this->rejects(403,fn()=>$actor->require($capability));
+            }
+        }
+    }
+
+    /** @dataProvider unsupportedStaffRoles */
+    public function test_owner_cannot_create_a_removed_or_forged_staff_role(string $role): void
+    {
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $data=['name'=>'حساب غير مسموح','email'=>'invalid@example.test','role'=>$role,'branch_id'=>1,'permissions'=>Actor::defaults('deputy_manager'),'active'=>'1','password'=>'New-password-long-123','password_confirmation'=>'New-password-long-123'];
+        $this->from('/erp/accounts')->post('/erp/accounts',$data)->assertRedirect('/erp/accounts')->assertSessionHasErrors('role');
+        $this->assertSame(0,StaffUser::count());
+        $this->assertSame(0,DB::table('erp_audit')->where('action','access.save')->count());
+    }
+
+    /** @dataProvider unsupportedStaffRoles */
+    public function test_owner_cannot_update_a_staff_account_to_a_removed_or_forged_role(string $role): void
+    {
+        $staff=$this->staff('branch_manager',1);
+        $original=$staff->fresh()->getAttributes();
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $data=['id'=>$staff->id,'name'=>'تغيير مرفوض','email'=>'changed@example.test','role'=>$role,'branch_id'=>2,'permissions'=>Actor::defaults('deputy_manager'),'active'=>'0','password'=>'Changed-password-123','password_confirmation'=>'Changed-password-123'];
+        $this->from('/erp/accounts')->post('/erp/accounts',$data)->assertRedirect('/erp/accounts')->assertSessionHasErrors('role');
+        $this->assertSame($original,$staff->fresh()->getAttributes());
+        $this->assertSame(1,StaffUser::count());
+        $this->assertSame(0,DB::table('erp_audit')->where('action','access.save')->count());
+    }
+
+    /** @dataProvider unsupportedStaffRoles */
+    public function test_existing_unsupported_staff_accounts_cannot_log_in_and_are_preserved(string $role): void
+    {
+        $staff=$this->staff($role,1);
+        $staff->permissions=Actor::CAPABILITIES; $staff->save();
+        $original=$staff->fresh()->getAttributes();
+        $this->from('/erp/login')->post('/erp/login',['email'=>$staff->email,'password'=>'Test-only-password-123'])
+            ->assertRedirect('/erp/login')->assertSessionHasErrors('email');
+        $this->assertGuest('erp');
+        $this->get('/erp/inventory')->assertRedirect('/erp/login');
+        $this->assertSame($original,$staff->fresh()->getAttributes());
+        $this->assertSame(1,StaffUser::count());
+    }
+
+    /** @dataProvider unsupportedStaffRoles */
+    public function test_current_staff_session_loses_access_after_role_removal_even_with_owner_session(string $role): void
+    {
+        $staff=$this->staff();
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $this->actingAs($staff,'erp')->get('/erp/inventory')->assertOk();
+        $this->get('/erp/accounts')->assertForbidden();
+        $this->assertAuthenticated('admin');
+        $this->assertAuthenticated('erp');
+        DB::table('erp_users')->where('id',$staff->id)->update(['role'=>$role]);
+        $original=$staff->fresh()->getAttributes();
+        foreach (['','inventory','employees','accounts'] as $page) {
+            $this->get('/erp/'.$page)->assertRedirect('/erp/login');
+        }
+        $this->post('/erp/stock',$this->stock())->assertRedirect('/erp/login');
+        $this->get('/erp/login')->assertOk();
+        $this->assertSame(0,DB::table('erp_stock_documents')->count());
+        $this->assertSame($original,$staff->fresh()->getAttributes());
+    }
+
+    /** @dataProvider legacyStaffReclassifications */
+    public function test_owner_must_explicitly_reclassify_a_legacy_account_and_can_keep_its_identity(string $oldRole, string $newRole, ?int $branch): void
+    {
+        $staff=$this->staff($oldRole,2);
+        $staff->permissions=['inventory.manage','audit.view']; $staff->save();
+        $original=$staff->fresh()->getAttributes();
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $response=$this->get('/erp/accounts')->assertOk()->assertSee($staff->email)->assertSee('أدمن إداري')->assertSee('هذا الحساب محفوظ بدور قديم غير مدعوم');
+        if ($folder = getenv('ERP_RENDER_DIR')) {
+            if (!is_dir($folder)) { mkdir($folder, 0700, true); }
+            file_put_contents($folder.'/accounts-legacy.html', $response->getContent());
+        }
+        $dom=new \DOMDocument;
+        $previous=libxml_use_internal_errors(true);
+        try { $dom->loadHTML('<?xml encoding="UTF-8">'.$response->getContent()); }
+        finally { libxml_clear_errors(); libxml_use_internal_errors($previous); }
+        $xpath=new \DOMXPath($dom);
+        $selects=$xpath->query('//form[.//input[@name="id" and @value="'.$staff->id.'"]]//select[@name="role"]');
+        $this->assertSame(1,$selects->length);
+        $select=$selects->item(0);
+        $this->assertTrue($select->hasAttribute('required'));
+        $this->assertSame(1,$xpath->query('./option[@value="" and @disabled and @selected]',$select)->length);
+        $this->assertSame(0,$xpath->query('./option[@value!="" and @selected]',$select)->length);
+        $this->assertSame(0,$xpath->query('//form[.//input[@name="id" and @value="'.$staff->id.'"]]//select[@name="branch_id"]/option[@value!="" and @selected]')->length);
+        foreach ($xpath->query('//select[@name="role"]') as $roleSelect) {
+            $options=[];
+            foreach ($xpath->query('./option[@value!=""]',$roleSelect) as $option) { $options[]=$option->getAttribute('value'); }
+            $this->assertSame(['deputy_manager','branch_manager'],$options);
+        }
+        $this->assertSame($original,$staff->fresh()->getAttributes());
+        $data=['id'=>$staff->id,'name'=>$staff->name,'email'=>$staff->email,'role'=>'','branch_id'=>$branch,'permissions'=>Actor::defaults($newRole),'active'=>'1'];
+        $this->from('/erp/accounts')->post('/erp/accounts',$data)->assertSessionHasErrors('role');
+        $this->assertSame($original,$staff->fresh()->getAttributes());
+        $this->assertSame(0,DB::table('erp_audit')->where('action','access.save')->count());
+        $this->post('/erp/accounts',array_replace($data,['role'=>$newRole]))->assertRedirect()->assertSessionHasNoErrors()->assertSessionHas('success');
+        $updated=$staff->fresh();
+        $this->assertSame($newRole,$updated->role);
+        $this->assertSame($branch,$updated->branch_id === null ? null : (int)$updated->branch_id);
+        $this->assertSame($original['email'],$updated->email);
+        $this->assertSame($original['password'],$updated->password);
+        $this->assertSame(Actor::defaults($newRole),$updated->permissions);
+        $this->assertSame(1,StaffUser::count());
+        $this->assertSame(1,DB::table('erp_audit')->where('action','access.save')->where('entity_id',$staff->id)->count());
+        Auth::guard('admin')->logout();
+        $this->post('/erp/login',['email'=>$updated->email,'password'=>'Test-only-password-123'])->assertRedirect('/erp');
+        $this->assertAuthenticatedAs($updated,'erp');
+        $this->get('/erp/inventory')->assertOk();
+    }
+
+    public static function unsupportedStaffRoles(): array
+    {
+        return [['inventory_manager'],['hr_manager'],['owner'],['unknown_role']];
+    }
+
+    public static function legacyStaffReclassifications(): array
+    {
+        return [['inventory_manager','deputy_manager',null],['hr_manager','branch_manager',1]];
     }
 
     public function test_login_logout_and_failed_login_throttling(): void
@@ -213,7 +346,8 @@ class FoundationTest extends ErpTestCase
     {
         (new People)->salary($this->actor(),1,'2026-09','7777.77');
         (new Actor('legacy:1','المالك','owner',null,Actor::CAPABILITIES))->audit('access.save','staff_account',1,['email'=>'private@example.test']);
-        $this->actingAs($this->staff('inventory_manager'),'erp');
+        $staff=$this->staff(); $staff->permissions=['inventory.manage','audit.view']; $staff->save();
+        $this->actingAs($staff,'erp');
         $this->get('/erp/audit')->assertOk()->assertDontSee('777777')->assertDontSee('private@example.test');
         $this->get('/erp/payroll')->assertForbidden();
         $this->get('/erp/employees')->assertForbidden();

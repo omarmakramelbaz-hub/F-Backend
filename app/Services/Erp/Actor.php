@@ -7,7 +7,8 @@ use Illuminate\Support\Facades\DB;
 class Actor
 {
     public const CAPABILITIES = ['branches.manage','inventory.manage','employees.manage','payroll.manage','purchasing.manage','production.manage','finance.manage','orders.view','audit.view','access.manage'];
-    public const ROLES = ['deputy_manager','branch_manager','inventory_manager','hr_manager'];
+    // Staff roles only. The owner is resolved from the configured legacy admin.
+    public const ROLES = ['deputy_manager','branch_manager'];
 
     public $key;
     public $name;
@@ -29,14 +30,13 @@ class Actor
         $map = [
             'deputy_manager' => array_diff(self::CAPABILITIES, ['access.manage']),
             'branch_manager' => ['inventory.manage','production.manage','employees.manage','orders.view','audit.view'],
-            'inventory_manager' => ['inventory.manage','production.manage','audit.view'],
-            'hr_manager' => ['employees.manage','payroll.manage','audit.view'],
         ];
         return array_values($map[$role] ?? []);
     }
 
     public function can(string $capability): bool
     {
+        if ($this->role !== 'owner' && !in_array($this->role, self::ROLES, true)) { return false; }
         if ($this->role === 'branch_manager' && in_array($capability, ['branches.manage','payroll.manage','purchasing.manage','finance.manage'], true)) { return false; }
         return $this->role === 'owner' || ($capability !== 'access.manage' && in_array($capability, $this->permissions, true));
     }
@@ -48,11 +48,12 @@ class Actor
 
     public function allBranches(): bool
     {
-        return in_array($this->role, ['owner','deputy_manager','inventory_manager','hr_manager'], true);
+        return in_array($this->role, ['owner','deputy_manager'], true);
     }
 
     public function branch(?int $branchId, bool $active = false): void
     {
+        abort_unless($this->role === 'owner' || in_array($this->role, self::ROLES, true), 403, 'هذا الدور غير مدعوم؛ راجع المالك.');
         if ($branchId === null) {
             abort_unless($this->allBranches(), 403, 'المخزن المركزي متاح للإدارة المركزية فقط.');
             return;
@@ -66,7 +67,7 @@ class Actor
     public function scope($query, string $column = 'branch_id')
     {
         if (!$this->allBranches()) {
-            $query->where($column, $this->branchId ?? -1);
+            $query->where($column, $this->role === 'branch_manager' ? ($this->branchId ?? -1) : -1);
         }
         return $query;
     }

@@ -48,7 +48,7 @@ DB::transaction(function () {
         }
     }
     DB::table('resturants')->insert(['id'=>5,'name'=>'فرع إضافي للتجربة']);
-    foreach ([['deputy_manager',null,'نائب المدير'],['branch_manager',1,'مدير المنصورة']] as $index=>[$role,$branch,$name]) {
+    foreach ([['deputy_manager',null,'أدمن إداري'],['branch_manager',1,'مدير المنصورة']] as $index=>[$role,$branch,$name]) {
         \App\Models\Erp\StaffUser::create(['id'=>$index+1,'name'=>$name.' — تجربة','email'=>($index===0?'deputy':'branch').'@demo.test','password'=>Hash::make(bin2hex(random_bytes(24))),'role'=>$role,'branch_id'=>$branch,'permissions'=>Actor::defaults($role),'active'=>1]);
     }
     foreach ([['RAW-F','فسيخ خام','kg','raw'],['RAW-R','رنجة خام','kg','raw'],['RAW-S','سردين خام','kg','raw'],['PACK','علبة تغليف','piece','packaging'],['FIN-F','فسيخ مجهز','kg','finished']] as $index=>[$sku,$name,$unit,$category]) {

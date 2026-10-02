@@ -87,12 +87,12 @@ abstract class ErpTestCase extends TestCase
 
     protected function actor(string $role = 'deputy_manager', ?int $branch = null): Actor
     {
-        return new Actor('staff:1','نائب المدير',$role,$branch,Actor::defaults($role));
+        return new Actor('staff:1','أدمن إداري',$role,$branch,Actor::defaults($role));
     }
 
     protected function staff(string $role = 'deputy_manager', ?int $branch = null): StaffUser
     {
-        return StaffUser::create(['name'=>'نائب المدير','email'=>'deputy@example.test','password'=>Hash::make('Test-only-password-123'),'role'=>$role,'branch_id'=>$branch,'permissions'=>Actor::defaults($role),'active'=>1]);
+        return StaffUser::create(['name'=>'أدمن إداري','email'=>'deputy@example.test','password'=>Hash::make('Test-only-password-123'),'role'=>$role,'branch_id'=>$branch,'permissions'=>Actor::defaults($role),'active'=>1]);
     }
 
     protected function stock(array $changes = []): array

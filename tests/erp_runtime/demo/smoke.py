@@ -64,7 +64,7 @@ try:
     assert request("/erp-assets/workspace.css") == (root / "public/erp-assets/workspace.css").read_text()
     assert request("/erp-assets/workspace.js") == (root / "public/erp-assets/workspace.js").read_text()
     request("/erp/workspace.css", expected=404)
-    assert "نائب المدير" in enter("deputy")
+    assert "أدمن إداري" in enter("deputy")
     for screen in ["", "branches", "inventory", "employees", "payroll", "orders", "audit", "purchases", "production", "finance"]:
         assert "نسخة تجربة" in request("/erp/" + screen)
     request("/erp/accounts", expected=403)
