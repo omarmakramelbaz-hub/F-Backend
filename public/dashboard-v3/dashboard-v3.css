@@ -202,3 +202,81 @@
   .fas-v3-shell .content-wrapper,.fas-v3-shell .main-header,.fas-v3-shell .main-footer{margin-right:0!important}
   .fas-welcome-row{align-items:flex-start;flex-direction:column}.fas-kpi-grid{grid-template-columns:1fr 1fr}.mini-kanban{grid-template-columns:repeat(4,220px);overflow-x:auto}.quick-action-grid{grid-template-columns:1fr 1fr}.quick-report-grid{grid-template-columns:1fr}.fas-topbar-search{display:none}
 }
+
+
+/* Production polish: clean brand lockup + guaranteed sidebar contrast */
+.fas-v3-shell .brand-link{
+  height:104px!important;
+  min-height:104px!important;
+  padding:10px 12px!important;
+}
+.fas-v3-shell .main-sidebar .sidebar{
+  height:calc(100vh - 104px)!important;
+}
+.fas-v3-shell .fas-brand-lockup{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:10px!important;
+  width:100%;
+  text-align:right;
+}
+.fas-v3-shell .fas-brand-emblem{
+  width:48px;
+  height:48px;
+  flex:0 0 48px;
+  border-radius:15px;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(145deg,#ff8b25,#ff6500);
+  color:#fff;
+  box-shadow:0 8px 20px rgba(255,113,0,.28), inset 0 0 0 1px rgba(255,255,255,.18);
+  transform:rotate(-3deg);
+}
+.fas-v3-shell .fas-brand-emblem i{
+  color:#fff!important;
+  font-size:25px!important;
+  transform:rotate(3deg);
+}
+.fas-v3-shell .fas-brand-copy{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.fas-v3-shell .fas-brand-copy strong{
+  color:#fff!important;
+  font-size:18px!important;
+  font-weight:900!important;
+  line-height:1.05;
+  letter-spacing:-.2px;
+}
+.fas-v3-shell .fas-brand-copy small{
+  color:#a9bfd0!important;
+  font-size:8px!important;
+  line-height:1.4;
+}
+.fas-v3-shell .main-sidebar .nav-sidebar .nav-link,
+.fas-v3-shell .main-sidebar .nav-sidebar .nav-link p,
+.fas-v3-shell .main-sidebar .nav-sidebar .nav-link i,
+.fas-v3-shell .main-sidebar .nav-sidebar .nav-link span{
+  color:#eef6fb!important;
+  opacity:1!important;
+  text-shadow:none!important;
+}
+.fas-v3-shell .main-sidebar .nav-treeview .nav-link,
+.fas-v3-shell .main-sidebar .nav-treeview .nav-link p,
+.fas-v3-shell .main-sidebar .nav-treeview .nav-link i{
+  color:#c7d8e5!important;
+}
+.fas-v3-shell .main-sidebar .nav-link.active,
+.fas-v3-shell .main-sidebar .nav-link.active p,
+.fas-v3-shell .main-sidebar .nav-link.active i{
+  color:#fff!important;
+}
+.fas-v3-shell .main-sidebar .user-panel .welcome,
+.fas-v3-shell .main-sidebar .user-panel a,
+.fas-v3-shell .main-sidebar .user-panel small{
+  color:#eaf4fb!important;
+}

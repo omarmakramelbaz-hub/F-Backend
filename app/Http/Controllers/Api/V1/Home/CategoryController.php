@@ -268,29 +268,8 @@ class CategoryController extends Controller
             // Filter restaurants where user's location is within expected_delivery range of any area
             $filteredRestaurantIds = [];
             foreach ($allRestaurants as $restaurant) {
-                foreach ($restaurant->resturant_areas as $restaurantArea) {
-                    // Calculate distance between user location and restaurant area using Haversine formula
-                    $earthRadius = 6371; // kilometers
-                    $lat1 = deg2rad($latitude);
-                    $lng1 = deg2rad($longitude);
-                    $lat2 = deg2rad($restaurantArea->lat);
-                    $lng2 = deg2rad($restaurantArea->lng);
-
-                    $latDiff = $lat2 - $lat1;
-                    $lngDiff = $lng2 - $lng1;
-
-                    $a = sin($latDiff / 2) * sin($latDiff / 2) +
-                        cos($lat1) * cos($lat2) *
-                        sin($lngDiff / 2) * sin($lngDiff / 2);
-
-                    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-                    $distance = $earthRadius * $c;
-
-                    // If user location is within expected_delivery range (in km), include this restaurant
-                    if ($distance <= $restaurantArea->expected_delivery) {
-                        $filteredRestaurantIds[] = $restaurant->id;
-                        break; // No need to check other areas for this restaurant
-                    }
+                if ($this->restaurantMatchesCustomerLocation($restaurant, $latitude, $longitude)) {
+                    $filteredRestaurantIds[] = $restaurant->id;
                 }
             }
 
@@ -363,6 +342,65 @@ class CategoryController extends Controller
     }
 
 
+    private function restaurantMatchesCustomerLocation($restaurant, float $latitude, float $longitude): bool
+    {
+        $usableAreaFound = false;
+
+        foreach ($restaurant->resturant_areas as $restaurantArea) {
+            if (
+                $restaurantArea->lat === null ||
+                $restaurantArea->lng === null ||
+                $restaurantArea->expected_delivery === null
+            ) {
+                continue;
+            }
+
+            $usableAreaFound = true;
+            $distance = $this->distanceKm(
+                $latitude,
+                $longitude,
+                (float) $restaurantArea->lat,
+                (float) $restaurantArea->lng
+            );
+
+            if ($distance <= (float) $restaurantArea->expected_delivery) {
+                return true;
+            }
+        }
+
+        // Some Fasakhansta branches have a valid branch pin but no delivery-area
+        // rows yet. Keep them discoverable near the customer instead of hiding
+        // them completely from the customer app.
+        if (!$usableAreaFound && !empty($restaurant->lat) && !empty($restaurant->lng)) {
+            return $this->distanceKm(
+                $latitude,
+                $longitude,
+                (float) $restaurant->lat,
+                (float) $restaurant->lng
+            ) <= 25;
+        }
+
+        return false;
+    }
+
+    private function distanceKm(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371;
+        $lat1 = deg2rad($lat1);
+        $lng1 = deg2rad($lng1);
+        $lat2 = deg2rad($lat2);
+        $lng2 = deg2rad($lng2);
+
+        $latDiff = $lat2 - $lat1;
+        $lngDiff = $lng2 - $lng1;
+
+        $a = sin($latDiff / 2) * sin($latDiff / 2) +
+            cos($lat1) * cos($lat2) *
+            sin($lngDiff / 2) * sin($lngDiff / 2);
+
+        return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
     public function getFeaturedResturants(Request $request)
     {
         $resturant = Resturant::query();
@@ -384,29 +422,8 @@ class CategoryController extends Controller
             // Filter restaurants where user's location is within expected_delivery range of any area
             $filteredRestaurantIds = [];
             foreach ($allRestaurants as $restaurant) {
-                foreach ($restaurant->resturant_areas as $restaurantArea) {
-                    // Calculate distance between user location and restaurant area using Haversine formula
-                    $earthRadius = 6371; // kilometers
-                    $lat1 = deg2rad($latitude);
-                    $lng1 = deg2rad($longitude);
-                    $lat2 = deg2rad($restaurantArea->lat);
-                    $lng2 = deg2rad($restaurantArea->lng);
-
-                    $latDiff = $lat2 - $lat1;
-                    $lngDiff = $lng2 - $lng1;
-
-                    $a = sin($latDiff / 2) * sin($latDiff / 2) +
-                        cos($lat1) * cos($lat2) *
-                        sin($lngDiff / 2) * sin($lngDiff / 2);
-
-                    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-                    $distance = $earthRadius * $c;
-
-                    // If user location is within expected_delivery range (in km), include this restaurant
-                    if ($distance <= $restaurantArea->expected_delivery) {
-                        $filteredRestaurantIds[] = $restaurant->id;
-                        break; // No need to check other areas for this restaurant
-                    }
+                if ($this->restaurantMatchesCustomerLocation($restaurant, $latitude, $longitude)) {
+                    $filteredRestaurantIds[] = $restaurant->id;
                 }
             }
 

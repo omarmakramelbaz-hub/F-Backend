@@ -238,6 +238,8 @@ class FoundationTest extends ErpTestCase
         $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
         $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
         $this->assertStringContainsString('fas-modern-brand', $menu);
+        $this->assertStringContainsString('fas-brand-emblem', $menu);
+        $this->assertStringNotContainsString('data:image/webp;base64', $menu);
         $this->assertStringContainsString('طلبات التطبيق', $menu);
         $this->assertStringContainsString("@lang('main.Roles')", $menu);
         $this->assertStringContainsString("@lang('main.Admins')", $menu);
@@ -252,8 +254,54 @@ class FoundationTest extends ErpTestCase
         $this->assertStringContainsString('grid-template-rows:44px auto 82px minmax(0,1fr) 176px', $css);
         $this->assertStringContainsString('grid-template-areas:"sales live events"', $css);
         $this->assertStringContainsString('.custom-period-form.open', $css);
+        $this->assertStringContainsString('color:#eef6fb!important', $css);
+        $this->assertStringContainsString('.fas-brand-emblem', $css);
+
+        $categoryController = file_get_contents($root.'/app/Http/Controllers/Api/V1/Home/CategoryController.php');
+        $this->assertStringContainsString('restaurantMatchesCustomerLocation', $categoryController);
+        $this->assertStringContainsString('<= 25', $categoryController);
+
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
+    }
+
+    public function test_dashboard_v3_uses_cart_lines_for_legacy_sales_when_orders_have_no_total_column(): void
+    {
+        Schema::create('carts', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('order_id');
+            $t->decimal('price', 12, 2)->default(0);
+            $t->decimal('qty', 12, 3)->default(1);
+            $t->decimal('updated_total', 12, 2)->nullable();
+        });
+
+        $completed = DB::table('orders')->where('status', 'completed')->first();
+        $this->assertNotNull($completed);
+
+        DB::table('carts')->insert([
+            ['order_id'=>$completed->id,'price'=>120,'qty'=>2,'updated_total'=>null],
+            ['order_id'=>$completed->id,'price'=>50,'qty'=>1,'updated_total'=>65],
+        ]);
+
+        $overview = app(\App\Services\Dashboard\DashboardOverview::class)->build(
+            $this->actor('deputy_manager'),
+            null,
+            now(config('erp.timezone'))->format('Y-m-d'),
+            'day'
+        );
+
+        $this->assertSame(305.0, (float) $overview['sales_period']);
+
+        $board = app(\App\Services\Erp\UnifiedOrders::class)->dashboard(
+            $this->actor('deputy_manager'),
+            null,
+            now(config('erp.timezone'))->format('Y-m-d'),
+            []
+        );
+        $rows = collect($board['columns'])->flatMap(fn ($column) => $column['rows']);
+        $row = $rows->firstWhere('number', $completed->order_no);
+        $this->assertNotNull($row);
+        $this->assertSame(30500, $row['amount_cents']);
     }
 
     public function test_dashboard_v3_actor_is_defined_in_parent_layout_before_includes(): void

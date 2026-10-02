@@ -265,18 +265,41 @@ class DashboardOverview
         $restaurantIds = $this->branchRestaurantIds($actor, $branchId);
         $sales = 0.0;
 
-        if ($restaurantIds->isNotEmpty() && Schema::hasColumn('orders', 'total_price')) {
-            $query = DB::table('orders')
-                ->whereIn('resturant_id', $restaurantIds)
-                ->where('status', 'completed')
-                ->where('created_at', '>=', $from)
-                ->where('created_at', '<', $until);
+        if ($restaurantIds->isNotEmpty()) {
+            if (Schema::hasColumn('orders', 'total_price')) {
+                $query = DB::table('orders')
+                    ->whereIn('resturant_id', $restaurantIds)
+                    ->where('status', 'completed')
+                    ->where('created_at', '>=', $from)
+                    ->where('created_at', '<', $until);
 
-            if (Schema::hasColumn('orders', 'type')) {
-                $query->where('type', 'current');
+                if (Schema::hasColumn('orders', 'type')) {
+                    $query->where('type', 'current');
+                }
+
+                $sales += (float) $query->sum('total_price');
+            } elseif (
+                Schema::hasTable('carts') &&
+                Schema::hasColumn('carts', 'price') &&
+                Schema::hasColumn('carts', 'qty')
+            ) {
+                $lineTotal = Schema::hasColumn('carts', 'updated_total')
+                    ? 'COALESCE(c.updated_total, c.price * c.qty, 0)'
+                    : 'COALESCE(c.price * c.qty, 0)';
+
+                $query = DB::table('carts as c')
+                    ->join('orders as o', 'o.id', '=', 'c.order_id')
+                    ->whereIn('o.resturant_id', $restaurantIds)
+                    ->where('o.status', 'completed')
+                    ->where('o.created_at', '>=', $from)
+                    ->where('o.created_at', '<', $until);
+
+                if (Schema::hasColumn('orders', 'type')) {
+                    $query->where('o.type', 'current');
+                }
+
+                $sales += (float) $query->sum(DB::raw($lineTotal));
             }
-
-            $sales += (float) $query->sum('total_price');
         }
 
         if ($actor->allBranches() && $branchId === null && Schema::hasTable('go_store_orders')) {
