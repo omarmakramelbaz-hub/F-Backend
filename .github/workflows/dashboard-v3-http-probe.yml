@@ -1,5 +1,4 @@
-name: Dashboard V3 HTTP probe live 2
-
+name: Dashboard V3 account probe\n
 on:
   push:
     branches:
