@@ -52,7 +52,7 @@ $ageLabel = function ($minutes) {
             <select id="orders-branch" name="branch">
                 <option value="">كل الفروع والأنشطة</option>
                 @foreach($branches as $item)
-                    <option value="{{ $item->id }}" @selected((int)$branch === (int)$item->id)>{{ $item->name }}</option>
+                    <option value="{{ $item->id }}" {{ (int)$branch === (int)$item->id ? 'selected' : '' }}>{{ $item->name }}</option>
                 @endforeach
             </select>
         </div>
@@ -60,8 +60,8 @@ $ageLabel = function ($minutes) {
             <label for="orders-app">التطبيق</label>
             <select id="orders-app" name="app">
                 <option value="">Fasakhansta + GO</option>
-                <option value="fasakhansta" @selected(($filters['app'] ?? '') === 'fasakhansta')>Fasakhansta</option>
-                <option value="go" @selected(($filters['app'] ?? '') === 'go')>GO</option>
+                <option value="fasakhansta" {{ ($filters['app'] ?? '') === 'fasakhansta' ? 'selected' : '' }}>Fasakhansta</option>
+                <option value="go" {{ ($filters['app'] ?? '') === 'go' ? 'selected' : '' }}>GO</option>
             </select>
         </div>
         <div class="field">
@@ -69,7 +69,7 @@ $ageLabel = function ($minutes) {
             <select id="orders-kind" name="kind">
                 <option value="">كل الأنواع</option>
                 @foreach($kindLabels as $key=>$label)
-                    <option value="{{ $key }}" @selected(($filters['kind'] ?? '') === $key)>{{ $label }}</option>
+                    <option value="{{ $key }}" {{ ($filters['kind'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
@@ -85,7 +85,7 @@ $ageLabel = function ($minutes) {
             <select id="orders-stage" name="stage">
                 <option value="">كل الحالات</option>
                 @foreach($stageLabels as $key=>$label)
-                    <option value="{{ $key }}" @selected(($filters['stage'] ?? '') === $key)>{{ $label }}</option>
+                    <option value="{{ $key }}" {{ ($filters['stage'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
@@ -94,7 +94,7 @@ $ageLabel = function ($minutes) {
             <select id="orders-payment" name="payment">
                 <option value="">كل طرق الدفع</option>
                 @foreach(['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'كارت بنكي','mobile_wallet'=>'محفظة إلكترونية','apple_pay'=>'Apple Pay','google_pay'=>'Google Pay'] as $key=>$label)
-                    <option value="{{ $key }}" @selected(($filters['payment'] ?? '') === $key)>{{ $label }}</option>
+                    <option value="{{ $key }}" {{ ($filters['payment'] ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
