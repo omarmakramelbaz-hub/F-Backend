@@ -42,7 +42,7 @@
                 @forelse(Auth::guard('admin')->user()->unreadNotifications->take(6) as $note)
                     <a href="{{ url('/admin/notifications') }}#{{ $note->id }}" class="dropdown-item">
                         <i class="fas fa-envelope me-2 text-warning"></i>
-                        <span style="font-size:10px">{{ IlluminateSupportStr::limit($note->data['title'] ?? 'إشعار جديد',42) }}</span>
+                        <span style="font-size:10px">{{ mb_strimwidth((string)($note->data['title'] ?? 'إشعار جديد'), 0, 42, '…', 'UTF-8') }}</span>
                     </a>
                 @empty
                     <span class="dropdown-item text-muted text-center">لا توجد إشعارات جديدة</span>

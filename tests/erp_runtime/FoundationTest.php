@@ -214,6 +214,8 @@ class FoundationTest extends ErpTestCase
         $this->assertStringContainsString("@lang('main.Admins')", $menu);
         $this->assertStringContainsString('طلبات انضمام الشركاء', $menu);
         $this->assertStringContainsString('fas-topbar-search', $navbar);
+        $this->assertStringNotContainsString('IlluminateSupportStr', $navbar);
+        $this->assertStringContainsString('mb_strimwidth', $navbar);
 
         $css = file_get_contents($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertStringContainsString('height:calc(100vh - 60px)!important', $css);
