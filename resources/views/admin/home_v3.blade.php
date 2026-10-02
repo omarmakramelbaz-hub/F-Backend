@@ -1,7 +1,7 @@
 @extends('admin.index')
 
 @push('custom-css')
-<link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-003">
+<link rel="stylesheet" href="{{ asset('dashboard-v3/dashboard-v3.css') }}?v=20261003-004">
 @endpush
 
 @section('content')
@@ -325,5 +325,5 @@ window.FAS_DASHBOARD_V3 = {!! json_encode([
     'orders' => $dashboard['chart']['orders'],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!};
 </script>
-<script src="{{ asset('dashboard-v3/dashboard-v3.js') }}?v=20261003-003"></script>
+<script src="{{ asset('dashboard-v3/dashboard-v3.js') }}?v=20261003-004"></script>
 @endpush
