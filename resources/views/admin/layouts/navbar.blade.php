@@ -1,3 +1,61 @@
+@if($fasV3Actor)
+<nav class="main-header navbar navbar-expand navbar-white navbar-light fas-v3-topbar">
+    <div class="d-flex align-items-center gap-3">
+        <a class="nav-link" data-widget="pushmenu" href="#" aria-label="فتح القائمة"><i class="fas fa-bars"></i></a>
+        <div class="fas-topbar-user">
+            <div class="avatar">{{ mb_substr(Auth::guard('admin')->user()->name,0,1) }}</div>
+            <div>
+                <strong>{{ Auth::guard('admin')->user()->name }}</strong>
+                <small>{{ ['owner'=>'المالك','deputy_manager'=>'أدمن إداري','branch_manager'=>'مدير الفرع'][$fasV3Actor->role] ?? $fasV3Actor->role }}</small>
+            </div>
+        </div>
+    </div>
+
+    <form class="fas-topbar-search" method="get" action="{{ url('/admin/applies-orders') }}">
+        <i class="fas fa-search"></i>
+        <input type="search" name="q" placeholder="بحث عن طلب، عميل، هاتف..." autocomplete="off">
+    </form>
+
+    <div class="d-flex align-items-center gap-3">
+        <div class="d-none d-md-flex align-items-center gap-2 text-muted" style="font-size:10px">
+            <i class="far fa-clock" style="color:#ff7100"></i>
+            <span>{{ now(config('erp.timezone'))->format('Y/m/d · h:i A') }}</span>
+        </div>
+
+        <div class="d-none d-sm-flex align-items-center gap-1">
+            <i class="fas fa-globe" style="color:#ff7100"></i>
+            <select onchange="changeLanguage(this.value)" class="form-select form-select-sm" style="border:0;background:transparent;font-size:10px">
+                <option {{ session('lang_code','ar') == 'ar' ? 'selected' : '' }} value="ar">Arabic</option>
+                <option {{ session('lang_code') == 'en' ? 'selected' : '' }} value="en">English</option>
+            </select>
+        </div>
+
+        <div class="dropdown">
+            <a class="nav-link position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="far fa-bell"></i>
+                @if(Auth::guard('admin')->user()->unreadNotifications->count())
+                <span class="badge navbar-badge">{{ Auth::guard('admin')->user()->unreadNotifications->count() }}</span>
+                @endif
+            </a>
+            <div class="dropdown-menu dropdown-menu-end" style="min-width:310px">
+                <span class="dropdown-item dropdown-header">{{ Auth::guard('admin')->user()->unreadNotifications->count() }} إشعار</span>
+                @forelse(Auth::guard('admin')->user()->unreadNotifications->take(6) as $note)
+                    <a href="{{ url('/admin/notifications') }}#{{ $note->id }}" class="dropdown-item">
+                        <i class="fas fa-envelope me-2 text-warning"></i>
+                        <span style="font-size:10px">{{ IlluminateSupportStr::limit($note->data['title'] ?? 'إشعار جديد',42) }}</span>
+                    </a>
+                @empty
+                    <span class="dropdown-item text-muted text-center">لا توجد إشعارات جديدة</span>
+                @endforelse
+                <div class="dropdown-divider"></div>
+                <a href="{{ url('/admin/notifications') }}" class="dropdown-item text-center">عرض كل الإشعارات</a>
+            </div>
+        </div>
+
+        <a href="{{ url('/admin/adminLogout') }}" class="nav-link" title="تسجيل الخروج"><i class="fas fa-sign-out-alt"></i></a>
+    </div>
+</nav>
+@else
 <!-- Navbar -->
 <nav class="main-header navbar navbar-expand navbar-white navbar-light justify-content-between" @if(\Request::route()->getName() == 'chooseType') style="margin-right:0px;" @endif>
     <!-- Left navbar links -->
@@ -201,3 +259,5 @@ window.onclick = function(event) {
   }
 }
 </script>
+
+@endif

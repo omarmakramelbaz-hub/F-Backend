@@ -28,6 +28,9 @@ use Notification;
 use CyrildeWit\EloquentViewable\Support\Period;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
+use App\Services\Dashboard\DashboardOverview;
+use App\Services\Erp\Access as ErpAccess;
+use App\Services\Erp\BranchRegistry;
 
 class HomeController extends Controller
 {
@@ -68,8 +71,33 @@ class HomeController extends Controller
         }
         return redirect('admin/dashboard');
     }
-    public function index(GeneralSettings $settings, Request $request)
+    public function index(GeneralSettings $settings, Request $request, DashboardOverview $overview, BranchRegistry $branchRegistry)
     {
+        // Dashboard V3 is the shared operating home for the existing owner,
+        // administrative admin and branch-manager accounts. Other legacy roles
+        // keep their existing dashboard until explicitly migrated.
+        $branchRegistry->syncDashboardBranches();
+        $actor = ErpAccess::actor();
+
+        if ($actor) {
+            $branches = $actor->scope(DB::table('erp_branches'), 'id')
+                ->where('active', true)
+                ->orderBy('name')
+                ->get();
+
+            if ($request->filled('branch')) {
+                $branch = (int) $request->query('branch');
+                $actor->branch($branch, true);
+            } else {
+                $branch = $actor->allBranches() ? null : $actor->branchId;
+            }
+
+            $day = now(config('erp.timezone'))->format('Y-m-d');
+            $dashboard = $overview->build($actor, $branch, $day);
+
+            return view('admin.home_v3', compact('actor','branches','branch','day','dashboard'));
+        }
+
         if(auth()->user()->roles->pluck("id")->first() == 11){
         $month =request('day')?? date('m');
         $users = DB::table('users')
