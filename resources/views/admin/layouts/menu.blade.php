@@ -428,7 +428,7 @@
                     </li>
                     @if(in_array(auth()->user()->roles->pluck("id")->first(), [2, 13]))
                         <li class="nav-item">
-                            <a href="{{ in_array(mb_strtolower(trim((string) auth('admin')->user()->email)), config('erp.legacy_order_admin_emails', []), true) ? route('erp.orders') : url('/admin/applies-orders') }}"
+                            <a href="{{ in_array(mb_strtolower(trim((string) auth('admin')->user()->email)), config('erp.administrative_admin_emails', []), true) ? route('erp.orders') : url('/admin/applies-orders') }}"
                                 class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-hand-holding-usd"></i>
                                 <p>
