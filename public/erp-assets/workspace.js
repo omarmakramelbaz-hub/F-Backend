@@ -95,3 +95,122 @@ document.querySelectorAll('[data-supplier-picker]').forEach(picker => picker.add
     form.querySelector(`[name="${field}"]`).value = supplier[field] ?? (field === 'active' ? '1' : '');
   });
 }));
+
+
+// Unified order center
+(() => {
+  const drawer = () => document.querySelector('[data-orders-drawer]');
+
+  const closeDrawer = () => {
+    const panel = drawer();
+    if (!panel) return;
+    panel.hidden = true;
+    document.body.classList.remove('orders-drawer-open');
+    const content = panel.querySelector('[data-orders-drawer-content]');
+    if (content) content.innerHTML = '';
+  };
+
+  document.addEventListener('click', event => {
+    const openButton = event.target.closest('[data-order-open]');
+    if (openButton) {
+      const card = openButton.closest('[data-order-card]');
+      const source = card?.querySelector('[data-order-detail-source]');
+      const panel = drawer();
+      const content = panel?.querySelector('[data-orders-drawer-content]');
+      if (panel && content && source) {
+        content.innerHTML = source.innerHTML;
+        panel.hidden = false;
+        document.body.classList.add('orders-drawer-open');
+        panel.querySelector('[data-order-close]')?.focus();
+      }
+      return;
+    }
+
+    if (event.target.closest('[data-order-close]')) {
+      closeDrawer();
+      return;
+    }
+
+    const panel = drawer();
+    if (panel && !panel.hidden && event.target === panel) {
+      closeDrawer();
+      return;
+    }
+
+    if (event.target.closest('[data-orders-refresh]')) {
+      refreshOrders(true);
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeDrawer();
+  });
+
+  const chime = () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.frequency.setValueAtTime(740, context.currentTime);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.36);
+      oscillator.addEventListener('ended', () => context.close());
+    } catch (_) {}
+  };
+
+  let refreshing = false;
+  async function refreshOrders(force = false) {
+    const live = document.querySelector('[data-orders-live]');
+    if (!live || refreshing) return;
+    const panel = drawer();
+    if (!force && (document.visibilityState !== 'visible' || (panel && !panel.hidden))) return;
+
+    refreshing = true;
+    live.classList.add('orders-syncing');
+    try {
+      const response = await fetch(window.location.href, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-ERP-Live': '1'}
+      });
+      if (!response.ok) return;
+      const html = await response.text();
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      const next = parsed.querySelector('[data-orders-live]');
+      if (!next) return;
+
+      const previousNew = Number(live.dataset.liveNew || 0);
+      const nextNew = Number(next.dataset.liveNew || 0);
+      const changed = next.dataset.ordersVersion !== live.dataset.ordersVersion;
+
+      if (changed) {
+        live.replaceWith(next);
+        next.classList.add('orders-updated');
+        if (nextNew > previousNew) chime();
+      } else {
+        live.classList.remove('orders-syncing');
+      }
+
+      const sync = document.querySelector('[data-orders-last-sync]');
+      if (sync) {
+        sync.textContent = 'آخر مزامنة: ' + new Intl.DateTimeFormat('ar-EG', {hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(new Date());
+      }
+    } catch (_) {
+      live.classList.remove('orders-syncing');
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  if (document.querySelector('[data-orders-live]')) {
+    window.setInterval(() => refreshOrders(false), 12000);
+  }
+})();
