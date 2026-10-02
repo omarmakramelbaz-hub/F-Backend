@@ -39,7 +39,7 @@ class DashboardOverview
         ];
 
         $rows = $this->flatten($todayBoard['columns']);
-        $recent = $rows->sortByDesc('sort_ts')->take(8)->values()->all();
+        $recent = $rows->sortByDesc('sort_ts')->take(5)->values()->all();
 
         $live = [
             'new' => collect($todayBoard['columns']['new']['rows'] ?? [])
