@@ -202,11 +202,11 @@ $money = fn($value) => number_format((float)$value, 2).' ج.م';
 
 @push('custom-js')
 <script>
-window.FAS_DASHBOARD_V3 = @json([
-    'labels'=>$dashboard['chart']['labels'],
-    'sales'=>$dashboard['chart']['sales'],
-    'orders'=>$dashboard['chart']['orders'],
-]);
+window.FAS_DASHBOARD_V3 = {!! json_encode([
+    'labels' => $dashboard['chart']['labels'],
+    'sales' => $dashboard['chart']['sales'],
+    'orders' => $dashboard['chart']['orders'],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!};
 </script>
 <script src="{{ asset('dashboard-v3/dashboard-v3.js') }}?v=20261003-001"></script>
 @endpush
