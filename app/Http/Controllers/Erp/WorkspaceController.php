@@ -7,6 +7,7 @@ use App\Services\Erp\Actor;
 use App\Services\Erp\Decimal;
 use App\Services\Erp\People;
 use App\Services\Erp\Stock;
+use App\Services\Erp\UnifiedOrders;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -211,22 +212,39 @@ class WorkspaceController extends Controller
         return $this->mutate($r, fn () => $people->close($this->actor($r), $employee, $data['month']), 'تم اعتماد كشف الاستحقاق. الاعتماد لا يسجل صرفًا نقديًا.');
     }
 
-    public function orders(Request $r)
+    public function orders(Request $r, UnifiedOrders $orders)
     {
-        $actor = $this->actor($r); $actor->require('orders.view');
-        $branch = $this->selectedBranch($r, $actor); $branches = $this->branchesFor($actor);
-        $day = $r->query('day', now(config('erp.timezone'))->format('Y-m-d')); $r->merge(['day' => $day]); $r->validate(['day' => 'required|date_format:Y-m-d']);
-        $localDay = Carbon::parse($day, config('erp.timezone'))->startOfDay();
-        $start = $localDay->copy()->setTimezone(config('app.timezone','UTC'));
-        $end = $localDay->copy()->addDay()->setTimezone(config('app.timezone','UTC'));
-        $query = $this->orderQuery($actor, $branch)->where('created_at','>=',$start)->where('created_at','<',$end);
-        $groups = ['new' => ['pending','another_delegate'], 'preparing' => ['accepted','new_order'], 'delivery' => ['shipped'], 'done' => ['completed','cancelled','declined']];
-        $columns = [];
-        foreach ($groups as $key => $statuses) {
-            $q = (clone $query)->whereIn('status', $statuses);
-            $columns[$key] = ['count' => (clone $q)->count(), 'rows' => $q->orderByDesc('id')->limit(30)->get(['id','resturant_id','order_no','status','created_at','payment_type'])];
+        $actor = $this->actor($r);
+        $actor->require('orders.view');
+
+        $day = $r->query('day', now(config('erp.timezone'))->format('Y-m-d'));
+        $r->merge(['day' => $day]);
+
+        $filters = $r->validate([
+            'day' => 'required|date_format:Y-m-d',
+            'app' => ['nullable', Rule::in(UnifiedOrders::APPS)],
+            'kind' => ['nullable', Rule::in(UnifiedOrders::KINDS)],
+            'stage' => ['nullable', Rule::in(UnifiedOrders::STAGES)],
+            'payment' => ['nullable', Rule::in(['cash','wallet','card','mobile_wallet','apple_pay','google_pay'])],
+            'q' => 'nullable|string|max:100',
+        ]);
+
+        $branch = $this->selectedBranch($r, $actor);
+        $branches = $this->branchesFor($actor);
+
+        // Branch managers are constrained in the aggregation service as well as
+        // here. A crafted app/kind query can therefore never expose GO or another branch.
+        if (!$actor->allBranches()) {
+            $filters['app'] = 'fasakhansta';
+            $filters['kind'] = 'branch';
         }
-        return view('erp.orders', compact('columns','branches','branch','day'));
+
+        $dashboard = $orders->dashboard($actor, $branch, $day, $filters);
+        $columns = $dashboard['columns'];
+        $stats = $dashboard['stats'];
+        $version = $dashboard['version'];
+
+        return view('erp.orders', compact('columns','stats','version','branches','branch','day','filters'));
     }
 
     public function accounts(Request $r)
