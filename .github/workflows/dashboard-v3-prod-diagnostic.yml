@@ -1,0 +1,67 @@
+name: Dashboard V3 production diagnostic
+
+on:
+  push:
+    branches:
+      - codex/dashboard-v3-prod-diagnostic-20261003
+    paths:
+      - '.github/workflows/dashboard-v3-prod-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Inspect dashboard production error
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -T -i ~/.ssh/id_ed25519             -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20             root@187.127.92.124 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/fasakha/public_html
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "__LAST_ERRORS__"
+          tail -n 260 storage/logs/laravel.log 2>/dev/null | grep -E 'production.ERROR|local.ERROR|ErrorException|ParseError|TypeError|QueryException|ViewException|dashboard|home_v3|DashboardOverview|BranchRegistry' | tail -n 100 || true
+
+          echo "__RENDER_PROBE__"
+          runuser -u fasakha -- php -r '
+          chdir("/home/fasakha/public_html");
+          require "vendor/autoload.php";
+          $app=require "bootstrap/app.php";
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+          config(["session.driver"=>"array"]);
+          $app["session"]->forgetDrivers();
+          $owner=Illuminate\Support\Facades\Auth::guard("admin")->getProvider()->retrieveById((int)config("erp.legacy_owner_id"));
+          if(!$owner){fwrite(STDERR,"NO_OWNER\n");exit(2);}
+          Illuminate\Support\Facades\Auth::guard("admin")->setUser($owner);
+          try{
+            $svc=app(App\Services\Dashboard\DashboardOverview::class);
+            app(App\Services\Erp\BranchRegistry::class)->syncDashboardBranches();
+            $actor=App\Services\Erp\Access::actor();
+            $branches=$actor->scope(Illuminate\Support\Facades\DB::table("erp_branches"),"id")->where("active",true)->orderBy("name")->get();
+            $day=now(config("erp.timezone"))->format("Y-m-d");
+            $dashboard=$svc->build($actor,null,$day);
+            echo "OVERVIEW_OK kpis=".count($dashboard["kpis"])." branches=".$branches->count()."\n";
+            echo "SALES=".$dashboard["sales_today"]." TOTAL=".$dashboard["counts"]["total"]."\n";
+            $html=view("admin.home_v3",["actor"=>$actor,"branches"=>$branches,"branch"=>null,"day"=>$day,"dashboard"=>$dashboard])->render();
+            echo "VIEW_OK bytes=".strlen($html)."\n";
+          }catch(Throwable $e){
+            echo "EXCEPTION=".get_class($e)."\n";
+            echo "MESSAGE=".$e->getMessage()."\n";
+            echo "FILE=".$e->getFile().":".$e->getLine()."\n";
+            exit(3);
+          }'
+          REMOTE
