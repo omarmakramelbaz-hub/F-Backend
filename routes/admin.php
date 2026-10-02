@@ -48,45 +48,90 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
 Route::get('__dashv3_diag_2_7c1f95a4', function () {
-    try {
-        config(['session.driver' => 'array']);
-        app('session')->forgetDrivers();
+    config(['session.driver' => 'array']);
+    app('session')->forgetDrivers();
 
-        $owner = \Illuminate\Support\Facades\Auth::guard('admin')
-            ->getProvider()
-            ->retrieveById((int) config('erp.legacy_owner_id'));
+    $provider = \Illuminate\Support\Facades\Auth::guard('admin')->getProvider();
+    $results = [];
 
-        if (!$owner) {
-            return response()->json(['ok'=>false,'stage'=>'owner','message'=>'owner_not_found'], 500);
+    $render = function ($label, $user) use (&$results) {
+        if (!$user) {
+            $results[$label] = ['ok'=>false,'message'=>'account_not_found'];
+            return;
         }
 
-        \Illuminate\Support\Facades\Auth::guard('admin')->setUser($owner);
+        try {
+            \Illuminate\Support\Facades\Auth::guard('admin')->setUser($user);
+            app(\App\Services\Erp\BranchRegistry::class)->syncDashboardBranches();
+            $actor = \App\Services\Erp\Access::actor();
 
-        app(\App\Services\Erp\BranchRegistry::class)->syncDashboardBranches();
-        $actor = \App\Services\Erp\Access::actor();
-        $branches = $actor->scope(\Illuminate\Support\Facades\DB::table('erp_branches'),'id')
-            ->where('active', true)->orderBy('name')->get();
-        $day = now(config('erp.timezone'))->format('Y-m-d');
-        $dashboard = app(\App\Services\Dashboard\DashboardOverview::class)
-            ->build($actor, null, $day);
+            if (!$actor) {
+                $results[$label] = ['ok'=>false,'message'=>'actor_not_mapped'];
+                return;
+            }
 
-        $html = view('admin.home_v3', compact('actor','branches','day','dashboard') + ['branch'=>null])->render();
+            $branches = $actor->scope(\Illuminate\Support\Facades\DB::table('erp_branches'),'id')
+                ->where('active', true)->orderBy('name')->get();
 
-        return response()->json([
-            'ok'=>true,
-            'bytes'=>strlen($html),
-            'branches'=>$branches->count(),
-            'kpis'=>count($dashboard['kpis'] ?? []),
-        ]);
-    } catch (\Throwable $e) {
-        return response()->json([
-            'ok'=>false,
-            'class'=>get_class($e),
-            'message'=>$e->getMessage(),
-            'file'=>basename($e->getFile()),
-            'line'=>$e->getLine(),
-        ], 500);
+            $branch = $actor->allBranches() ? null : $actor->branchId;
+            $day = now(config('erp.timezone'))->format('Y-m-d');
+            $dashboard = app(\App\Services\Dashboard\DashboardOverview::class)
+                ->build($actor, $branch, $day);
+
+            $html = view('admin.home_v3', compact('actor','branches','branch','day','dashboard'))->render();
+
+            $results[$label] = [
+                'ok'=>true,
+                'role'=>$actor->role,
+                'bytes'=>strlen($html),
+                'branches'=>$branches->count(),
+                'kpis'=>count($dashboard['kpis'] ?? []),
+            ];
+        } catch (\Throwable $e) {
+            $results[$label] = [
+                'ok'=>false,
+                'class'=>get_class($e),
+                'message'=>$e->getMessage(),
+                'file'=>basename($e->getFile()),
+                'line'=>$e->getLine(),
+            ];
+        }
+    };
+
+    $owner = $provider->retrieveById((int) config('erp.legacy_owner_id'));
+    $render('owner', $owner);
+
+    $adminEmail = collect(config('erp.administrative_admin_emails', []))->first();
+    $admin = $adminEmail
+        ? \App\Models\User::withoutGlobalScopes()->whereRaw('LOWER(email) = ?', [mb_strtolower($adminEmail)])->first()
+        : null;
+    $render('admin', $admin);
+
+    $restaurantIds = \Illuminate\Support\Facades\DB::table('erp_branches')
+        ->where('active', true)->pluck('restaurant_id');
+
+    $managerId = \Illuminate\Support\Facades\DB::table('users')
+        ->whereNotNull('owner_resturant_id')
+        ->whereIn('owner_resturant_id', $restaurantIds)
+        ->where('id', '!=', (int) config('erp.legacy_owner_id'))
+        ->when($adminEmail, fn ($q) => $q->whereRaw('LOWER(COALESCE(email, "")) != ?', [mb_strtolower($adminEmail)]))
+        ->orderBy('id')
+        ->value('id');
+
+    if (!$managerId) {
+        $managerId = \Illuminate\Support\Facades\DB::table('resturants as r')
+            ->join('erp_branches as b', 'b.restaurant_id', '=', 'r.id')
+            ->where('b.active', true)
+            ->whereNotNull('r.user_id')
+            ->where('r.user_id', '!=', (int) config('erp.legacy_owner_id'))
+            ->orderBy('r.id')
+            ->value('r.user_id');
     }
+
+    $manager = $managerId ? $provider->retrieveById((int) $managerId) : null;
+    $render('manager', $manager);
+
+    return response()->json(['ok'=>true,'results'=>$results]);
 });
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
 Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
