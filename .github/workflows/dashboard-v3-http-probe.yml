@@ -1,4 +1,4 @@
-name: Verify Fasakhansta customer branch visibility
+name: Verify admin session and CSRF
 
 on:
   push:
@@ -15,17 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check restaurant API around Mansoura
+      - name: Check login session and CSRF round trip
         shell: bash
         run: |
           set -euo pipefail
-          curl -k -sS --connect-timeout 10 --max-time 30             -H 'Accept: application/json' -H 'Lang: ar'             'https://fasakhaninja.com/api/resturants?lat=31.0409&lng=31.3785'             -o /tmp/restaurants.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/restaurants.json',encoding='utf-8'))
-          rows=d.get('data') or []
-          selected=[{'id':r.get('id'),'name':r.get('name'),'status':r.get('status')} for r in rows if r.get('id') in (361,362,363) or 'المنصورة' in str(r.get('name',''))]
-          print(json.dumps({'count':len(rows),'mansoura':selected},ensure_ascii=False))
-          if not selected:
-              raise SystemExit('NO_MANSOURA_BRANCHES')
+          base='https://fasakhaninja.com'
+          curl -k -sS -c /tmp/cookies.txt             --connect-timeout 10 --max-time 30             "$base/admin/login" -o /tmp/login.html
+
+          token=$(python3 - <<'PY'
+          import re
+          s=open('/tmp/login.html',encoding='utf-8',errors='ignore').read()
+          m=re.search(r'name="_token"\s+value="([^"]+)"',s)
+          print(m.group(1) if m else '')
           PY
+          )
+
+          test -n "$token"
+          code=$(curl -k -sS -b /tmp/cookies.txt -c /tmp/cookies.txt             -o /tmp/post.out -w '%{http_code}'             --connect-timeout 10 --max-time 30             -X POST "$base/admin/login"             --data-urlencode "_token=$token")
+
+          echo "GET_LOGIN_OK=1"
+          echo "CSRF_TOKEN_PRESENT=1"
+          echo "POST_LOGIN_HTTP=$code"
+          if [ "$code" = "419" ]; then
+            echo "CSRF_ROUND_TRIP_FAILED"
+            exit 1
+          fi
+          echo "CSRF_ROUND_TRIP_OK=1"
