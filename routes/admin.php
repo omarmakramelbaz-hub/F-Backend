@@ -141,6 +141,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::post('ordersChangeStatus/{order}', [OrderController::class,'changeStatus'])->name('orders.change_status');
         Route::post('ordersTransferPrice/{order}', [OrderController::class,'transferPrice'])->name('orders.transfer_price');
         Route::get('applies-orders', [OrderController::class,'applies'])->name('orders.applies');
+        Route::post('applies-orders/menu/{product}/status', [OrderController::class,'appOrdersMenuStatus'])->whereNumber('product')->name('orders.applies.menu.status');
         Route::get('cancel/order/{id}/delegate', [OrderController::class,'cancel_order_delegate'])->name('orders.cancel_order_delegate');
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
