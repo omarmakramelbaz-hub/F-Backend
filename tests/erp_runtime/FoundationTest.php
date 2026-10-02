@@ -64,6 +64,61 @@ class FoundationTest extends ErpTestCase
         $this->assertSame(7,DB::table('orders')->count());
     }
 
+    public function test_central_order_center_includes_go_stores_and_services_but_branch_manager_cannot_see_them(): void
+    {
+        Schema::table('users', function (Blueprint $t) {
+            $t->string('mobile')->nullable();
+            $t->string('app_scope')->nullable();
+        });
+        DB::table('users')->insert([
+            ['id'=>3,'name'=>'عميل GO','account_type'=>'user','mobile'=>'01000000003','app_scope'=>'go'],
+            ['id'=>4,'name'=>'متجر GO','account_type'=>'vendor','mobile'=>'01000000004','app_scope'=>'go_partner'],
+            ['id'=>5,'name'=>'صنايعي GO','account_type'=>'delegate','mobile'=>'01000000005','app_scope'=>'go_partner'],
+        ]);
+
+        Schema::create('go_store_orders', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('store_id'); $t->json('snapshot');
+            $t->string('fulfillment'); $t->string('status'); $t->string('payment_status');
+            $t->unsignedBigInteger('total_cents'); $t->string('payment_method');
+            $t->timestamps();
+        });
+        DB::table('go_store_orders')->insert([
+            'id'=>10,'store_id'=>4,
+            'snapshot'=>json_encode(['store_name'=>'متجر اختبار GO','customer_name'=>'عميل GO','customer_mobile'=>'01000000003','items'=>[]], JSON_UNESCAPED_UNICODE),
+            'fulfillment'=>'delivery','status'=>'pending','payment_status'=>'cash_due',
+            'total_cents'=>15000,'payment_method'=>'cash','created_at'=>now(),'updated_at'=>now(),
+        ]);
+
+        Schema::create('go_service_jobs', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('customer_id'); $t->unsignedBigInteger('partner_id')->nullable();
+            $t->string('profession_key'); $t->text('description'); $t->string('address')->nullable();
+            $t->string('status'); $t->unsignedBigInteger('price_cents')->default(0);
+            $t->string('payment_method')->nullable(); $t->string('payment_status')->nullable();
+            $t->timestamps();
+        });
+        DB::table('go_service_jobs')->insert([
+            'id'=>20,'customer_id'=>3,'partner_id'=>5,'profession_key'=>'plumber',
+            'description'=>'إصلاح تسريب','address'=>'المنصورة','status'=>'searching',
+            'price_cents'=>0,'payment_method'=>null,'payment_status'=>null,
+            'created_at'=>now(),'updated_at'=>now(),
+        ]);
+
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $this->get('/erp/orders')
+            ->assertOk()
+            ->assertSee('GS-10')
+            ->assertSee('متجر اختبار GO')
+            ->assertSee('GJ-20');
+
+        $manager=$this->staff('branch_manager',1);
+        $this->actingAs($manager,'erp');
+        $this->get('/erp/orders')
+            ->assertOk()
+            ->assertDontSee('GS-10')
+            ->assertDontSee('GJ-20')
+            ->assertSee('FS-100');
+    }
+
     public function test_branch_scope_is_enforced_on_reads_and_forged_writes(): void
     {
         $user = $this->staff('branch_manager',1);
