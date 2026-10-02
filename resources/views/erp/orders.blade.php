@@ -216,7 +216,7 @@ $ageLabel = function ($minutes) {
                 @endif
 
                 @if($order['description'])
-                    <p class="order-description">{{ IlluminateSupportStr::limit($order['description'], 95) }}</p>
+                    <p class="order-description">{{ mb_strimwidth($order['description'], 0, 95, '…', 'UTF-8') }}</p>
                 @endif
 
                 <div class="order-status-row">
