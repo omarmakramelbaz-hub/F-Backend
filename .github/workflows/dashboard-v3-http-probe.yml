@@ -1,0 +1,25 @@
+name: Dashboard V3 HTTP probe
+
+on:
+  push:
+    branches:
+      - codex/dashboard-v3-http-probe-20261003
+    paths:
+      - .github/workflows/dashboard-v3-http-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe temporary diagnostic route
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -k -sS -o /tmp/diag.out -w '%{http_code}' --connect-timeout 10 --max-time 30 https://fasakhaninja.com/admin/__dashv3_diag_9d7a6c3e2b1f4a88 || true)
+          echo "HTTP=$code"
+          cat /tmp/diag.out || true
+          echo
