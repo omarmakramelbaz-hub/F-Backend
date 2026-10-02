@@ -47,6 +47,47 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
         })->middleware('IsAdmin');
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
+Route::get('__dashv3_diag_9d7a6c3e2b1f4a88', function () {
+    try {
+        config(['session.driver' => 'array']);
+        app('session')->forgetDrivers();
+
+        $owner = \Illuminate\Support\Facades\Auth::guard('admin')
+            ->getProvider()
+            ->retrieveById((int) config('erp.legacy_owner_id'));
+
+        if (!$owner) {
+            return response()->json(['ok'=>false,'stage'=>'owner','message'=>'owner_not_found'], 500);
+        }
+
+        \Illuminate\Support\Facades\Auth::guard('admin')->setUser($owner);
+
+        app(\App\Services\Erp\BranchRegistry::class)->syncDashboardBranches();
+        $actor = \App\Services\Erp\Access::actor();
+        $branches = $actor->scope(\Illuminate\Support\Facades\DB::table('erp_branches'),'id')
+            ->where('active', true)->orderBy('name')->get();
+        $day = now(config('erp.timezone'))->format('Y-m-d');
+        $dashboard = app(\App\Services\Dashboard\DashboardOverview::class)
+            ->build($actor, null, $day);
+
+        $html = view('admin.home_v3', compact('actor','branches','day','dashboard') + ['branch'=>null])->render();
+
+        return response()->json([
+            'ok'=>true,
+            'bytes'=>strlen($html),
+            'branches'=>$branches->count(),
+            'kpis'=>count($dashboard['kpis'] ?? []),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok'=>false,
+            'class'=>get_class($e),
+            'message'=>$e->getMessage(),
+            'file'=>basename($e->getFile()),
+            'line'=>$e->getLine(),
+        ], 500);
+    }
+});
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
 Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
 
