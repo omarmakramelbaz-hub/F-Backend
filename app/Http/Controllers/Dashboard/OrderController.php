@@ -134,8 +134,17 @@ class OrderController extends Controller
         }
     }
     
-    public function applies(Request $request, \App\Services\Erp\UnifiedOrders $unifiedOrders)
+    public function applies(
+        Request $request,
+        \App\Services\Erp\UnifiedOrders $unifiedOrders,
+        \App\Services\Erp\BranchRegistry $branchRegistry
+    )
     {
+        // The dashboard is the source of truth for Fasakhansta branches.
+        // Synchronize its branch/resturant records before resolving the ERP actor,
+        // so the admin selector and branch-manager scope are immediately usable.
+        $branchRegistry->syncDashboardBranches();
+
         $erpActor = \App\Services\Erp\Access::actor();
 
         if ($erpActor && $erpActor->can('orders.view')) {
