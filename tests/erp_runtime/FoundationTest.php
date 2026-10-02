@@ -195,6 +195,14 @@ class FoundationTest extends ErpTestCase
         $home = file_get_contents($root.'/resources/views/admin/home_v3.blade.php');
         $compiled = app('blade.compiler')->compileString($home);
         $this->assertStringContainsString('fas-home-v3', $compiled);
+        // compileString alone does not validate PHP syntax. Parse the compiled
+        // Blade without executing it so production cannot receive a malformed view.
+        try {
+            eval('if (false) { ?>'.$compiled.'<?php }');
+            $this->assertTrue(true);
+        } catch (\ParseError $e) {
+            $this->fail('Compiled Dashboard V3 Blade is invalid PHP: '.$e->getMessage());
+        }
         $this->assertStringContainsString('نوع الحساب الحالي', $home);
         $this->assertStringContainsString('جميع الفروع', $home);
 
