@@ -13,7 +13,7 @@ class ErpAccess
         abort_unless(config('erp.enabled'), 404);
         abort_unless(Access::ready(), 503, 'يلزم تجهيز قاعدة بيانات ERP قبل الدخول.');
         $actor = Access::actor();
-        if (!$actor) { return redirect()->route(config('erp.standalone_auth', false) ? 'erp.login' : 'admin.login'); }
+        if (!$actor) { return config('erp.standalone_auth', false) ? redirect()->route('erp.login') : redirect('/admin/login'); }
         if (!$actor->allBranches()) { $actor->branch($actor->branchId, true); }
         $request->attributes->set('erp_actor', $actor);
         View::share('actor', $actor);
