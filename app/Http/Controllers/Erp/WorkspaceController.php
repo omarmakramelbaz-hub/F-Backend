@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -244,7 +245,65 @@ class WorkspaceController extends Controller
         $stats = $dashboard['stats'];
         $version = $dashboard['version'];
 
-        return view('erp.orders', compact('columns','stats','version','branches','branch','day','filters'));
+        // Menu panel rules:
+        // - owner/deputy: visible only after choosing one branch;
+        // - branch manager: always visible for the assigned branch;
+        // - "all branches" never mixes menu availability from different branches.
+        $showMenu = !$actor->allBranches() || $branch !== null;
+        $menuBranch = $showMenu && $branch ? $branches->firstWhere('id', $branch) : null;
+        $menuItems = collect();
+        $menuCounts = ['available' => 0, 'unavailable' => 0];
+
+        if ($menuBranch && Schema::hasTable('resturant_products')) {
+            $menuItems = DB::table('resturant_products')
+                ->where('resturant_id', $menuBranch->restaurant_id)
+                ->select('id','product_name','product_price','status','category_id')
+                ->orderBy('category_id')
+                ->orderBy('product_name')
+                ->get();
+
+            $menuCounts['available'] = $menuItems->where('status', 'show')->count();
+            $menuCounts['unavailable'] = $menuItems->where('status', 'hide')->count();
+        }
+
+        return view('erp.orders', compact(
+            'columns','stats','version','branches','branch','day','filters',
+            'showMenu','menuBranch','menuItems','menuCounts'
+        ));
+    }
+
+    public function menuProductStatus(Request $r, int $product)
+    {
+        $actor = $this->actor($r);
+        $actor->require('orders.view');
+
+        $data = $r->validate([
+            'branch_id' => 'required|integer|min:1',
+            'status' => ['required', Rule::in(['show','hide'])],
+        ]);
+
+        $branchId = (int) $data['branch_id'];
+        $actor->branch($branchId, true);
+        $erpBranch = DB::table('erp_branches')->where('id', $branchId)->first();
+        abort_unless($erpBranch, 404, 'الفرع غير موجود.');
+
+        $item = DB::table('resturant_products')
+            ->where('id', $product)
+            ->where('resturant_id', $erpBranch->restaurant_id)
+            ->first();
+        abort_unless($item, 404, 'الصنف غير موجود في هذا الفرع.');
+
+        DB::table('resturant_products')->where('id', $product)->update([
+            'status' => $data['status'],
+            'updated_at' => now(),
+        ]);
+
+        $actor->audit('menu.availability', 'resturant_product', $product, [
+            'status' => $data['status'],
+            'restaurant_id' => (int) $erpBranch->restaurant_id,
+        ], $branchId);
+
+        return back()->with('success', $data['status'] === 'show' ? 'تم إتاحة الصنف.' : 'تم إيقاف الصنف مؤقتًا.');
     }
 
     public function accounts(Request $r)
