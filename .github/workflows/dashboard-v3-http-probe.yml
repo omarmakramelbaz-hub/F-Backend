@@ -1,4 +1,5 @@
-name: Dashboard V3 account probe verified\non:
+name: Dashboard V3 account probe verified
+on:
   push:
     branches:
       - codex/dashboard-v3-http-probe-20261003
