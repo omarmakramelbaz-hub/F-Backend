@@ -48,12 +48,18 @@ class FoundationTest extends ErpTestCase
         $this->assertSame(0, DB::table('erp_stock_documents')->count());
     }
 
-    public function test_designated_legacy_admin_opens_app_orders_with_all_enrolled_erp_branches_only(): void
+    public function test_dashboard_admin_reuses_current_login_for_erp_without_second_account(): void
     {
+        config([
+            'erp.standalone_auth'=>false,
+            'erp.administrative_admin_emails'=>['orders-admin@example.test'],
+            'erp.legacy_order_admin_emails'=>['orders-admin@example.test'],
+        ]);
+
         DB::table('users')->insert([
             'id'=>3,
-            'name'=>'Omar Administrative Admin',
-            'email'=>'Omarmakramelbazz@gmail.com',
+            'name'=>'Orders Admin',
+            'email'=>'orders-admin@example.test',
             'account_type'=>'admin',
         ]);
 
@@ -68,33 +74,36 @@ class FoundationTest extends ErpTestCase
             ->assertSee('FS-100')
             ->assertSee('FS-101');
 
-        $this->get('/erp/orders?branch=1')
+        $this->get('/erp/login')->assertRedirect('/erp/orders');
+        $this->get('/erp/inventory')->assertOk();
+        $this->get('/erp/accounts')->assertNotFound();
+    }
+
+    public function test_dashboard_branch_manager_is_mapped_to_its_enrolled_erp_branch(): void
+    {
+        config(['erp.standalone_auth'=>false]);
+
+        DB::table('users')->insert([
+            'id'=>4,
+            'name'=>'Branch Manager',
+            'email'=>'branch@example.test',
+            'account_type'=>'vendor',
+            'owner_resturant_id'=>1,
+        ]);
+        DB::table('resturants')->where('id',1)->update(['user_id'=>4]);
+
+        $manager=LegacyOwner::findOrFail(4);
+        $this->actingAs($manager,'admin');
+
+        $this->get('/erp/orders')
             ->assertOk()
             ->assertSee('FS-100')
             ->assertDontSee('FS-101')
             ->assertDontSee('EXTERNAL-SECRET');
 
-        $this->get('/erp/inventory')->assertForbidden();
-        $this->get('/erp/accounts')->assertForbidden();
-    }
-
-    public function test_designated_admin_reuses_existing_admin_session_without_second_erp_login(): void
-    {
-        config(['erp.legacy_order_admin_emails'=>['orders-admin@example.test']]);
-        DB::table('users')->insert([
-            'id'=>3,
-            'name'=>'Orders Admin',
-            'email'=>'orders-admin@example.test',
-            'account_type'=>'vendor',
-        ]);
-
-        $admin=LegacyOwner::findOrFail(3);
-        $this->actingAs($admin,'admin');
-
-        $this->get('/erp/orders')->assertOk()->assertSee('طلبات التطبيق');
-        $this->get('/erp/login')->assertRedirect('/erp');
-        $this->get('/erp/inventory')->assertForbidden();
-        $this->get('/erp/accounts')->assertForbidden();
+        $this->get('/erp/orders?branch=2')->assertForbidden();
+        $this->get('/erp/branches')->assertForbidden();
+        $this->get('/erp/login')->assertRedirect('/erp/orders');
     }
 
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
