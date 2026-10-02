@@ -1,0 +1,95 @@
+name: ERP foundation tests
+on:
+  push:
+    branches: ['codex/fasakhansta-erp-*']
+  pull_request:
+    paths:
+      - 'app/**/Erp/**'
+      - 'app/Http/Middleware/ErpAccess.php'
+      - 'app/Providers/RouteServiceProvider.php'
+      - 'config/auth.php'
+      - 'config/erp.php'
+      - 'routes/erp.php'
+      - 'resources/views/erp/**'
+      - 'resources/views/admin/layouts/menu.blade.php'
+      - 'public/erp/**'
+      - 'database/migrations/*erp_*.php'
+      - 'tests/erp_runtime/**'
+      - '.devcontainer/**'
+      - 'deployment/erp_backup.php'
+      - '.github/workflows/erp-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  trial:
+    name: Codespaces trial runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact trial container
+        run: docker build -t erp-trial .devcontainer
+      - name: Install and seed the isolated trial
+        run: docker run --rm -v "$PWD:/work" -w /work erp-trial bash tests/erp_runtime/demo/install.sh
+      - name: Exercise trial HTTP sessions and mutations
+        run: docker run --rm -v "$PWD:/work" -w /work erp-trial python3 tests/erp_runtime/demo/smoke.py
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        db: [sqlite, mysql]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: erp_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, pdo_mysql, pcntl, mbstring, dom, xml, xmlwriter
+          tools: composer:2
+          coverage: none
+      - name: Check PHP syntax
+        run: |
+          find app/Services/Erp app/Models/Erp app/Http/Controllers/Erp -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l app/Http/Middleware/ErpAccess.php
+          php -l routes/erp.php
+          php -l app/Providers/RouteServiceProvider.php
+          find database/migrations -name '*erp_*.php' -print0 | xargs -0 -n1 php -l
+          php -l deployment/erp_backup.php
+      - name: Install database backup client for isolated verification
+        if: matrix.db == 'mysql'
+        run: sudo apt-get update -qq && sudo apt-get install -y mysql-client
+      - name: Install isolated test dependencies
+        run: composer install --working-dir=tests/erp_runtime --no-interaction --prefer-dist --no-progress
+      - name: Run integration and authorization tests
+        working-directory: tests/erp_runtime
+        run: php vendor/bin/phpunit
+        env:
+          ERP_TEST_MYSQL: ${{ matrix.db == 'mysql' && '1' || '0' }}
+          ERP_TEST_MYSQL_PASSWORD: test-only
+          ERP_RENDER_DIR: ${{ runner.temp }}/erp-render
+      - name: Verify desktop and mobile screens
+        if: matrix.db == 'sqlite'
+        run: |
+          python3 tests/erp_runtime/demo/smoke.py
+          npm install --prefix "$RUNNER_TEMP/erp-browser" playwright@1.52.0 --no-audit --no-fund
+          node tests/erp_runtime/browser.cjs
+        env:
+          ERP_RENDER_DIR: ${{ runner.temp }}/erp-render
+          ERP_PLAYWRIGHT_MODULE: ${{ runner.temp }}/erp-browser/node_modules/playwright
+          ERP_CHROME: /usr/bin/google-chrome
+      - name: Preserve UI review screenshots
+        if: always() && matrix.db == 'sqlite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-ui-review
+          path: ${{ runner.temp }}/erp-render/*.png
+          if-no-files-found: ignore

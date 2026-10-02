@@ -23,6 +23,7 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('api')->prefix('api')->group(base_path('routes/go_services.php'));
             Route::middleware('web')->group(base_path('routes/web.php'));
             Route::middleware('web')->group(base_path('routes/admin.php'));
+            Route::middleware('web')->group(base_path('routes/erp.php'));
         });
     }
 

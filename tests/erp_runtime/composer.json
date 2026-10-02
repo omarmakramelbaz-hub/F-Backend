@@ -1,0 +1,28 @@
+{
+  "name": "fasakhansta/erp-runtime-tests",
+  "description": "Isolated Laravel 8 integration tests for the ERP foundation",
+  "type": "project",
+  "require-dev": {
+    "orchestra/testbench": "^6.47",
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "../../app/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "ErpTests\\": "./"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "audit": {
+      "block-insecure": false
+    },
+    "platform": {
+      "php": "8.2.33"
+    }
+  }
+}
