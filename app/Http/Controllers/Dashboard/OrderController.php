@@ -134,52 +134,162 @@ class OrderController extends Controller
         }
     }
     
-    public function applies()
+    public function applies(Request $request, \App\Services\Erp\UnifiedOrders $unifiedOrders)
     {
         $erpActor = \App\Services\Erp\Access::actor();
+
         if ($erpActor && $erpActor->can('orders.view')) {
-            return redirect()->route('erp.orders');
+            $day = $request->query('day', now(config('erp.timezone'))->format('Y-m-d'));
+            $request->merge(['day' => $day]);
+
+            $filters = $request->validate([
+                'day' => 'required|date_format:Y-m-d',
+                'app' => ['nullable', \Illuminate\Validation\Rule::in(\App\Services\Erp\UnifiedOrders::APPS)],
+                'kind' => ['nullable', \Illuminate\Validation\Rule::in(\App\Services\Erp\UnifiedOrders::KINDS)],
+                'stage' => ['nullable', \Illuminate\Validation\Rule::in(\App\Services\Erp\UnifiedOrders::STAGES)],
+                'payment' => ['nullable', \Illuminate\Validation\Rule::in(['cash','wallet','card','mobile_wallet','apple_pay','google_pay'])],
+                'q' => 'nullable|string|max:100',
+                'branch' => 'nullable|integer|min:1',
+            ]);
+
+            $branches = $erpActor
+                ->scope(\Illuminate\Support\Facades\DB::table('erp_branches'), 'id')
+                ->where('active', true)
+                ->orderBy('name')
+                ->get();
+
+            if ($request->filled('branch')) {
+                $branch = (int) $request->branch;
+                $erpActor->branch($branch, true);
+            } else {
+                $branch = $erpActor->allBranches() ? null : $erpActor->branchId;
+                if ($branch !== null) {
+                    $erpActor->branch((int) $branch, true);
+                }
+            }
+
+            if (!$erpActor->allBranches()) {
+                $filters['app'] = 'fasakhansta';
+                $filters['kind'] = 'branch';
+            }
+
+            $dashboard = $unifiedOrders->dashboard($erpActor, $branch, $day, $filters);
+            $columns = $dashboard['columns'];
+            $stats = $dashboard['stats'];
+            $version = $dashboard['version'];
+
+            $showMenu = !$erpActor->allBranches() || $branch !== null;
+            $menuBranch = $showMenu && $branch ? $branches->firstWhere('id', $branch) : null;
+            $menuItems = collect();
+            $menuCounts = ['available' => 0, 'unavailable' => 0];
+
+            if ($menuBranch && \Illuminate\Support\Facades\Schema::hasTable('resturant_products')) {
+                $menuItems = \Illuminate\Support\Facades\DB::table('resturant_products')
+                    ->where('resturant_id', $menuBranch->restaurant_id)
+                    ->select('id','product_name','product_price','status','category_id')
+                    ->orderBy('category_id')
+                    ->orderBy('product_name')
+                    ->get();
+
+                $menuCounts['available'] = $menuItems->where('status', 'show')->count();
+                $menuCounts['unavailable'] = $menuItems->where('status', 'hide')->count();
+            }
+
+            return view('admin.orders.app_orders', [
+                'actor' => $erpActor,
+                'columns' => $columns,
+                'stats' => $stats,
+                'version' => $version,
+                'branches' => $branches,
+                'branch' => $branch,
+                'day' => $day,
+                'filters' => $filters,
+                'showMenu' => $showMenu,
+                'menuBranch' => $menuBranch,
+                'menuItems' => $menuItems,
+                'menuCounts' => $menuCounts,
+            ]);
         }
 
         $orders = Order::query()->with('carts');
-        
 
         if(request('q') == 'accepted'){
-        $orders = $orders->whereIn('status',['accepted','shipped','new_order']);
+            $orders = $orders->whereIn('status',['accepted','shipped','new_order']);
         }
         else if(request('q') == 'completed'){
-        $orders = $orders->where(function ($q) {
-                    $q->whereIn('status', ['cancelled', 'completed', 'declined'])
-                      ->orWhereNull('status');
-                });
+            $orders = $orders->where(function ($q) {
+                $q->whereIn('status', ['cancelled', 'completed', 'declined'])
+                  ->orWhereNull('status');
+            });
         }
         else if(request('q') == 'pending'){
-        $orders = $orders->whereIn('status',['pending','another_delegate']);
+            $orders = $orders->whereIn('status',['pending','another_delegate']);
         }
         if(! empty(request('status'))){
             $orders = $orders->where('status',request('status'));
         }
-        
+
         if(! empty(request('order_no'))){
             $orders = $orders->where('order_no' , 'like', '%' . request()->order_no . '%');
         }
         if(! empty(request()->delegate_from_out) ){
             $orders = $orders->where('delegate_from_out' , request()->delegate_from_out);
         }
-        
+
         if(! empty(request()->date) ){
             $orders = $orders->whereDate('created_at' , request()->date);
         }
-       
-         if(request()->q){
-              $orders = $orders->has('carts')->orderBy('id','DESC')->paginate(10);
+
+        if(request()->q){
+            $orders = $orders->has('carts')->orderBy('id','DESC')->paginate(10);
             return view('admin.orders.applies', compact('orders'));
-         }else{
-              $orders = $orders->has('carts')->orderBy('id','DESC')->get();
-              return view('admin.orders.applies_card', compact('orders'));
-         }
+        }else{
+            $orders = $orders->has('carts')->orderBy('id','DESC')->get();
+            return view('admin.orders.applies_card', compact('orders'));
+        }
     }
-     public function changeStatus(Order $order, Request $request)
+
+    public function appOrdersMenuStatus(Request $request, int $product)
+    {
+        $actor = \App\Services\Erp\Access::actor();
+        abort_unless($actor && $actor->can('orders.view'), 403);
+
+        $data = $request->validate([
+            'branch_id' => 'required|integer|min:1',
+            'status' => ['required', \Illuminate\Validation\Rule::in(['show','hide'])],
+        ]);
+
+        $branchId = (int) $data['branch_id'];
+        $actor->branch($branchId, true);
+
+        $erpBranch = \Illuminate\Support\Facades\DB::table('erp_branches')
+            ->where('id', $branchId)
+            ->where('active', true)
+            ->first();
+        abort_unless($erpBranch, 404, 'الفرع غير موجود.');
+
+        $item = \Illuminate\Support\Facades\DB::table('resturant_products')
+            ->where('id', $product)
+            ->where('resturant_id', $erpBranch->restaurant_id)
+            ->first();
+        abort_unless($item, 404, 'الصنف غير موجود في هذا الفرع.');
+
+        \Illuminate\Support\Facades\DB::table('resturant_products')
+            ->where('id', $product)
+            ->update(['status' => $data['status'], 'updated_at' => now()]);
+
+        $actor->audit('menu.availability', 'resturant_product', $product, [
+            'status' => $data['status'],
+            'restaurant_id' => (int) $erpBranch->restaurant_id,
+        ], $branchId);
+
+        return back()->with(
+            'success',
+            $data['status'] === 'show' ? 'تم إتاحة الصنف.' : 'تم إيقاف الصنف مؤقتًا.'
+        );
+    }
+
+    public function changeStatus(Order $order, Request $request)
     {
         if (\App\Services\GoPayments\OrderPayments::record((int)$order->id)) {
             if ($request->status==='completed') app(\App\Services\GoPayments\OrderPayments::class)->finish((int)$order->id);

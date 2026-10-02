@@ -106,6 +106,24 @@ class FoundationTest extends ErpTestCase
         $this->get('/erp/login')->assertRedirect('/erp/orders');
     }
 
+    public function test_embedded_admin_app_orders_view_compiles_and_review_link_stays_in_dashboard(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $blade = file_get_contents($root.'/resources/views/admin/orders/app_orders.blade.php');
+        $compiled = app('blade.compiler')->compileString($blade);
+
+        $this->assertStringContainsString('app-orders-dashboard', $compiled);
+        $this->assertStringContainsString("route('orders.applies')", $blade);
+        $this->assertStringContainsString("route('orders.applies.menu.status'", $blade);
+
+        $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
+        $this->assertStringContainsString("url('/admin/applies-orders')", $menu);
+        $this->assertStringNotContainsString("route('erp.orders') : url('/admin/applies-orders')", $menu);
+
+        $this->assertFileExists($root.'/public/erp-assets/admin-app-orders.css');
+        $this->assertFileExists($root.'/public/erp-assets/admin-app-orders.js');
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');
