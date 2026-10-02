@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>@yield('title', 'إدارة فسخانستا') | فسخانستا ERP</title>@php($erpCssVersion = @filemtime(public_path('erp-assets/workspace.css')) ?: time())<link rel="stylesheet" href="{{ asset('erp-assets/workspace.css') }}?v={{ $erpCssVersion }}"></head>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>@yield('title', 'إدارة فسخانستا') | فسخانستا ERP</title><link rel="stylesheet" href="{{ asset('erp-assets/workspace.css') }}?v=20261002-2020"></head>
 <body class="@yield('page-mode')">
 @php
 $roleNames = ['owner'=>'المالك','deputy_manager'=>'أدمن إداري','branch_manager'=>'مدير الفرع'];
@@ -11,4 +11,4 @@ $nav = [['erp.home','الرئيسية','◈',null],['erp.orders','طلبات ا�
 @if(session('success'))<div class="notice success" role="status">{{ session('success') }}</div>@endif
 @if($errors->any())<div class="notice error" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
 @if(!\Illuminate\Support\Facades\DB::table('erp_ledger_state')->where('id',1)->value('initialized_at'))<div class="notice">يلزم تهيئة دفتر الحسابات قبل ترحيل المخزون والمرتبات. @if($actor->can('finance.manage'))<a href="{{ route('erp.finance') }}">فتح الحسابات والكاش</a>@else تواصل مع المالك لتهيئة الأرصدة.@endif</div>@endif
-@yield('content')</main></div>@php($erpJsVersion = @filemtime(public_path('erp-assets/workspace.js')) ?: time())<script src="{{ asset('erp-assets/workspace.js') }}?v={{ $erpJsVersion }}" defer></script></body></html>
+@yield('content')</main></div><script src="{{ asset('erp-assets/workspace.js') }}?v=20261002-2020" defer></script></body></html>
