@@ -119,6 +119,24 @@ class UnifiedOrders
         $query = DB::table('orders as o')
             ->leftJoin('resturants as r', 'r.id', '=', 'o.resturant_id');
 
+        $hasCartTotals = Schema::hasTable('carts')
+            && Schema::hasColumn('carts', 'price')
+            && Schema::hasColumn('carts', 'qty');
+
+        if ($hasCartTotals) {
+            $cartLineTotal = Schema::hasColumn('carts', 'updated_total')
+                ? 'COALESCE(updated_total, price * qty, 0)'
+                : 'COALESCE(price * qty, 0)';
+
+            $cartTotals = DB::table('carts')
+                ->select('order_id', DB::raw('SUM('.$cartLineTotal.') AS cart_total'))
+                ->groupBy('order_id');
+
+            $query->leftJoinSub($cartTotals, 'cart_totals', function ($join) {
+                $join->on('cart_totals.order_id', '=', 'o.id');
+            });
+        }
+
         if ($hasUserId) {
             $query->leftJoin('users as customer', 'customer.id', '=', 'o.user_id');
         }
@@ -140,6 +158,7 @@ class UnifiedOrders
             'o.id', 'o.order_no', 'o.resturant_id', 'o.type', 'o.status',
             'o.payment_type', 'o.created_at', 'r.name as restaurant_name',
             $hasOrderTotal ? 'o.total_price' : DB::raw('NULL as total_price'),
+            $hasCartTotals ? 'cart_totals.cart_total' : DB::raw('NULL as cart_total'),
             $hasUserId ? 'o.user_id' : DB::raw('NULL as user_id'),
             $hasDelegateId ? 'o.delegate_id' : DB::raw('NULL as delegate_id'),
             $hasOrderUpdatedAt ? 'o.updated_at' : DB::raw('NULL as updated_at'),
@@ -181,7 +200,9 @@ class UnifiedOrders
                     'status_label' => $this->legacyStatus((string) $order->status),
                     'payment_method' => $this->paymentKey($order->payment_type),
                     'payment_status' => null,
-                    'amount_cents' => $order->total_price !== null ? (int) round(((float) $order->total_price) * 100) : null,
+                    'amount_cents' => $order->total_price !== null
+                        ? (int) round(((float) $order->total_price) * 100)
+                        : ($order->cart_total !== null ? (int) round(((float) $order->cart_total) * 100) : null),
                     'description' => $shipping ? 'طلب توصيل / مندوب عبر GO' : null,
                     'items' => [],
                     'created_at' => $order->created_at,
