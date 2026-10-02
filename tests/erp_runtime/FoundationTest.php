@@ -174,6 +174,39 @@ class FoundationTest extends ErpTestCase
         $this->assertContains('FS-LINK-10',$numbers);
     }
 
+    public function test_dashboard_v3_builds_account_scoped_kpis_and_assets_compile(): void
+    {
+        $overview = app(\App\Services\Dashboard\DashboardOverview::class)->build(
+            $this->actor('deputy_manager'),
+            null,
+            now(config('erp.timezone'))->format('Y-m-d')
+        );
+
+        $this->assertCount(6, $overview['kpis']);
+        $this->assertArrayHasKey('new', $overview['counts']);
+        $this->assertArrayHasKey('preparing', $overview['counts']);
+        $this->assertArrayHasKey('delivery', $overview['counts']);
+        $this->assertArrayHasKey('done', $overview['counts']);
+        $this->assertCount(7, $overview['chart']['labels']);
+        $this->assertCount(7, $overview['chart']['sales']);
+        $this->assertCount(7, $overview['chart']['orders']);
+
+        $root = dirname(__DIR__, 2);
+        $home = file_get_contents($root.'/resources/views/admin/home_v3.blade.php');
+        $compiled = app('blade.compiler')->compileString($home);
+        $this->assertStringContainsString('fas-home-v3', $compiled);
+        $this->assertStringContainsString('نوع الحساب الحالي', $home);
+        $this->assertStringContainsString('جميع الفروع', $home);
+
+        $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
+        $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
+        $this->assertStringContainsString('fas-modern-brand', $menu);
+        $this->assertStringContainsString('طلبات التطبيق', $menu);
+        $this->assertStringContainsString('fas-topbar-search', $navbar);
+        $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.css');
+        $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
+    }
+
     public function test_deputy_controls_all_branches_inventory_and_employees_but_not_accounts(): void
     {
         $this->actingAs($this->staff(),'erp');
