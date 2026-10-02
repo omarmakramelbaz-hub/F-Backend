@@ -30,7 +30,7 @@ class Access
         // Keep the existing legacy administrative-admin login, but scope its ERP
         // access to the application-orders workspace only. The Actor remains a
         // central role so it can select any branch enrolled in erp_branches.
-        if ($owner && in_array($owner->account_type, ['admin','super_admin'], true)) {
+        if ($owner) {
             $email = mb_strtolower(trim((string) ($owner->email ?? '')));
             $allowed = config('erp.legacy_order_admin_emails', []);
             if ($email !== '' && in_array($email, $allowed, true)) {
