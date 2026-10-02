@@ -33,7 +33,7 @@ class FoundationTest extends ErpTestCase
                 file_put_contents($folder.'/'.($page ?: 'home').'.html', $response->getContent());
             }
         }
-        $this->get('/erp/orders')->assertDontSee('EXTERNAL-SECRET')->assertSee('FS-100');
+        $this->get('/erp/orders')->assertSee('EXTERNAL-SECRET')->assertSee('FS-100');
         $this->get('/erp/payroll?month=2026-02')->assertOk();
     }
 
@@ -53,7 +53,7 @@ class FoundationTest extends ErpTestCase
         $this->actingAs($this->staff(),'erp');
         $this->get('/erp/branches')->assertOk()->assertSee('مدينة نصر')->assertSee('المعادي');
         $this->get('/erp/inventory')->assertOk()->assertSee('المخزن المركزي');
-        $this->get('/erp/employees')->assertOk()->assertSee('أحمد محمد')->assertSee('محمود علي');
+        $this->get('/erp/employees')->assertOk()->assertSee('أحمد محمد')->assertSee('محمود علي');\n        $this->get('/erp/orders')->assertOk()->assertSee('EXTERNAL-SECRET');
         $this->get('/erp/accounts')->assertForbidden();
         $this->post('/erp/accounts', [])->assertForbidden();
         $this->post('/erp/stock',$this->stock())->assertRedirect()->assertSessionHas('success');
@@ -72,7 +72,7 @@ class FoundationTest extends ErpTestCase
         $this->get('/erp/employees?branch=2')->assertForbidden();
         $this->get('/erp/payroll')->assertForbidden();
         $this->get('/erp/branches')->assertForbidden();
-        $this->get('/erp/inventory')->assertOk()->assertDontSee('المخزن المركزي')->assertDontSee('مخزن المعادي');
+        $this->get('/erp/inventory')->assertOk()->assertDontSee('المخزن المركزي')->assertDontSee('مخزن المعادي');\n        $this->get('/erp/orders')->assertOk()->assertSee('FS-100')->assertDontSee('FS-101')->assertDontSee('EXTERNAL-SECRET');\n        $this->get('/erp/orders?branch=2')->assertForbidden();
         $this->post('/erp/employees/2/attendance',['day'=>'2026-09-30','status'=>'absent'])->assertForbidden();
         $this->post('/erp/stock',$this->stock(['warehouse_id'=>3]))->assertForbidden();
         $this->post('/erp/stock',$this->stock(['warehouse_id'=>2,'type'=>'transfer','destination_id'=>3]))->assertForbidden();
