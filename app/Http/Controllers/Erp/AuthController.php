@@ -21,7 +21,7 @@ class AuthController extends Controller
         }
 
         if (!config('erp.standalone_auth', false)) {
-            return redirect()->route('admin.login');
+            return redirect('/admin/login');
         }
 
         return view('erp.login');
@@ -73,6 +73,6 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('admin.login');
+        return redirect('/admin/login');
     }
 }
