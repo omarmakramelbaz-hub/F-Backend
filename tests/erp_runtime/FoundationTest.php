@@ -238,6 +238,8 @@ class FoundationTest extends ErpTestCase
         $menu = file_get_contents($root.'/resources/views/admin/layouts/menu.blade.php');
         $navbar = file_get_contents($root.'/resources/views/admin/layouts/navbar.blade.php');
         $this->assertStringContainsString('fas-modern-brand', $menu);
+        $this->assertStringContainsString('fas-brand-emblem', $menu);
+        $this->assertStringNotContainsString('data:image/webp;base64', $menu);
         $this->assertStringContainsString('طلبات التطبيق', $menu);
         $this->assertStringContainsString("@lang('main.Roles')", $menu);
         $this->assertStringContainsString("@lang('main.Admins')", $menu);
@@ -252,6 +254,13 @@ class FoundationTest extends ErpTestCase
         $this->assertStringContainsString('grid-template-rows:44px auto 82px minmax(0,1fr) 176px', $css);
         $this->assertStringContainsString('grid-template-areas:"sales live events"', $css);
         $this->assertStringContainsString('.custom-period-form.open', $css);
+        $this->assertStringContainsString('color:#eef6fb!important', $css);
+        $this->assertStringContainsString('.fas-brand-emblem', $css);
+
+        $categoryController = file_get_contents($root.'/app/Http/Controllers/Api/V1/Home/CategoryController.php');
+        $this->assertStringContainsString('restaurantMatchesCustomerLocation', $categoryController);
+        $this->assertStringContainsString('<= 25', $categoryController);
+
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.css');
         $this->assertFileExists($root.'/public/dashboard-v3/dashboard-v3.js');
     }
