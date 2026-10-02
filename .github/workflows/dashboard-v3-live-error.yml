@@ -5,7 +5,7 @@ on:
     branches:
       - codex/dashboard-v3-live-error-20261003
     paths:
-      - '.github/workflows/dashboard-v3-live-error.yml'
+      - .github/workflows/dashboard-v3-live-error.yml
 
 permissions:
   contents: read
@@ -29,29 +29,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -T -i ~/.ssh/id_ed25519             -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20             root@187.127.92.124 'bash -se' <<'REMOTE'
-          set -euo pipefail
-          cd /home/fasakhaninja/public_html
-          echo "HEAD=$(git rev-parse HEAD)"
-          echo "__LATEST_EXCEPTION_BLOCK__"
-          python3 - <<'PY'
-from pathlib import Path
-p=Path("storage/logs/laravel.log")
-if not p.exists():
-    print("NO_LOG")
-    raise SystemExit
-lines=p.read_text(errors="replace").splitlines()
-start=max(0,len(lines)-500)
-chunk=lines[start:]
-hits=[i for i,l in enumerate(chunk) if ("production.ERROR" in l or "local.ERROR" in l)]
-if not hits:
-    print("\n".join(chunk[-120:]))
-else:
-    i=hits[-1]
-    print("\n".join(chunk[max(0,i):min(len(chunk),i+90)]))
-PY
-          echo "__BLADE_CACHE__"
-          ls -lt storage/framework/views | head -n 8 || true
-          echo "__LAYOUT_SNIPPETS__"
-          grep -n "fasV3Actor" resources/views/admin/index.blade.php resources/views/admin/layouts/header.blade.php resources/views/admin/layouts/menu.blade.php resources/views/admin/layouts/navbar.blade.php || true
-          REMOTE
+          ssh -T -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 root@187.127.92.124 "cd /home/fasakhaninja/public_html && echo HEAD=\$(git rev-parse HEAD) && echo __LATEST_LOG__ && tail -n 220 storage/logs/laravel.log 2>/dev/null && echo __ACTOR_REFS__ && grep -n fasV3Actor resources/views/admin/index.blade.php resources/views/admin/layouts/header.blade.php resources/views/admin/layouts/menu.blade.php resources/views/admin/layouts/navbar.blade.php || true"
