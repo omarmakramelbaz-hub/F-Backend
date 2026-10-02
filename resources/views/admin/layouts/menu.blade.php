@@ -2,10 +2,16 @@
 <aside class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link" style="font-size: 16px;">
-        <span class="brand-text font-weight-light">{{ app(App\Models\GeneralSettings::class)->site_name }}</span>
-        <!--<img class="logo-ar" src="{{url('dashboard/dist/img/Layer.svg')}}" width="145px" alt="admin image">-->
-        <!--<img class="logo-en" src="{{url('dashboard/dist/img/logo-en.svg')}}" width="145px" alt="admin image">-->
+    <a href="{{ url('/admin/dashboard') }}" class="brand-link">
+        @if($fasV3Actor)
+            <span class="fas-modern-brand">
+                <img src="data:image/webp;base64,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" alt="فسخانستا">
+                <strong>فسخانستا</strong>
+                <small>إدارة الفروع والعمليات</small>
+            </span>
+        @else
+            <span class="brand-text font-weight-light">{{ app(App\Models\GeneralSettings::class)->site_name }}</span>
+        @endif
     </a>
     <hr>
     <!-- Sidebar -->
