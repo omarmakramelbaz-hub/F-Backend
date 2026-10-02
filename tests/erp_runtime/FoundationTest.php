@@ -119,6 +119,38 @@ class FoundationTest extends ErpTestCase
             ->assertSee('FS-100');
     }
 
+    public function test_app_orders_menu_visibility_and_branch_scope(): void
+    {
+        Schema::create('resturant_products', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('resturant_id');
+            $t->string('product_name');
+            $t->decimal('product_price', 10, 2);
+            $t->string('status');
+            $t->unsignedBigInteger('category_id')->nullable();
+            $t->timestamp('updated_at')->nullable();
+        });
+        DB::table('resturant_products')->insert([
+            ['id'=>1,'resturant_id'=>1,'product_name'=>'فسيخ اختبار','product_price'=>200,'status'=>'show','category_id'=>1],
+            ['id'=>2,'resturant_id'=>2,'product_name'=>'رنجة اختبار','product_price'=>150,'status'=>'hide','category_id'=>1],
+        ]);
+
+        $this->actingAs(LegacyOwner::findOrFail(1),'admin');
+        $this->get('/erp/orders')->assertOk()->assertDontSee('إدارة المينيو')->assertDontSee('فسيخ اختبار');
+        $this->get('/erp/orders?branch=1')->assertOk()->assertSee('إدارة المينيو')->assertSee('فسيخ اختبار')->assertDontSee('رنجة اختبار');
+
+        Auth::guard('admin')->logout();
+        $manager=$this->staff('branch_manager',1);
+        $this->actingAs($manager,'erp');
+        $this->get('/erp/orders')->assertOk()->assertSee('إدارة المينيو')->assertSee('فسيخ اختبار')->assertDontSee('رنجة اختبار');
+
+        $this->post('/erp/orders/menu/1/status',['branch_id'=>1,'status'=>'hide'])->assertRedirect();
+        $this->assertSame('hide',DB::table('resturant_products')->where('id',1)->value('status'));
+
+        $this->post('/erp/orders/menu/2/status',['branch_id'=>2,'status'=>'show'])->assertForbidden();
+        $this->assertSame('hide',DB::table('resturant_products')->where('id',2)->value('status'));
+    }
+
     public function test_branch_scope_is_enforced_on_reads_and_forged_writes(): void
     {
         $user = $this->staff('branch_manager',1);
