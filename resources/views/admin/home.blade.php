@@ -26,7 +26,7 @@
 </style>
 <!-- Content Wrapper. Contains page content -->
   <div class="content-wrapper">
-    @if(auth('admin')->user()->roles->pluck("id")->first() == 11)
+    @if((auth('admin')->id() === 635 || auth('admin')->user()->roles->pluck("id")->first() == 11))
     <!-- Content Header (Page header) -->
     <div class="content-header">
       <div class="container-fluid">
@@ -46,7 +46,7 @@
       <div class="container-fluid">
       @can('home-list')
       
-      @if(auth('admin')->user()->roles->pluck("id")->first() == 11)
+      @if((auth('admin')->id() === 635 || auth('admin')->user()->roles->pluck("id")->first() == 11))
         <!-- Small boxes (Stat box) -->
         <div class="row gy-3 mb-3">
             @php $main_resturant = \App\Models\Resturant::where('id',1)->first(); @endphp
