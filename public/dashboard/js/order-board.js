@@ -118,13 +118,18 @@
     function errorText(response, payload) {
         if (response.status === 401 || response.status === 419) return translated('session_expired');
         if (response.status === 403) return translated('forbidden');
+        // Server faults can contain exception messages; keep them out of the operator UI.
+        if (response.status >= 500) return translated('error');
         if (response.status === 409) return payload.message || translated('stale');
         return payload.message || translated('error');
     }
 
     async function readJson(response) {
         var payload;
-        try { payload = await response.json(); } catch (_) { payload = {}; }
+        var parsed = false;
+        try { payload = await response.json(); parsed = true; } catch (_) { payload = {}; }
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { payload = {}; parsed = false; }
+        if (response.ok && !parsed) throw new Error(translated('error'));
         if (!response.ok || payload.success === false || payload.status === 'Error') {
             var error = new Error(errorText(response, payload));
             error.status = response.status;

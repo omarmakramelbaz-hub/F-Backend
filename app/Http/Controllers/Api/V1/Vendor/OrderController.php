@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Api\V1\Vendor;
 use App\Services\OrderBroadcastService;
 use App\Services\OrderAction;
+use App\Services\Dashboard\BestEffortOrderMail;
 use App\Events\OrderStatusUpdated;
 use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
@@ -24,7 +25,6 @@ use \Carbon\Carbon;
 use App\Models\Wallet;
 use App\Models\GeneralSettings;
 use App\Interfaces\ResturantRepositoryInterface;
-use Mail;
 use DB;
 use App\Http\Requests\Api\Vendor\UpdateOrderTotalRequest;
 use App\Events\DelegateUpdated;
@@ -147,7 +147,7 @@ class OrderController extends Controller
 
             $email = $user_order_owner->email ?? null;
             if ($email) {
-                Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                app(BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                     $message->to($email);
                     $message->subject('Your order has been received!');
 
@@ -327,7 +327,7 @@ if ($resturant_owner) {
 
                 $email = $user_order_owner->email;
                 if ($email) {
-                    Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                    app(BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                         $message->to($email);
                         $message->subject('Your order has been received!');
 

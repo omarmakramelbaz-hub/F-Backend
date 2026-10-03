@@ -3,7 +3,7 @@
     <!-- Left navbar links -->
     <ul class="navbar-nav align-items-center">
         <li class="nav-item">
-            <a class="nav-link" data-widget="pushmenu" href="#"><i class="fas fa-bars"></i></a>
+            <a class="nav-link" data-widget="pushmenu" data-screen-collapse-size="992" href="#"><i class="fas fa-bars"></i></a>
         </li>
         <li class="nav-item">
             <a href="{{ url('/admin/adminLogout') }}" class="nav-link"><i class="fas fa-sign-out-alt"></i> @lang('main.logout')</a>

@@ -203,6 +203,16 @@ class OrderBoardService
         ];
         $query->where(function ($q) use ($source, $group, $statuses) {
             $q->whereIn('status', $statuses[$source][$group]);
+            if ($source === 'legacy' && $this->has('orders', 'delegate_from_out')) {
+                // Restaurant delivery keeps the established accepted status; the board
+                // moves it to the courier stage once the branch chooses its own courier.
+                if ($group === 'preparing') $q->where(function ($delivery) {
+                    $delivery->whereNull('delegate_from_out')->orWhere('delegate_from_out', '!=', 'in_resturant');
+                });
+                if ($group === 'courier') $q->orWhere(function ($delivery) {
+                    $delivery->where('status', 'accepted')->where('delegate_from_out', 'in_resturant');
+                });
+            }
             if ($source === 'legacy' && $this->has('orders', 'accepted_notify')) {
                 if ($group === 'new') $q->where(function ($pending) { $pending->whereNull('accepted_notify')->orWhere('accepted_notify', '!=', 'yes'); });
                 if ($group === 'preparing') $q->orWhere(function ($accepted) { $accepted->whereIn('status', ['pending','another_delegate','new_order'])->where('accepted_notify', 'yes'); });
@@ -268,11 +278,13 @@ class OrderBoardService
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
             'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'total'=>null,
-            'items'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
+            'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'legacy') {
+            if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
+            elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
             $restaurant = $this->related['resturants'][$row->resturant_id ?? null] ?? null;
             $address = $this->related['user_address'][$row->user_address_id ?? null] ?? null;
             $shipping = $this->related['shippings'][$row->id] ?? null;
@@ -299,8 +311,14 @@ class OrderBoardService
                 if (!$card['items']) $subtotal = (float) ($row->total_price ?? 0);
                 $serviceRate = $this->setting('service_fees');
                 // Match the current Order::grand_total convention; tax is stored in user_tax.
-                $card['total'] = number_format($subtotal + (float) ($row->delivery_price ?? 0)
-                    + (float) ($row->user_tax ?? 0) + round($subtotal * $serviceRate / 100, 2), 2, '.', '');
+                $delivery = (float) ($row->delivery_price ?? 0);
+                $tax = (float) ($row->user_tax ?? 0);
+                $serviceFee = round($subtotal * $serviceRate / 100, 2);
+                $card['totals'][] = ['label'=>'قيمة الأصناف', 'amount'=>number_format($subtotal, 2, '.', '')];
+                foreach (['التوصيل'=>$delivery, 'الضريبة'=>$tax, 'رسوم الخدمة'=>$serviceFee] as $label => $amount) {
+                    if ($amount != 0) $card['totals'][] = ['label'=>$label, 'amount'=>number_format($amount, 2, '.', '')];
+                }
+                $card['total'] = number_format($subtotal + $delivery + $tax + $serviceFee, 2, '.', '');
                 $card['actions'] = $this->legacyActions($row, $restaurant !== null);
                 $card['action_labels'] = ['prepare'=>'مندوب الفرع', 'dispatch'=>'طلب مندوب'];
             }
@@ -367,6 +385,7 @@ class OrderBoardService
         $status = $row->status ?? '';
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
+        if ($source === 'legacy' && $status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') return 'courier';
         if (in_array($status, ['accepted','preparing','ready','booked','disputed'], true)
             || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes')) return 'preparing';
         return 'new';

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Models\GeneralSettings;
 use App\Http\Controllers\Api\V1\Vendor\OrderController as VendorOrders;
+use App\Services\Dashboard\BestEffortOrderMail;
 use App\Services\Dashboard\OrderBoardService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
@@ -64,7 +67,7 @@ class DashboardOrderBoardTest extends TestCase
             foreach (['user_id', 'resturant_id', 'delegate_id', 'user_address_id'] as $field) {
                 $t->unsignedBigInteger($field)->nullable();
             }
-            foreach (['order_no', 'type', 'status', 'shipping_status', 'source_app', 'app_scope', 'payment', 'payment_method', 'payment_type', 'accepted_notify', 'notes'] as $field) {
+            foreach (['order_no', 'type', 'status', 'shipping_status', 'source_app', 'app_scope', 'payment', 'payment_method', 'payment_type', 'accepted_notify', 'delegate_from_out', 'notes'] as $field) {
                 $t->string($field)->nullable();
             }
             $t->decimal('total_price', 14, 2)->default(0);
@@ -372,6 +375,56 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame('Checkout product', $store['items'][0]['name']);
     }
 
+    public function test_restaurant_courier_orders_appear_only_in_the_courier_column(): void
+    {
+        $this->legacy(1, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'in_resturant']);
+        $this->legacy(2, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'out_resturant']);
+        $this->legacy(3, ['status'=>'pending', 'accepted_notify'=>'yes']);
+        $this->legacy(4, ['status'=>'shipped', 'delegate_from_out'=>'out_resturant']);
+        $this->legacy(5, ['status'=>'accepted']);
+        $this->legacy(6, ['status'=>'accepted', 'delegate_from_out'=>'in_resturant', 'resturant_id'=>101]);
+
+        $data = $this->board(10);
+        $this->assertSame(['new'=>0, 'preparing'=>3, 'courier'=>2, 'completed'=>0], $data['counts']);
+        $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:4'], array_column($data['groups']['courier'], 'key'));
+        $this->assertEqualsCanonicalizing(['legacy:2', 'legacy:3', 'legacy:5'], array_column($data['groups']['preparing'], 'key'));
+        $card = app(OrderBoardService::class)->detail('legacy', 1, $this->actor(10));
+        $this->assertSame('accepted', $card['status']);
+        $this->assertSame('courier', $card['group']);
+        $this->assertSame('مع المندوب', $card['status_label']);
+        $this->assertSame(['complete'], $card['actions']);
+        $this->assertSame(3, $this->board(1)['counts']['courier']);
+    }
+
+    public function test_invoice_keeps_full_saved_item_amount_and_matches_existing_order_total(): void
+    {
+        Schema::table('orders', function (Blueprint $t) {
+            $t->decimal('delivery_price', 14, 2)->default(0);
+            $t->decimal('user_tax', 14, 2)->default(0);
+        });
+        DB::table('settings')->insert(['group'=>'general', 'name'=>'service_fees', 'payload'=>'2']);
+        $this->legacy(1, ['delivery_price'=>'43.12', 'user_tax'=>'150.00']);
+        DB::table('resturant_products')->insert([
+            'id'=>501, 'resturant_id'=>100, 'product_name'=>'برميل فسيخ نبروه ال 4 سمكات كيلو', 'price'=>'17500.00',
+        ]);
+        DB::table('carts')->insert([
+            'order_id'=>1, 'user_id'=>20, 'resturant_id'=>100, 'resturant_product_id'=>501, 'qty'=>1, 'price'=>'17500.00',
+        ]);
+        $this->actingAs($this->actor(10), 'admin');
+        $detail = $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
+        $print = $this->get(route('order-board.print', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
+        $card = $print->viewData('card');
+        $this->assertSame($detail->viewData('card')['items'], $card['items']);
+        $this->assertSame('17500.00', $card['items'][0]['line_total']);
+        $this->assertSame([
+            ['label'=>'قيمة الأصناف', 'amount'=>'17500.00'],
+            ['label'=>'التوصيل', 'amount'=>'43.12'],
+            ['label'=>'الضريبة', 'amount'=>'150.00'],
+            ['label'=>'رسوم الخدمة', 'amount'=>'350.00'],
+        ], $card['totals']);
+        $this->assertSame(number_format((float) \App\Models\Order::withoutGlobalScopes()->find(1)->grand_total, 2, '.', ''), $card['total']);
+    }
+
     public function test_forged_branch_filters_cannot_expose_another_restaurant_or_store(): void
     {
         $this->legacy(1);
@@ -486,6 +539,115 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame('yes', DB::table('orders')->where('id', 1)->value('accepted_notify'));
         $this->assertSame(200.0, (float) DB::table('users')->where('id', 20)->value('balance'));
         $this->assertSame(0, DB::table('wallets')->count());
+    }
+
+    private function prepareLegacyFixture(): void
+    {
+        $this->legacy(1, ['accepted_notify' => 'yes', 'payment_type' => 'cash']);
+        DB::table('users')->where('id', 20)->update(['email' => 'customer@example.test']);
+        Schema::table('wallets', function (Blueprint $t) { $t->unsignedBigInteger('order_id')->nullable(); });
+        Schema::table('resturants', function (Blueprint $t) { $t->string('km_price')->default('0'); });
+        Schema::create('resturant_areas', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('resturant_id'); });
+        foreach (['reviews', 'commissions'] as $table) {
+            Schema::create($table, function (Blueprint $t) {
+                $t->id(); $t->unsignedBigInteger('order_id'); $t->unsignedBigInteger('user_id');
+            });
+        }
+        Schema::create('shippings', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('order_id'); });
+        Schema::create('delegate_notifications', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('order_id'); $t->unsignedBigInteger('delegate_id'); $t->string('status')->nullable();
+        });
+        require_once base_path('vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub');
+        (new \CreateMediaTable())->up();
+        Event::fake([
+            \App\Events\OrderUpdated::class, \App\Events\UserUpdated::class,
+            \App\Events\OrderFinishedUpdated::class, \App\Events\OrderStatusUpdated::class,
+        ]);
+        $this->actingAs($this->actor(10), 'admin');
+    }
+
+    private function assertPreparationCommittedWithoutWalletChanges(): void
+    {
+        $order = DB::table('orders')->find(1);
+        $this->assertSame('accepted', $order->status);
+        $this->assertSame('in_resturant', $order->delegate_from_out);
+        $this->assertSame('yes', $order->accepted_notify);
+        $board = $this->board(10);
+        $this->assertSame(0, $board['counts']['preparing']);
+        $this->assertSame(1, $board['counts']['courier']);
+        $this->assertSame('legacy:1', $board['groups']['courier'][0]['key']);
+        $this->assertSame('مع المندوب', $board['groups']['courier'][0]['status_label']);
+        $this->assertSame(500.0, (float) DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(200.0, (float) DB::table('users')->where('id', 20)->value('balance'));
+        $this->assertSame(0, DB::table('wallets')->count());
+    }
+
+    public function test_smtp_authentication_failure_does_not_rollback_board_prepare_json_action(): void
+    {
+        $this->prepareLegacyFixture();
+        $sensitive = '535 Authentication Failed sensitive customer@example.test password-token-123';
+        Mail::shouldReceive('send')->once()->andThrow(new \Swift_TransportException($sensitive));
+        Log::spy();
+        $response = $this->postJson(route('order-board.action', ['legacy', 1]), [
+            'action' => 'prepare', 'expected_status' => 'pending', 'expected_accepted_notify' => 'yes',
+        ])->assertOk()->assertJsonPath('success', true);
+        $this->assertPreparationCommittedWithoutWalletChanges();
+        $this->assertStringNotContainsString($sensitive, $response->getContent());
+        $this->assertStringNotContainsString('535', $response->getContent());
+        Log::shouldHaveReceived('warning')->once()->with('Order status email unavailable', [
+            'order_id' => 1, 'exception' => \Swift_TransportException::class,
+        ]);
+    }
+
+    public function test_smtp_authentication_failure_does_not_rollback_details_prepare_html_action(): void
+    {
+        $this->prepareLegacyFixture();
+        Mail::shouldReceive('send')->once()->andThrow(new \Swift_TransportException('535 Authentication Failed sensitive transport-token'));
+        $response = $this->from(route('order-board.details', ['legacy', 1]))
+            ->post(route('order-board.action', ['legacy', 1]), [
+                'action' => 'prepare', 'expected_status' => 'pending', 'expected_accepted_notify' => 'yes',
+            ])->assertRedirect(route('orders.applies'))->assertSessionHas('success');
+        $this->assertPreparationCommittedWithoutWalletChanges();
+        $this->assertStringNotContainsString('535', $response->getContent());
+        $this->assertStringNotContainsString('transport-token', $response->getContent());
+        $this->get(route('order-board.details', ['legacy', 1]))->assertOk()
+            ->assertViewHas('card', function (array $card) { return $card['status'] === 'accepted'; });
+    }
+
+    public function test_successful_prepare_email_is_delivered_only_after_order_transaction_commits(): void
+    {
+        $this->prepareLegacyFixture();
+        Mail::shouldReceive('send')->once()->andReturnUsing(function ($view, $data, $message) {
+            $this->assertSame(0, DB::transactionLevel());
+            $this->assertSame('emails.send_order_email', $view);
+            $this->assertSame('customer@example.test', $data['email']);
+            $this->assertSame('accepted', DB::table('orders')->where('id', 1)->value('status'));
+            $this->assertSame('in_resturant', DB::table('orders')->where('id', 1)->value('delegate_from_out'));
+        });
+        $this->postJson(route('order-board.action', ['legacy', 1]), [
+            'action' => 'prepare', 'expected_status' => 'pending', 'expected_accepted_notify' => 'yes',
+        ])->assertOk()->assertJsonPath('success', true);
+        $this->assertPreparationCommittedWithoutWalletChanges();
+    }
+
+    public function test_order_email_is_never_sent_for_a_rolled_back_transaction(): void
+    {
+        $this->legacy(1);
+        Mail::shouldReceive('send')->never();
+        $mailer = app(BestEffortOrderMail::class);
+        try {
+            DB::transaction(function () use ($mailer) {
+                DB::table('orders')->where('id', 1)->update(['status' => 'accepted']);
+                $mailer->send(1, 'emails.send_order_email', ['email' => 'customer@example.test'], function () {});
+                throw new \RuntimeException('Deliberate order transaction rollback');
+            });
+            $this->fail('Expected the order transaction to roll back.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Deliberate order transaction rollback', $error->getMessage());
+        }
+        $this->assertSame('pending', DB::table('orders')->where('id', 1)->value('status'));
+        DB::transaction(function () { DB::table('orders')->where('id', 1)->update(['notes' => 'Later committed change']); });
+        $this->assertSame('Later committed change', DB::table('orders')->where('id', 1)->value('notes'));
     }
 
     public function test_http_store_acceptance_cannot_mutate_a_same_id_fasakhansta_order(): void

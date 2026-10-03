@@ -60,7 +60,7 @@
 .ob-board .selectize-dropdown .option { padding: 8px 10px; white-space: normal; }
 .ob-board .selectize-dropdown .active { background: #29415a; color: #fff; }
 .ob-board .select2-container { min-width: 0; width: 100% !important; font-size: 11px; }
-.ob-board .select2-container .select2-selection--single { height: 36px; background: #111f2e; color: #f0f3f7; border: 1px solid #354252; border-radius: 5px; }
+.ob-board .select2-container .select2-selection--single { height: 36px !important; background: #111f2e; color: #f0f3f7; border: 1px solid #354252; border-radius: 5px; }
 .ob-board .select2-container .select2-selection--single .select2-selection__rendered { line-height: 34px; color: #f0f3f7; font-size: 11px; padding-inline-start: 9px; padding-inline-end: 23px; font-weight: 400; }
 .ob-board .select2-container .select2-selection--single .select2-selection__arrow { height: 34px; }
 .ob-board .select2-container--default .select2-selection--single .select2-selection__arrow b { border-color: #b9c7d6 transparent transparent transparent; }

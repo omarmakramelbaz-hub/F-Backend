@@ -39,6 +39,8 @@ git merge --ff-only "$release_sha"
 php -l app/Http/Controllers/Dashboard/OrderBoardController.php
 php -l app/Services/Dashboard/OrderBoardService.php
 php -l app/Services/Dashboard/GoStoreBoardActions.php
+php -l app/Services/Dashboard/BestEffortOrderMail.php
+php -l app/Http/Controllers/Api/V1/Vendor/OrderController.php
 php artisan route:clear
 php artisan view:clear
 php artisan view:cache

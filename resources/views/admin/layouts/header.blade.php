@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" @if(App::getLocale() == 'ar') dir="rtl" @elseif (App::getLocale() == 'en') dir="ltr" @endif>
+<html lang="{{ app()->getLocale() }}" @if(App::getLocale() == 'ar') dir="rtl" @elseif (App::getLocale() == 'en') dir="ltr" @endif>
 
 <head>
     	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
@@ -53,12 +53,12 @@
     @stack('custom-css')
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css">
      <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/select2.min.css"> 
        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
-        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003">
+        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003-theme-2">
         
     <style>
     .cke_notification_warning{
@@ -184,5 +184,5 @@ firebase.initializeApp(firebaseConfig);
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
 </head>
 
-<body class="hold-transition sidebar-mini layout-fixed{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}">
+<body class="hold-transition sidebar-mini layout-fixed dashboard-theme{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}">
     <div class="wrapper">
