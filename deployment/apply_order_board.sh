@@ -74,6 +74,7 @@ php -l app/Http/Controllers/Dashboard/PhoneOrdersController.php
 php -l app/Services/Dashboard/PosServiceTicket.php
 php -l app/Services/Dashboard/PosServiceTable.php
 php -l app/Services/Dashboard/PosServicePhone.php
+php -l app/Services/Dashboard/PosBranchPrinting.php
 php -l app/Services/Dashboard/TakeawayAccess.php
 php -l app/Services/Dashboard/TakeawayCatalog.php
 php -l app/Services/Dashboard/TakeawayService.php
@@ -83,6 +84,7 @@ php -l app/Http/Traits/FcmFirebase.php
 php artisan migrate --force --path=database/migrations/2026_10_03_060000_create_order_board_clocks.php
 php artisan migrate --force --path=database/migrations/2026_10_03_140000_create_takeaway_pos.php
 php artisan migrate --force --path=database/migrations/2026_10_03_150000_create_pos_service_tickets.php
+php artisan migrate --force --path=database/migrations/2026_10_04_000001_create_pos_branch_print_jobs.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
 php artisan route:clear
@@ -102,6 +104,7 @@ test -s public/dashboard/css/takeaway-pos.css
 test -s public/dashboard/js/dining-pos.js
 test -s public/dashboard/css/dining-pos.css
 test -s public/dashboard/js/phone-orders.js
+test -s public/dashboard/js/branch-print-receiver.js
 test -s public/dashboard/css/phone-orders.css
 test -s public/dashboard/branding/fasakhansta-logo-transparent.png
 php artisan order-board:advance --help >/dev/null

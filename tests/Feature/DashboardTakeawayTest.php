@@ -178,13 +178,14 @@ class DashboardTakeawayTest extends TestCase
         $this->getJson(route('takeaway.catalog',['branch'=>'f:101']))->assertNotFound();
     }
 
-    public function test_global_admin_can_read_all_but_writes_require_explicit_permission(): void
+    public function test_callcenter_order_admin_can_sell_across_branches_without_financial_settings_grant(): void
     {
         $access = app(TakeawayAccess::class);
         $this->assertCount(8,$access->branches($this->actor(2)));
-        $this->assertFalse($access->permissions($this->actor(2))['can_checkout']);
+        $this->assertTrue($access->permissions($this->actor(2))['can_checkout']);
+        $this->assertFalse($access->permissions($this->actor(2))['can_manage']);
         $payload = $this->payment($this->cart(),1,'cash',2);
-        $this->denied(fn()=> $this->service()->checkout($payload,$this->actor(2)),403);
+        $this->assertSame('12.50',$this->service()->checkout($payload,$this->actor(2))['receipt']['total']);
         $this->assertTrue($access->permissions($this->actor(3))['can_checkout']);
         $this->assertTrue($access->permissions($this->actor(5))['can_manage']);
         $this->assertSame('12.50',$this->service()->checkout($payload,$this->actor(3))['receipt']['total']);

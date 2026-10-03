@@ -163,4 +163,9 @@ return [
     'tax_setting' => 'Tax adjustment',
     'entry' => 'Register entry',
     'cart_limit' => 'An invoice can contain up to 100 distinct item lines.',
+    'customer_name' => 'Customer name',
+    'open_table' => 'Open table',
+    'start_products' => 'Choose products',
+    'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',
+    'tables_empty' => 'No tables configured. Use Add table to register this branch’s tables.',
 ];

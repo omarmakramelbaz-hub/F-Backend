@@ -1,5 +1,6 @@
 <div><dt>{{ __('pos_service.channel') }}</dt><dd>{{ __('pos_service.'.($channel ?? 'takeaway')) }}</dd></div>
 @if(($channel ?? '') === 'dine')
+    @if(!empty($context['customer_name']))<div><dt>{{ __('pos_service.customer') }}</dt><dd>{{ $context['customer_name'] }}</dd></div>@endif
     @if(!empty($context['table']['name']))<div><dt>{{ __('pos_service.table') }}</dt><dd>{{ $context['table']['name'] }}</dd></div>@endif
     @if(!empty($context['waiter_name']))<div><dt>{{ __('pos_service.waiter') }}</dt><dd>{{ $context['waiter_name'] }}</dd></div>@endif
     @if(!empty($context['guest_count']))<div><dt>{{ __('pos_service.guests') }}</dt><dd><bdi>{{ $context['guest_count'] }}</bdi></dd></div>@endif

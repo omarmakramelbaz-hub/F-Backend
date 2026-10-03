@@ -30,6 +30,7 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
+    'pos_branch_print_jobs'=>['branch','ticket_id','kitchen_id','status','claim_token','claimed_by'],
     'pos_service_settings'=>['branch', 'service_bps', 'revision'],
     'pos_service_tables'=>['branch', 'name', 'capacity', 'active_ticket_id', 'revision'],
     'pos_service_tickets'=>['branch', 'channel', 'status', 'payment_status', 'revision', 'cart_snapshot', 'quote_snapshot', 'paid_order_id'],

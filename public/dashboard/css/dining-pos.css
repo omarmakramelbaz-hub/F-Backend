@@ -117,3 +117,7 @@
 .dp-product{height:auto;align-self:start}
 .dp-product-main{flex:0 0 auto;min-height:max-content;overflow:visible}
 .dp-product-image,.dp-product-copy,.dp-product-options{flex-shrink:0}
+
+.dp-customer-name{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f4efff}.dp-customer-name input{min-width:0;flex:1;border:1px solid #ddd3ef;border-radius:6px;padding:7px}.dp-table-customer{font-size:12px;color:#352652}.dp-floor-toolbar>[data-dining-settings]{border:0;border-radius:7px;padding:9px;background:#6539ed;color:white;white-space:nowrap}
+
+.dp-fixed-total{margin:0}.dp-fixed-total .dp-grand-total{display:flex;justify-content:space-between;align-items:center;padding:4px 0}.dp-fixed-total .dp-grand-total dd{display:flex;gap:5px;align-items:baseline}.dp-fixed-total .dp-grand-total dt{font-size:13px}.dp-fixed-total .dp-grand-total strong{font-size:22px}.dp-customer-name,.dp-table-meta,.dp-payment-box{flex-shrink:0}.dp-invoice-lines{flex:0 0 auto;min-height:105px;max-height:230px}.dp-settings-grid:has(>form:only-child){grid-template-columns:1fr}

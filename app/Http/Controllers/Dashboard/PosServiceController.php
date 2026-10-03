@@ -17,10 +17,10 @@ abstract class PosServiceController extends Controller
         foreach(['show','action','settle','print'] as $name)$urls[$name]=str_replace('991771', '__TICKET__',route($this->prefix.'.'.$name,['id'=>991771]));
         $urls['kitchen']=str_replace('991772','__KITCHEN__',route($this->prefix.'.kitchen',['id'=>991772]));
         if($this->channel==='dine')foreach(['tables','table-save','settings'] as $name)$urls[$name]=route($this->prefix.'.'.$name);
-        else $urls['customers']=route($this->prefix.'.customers');
+        else { $urls['customers']=route($this->prefix.'.customers'); foreach(['print-jobs','print-claim','print-complete'] as $name)$urls[$name]=route($this->prefix.'.'.$name); }
         $urls['table_save']=$urls['table-save']??null;$urls['till']=$urls['register']=route('takeaway.till');$urls['receipts']=$urls['daily']=route('takeaway.receipts');
         $permissions=$access->permissions($actor);$permissions['can_operate']=$permissions['can_checkout'];
-        $boot=$service->summary($this->channel,$selected,$actor)+['branches'=>$branches,'selected_branch'=>$selected,'cashier'=>['id'=>(int)$actor->id,'name'=>$actor->name],'urls'=>$urls];$boot['permissions']=$permissions;
+        $boot=$service->summary($this->channel,$selected,$actor)+['branches'=>$branches,'selected_branch'=>$selected,'cashier'=>['id'=>(int)$actor->id,'name'=>$actor->name],'urls'=>$urls];$boot['permissions']=$permissions; $boot['receiver_branch']=$access->receiverBranch($actor); $boot['can_choose_branch']=count($branches)>1;
         return view($this->view,[$this->variable=>$boot]);
     }
     public function catalog(Request $request,TakeawayCatalog $catalog,PosServiceTicket $service){$v=$request->validate($this->branchRules()+['search'=>'nullable|string|max:100','category_id'=>'nullable|integer|min:1','page'=>'nullable|integer|min:1','per_page'=>'nullable|integer|min:1|max:100']);return response()->json(array_merge($catalog->listing($v,auth('admin')->user()),$service->summary($this->channel,$v['branch'],auth('admin')->user())));}

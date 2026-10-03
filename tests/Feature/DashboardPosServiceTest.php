@@ -35,6 +35,7 @@ class DashboardPosServiceTest extends TestCase
         require_once database_path('migrations/2026_09_27_180000_create_go_store_catalog.php');(new \CreateGoStoreCatalog)->up();
         require_once database_path('migrations/2026_10_03_140000_create_takeaway_pos.php');(new \CreateTakeawayPos)->up();
         require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php');(new \CreatePosServiceTickets)->up();
+        require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php');(new \CreatePosBranchPrintJobs)->up();
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[30,'vendor',null]] as [$id,$type,$owner])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'app_scope'=>$id===30?'go_partner':'fasakhansta','status'=>'accepted','owner_resturant_id'=>$owner]);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Foreign']]);
         DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100,'product_name'=>'Fish','product_price'=>'100.00','price'=>'{}','status'=>'show'],['id'=>2,'resturant_id'=>101,'product_name'=>'Foreign','product_price'=>'500.00','price'=>'{}','status'=>'show']]);
@@ -43,7 +44,7 @@ class DashboardPosServiceTest extends TestCase
         DB::table('wallets')->insert(['amount'=>'100.00']);DB::table('orders')->insert(['status'=>'accepted']);DB::table('order_board_clocks')->insert(['order_id'=>1]);
     }
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
-    private function dropFixtures(): void{foreach(['pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
+    private function dropFixtures(): void{foreach(['pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function tickets(): PosServiceTicket{return app(PosServiceTicket::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
@@ -61,11 +62,11 @@ class DashboardPosServiceTest extends TestCase
     private function denied(callable $call,int $status=409): void{try{$call();$this->fail('Expected '.$status);}catch(HttpException $e){$this->assertSame($status,$e->getStatusCode());}}
     private function invalid(callable $call): void{try{$call();$this->fail('Expected invalid payload');}catch(ValidationException $e){$this->assertNotEmpty($e->errors());}}
 
-    public function test_tables_are_not_seeded_and_only_owner_can_configure_real_tables(): void
+    public function test_branch_staff_can_configure_real_tables_only_in_their_own_branch(): void
     {
         $this->assertCount(0,app(PosServiceTable::class)->listing('f:100',$this->actor())['tables']);
         $v=['branch'=>'f:100','name'=>'Window','capacity'=>4,'active'=>true,'idempotency_key'=>$this->key(1)];
-        $this->denied(fn()=>app(PosServiceTable::class)->configure($v,$this->actor()),403);
+        $this->denied(fn()=>app(PosServiceTable::class)->configure($v,$this->actor(11)),404);
         $table=app(PosServiceTable::class)->configure($v,$this->actor(12));$this->assertSame('Window',$table['table']['name']);
         $this->assertTrue(app(PosServiceTable::class)->configure($v,$this->actor(12))['replayed']);
         $v['name']='Other';$this->denied(fn()=>app(PosServiceTable::class)->configure($v,$this->actor(12)));
@@ -222,5 +223,58 @@ class DashboardPosServiceTest extends TestCase
         $ticket=$this->saved('phone');$paid=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket),$this->actor());$this->actingAs($this->actor(),'admin');
         $html=$this->get($ticket['bill_print_url'].'?dashboard_print=1')->assertOk();$html->assertSee('data-dashboard-receipt="takeaway"',false)->assertSee('Street 1')->assertSee('Door 2');
         $this->assertSame($paid['receipt']['receipt_url'],$paid['receipt_url']);
+    }
+
+    public function test_dining_customer_name_survives_save_kitchen_and_receipt(): void
+    {
+        $v=$this->savePayload();$v['customer_name']='عميل التربيزة';
+        $ticket=$this->tickets()->save('dine',$v,$this->actor())['ticket'];
+        $this->assertSame('عميل التربيزة',$ticket['customer_name']);
+        $sent=$this->tickets()->action('dine',$ticket['id'],['branch'=>'f:100','idempotency_key'=>$this->key(40),'expected_revision'=>1,'action'=>'send_kitchen'],$this->actor());
+        $this->assertSame('عميل التربيزة',json_decode(DB::table('pos_service_kitchen_tickets')->value('snapshot'),true)['customer_name']);
+        $paid=$this->tickets()->settle('dine',$ticket['id'],$this->settlePayload($sent['ticket']),$this->actor());
+        $this->assertSame('عميل التربيزة',$paid['receipt']['context']['customer_name']);
+    }
+    public function test_callcenter_save_queues_exactly_one_branch_print_and_does_not_collect_money(): void
+    {
+        $v=$this->savePayload('phone');$v['send_to_kitchen']=true;
+        $saved=$this->tickets()->save('phone',$v,$this->actor(1));
+        $replayed=$this->tickets()->save('phone',$v,$this->actor(1));
+        $this->assertTrue($replayed['replayed']);$this->assertTrue($saved['print_queued']);
+        $this->assertSame(1,DB::table('pos_branch_print_jobs')->count());$this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
+        $this->assertSame(0,DB::table('takeaway_till_entries')->count());
+        $this->assertCount(1,$this->tickets()->listing('phone',['branch'=>'f:100'],$this->actor())['items']);
+        $this->assertCount(0,$this->tickets()->listing('phone',['branch'=>'f:101'],$this->actor(11))['items']);
+    }
+    public function test_printer_claim_is_branch_bound_and_never_automatically_replayed(): void
+    {
+        $v=$this->savePayload('phone');$v['send_to_kitchen']=true;$saved=$this->tickets()->save('phone',$v,$this->actor(1));
+        $printing=app(\App\Services\Dashboard\PosBranchPrinting::class);
+        $this->denied(fn()=>$printing->listing(['branch'=>'f:100'],$this->actor(1)),403);
+        $this->denied(fn()=>$printing->listing(['branch'=>'f:100'],$this->actor(11)),404);
+        $job=$printing->listing(['branch'=>'f:100'],$this->actor())['jobs'][0];
+        $claim=['branch'=>'f:100','job_id'=>$job['id'],'claim_token'=>$this->key(51)];
+        $result=$printing->claim($claim,$this->actor());$this->assertSame($saved['ticket']['id'],$result['ticket_id']);
+        $this->denied(fn()=>$printing->claim($claim,$this->actor()));
+        $this->assertCount(0,$printing->listing(['branch'=>'f:100'],$this->actor())['jobs']);
+        Carbon::setTestNow(now()->addMinutes(3));$this->assertSame(1,$printing->listing(['branch'=>'f:100'],$this->actor())['attention']);
+        $this->denied(fn()=>$printing->complete(array_merge($claim,['claim_token'=>$this->key(52),'result'=>'invoked']),$this->actor()),403);
+        $this->assertSame('invoked',$printing->complete($claim+['result'=>'invoked'],$this->actor())['status']);
+        $this->assertSame('invoked',$printing->complete($claim+['result'=>'invoked'],$this->actor())['status']);
+        $this->assertSame(0,$printing->listing(['branch'=>'f:100'],$this->actor())['attention']);
+    }
+    public function test_cancelled_order_is_not_automatically_printed(): void
+    {
+        $v=$this->savePayload('phone');$v['send_to_kitchen']=true;$ticket=$this->tickets()->save('phone',$v,$this->actor(1))['ticket'];
+        $this->tickets()->action('phone',$ticket['id'],['branch'=>'f:100','idempotency_key'=>$this->key(50),'expected_revision'=>1,'action'=>'cancel','reason'=>'Customer cancelled'],$this->actor(1));
+        $printing=app(\App\Services\Dashboard\PosBranchPrinting::class);
+        $this->assertCount(0,$printing->listing(['branch'=>'f:100'],$this->actor())['jobs']);
+        $this->denied(fn()=>$printing->claim(['branch'=>'f:100','job_id'=>DB::table('pos_branch_print_jobs')->value('id'),'claim_token'=>$this->key(51)],$this->actor()));
+    }
+    public function test_branch_can_add_tables_without_permission_to_change_service_charge(): void
+    {
+        $table=app(PosServiceTable::class)->configure(['branch'=>'f:100','name'=>'1','capacity'=>4,'active'=>true,'idempotency_key'=>$this->key(1)],$this->actor());
+        $this->assertSame('1',$table['table']['name']);
+        $this->denied(fn()=>app(PosServiceTable::class)->configure(['branch'=>'f:100','service_rate'=>'5.00','note'=>'x','expected_revision'=>1,'idempotency_key'=>$this->key(2)],$this->actor(),true),403);
     }
 }

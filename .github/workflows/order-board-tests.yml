@@ -35,6 +35,7 @@ on:
       - 'app/Http/Controllers/Dashboard/DineInController.php'
       - 'app/Http/Controllers/Dashboard/PhoneOrdersController.php'
       - 'database/migrations/*pos_service*'
+      - 'database/migrations/*pos_branch_print*'
       - 'resources/views/admin/dining/**'
       - 'resources/views/admin/phone_orders/**'
       - 'resources/views/admin/pos_service/**'
@@ -118,6 +119,7 @@ jobs:
           node --check public/dashboard/js/takeaway-pos.js
           node --check public/dashboard/js/dining-pos.js
           node --check public/dashboard/js/phone-orders.js
+          node --check public/dashboard/js/branch-print-receiver.js
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh

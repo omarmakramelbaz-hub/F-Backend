@@ -47,7 +47,7 @@ class PosServiceTable
         else $bps=0;
         $hash=PosServiceTicket::fingerprint([$setting?'setting':'table',$v]);$this->requireReady();
         return DB::transaction(function()use($v,$actor,$setting,$bps,$hash){
-            $actor=$this->access->actor($actor);$branch=$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_manage'],403);
+            $actor=$this->access->actor($actor);$branch=$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)[$setting?'can_manage':'can_manage_tables'],403);
             $old=DB::table('pos_service_commands')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first();
             if($old){abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية مستخدم لطلب مختلف.');return $this->configurationResult($v['branch'],$actor,$old,true);}
             $when=now('UTC');$tableId=null;$meta=[];

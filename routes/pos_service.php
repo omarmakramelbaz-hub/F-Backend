@@ -26,4 +26,7 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
         Route::post('settings', [DineInController::class, 'settings'])->name('settings');
     });
     Route::get('admin/phone-orders/customers', [PhoneOrdersController::class, 'customers'])->name('phone-orders.customers');
+    Route::get('admin/phone-orders/print-jobs', [PhoneOrdersController::class, 'printJobs'])->name('phone-orders.print-jobs');
+    Route::post('admin/phone-orders/print-jobs/claim', [PhoneOrdersController::class, 'printClaim'])->name('phone-orders.print-claim');
+    Route::post('admin/phone-orders/print-jobs/complete', [PhoneOrdersController::class, 'printComplete'])->name('phone-orders.print-complete');
 });

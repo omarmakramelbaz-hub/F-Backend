@@ -17,7 +17,7 @@ class TakeawayAccess
         $fresh = User::withoutGlobalScopes()->find($actor->id);
         abort_unless($fresh && in_array($fresh->account_type, ['admin', 'vendor', 'resturant_owner', 'delegate'], true), 403);
         if ($fresh->account_type === 'admin' && empty($fresh->owner_resturant_id)) {
-            abort_unless((int) $fresh->id === 1 || $this->permission($fresh, 'order-list'), 403);
+            abort_unless($this->superAdmin($fresh) || $this->permission($fresh, 'order-list'), 403);
         }
         return $fresh;
     }
@@ -94,10 +94,12 @@ class TakeawayAccess
     public function permissions($actor): array
     {
         $actor = $this->actor($actor);
-        $adminWrite = $actor->account_type === 'admin' && ((int) $actor->id === 1
+        $adminManage = $actor->account_type === 'admin' && ($this->superAdmin($actor)
             || $this->permission($actor, 'order-edit') || $this->permission($actor, 'order-create'));
+        $adminWrite = $adminManage || ($actor->account_type === 'admin' && $this->permission($actor, 'order-list'));
+        // The call-center can operate orders; cash/settings grants remain independent.
         $write = $actor->account_type !== 'admin' || !empty($actor->owner_resturant_id) || $adminWrite;
-        return ['can_checkout'=>$write, 'can_manage'=>$actor->account_type === 'resturant_owner' || $adminWrite];
+        return ['can_checkout'=>$write, 'can_manage_tables'=>$write, 'can_manage'=>$actor->account_type === 'resturant_owner' || $adminManage];
     }
 
     public function ready(): bool
@@ -131,6 +133,21 @@ class TakeawayAccess
         $id = $kind === 'f' ? (int) $row->id : (int) $row->user_id;
         return ['value'=>$kind.':'.$id, 'id'=>$id, 'kind'=>$kind, 'name'=>(string) ($row->name ?? ''),
             'label'=>(string) ($row->name ?? ''), 'address'=>(string) ($row->address ?? ''), 'phone'=>(string) ($row->phone ?? '')];
+    }
+
+    private function superAdmin(User $actor): bool
+    {
+        if ((int) $actor->id === 1) return true;
+        if (!Schema::hasTable('roles') || !Schema::hasTable('model_has_roles')) return false;
+        return $actor->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists();
+    }
+
+    public function receiverBranch($actor): ?string
+    {
+        $actor = $this->actor($actor);
+        if ($actor->account_type === 'admin' && empty($actor->owner_resturant_id)) return null;
+        $branches = $this->branches($actor);
+        return count($branches) === 1 && $this->permissions($actor)['can_checkout'] ? $branches[0]['value'] : null;
     }
 
     private function permission(User $actor, string $name): bool

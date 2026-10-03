@@ -56,8 +56,8 @@ class PosServiceTicket
     {
         $this->channel($channel);$rules=$this->commandRules()+['ticket_id'=>'nullable|integer|min:1','table_id'=>'nullable|integer|min:1','expected_revision'=>'nullable|integer|min:1',
             'items'=>'present|array|max:100','discount'=>'nullable|string|max:14','discount_reason'=>'nullable|string|max:500','quote_hash'=>'nullable|string|size:64','reprice'=>'nullable|boolean',
-            'notes'=>'nullable|string|max:500'];
-        $rules+=$channel==='dine'?['waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
+            'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
+        $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
             ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'required|string|max:14'];
         $v=Validator::make($values,$rules)->validate();foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
@@ -97,6 +97,7 @@ class PosServiceTicket
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
             else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>$when->copy()->setTimezone(config('app.timezone'))->toDateString(),'created_at'=>$when]);}
             if($table)DB::table('pos_service_tables')->where('id',$table->id)->update(['active_ticket_id'=>$id,'revision'=>(int)$table->revision+1,'updated_at'=>$when]);
+            if($channel==='phone'&&($v['send_to_kitchen']??false))$this->queueKitchen($id,$v['branch'],$actor->id,$data['revision'],$when);
             $op=$this->record($v,$actor,$hash,'save',$id,$data['revision']);return $this->result($op,$actor,false);
         },3);
     }
@@ -124,6 +125,7 @@ class PosServiceTicket
                 $snapshot=$this->present($this->row($channel,$id,$v['branch']));$kitchenId=DB::table('pos_service_kitchen_tickets')->insertGetId(['branch'=>$v['branch'],'ticket_id'=>$id,'revision'=>$revision,'actor_id'=>$actor->id,
                     'snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'created_at'=>$when,'updated_at'=>$when]);
                 DB::table('pos_service_tickets')->where('id',$id)->update(['last_kitchen_id'=>$kitchenId]);$meta['kitchen_id']=$kitchenId;
+                if($channel==='phone')app(PosBranchPrinting::class)->enqueue($v['branch'],$id,$kitchenId);
             }
             if($status==='cancelled')$this->release($row,$when);
             $op=$this->record($v,$actor,$hash,'action',$id,$revision,$meta);return $this->result($op,$actor,false);
@@ -177,6 +179,14 @@ class PosServiceTicket
         if($full){$data['items']=$q['items'];$data['cart']=$cart+['delivery_fee'=>Money::decimal((int)$row->delivery_cents)];}
         return $data;
     }
+    private function queueKitchen(int $id,string $branch,int $actor,int $revision,$when): void
+    {
+        $snapshot=$this->present($this->row('phone',$id,$branch));
+        $kitchenId=DB::table('pos_service_kitchen_tickets')->insertGetId(['branch'=>$branch,'ticket_id'=>$id,'revision'=>$revision,'actor_id'=>$actor,
+            'snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'created_at'=>$when,'updated_at'=>$when]);
+        DB::table('pos_service_tickets')->where('id',$id)->update(['last_kitchen_id'=>$kitchenId]);
+        app(PosBranchPrinting::class)->enqueue($branch,$id,$kitchenId);
+    }
     private function pricingContext(string $channel,string $branch,int $delivery,bool $lock=false): array
     {
         $policy=$this->tables->policy($branch,$lock);return ['channel'=>$channel,'service_bps'=>$channel==='dine'?$policy['service_bps']:0,'delivery_cents'=>$delivery];
@@ -207,6 +217,7 @@ class PosServiceTicket
         $row=DB::table('pos_service_tickets')->where('id',$op->ticket_id)->first();abort_unless($row&&$row->branch===$op->branch,404);$this->access->branch($row->branch,$actor);$meta=json_decode($op->metadata??'[]',true)?:[];
         $result=['success'=>true,'replayed'=>$replayed,'operation'=>['id'=>(int)$op->id,'kind'=>$op->kind,'idempotency_key'=>$op->request_key,'ticket_id'=>(int)$op->ticket_id,'revision'=>(int)$op->revision],
             'ticket'=>$this->present($row),'receipt'=>null,'receipt_url'=>null];
+        if($row->channel==='phone'&&$row->last_kitchen_id)$result['print_queued']=true;
         if(!empty($meta['kitchen_id']))$result['kitchen_print_url']=route(($row->channel==='dine'?'dining':'phone-orders').'.kitchen',['id'=>$meta['kitchen_id']]);
         if($row->paid_order_id){$result['receipt']=$this->sales->receipt((int)$row->paid_order_id,$actor);$result['receipt_url']=$result['receipt']['receipt_url'];}return $result;
     }
