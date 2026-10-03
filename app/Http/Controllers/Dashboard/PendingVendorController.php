@@ -193,7 +193,7 @@ class PendingVendorController extends Controller
             ->first();
 
         if (!$user) {
-            $user = app(\App\Services\GoAccountCreator::class)->create([
+            $user = User::create([
                 'added_by' => 1,
                 'name' => $pending_vendor->full_name,
                 'mobile' => $mobile,
