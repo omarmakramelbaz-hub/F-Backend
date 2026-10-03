@@ -441,13 +441,87 @@ class CartController extends Controller
     }
     public function orders()
     {
-        $orders = Order::where('type', 'current')->where('user_id', auth('api')->user()->id)->whereNotNull('status')->when(request()->has('status'), function ($q) {
-            $q->where('status', request()->status);
-        })->latest()->get();
-        $order_data = OrderResource::collection($orders);
-        return $this->successResponse($order_data, __('api.success data'));
+        $serviceFeeRaw = DB::table('settings')
+            ->where('name', 'service_fees')
+            ->value('payload');
+        $serviceFeeRate = (int) filter_var(
+            (string) $serviceFeeRaw,
+            FILTER_SANITIZE_NUMBER_INT
+        );
 
-        return $this->errorResponse(__('api.error'));
+        $orders = Order::query()
+            ->select([
+                'id',
+                'order_no',
+                'resturant_id',
+                'status',
+                'type',
+                'schedule_date',
+                'payment_type',
+                'delivery_price',
+                'user_tax',
+                'delegate_from_out',
+                'created_at',
+            ])
+            ->with([
+                'resturant' => function ($query) {
+                    $query->select('id', 'name');
+                },
+                'resturant.media',
+                'carts' => function ($query) {
+                    $query->select([
+                        'id',
+                        'order_id',
+                        'price',
+                        'qty',
+                        'updated_total',
+                    ]);
+                },
+            ])
+            ->where('type', 'current')
+            ->where('user_id', auth('api')->id())
+            ->whereNotNull('status')
+            ->when(request()->has('status'), function ($query) {
+                $query->where('status', request()->status);
+            })
+            ->latest('id')
+            ->get();
+
+        $orderData = $orders->map(function ($order) use ($serviceFeeRate) {
+            $updatedTotal = $order->carts->sum(function ($cart) {
+                if ($cart->updated_total !== null) {
+                    return (float) $cart->updated_total;
+                }
+
+                return (float) $cart->price * (int) $cart->qty;
+            });
+
+            $serviceFees = ($updatedTotal * $serviceFeeRate) / 100;
+            $grandTotal = round(
+                $updatedTotal
+                + (float) $order->delivery_price
+                + (float) $order->user_tax
+                + $serviceFees,
+                2
+            );
+
+            return [
+                'id' => (int) $order->id,
+                'order_no' => $order->order_no,
+                'resturant_id' => (int) $order->resturant_id,
+                'resturant_name' => $order->resturant?->name,
+                'resturant_logo' => $order->resturant?->getFirstMediaUrl('logo', 'thumb'),
+                'status' => $order->status,
+                'type' => $order->type,
+                'schedule_date' => $order->schedule_date,
+                'payment_type' => $order->payment_type,
+                'created_at' => $order->created_at,
+                'delegate_from_out' => $order->delegate_from_out,
+                'grand_total' => $grandTotal,
+            ];
+        })->values();
+
+        return $this->successResponse($orderData, __('api.success data'));
     }
 
     public function cancel_order($id)
