@@ -334,20 +334,39 @@ public function resend_code(Request $request){
     }
     public function get_notifications(Request $request)
     {
+        $startedAt = microtime(true);
+        $user = Auth::guard('api')->user();
         $page = max(1, (int) $request->query('page', 1));
-        $perPage = min(100, max(1, (int) $request->query('per_page', 50)));
+        $perPage = min(50, max(1, (int) $request->query('per_page', 25)));
 
-        $get_notifications = Auth::guard('api')->user()
-            ->notifications()
+        $notifications = \DB::table('notifications')
+            ->where('notifiable_type', $user->getMorphClass())
+            ->where('notifiable_id', $user->getKey())
             ->select('type', 'id', 'data', 'created_at')
             ->orderByDesc('created_at')
-            ->forPage($page, $perPage)
-            ->get();
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
+            ->get()
+            ->map(function ($notification) {
+                $decoded = is_string($notification->data)
+                    ? json_decode($notification->data, true)
+                    : $notification->data;
+
+                return [
+                    'type' => $notification->type,
+                    'id' => (string) $notification->id,
+                    'data' => is_array($decoded) ? $decoded : [],
+                    'created_at' => $notification->created_at,
+                ];
+            })
+            ->values();
+
+        $queryMs = round((microtime(true) - $startedAt) * 1000, 1);
 
         return $this->successResponse(
-            $get_notifications,
+            $notifications,
             trans('api.show all notifications')
-        );
+        )->header('X-Notifications-Query-Ms', (string) $queryMs);
     }
     
     public function deleteNotifications($id){
