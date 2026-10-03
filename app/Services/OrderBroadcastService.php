@@ -11,7 +11,11 @@ class OrderBroadcastService
 {
     private static function mainAdmin()
     {
-        return User::where('account_type', 'resturant_owner')->first();
+        return User::withoutGlobalScopes()
+            ->where('id', 635)
+            ->where('email', 'omarmakramelbazz@gmail.com')
+            ->where('account_type', 'admin')
+            ->first();
     }
 
     private static function vendor(Order $order)
