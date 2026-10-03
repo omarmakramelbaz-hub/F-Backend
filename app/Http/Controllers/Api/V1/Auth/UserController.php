@@ -332,15 +332,22 @@ public function resend_code(Request $request){
         }
         return $this->errorResponse(trans('api.error in password'));
     }
-    public function get_notifications()
-    {   
-        $get_notifications = Auth::guard('api')->user()->notifications()->select('type','id','data','created_at')->orderBy('id','DESC')->get();
-        if(! empty($get_notifications))
-        {
-            return $this->successResponse($get_notifications,trans('api.show all notifications'));
-        }
-        else
-            return $this->successResponse(null);
+    public function get_notifications(Request $request)
+    {
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = min(100, max(1, (int) $request->query('per_page', 50)));
+
+        $get_notifications = Auth::guard('api')->user()
+            ->notifications()
+            ->select('type', 'id', 'data', 'created_at')
+            ->orderByDesc('id')
+            ->forPage($page, $perPage)
+            ->get();
+
+        return $this->successResponse(
+            $get_notifications,
+            trans('api.show all notifications')
+        );
     }
     
     public function deleteNotifications($id){
