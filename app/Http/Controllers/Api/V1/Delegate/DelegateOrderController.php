@@ -626,6 +626,16 @@ class DelegateOrderController extends Controller {
     public function transfer_order_price($id){
         try{
             $order=Order::find($id);
+            if ($order && auth('admin')->check()) {
+                // The dashboard may settle only this scoped order. Resolve its
+                // exact parties without the unrelated dashboard listing scope.
+                $restaurant = Resturant::withoutGlobalScopes()->find($order->resturant_id);
+                if ($restaurant) {
+                    $restaurant->setRelation('user', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($restaurant->user_id));
+                }
+                $order->setRelation('resturant', $restaurant);
+                $order->setRelation('delegate', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($order->delegate_id));
+            }
             $delegate=$order->delegate;
             if($order && $order->grand_total>0 && $order->delegate_id !=null && $order->reason==null && $order->transfer_price_by==null  && $order->status == 'completed'){
                 $vendor_price=$order->vendor_percentage;

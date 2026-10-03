@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Middlewares\PermissionMiddleware;
@@ -199,5 +201,188 @@ class DashboardOrderIsolationTest extends TestCase
         // importantly, it is not newly blocked by the dashboard-only guard.
         $this->assertNull((new VendorOrderController())->updateOrder(Request::create('/api/vendor/orders/2001/update', 'POST'), $foreign));
         $this->assertSame('pending', DB::table('orders')->where('id', 2001)->value('status'));
+    }
+
+    public function test_branch_json_wallet_rejection_refunds_the_actual_customer_with_login_listing_scope(): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->decimal('balance', 12, 2)->default(0);
+        });
+        Schema::table('orders', function (Blueprint $table) {
+            $table->string('declined_by')->nullable();
+            $table->string('transfer_price_by')->nullable();
+            $table->decimal('delivery_price', 12, 2)->default(0);
+            $table->decimal('user_tax', 12, 2)->default(0);
+        });
+        Schema::table('carts', function (Blueprint $table) {
+            $table->decimal('price', 12, 2)->default(0);
+            $table->decimal('qty', 10, 3)->default(1);
+            $table->decimal('updated_total', 12, 2)->nullable();
+        });
+        Schema::create('wallets', function (Blueprint $table) {
+            $table->id();
+            foreach (['from_user', 'to_user', 'order_id'] as $field) $table->unsignedBigInteger($field)->nullable();
+            $table->decimal('amount', 12, 2);
+            foreach (['status', 'payment', 'type'] as $field) $table->string($field);
+            $table->timestamps();
+        });
+        Schema::create('settings', function (Blueprint $table) {
+            $table->id(); $table->string('name'); $table->text('payload');
+        });
+        Schema::create('delegate_notifications', function (Blueprint $table) {
+            $table->id(); $table->unsignedBigInteger('order_id'); $table->unsignedBigInteger('delegate_id')->nullable();
+        });
+        DB::table('users')->insert(['id' => 90, 'name' => 'Actual customer', 'account_type' => 'user', 'balance' => 40]);
+        foreach ([1 => 700, 10 => 500, 20 => 600] as $id => $balance) {
+            DB::table('users')->where('id', $id)->update(['balance' => $balance]);
+        }
+        DB::table('orders')->where('id', 1001)->update(['user_id' => 90, 'payment_type' => 'wallet']);
+        DB::table('carts')->insert(['id' => 502, 'order_id' => 1001, 'price' => 100, 'qty' => 1]);
+        Event::fake();
+        Mail::fake();
+        $this->signIn(10);
+        // signin stores this ID; AdminScope applies it to every JSON user query.
+        $this->withSession(['id_user' => 10]);
+        $payload = ['action' => 'reject', 'expected_status' => 'pending', 'expected_accepted_notify' => ''];
+        $this->postJson('/admin/order-board/legacy/2001/action', $payload)->assertNotFound();
+        $this->postJson('/admin/order-board/legacy/1001/action', $payload)->assertOk()->assertJsonPath('success', true);
+        $this->assertSame('declined', DB::table('orders')->where('id', 1001)->value('status'));
+        $this->assertSame('pending', DB::table('orders')->where('id', 2001)->value('status'));
+        $this->assertSame(140.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+        foreach ([1 => 700, 10 => 500, 20 => 600] as $id => $balance) {
+            $this->assertSame((float) $balance, (float) DB::table('users')->where('id', $id)->value('balance'));
+        }
+        $this->assertDatabaseHas('wallets', ['to_user' => 90, 'order_id' => 1001, 'amount' => 100, 'status' => 'completed']);
+        $this->assertSame('admin', DB::table('orders')->where('id', 1001)->value('transfer_price_by'));
+        Notification::assertSentTo(User::withoutGlobalScopes()->findOrFail(90), \App\Notifications\NotifyOrderPriceTransferToWalletNotification::class);
+        $this->postJson('/admin/order-board/legacy/1001/action', $payload)->assertStatus(409);
+        $this->assertSame(1, DB::table('wallets')->count());
+        $this->assertSame(140.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+    }
+
+    private function settlementFixture(array $orderChanges = [], ?float $updatedTotal = null): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->decimal('balance', 12, 2)->default(0);
+            $table->decimal('delegate_fees', 6, 2)->nullable();
+        });
+        Schema::table('orders', function (Blueprint $table) {
+            foreach (['declined_by', 'transfer_price_by', 'delegate_from_out', 'reason'] as $field) $table->string($field)->nullable();
+            foreach (['delegate_id', 'coupon_wheel_id'] as $field) $table->unsignedBigInteger($field)->nullable();
+            foreach (['delivery_price', 'user_tax', 'vendor_tax'] as $field) $table->decimal($field, 12, 2)->default(0);
+        });
+        Schema::table('carts', function (Blueprint $table) {
+            $table->decimal('price', 12, 2)->default(0); $table->decimal('qty', 10, 3)->default(1);
+            $table->decimal('updated_total', 12, 2)->nullable();
+        });
+        Schema::create('wallets', function (Blueprint $table) {
+            $table->id();
+            foreach (['from_user', 'to_user', 'order_id'] as $field) $table->unsignedBigInteger($field)->nullable();
+            $table->decimal('amount', 12, 2);
+            foreach (['status', 'payment', 'type'] as $field) $table->string($field);
+            $table->timestamps();
+        });
+        Schema::create('settings', function (Blueprint $table) {
+            $table->id(); $table->string('group'); $table->string('name'); $table->text('payload');
+            $table->timestamps();
+        });
+        // Populate the real settings class so settlement updates the actual app
+        // wallet repository; unrelated coupon hooks have empty fixture tables.
+        $settingsClass = new \ReflectionClass(\App\Models\GeneralSettings::class);
+        foreach ($settingsClass->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->getDeclaringClass()->getName() !== \App\Models\GeneralSettings::class || $property->isStatic()) continue;
+            $value = $property->getType()->getName() === 'bool' ? false : ($property->getName() === 'app_balance' ? '1000' : '0');
+            DB::table('settings')->insert(['group' => 'general', 'name' => $property->getName(), 'payload' => json_encode($value)]);
+        }
+        Schema::create('coupon_wheels', function (Blueprint $table) {
+            $table->id(); $table->string('status')->nullable(); $table->date('start_date')->nullable(); $table->date('end_date')->nullable();
+        });
+        Schema::create('coupon_wheel_resturants', function (Blueprint $table) {
+            $table->id(); $table->unsignedBigInteger('coupon_wheel_id'); $table->unsignedBigInteger('resturant_id');
+        });
+        Schema::create('delegate_notifications', function (Blueprint $table) {
+            $table->id(); $table->unsignedBigInteger('order_id'); $table->unsignedBigInteger('delegate_id')->nullable();
+        });
+        DB::table('users')->insert([
+            ['id' => 90, 'name' => 'Customer', 'account_type' => 'user', 'balance' => 40, 'delegate_fees' => null],
+            ['id' => 95, 'name' => 'Assigned courier', 'account_type' => 'delegate', 'balance' => 500, 'delegate_fees' => 20],
+        ]);
+        foreach ([1 => 700, 10 => 500, 20 => 600] as $id => $balance) DB::table('users')->where('id', $id)->update(['balance' => $balance]);
+        DB::table('orders')->where('id', 1001)->update(array_replace([
+            'user_id' => 90, 'status' => 'accepted', 'accepted_notify' => 'yes',
+            'payment_type' => 'cash', 'delegate_from_out' => 'in_resturant', 'vendor_tax' => 10,
+        ], $orderChanges));
+        DB::table('carts')->insert(['id' => 502, 'order_id' => 1001, 'price' => 100, 'qty' => 1, 'updated_total' => $updatedTotal]);
+        Event::fake(); Mail::fake();
+        $this->signIn(10);
+        $this->withSession(['id_user' => 10]);
+    }
+
+    private function completeBoardOrder(string $status = 'accepted'): void
+    {
+        $payload = ['action' => 'complete', 'expected_status' => $status, 'expected_accepted_notify' => 'yes'];
+        $this->postJson('/admin/order-board/legacy/2001/action', $payload)->assertNotFound();
+        $this->postJson('/admin/order-board/legacy/1001/action', $payload)->assertOk()->assertJsonPath('success', true);
+        $this->assertSame('completed', DB::table('orders')->where('id', 1001)->value('status'));
+        $this->assertSame(700.0, (float) DB::table('users')->where('id', 1)->value('balance'));
+        $this->assertSame(600.0, (float) DB::table('users')->where('id', 20)->value('balance'));
+        $this->postJson('/admin/order-board/legacy/1001/action', $payload)->assertStatus(409);
+    }
+
+    public function test_branch_json_cash_completion_settles_commission_from_the_actual_vendor(): void
+    {
+        $this->settlementFixture();
+        $this->completeBoardOrder();
+        $this->assertSame(490.0, (float) DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(40.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+        $this->assertSame(500.0, (float) DB::table('users')->where('id', 95)->value('balance'));
+        $this->assertDatabaseHas('wallets', ['from_user' => 10, 'order_id' => 1001, 'amount' => 10]);
+        $this->assertSame(1, DB::table('wallets')->count());
+        $this->assertSame(1010.0, (float) json_decode(DB::table('settings')->where('name', 'app_balance')->value('payload'), true));
+        $this->assertSame('vendor', DB::table('orders')->where('id', 1001)->value('transfer_price_by'));
+    }
+
+    public function test_branch_json_cash_courier_completion_settles_only_the_assigned_courier_and_vendor(): void
+    {
+        $this->settlementFixture(['status' => 'shipped', 'delegate_id' => 95, 'delegate_from_out' => 'out_resturant', 'delivery_price' => 30]);
+        $this->completeBoardOrder('shipped');
+        $this->assertSame(590.0, (float) DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(394.0, (float) DB::table('users')->where('id', 95)->value('balance'));
+        $this->assertSame(40.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+        $this->assertDatabaseHas('wallets', ['from_user' => 95, 'to_user' => 10, 'order_id' => 1001, 'amount' => 90]);
+        $this->assertDatabaseHas('wallets', ['from_user' => 95, 'to_user' => null, 'order_id' => 1001, 'amount' => 16]);
+        $this->assertSame(2, DB::table('wallets')->count());
+        $this->assertSame(1016.0, (float) json_decode(DB::table('settings')->where('name', 'app_balance')->value('payload'), true));
+        $this->assertSame('delegate', DB::table('orders')->where('id', 1001)->value('transfer_price_by'));
+    }
+
+    public function test_branch_json_wallet_completion_refunds_price_adjustment_to_the_actual_customer(): void
+    {
+        $this->settlementFixture(['payment_type' => 'wallet'], 80);
+        $this->completeBoardOrder();
+        $this->assertSame(480.0, (float) DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(60.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+        $this->assertSame(500.0, (float) DB::table('users')->where('id', 95)->value('balance'));
+        $this->assertDatabaseHas('wallets', ['from_user' => 10, 'to_user' => 90, 'order_id' => 1001, 'amount' => 20]);
+        $this->assertSame(1, DB::table('wallets')->count());
+    }
+
+    public function test_wallet_completion_and_existing_settlement_credit_the_actual_vendor_and_courier(): void
+    {
+        $this->settlementFixture(['status' => 'shipped', 'payment_type' => 'wallet', 'delegate_id' => 95,
+            'delegate_from_out' => 'out_resturant', 'delivery_price' => 30]);
+        $this->completeBoardOrder('shipped');
+        $this->postJson('/admin/ordersTransferPrice/2001')->assertNotFound();
+        $this->postJson('/admin/ordersTransferPrice/1001')->assertRedirect();
+        $this->assertSame(590.0, (float) DB::table('users')->where('id', 10)->value('balance'));
+        $this->assertSame(524.0, (float) DB::table('users')->where('id', 95)->value('balance'));
+        $this->assertSame(40.0, (float) DB::table('users')->where('id', 90)->value('balance'));
+        $this->assertDatabaseHas('wallets', ['to_user' => 10, 'order_id' => 1001, 'amount' => 90]);
+        $this->assertDatabaseHas('wallets', ['to_user' => 95, 'order_id' => 1001, 'amount' => 24]);
+        $this->assertSame(2, DB::table('wallets')->count());
+        $this->assertSame('admin', DB::table('orders')->where('id', 1001)->value('transfer_price_by'));
+        $this->postJson('/admin/ordersTransferPrice/1001');
+        $this->assertSame(2, DB::table('wallets')->count());
+        $this->assertSame(524.0, (float) DB::table('users')->where('id', 95)->value('balance'));
     }
 }

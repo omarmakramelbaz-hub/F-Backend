@@ -105,7 +105,7 @@ class OrderController extends Controller
         abort_unless($resturant, 404);
         $latitude = $resturant->lat;
         $longitude = $resturant->lng;
-        $delegates = User::where('connected', 'active')->where('status', 'accepted')->where('account_type', 'delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians(' . $latitude . ') ) * cos( radians( lat ) ) * 
+        $delegates = $this->orderUsers()->where('connected', 'active')->where('status', 'accepted')->where('account_type', 'delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians(' . $latitude . ') ) * cos( radians( lat ) ) *
           cos( radians( lng ) - radians(' . $longitude . ') ) + sin( radians(' . $latitude . ') ) * sin( radians( lat ) ) ) ) AS distance'))
             ->having('distance', '<', 10)
             ->orderBy('distance')->get();
@@ -140,7 +140,7 @@ class OrderController extends Controller
         if ($request->type == 'in_resturant') {
             $up = $order->update(['status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
             //send notification for user has order    
-            $user_order_owner = User::where('id', $order->user_id)->first();
+            $user_order_owner = $this->orderUsers()->where('id', $order->user_id)->first();
             if ($user_order_owner) {
                 Notification::send($user_order_owner, new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
             }
@@ -174,13 +174,13 @@ event(new OrderStatusUpdated($order));
     broadcast(new OrderFinishedUpdated($order, 1, $order->user_id));
 
     // إشعار الفرع
-    $vendor = User::find(optional($order->resturant)->user_id);
+    $vendor = $this->orderUsers()->find(optional($order->resturant)->user_id);
     if ($vendor) {
         OrderBroadcastService::outForDelivery($order);
     }
 
     // إشعار الإدارة الرئيسية (الحساب 635)
-    $mainAdmin = User::where('account_type', 'resturant_owner')->first();
+    $mainAdmin = $this->orderUsers()->where('account_type', 'resturant_owner')->first();
     if ($mainAdmin) {
     }
 
@@ -254,8 +254,8 @@ event(new OrderStatusUpdated($order));
             $data = $order->update(['status' => $request->status]);
             OrderBroadcastService::decline($order);
 
-$user_order_owner = User::where('id', $order->user_id)->first();
-$resturant_owner = User::where('id', $order->resturant->user_id)->first();
+$user_order_owner = $this->orderUsers()->where('id', $order->user_id)->first();
+$resturant_owner = $this->orderUsers()->where('id', $order->resturant->user_id)->first();
 
 // تحديث جميع شاشات الأدمن
 if ($resturant_owner) {
@@ -359,11 +359,12 @@ if ($resturant_owner) {
     OrderBroadcastService::accept($order);
 
     // إشعار الفرع
-    $vendor = User::find(optional($order->resturant)->user_id);
+    $vendor = $this->orderUsers()->find(optional($order->resturant)->user_id);
     if ($vendor) {
     }
 
-    Notification::send($order->user, new \App\Notifications\NotifyAcceptOrderNotification($order));
+    $customer = auth('admin')->check() ? $this->orderUsers()->find($order->user_id) : $order->user;
+    if ($customer) Notification::send($customer, new \App\Notifications\NotifyAcceptOrderNotification($order));
 }
         if ($request->wantsJson() || $request->is('api/*')) {
             return $this->successResponse("success", __('api.accepted order successfully'));
@@ -575,6 +576,13 @@ if ($resturant_owner) {
     {
         try {
             $order = Order::find($id);
+            if ($order && auth('admin')->check()) {
+                // Authorize through the scoped order before resolving the
+                // actual settlement recipient outside dashboard user lists.
+                $restaurant = Resturant::withoutGlobalScopes()->find($order->resturant_id);
+                if ($restaurant) $restaurant->setRelation('user', $this->orderUsers()->find($restaurant->user_id));
+                $order->setRelation('resturant', $restaurant);
+            }
             $vendor = $order->resturant?->user;
             if ($order && $order->grand_total > 0 && $order->transfer_price_by == null && $order->delegate_id == null) {
                 $app_price = $order->app_percentage;
@@ -667,5 +675,14 @@ if ($resturant_owner) {
         if (auth('admin')->check()) {
             Order::whereKey($order->getKey())->firstOrFail();
         }
+    }
+
+    private function orderUsers()
+    {
+        // Mutation callers first authorize their order. The dashboard's user
+        // listing scope must not hide its actual notification/refund recipients.
+        return auth('admin')->check()
+            ? User::withoutGlobalScope(\App\Scopes\AdminScope::class)
+            : User::query();
     }
 }

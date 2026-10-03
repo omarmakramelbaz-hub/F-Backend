@@ -473,7 +473,12 @@ class OrderController extends Controller
              $order=Order::whereIn('status',['cancelled','declined'])->find($id);
 
             if($order && $order->grand_total>0 && $order->transfer_price_by==null ){
-                $user = User::findOrFail($order->user_id);
+                // The order was scoped above; use its actual customer even when
+                // a JSON branch session applies the unrelated user listing scope.
+                $userQuery = auth('admin')->check()
+                    ? User::withoutGlobalScope(\App\Scopes\AdminScope::class)
+                    : User::query();
+                $user = $userQuery->findOrFail($order->user_id);
                     // transfer grand_total to user
                         Wallet::create([
                             'to_user'=>$user->id,
@@ -487,7 +492,7 @@ class OrderController extends Controller
                        if($order->status=='cancelled'){
                      Notification::send($user,new \App\Notifications\NotifyUserCancelledOrderPriceNotification($order));
                        }else{
-                                           Notification::send($order->user,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$order->grand_total));
+                                           Notification::send($user,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$order->grand_total));
 
                        }
                     $order->update(['transfer_price_by'=>'admin']);
@@ -508,6 +513,16 @@ class OrderController extends Controller
         // Resolve before the legacy catch so inaccessible dashboard IDs
         // produce a 404 instead of returning an exception as a response.
         $order=Order::findOrFail($id);
+        if (auth('admin')->check()) {
+            // The scoped order fixes the recipient IDs; dashboard list scopes
+            // must not hide the assigned restaurant owner or courier.
+            $restaurant = \App\Models\Resturant::withoutGlobalScopes()->find($order->resturant_id);
+            if ($restaurant) {
+                $restaurant->setRelation('user', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($restaurant->user_id));
+            }
+            $order->setRelation('resturant', $restaurant);
+            $order->setRelation('delegate', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($order->delegate_id));
+        }
         try{
             $delegate=$order->delegate;
             if($order && $order->grand_total>0 && $order->transfer_price_by==null ){
