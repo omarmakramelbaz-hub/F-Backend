@@ -25,6 +25,8 @@ class ResturantResource extends JsonResource
             'resturant_id' => (int) $this->id,
             'resturant_name' => $this->name,
             'resturant_status' => $this->effective_status,
+            'resturant_open_at' => $this->open_at,
+            'resturant_close_at' => $this->close_at,
             'resturant_logo' => $this->getFirstMediaUrl('logo', 'thumb'),
             'resturant_zone' => $zone && $zone->type == 'kilo' ? true : false,
             'zone_day' => $zone?->expected_delivery,
