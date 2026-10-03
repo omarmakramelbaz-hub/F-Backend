@@ -111,6 +111,7 @@ class OrderBoardMenu
             return ['value'=>'f:'.$id, 'kind'=>'f', 'id'=>$id, 'label'=>$row->name ?? 'الفرع'];
         }
         // GO catalog store_id is the owner's users.id, not a profile's own row ID.
+        abort_if($actor->account_type === 'admin' && !empty($actor->owner_resturant_id), 404);
         if (!$this->board->isAdmin($actor)) abort_unless((int) $actor->id === $id, 404);
         abort_unless($this->has('go_stores', 'user_id'), 404);
         $ownerQuery = DB::table('users')->where('id', $id);

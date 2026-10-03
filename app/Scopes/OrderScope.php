@@ -15,11 +15,13 @@ class OrderScope implements Scope
 
         // This is a dashboard scope. Customer, partner and delegate APIs keep
         // their own existing authentication and order filters.
-        if (!$admin || $admin->account_type === 'admin') {
+        if (!$admin || ($admin->account_type === 'admin' && empty($admin->owner_resturant_id))) {
             return;
         }
 
-        if ($admin->account_type === 'resturant_owner' && $admin->owner_resturant_id) {
+        if ($admin->account_type === 'admin') {
+            $restaurantIds = Resturant::withoutGlobalScopes()->whereKey($admin->owner_resturant_id)->pluck('id');
+        } elseif ($admin->account_type === 'resturant_owner' && $admin->owner_resturant_id) {
             $restaurantIds = Resturant::withoutGlobalScopes()
                 ->where(function (Builder $query) use ($admin) {
                     $query->where('id', $admin->owner_resturant_id)

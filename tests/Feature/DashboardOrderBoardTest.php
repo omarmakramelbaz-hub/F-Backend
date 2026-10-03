@@ -207,6 +207,27 @@ class DashboardOrderBoardTest extends TestCase
         return (new User())->forceFill((array) DB::table('users')->find($id));
     }
 
+    public function test_linked_admin_uses_branch_scope_on_board_details_and_actions(): void
+    {
+        DB::table('users')->where('id', 10)->update(['account_type'=>'admin']);
+        $this->legacy(1);
+        $this->legacy(2, ['resturant_id'=>101]);
+        $this->store();
+        $this->services();
+        $data = $this->board(10);
+        $this->assertFalse($data['isAdmin']);
+        $this->assertSame(['legacy:1'], $this->keys($data));
+        $this->assertSame(['f:100'], array_column($data['branches'], 'value'));
+        $this->assertSame([], $this->keys($this->board(10, ['branch'=>'f:101'])));
+        foreach ([['legacy',2],['store',200],['service',300],['partner_service',301]] as [$source,$id]) {
+            $this->assertCannotView(10, $source, $id);
+            $this->actingAs($this->actor(10), 'admin')
+                ->postJson(route('order-board.action', ['source'=>$source, 'id'=>$id]), ['action'=>'accept','expected_status'=>'pending'])->assertNotFound();
+        }
+        $this->assertSame('pending', DB::table('orders')->where('id', 2)->value('status'));
+        $this->assertContains('legacy:2', $this->keys($this->board(1)));
+    }
+
     private function board(int $actor = 1, array $filters = []): array
     {
         return app(OrderBoardService::class)->data(Request::create('/admin/order-review', 'GET', $filters), $this->actor($actor));

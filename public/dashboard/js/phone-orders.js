@@ -195,6 +195,7 @@
     }
     function switchView(target) {
         if (locked()) { notify(text('locked'), false, true); return; }
+        root.querySelector(target === 'orders' ? '[data-phone-orders-branch-slot]' : '[data-phone-branch-slot]').appendChild(branchSelect.closest('.ph-branch'));
         view = target; root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); if (target === 'orders' && branch) loadOrders(1); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
     }
     function changeBranch() {

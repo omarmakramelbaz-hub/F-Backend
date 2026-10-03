@@ -7,6 +7,7 @@
 <main id="phone-orders" class="ph-pos ph-step-number" aria-labelledby="phone-orders-title">
     <header class="ph-header"><div class="ph-heading"><span class="ph-heading-icon"><i class="fas fa-phone-alt" aria-hidden="true"></i></span><div><h1 id="phone-orders-title">{{ __('phone_orders.title') }}</h1><p>{{ __('phone_orders.subtitle') }}</p></div></div>
         <label class="ph-branch"><i class="fas fa-map-marker-alt" aria-hidden="true"></i><span class="ph-sr-only">{{ __('phone_orders.branch') }}</span><select data-phone-branch><option value="">{{ __('phone_orders.select_branch') }}</option>@foreach($phonePos['branches'] ?? [] as $branch)<option value="{{ $branch['value'] }}" @if((string)($phonePos['selected_branch'] ?? '') === (string)$branch['value']) selected @endif>{{ $branch['name'] }}</option>@endforeach</select></label>
+        <div data-phone-orders-branch-slot></div>
         <nav class="ph-view-tabs" aria-label="{{ __('phone_orders.title') }}"><button type="button" data-phone-view="compose" class="is-active" aria-pressed="true"><i class="fas fa-plus" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</button><button type="button" data-phone-view="orders" aria-pressed="false"><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</button></nav>
     </header>
     <div class="ph-notice" data-phone-message role="status" aria-live="polite" hidden><span></span><button type="button" data-phone-retry hidden>{{ __('phone_orders.retry') }}</button></div>

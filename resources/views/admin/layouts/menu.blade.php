@@ -64,6 +64,11 @@
                 {{-- @if(session()->get('menu') == 'application') --}}
                 @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
                     <li class="nav-item">
+                        <a href="{{ route('branch-orders.index') }}" class="nav-link {{ request()->is('admin/branch-orders') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-store"></i><p>{{ __('branch_orders.title') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-shopping-bag"></i>
                             <p>{{ __('takeaway.title') }}</p>

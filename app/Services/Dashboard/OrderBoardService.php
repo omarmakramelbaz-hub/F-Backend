@@ -21,7 +21,10 @@ class OrderBoardService
     public function canAccess($actor): bool
     {
         if (!$actor) return false;
-        if ($actor->account_type === 'admin') return (int) $actor->id === 1 || $actor->can('order-list');
+        if ($actor->account_type === 'admin') {
+            if (!empty($actor->owner_resturant_id)) return count($this->restaurantIds($actor)) > 0;
+            return (int) $actor->id === 1 || $actor->can('order-list');
+        }
         if (in_array($actor->account_type, ['vendor', 'resturant_owner'], true)) return true;
         return ($actor->app_scope ?? '') === 'go_partner' && ($actor->status ?? '') === 'accepted'
             && $this->has('go_stores', 'user_id') && DB::table('go_stores')->where('user_id', $actor->id)->exists();
@@ -29,7 +32,7 @@ class OrderBoardService
 
     public function isAdmin($actor): bool
     {
-        return $actor && $actor->account_type === 'admin';
+        return $actor && $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
     }
 
     public function restaurantIds($actor): array
@@ -37,7 +40,9 @@ class OrderBoardService
         if (!$this->has('resturants', 'user_id')) return [];
         $query = DB::table('resturants');
         if ($this->isAdmin($actor)) return $query->pluck('id')->all();
-        if ($actor->account_type === 'resturant_owner' && !empty($actor->owner_resturant_id)) {
+        if ($actor->account_type === 'admin') {
+            $query->where('id', $actor->owner_resturant_id);
+        } elseif ($actor->account_type === 'resturant_owner' && !empty($actor->owner_resturant_id)) {
             $query->where(function ($q) use ($actor) {
                 $q->where('id', $actor->owner_resturant_id);
                 if ($this->has('resturants', 'parent_id')) $q->orWhere('parent_id', $actor->owner_resturant_id);
@@ -169,6 +174,7 @@ class OrderBoardService
     {
         $table = ['legacy'=>'orders', 'store'=>'go_store_orders', 'service'=>'go_service_jobs', 'partner_service'=>'partner_service_requests'][$source] ?? null;
         if (!$table || !$this->has($table, 'status') || !$this->has($table, 'created_at')) return null;
+        if ($source !== 'legacy' && $actor->account_type === 'admin' && !empty($actor->owner_resturant_id)) return null;
         if ($source !== 'legacy' && ($filters['app'] ?? '') === 'fasakhansta') return null;
         if (in_array($source, ['service', 'partner_service'], true) && !$this->isAdmin($actor)) return null;
         $query = DB::table($table);
@@ -258,7 +264,7 @@ class OrderBoardService
                 $branches[] = ['value'=>'f:'.$r->id, 'label'=>$r->name];
             }
         }
-        if ($this->has('go_stores', 'user_id')) {
+        if ($this->has('go_stores', 'user_id') && !($actor->account_type === 'admin' && !empty($actor->owner_resturant_id))) {
             $query = DB::table('go_stores');
             if (!$this->isAdmin($actor)) $query->where('user_id', $actor->id);
             foreach ($query->orderBy('name')->get() as $s) $branches[] = ['value'=>'gs:'.$s->user_id, 'label'=>'جو · '.$s->name];

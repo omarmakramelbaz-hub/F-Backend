@@ -5,6 +5,7 @@ use App\Http\Controllers\Dashboard\PhoneOrdersController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['lang', 'IsAdmin'])->group(function () {
+    Route::get('admin/branch-orders', [\App\Http\Controllers\Dashboard\BranchOrdersController::class, 'index'])->name('branch-orders.index');
     foreach (['dining' => DineInController::class, 'phone-orders' => PhoneOrdersController::class] as $name => $controller) {
         Route::prefix('admin/'.$name)->name($name.'.')->group(function () use ($controller) {
             Route::get('/', [$controller, 'index'])->name('index');

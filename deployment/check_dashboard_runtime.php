@@ -44,7 +44,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);

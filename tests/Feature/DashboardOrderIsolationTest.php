@@ -89,6 +89,20 @@ class DashboardOrderIsolationTest extends TestCase
         $this->actingAs(User::withoutGlobalScopes()->findOrFail($id), 'admin');
     }
 
+    public function test_linked_admin_cannot_use_legacy_routes_to_escape_its_branch(): void
+    {
+        DB::table('users')->where('id', 10)->update(['account_type'=>'admin', 'owner_resturant_id'=>100]);
+        $this->signIn(10);
+        $this->assertSame([1001], Order::orderBy('id')->pluck('id')->all());
+        foreach ([1002,2001,3001,3002] as $id) {
+            $this->get('/admin/print-pdf?id='.$id)->assertNotFound();
+            $this->post('/admin/ordersChangeStatus/'.$id, ['status'=>'accepted'])->assertNotFound();
+        }
+        $this->post('/admin/ordersChangeStatus/1001', ['status'=>'accepted'])->assertRedirect();
+        $this->assertSame('accepted', DB::table('orders')->where('id',1001)->value('status'));
+        $this->assertSame('pending', DB::table('orders')->where('id',2001)->value('status'));
+    }
+
     public function test_admin_sees_all_orders_and_owner_keeps_own_branch_hierarchy(): void
     {
         $this->signIn(1);

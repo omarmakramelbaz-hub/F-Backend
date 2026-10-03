@@ -126,6 +126,24 @@ class DashboardTakeawayTest extends TestCase
     }
     private function actor(int $id = 10): User { return User::withoutGlobalScopes()->findOrFail($id); }
     private function service(): TakeawayService { return app(TakeawayService::class); }
+
+    public function test_callcenter_branch_directory_uses_real_accounts_and_branch_scope(): void
+    {
+        $access = app(TakeawayAccess::class);
+        $controller = app(\App\Http\Controllers\Dashboard\BranchOrdersController::class);
+        $this->actingAs($this->actor(2), 'admin');
+        $branches = collect($controller->index($access)->getData()['branches'])->keyBy('value');
+        $this->assertTrue($branches->has('f:100'));
+        $this->assertTrue($branches->has('f:101'));
+        $this->assertEqualsCanonicalizing([4,5,10], array_column($branches['f:100']['accounts'], 'id'));
+        $this->assertTrue($branches['f:100']['has_receiver']);
+        $this->assertFalse($branches['f:101']['has_receiver']);
+        $this->assertNotContains(4, array_column($branches['f:101']['accounts'], 'id'));
+        $this->actingAs($this->actor(4), 'admin');
+        $this->assertSame(['f:100'], array_column($controller->index($access)->getData()['branches'], 'value'));
+        $this->actingAs($this->actor(6), 'admin');
+        $this->denied(fn () => $controller->index($access), 403);
+    }
     private function key(int $id = 1): string { return sprintf('00000000-0000-4000-8000-%012d', $id); }
     private function cart(string $branch = 'f:100', int $product = 1, string $quantity = '1.000', string $mode = 'piece'): array
     {

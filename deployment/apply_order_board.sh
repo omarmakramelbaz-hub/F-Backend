@@ -71,6 +71,7 @@ php -l app/Http/Controllers/Dashboard/TakeawayController.php
 php -l app/Http/Controllers/Dashboard/PosServiceController.php
 php -l app/Http/Controllers/Dashboard/DineInController.php
 php -l app/Http/Controllers/Dashboard/PhoneOrdersController.php
+php -l app/Http/Controllers/Dashboard/BranchOrdersController.php
 php -l app/Services/Dashboard/PosServiceTicket.php
 php -l app/Services/Dashboard/PosServiceTable.php
 php -l app/Services/Dashboard/PosServicePhone.php
@@ -106,6 +107,7 @@ test -s public/dashboard/css/dining-pos.css
 test -s public/dashboard/js/phone-orders.js
 test -s public/dashboard/js/branch-print-receiver.js
 test -s public/dashboard/css/phone-orders.css
+test -s public/dashboard/css/branch-orders.css
 test -s public/dashboard/branding/fasakhansta-logo-transparent.png
 php artisan order-board:advance --help >/dev/null
 php deployment/check_dashboard_runtime.php
