@@ -309,6 +309,44 @@ class CartController extends Controller
             if ($carts->count() == 0) {
                 return $this->errorResponse(__('api.empty'));
             }
+
+            $restaurant = $carts->first()->resturant;
+            if (! $restaurant) {
+                return $this->errorResponse(__('api.cannot create order'));
+            }
+
+            // Browsing and cart building remain available while a branch is closed,
+            // but checkout is only accepted while the branch is actually open.
+            // effective_status also accounts for the open_at / close_at schedule.
+            if ($restaurant->effective_status !== 'opened') {
+                if ($restaurant->effective_status === 'busy') {
+                    $closedMessage = 'عفواً، الفرع مشغول حالياً ولا يستقبل طلبات جديدة.';
+                } else {
+                    $closedMessage = 'الفرع مغلق حالياً.';
+                    if (! empty($restaurant->open_at)) {
+                        try {
+                            $openingTime = \Carbon\Carbon::parse(
+                                $restaurant->open_at,
+                                config('app.timezone', 'Africa/Cairo')
+                            )->format('H:i');
+                            $closedMessage .= ' يفتح الساعة '.$openingTime.'.';
+                        } catch (\Throwable $e) {
+                            // Keep the generic closed message if an old schedule value is malformed.
+                        }
+                    }
+                }
+
+                return response()->json([
+                    'status' => 'Error',
+                    'message' => $closedMessage,
+                    'data' => [
+                        'resturant_status' => $restaurant->effective_status,
+                        'open_at' => $restaurant->open_at,
+                        'close_at' => $restaurant->close_at,
+                    ],
+                ], 422);
+            }
+
             $order = Order::create([
                 'user_id' => auth('api')->user()->id,
                 // 'status'=>'pending',
