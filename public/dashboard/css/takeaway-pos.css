@@ -87,3 +87,14 @@
 .tp-invoice-scroll > .tp-notes, .tp-invoice-scroll > .tp-totals, .tp-invoice-scroll > .tp-payment-reference, .tp-invoice-scroll > .tp-payment-confirmation, .tp-invoice-scroll > .tp-payments { flex-shrink: 0; }
 /* Place the shared sound control in the navbar so it never covers a sale action. */
 .dashboard-takeaway-page #toggle-sound { position: static; margin-inline: 8px; width: 36px; height: 36px; flex: 0 0 36px; padding: 0; font-size: 16px; }
+/* Dense image menus must scroll as full cards rather than compressing their text out of view. */
+.tp-pos .tp-products { grid-auto-rows: max-content; align-items: start; }
+.tp-product-card { display: flex; flex-direction: column; min-width: 0; background: #fff; border: 1px solid var(--tp-line); border-radius: 6px; overflow: hidden; }
+.tp-product-card .tp-product { width: 100%; height: auto; min-height: 0; border: 0; border-radius: 0; flex: 0 0 auto; }
+.tp-product-image, .tp-product-copy { flex-shrink: 0; }
+.tp-product-base { color: #738095; font-size: 10px; }
+.tp-product-options { width: 100%; padding: 7px; color: #6432c9; background: #f4f0fe; border: 0; border-top: 1px solid #e5ddf6; font-size: 11px; }
+.tp-invoice-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; flex: 0 0 auto; }
+.tp-invoice-tab { display: flex; align-items: center; gap: 7px; padding: 7px 10px; min-width: 0; border: 1px solid var(--tp-line); border-radius: 6px; background: #fff; color: #47556a; font-size: 11px; }
+.tp-invoice-tab strong { white-space: nowrap; font-weight: 800; }.tp-invoice-tab small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; }.tp-invoice-tab.is-active { background: #fff0e4; border-color: #ff8b33; color: #a44800; }.tp-invoice-tab.is-uncertain { border-color: #dc7630; }.tp-invoice-count { margin-inline-start: auto; min-width: 19px; border-radius: 4px; background: #f1f3f7; text-align: center; padding: 0 4px; }
+@media(max-width:599px) { .tp-invoice-tabs { gap: 4px; }.tp-invoice-tab { flex-direction: column; gap: 1px; padding: 5px 2px; font-size: 10px; }.tp-invoice-tab small { max-width: 100%; font-size: 8px; }.tp-invoice-count { margin: 0; } }

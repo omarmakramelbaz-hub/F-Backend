@@ -18,9 +18,10 @@
         <div class="tp-cashier"><span class="tp-avatar"><i class="far fa-user" aria-hidden="true"></i></span><span><strong>{{ __('takeaway.cashier') }}</strong><small>{{ $pos['cashier']['name'] ?? auth('admin')->user()->name }}</small></span></div>
         <div class="tp-header-actions"><button type="button" data-pos-daily><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('takeaway.daily_invoices') }}<strong data-pos-day-count hidden></strong></button><button type="button" data-pos-register><i class="fas fa-cash-register" aria-hidden="true"></i>{{ __('takeaway.cash_register') }}<bdi data-pos-register-balance>—</bdi></button></div>
     </header>
+    <nav class="tp-invoice-tabs" data-pos-invoices role="tablist" aria-label="{{ __('takeaway.open_invoices') }}"></nav>
     <div class="tp-notice" data-pos-message role="status" aria-live="polite" hidden><span></span><button type="button" data-pos-retry hidden>{{ __('takeaway.retry') }}</button></div>
     <div class="tp-workspace">
-        <section class="tp-invoice tp-panel" aria-labelledby="invoice-title">
+        <section id="takeaway-invoice" class="tp-invoice tp-panel" role="tabpanel" aria-labelledby="invoice-title">
             <header class="tp-panel-heading"><h2 id="invoice-title"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('takeaway.current_invoice') }}</h2><button type="button" class="tp-clear" data-pos-clear><i class="far fa-trash-alt" aria-hidden="true"></i>{{ __('takeaway.clear_invoice') }}</button></header>
             <div class="tp-invoice-scroll">
             <div class="tp-invoice-lines"><table><colgroup><col class="tp-col-item"><col class="tp-col-quantity"><col class="tp-col-price"><col class="tp-col-total"><col class="tp-col-remove"></colgroup><thead><tr><th>{{ __('takeaway.item') }}</th><th>{{ __('takeaway.quantity') }}</th><th>{{ __('takeaway.price') }}</th><th>{{ __('takeaway.line_total') }}</th><th><span class="tp-sr-only">{{ __('takeaway.remove_item') }}</span></th></tr></thead><tbody data-pos-lines></tbody></table><p class="tp-empty" data-pos-empty-invoice>{{ __('takeaway.empty_invoice') }}</p></div>

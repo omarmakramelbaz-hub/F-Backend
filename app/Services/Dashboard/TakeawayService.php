@@ -21,37 +21,59 @@ class TakeawayService
     }
 
     public function canAccess($actor): bool { return $this->access->canAccess($actor); }
+    public function canonicalCart(array $values): array {return $this->cart($values);}
 
-    public function quote(array $values, $actor): array
+    public function quote(array $values, $actor, array $context = [], bool $lock=false): array
     {
         $cart = $this->cart($values);
         $branch = $this->access->branch($cart['branch'], $actor);
         $this->requireReady();
         $permissions = $this->access->permissions($actor);
         $till = $this->till($branch['value']);
-        return $this->price($cart, $branch, $permissions, (int) $till->tax_bps, false);
+        return $this->price($cart, $branch, $permissions, (int) $till->tax_bps, $lock, $context);
     }
 
-    public function checkout(array $values, $actor): array
+    public function checkout(array $values, $actor, array $context = []): array
     {
         $cart = $this->cart($values);
         $payment = Validator::make($values, [
             'idempotency_key'=>'required|uuid', 'quote_hash'=>'required|string|size:64|regex:/^[a-f0-9]+$/D',
-            'payment_method'=>'required|in:cash,card,mobile_wallet,wallet,other',
+            'payment_method'=>'required|in:cash,card,mobile_wallet,wallet,other,mixed',
             'cash_received'=>'nullable|string|max:14', 'payment_confirmed'=>'nullable|boolean',
             'payment_reference'=>'nullable|string|max:150', 'notes'=>'nullable|string|max:500',
+            'tenders'=>'nullable|array|min:2|max:3', 'tenders.*.method'=>'required|in:cash,card,mobile_wallet',
+            'tenders.*.amount'=>'required|string|max:14', 'tenders.*.payment_confirmed'=>'nullable|boolean',
+            'tenders.*.reference'=>'nullable|string|max:150',
         ])->validate();
         $payment['payment_method'] = $payment['payment_method'] === 'wallet' ? 'mobile_wallet' : $payment['payment_method'];
-        $payment['cash_received_cents'] = $payment['payment_method'] === 'cash' ? $this->money($payment['cash_received'] ?? '', 'cash_received') : 0;
+        $mixed = $payment['payment_method'] === 'mixed';
+        abort_unless(!$mixed || ($context['channel'] ?? '') === 'dine',422,'الدفع المختلط متاح لفاتورة الصالة فقط.');
+        $payment['cash_received_cents'] = in_array($payment['payment_method'],['cash','mixed'],true) ? $this->money($payment['cash_received'] ?? '0', 'cash_received') : 0;
         $payment['payment_reference'] = trim($payment['payment_reference'] ?? '');
         $payment['notes'] = trim($payment['notes'] ?? '');
-        if ($payment['payment_method'] !== 'cash' && !($payment['payment_confirmed'] ?? false)) {
+        if (!in_array($payment['payment_method'],['cash','mixed'],true) && !($payment['payment_confirmed'] ?? false)) {
             throw ValidationException::withMessages(['payment_confirmed'=>'أكد تحصيل الدفع خارج النظام قبل تسجيل الفاتورة.']);
+        }
+        $tenders=[];
+        if ($mixed) {
+            abort_unless(!empty($payment['tenders']),422,'أدخل توزيع الدفع المختلط.');
+            foreach ($payment['tenders'] as $tender) {
+                $method=$tender['method'];
+                abort_unless(!isset($tenders[$method]),422,'وسيلة الدفع مكررة.');
+                $amount=$this->money($tender['amount'],'tenders');
+                abort_unless($amount>0,422,'مبلغ كل وسيلة دفع يجب أن يكون أكبر من صفر.');
+                $confirmed=$method==='cash'||(bool)($tender['payment_confirmed']??$payment['payment_confirmed']??false);
+                abort_unless($confirmed,422,'أكد تحصيل الجزء غير النقدي خارج النظام.');
+                $tenders[$method]=['method'=>$method,'amount_cents'=>$amount,'confirmed'=>true,'reference'=>trim($tender['reference']??'')];
+            }
+            ksort($tenders);
         }
         $requestHash = $this->hash([$cart, $payment['quote_hash'], $payment['payment_method'], $payment['cash_received_cents'],
             $payment['payment_reference'], $payment['notes']]);
+        if ($context) $requestHash=$this->hash([$requestHash,$context,$tenders]);
         $this->requireReady();
-        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor) {
+        if ($context) abort_unless($this->access->has('takeaway_orders','channel'),503,'قنوات نقطة البيع لم تُجهز بعد.');
+        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor, $context, $tenders) {
             $actor = $this->access->actor($actor);
             $branch = $this->access->branch($cart['branch'], $actor, true);
             $permissions = $this->access->permissions($actor);
@@ -66,29 +88,41 @@ class TakeawayService
             // A movement/setting key cannot be reused to create a sale.
             abort_unless(!DB::table('takeaway_till_entries')->where('till_id', $till->id)->where('actor_id', $actor->id)
                 ->where('request_key', $payment['idempotency_key'])->exists(), 409, 'رقم العملية مستخدم بالفعل.');
-            $quote = $this->price($cart, $branch, $permissions, (int) $till->tax_bps, true);
+            $quote = $this->price($cart, $branch, $permissions, (int) $till->tax_bps, true, $context);
             abort_unless(hash_equals($quote['quote_hash'], $payment['quote_hash']), 409, 'تغير سعر أو ضريبة الفاتورة. راجع الإجمالي وأعد المحاولة.');
             $total = $quote['total_cents'];
-            if ($payment['payment_method'] === 'cash') {
-                if ($payment['cash_received_cents'] < $total) throw ValidationException::withMessages(['cash_received'=>'المبلغ المستلم أقل من إجمالي الفاتورة.']);
-                $change = $payment['cash_received_cents'] - $total;
-                $delta = $total;
-            } else { $change = 0; $delta = 0; }
+            if ($payment['payment_method']==='mixed') {
+                abort_unless(array_sum(array_column($tenders,'amount_cents'))===$total,422,'مجموع وسائل الدفع لا يساوي إجمالي الفاتورة.');
+                $delta=$tenders['cash']['amount_cents']??0;
+            } else {
+                $delta=$payment['payment_method']==='cash'?$total:0;
+                $tenders=[$payment['payment_method']=>['method'=>$payment['payment_method'],'amount_cents'=>$total,'confirmed'=>true,'reference'=>$payment['payment_reference']]];
+            }
+            if ($delta>0 || $payment['payment_method']==='cash') {
+                if ($payment['cash_received_cents']<$delta) throw ValidationException::withMessages(['cash_received'=>'المبلغ المستلم أقل من الجزء النقدي للفاتورة.']);
+                $change=$payment['cash_received_cents']-$delta;
+            } else { $change=0; $payment['cash_received_cents']=0; }
             $when = now('UTC');
             $businessDate = $this->businessDate($when);
-            $id = DB::table('takeaway_orders')->insertGetId([
+            $orderValues = [
                 'till_id'=>$till->id, 'branch'=>$branch['value'], 'actor_id'=>$actor->id,
                 'request_key'=>$payment['idempotency_key'], 'request_hash'=>$requestHash, 'quote_hash'=>$quote['quote_hash'],
                 'business_date'=>$businessDate, 'payment_method'=>$payment['payment_method'],
                 'payment_reference'=>$payment['payment_reference'] ?: null, 'payment_confirmed'=>true,
                 'subtotal_cents'=>$quote['subtotal_cents'], 'discount_cents'=>$quote['discount_cents'],
-                'tax_cents'=>$quote['tax_cents'], 'tax_bps'=>(int) $till->tax_bps, 'total_cents'=>$total,
+                'tax_cents'=>$quote['tax_cents'], 'tax_bps'=>Money::rate($quote['tax_rate']), 'total_cents'=>$total,
                 'discount_reason'=>$cart['discount_reason'] ?: null,
                 'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,
-                'notes'=>$payment['notes'] ?: null, 'branch_snapshot'=>json_encode($branch, JSON_UNESCAPED_UNICODE),
+                'notes'=>$payment['notes'] ?: null, 'branch_snapshot'=>json_encode($context['branch_snapshot']??$branch, JSON_UNESCAPED_UNICODE),
                 'cashier_snapshot'=>json_encode(['id'=>(int) $actor->id, 'name'=>(string) $actor->name], JSON_UNESCAPED_UNICODE),
                 'created_at'=>$when, 'updated_at'=>$when,
-            ]);
+            ];
+            if ($this->access->has('takeaway_orders','channel')) $orderValues += [
+                'channel'=>$context['channel']??'takeaway','ticket_id'=>$context['ticket_id']??null,
+                'service_bps'=>$quote['service_bps'],'service_cents'=>$quote['service_cents'],'delivery_cents'=>$quote['delivery_cents'],
+                'context_snapshot'=>json_encode($context['snapshot']??[],JSON_UNESCAPED_UNICODE), 'tenders_snapshot'=>json_encode(array_values($tenders),JSON_UNESCAPED_UNICODE),
+            ];
+            $id=DB::table('takeaway_orders')->insertGetId($orderValues);
             foreach ($quote['items'] as $line) DB::table('takeaway_order_items')->insert([
                 'order_id'=>$id, 'product_id'=>$line['product_id'], 'name'=>$line['name'],
                 'option_id'=>$line['option_id'] ?: null, 'option_label'=>$line['option_label'] ?: null,
@@ -101,9 +135,9 @@ class TakeawayService
             DB::table('takeaway_till_entries')->insert([
                 'till_id'=>$till->id, 'branch'=>$branch['value'], 'actor_id'=>$actor->id, 'order_id'=>$id,
                 'request_key'=>$payment['idempotency_key'], 'request_hash'=>$requestHash, 'kind'=>'sale',
-                'amount_cents'=>$delta, 'balance_cents'=>$newBalance, 'business_date'=>$businessDate, 'note'=>'فاتورة تيك أواي',
+                'amount_cents'=>$delta, 'balance_cents'=>$newBalance, 'business_date'=>$businessDate, 'note'=>['dine'=>'فاتورة صالة','phone'=>'فاتورة دليفري بالتليفون'][$context['channel']??'']??'فاتورة تيك أواي',
                 'metadata'=>json_encode(['payment_method'=>$payment['payment_method'], 'total_cents'=>$total,
-                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change]), 'created_at'=>$when, 'updated_at'=>$when,
+                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,'channel'=>$context['channel']??'takeaway','tenders'=>array_values($tenders)]), 'created_at'=>$when, 'updated_at'=>$when,
             ]);
             return $this->checkoutResult(DB::table('takeaway_orders')->where('id', $id)->first(), $actor, false);
         }, 3);
@@ -241,8 +275,9 @@ class TakeawayService
             'discount_reason'=>trim($values['discount_reason'] ?? '')];
     }
 
-    private function price(array $cart, array $branch, array $permissions, int $taxBps, bool $lock): array
+    private function price(array $cart, array $branch, array $permissions, int $taxBps, bool $lock, array $context=[]): array
     {
+        if(isset($context['saved_quote']))return $this->savedPrice($cart,$context);
         abort_unless($cart['discount_cents'] === 0 || $permissions['can_manage'], 403, 'الخصم متاح للمالك أو الإدارة المخولة فقط.');
         if ($cart['discount_cents'] > 0 && $cart['discount_reason'] === '') throw ValidationException::withMessages(['discount_reason'=>'اكتب سبب الخصم.']);
         $rows = $this->catalog->rows($branch, array_column($cart['items'], 'product_id'), $lock);
@@ -254,14 +289,41 @@ class TakeawayService
         }
         abort_unless($subtotal <= 100000000 && $cart['discount_cents'] <= $subtotal, 422, 'الخصم أو إجمالي الفاتورة غير صالح.');
         abort_unless($taxBps >= 0 && $taxBps <= 10000, 503, 'ضريبة الخزنة غير صالحة.');
-        $tax = Money::commission($subtotal - $cart['discount_cents'], $taxBps);
-        $total = $subtotal - $cart['discount_cents'] + $tax;
+        $serviceBps=(int)($context['service_bps']??0);$delivery=(int)($context['delivery_cents']??0);
+        abort_unless($serviceBps>=0&&$serviceBps<=10000&&$delivery>=0&&$delivery<=100000000,422);
+        $net=$subtotal-$cart['discount_cents'];$service=Money::commission($net,$serviceBps);
+        // The configured POS tax applies to the charged merchandise, service and delivery fee.
+        abort_unless($net+$service+$delivery<=100000000,422);
+        $tax = Money::commission($net+$service+$delivery, $taxBps);
+        $total = $net+$service+$tax+$delivery;
         abort_unless($total <= 100000000, 422, 'إجمالي الفاتورة أكبر من الحد المسموح.');
         $hash = $this->hash([$branch['value'], $lines, $cart['discount_cents'], $cart['discount_reason'], $taxBps, $tax, $total]);
+        if ($context) $hash=$this->hash([$hash,$context['channel']??'takeaway',$serviceBps,$service,$delivery]);
         return ['success'=>true, 'quote_hash'=>$hash, 'branch'=>$branch, 'items'=>$lines,
             'subtotal_cents'=>$subtotal, 'discount_cents'=>$cart['discount_cents'], 'tax_cents'=>$tax, 'total_cents'=>$total,
             'subtotal'=>Money::decimal($subtotal), 'discount'=>Money::decimal($cart['discount_cents']),
-            'tax_rate'=>Money::decimal($taxBps), 'tax'=>Money::decimal($tax), 'service'=>'0.00', 'total'=>Money::decimal($total)];
+            'tax_bps'=>$taxBps,'tax_rate'=>Money::decimal($taxBps), 'tax'=>Money::decimal($tax),'service_bps'=>$serviceBps,'service_cents'=>$service,'delivery_cents'=>$delivery,
+            'service_rate'=>Money::decimal($serviceBps),'service'=>Money::decimal($service),'delivery'=>Money::decimal($delivery), 'total'=>Money::decimal($total)];
+    }
+
+    /** Only a locked, persisted service ticket supplies this context; public takeaway routes never do. */
+    private function savedPrice(array $cart,array $context): array
+    {
+        abort_unless(in_array($context['channel']??'',['dine','phone'],true)&&!empty($context['ticket_id']),422);
+        $q=$context['saved_quote'];$wanted=[];$actual=[];$subtotal=0;
+        foreach($cart['items'] as $item)$wanted[]=$this->hash([$item['product_id'],$item['option_id'],$item['quantity_mode'],$item['quantity_millis']]);
+        foreach($q['items']??[] as $line){
+            foreach(['product_id','quantity_millis','unit_price_cents','total_cents'] as $key)abort_unless(isset($line[$key])&&is_int($line[$key])&&$line[$key]>=0,409,'الفاتورة المحفوظة غير صالحة.');
+            abort_unless($line['quantity_millis']>0&&$line['quantity_millis']<=1000000&&$line['unit_price_cents']<=100000000
+                &&intdiv($line['unit_price_cents']*$line['quantity_millis']+500,1000)===$line['total_cents'],409);
+            $actual[]=$this->hash([$line['product_id'],$line['option_id']??'',$line['quantity_mode'],$line['quantity_millis']]);$subtotal+=$line['total_cents'];
+        }
+        sort($wanted);sort($actual);abort_unless($wanted===$actual&&count($actual)>0&&$subtotal===$q['subtotal_cents']&&$cart['discount_cents']===$q['discount_cents'],409);
+        $net=$subtotal-$q['discount_cents'];$service=Money::commission($net,(int)$q['service_bps']);$delivery=(int)$q['delivery_cents'];
+        abort_unless($net>=0&&$net+$service+$delivery<=100000000&&$service===$q['service_cents'],409);
+        $tax=Money::commission($net+$service+$delivery,Money::rate($q['tax_rate']));
+        abort_unless($tax===$q['tax_cents']&&$net+$service+$delivery+$tax===$q['total_cents']&&$q['total_cents']<=100000000,409);
+        return $q;
     }
 
     private function till(string $branch, bool $lock = false): object
@@ -298,7 +360,11 @@ class TakeawayService
             'payment_method'=>$row->payment_method, 'payment_confirmed'=>(bool) $row->payment_confirmed,
             'payment_reference'=>$row->payment_reference ?? '', 'notes'=>$row->notes ?? '', 'tax_rate'=>Money::decimal((int) $row->tax_bps),
             'discount_reason'=>$row->discount_reason ?? '',
-            'currency'=>'EGP', 'service'=>'0.00', 'status'=>'completed', 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
+            'currency'=>'EGP', 'service'=>Money::decimal((int)($row->service_cents??0)), 'service_rate'=>Money::decimal((int)($row->service_bps??0)),
+            'delivery'=>Money::decimal((int)($row->delivery_cents??0)), 'channel'=>$row->channel??'takeaway','ticket_id'=>isset($row->ticket_id)?(int)$row->ticket_id:null,
+            'context'=>json_decode($row->context_snapshot??'[]',true)?:[],
+            'payment_breakdown'=>array_map(fn($t)=>['method'=>$t['method'],'amount'=>Money::decimal((int)$t['amount_cents']),'confirmed'=>(bool)$t['confirmed'],'reference'=>$t['reference']??''],json_decode($row->tenders_snapshot??'[]',true)?:[]),
+            'status'=>'completed', 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
         foreach (['subtotal','discount','tax','total','cash_received','change'] as $name) $receipt[$name] = Money::decimal((int) $row->{$name.'_cents'});
         return $receipt;
     }
@@ -307,7 +373,14 @@ class TakeawayService
     {
         $base = DB::table('takeaway_orders')->where('branch', $branch)->where('business_date', $date);
         $result = ['date'=>$date, 'count'=>(clone $base)->count(), 'total'=>Money::decimal((int) (clone $base)->sum('total_cents'))];
-        foreach (self::METHODS as $method) $result[$method] = Money::decimal((int) (clone $base)->where('payment_method', $method)->sum('total_cents'));
+        foreach (array_merge(self::METHODS,['mixed']) as $method) $result[$method] = Money::decimal((int) (clone $base)->where('payment_method', $method)->sum('total_cents'));
+        if ($this->access->has('takeaway_orders','tenders_snapshot')) {
+            $parts=[];
+            foreach ((clone $base)->where('payment_method','mixed')->get(['tenders_snapshot']) as $row) foreach (json_decode($row->tenders_snapshot??'[]',true)?:[] as $part) {
+                $method=$part['method'];$parts[$method]=($parts[$method]??0)+(int)$part['amount_cents'];
+            }
+            foreach ($parts as $method=>$cents) if (in_array($method,self::METHODS,true)) $result[$method]=Money::decimal(Money::minor($result[$method])+$cents);
+        }
         return $result;
     }
 

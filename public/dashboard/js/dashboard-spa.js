@@ -560,7 +560,7 @@
         document.title = doc.title || document.title;
         var token = doc.querySelector('meta[name="csrf-token"]');
         if (token) document.querySelector('meta[name="csrf-token"]').content = token.content;
-        ['dashboard-home-page', 'app-order-board-page', 'dashboard-takeaway-page'].forEach(function (name) { document.body.classList.toggle(name, doc.body.classList.contains(name)); });
+        ['dashboard-home-page', 'app-order-board-page', 'dashboard-takeaway-page', 'dashboard-dining-page', 'dashboard-phone-orders-page'].forEach(function (name) { document.body.classList.toggle(name, doc.body.classList.contains(name)); });
         var scripts = Array.from(incoming.querySelectorAll('script'));
         var extra = doc.querySelector('[data-dashboard-page-scripts]');
         if (extra) scripts = scripts.concat(Array.from(extra.querySelectorAll('script')));

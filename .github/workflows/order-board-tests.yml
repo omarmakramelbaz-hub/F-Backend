@@ -30,6 +30,22 @@ on:
       - 'resources/lang/*/takeaway.php'
       - 'resources/lang/*/dashboard_push.php'
       - 'routes/takeaway.php'
+      - 'routes/pos_service.php'
+      - 'app/Http/Controllers/Dashboard/*PosService*.php'
+      - 'app/Http/Controllers/Dashboard/DineInController.php'
+      - 'app/Http/Controllers/Dashboard/PhoneOrdersController.php'
+      - 'database/migrations/*pos_service*'
+      - 'resources/views/admin/dining/**'
+      - 'resources/views/admin/phone_orders/**'
+      - 'resources/views/admin/pos_service/**'
+      - 'resources/lang/*/dining.php'
+      - 'resources/lang/*/phone_orders.php'
+      - 'resources/lang/*/pos_service.php'
+      - 'public/dashboard/js/dining-pos.js'
+      - 'public/dashboard/css/dining-pos.css'
+      - 'public/dashboard/js/phone-orders.js'
+      - 'public/dashboard/css/phone-orders.css'
+      - 'tests/Feature/DashboardPosServiceTest.php'
       - 'deployment/*dashboard*'
       - 'app/Scopes/OrderScope.php'
       - 'app/Http/Controllers/Dashboard/OrderBoardController.php'
@@ -88,7 +104,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify application orders and branch isolation
-        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|OrderProvider|DashboardManualNotification'
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification'
       - name: Verify compiled templates and JavaScript
         run: |
           php artisan view:cache
@@ -100,6 +116,8 @@ jobs:
           node --check public/dashboard/js/dashboard-support-chat.js
           node --check public/dashboard/js/dashboard-print.js
           node --check public/dashboard/js/takeaway-pos.js
+          node --check public/dashboard/js/dining-pos.js
+          node --check public/dashboard/js/phone-orders.js
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh
@@ -139,5 +157,5 @@ jobs:
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
-      - name: Verify takeaway receipts and cash ledger on MySQL
-        run: vendor/bin/phpunit --filter DashboardTakeaway
+      - name: Verify POS tickets, receipts and cash ledger on MySQL
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService'

@@ -29,6 +29,28 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 }
 echo "TAKEAWAY POS READY\n";
 
+$serviceSchema = [
+    'pos_service_settings'=>['branch', 'service_bps', 'revision'],
+    'pos_service_tables'=>['branch', 'name', 'capacity', 'active_ticket_id', 'revision'],
+    'pos_service_tickets'=>['branch', 'channel', 'status', 'payment_status', 'revision', 'cart_snapshot', 'quote_snapshot', 'paid_order_id'],
+    'pos_service_commands'=>['branch', 'actor_id', 'request_key', 'request_hash', 'ticket_id'],
+    'pos_service_kitchen_tickets'=>['branch', 'ticket_id', 'revision', 'snapshot'],
+    'takeaway_orders'=>['channel', 'ticket_id', 'service_cents', 'delivery_cents', 'context_snapshot', 'tenders_snapshot'],
+];
+foreach ($serviceSchema as $table=>$columns) {
+    if (!Illuminate\Support\Facades\Schema::hasColumns($table, $columns)) {
+        fwrite(STDERR, "Dining/phone POS schema is not ready.\n");
+        exit(1);
+    }
+}
+foreach (['dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+    if (!Illuminate\Support\Facades\Route::has($name)) {
+        fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
+        exit(1);
+    }
+}
+echo "DINING AND PHONE POS READY\n";
+
 $firebasePath = config('firebase.credentials', storage_path('app/firebase_credentials.json'));
 echo is_string($firebasePath) && is_file($firebasePath) && is_readable($firebasePath) && filled(config('services.fcm.project_id'))
     ? "MANUAL NOTIFICATION CONFIG READY\n"

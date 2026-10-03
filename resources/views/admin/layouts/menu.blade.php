@@ -69,6 +69,18 @@
                             <p>{{ __('takeaway.title') }}</p>
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a href="{{ route('dining.index') }}" class="nav-link {{ request()->is('admin/dining*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-chair"></i>
+                            <p>{{ __('dining.title') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ route('phone-orders.index') }}" class="nav-link {{ request()->is('admin/phone-orders*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-phone-alt"></i>
+                            <p>{{ __('phone_orders.title') }}</p>
+                        </a>
+                    </li>
                 @endif
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
