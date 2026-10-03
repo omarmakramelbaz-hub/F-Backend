@@ -4,11 +4,6 @@
     <a href="{{ route('go-stores.index') }}">متاجر GO</a>
     @if(!empty($store['logo_url']))<img src="{{ $store['logo_url'] }}" alt="لوجو المتجر" style="width:96px;height:96px;object-fit:contain">@endif
     <h1>{{ $store['name'] ?? 'بيانات المتجر' }}</h1><p>صاحب الحساب: {{ $account->name }} — رقم الدخول: <bdi>{{ $account->mobile }}</bdi></p>
-    @if($account->status === 'pending')
-        <div class="alert alert-warning">المتجر في انتظار تفعيل حساب صاحبه، ولن يظهر في جو كستومر قبل التفعيل. افتح جو بارتنر واضغط «تحديث حالة الطلب»، ثم أكمل خطوات تفعيل الحساب.</div>
-    @elseif($account->status !== 'accepted')
-        <div class="alert alert-warning">حساب صاحب المتجر غير مفعّل حاليًا، ولذلك لا يظهر المتجر في جو كستومر.</div>
-    @endif
     @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
     <form class="card card-body" method="POST" action="{{ route('go-stores.update', $account->id) }}">
