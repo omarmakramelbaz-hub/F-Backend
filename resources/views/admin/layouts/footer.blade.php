@@ -848,6 +848,16 @@ $(document).ready(function () {
         `);
        }
         
+// Refresh the order board immediately when the live event arrives.
+if (typeof reloadOrderSections === 'function' && $('#all_orders').length) {
+    reloadOrderSections();
+}
+
+// Keep the original looping alert behavior until the order is acted on.
+if (typeof playSound === 'function') {
+    playSound();
+}
+
 // const newWindow = window.open(`{{url('admin/applies-orders?modal=order${orderId}')}}` , '_blank');
 openOrFocusWindow(orderId);
        
