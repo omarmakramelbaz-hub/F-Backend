@@ -112,3 +112,8 @@
 
 .dp-register-hint{font-size:11px;color:#748092;margin-bottom:12px!important}.dp-register-manage{display:inline-block;margin-bottom:12px;color:var(--dp-purple);font-weight:700}.dp-header-actions{flex-wrap:wrap}.dp-header-actions button{flex-shrink:0}@media(min-width:1200px){.dp-heading p{max-width:225px}.dp-header{gap:10px}.dp-cashier{gap:5px}.dp-cashier small{max-width:90px}.dp-header-actions{gap:5px}.dp-header-actions button{font-size:10px;padding-inline:7px}}
 .dp-key-confirm span{white-space:normal;overflow-wrap:anywhere;word-break:break-word;font-size:9px;line-height:1.35}
+/* Catalog rows keep their intrinsic height; only the menu viewport scrolls. */
+.dp-products{grid-auto-rows:max-content;align-items:start}
+.dp-product{height:auto;align-self:start}
+.dp-product-main{flex:0 0 auto;min-height:max-content;overflow:visible}
+.dp-product-image,.dp-product-copy,.dp-product-options{flex-shrink:0}
