@@ -35,7 +35,7 @@ class CreateStoreRequest extends FormRequest
             'email' => 'nullable|email:rfc|max:254',
             'password' => 'required|string|min:8|max:72|confirmed',
             'name' => 'required|string|min:2|max:150',
-            'kind' => 'required|in:supermarket,restaurant,pharmacy,clinic',
+            'kind' => 'required|in:supermarket,restaurant,pharmacy',
             'address' => 'required|string|min:5|max:500',
             'commission_rate' => ['required', 'numeric', 'between:0,100', 'regex:/^\d{1,3}(?:\.\d{1,2})?$/D'],
         ];
