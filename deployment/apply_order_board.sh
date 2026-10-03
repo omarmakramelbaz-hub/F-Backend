@@ -40,12 +40,17 @@ php -l app/Http/Controllers/Dashboard/OrderBoardController.php
 php -l app/Services/Dashboard/OrderBoardService.php
 php -l app/Services/Dashboard/GoStoreBoardActions.php
 php -l app/Services/Dashboard/BestEffortOrderMail.php
+php -l app/Services/Dashboard/OrderBoardMenu.php
+php -l app/Http/Controllers/Dashboard/OrderBoardMenuController.php
 php -l app/Http/Controllers/Api/V1/Vendor/OrderController.php
 php artisan route:clear
 php artisan view:clear
 php artisan view:cache
 test -s public/dashboard/branding/fasakhansta-logo.png
 test -s public/dashboard/js/order-board.js
+test -s public/dashboard/js/order-board-menu.js
+test -s public/dashboard/js/dashboard-navigation.js
+test -s public/dashboard/branding/fasakhansta-logo-transparent.png
 trap - ERR
 echo "ORDER BOARD READY: $release_sha"
 echo "Previous code snapshot: $backup_name"

@@ -1,9 +1,9 @@
 <!-- Main Sidebar Container -->
-<aside class="main-sidebar sidebar-dark-primary ">
+<aside id="dashboard-sidebar" class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
     <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
-        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo.png') }}" alt="فسخانستا" width="64" height="64">
+        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </a>
     <hr>
@@ -36,9 +36,9 @@
             </div>
         </div>
         <hr>
-        <nav class="mt-2">
-            <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" style="padding:0px"
-                data-accordion="false">
+        <nav class="mt-2" aria-label="{{ app()->getLocale() === 'ar' ? 'القائمة الرئيسية' : 'Main navigation' }}">
+            <ul class="nav nav-pills nav-sidebar flex-column" data-dashboard-navigation data-widget="treeview" role="menu" style="padding:0px"
+                data-accordion="true">
 
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
                 <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>

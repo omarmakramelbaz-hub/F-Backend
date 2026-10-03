@@ -2,21 +2,25 @@
 
 @push('custom-css')
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board.css') }}?v={{ filemtime(public_path('dashboard/css/order-board.css')) }}">
+    <link rel="stylesheet" href="{{ asset('dashboard/css/order-board-menu.css') }}?v={{ filemtime(public_path('dashboard/css/order-board-menu.css')) }}">
 @endpush
 
 @section('content')
 @php
     $stages = ['new' => 'fa-shopping-cart', 'preparing' => 'fa-utensils', 'courier' => 'fa-motorcycle', 'completed' => 'fa-check-circle'];
     $filters = $board['filters'] ?? [];
+    $selectedBranch = $filters['branch'] ?? '';
+    if (!$selectedBranch && !($board['isAdmin'] ?? false) && count($board['branches'] ?? []) === 1) $selectedBranch = $board['branches'][0]['value'];
 @endphp
 <div class="content-wrapper order-board-wrapper">
+    <div class="ob-workspace">
     <main id="order-board" class="ob-board" data-feed-url="{{ route('getOrders') }}" data-default-date="" aria-labelledby="order-board-title">
         <header class="ob-page-header">
             <div class="ob-heading">
                 <h1 id="order-board-title">{{ __('order_board.title') }}</h1>
                 <p>{{ __('order_board.subtitle') }}</p>
             </div>
-            <div class="ob-live" id="ob-live" role="status"><span class="ob-live-dot" aria-hidden="true"></span><span data-live-label>{{ __('order_board.live') }}</span></div>
+            <div class="ob-header-tools"><button type="button" class="ob-menu-toggle" data-menu-toggle hidden aria-controls="branch-menu" aria-expanded="false">{{ __('order_board.branch_menu') }}</button><div class="ob-live" id="ob-live" role="status"><span class="ob-live-dot" aria-hidden="true"></span><span data-live-label>{{ __('order_board.live') }}</span></div></div>
         </header>
 
         <div class="ob-overview" aria-label="{{ __('order_board.title') }}">
@@ -44,13 +48,13 @@
                     <option value="go" @if(($filters['app'] ?? '') === 'go') selected @endif>جو · Go</option>
                 </select>
             </label>
-            @if($board['isAdmin'] ?? false)
+            @if(!empty($board['branches']))
                 <label class="ob-field ob-branch-filter">
                     <span>{{ __('order_board.branch') }}</span>
                     <select name="branch">
                         <option value="">{{ __('order_board.all_branches') }}</option>
                         @foreach($board['branches'] ?? [] as $branch)
-                            <option value="{{ $branch['value'] }}" @if((string)($filters['branch'] ?? '') === (string)$branch['value']) selected @endif>{{ $branch['label'] }}</option>
+                            <option value="{{ $branch['value'] }}" @if((string)$selectedBranch === (string)$branch['value']) selected @endif>{{ $branch['label'] }}</option>
                         @endforeach
                     </select>
                 </label>
@@ -73,10 +77,13 @@
             @include('admin.orders.board_columns', ['board' => $board])
         </div>
     </main>
+    @include('admin.orders.board_menu')
+    </div>
 </div>
 @endsection
 
 @push('custom-js')
     <script type="application/json" id="ob-translations">@json(trans('order_board'))</script>
     <script src="{{ asset('dashboard/js/order-board.js') }}?v={{ filemtime(public_path('dashboard/js/order-board.js')) }}"></script>
+    <script src="{{ asset('dashboard/js/order-board-menu.js') }}?v={{ filemtime(public_path('dashboard/js/order-board-menu.js')) }}"></script>
 @endpush
