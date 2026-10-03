@@ -1,0 +1,161 @@
+name: Application order board checks
+
+on:
+  push:
+    branches: ['codex/unified-app-orders-20261003']
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/**'
+      - 'app/Services/Payments/**'
+      - 'app/Services/OrderBroadcastService.php'
+      - 'app/Notifications/**'
+      - 'app/Http/Traits/FcmFirebase.php'
+      - 'app/Observers/NotificationObserver.php'
+      - 'app/Observers/UserObserver.php'
+      - 'app/Http/Controllers/Dashboard/TakeawayController.php'
+      - 'app/Console/Kernel.php'
+      - 'app/Console/Commands/AdvanceOrderBoard.php'
+      - 'app/Observers/OrderBoardClockObserver.php'
+      - 'app/Providers/AppServiceProvider.php'
+      - 'app/Http/Controllers/Dashboard/DashboardInboxController.php'
+      - 'app/Http/Controllers/Dashboard/FcmNotificationsController.php'
+      - 'app/Http/Controllers/Dashboard/HomeController.php'
+      - 'app/Http/Controllers/Payment/PaymobController.php'
+      - 'app/Http/Controllers/Api/V1/Delegate/DelegateOrderController.php'
+      - 'config/dashboard_payments.php'
+      - 'database/migrations/*order_board_clocks*'
+      - 'database/migrations/*takeaway_pos*'
+      - 'resources/views/admin/takeaway/**'
+      - 'resources/views/admin/fcm_notification.blade.php'
+      - 'resources/lang/*/takeaway.php'
+      - 'resources/lang/*/dashboard_push.php'
+      - 'routes/takeaway.php'
+      - 'routes/pos_service.php'
+      - 'app/Http/Controllers/Dashboard/*PosService*.php'
+      - 'app/Http/Controllers/Dashboard/DineInController.php'
+      - 'app/Http/Controllers/Dashboard/PhoneOrdersController.php'
+      - 'database/migrations/*pos_service*'
+      - 'resources/views/admin/dining/**'
+      - 'resources/views/admin/phone_orders/**'
+      - 'resources/views/admin/pos_service/**'
+      - 'resources/lang/*/dining.php'
+      - 'resources/lang/*/phone_orders.php'
+      - 'resources/lang/*/pos_service.php'
+      - 'public/dashboard/js/dining-pos.js'
+      - 'public/dashboard/css/dining-pos.css'
+      - 'public/dashboard/js/phone-orders.js'
+      - 'public/dashboard/css/phone-orders.css'
+      - 'tests/Feature/DashboardPosServiceTest.php'
+      - 'deployment/*dashboard*'
+      - 'app/Scopes/OrderScope.php'
+      - 'app/Http/Controllers/Dashboard/OrderBoardController.php'
+      - 'app/Http/Controllers/Dashboard/OrderController.php'
+      - 'app/Http/Controllers/Api/V1/Vendor/OrderController.php'
+      - 'resources/views/admin/orders/board*'
+      - 'resources/views/admin/login.blade.php'
+      - 'resources/views/admin/index.blade.php'
+      - 'resources/views/admin/chat.blade.php'
+      - 'resources/views/admin/notifications.blade.php'
+      - 'resources/views/admin/layouts/**'
+      - 'public/dashboard/branding/**'
+      - 'public/dashboard/css/order-board.css'
+      - 'public/dashboard/js/order-board.js'
+      - 'public/dashboard/js/order-board-menu.js'
+      - 'public/dashboard/js/dashboard-navigation.js'
+      - 'public/dashboard/js/dashboard-*.js'
+      - 'public/dashboard/css/dashboard-*.css'
+      - 'public/dashboard/css/order-board-menu.css'
+      - 'public/dashboard/js/takeaway-pos.js'
+      - 'public/dashboard/css/takeaway-pos.css'
+      - 'tests/Feature/DashboardTakeawayTest.php'
+      - 'tests/Feature/OrderProviderDeliveryTest.php'
+      - 'tests/Feature/DashboardManualNotificationTest.php'
+      - 'tests/Feature/DashboardOrderMenuTest.php'
+      - 'tests/Feature/DashboardOrderPaymentTest.php'
+      - 'tests/Feature/DashboardInboxTest.php'
+      - 'routes/order_board.php'
+      - 'tests/Feature/*Board*Test.php'
+      - 'tests/Feature/DashboardOrderIsolationTest.php'
+      - '.github/workflows/order-board-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          coverage: none
+      - name: Install the existing application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify application orders and branch isolation
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification'
+      - name: Verify compiled templates and JavaScript
+        run: |
+          php artisan view:cache
+          node --check public/dashboard/js/order-board.js
+          node --check public/dashboard/js/order-board-menu.js
+          node --check public/dashboard/js/dashboard-navigation.js
+          node --check public/dashboard/js/dashboard-spa.js
+          node --check public/dashboard/js/dashboard-inbox.js
+          node --check public/dashboard/js/dashboard-support-chat.js
+          node --check public/dashboard/js/dashboard-print.js
+          node --check public/dashboard/js/takeaway-pos.js
+          node --check public/dashboard/js/dining-pos.js
+          node --check public/dashboard/js/phone-orders.js
+          bash -n deployment/apply_order_board.sh
+          bash -n deployment/apply_dashboard_runtime_root.sh
+          bash tests/deployment/dashboard_scheduler.sh
+  takeaway-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: takeaway_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest_password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      APP_ENV: testing
+      TAKEAWAY_TEST_CONNECTION: mysql
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: takeaway_test
+      DB_USERNAME: root
+      DB_PASSWORD: test_password
+      CACHE_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, gd, zip
+          coverage: none
+      - name: Install the existing application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify POS tickets, receipts and cash ledger on MySQL
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService'

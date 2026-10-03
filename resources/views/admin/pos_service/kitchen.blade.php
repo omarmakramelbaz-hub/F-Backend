@@ -1,0 +1,19 @@
+@php
+    $ticket = $kitchen['ticket'];
+    $channel = $ticket['channel'];
+    $context = $ticket;
+@endphp
+<!doctype html>
+<html lang="{{ app()->getLocale() }}" dir="{{ app()->getLocale() === 'ar' ? 'rtl' : 'ltr' }}" data-dashboard-receipt="pos-kitchen">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ __('pos_service.kitchen_ticket') }} {{ $ticket['id'] }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#edf1f6;color:#172137;font:13px/1.5 Tahoma,Arial,sans-serif}.receipt{max-width:620px;margin:24px auto;padding:24px;background:#fff;border-radius:12px}.heading{text-align:center;border-bottom:2px solid #172137;padding-bottom:12px}.logo{width:145px;height:145px;object-fit:contain}.heading h1{font-size:20px;margin:4px 0}.heading p{margin:3px 0}.information{margin:12px 0}.information div{display:flex;gap:9px;overflow-wrap:anywhere}.information dt{font-size:11px;color:#687487}.information dd{margin:0}bdi{direction:ltr;unicode-bidi:isolate}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{text-align:start;border-bottom:1px solid #d6dce5;padding:9px 4px;vertical-align:top;overflow-wrap:anywhere}.quantity{width:24%;text-align:end}.option{display:block;font-size:11px;color:#617086}.notes{white-space:pre-line;overflow-wrap:anywhere;border:1px dashed #748294;padding:8px;margin-top:12px}.footer{text-align:center;font-size:11px}.controls{text-align:center;margin-top:16px}.controls button{padding:8px 18px;border:0;border-radius:6px;background:#172137;color:#fff;font:inherit}
+@page{size:auto;margin:0}@media print{html,body{margin:0;background:#fff;color:#000;font-size:10px}.receipt{width:100%;max-width:80mm;margin:0 auto;padding:3mm 2mm;border-radius:0}.logo{width:40mm;max-width:80%;height:auto;aspect-ratio:1}.heading{padding-bottom:6px;border-color:#000}.heading h1{font-size:15px}.heading p{font-size:10px}.information{margin:7px 0}.information dt,.option,.footer{font-size:9px;color:#000}.information dd{font-size:10px}th,td{padding:6px 2px;font-size:11px;border-color:#888}tr,.heading,.notes{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}.controls{display:none!important}}
+</style></head><body><main class="receipt">
+<header class="heading"><img class="logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="1254" height="1254"><p>{{ $ticket['branch']['name'] }}</p><h1>{{ __('pos_service.kitchen_ticket') }}</h1><p>{{ __('pos_service.ticket_number') }} <bdi>{{ $ticket['number'] ?? $ticket['id'] }}</bdi> · {{ __('pos_service.revision') }} <bdi>{{ $kitchen['revision'] }}</bdi></p></header>
+<dl class="information"><div><dt>{{ __('pos_service.sent_at') }}</dt><dd><bdi>{{ \Carbon\Carbon::parse($kitchen['created_at'])->timezone('Africa/Cairo')->format('d/m/Y H:i') }}</bdi></dd></div>@include('admin.pos_service.context')</dl>
+<table><thead><tr><th>{{ __('takeaway.item') }}</th><th class="quantity">{{ __('takeaway.quantity') }}</th></tr></thead><tbody>@foreach($ticket['items'] as $item)<tr><td>{{ $item['name'] }}@if(!empty($item['option_label']))<small class="option">{{ $item['option_label'] }}</small>@endif</td><td class="quantity"><bdi>{{ $item['quantity_mode'] === 'piece' ? explode('.', (string)$item['quantity'])[0] : $item['quantity'] }}</bdi> {{ __('takeaway.'.($item['quantity_mode'] === 'weight' ? 'kg' : 'piece')) }}</td></tr>@endforeach</tbody></table>
+@if(!empty($ticket['notes']))<div class="notes">{{ $ticket['notes'] }}</div>@endif
+<p class="footer">{{ __('pos_service.kitchen_copy') }}</p><div class="controls"><button type="button" onclick="window.print()">{{ __('takeaway.print_invoice') }}</button></div>
+</main>@if(!request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif</body></html>

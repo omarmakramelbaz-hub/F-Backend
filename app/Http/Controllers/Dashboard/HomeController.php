@@ -263,19 +263,16 @@ class HomeController extends Controller
             // dd(auth('admin')->user()->id);
             session()->put('id_user', auth('admin')->user()->id);
            if($user->account_type=='admin'){
-            return redirect('admin/dashboard')
-                    ->with('success',trans('main.signed in'));
+            return redirect('admin/dashboard');
            }elseif($user->account_type=='vendor'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/applies-orders')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/applies-orders');
            }
            elseif($user->account_type=='resturant_owner'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/resturants')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/resturants');
            }
         }
     }
@@ -291,7 +288,7 @@ class HomeController extends Controller
 
         // Regenerate the CSRF token for security
         request()->session()->regenerateToken();
-        return redirect("admin/login")->with('error',trans('main.logout success'));
+        return redirect("admin/login");
     }
 
 
@@ -340,7 +337,7 @@ class HomeController extends Controller
     }
 
     public function read($id){
-        $data =auth('admin')->user()->notifications->where('id',$id)->first();
+        $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
         $data->update([
             'read_at' => now(),
         ]);
@@ -352,13 +349,7 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       $notification=auth('admin')->user()->unReadNotifications()->get();
-    //   dd($notification);
-       foreach($notification as $noti){
-           $noti->update([
-                'read_at' => now(),
-               ]);
-       }
+       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 

@@ -73,7 +73,7 @@ class NotifyDelegatesNewOrderNotification extends Notification
 
         if($notifiable->my_tokens){
             $tokens= $notifiable->my_tokens ; 
-            $this->sendFcmNotification( $tokens ,$this->body_data) ;
+            app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $tokens, $this->body_data, (int) $this->msg->id);
         }
         
       return $this->body_data;   

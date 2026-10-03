@@ -1001,9 +1001,8 @@
             let currentStatus = "{{ auth('admin')->user()->base_resturant?->status }}";
             let slider = document.querySelector('#searchTypeToggle > div');
             let labels = document.querySelectorAll('#searchTypeToggle label');
-            let input = document.querySelector('input[name="status"]:checked');
-            console.log(input)
-            if (input) {
+            let input = document.querySelector('#searchTypeToggle input[name="status"]:checked');
+            if (slider && input) {
                 slider.style.transform = `translateX(${input.dataset.location})`;
                 labels.forEach(function(label){
                     if (label == input.parentElement) {
@@ -1015,7 +1014,8 @@
             }
         });
 
-        document.querySelector('#searchTypeToggle').addEventListener('click', function(event){ 
+        const searchTypeToggle = document.querySelector('#searchTypeToggle');
+        if (searchTypeToggle) searchTypeToggle.addEventListener('click', function(event){
             if (event.target.tagName.toLowerCase() == 'input') {
                 
                 let input = event.target;

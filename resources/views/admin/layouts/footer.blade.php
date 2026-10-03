@@ -51,8 +51,6 @@
   </div>
   
     <strong class="text-center">Copyright &copy; {{ date('Y') }} . @lang('main.allrights')</strong>
-    تم تصميم و تطوير المشروع من خلال شركة <a
-        href="http://smartvision4p.com/">شركة سمارت فيجن</a> لتقنية المعلومات.
 </footer>
 
 <!-- Control Sidebar -->
@@ -75,12 +73,13 @@
 <!--<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>-->
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
+<script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
 <script src="//cdn.ckeditor.com/4.14.0/standard/ckeditor.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>
 
 
 
-<script>
+<script data-dashboard-page-init>
 $(document).ready(function() {
     // if ($("#show-case").next().length > 0) {
     //     $("#show-case").next().hide();
@@ -160,7 +159,7 @@ $(document).ready(function() {
 
 </script>
 
-<script type="text/javascript">
+<script type="text/javascript" data-dashboard-page-init>
 
 
 
@@ -185,7 +184,9 @@ $(document).ready(function() {
     </script>
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+<div data-dashboard-page-scripts hidden>
 @stack('custom-js')
+</div>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
 
 <!-- AdminLTE App -->
@@ -193,6 +194,7 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
+<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v=20261003-pos-service-1"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
 <!-- AdminLTE for demo purposes -->
@@ -299,7 +301,7 @@ navigator.serviceWorker.addEventListener('message', (event) => {
           
 //         });
 //     }
-});
+// });
 
 }
 
@@ -403,7 +405,7 @@ function sendTokenToServer(token){
 
 </script>
 <!-- Page JS -->
-<script>
+<script data-dashboard-page-init>
     $(document).ready(function() {
 $('.selectize').selectize()
 // $('select').select2();
@@ -426,9 +428,9 @@ $('.selectize').selectize()
 
     
 });
-function changeLanguage(lang) {
+window.changeLanguage = function(lang) {
         window.location = '{{ url('/change-language') }}/' + lang;
-    }
+    };
     $(function () {
  
   $(".rateYo").rateYo({
@@ -466,7 +468,7 @@ function changeLanguage(lang) {
         }
     });
 </script>
-<script type="text/javascript">
+<script type="text/javascript" data-dashboard-page-init>
     $(function() {
     // Multiple images preview in browser
     var imagesPreview = function(input, placeToInsertImagePreview) {
@@ -630,7 +632,8 @@ $(document).ready(function () {
                                     $(this).parents("tr").remove();
                                 });
                                 alert(data['success']);
-                                window.location.reload();
+                                if (window.DashboardSPA) window.DashboardSPA.reload();
+                                else window.location.reload();
                             } else if (data['error']) {
                                 alert(data['error']);
                             } else {
@@ -697,7 +700,7 @@ $(document).ready(function () {
 });
 </script>
 
-<script>
+<script data-dashboard-page-init>
      $('.select-component').select2();
       $('#jstree').jstree();
 </script>
@@ -1109,6 +1112,9 @@ function openOrFocusWindow(orderId) {
 
 </script>
 
+<script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-inbox.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-inbox.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-support-chat.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-support-chat.js')) }}"></script>
 </body>
 
 </html>
