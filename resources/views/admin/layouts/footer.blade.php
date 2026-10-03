@@ -749,17 +749,24 @@ $(document).ready(function () {
         });
     }
 
-    // Function to play notification sound
+    // Play the new-order sound for one second only.
     function playSound() {
-        if (!isSoundPlaying) {
-            if (document.getElementById('alertBanner')){
-                notificationSound.loop = true; // Enable looping for repeated sound
-                notificationSound.play().catch((error) => {
-                    console.error('Error playing sound:', error);
-                });
-            }
-            isSoundPlaying = true;
+        if (isSoundPlaying) {
+            return;
         }
+
+        isSoundPlaying = true;
+        notificationSound.loop = false;
+        notificationSound.currentTime = 0;
+
+        notificationSound.play().catch((error) => {
+            console.error('Error playing sound:', error);
+            isSoundPlaying = false;
+        });
+
+        window.setTimeout(() => {
+            stopSound();
+        }, 1000);
     }
 
     // Function to stop notification sound
@@ -848,6 +855,13 @@ $(document).ready(function () {
         `);
        }
         
+// Keep the review screen live when a new order arrives.
+if (typeof reloadOrderSections === 'function' && $('#all_orders').length) {
+    reloadOrderSections();
+}
+
+playSound();
+
 // const newWindow = window.open(`{{url('admin/applies-orders?modal=order${orderId}')}}` , '_blank');
 openOrFocusWindow(orderId);
        
