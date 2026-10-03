@@ -2,10 +2,9 @@
 <aside class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link" style="font-size: 16px;">
-        <span class="brand-text font-weight-light">{{ app(App\Models\GeneralSettings::class)->site_name }}</span>
-        <!--<img class="logo-ar" src="{{url('dashboard/dist/img/Layer.svg')}}" width="145px" alt="admin image">-->
-        <!--<img class="logo-en" src="{{url('dashboard/dist/img/logo-en.svg')}}" width="145px" alt="admin image">-->
+    <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
+        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo.png') }}" alt="فسخانستا" width="64" height="64">
+        <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </a>
     <hr>
     <!-- Sidebar -->
@@ -54,6 +53,14 @@
                         </p>
                     </a>
                 </li>
+                @if(app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()))
+                    <li class="nav-item">
+                        <a href="{{ route('orders.applies') }}" class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-mobile-alt"></i>
+                            <p>{{ __('order_board.app_orders') }}</p>
+                        </a>
+                    </li>
+                @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
@@ -425,15 +432,6 @@
                     </li>
                     @if(in_array(auth()->user()->roles->pluck("id")->first(), [2, 13]))
                         <li class="nav-item">
-                            <a href="{{ url('/admin/applies-orders') }}"
-                                class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
-                                <i class="nav-icon fas fa-hand-holding-usd"></i>
-                                <p>
-                                    @lang('main.orders applies')
-                                </p>
-                            </a>
-                        </li>
-                        <li class="nav-item">
                             <a href="{{ url('/admin/resturant-reports?report_type=week') }}"
                                 class="nav-link {{ request()->is('admin/resturant-reports?report_type=week') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-chart-line"></i>
@@ -727,6 +725,5 @@
                 {{-- @endif --}}
             </ul>
         </nav>
-    </div>
     </div>
 </aside>

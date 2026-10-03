@@ -1,0 +1,53 @@
+name: Application order board checks
+
+on:
+  push:
+    branches: ['codex/unified-app-orders-20261003']
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/**'
+      - 'app/Scopes/OrderScope.php'
+      - 'app/Http/Controllers/Dashboard/OrderBoardController.php'
+      - 'app/Http/Controllers/Dashboard/OrderController.php'
+      - 'app/Http/Controllers/Api/V1/Vendor/OrderController.php'
+      - 'resources/views/admin/orders/board*'
+      - 'resources/views/admin/login.blade.php'
+      - 'public/dashboard/branding/**'
+      - 'public/dashboard/css/order-board.css'
+      - 'public/dashboard/js/order-board.js'
+      - 'routes/order_board.php'
+      - 'tests/Feature/*Board*Test.php'
+      - 'tests/Feature/DashboardOrderIsolationTest.php'
+      - '.github/workflows/order-board-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          coverage: none
+      - name: Install the existing application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify application orders and branch isolation
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation'
+      - name: Verify compiled templates and JavaScript
+        run: |
+          php artisan view:cache
+          node --check public/dashboard/js/order-board.js

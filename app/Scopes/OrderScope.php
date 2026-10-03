@@ -1,31 +1,44 @@
 <?php
- 
+
 namespace App\Scopes;
- 
+
+use App\Models\Resturant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
-use App\Models\Resturant;
+
 class OrderScope implements Scope
 {
-    /**
-     * Apply the scope to a given Eloquent query builder.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder  $builder
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return void
-     */
     public function apply(Builder $builder, Model $model)
-    {  
-         if(auth('admin')->check() && auth('admin')->user()->account_type =='resturant_owner' && auth('admin')->user()->owner_resturant_id){
-            
-            $resturants=Resturant::where('id',auth('admin')->user()->owner_resturant_id)->orWhere('parent_id', auth('admin')->user()->owner_resturant_id)->pluck('id')->toArray();
-            $builder->where('type','current')->whereIn('resturant_id',$resturants);
+    {
+        $admin = auth('admin')->user();
 
-        }elseif(auth('admin')->check() && auth('admin')->user()->account_type !='admin'){
-             
-            $builder->where('type','current')->where('resturant_id',auth('admin')->user()->base_resturant?->id)->orWhere('type','wallet')->orWhere('type','shipping');
-
+        // This is a dashboard scope. Customer, partner and delegate APIs keep
+        // their own existing authentication and order filters.
+        if (!$admin || $admin->account_type === 'admin') {
+            return;
         }
+
+        if ($admin->account_type === 'resturant_owner' && $admin->owner_resturant_id) {
+            $restaurantIds = Resturant::withoutGlobalScopes()
+                ->where(function (Builder $query) use ($admin) {
+                    $query->where('id', $admin->owner_resturant_id)
+                        ->orWhere('parent_id', $admin->owner_resturant_id);
+                })
+                ->pluck('id');
+        } else {
+            // Avoid base_resturant: the restaurant scope also includes an OR
+            // for children, which can resolve a different account's branch.
+            $restaurantId = Resturant::withoutGlobalScopes()
+                ->where('user_id', $admin->getKey())
+                ->orderBy('id')
+                ->value('id');
+            $restaurantIds = $restaurantId ? [$restaurantId] : [];
+        }
+
+        // Keep both conditions ANDed with requested IDs/statuses. Wallet and
+        // courier orders must not bypass branch ownership.
+        $builder->where($model->qualifyColumn('type'), 'current')
+            ->whereIn($model->qualifyColumn('resturant_id'), $restaurantIds);
     }
 }

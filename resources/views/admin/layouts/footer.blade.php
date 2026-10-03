@@ -299,7 +299,7 @@ navigator.serviceWorker.addEventListener('message', (event) => {
           
 //         });
 //     }
-});
+// });
 
 }
 

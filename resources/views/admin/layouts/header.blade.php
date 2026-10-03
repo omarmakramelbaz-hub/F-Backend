@@ -8,8 +8,7 @@
     <!-- Tell the browser to be responsive to screen width -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Font Awesome -->
-    <link rel="icon" type="image/x-icon"
-        href="{{ url('/storage/' . app(App\Models\GeneralSettings::class)->favicon) }}">
+    <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo.png') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}" />
   <meta name="description" content="لوحة التحكم في تطبيق "فسخانجي" مصممة لتلبية احتياجات أصحاب المطاعم والمناديب بفعالية. توفر النظام واجهة متقدمة لإدارة الطلبات حيث يمكن للمطاعم تلقي وتنظيم الطلبات من المستخدمين وتحديث حالتها بسهولة. يمكن لأصحاب المطاعم تتبع الطلبات المرسلة للطيارين، مع إمكانية إرسال إشعارات فورية للعملاء حول حالة الطلبات. كما تتيح لوحة التحكم تحليل أداء الطلبات وتنظيم وجبات الطيارين، مما يسهم في تحسين جودة الخدمة وتسهيل التواصل بين جميع الأطراف المشاركة في عملية الطلب والتوصيل.">
 
@@ -59,6 +58,7 @@
      <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/select2.min.css"> 
        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
+        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003">
         
     <style>
     .cke_notification_warning{
@@ -184,5 +184,5 @@ firebase.initializeApp(firebaseConfig);
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
 </head>
 
-<body class="hold-transition sidebar-mini layout-fixed">
+<body class="hold-transition sidebar-mini layout-fixed{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}">
     <div class="wrapper">

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="{{ app()->getLocale() }}" dir="{{ app()->getLocale() === 'ar' ? 'rtl' : 'ltr' }}">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>{{$settings->site_name}}</title>
   <!-- Tell the browser to be responsive to screen width -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/x-icon" href="{{url('/storage/'.$settings->favicon)}}">
+  <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo.png') }}">
   <meta name="description" content="لوحة التحكم في تطبيق "فسخانجي" مصممة لتلبية احتياجات أصحاب المطاعم والمناديب بفعالية. توفر النظام واجهة متقدمة لإدارة الطلبات حيث يمكن للمطاعم تلقي وتنظيم الطلبات من المستخدمين وتحديث حالتها بسهولة. يمكن لأصحاب المطاعم تتبع الطلبات المرسلة للطيارين، مع إمكانية إرسال إشعارات فورية للعملاء حول حالة الطلبات. كما تتيح لوحة التحكم تحليل أداء الطلبات وتنظيم وجبات الطيارين، مما يسهم في تحسين جودة الخدمة وتسهيل التواصل بين جميع الأطراف المشاركة في عملية الطلب والتوصيل.">
 
   <!-- Font Awesome -->
@@ -165,6 +165,7 @@
     
 
   </style>
+  <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003">
 </head>
 <body class="hold-transition login-page">
 <div class="container h-100" style="display:flex;align-items: center;">
@@ -224,7 +225,7 @@
             </div>
             <div class="col-md-6 col-12">
               <div class="login-logo">
-                <a href="{{url('/')}}"><img src="{{url('/storage/'.$settings->favicon)}}" alt="{{$settings->site_name}}"></a>
+                <a href="{{url('/')}}"><img class="dashboard-login-logo" src="{{ asset('dashboard/branding/fasakhansta-logo.png') }}" alt="فسخانستا" width="300" height="300"></a>
               </div>
             </div>
           </div>

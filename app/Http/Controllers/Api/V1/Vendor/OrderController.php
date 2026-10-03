@@ -84,6 +84,7 @@ class OrderController extends Controller
 
     public function getSingleOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
 
         if ($request->wantsJson() || $request->is('api/*')) {
             $carts = OrderResource::make($order);
@@ -96,10 +97,14 @@ class OrderController extends Controller
     public function searchDelegates()
     {
         // dd(request()->all());
-        $resturant = Resturant::where('id', request('resturant_id'))->first();
+        $order = Order::where('id', request('order_id'))->firstOrFail();
+        $this->assertAdminOrderAccess($order);
+        $resturant = auth('admin')->check()
+            ? $order->resturant
+            : Resturant::where('id', request('resturant_id'))->firstOrFail();
+        abort_unless($resturant, 404);
         $latitude = $resturant->lat;
         $longitude = $resturant->lng;
-        $order = Order::where('id', request('order_id'))->first();
         $delegates = User::where('connected', 'active')->where('status', 'accepted')->where('account_type', 'delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians(' . $latitude . ') ) * cos( radians( lat ) ) * 
           cos( radians( lng ) - radians(' . $longitude . ') ) + sin( radians(' . $latitude . ') ) * sin( radians( lat ) ) ) ) AS distance'))
             ->having('distance', '<', 10)
@@ -130,6 +135,7 @@ class OrderController extends Controller
 
     public function updateOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
         // dd($request);
         if ($request->type == 'in_resturant') {
             $up = $order->update(['status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
@@ -237,6 +243,7 @@ event(new OrderStatusUpdated($order));
 
     public function updateOrderStatus(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
     
 \Log::info('UPDATE_ORDER_STATUS', [
     'order_id' => $order->id,
@@ -343,6 +350,7 @@ if ($resturant_owner) {
 
     public function acceptOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
         if ($order->accepted_notify != 'yes') {
 
     $data = $order->update(['accepted_notify' => 'yes']);
@@ -611,6 +619,7 @@ if ($resturant_owner) {
 
     public function updateOrderTotalPrice(UpdateOrderTotalRequest $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
         $setting = app(GeneralSettings::class);
         //   return $order;
         if ($order->status == 'pending' || $order->status == 'accepted' || $order->status == 'another_delegate') {
@@ -652,5 +661,11 @@ if ($resturant_owner) {
             return redirect()->back()->with("success", __('api.order updated successfully'));
         }
 
+    }
+    private function assertAdminOrderAccess(Order $order): void
+    {
+        if (auth('admin')->check()) {
+            Order::whereKey($order->getKey())->firstOrFail();
+        }
     }
 }

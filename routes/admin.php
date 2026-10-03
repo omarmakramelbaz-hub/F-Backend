@@ -7,6 +7,7 @@ use App\Http\Controllers\Dashboard\AdminsController;
 use App\Http\Controllers\Dashboard\PendingVendorController;
 use App\Http\Controllers\Dashboard\RolesController;
 use App\Http\Controllers\Dashboard\OrderController;
+use App\Http\Controllers\Dashboard\OrderBoardController;
 use App\Http\Controllers\Dashboard\ComplaintController;
 use App\Http\Controllers\Dashboard\UserController;
 use App\Http\Controllers\Dashboard\ProductController;
@@ -69,7 +70,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/chat', [FcmNotificationsController::class, 'chat']);
         
                         Route::get('/resturantControl', [HomeController::class, 'resturantControl'])->name('resturantControl');
-        Route::get('/getOrders', [OrderController::class, 'getOrders'])->name('getOrders');
+        Route::get('/getOrders', [OrderBoardController::class, 'feed'])->name('getOrders');
        
         Route::post('/updateorders/{order}', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrder'])->name('vendor.updateOrder');
         Route::post('/acceptOrder/{order}', ['App\Http\Controllers\Api\V1\Vendor\OrderController','acceptOrder'])->name('vendor.acceptOrder');
@@ -140,7 +141,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('ordersDeleteAll', [OrderController::class,'deleteAll']);
         Route::post('ordersChangeStatus/{order}', [OrderController::class,'changeStatus'])->name('orders.change_status');
         Route::post('ordersTransferPrice/{order}', [OrderController::class,'transferPrice'])->name('orders.transfer_price');
-        Route::get('applies-orders', [OrderController::class,'applies'])->name('orders.applies');
+        Route::get('applies-orders', [OrderBoardController::class,'board'])->name('orders.applies');
         Route::get('cancel/order/{id}/delegate', [OrderController::class,'cancel_order_delegate'])->name('orders.cancel_order_delegate');
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
