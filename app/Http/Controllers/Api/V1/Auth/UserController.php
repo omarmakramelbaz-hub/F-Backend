@@ -340,7 +340,7 @@ public function resend_code(Request $request){
         $get_notifications = Auth::guard('api')->user()
             ->notifications()
             ->select('type', 'id', 'data', 'created_at')
-            ->orderByDesc('id')
+            ->orderByDesc('created_at')
             ->forPage($page, $perPage)
             ->get();
 
