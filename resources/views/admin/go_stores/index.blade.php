@@ -15,14 +15,7 @@
             @php($profile = $profiles->get($account->id))
             <tr><td>{{ $profile->name ?? 'لم تكتمل بيانات المتجر' }}</td>
                 <td>{{ \App\Services\GoStores\Catalog::KINDS[$profile->kind ?? ''] ?? '—' }}</td>
-                <td>{{ $account->name }}</td><td>
-                    @if($account->status === 'pending')
-                        <span class="badge bg-warning text-dark">في انتظار تفعيل الحساب</span>
-                        <div class="small mt-1">أكمل تفعيل الحساب من جو بارتنر ليظهر المتجر للعملاء.</div>
-                    @else
-                        {{ __('main.'.$account->status) }}
-                    @endif
-                </td><td>{{ $account->delegate_fees ?? 0 }}%</td>
+                <td>{{ $account->name }}</td><td>{{ __('main.'.$account->status) }}</td><td>{{ $account->delegate_fees ?? 0 }}%</td>
                 <td><a class="btn btn-primary" href="{{ route('go-stores.show', $account->id) }}">إدارة المتجر والمنتجات</a></td></tr>
         @empty<tr><td colspan="6">لا توجد حسابات متاجر GO بعد.</td></tr>@endforelse</tbody>
     </table>{{ $stores->links() }}</div></div>
