@@ -39,7 +39,8 @@ class OrderBoardClockTest extends TestCase
         DB::purge('sqlite');
         Carbon::setTestNow(Carbon::parse('2026-10-03 06:00:00', 'UTC'));
         Http::fake(); Notification::fake();
-        Event::fake([OrderStatusUpdated::class, OrderUpdated::class, UserUpdated::class]);
+        Event::fake([OrderStatusUpdated::class, OrderUpdated::class, UserUpdated::class,
+            \App\Events\VendorUpdated::class, \App\Events\BalanceUpdated::class]);
         Schema::create('users', function (Blueprint $t) {
             $t->id(); foreach (['name','email','account_type','status','app_scope','connected'] as $f) $t->string($f)->nullable();
             $t->unsignedBigInteger('pending_vendor_id')->nullable(); $t->decimal('balance', 14, 2)->default(0);
