@@ -749,24 +749,18 @@ $(document).ready(function () {
         });
     }
 
-    // Play the new-order sound for one second only.
+    // Function to play notification sound
     function playSound() {
-        if (isSoundPlaying) {
-            return;
+        if (!isSoundPlaying) {
+            if (document.getElementById('alertBanner')){
+                notificationSound.loop = true; // Keep ringing until user interaction/action.
+                notificationSound.currentTime = 0;
+                notificationSound.play().catch((error) => {
+                    console.error('Error playing sound:', error);
+                });
+            }
+            isSoundPlaying = true;
         }
-
-        isSoundPlaying = true;
-        notificationSound.loop = false;
-        notificationSound.currentTime = 0;
-
-        notificationSound.play().catch((error) => {
-            console.error('Error playing sound:', error);
-            isSoundPlaying = false;
-        });
-
-        window.setTimeout(() => {
-            stopSound();
-        }, 1000);
     }
 
     // Function to stop notification sound
