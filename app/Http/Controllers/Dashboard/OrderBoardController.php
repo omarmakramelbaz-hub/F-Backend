@@ -57,7 +57,7 @@ class OrderBoardController extends Controller
         ]);
         $actor = auth('admin')->user();
         // Recheck scope at every endpoint, independently of any displayed card or caller-supplied owner.
-        $card = $service->detail($source, $id, $actor);
+        $card = $service->actionState($source, $id, $actor, $stores);
         abort_unless(in_array($values['action'], $card['actions'], true), 409, 'تغيرت حالة الطلب أو الإجراء غير متاح. حدّث الصفحة.');
         if ($source === 'store') {
             abort_unless(array_key_exists('expected_revision', $values), 422, 'راجع حالة الطلب قبل تنفيذ الإجراء.');
@@ -126,14 +126,29 @@ class OrderBoardController extends Controller
             if ($shippingRejected) {
                 // A push provider failure must not turn a committed cancellation into an error.
                 try {
-                    broadcast(new OrderFinishedUpdated($shippingRejected, 1, $shippingRejected->user_id));
+                    app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(
+                        new OrderFinishedUpdated($shippingRejected, 1, $shippingRejected->user_id), (int) $shippingRejected->id);
                     if ($shippingRejected->user) Notification::send($shippingRejected->user, new NotifyUserOrderStatusUpdatedNotification($shippingRejected));
                 } catch (\Throwable $error) {
                     \Log::warning('Shipping order cancellation notification unavailable', ['order_id'=>$id]);
                 }
             }
         }
-        if ($request->expectsJson()) return response()->json(['success'=>true, 'message'=>'تم تحديث الطلب.']);
+        if ($request->expectsJson()) {
+            $payload = ['success'=>true, 'message'=>'تم تحديث الطلب.'];
+            try {
+                // Return the committed card so the board does not wait for a second,
+                // expensive four-column feed before showing the new phase.
+                $updated = $service->detail($source, $id, $actor);
+                $payload['card'] = ['key'=>$updated['key'], 'from_group'=>$card['group'], 'group'=>$updated['group'],
+                    'html'=>view('admin.orders.board_card', ['card'=>$updated])->render()];
+            } catch (\Throwable $error) {
+                // Rendering cannot turn an already committed mutation into a retry.
+                \Log::warning('Committed order card refresh unavailable', ['source'=>$source, 'order_id'=>$id,
+                    'exception'=>get_class($error)]);
+            }
+            return response()->json($payload);
+        }
         return redirect()->route('orders.applies')->with('success', 'تم تحديث الطلب.');
     }
 }

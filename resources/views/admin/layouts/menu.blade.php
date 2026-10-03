@@ -62,6 +62,14 @@
                     </li>
                 @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
+                @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
+                    <li class="nav-item">
+                        <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-shopping-bag"></i>
+                            <p>{{ __('takeaway.title') }}</p>
+                        </a>
+                    </li>
+                @endif
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
                     <li class="nav-item">

@@ -97,6 +97,35 @@ class OrderBoardService
             'count'=>array_sum($counts)];
     }
 
+    /** Authorize a transition without hydrating receipt lines, payments or customer display data. */
+    public function actionState(string $source, int $id, $actor, GoStoreBoardActions $stores): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $query = $this->query($source, $actor, []);
+        abort_unless($query, 404);
+        $row = $query->where('id', $id)->first();
+        abort_unless($row, 404);
+        $actions = [];
+        if ($source === 'legacy') {
+            if (($row->type ?? '') === 'shipping') {
+                if ($this->isAdmin($actor) && $row->status === 'pending' && empty($row->delegate_id)) $actions = ['reject'];
+            } else {
+                $restaurantExists = $this->has('resturants', 'id') && DB::table('resturants')->where('id', $row->resturant_id ?? 0)->exists();
+                $actions = $this->legacyActions($row, $restaurantExists);
+            }
+        } elseif ($source === 'store') {
+            // Share readiness checks with the controller's existing transition service.
+            $this->storeActions = $stores;
+            $actions = $stores->available($row);
+        } elseif ($source === 'service') {
+            if ($row->status === 'searching' && empty($row->accepted_offer_id)) $actions = ['reject'];
+        } elseif ($source === 'partner_service') {
+            if ($row->status === 'pending') $actions = ['accept', 'reject'];
+            elseif ($row->status === 'accepted') $actions = ['complete'];
+        }
+        return ['group'=>$this->group($source, $row), 'actions'=>$actions];
+    }
+
     public function detail(string $source, int $id, $actor): array
     {
         abort_unless($this->canAccess($actor), 403);

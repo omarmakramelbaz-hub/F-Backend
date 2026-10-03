@@ -2,7 +2,6 @@
 
 namespace App\Services\Dashboard;
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -11,6 +10,9 @@ class BestEffortOrderMail
 {
     public function send(int $orderId, string $view, array $data, callable $message): void
     {
+        foreach ($data as $key => $value) {
+            if ($value instanceof \Illuminate\Database\Eloquent\Model) $data[$key] = clone $value;
+        }
         $deliver = function () use ($orderId, $view, $data, $message): void {
             try {
                 Mail::send($view, $data, $message);
@@ -22,10 +24,6 @@ class BestEffortOrderMail
             }
         };
 
-        if (DB::transactionLevel() > 0) {
-            DB::afterCommit($deliver);
-        } else {
-            $deliver();
-        }
+        app(OrderProviderDelivery::class)->defer($deliver, $orderId, 'email');
     }
 }

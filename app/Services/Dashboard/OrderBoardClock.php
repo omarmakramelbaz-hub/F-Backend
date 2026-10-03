@@ -188,7 +188,7 @@ class OrderBoardClock
                 $customer = User::withoutGlobalScopes()->find($order->user_id);
                 if ($customer) Notification::send($customer, new NotifyUserOrderStatusUpdatedNotification($order));
                 OrderBroadcastService::outForDelivery($order);
-                event(new OrderStatusUpdated($order));
+                app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
             } catch (\Throwable $error) {
                 \Log::warning('Automatic order dispatch notice unavailable', ['order_id'=>(int) $order->id]);
             }

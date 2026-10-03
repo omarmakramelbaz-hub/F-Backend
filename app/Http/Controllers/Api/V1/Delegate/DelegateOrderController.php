@@ -1,5 +1,6 @@
 <?php
 namespace App\Http\Controllers\Api\V1\Delegate;
+use App\Services\Dashboard\OrderProviderDelivery;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Resturant;
@@ -189,8 +190,8 @@ class DelegateOrderController extends Controller {
         $delegate = auth('api')->user();
         if($user){
             Notification::send($user,new \App\Notifications\NotifyUserAfterOrderShippingAccepted($order));
-            broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$request->price));
-            broadcast(new ShippingUpdated($order,1,$user->id));
+            app(OrderProviderDelivery::class)->event(new DelegateShippingUpdated($delegate,1,$user->id,$request->price), (int) $order->id);
+            app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$user->id), (int) $order->id);
         }
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.accepted order successfully'));
     }
@@ -211,7 +212,7 @@ class DelegateOrderController extends Controller {
         ]);
         $user = User::find($order->user_id);
         if($user){
-            broadcast(new ShippingUpdated($order,1,$user->id));
+            app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$user->id), (int) $order->id);
         }
         return $this->successResponse([
             'order' => OrderResource::make($order),
@@ -281,8 +282,8 @@ class DelegateOrderController extends Controller {
             ]);
         });
 
-        broadcast(new ShippingUpdated($order->fresh(),1,$order->user_id));
-        broadcast(new DelegateUpdated($order->fresh(),1,$order->delegate_id));
+        app(OrderProviderDelivery::class)->event(new ShippingUpdated($order->fresh(),1,$order->user_id), (int) $order->id);
+        app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->fresh(),1,$order->delegate_id), (int) $order->id);
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.order updated successfully'));
     }
 
@@ -308,7 +309,7 @@ class DelegateOrderController extends Controller {
                     $title=__('api.accepted order successfully');
                     $delegates=DelegateNotification::where('order_id',$order->id)->where('delegate_id','!=',auth('api')->user()->id)->get();
                     foreach($delegates as $delegate){
-                     broadcast(new DelegateUpdated($order->id,1,$delegate->delegate_id));
+                     app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->id,1,$delegate->delegate_id), (int) $order->id);
                     }
                 }elseif($request->status=='shipped'){
                     $title=__('api.shipped order successfully');
@@ -328,8 +329,8 @@ class DelegateOrderController extends Controller {
                 $resturant_owner = User::where('id',$order->resturant?->user_id)->first();
                 if($resturant_owner){
                     Notification::send($resturant_owner,new \App\Notifications\NotifyResturantDelegateAcceptedNotification($order));
-                    broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                    broadcast(new UserUpdated($order->id,1,$order->user_id));
+                    app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                    app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
 
                 }
                 return $this->successResponse("success",$title);
@@ -341,8 +342,8 @@ class DelegateOrderController extends Controller {
                     $resturant_owner = User::where('id',$order->resturant?->user_id)->first();
                     if($resturant_owner && $order->status == 'accepted'){
                         Notification::send($resturant_owner,new \App\Notifications\NotifyResturantDelegateAcceptedNotification($order));
-                         broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                    broadcast(new UserUpdated($order->id,1,$order->user_id));
+                         app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                    app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
                     }
                     return $this->successResponse("success",$title);
         
@@ -361,7 +362,7 @@ class DelegateOrderController extends Controller {
                     $delegate = User::where('id', auth('api')->user()->id)->first();
                         //notify user after delegate accepted
                     Notification::send($user,new \App\Notifications\NotifyUserAfterOrderShippingAccepted($order));
-                    broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$order->grand_total));
+                    app(OrderProviderDelivery::class)->event(new DelegateShippingUpdated($delegate,1,$user->id,$order->grand_total), (int) $order->id);
     
                 }elseif($request->status=='shipped'){
                     $title=__('api.shipped order successfully');
@@ -369,7 +370,7 @@ class DelegateOrderController extends Controller {
                     
                     // broadcast(new VendorUpdated($order,1,$user->id));
                     
-                   broadcast(new ShippingUpdated($order,1,$order->user_id));
+                   app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$order->user_id), (int) $order->id);
                
     
                 }elseif($request->status=='declined'){
@@ -381,7 +382,7 @@ class DelegateOrderController extends Controller {
                     DelegateNotification::where('delegate_id',auth('api')->user()->id)->where('order_id',$order->id)->update(['status' => 'declined']);
                     $title=__('api.declined order successfully');
                     // $order->update(['status'=>'another_delegate']);
-                    broadcast(new VendorUpdated($order->id,1,$user->id));
+                    app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$user->id), (int) $order->id);
                 }else{
                  return $this->errorResponse(__('api.sorry another delegate accept order'));
             }
@@ -403,7 +404,7 @@ class DelegateOrderController extends Controller {
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
-                   broadcast(new ShippingUpdated($order,1,$order->user_id));
+                   app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$order->user_id), (int) $order->id);
                }
 
         if($order->type=='current'){
@@ -412,8 +413,8 @@ class DelegateOrderController extends Controller {
                     if($resturant_owner){
                         Notification::send($resturant_owner,new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
                         
-                        broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                        broadcast(new UserUpdated($order->id,1,$order->user_id));
+                        app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                        app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
                     }
         
         
@@ -445,7 +446,7 @@ class DelegateOrderController extends Controller {
                     Notification::send($user_order_owner,new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
                      $email = $user_order_owner->email;
                         if($email){
-                            Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                            app(\App\Services\Dashboard\BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                     			$message->to($email);
                     			$message->subject('Your order has been received!');
                     

@@ -16,7 +16,7 @@ class GoStoreOrderNotice extends Notification
                 'event_id' => 'store:'.$this->order->id.':'.$this->order->revision, 'account_type' => $notifiable->account_type,
                 'notification_sound' => $this->toStore && $this->order->status === 'pending' ? 'long' : 'default']];
         try {
-            if ((!$this->toStore || $notifiable->connected === 'active') && $notifiable->my_tokens) $this->sendFcmNotification($notifiable->my_tokens, $body);
+            if ((!$this->toStore || $notifiable->connected === 'active') && $notifiable->my_tokens) app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $notifiable->my_tokens, $body, (int) $this->order->id);
         } catch (\Throwable $e) { \Log::warning('GO store push unavailable', ['order_id' => $this->order->id]); }
         return $body;
     }

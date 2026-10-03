@@ -10,11 +10,15 @@
     var live = document.getElementById('ob-live');
     var message = document.getElementById('ob-message');
     var copy = JSON.parse(document.getElementById('ob-translations').textContent);
-    var pendingAction = false;
+    var pendingAction = 0;
+    var pendingKeys = new Set();
     var activeFeed = null;
     var generation = 0;
     var searchTimer = null;
     var messageTimer = null;
+    var reconcileTimer = null;
+    var reconcileNeeded = false;
+    var reconcileUrgent = false;
     var needsRefresh = false;
     var interval = null;
     var lastSubmitter = null;
@@ -119,6 +123,73 @@
         });
     }
 
+    function applyConfirmedCard(patch, previousCard, query) {
+        // Only move a card after the server confirms the committed state. An old
+        // request must not insert an order into a newly selected branch or date.
+        if (!patch || query !== filters().toString() || !previousCard.isConnected
+            || patch.key !== previousCard.dataset.orderKey || typeof patch.html !== 'string') return false;
+        var sourceColumn = previousCard.closest('[data-column]');
+        var source = sourceColumn && sourceColumn.dataset.column;
+        if (source !== patch.from_group || ['new', 'preparing', 'courier', 'completed'].indexOf(patch.group) === -1) return false;
+        var targetColumn = columns.querySelector('[data-column="' + patch.group + '"]');
+        var target = targetColumn && targetColumn.querySelector('[data-column-list]');
+        if (!target) return false;
+        var incoming = document.createElement('template');
+        incoming.innerHTML = patch.html.trim();
+        var nextCard = incoming.content.firstElementChild;
+        if (incoming.content.childElementCount !== 1 || !nextCard.matches('[data-order-key]')
+            || nextCard.dataset.orderKey !== patch.key) return false;
+        if (source === patch.group) {
+            previousCard.replaceWith(nextCard);
+            return true;
+        }
+        var sourceList = previousCard.parentElement;
+        var empty = columns.querySelector('.ob-empty');
+        var emptyCopy = empty && empty.cloneNode(true);
+        var sourceScroll = sourceList.scrollTop, targetScroll = target.scrollTop;
+        previousCard.remove();
+        var pageInput = form.querySelector('[name="page_' + patch.group + '"]');
+        // A later page has its own server-defined slice; let reconciliation fill it.
+        if (!pageInput || pageInput.value === '1') {
+            var targetEmpty = target.querySelector('.ob-empty');
+            if (targetEmpty) targetEmpty.remove();
+            target.insertBefore(nextCard, target.firstElementChild);
+        }
+        if (!sourceList.querySelector('[data-order-key]') && !sourceList.querySelector('.ob-empty')) {
+            if (!emptyCopy) {
+                emptyCopy = document.createElement('div');
+                emptyCopy.className = 'ob-empty';
+                emptyCopy.textContent = translated('empty');
+            }
+            sourceList.appendChild(emptyCopy);
+        }
+        board.querySelectorAll('[data-board-count]').forEach(function (counter) {
+            var stage = counter.dataset.boardCount, value = Number(counter.textContent);
+            if (!Number.isFinite(value)) return;
+            if (stage === source) counter.textContent = Math.max(0, value - 1);
+            else if (stage === patch.group) counter.textContent = value + 1;
+        });
+        sourceList.scrollTop = sourceScroll;
+        target.scrollTop = targetScroll;
+        return true;
+    }
+
+    function reconcileAfterActions() {
+        if (disposed || pendingAction) return;
+        clearTimeout(reconcileTimer);
+        if (reconcileUrgent) {
+            reconcileUrgent = false; reconcileNeeded = false;
+            refresh(true);
+        } else if (reconcileNeeded || needsRefresh) {
+            // The confirmed card is already visible. Batch the full feed for exact
+            // pagination and other operators' changes after a burst of actions.
+            reconcileTimer = setTimeout(function () {
+                reconcileTimer = null; reconcileNeeded = false;
+                refresh(true);
+            }, 650);
+        }
+    }
+
     function errorText(response, payload) {
         if (response.status === 401 || response.status === 419) return translated('session_expired');
         if (response.status === 403) return translated('forbidden');
@@ -146,6 +217,7 @@
         if (disposed) return;
         if (pendingAction || (!force && (document.hidden || modalIsOpen()))) {
             needsRefresh = true;
+            if (pendingAction && force) reconcileUrgent = true;
             return;
         }
         if (activeFeed) {
@@ -230,6 +302,19 @@
     board.querySelector('[data-board-retry]').addEventListener('click', function () { refresh(true); });
 
     columns.addEventListener('click', function (event) {
+        var printLink = event.target.closest('a[href]');
+        if (printLink && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) {
+            var printUrl = new URL(printLink.href, window.location.href);
+            if (printUrl.origin === window.location.origin && /^\/admin\/order-board\/(legacy|store|service|partner_service)\/\d+\/print\/?$/.test(printUrl.pathname)) {
+                event.preventDefault();
+                if (!window.DashboardPrint) { notify(translated('error'), false, false); return; }
+                printLink.setAttribute('aria-busy', 'true');
+                window.DashboardPrint.print(printUrl.toString()).catch(function (error) {
+                    if (!disposed) notify(error.message || translated('error'), false, false);
+                }).finally(function () { printLink.removeAttribute('aria-busy'); });
+                return;
+            }
+        }
         var pageLink = event.target.closest('[data-board-page]');
         if (pageLink) {
             event.preventDefault();
@@ -250,22 +335,31 @@
         event.preventDefault();
         // Capture before the shared footer's direct form-submit listeners can alter cards.
         event.stopImmediatePropagation();
-        if (pendingAction) return;
+        var card = actionForm.closest('[data-order-key]');
+        var key = card && card.dataset.orderKey;
+        if (!key || pendingKeys.has(key)) return;
         var submitter = event.submitter || lastSubmitter;
         if (!submitter || submitter.form !== actionForm) return;
         var action = submitter.value;
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);
-        pendingAction = true;
+        var query = filters().toString();
+        pendingKeys.add(key); pendingAction++;
+        clearTimeout(reconcileTimer); reconcileTimer = null;
+        // Aborting fetch alone does not cancel a response already being parsed.
+        generation++;
         if (activeFeed) activeFeed.abort();
-        var card = actionForm.closest('[data-order-key]');
-        var buttons = Array.from(actionForm.querySelectorAll('button'));
-        buttons.forEach(function (button) { button.disabled = true; });
+        var buttons = Array.from(actionForm.querySelectorAll('button')).map(function (button) {
+            return { element: button, disabled: button.disabled, html: button.innerHTML };
+        });
+        buttons.forEach(function (button) { button.element.disabled = true; });
+        var savingIcon = document.createElement('i');
+        savingIcon.className = 'fas fa-spinner fa-spin'; savingIcon.setAttribute('aria-hidden', 'true');
+        submitter.replaceChildren(savingIcon, document.createTextNode(' ' + translated('saving')));
         card.classList.add('is-busy');
         card.setAttribute('aria-busy', 'true');
         notify(translated('saving'), false, false);
-        var refreshAfter = false;
         try {
             // Buttons named "action" shadow HTMLFormElement.action with a RadioNodeList.
             var response = await fetch(actionForm.getAttribute('action'), {
@@ -278,7 +372,9 @@
             var payload = await readJson(response);
             if (disposed) return;
             notify(payload.message || translated('saved'), true, false);
-            refreshAfter = true;
+            reconcileNeeded = true;
+            if (applyConfirmedCard(payload.card, card, query)) setLive('updated');
+            else reconcileUrgent = true;
             // Shared notification audio can be unavailable while external SDKs initialize.
             // A sound failure must never report a successfully committed order as failed.
             if (typeof window.stopSound === 'function') {
@@ -287,13 +383,16 @@
         } catch (error) {
             if (disposed) return;
             notify(error.message || translated('error'), false, false);
-            refreshAfter = error.status === 409;
+            if (error.status === 409) reconcileUrgent = true;
         } finally {
-            pendingAction = false;
-            buttons.forEach(function (button) { button.disabled = false; });
+            pendingKeys.delete(key); pendingAction--;
+            buttons.forEach(function (button) {
+                button.element.disabled = button.disabled;
+                button.element.innerHTML = button.html;
+            });
             card.classList.remove('is-busy');
             card.removeAttribute('aria-busy');
-            if (!disposed && (refreshAfter || needsRefresh)) refresh(true);
+            reconcileAfterActions();
         }
     }, true);
 
@@ -320,7 +419,7 @@
     window.addEventListener('pagehide', function () { clearInterval(interval); if (activeFeed) activeFeed.abort(); });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () {
         disposed = true; generation++;
-        clearInterval(interval); clearTimeout(searchTimer); clearTimeout(messageTimer);
+        clearInterval(interval); clearTimeout(searchTimer); clearTimeout(messageTimer); clearTimeout(reconcileTimer);
         if (activeFeed) activeFeed.abort();
         if (resize) resize.disconnect();
         if (window.jQuery) window.jQuery(form).off('.orderBoard');

@@ -263,19 +263,16 @@ class HomeController extends Controller
             // dd(auth('admin')->user()->id);
             session()->put('id_user', auth('admin')->user()->id);
            if($user->account_type=='admin'){
-            return redirect('admin/dashboard')
-                    ->with('success',trans('main.signed in'));
+            return redirect('admin/dashboard');
            }elseif($user->account_type=='vendor'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/applies-orders')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/applies-orders');
            }
            elseif($user->account_type=='resturant_owner'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/resturants')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/resturants');
            }
         }
     }
@@ -291,7 +288,7 @@ class HomeController extends Controller
 
         // Regenerate the CSRF token for security
         request()->session()->regenerateToken();
-        return redirect("admin/login")->with('error',trans('main.logout success'));
+        return redirect("admin/login");
     }
 
 

@@ -56,7 +56,7 @@ class LegacyOrderCompletion
                             $message->subject('Your order has been received!');
                         });
                     OrderBroadcastService::complete($order);
-                    event(new OrderStatusUpdated($order));
+                    app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
                 } catch (\Throwable $error) {
                     \Log::warning('Restaurant order completion notice unavailable', ['order_id'=>(int) $order->id]);
                 }

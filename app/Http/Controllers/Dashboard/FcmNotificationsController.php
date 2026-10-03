@@ -17,7 +17,8 @@ class FcmNotificationsController extends Controller
     }
 	public function create()
 	{
-		$users = User::where('account_type',request()->account_type??'user')->whereHas('tokens')->get();
+		$type = request()->validate(['account_type' => 'nullable|in:user,vendor,delegate,resturant_owner,admin'])['account_type'] ?? 'user';
+		$users = $this->manualRecipients($type)->get();
 		return view('admin.fcm_notification', compact('users'));
 	}
 	
@@ -39,55 +40,59 @@ class FcmNotificationsController extends Controller
             return 1;
 	}
 
-	public function store(Request $request)
-	{
-	    $FcmToken = [];
-		$url = 'https://fcm.googleapis.com/fcm/send';
-// 		dd($request->all());
-		if($request->send_by == 0){
-			$zone = $request->zone_id;
-		    $users = User::where('account_type',request()->account_type??'user')->whereHas('tokens')->whereHas('addresses', function($q) use($zone){
-		            $q->whereIn('area_id', $zone);
-		        })->get();
-            foreach($users as $value){
-				$FcmToken = array_merge($FcmToken, $value->my_tokens);
-			}
-		}
-		if($request->send_by == 1 && $request->choose_user == 0){
-		    $users = User::where('account_type',request()->account_type??'user')->whereHas('tokens')->get();
-		      foreach($users as $value){
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'account_type' => 'nullable|in:user,vendor,delegate,resturant_owner,admin',
+            'title' => 'required|string|max:150', 'body' => 'required|string|max:1500',
+            'send_by' => 'required|in:0,1', 'choose_user' => 'required_if:send_by,1|nullable|in:0,1',
+            'zone_id' => 'exclude_unless:send_by,0|required|array|min:1', 'zone_id.*' => 'integer|min:1|exists:areas,id',
+            'user_id' => 'exclude_unless:send_by,1|exclude_unless:choose_user,1|required|array|min:1',
+            'user_id.*' => 'integer|min:1',
+        ]);
+        $type = $data['account_type'] ?? 'user';
+        $query = $this->manualRecipients($type);
+        if ((string) $data['send_by'] === '0') {
+            $zones = $data['zone_id'];
+            $query->whereHas('addresses', fn ($q) => $q->whereIn('area_id', $zones));
+        } elseif ((string) ($data['choose_user'] ?? '') === '1') {
+            $ids = array_unique(array_map('intval', $data['user_id']));
+            $query->whereIn('id', $ids);
+            if ((clone $query)->count() !== count($ids)) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['user_id' => trans('dashboard_push.recipients')]);
+            }
+        }
+        $tokens = $query->with('tokens')->get()->flatMap(fn ($user) => $user->tokens->pluck('token'))->all();
+        $result = app(\App\Services\Dashboard\DashboardPushSender::class)->send($tokens, $data['title'], $data['body'], $type);
+        $partial = $result['failed'] || $result['not_sent'] || $result['invalid'];
+        $key = $result['accepted'] ? ($partial ? 'partial' : 'sent')
+            : ($result['reason'] === 'payload_too_large' ? 'too_large' : (!empty($result['empty']) ? 'empty' : 'failed'));
+        $message = trans('dashboard_push.'.$key, $result);
+        $json = $request->expectsJson() || $request->header('X-Dashboard-SPA') === '1';
+        $counts = array_intersect_key($result, array_flip(['accepted', 'failed', 'attempted', 'not_sent', 'invalid']));
+        if (!$result['accepted']) {
+            \Log::warning('Dashboard manual notification unavailable', ['reason' => $result['reason']] + $counts);
+            if ($json) return response()->json(['success' => false, 'message' => $message, 'severity' => 'error'] + $counts, 502);
+            return redirect()->back()->withInput()->with('error', $message);
+        }
+        if ($partial) \Log::warning('Dashboard manual notification incomplete', ['reason' => $result['reason']] + $counts);
+        if ($json) return response()->json(['success' => true, 'message' => $message, 'severity' => $partial ? 'warning' : 'success'] + $counts);
+        return redirect()->back()->with($partial ? 'error' : 'success', $message);
+    }
 
-				$FcmToken = array_merge($FcmToken, $value->my_tokens);
+    private function manualRecipients(string $type)
+    {
+        $actor = auth('admin')->user();
+        abort_unless($actor, 401);
+        $query = User::withoutGlobalScopes()->where('account_type', $type)->whereHas('tokens');
+        // Keep non-administrator senders within the existing dashboard account family.
+        if ($actor->account_type !== 'admin') $query->where(function ($q) use ($actor) {
+            $q->where('added_by', $actor->id)->orWhere('id', $actor->id);
+            if ($actor->added_by !== null) $q->orWhere('added_by', $actor->added_by);
+        });
+        return $query;
+    }
 
-			}
-		}
-		if($request->send_by == 1 && $request->choose_user == 1){
-			foreach($request->user_id as $value){
-		        $user = User::where('account_type',request()->account_type??'user')->whereHas('tokens')->where('id', $value)->first();
-				$FcmToken = array_merge($FcmToken, $user->my_tokens);
-			}
-        }  
-        
-        $body_data=[
-            'is_topic' => true,
-            'topic' => 'notify-users',
-            'title' => $request->title,
-            'text'  => $request->body,
-             "data" => [
-                    "notification_type" => 4,
-                    "account_type"  => request()->account_type??'user',
-                    ],
-            ];
-                    // dd($body_data);
-
-        // $tokens = $FcmToken; 
-        // foreach($tokens as $token){
-        // }
-        // dd($FcmToken);
-            $this->sendFcmNotificationTobic($FcmToken ,$body_data) ;
-        return redirect()->back()->with('success',trans('messages.AddSuccessfully'));
-	}
-	
 	  public function SaveToken(Request $request){
         $user=User::find($request->user_id);
         $user->newOrExistingToken($request['token']);

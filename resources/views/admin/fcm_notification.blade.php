@@ -28,12 +28,12 @@
               <input type="hidden" name="account_type" value="{{request()->account_type??'user'}}"/>
               <div class="form-group col-sm-10">
                 <label for="title"> @lang('main.notify_title')</label>
-                <input type="text" name ="title" value="{{old('title')}}" class="form-control" id="title" placeholder="@lang('main.enter title')">
+                <input type="text" name ="title" value="{{old('title')}}" maxlength="150" required class="form-control" id="title" placeholder="@lang('main.enter title')">
               </div>
 
               <div class="form-group col-sm-10">
                 <label for="body">@lang('main.notify_body')</label>
-                <input type="text" name="body" value="{{old('body')}}" class="form-control" id="body" placeholder="@lang('main.enter body')">
+                <textarea name="body" maxlength="1500" required rows="4" class="form-control" id="body" placeholder="@lang('main.enter body')">{{old('body')}}</textarea>
               </div>
             <div class="form-group col-sm-10">
                 <label for="send_by">@lang('main.send_by')</label><br/>
@@ -82,7 +82,6 @@
 </div>
 
 @endsection
-
 
 
 

@@ -1,5 +1,6 @@
 <?php
 namespace App\Http\Controllers\Api\V1\Vendor;
+use App\Services\Dashboard\OrderProviderDelivery;
 use App\Services\OrderBroadcastService;
 use App\Services\OrderAction;
 use App\Services\Dashboard\BestEffortOrderMail;
@@ -117,7 +118,7 @@ class OrderController extends Controller
             foreach ($delegates as $key => $value) {
                 $order->update(['delegate_from_out' => 'out_resturant']);
 
-                broadcast(new DelegateUpdated($order, 1, $value->id));
+                app(OrderProviderDelivery::class)->event(new DelegateUpdated($order, 1, $value->id), (int) $order->id);
                 DelegateNotification::create([
                     'delegate_id' => $value->id,
                     'order_id' => $order->id,
@@ -167,9 +168,9 @@ class OrderController extends Controller
             }
             OrderBroadcastService::accept($order);
 
-broadcast(new OrderFinishedUpdated($order, 1, $order->user_id));
+app(OrderProviderDelivery::class)->event(new OrderFinishedUpdated($order, 1, $order->user_id), (int) $order->id);
 
-event(new OrderStatusUpdated($order));
+app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
             if ($request->wantsJson() || $request->is('api/*')) {
                 $orderData = OrderResource::make($order->fresh());
                 return $this->successResponse($orderData, __('api.order has prepared from resturant'));
@@ -183,7 +184,7 @@ event(new OrderStatusUpdated($order));
     $order->update(['delegate_from_out' => 'out_resturant']);
 
     // إشعار العميل
-    broadcast(new OrderFinishedUpdated($order, 1, $order->user_id));
+    app(OrderProviderDelivery::class)->event(new OrderFinishedUpdated($order, 1, $order->user_id), (int) $order->id);
 
     // إشعار الفرع
     $vendor = $this->orderUsers()->find(optional($order->resturant)->user_id);
@@ -363,7 +364,7 @@ if ($resturant_owner) {
                 }
             }
 
-            event(new OrderStatusUpdated($order));
+            app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
         }
         if ($request->wantsJson() || $request->is('api/*')) {
             return $this->successResponse("success", __('api.order updated successfully'));

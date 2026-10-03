@@ -24,6 +24,10 @@
     var loadedScripts = new Map();
     var pageStyles = [];
     var historyKey = 0;
+    var historyPosition = 0;
+    var committedUrl = location.href;
+    var committedState = null;
+    var restoringHistory = false;
     var status;
     var pendingHistory = null;
     var currentDialog = null;
@@ -42,6 +46,7 @@
         this.frames = new Set();
         this.cleanups = [];
         this.globals = new Map();
+        this.leaveGuards = [];
     }
     PageScope.prototype.run = function (callback, context, args) {
         if (this.closed) return;
@@ -80,6 +85,7 @@
         this.frames.clear();
         this.cleanups = [];
         this.globals.clear();
+        this.leaveGuards = [];
     };
 
     EventTarget.prototype.addEventListener = function (type, callback, options) {
@@ -321,8 +327,10 @@
     function copyAttributes(source, target, names) {
         names.forEach(function (name) { if (source.hasAttribute(name)) target.setAttribute(name, source.getAttribute(name)); else target.removeAttribute(name); });
     }
-    function notify(message, retry) {
+    function notify(message, retry, severity) {
         if (!status) return;
+        if (['success', 'warning', 'error'].indexOf(severity) !== -1) status.dataset.severity = severity;
+        else delete status.dataset.severity;
         status.textContent = '';
         var text = document.createElement('span'); text.textContent = message;
         status.appendChild(text);
@@ -350,8 +358,29 @@
         if (value) notify(message(submitting ? 'busy' : 'loading'));
     }
     function recordScroll() {
-        var state = Object.assign({}, history.state || {}, { dashboardSPA: true, key: historyKey, scroll: [scrollX, scrollY] });
+        var state = Object.assign({}, history.state || {}, { dashboardSPA: true, key: historyKey,
+            dashboardPosition: historyPosition, scroll: [scrollX, scrollY] });
         history.replaceState(state, '', location.href);
+        committedUrl = location.href; committedState = state;
+    }
+    function mayLeave(url, options) {
+        // Pages such as a checkout own the decision to discard their local work.
+        // Guards are synchronous: returning false keeps the current page intact.
+        return page.leaveGuards.slice().every(function (callback) {
+            try { return page.run(callback, window, [{ url: url, pop: !!options.pop,
+                replace: !!options.replace, afterSubmit: !!options.afterSubmit }]) !== false; }
+            catch (error) { console.warn('Dashboard leave guard failed', error); return false; }
+        });
+    }
+    function restoreCommittedHistory() {
+        var target = history.state && history.state.dashboardPosition;
+        if (typeof target === 'number' && target !== historyPosition) {
+            restoringHistory = true;
+            history.go(historyPosition - target);
+        } else {
+            restoringHistory = false;
+            history.replaceState(committedState, '', committedUrl);
+        }
     }
     function pageCss(doc) {
         var nodes = [];
@@ -514,8 +543,13 @@
         if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
         if (!options.pop) {
             historyKey++;
-            history[options.replace ? 'replaceState' : 'pushState']({ dashboardSPA: true, key: historyKey, scroll: options.scroll || [0, 0] }, '', url);
+            if (!options.replace) historyPosition++;
+            history[options.replace ? 'replaceState' : 'pushState']({ dashboardSPA: true, key: historyKey,
+                dashboardPosition: historyPosition, scroll: options.scroll || [0, 0] }, '', url);
+        } else if (history.state && typeof history.state.dashboardPosition === 'number') {
+            historyPosition = history.state.dashboardPosition;
         }
+        committedUrl = url; committedState = history.state;
         document.dispatchEvent(new CustomEvent('dashboard:before-unload', { detail: { url: url } }));
         document.dispatchEvent(new CustomEvent('dashboard:before-navigate', { detail: { url: url } }));
         page.dispose();
@@ -526,7 +560,7 @@
         document.title = doc.title || document.title;
         var token = doc.querySelector('meta[name="csrf-token"]');
         if (token) document.querySelector('meta[name="csrf-token"]').content = token.content;
-        ['dashboard-home-page', 'app-order-board-page'].forEach(function (name) { document.body.classList.toggle(name, doc.body.classList.contains(name)); });
+        ['dashboard-home-page', 'app-order-board-page', 'dashboard-takeaway-page'].forEach(function (name) { document.body.classList.toggle(name, doc.body.classList.contains(name)); });
         var scripts = Array.from(incoming.querySelectorAll('script'));
         var extra = doc.querySelector('[data-dashboard-page-scripts]');
         if (extra) scripts = scripts.concat(Array.from(extra.querySelectorAll('script')));
@@ -570,6 +604,10 @@
         options = options || {};
         var url = new URL(value, location.href);
         if (!eligible(url.href)) { window.location.assign(url.href); return; }
+        if (!mayLeave(url.href, options)) {
+            if (options.pop) restoreCommittedHistory();
+            return;
+        }
         if (submitting && !options.afterSubmit) { if (options.pop) pendingHistory = { url: url.href, options: options }; return; }
         if (navigation) navigation.abort();
         var controller = new AbortController();
@@ -642,11 +680,14 @@
                 var payload = await response.json();
                 if (!response.ok || payload.success === false || payload.error) {
                     var errors = payload.errors && Object.values(payload.errors).flat();
-                    notify(errors && errors.length ? errors.join(' · ') : payload.message || payload.error || message('saveError'));
+                    notify(errors && errors.length ? errors.join(' · ') : payload.message || payload.error || message('saveError'), null, 'error');
                     return;
                 }
                 var destination = payload.redirect && eligible(payload.redirect) ? payload.redirect : location.href;
                 await visit(destination, { afterSubmit: true, replace: true });
+                if (payload.success === true && typeof payload.message === 'string' && !form.isConnected) {
+                    notify(payload.message, null, payload.severity === 'warning' ? 'warning' : 'success');
+                }
             } else {
                 await visit(response.url || location.href, { afterSubmit: true, response: response, replace: true });
             }
@@ -700,7 +741,10 @@
         status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
         document.body.appendChild(status);
         historyKey = history.state && history.state.key || 0;
-        history.replaceState(Object.assign({}, history.state || {}, { dashboardSPA: true, key: historyKey, scroll: [scrollX, scrollY] }), '', location.href);
+        historyPosition = history.state && history.state.dashboardPosition || 0;
+        history.replaceState(Object.assign({}, history.state || {}, { dashboardSPA: true, key: historyKey,
+            dashboardPosition: historyPosition, scroll: [scrollX, scrollY] }), '', location.href);
+        committedUrl = location.href; committedState = history.state;
         if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
         native.add.call(document, 'click', function (event) {
             var link = event.target.closest('a[href]');
@@ -722,6 +766,11 @@
             submitForm(form, submitter);
         });
         native.add.call(window, 'popstate', function (event) {
+            if (restoringHistory) {
+                if (event.state && event.state.dashboardPosition === historyPosition) restoringHistory = false;
+                else restoreCommittedHistory();
+                return;
+            }
             if (!eligible(location.href)) return;
             visit(location.href, { pop: true, scroll: event.state && event.state.scroll || [0, 0] });
         });
@@ -733,6 +782,17 @@
         reload: function () { return visit(location.href, { replace: true }); },
         attachJQuery: attachJQuery,
         onCleanup: function (callback) { var scope = currentScope() || page; if (typeof callback === 'function') scope.cleanups.push(callback); },
+        onBeforeLeave: function (callback) {
+            var scope = currentScope() || page;
+            if (typeof callback !== 'function' || scope.closed) return function () {};
+            scope.leaveGuards.push(callback);
+            var remove = function () {
+                var index = scope.leaveGuards.indexOf(callback);
+                if (index !== -1) scope.leaveGuards.splice(index, 1);
+            };
+            scope.cleanups.push(remove);
+            return remove;
+        },
         ready: function () { return started; },
         isCurrentPage: function () { var scope = currentScope(); return !scope || scope === page && !scope.closed; }
     };

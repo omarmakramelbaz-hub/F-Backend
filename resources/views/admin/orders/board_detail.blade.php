@@ -5,7 +5,7 @@
     $number = ltrim((string) $card['number'], '#');
 @endphp
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-dashboard-receipt="order-board">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -102,6 +102,6 @@
         @endif
     </div>
 </main>
-@if($printing)<script>window.addEventListener('load',function(){window.print();});</script>@endif
+@if($printing && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body>
 </html>

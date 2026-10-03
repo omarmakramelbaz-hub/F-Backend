@@ -67,7 +67,15 @@ php -l app/Services/Dashboard/SupportFirestore.php
 php -l app/Services/Dashboard/SupportInbox.php
 php -l app/Http/Controllers/Dashboard/DashboardInboxController.php
 php -l app/Http/Controllers/Dashboard/FcmNotificationsController.php
+php -l app/Http/Controllers/Dashboard/TakeawayController.php
+php -l app/Services/Dashboard/TakeawayAccess.php
+php -l app/Services/Dashboard/TakeawayCatalog.php
+php -l app/Services/Dashboard/TakeawayService.php
+php -l app/Services/Dashboard/OrderProviderDelivery.php
+php -l app/Services/Dashboard/DashboardPushSender.php
+php -l app/Http/Traits/FcmFirebase.php
 php artisan migrate --force --path=database/migrations/2026_10_03_060000_create_order_board_clocks.php
+php artisan migrate --force --path=database/migrations/2026_10_03_140000_create_takeaway_pos.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
 php artisan route:clear
@@ -81,11 +89,14 @@ test -s public/dashboard/js/dashboard-spa.js
 test -s public/dashboard/css/dashboard-spa.css
 test -s public/dashboard/js/dashboard-inbox.js
 test -s public/dashboard/js/dashboard-support-chat.js
+test -s public/dashboard/js/dashboard-print.js
+test -s public/dashboard/js/takeaway-pos.js
+test -s public/dashboard/css/takeaway-pos.css
 test -s public/dashboard/branding/fasakhansta-logo-transparent.png
 php artisan order-board:advance --help >/dev/null
 php deployment/check_dashboard_runtime.php
 trap - ERR
 echo "ORDER BOARD READY: $release_sha"
 echo "Previous code snapshot: $backup_name"
-# Only the additive clock migration is installed; no historical order backfill,
+# Only additive clock/POS migrations are installed; no historical order backfill,
 # payment settings changes, customer releases, or destructive schema rollback.

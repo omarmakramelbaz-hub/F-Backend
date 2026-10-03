@@ -194,7 +194,7 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
-<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v=20261003-spa-1"></script>
+<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v=20261003-takeaway-1"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
 <!-- AdminLTE for demo purposes -->
@@ -1112,6 +1112,7 @@ function openOrFocusWindow(orderId) {
 
 </script>
 
+<script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-inbox.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-inbox.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-support-chat.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-support-chat.js')) }}"></script>
 </body>

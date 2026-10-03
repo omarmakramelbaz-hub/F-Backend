@@ -722,6 +722,74 @@ class DashboardOrderBoardTest extends TestCase
         GeneralSettings::fake($values);
     }
 
+    public function test_confirmed_legacy_action_returns_the_new_card_without_waiting_for_a_full_board_feed(): void
+    {
+        $this->legacy(1);
+        DB::table('users')->where('id', 20)->update(['name'=>'<script>customer</script>']);
+        $this->actingAs($this->actor(10), 'admin');
+        $response = $this->postJson(route('order-board.action', ['legacy', 1]), [
+            'action'=>'accept', 'expected_status'=>'pending', 'expected_accepted_notify'=>'',
+        ])->assertOk()->assertJsonPath('success', true)->assertJsonPath('card.key', 'legacy:1')
+            ->assertJsonPath('card.from_group', 'new')->assertJsonPath('card.group', 'preparing');
+        $html = $response->json('card.html');
+        $this->assertStringContainsString('data-order-key="legacy:1"', $html);
+        $this->assertStringContainsString('name="expected_accepted_notify" value="yes"', $html);
+        $this->assertStringContainsString('value="prepare"', $html);
+        $this->assertStringNotContainsString('value="accept"', $html);
+        $this->assertStringNotContainsString('<script>customer</script>', $html);
+        $this->assertStringNotContainsString('ob-column', $html);
+        $this->assertDatabaseHas('orders', ['id'=>1, 'status'=>'pending', 'accepted_notify'=>'yes']);
+        $this->assertDatabaseCount('wallets', 0);
+    }
+
+    public function test_store_action_patch_contains_the_committed_revision_and_does_not_repeat_financial_movement(): void
+    {
+        $this->legacy(200);
+        $this->store(200);
+        $this->actingAs($this->actor(30), 'admin');
+        $values = ['action'=>'accept', 'expected_status'=>'pending', 'expected_revision'=>1];
+        $response = $this->postJson(route('order-board.action', ['store', 200]), $values)->assertOk()
+            ->assertJsonPath('card.key', 'store:200')->assertJsonPath('card.from_group', 'new')
+            ->assertJsonPath('card.group', 'preparing');
+        $this->assertStringContainsString('name="expected_revision" value="2"', $response->json('card.html'));
+        $this->assertStringContainsString('data-order-status="preparing"', $response->json('card.html'));
+        $this->assertStringNotContainsString('data-order-key="legacy:200"', $response->json('card.html'));
+        $this->assertDatabaseHas('users', ['id'=>30, 'balance'=>490]);
+        $this->assertDatabaseHas('orders', ['id'=>200, 'accepted_notify'=>null]);
+        $this->postJson(route('order-board.action', ['store', 200]), $values)->assertStatus(409);
+        $this->assertDatabaseHas('users', ['id'=>30, 'balance'=>490]);
+        $this->assertDatabaseHas('go_store_orders', ['id'=>200, 'revision'=>2]);
+    }
+
+    public function test_lightweight_action_authorization_matches_visible_actions_without_loading_receipt_data(): void
+    {
+        foreach ([
+            1=>[], 2=>['accepted_notify'=>'yes'], 3=>['status'=>'accepted', 'delegate_from_out'=>'in_resturant'],
+            4=>['status'=>'shipped'], 5=>['resturant_id'=>999],
+            6=>['type'=>'shipping', 'resturant_id'=>null],
+        ] as $id=>$values) $this->legacy($id, $values);
+        $this->store();
+        $this->store(201, ['status'=>'awaiting_payment', 'payment_method'=>'card', 'payment_status'=>'pending']);
+        $this->services();
+        $actor = $this->actor(1);
+        $stores = app(\App\Services\Dashboard\GoStoreBoardActions::class);
+        foreach ([['legacy',1], ['legacy',2], ['legacy',3], ['legacy',4], ['legacy',5], ['legacy',6],
+            ['store',200], ['store',201], ['service',300], ['partner_service',301]] as [$source,$id]) {
+            $service = app(OrderBoardService::class);
+            DB::enableQueryLog(); DB::flushQueryLog();
+            $state = $service->actionState($source, $id, $actor, $stores);
+            $queries = DB::getQueryLog(); DB::disableQueryLog();
+            foreach ($queries as $query) {
+                $this->assertDoesNotMatchRegularExpression('/(?:from|join)\s+["`]?\b(?:carts|user_address|payments|resturant_products)\b/i', $query['query']);
+            }
+            $detail = $service->detail($source, $id, $actor);
+            $this->assertSame($detail['actions'], $state['actions'], $source.':'.$id);
+            $this->assertSame($detail['group'], $state['group'], $source.':'.$id);
+        }
+        $this->expectException(HttpException::class);
+        app(OrderBoardService::class)->actionState('legacy', 1, $this->actor(11), $stores);
+    }
+
     /** Optional export uses the real page and existing dashboard chrome for visual QA. */
     private function exportQaView(?string $path = null): string
     {

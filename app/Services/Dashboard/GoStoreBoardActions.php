@@ -113,6 +113,10 @@ class GoStoreBoardActions
     /** Call after a committed dashboard transition; polling remains authoritative if push fails. */
     public function notifyCustomer(int $id): void
     {
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit(fn () => $this->notifyCustomer($id));
+            return;
+        }
         try {
             $order = DB::table('go_store_orders')->find($id);
             if (!$order) return;
