@@ -27,7 +27,7 @@
                             @can(request('account_type').'-list')
                             <li class="breadcrumb-item">
                                 <a href="{{ url('admin/users/create?account_type='. request('account_type')) }}"
-                                    class="btn btn-primary">{{ request('account_type') === 'delegate' ? 'إضافة شريك' : trans('main.add').' '.__('main.'.request('account_type')) }}</a>
+                                    class="btn btn-primary">{{trans('main.add')}} {{__('main.'.request('account_type'))}}</a>
                             </li>
                             @endcan
                             @endif
@@ -106,12 +106,8 @@
                                     </thead>
                                     <tbody>
                                         @forelse($users as $user)
-                                            @php
-                                                $rowAccountType = $user->account_type;
-                                                $isGoStore = $rowAccountType === 'vendor' && $user->app_scope === 'go_partner';
-                                            @endphp
                                             <tr>
-                                                @if($user->id > 1 && $user->id!=560 && $rowAccountType === request('account_type'))
+                                                @if($user->id > 1 && $user->id!=560)
                                                 <td><input type="checkbox" class="sub_chk" data-id="{{ $user->id }}"></td>
                                                 @else
                                                 <td></td>
@@ -131,7 +127,7 @@
                                                 @if(request('account_type') != 'user')
                                                 <td>{{ $user->name }}</td>
                                                 @if(request('account_type') == 'delegate')
-                                                <td>{{ $isGoStore ? 'متجر' : (optional($user->pending_vendor)->profession_key ? (\App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[optional($user->pending_vendor)->profession_key]['ar'] ?? optional($user->pending_vendor)->profession_key) : 'مندوب') }}</td>
+                                                <td>{{ optional($user->pending_vendor)->profession_key ? (\App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[optional($user->pending_vendor)->profession_key]['ar'] ?? optional($user->pending_vendor)->profession_key) : 'مندوب' }}</td>
                                                 <td>{{ strtoupper(optional($user->pending_vendor)->source_app ?: ($user->app_scope === 'go_partner' ? 'go' : 'fasakhansta')) }}</td>
                                                 @endif
                                                 <td>{{ $user->email }}</td>
@@ -155,11 +151,7 @@
                                                 <td>
                                                    @if($user->id > 1 && $user->id!=560)
                                                       
-                                                            @if($user->app_scope === 'go_partner' && $user->status === 'pending')
-                                                            <span class="badge bg-warning text-dark">في انتظار تفعيل الحساب</span>
-                                                            @elseif($rowAccountType !== request('account_type'))
-                                                            <span class="badge {{ $user->status === 'accepted' ? 'bg-success' : 'bg-secondary' }}">{{ __('main.'.$user->status) }}</span>
-                                                            @elseif($user->status == 'declined')
+                                                            @if($user->status == 'declined')
                                                             <a href="{{route('users.change-status',[$user->id,'status' => 'accepted'])}}" class="btn btnsuccess">@lang('main.for accepted click here')</a>
                                                             @elseif($user->status == 'accepted')
                                                             <a href="{{route('users.change-status',[$user->id,'status' => 'declined'])}}" class="btn btn-danger">@lang('main.for pending click here')</a>
@@ -176,17 +168,14 @@
                                                 <td>{{ $user->created_at->diffForHumans() }}</td>
                                                 
                                                 <td >
-                                                    @can($rowAccountType.'-list')
+                                                    @can(request('account_type').'-list')
                                                         <a class="btn btn-info"
-                                                            href="{{ route('users.show', ['account_type' => $rowAccountType, $user->id]) }}">@lang('main.show')</a>
+                                                            href="{{ route('users.show', ['account_type' =>request('account_type') , $user->id]) }}">@lang('main.show')</a>
                                                     @endcan
-                                                    @if($isGoStore && ((int) auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
-                                                        <a class="btn btn-primary" href="{{ route('go-stores.show', $user->id) }}">إدارة المتجر والمنتجات</a>
-                                                    @endif
-                                                    @can($rowAccountType.'-edit')
+                                                    @can(request('account_type').'-edit')
                                                        @if( $user->id!=560)
                                                         <a class="btn btn-warning"
-                                                            href="{{ url('admin/users/' . $user->id . '/edit?account_type='.$rowAccountType) }}">@lang('main.edit')</a>
+                                                            href="{{ url('admin/users/' . $user->id . '/edit?account_type='.request('account_type')) }}">@lang('main.edit')</a>
                                                         @if($user->go_drive_block==1)
                                                         <a class="btn btn-dark"
                                                             href="{{ url('admin/users/' . $user->id . '/go_drive_activation') }}">@lang('main.go drive activation')</a>
@@ -194,10 +183,10 @@
                                                        @endif
                                                     @endcan
                                                     @if($user->id > 1 && $user->id!=560)
-                                                    @can($rowAccountType.'-delete')
+                                                    @can(request('account_type').'-delete')
                                                         {!! Form::open([
                                                             'method' => 'DELETE',
-                                                            'route' => ['users.destroy', 'account_type' => $rowAccountType,$user->id],
+                                                            'route' => ['users.destroy', 'account_type' => request('account_type'),$user->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
