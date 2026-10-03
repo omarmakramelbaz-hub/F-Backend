@@ -39,6 +39,7 @@ use App\Events\OrderFinishedUpdated;
 use App\Events\VendorUpdated;
 use App\Events\DelegateUpdated;
 use App\Events\OrderUpdated;
+use App\Services\OrderBroadcastService;
 class CartController extends Controller
 {
 
@@ -420,16 +421,19 @@ class CartController extends Controller
                     //     $userRestOwnerParent = $resturant_owner->base_resturant->parent;
                     // }
 
-                    // Broadcast the orders using Pusher
-                    broadcast(new VendorUpdated($order, $orderCount, $resturant_owner->id));
+                    // Broadcast the orders using Pusher.
+                    if ($resturant_owner) {
+                        broadcast(new VendorUpdated($order, $orderCount, $resturant_owner->id));
+                        broadcast(new OrderUpdated($order, $orderCount, $resturant_owner->id));
+                    }
                     if ($userRestOwnerParent) {
                         broadcast(new VendorUpdated($order, $orderCount, $userRestOwnerParent->id));
-                    }
-                    // for resturant iwner dashboard
-                    broadcast(new OrderUpdated($order, $orderCount, $resturant_owner->id));
-                    if ($userRestOwnerParent) {
                         broadcast(new OrderUpdated($order, $orderCount, $userRestOwnerParent->id));
                     }
+
+                    // Keep the administrative dashboard live even when branch
+                    // ownership data is not attached to the administrative user.
+                    OrderBroadcastService::newOrder($order);
                     return $this->successResponse($order_data, __('api.order sent successfully'));
                 }
             }
