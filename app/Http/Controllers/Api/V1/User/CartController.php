@@ -489,7 +489,7 @@ class CartController extends Controller
 
         $orderData = $orders->map(function ($order) use ($serviceFeeRate) {
             $updatedTotal = $order->carts->sum(function ($cart) {
-                if ($cart->updated_total !== null) {
+                if ($cart->updated_total) {
                     return (float) $cart->updated_total;
                 }
 
