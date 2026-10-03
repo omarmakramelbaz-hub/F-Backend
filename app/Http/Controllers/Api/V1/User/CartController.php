@@ -40,6 +40,7 @@ use App\Events\VendorUpdated;
 use App\Events\DelegateUpdated;
 use App\Events\OrderUpdated;
 use App\Services\OrderBroadcastService;
+use App\Jobs\SendOrderCreatedAfterResponse;
 class CartController extends Controller
 {
 
@@ -316,12 +317,10 @@ class CartController extends Controller
                 'resturant_id' => $carts->first()->resturant_id,
             ]);
 
-            foreach ($carts as $cart) {
-                $cart->update([
-                    'order_id' => $order->id,
-                    'is_order' => true
-                ]);
-            }
+            Cart::whereIn('id', $carts->pluck('id')->all())->update([
+                'order_id' => $order->id,
+                'is_order' => true,
+            ]);
             // $order = auth('api')->user()->orders()->where('type', 'current')->whereNull('status')->first();
             //  dd($order->carts->count());
             $orderCount = $order->resturant->orders()->where('status', 'pending')->whereDate('created_at', '=', now()->toDateString())->count();
@@ -396,44 +395,29 @@ class CartController extends Controller
                 if ($request->payment_type == 'wallet' || $request->payment_type == 'cash') {
 
                     $updated = $order->update(['tax' => $tax, 'vendor_tax' => $vendor_tax, 'user_tax' => $user_tax, 'resturant_id' => $order->carts()->first()->resturant_id, 'created_at' => now()]);
+                    // Keep order.updated synchronous so the restaurant/admin
+                    // dashboards receive the new order and alert sound immediately.
                     if ($resturant_owner) {
-                        Notification::send($resturant_owner, new \App\Notifications\NotifyResturantOrderCreatedNotification($order));
-                        if ($userRestOwnerParent) {
-                            Notification::send($userRestOwnerParent, new \App\Notifications\NotifyResturantOrderCreatedNotification($order));
-                        }
-                    }
-                    $email = $order->user?->email;
-                    if ($email) {
-                        try {
-                            Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
-                                $message->to($email);
-                                $message->subject('Your order has been received!');
-                            });
-                        } catch (\Throwable $e) {
-                            \Log::error('Mail Error: '.$e->getMessage(), ['trace'=>$e->getTraceAsString()]);
-                        }
-                    }
-                    // $resturant_owner = User::with('base_resturant.parent')->whereHas('base_resturant', function ($q) use ($order) {
-                    //     $q->where('id', $order->resturant_id);
-                    // })->first();
-                    // $userRestOwnerParent = null;
-                    // if ($resturant_owner?->base_resturant?->parent) {
-                    //     $userRestOwnerParent = $resturant_owner->base_resturant->parent;
-                    // }
-
-                    // Broadcast the orders using Pusher.
-                    if ($resturant_owner) {
-                        broadcast(new VendorUpdated($order, $orderCount, $resturant_owner->id));
                         broadcast(new OrderUpdated($order, $orderCount, $resturant_owner->id));
                     }
                     if ($userRestOwnerParent) {
-                        broadcast(new VendorUpdated($order, $orderCount, $userRestOwnerParent->id));
                         broadcast(new OrderUpdated($order, $orderCount, $userRestOwnerParent->id));
                     }
 
                     // Keep the administrative dashboard live even when branch
                     // ownership data is not attached to the administrative user.
                     OrderBroadcastService::newOrder($order);
+
+                    // FCM, database notification, customer email, and the legacy
+                    // vendor.updated event run after the HTTP response is sent.
+                    // Laravel dispatchAfterResponse runs this without a queue worker.
+                    SendOrderCreatedAfterResponse::dispatchAfterResponse(
+                        (int) $order->id,
+                        $resturant_owner ? (int) $resturant_owner->id : null,
+                        $userRestOwnerParent ? (int) $userRestOwnerParent->id : null,
+                        (int) $orderCount
+                    );
+
                     return $this->successResponse($order_data, __('api.order sent successfully'));
                 }
             }
