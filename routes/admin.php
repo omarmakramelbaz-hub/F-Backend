@@ -49,13 +49,19 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
-Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
+Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification'])->middleware('IsAdmin');
 
 
     Route::get('/login', [HomeController::class, 'loginPage'])->middleware('adminGuest');
     Route::post('/signin', [HomeController::class, 'signin'])->name('admin.login')->middleware('adminGuest');
 
     Route::group([ 'middleware' => 'IsAdmin'], function () {
+        Route::get('dashboard-inbox/notifications', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'notifications'])->name('dashboard-inbox.notifications');
+        Route::post('dashboard-inbox/notifications/read', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'readNotifications'])->name('dashboard-inbox.notifications.read');
+        Route::get('dashboard-inbox/support', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'support'])->name('dashboard-inbox.support');
+        Route::get('dashboard-inbox/support/{partner}/messages', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'messages'])->whereNumber('partner')->name('dashboard-inbox.support.messages');
+        Route::post('dashboard-inbox/support/{partner}/read', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'readSupport'])->whereNumber('partner')->name('dashboard-inbox.support.read');
+        Route::post('dashboard-inbox/support/{partner}/messages', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'sendSupport'])->whereNumber('partner')->name('dashboard-inbox.support.send');
         Route::get('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'index'])->name('go-stores.index');
         Route::get('go-stores/create', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'create'])->name('go-stores.create');
         Route::post('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'store'])->name('go-stores.store');
@@ -99,7 +105,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::put('/read/{id}', [HomeController::class, 'read'])->name('read_notify');
         Route::get('/bulk-notifications', [HomeController::class, 'bulk_notifications'])->name('bulk-notifications');
         Route::post('/for-send-notify', [HomeController::class,'sendNotify'])->name('notifications.sendNotify');
-        Route::get('read/all/notification',[HomeController::class,'mark_all_as_read'])->name('mark_all_as_read');
+        Route::post('read/all/notification',[HomeController::class,'mark_all_as_read'])->name('mark_all_as_read');
 
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings/update', [SettingsController::class, 'update'])->name('updateSetting');

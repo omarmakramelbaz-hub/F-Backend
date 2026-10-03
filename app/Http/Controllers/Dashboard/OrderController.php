@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Dashboard;
 use App\Models\Order;
+use App\Services\Dashboard\LegacyOrderCompletion;
+use Illuminate\Support\Facades\DB;
 use App\Models\Cart;
 use App\Models\ShippingZone;
 use App\Models\GeneralSettings;
@@ -178,6 +180,21 @@ class OrderController extends Controller
      public function changeStatus(Order $order, Request $request)
     {
         $this->assertAdminOrderAccess($order);
+        if ($order->type !== 'current') return $this->changeStatusLocked($order, $request);
+        return DB::transaction(function () use ($order, $request) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true) && $locked->status !== $request->status, 409, 'تم إغلاق الطلب.');
+            return $this->changeStatusLocked($locked, $request);
+        }, 3);
+    }
+
+    private function changeStatusLocked(Order $order, Request $request)
+    {
+        $this->assertAdminOrderAccess($order);
+        if ($request->status === 'completed' && $order->type === 'current') {
+            app(LegacyOrderCompletion::class)->complete($order);
+            return redirect()->back()->with('success', trans('messages.UpdatedSuccessfully'));
+        }
         if($order->status!= $request->status){
         $update = $order->update([
             'status' => $request->status,
@@ -510,6 +527,18 @@ class OrderController extends Controller
     
     
     public function transferPrice($id){
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->grand_total > 0 && $locked->transfer_price_by === null;
+            $result = $this->transferPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Order gross settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferPriceLocked($id){
         // Resolve before the legacy catch so inaccessible dashboard IDs
         // produce a 404 instead of returning an exception as a response.
         $order=Order::findOrFail($id);

@@ -1,5 +1,6 @@
 (function () {
     'use strict';
+    if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
 
     var board = document.getElementById('order-board');
     if (!board) return;
@@ -17,6 +18,8 @@
     var needsRefresh = false;
     var interval = null;
     var lastSubmitter = null;
+    var disposed = false;
+    var previousReload = window.reloadOrderSections;
 
     function translated(key) { return copy[key] || key; }
 
@@ -31,6 +34,7 @@
     }
 
     function notify(text, success, retry) {
+        if (disposed) return;
         clearTimeout(messageTimer);
         message.querySelector('[data-message-text]').textContent = text;
         message.querySelector('[data-board-retry]').hidden = !retry;
@@ -55,7 +59,7 @@
     function rememberFilters() {
         var page = new URL(form.action, window.location.href);
         page.search = filters().toString();
-        window.history.replaceState(null, '', page.toString());
+        window.history.replaceState(window.history.state, '', page.toString());
     }
 
     function modalIsOpen() {
@@ -139,6 +143,7 @@
     }
 
     async function refresh(force) {
+        if (disposed) return;
         if (pendingAction || (!force && (document.hidden || modalIsOpen()))) {
             needsRefresh = true;
             return;
@@ -162,7 +167,7 @@
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             });
             var payload = await readJson(response);
-            if (currentGeneration !== generation || query !== filters().toString() || pendingAction) return;
+            if (disposed || currentGeneration !== generation || query !== filters().toString() || pendingAction) return;
             // A dialog may have opened while the request was in flight; defer DOM changes.
             if (modalIsOpen()) { needsRefresh = true; return; }
             var html = payload.html !== undefined ? payload.html : payload.view;
@@ -173,7 +178,7 @@
             needsRefresh = false;
             if (message.querySelector('[data-board-retry]').hidden === false) message.hidden = true;
         } catch (error) {
-            if (error.name === 'AbortError' || currentGeneration !== generation) return;
+            if (disposed || error.name === 'AbortError' || currentGeneration !== generation) return;
             setLive('offline');
             notify(error.message || translated('loading_failed'), false, true);
         } finally {
@@ -182,7 +187,8 @@
     }
 
     // The existing notification handlers call this function after an order event.
-    window.reloadOrderSections = function () { refresh(false); };
+    var reloadBoard = function () { refresh(false); };
+    window.reloadOrderSections = reloadBoard;
 
     form.addEventListener('submit', function (event) {
         event.preventDefault();
@@ -270,6 +276,7 @@
                 }
             });
             var payload = await readJson(response);
+            if (disposed) return;
             notify(payload.message || translated('saved'), true, false);
             refreshAfter = true;
             // Shared notification audio can be unavailable while external SDKs initialize.
@@ -278,6 +285,7 @@
                 try { window.stopSound(); } catch (_) { /* The order has already been saved. */ }
             }
         } catch (error) {
+            if (disposed) return;
             notify(error.message || translated('error'), false, false);
             refreshAfter = error.status === 409;
         } finally {
@@ -285,11 +293,12 @@
             buttons.forEach(function (button) { button.disabled = false; });
             card.classList.remove('is-busy');
             card.removeAttribute('aria-busy');
-            if (refreshAfter || needsRefresh) refresh(true);
+            if (!disposed && (refreshAfter || needsRefresh)) refresh(true);
         }
     }, true);
 
     function sizeBoard() {
+        if (disposed) return;
         var wrapper = board.closest('.order-board-wrapper');
         var footer = document.querySelector('.main-footer');
         wrapper.style.setProperty('--ob-top', Math.max(0, wrapper.getBoundingClientRect().top) + 'px');
@@ -309,6 +318,14 @@
     window.addEventListener('online', function () { refresh(false); });
     interval = setInterval(function () { refresh(false); }, 10000);
     window.addEventListener('pagehide', function () { clearInterval(interval); if (activeFeed) activeFeed.abort(); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () {
+        disposed = true; generation++;
+        clearInterval(interval); clearTimeout(searchTimer); clearTimeout(messageTimer);
+        if (activeFeed) activeFeed.abort();
+        if (resize) resize.disconnect();
+        if (window.jQuery) window.jQuery(form).off('.orderBoard');
+        if (window.reloadOrderSections === reloadBoard) window.reloadOrderSections = previousReload;
+    });
     window.addEventListener('pageshow', function (event) {
         if (event.persisted) { sizeBoard(); refresh(false); interval = setInterval(function () { refresh(false); }, 10000); }
     });

@@ -1,5 +1,19 @@
+@php
+    $inboxActor = Auth::guard('admin')->user();
+    $inboxService = app(\App\Services\Dashboard\SupportInbox::class);
+    $inboxCanSupport = $inboxService->canAccess($inboxActor);
+    $inboxNotes = \Illuminate\Support\Facades\Schema::hasTable('notifications') ? $inboxActor->unreadNotifications()->latest()->limit(1000)->get() : collect();
+    $inboxUnreadCount = \Illuminate\Support\Facades\Schema::hasTable('notifications') ? $inboxActor->unreadNotifications()->count() : 0;
+@endphp
 <!-- Navbar -->
-<nav class="main-header navbar navbar-expand navbar-white navbar-light justify-content-between" @if(\Request::route()->getName() == 'chooseType') style="margin-right:0px;" @endif>
+<nav data-dashboard-inbox
+     data-notifications-url="{{ route('dashboard-inbox.notifications') }}"
+     data-notifications-read-url="{{ route('dashboard-inbox.notifications.read') }}"
+     data-support-url="{{ $inboxCanSupport ? route('dashboard-inbox.support') : '' }}"
+     data-inbox-ids="{{ $inboxCanSupport ? implode(',', $inboxService->inboxIds($inboxActor)) : '' }}"
+     data-support-staff="{{ $inboxCanSupport && $inboxService->isStaff($inboxActor) ? '1' : '0' }}"
+     data-inbox-read-failed="{{ trans('dashboard_inbox.read_failed') }}"
+     class="main-header navbar navbar-expand navbar-white navbar-light justify-content-between" @if(\Request::route()->getName() == 'chooseType') style="margin-right:0px;" @endif>
     <!-- Left navbar links -->
     <ul class="navbar-nav align-items-center">
         <li class="nav-item">
@@ -137,45 +151,32 @@
           <a href="#" class="dropdown-item dropdown-footer">See All Messages</a>
         </div>
       </li> -->
+        @if($inboxCanSupport)
+        <li class="nav-item">
+            <a class="nav-link position-relative" href="{{ url('/admin/chat').($inboxService->isStaff($inboxActor) ? '' : '?user_id=1') }}" title="{{ trans('dashboard_inbox.support') }}" aria-label="{{ trans('dashboard_inbox.support') }}">
+                <i class="far fa-comments fa-lg"></i>
+                <span class="badge dashboard-support-badge navbar-badge" data-support-unread hidden aria-live="polite" style="background:#fd7201;color:#fff"></span>
+            </a>
+        </li>
+        @endif
         <!-- Notifications Dropdown Menu -->
-        <li class="dropdown">
-            <a class="dropdown-toggle" href="#" role="button" id="dropdownMenuLink" data-bs-toggle="dropdown" aria-expanded="false">
+        <li class="dropdown" data-notification-dropdown>
+            <a class="dropdown-toggle" href="#" role="button" id="dropdownMenuLink" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ trans('main.notification') }}">
                 <i class="far fa-bell fa-lg"></i>
-                <span
-                    class="badge badge-warning navbar-badge">{{ Auth::guard('admin')->user()->unreadNotifications->count() }}</span>
+                <span class="badge badge-warning navbar-badge" data-notification-count @if(!$inboxUnreadCount) hidden @endif aria-live="polite">{{ $inboxUnreadCount }}</span>
             </a>
             <div class="dropdown-menu" aria-labelledby="dropdownMenuLink">
-                <span class="dropdown-item dropdown-header">{{ Auth::guard('admin')->user()->unreadNotifications->count() }}
-                    @lang('main.notification')</span>
-                @foreach (Auth::guard('admin')->user()->unreadNotifications as $note)
-                    <!--<div class="dropdown-divider"></div>-->
-                    <a href="{{url('/admin/notifications')}}#{{$note->id}}"
-                            class="dropdown-item">
-                        <i class="fas fa-envelope me-2"></i>{{ $note->data['title'] }}
-                        <div class="dropdown-divider">
-                            <span class="mt-2 text-muted text-sm"> {{$note->created_at}} @php
-                                    $now = \Carbon\Carbon::now();
-                                    $created = $note->created_at;
-                                    $x = $created->diffForHumans($now);
-                                    echo $x;
-                            @endphp</span>
-                        </div>
+                <span class="dropdown-item dropdown-header"><span data-notification-header-count>{{ $inboxUnreadCount }}</span> @lang('main.notification')</span>
+                <div id="dashboard-notification-list">
+                    @foreach($inboxNotes as $note)
+                    <a href="{{ url('/admin/notifications') }}#{{ $note->id }}" class="dropdown-item" data-notification-id="{{ $note->id }}">
+                        <i class="fas fa-envelope me-2"></i><span>{{ $note->data['title'] ?? '' }}</span>
+                        <small class="d-block text-muted">{{ $note->created_at->diffForHumans() }}</small>
                     </a>
-                @endforeach
-                <a href="{{ url('/admin/notifications') }}" class="dropdown-item dropdown-footer" >@lang('main.Get all notifications')</a>
-                <style>
-                    .dropdown-footer{
-                        position: sticky;
-                        width: 96%;
-                        border-radius: 70px;
-                        bottom: 0px;
-                        font-weight: bold;
-                        color: #fff;
-                        z-index: 45;
-                        background: var(--main);
-                        margin: auto;
-                    }
-                </style>
+                    @endforeach
+                </div>
+                <span class="dropdown-item text-danger small" data-inbox-read-error hidden></span>
+                <a href="{{ url('/admin/notifications') }}" class="dropdown-item dropdown-footer">@lang('main.Get all notifications')</a>
             </div>
         </li>
 

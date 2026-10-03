@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Api\V1\Vendor;
 use App\Services\OrderBroadcastService;
 use App\Services\OrderAction;
 use App\Services\Dashboard\BestEffortOrderMail;
+use App\Services\Dashboard\LegacyOrderCompletion;
 use App\Events\OrderStatusUpdated;
 use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
@@ -136,6 +137,17 @@ class OrderController extends Controller
     public function updateOrder(Request $request, Order $order)
     {
         $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->updateOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderLocked(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
         // dd($request);
         if ($request->type == 'in_resturant') {
             $up = $order->update(['status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
@@ -244,6 +256,22 @@ event(new OrderStatusUpdated($order));
     public function updateOrderStatus(Request $request, Order $order)
     {
         $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true) && $locked->status !== $request->status, 409, 'تم إغلاق الطلب.');
+            return $this->updateOrderStatusLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderStatusLocked(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
+        if ($request->status === 'completed' && $order->type === 'current') {
+            app(LegacyOrderCompletion::class)->complete($order);
+            if ($request->wantsJson() || $request->is('api/*')) return $this->successResponse('success', __('api.order updated successfully'));
+            return redirect()->route('orders.applies')->with('success_code', 'completed');
+        }
     
 \Log::info('UPDATE_ORDER_STATUS', [
     'order_id' => $order->id,
@@ -349,6 +377,17 @@ if ($resturant_owner) {
     }
 
     public function acceptOrder(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->acceptOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function acceptOrderLocked(Request $request, Order $order)
     {
         $this->assertAdminOrderAccess($order);
         if ($order->accepted_notify != 'yes') {
@@ -574,6 +613,20 @@ if ($resturant_owner) {
 
     public function transfer_order_price($id)
     {
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->grand_total > 0 && $locked->transfer_price_by === null && !$locked->delegate_id;
+            $result = $this->transferOrderPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Restaurant settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferOrderPriceLocked($id)
+    {
         try {
             $order = Order::find($id);
             if ($order && auth('admin')->check()) {
@@ -590,9 +643,7 @@ if ($resturant_owner) {
                 // if($vendor->balance>=$app_price){
 
                 // transfer tax for app
-                $setting = app(GeneralSettings::class);
-                $setting->app_balance = $setting->app_balance + $app_price;
-                $setting->save();
+                app(LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($app_price, 2, '.', '')));
                 Wallet::create([
                     'from_user' => $vendor->id,
                     'amount' => $app_price,
@@ -626,6 +677,17 @@ if ($resturant_owner) {
     }
 
     public function updateOrderTotalPrice(UpdateOrderTotalRequest $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            $locked->unsetRelation('carts');
+            return $this->updateOrderTotalPriceLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderTotalPriceLocked(UpdateOrderTotalRequest $request, Order $order)
     {
         $this->assertAdminOrderAccess($order);
         $setting = app(GeneralSettings::class);
@@ -675,6 +737,14 @@ if ($resturant_owner) {
         if (auth('admin')->check()) {
             Order::whereKey($order->getKey())->firstOrFail();
         }
+    }
+
+    private function assertApiRestaurantParty(Order $order): void
+    {
+        if (auth('admin')->check() || !auth('api')->check() || $order->type !== 'current') return;
+        $actor = auth('api')->user();
+        abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner'], true)
+            && in_array((int) $order->resturant_id, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);
     }
 
     private function orderUsers()

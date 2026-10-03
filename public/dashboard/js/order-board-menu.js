@@ -1,5 +1,6 @@
 (function () {
     'use strict';
+    if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
     var panel = document.querySelector('#branch-menu');
     var form = document.querySelector('#ob-filters');
     var select = form && form.querySelector('[name="branch"]');
@@ -21,6 +22,7 @@
     var canToggle = false;
     var writing = false;
     var queuedPage = null;
+    var disposed = false;
 
     function text(key) { return labels[key] || key; }
     function node(tag, className, value) {
@@ -30,6 +32,7 @@
         return element;
     }
     function notify(value, success) {
+        if (disposed) return;
         message.textContent = value || '';
         message.hidden = !value;
         message.classList.toggle('is-success', !!success);
@@ -96,7 +99,7 @@
         return payload;
     }
     async function load(requestedPage) {
-        if (!branch) return;
+        if (disposed || !branch) return;
         if (writing) { queuedPage = requestedPage || 1; return; }
         if (controller) controller.abort();
         var current = ++generation;
@@ -113,7 +116,7 @@
             var response = await fetch(endpoint.toString(), { credentials: 'same-origin', cache: 'no-store',
                 signal: signal, headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
             var payload = await read(response, 'menu_error');
-            if (current !== generation || branch !== requestedBranch) return;
+            if (disposed || current !== generation || branch !== requestedBranch) return;
             if (!Array.isArray(payload.items) || !payload.branch || !payload.pagination) throw new Error(text('menu_error'));
             canToggle = !!payload.can_toggle;
             items.clear();
@@ -130,7 +133,7 @@
             next.disabled = !payload.pagination.next_url;
             notify(payload.message || (!canToggle && payload.ready ? text('menu_readonly') : ''));
         } catch (error) {
-            if (error.name !== 'AbortError' && current === generation) notify(error.message || text('menu_error'));
+            if (!disposed && error.name !== 'AbortError' && current === generation) notify(error.message || text('menu_error'));
         } finally {
             if (current === generation) {
                 controller = null;
@@ -176,7 +179,7 @@
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
                 body: JSON.stringify({ available: !item.available, expected_available: !!item.available, expected_revision: item.revision }) });
             var payload = await read(response, 'menu_save_error');
-            if (branch !== requestedBranch) return;
+            if (disposed || branch !== requestedBranch) return;
             if (!payload.item || payload.item.id !== item.id) throw new Error(text('menu_save_error'));
             // A newer menu fetch may have replaced this card while the write was pending.
             var currentCard = list.querySelector('[data-menu-product="' + item.id + '"]');
@@ -184,7 +187,7 @@
             items.set(String(item.id), payload.item);
             notify(text('menu_saved'), true);
         } catch (error) {
-            if (branch !== requestedBranch) return;
+            if (disposed || branch !== requestedBranch) return;
             if (error.status === 409) {
                 queuedPage = page;
                 notify(text('menu_stale'));
@@ -192,7 +195,7 @@
         } finally {
             writing = false;
             list.querySelectorAll('[data-menu-availability]').forEach(function (control) { control.disabled = false; });
-            if (queuedPage !== null) { var requestedPage = queuedPage; queuedPage = null; load(requestedPage); }
+            if (!disposed && queuedPage !== null) { var requestedPage = queuedPage; queuedPage = null; load(requestedPage); }
         }
     });
     if (window.jQuery) window.jQuery(select).on('change.orderBoardMenu', selected);
@@ -207,5 +210,10 @@
     backdrop.addEventListener('click', function () { show(false); toggle.focus(); });
     document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !panel.hidden) { show(false); toggle.focus(); } });
     window.addEventListener('resize', function () { backdrop.hidden = panel.hidden || window.innerWidth >= 992; });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () {
+        disposed = true; generation++; queuedPage = null;
+        clearTimeout(timer); if (controller) controller.abort();
+        if (window.jQuery) window.jQuery(select).off('.orderBoardMenu');
+    });
     selected();
 })();

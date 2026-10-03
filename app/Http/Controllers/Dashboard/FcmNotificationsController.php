@@ -115,19 +115,25 @@ class FcmNotificationsController extends Controller
     }
     
      public function send_chat_notification(Request $request){
-        $user=User::find($request->user2);
+        $values = $request->validate(['user2' => 'required|integer|min:1', 'message' => 'required|string|max:5000', 'inbox_id' => 'nullable|integer|min:1']);
+        $actor = auth('admin')->user();
+        abort_unless($actor, 401);
+        $inbox = app(\App\Services\Dashboard\SupportInbox::class);
+        $scope = isset($values['inbox_id']) ? (int) $values['inbox_id'] : null;
+        $user = $inbox->partner($actor, (int) $request->user2, $scope);
+        $senderId = $inbox->inboxId($actor, $scope);
           $body_data=[
-            'title' => "new message from ".$request->senderName,
+            'title' => "new message from ".$actor->name,
             'text'  => $request->message,
              "data" => [
                     "notification_type" => 10,
                     "account_type"  => $user->account_type,
                     "reciever_id"  => $user->id,
-                    'sender_id'=>auth('admin')->user()->id,
+                    'sender_id'=>$senderId,
                     'sender_account_type'=>auth('admin')->user()->account_type,
                     'sender_fcm_id'=>auth('admin')->user()->fcm_id,
                     'sender_device_token'=>auth('admin')->user()->device_token,
-                     'click_action'=>env('APP_URL')."/admin/chat/?user_id=".auth('admin')->user()->id
+                     'click_action'=>env('APP_URL')."/admin/chat/?user_id=".$senderId
                     ],
             ];
         //   dd($body_data,$user);
@@ -151,12 +157,17 @@ class FcmNotificationsController extends Controller
     }
     
     public function chat(){
-        if(request()->has('user_id')){
-            $user=User::find(request()->user_id);
-             return view('admin.chat',compact('user'));
-        }else{
-             return view('admin.chat');   
-        }
+        $actor = auth('admin')->user();
+        $inbox = app(\App\Services\Dashboard\SupportInbox::class);
+        abort_unless($inbox->canAccess($actor), 403);
+        $staff = $inbox->isStaff($actor);
+        $selected = request()->validate(['user_id' => 'nullable|integer|min:1', 'inbox_id' => 'nullable|integer|min:1']);
+        $inboxIds = $inbox->inboxIds($actor);
+        $inboxId = $inbox->inboxId($actor, isset($selected['inbox_id']) ? (int) $selected['inbox_id'] : null);
+        $user = isset($selected['user_id']) ? $inbox->partner($actor, (int) $selected['user_id'], $inboxId)
+            : ($staff ? null : $inbox->partner($actor, $inbox->centralId(), $inboxId));
+        $users = $staff ? User::withoutGlobalScopes()->where('account_type', '!=', 'admin')->orderBy('name')->get(['id', 'name', 'mobile', 'account_type']) : collect([$user]);
+        return view('admin.chat', compact('user', 'users', 'staff', 'inboxId', 'inboxIds'));
     }
     
     

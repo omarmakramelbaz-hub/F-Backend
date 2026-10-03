@@ -4,6 +4,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Resturant;
 use App\Models\Order;
+use App\Services\Dashboard\LegacyOrderCompletion;
 use App\Models\DelegateNotification;
 use Illuminate\Http\Request;
 use App\Http\Requests\Api\Auth\StoreUserResturantRequest;
@@ -286,6 +287,16 @@ class DelegateOrderController extends Controller {
     }
 
     public function acceptDeclineOrder(Request $request,Order $order){
+        if ($order->type !== 'current') return $this->acceptDeclineOrderLocked($request, $order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiDelegateParty($locked, in_array($request->status, ['accept', 'declined'], true));
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->acceptDeclineOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function acceptDeclineOrderLocked(Request $request,Order $order){
         if(auth('api')->user()->status != 'accepted'){
             return $this->errorResponse(__('api.contact admin for account activation'));
         }
@@ -293,7 +304,7 @@ class DelegateOrderController extends Controller {
             if($order->delegate_id==null){
                 if($request->status=='accept'){
                     
-                    $order->update(['status'=>'accepted','delegate_id'=>auth('api')->user()->id]);
+                    $order->update(['status'=>$order->status === 'shipped' ? 'shipped' : 'accepted','delegate_id'=>auth('api')->user()->id]);
                     $title=__('api.accepted order successfully');
                     $delegates=DelegateNotification::where('order_id',$order->id)->where('delegate_id','!=',auth('api')->user()->id)->get();
                     foreach($delegates as $delegate){
@@ -381,6 +392,14 @@ class DelegateOrderController extends Controller {
     }
     
     public function orderCompleted(Order $order){
+        if ($order->type === 'current') {
+            DB::transaction(function () use ($order) {
+                $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $this->assertApiDelegateParty($locked);
+                app(LegacyOrderCompletion::class)->complete($locked);
+            }, 3);
+            return $this->successResponse('success', __('api.order updated successfully'));
+        }
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
@@ -624,6 +643,20 @@ class DelegateOrderController extends Controller {
     }
     
     public function transfer_order_price($id){
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            if ($locked->type === 'current') $this->assertApiDelegateParty($locked);
+            if ($locked->type === 'current') app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->type === 'current' && $locked->grand_total > 0 && $locked->delegate_id
+                && $locked->reason === null && $locked->transfer_price_by === null && $locked->status === 'completed';
+            $result = $this->transferOrderPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Courier settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferOrderPriceLocked($id){
         try{
             $order=Order::find($id);
             if ($order && auth('admin')->check()) {
@@ -657,9 +690,7 @@ class DelegateOrderController extends Controller {
                             ]);
                     }
                     // transfer tax for app
-                    $setting=app(GeneralSettings::class);
-                    $setting->app_balance=$setting->app_balance+$app_price;
-                    $setting->save();
+                    app(LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($app_price, 2, '.', '')));
                         Wallet::create([
                             'from_user'=>$delegate->id,
                             'amount'=>$app_price,
@@ -693,6 +724,18 @@ class DelegateOrderController extends Controller {
         }catch(\Exception $e){
              return $this->errorResponse($e->getMessage());
           }
+    }
+
+    private function assertApiDelegateParty(Order $order, bool $allowInvitation = false): void
+    {
+        if (auth('admin')->check() || !auth('api')->check()) return;
+        $actor = auth('api')->user();
+        abort_unless($actor->account_type === 'delegate' && $actor->status === 'accepted', 403);
+        $assigned = (int) $order->delegate_id === (int) $actor->id;
+        $invited = $allowInvitation && !$order->delegate_id
+            && \Illuminate\Support\Facades\Schema::hasTable('delegate_notifications')
+            && DB::table('delegate_notifications')->where('order_id', $order->id)->where('delegate_id', $actor->id)->exists();
+        abort_unless($assigned || $invited, 403);
     }
     
 

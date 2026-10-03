@@ -48,6 +48,14 @@
             icon.setAttribute('aria-hidden', 'true');
             const text = document.createElement('p');
             text.append(document.createTextNode(labels[key]));
+            if (nodes.some(node => paths(node).some(path => /\/admin\/chat\/?$/.test(path)))) {
+                const badge = document.createElement('span');
+                badge.className = 'badge dashboard-support-badge';
+                badge.setAttribute('data-support-unread', '');
+                badge.setAttribute('aria-live', 'polite');
+                badge.hidden = true;
+                text.append(badge);
+            }
             const arrow = document.createElement('i');
             arrow.className = 'fas fa-angle-down left';
             arrow.setAttribute('aria-hidden', 'true');
@@ -198,6 +206,15 @@
     }
     fitNavigation();
     window.addEventListener('load', fitNavigation);
+    document.addEventListener('dashboard:before-unload', () => closePopup(false));
+    document.addEventListener('dashboard:page-loaded', () => {
+        navigation.querySelectorAll('.dashboard-navigation-group').forEach(group => {
+            const link = Array.from(group.children).find(node => node.matches('a.nav-link'));
+            const list = Array.from(group.children).find(node => node.matches('ul.nav-treeview'));
+            if (link && list) link.classList.toggle('active', !!list.querySelector('.nav-link.active'));
+        });
+        fitNavigation();
+    });
     window.addEventListener('resize', () => { closePopup(false); fitNavigation(); });
     new MutationObserver(() => {
         if (document.body.classList.contains('sidebar-collapse') || (innerWidth < 992 && !document.body.classList.contains('sidebar-open'))) closePopup(false);

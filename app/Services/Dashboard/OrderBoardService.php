@@ -243,6 +243,15 @@ class OrderBoardService
         $userIds = $rows->pluck($source === 'legacy' || $source === 'partner_service' ? 'user_id' : 'customer_id')
             ->merge($rows->pluck($source === 'legacy' ? 'delegate_id' : 'partner_id'))->filter()->unique()->all();
         $this->cacheRows('users', 'id', $userIds);
+        if ($source === 'legacy' && $this->has('payments', 'order_id') && $this->has('payments', 'status')) {
+            foreach ($ids as $id) $this->related['payments'][$id] = [];
+            $payments = DB::table('payments')->whereIn('order_id', $ids);
+            if ($this->has('payments', 'id')) $payments->orderByDesc('id');
+            foreach ($payments->get() as $payment) $this->related['payments'][$payment->order_id][] = $payment;
+        }
+        if ($source === 'service' && $this->has('go_service_payments', 'job_id') && $this->has('go_service_payments', 'status')) {
+            $this->cacheRows('go_service_payments', 'job_id', $ids);
+        }
         if ($source !== 'legacy') return;
         $this->cacheRows('resturants', 'id', $rows->pluck('resturant_id')->filter()->all());
         $this->cacheRows('user_address', 'id', $rows->pluck('user_address_id')->filter()->all());
@@ -277,7 +286,7 @@ class OrderBoardService
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
-            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'total'=>null,
+            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
@@ -323,6 +332,7 @@ class OrderBoardService
                 $card['action_labels'] = ['prepare'=>'مندوب الفرع', 'dispatch'=>'طلب مندوب'];
             }
             $card['payment_label'] = $this->payment($row->payment_type ?? '');
+            $card['payment_failed'] = $this->paymentFailed($source, $row);
             $delegate = $this->related['users'][$row->delegate_id ?? null] ?? null;
             $card['courier'] = $delegate ? ['name'=>$delegate->name ?? '', 'phone'=>$delegate->mobile ?? ''] : null;
         } elseif ($source === 'store') {
@@ -337,6 +347,7 @@ class OrderBoardService
             $card['notes'] = $snapshot['notes'] ?? '';
             $card['total'] = isset($row->total_cents) ? Money::decimal((int) $row->total_cents) : ($snapshot['total'] ?? null);
             $card['payment_label'] = $this->payment($row->payment_method ?? '');
+            $card['payment_failed'] = $this->paymentFailed($source, $row);
             if ($this->storeActions === null) $this->storeActions = app(GoStoreBoardActions::class);
             $card['actions'] = $this->storeActions->available($row);
             if ($status === 'awaiting_payment') $card['action_note'] = 'بانتظار تأكيد الدفع قبل قبول الطلب.';
@@ -350,6 +361,7 @@ class OrderBoardService
             if ($source === 'service') {
                 $card['total'] = !empty($row->accepted_offer_id) ? Money::decimal((int) ($row->price_cents ?? 0)) : null;
                 $card['payment_label'] = $this->payment($row->payment_method ?? '');
+                $card['payment_failed'] = $this->paymentFailed($source, $row);
                 if ($status === 'searching' && empty($row->accepted_offer_id)) $card['actions'] = ['reject'];
                 $card['action_note'] = 'يختار العميل عرض الصنايعي داخل التطبيق.';
             } else {
@@ -403,7 +415,36 @@ class OrderBoardService
     private function payment(string $method): string
     {
         return ['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'بطاقة بنكية','credit_card'=>'بطاقة بنكية',
-            'mobile_wallet'=>'محفظة إلكترونية','paymob'=>'دفع إلكتروني','online'=>'دفع إلكتروني'][$method] ?? ($method ?: 'غير محدد');
+            'mobile_wallet'=>'محفظة إلكترونية','v_cash'=>'فودافون كاش','paymob'=>'دفع إلكتروني','online'=>'بطاقة بنكية',
+            'paymob_card_payment'=>'بطاقة بنكية','paymob_mobile_wallet_payment'=>'محفظة إلكترونية'][$method] ?? ($method ?: 'غير محدد');
+    }
+
+    private function paymentFailed(string $source, object $row): bool
+    {
+        $method = $source === 'legacy' ? ($row->payment_type ?? '') : ($row->payment_method ?? '');
+        if (!in_array($method, ['online', 'v_cash', 'card', 'credit_card', 'mobile_wallet', 'paymob',
+            'paymob_card_payment', 'paymob_mobile_wallet_payment'], true)) return false;
+
+        // An unfinished checkout is not a failed payment. Use persisted payment
+        // evidence only; order cancellation, review and refund states are distinct.
+        if ($source !== 'legacy') {
+            $status = strtolower(trim((string) ($row->payment_status ?? '')));
+            if ($status === 'failed') return true;
+            if ($source !== 'service' || $status !== 'unpaid') return false;
+            return ($this->related['go_service_payments'][$row->id]->status ?? '') === 'failed';
+        }
+
+        $attempts = $this->related['payments'][$row->id] ?? [];
+        foreach ($attempts as $attempt) {
+            if (in_array(strtolower(trim((string) ($attempt->status ?? ''))), ['1', 'true', 'paid', 'succeeded', 'success'], true)) return false;
+        }
+        $latest = $attempts[0] ?? null;
+        if (!$latest) return false;
+        $status = strtolower(trim((string) ($latest->status ?? '')));
+        if ($status === 'failed') return true;
+        // Old callbacks store a boolean success value. A default false status
+        // without a transaction identifier may simply be awaiting the gateway.
+        return in_array($status, ['0', 'false'], true) && !empty($latest->transaction_id);
     }
 
     private function address(?object $address): string

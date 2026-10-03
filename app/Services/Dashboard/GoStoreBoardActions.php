@@ -97,6 +97,7 @@ class GoStoreBoardActions
                 'status'=>$target, 'payment_status'=>$payment, 'revision'=>(int) $order->revision + 1,
                 'reason'=>$action === 'reject' ? $reason : ($order->reason ?? null), 'updated_at'=>now(),
             ]);
+            if ($action === 'accept' && $order->fulfillment === 'delivery') app(OrderBoardClock::class)->accepted('store', $id);
             return true;
         }, 3);
     }

@@ -37,6 +37,7 @@ return [
     'phone' => 'Phone',
     'address' => 'Address',
     'payment' => 'Payment',
+    'payment_failed' => 'Payment failed',
     'details' => 'View details',
     'print' => 'Print',
     'accept' => 'Accept order',

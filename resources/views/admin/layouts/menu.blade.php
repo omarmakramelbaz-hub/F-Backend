@@ -97,24 +97,14 @@
                     <!--    </a>-->
                     <!--</li>-->
                 @endif
-                @if(Auth::guard('admin')->user()->can('support_contact-list'))
-                    @if(auth()->user()->roles->pluck("id")->first() == 11)
-                        <li class="nav-item">
-                            <a href="{{ url('/admin/chat') }}"
-                                class="nav-link {{ request()->is('admin/chat') ? 'active' : '' }}">
-                                <i class="fas fa-message nav-icon"></i>
-                                <p>@lang('main.Contact technical support')</p>
-                            </a>
-                        </li>
-                    @elseif(auth()->user()->roles->pluck("id")->first() == 2)
-                        <li class="nav-item">
-                            <a href="{{ url('/admin/chat?user_id=1') }}"
-                                class="nav-link {{ request()->is('admin/chat?user_id=1') ? 'active' : '' }}">
-                                <i class="fas fa-message nav-icon"></i>
-                                <p>@lang('main.Contact technical support')</p>
-                            </a>
-                        </li>
-                    @endif
+                @if(auth('admin')->id() === 1 || Auth::guard('admin')->user()->can('support_contact-list'))
+                    <li class="nav-item">
+                        <a href="{{ auth('admin')->user()->account_type === 'admin' ? url('/admin/chat') : url('/admin/chat?user_id=1') }}"
+                            class="nav-link {{ request()->is('admin/chat') ? 'active' : '' }}">
+                            <i class="fas fa-message nav-icon"></i>
+                            <p>@lang('main.Contact technical support') <span class="badge dashboard-support-badge" data-support-unread hidden aria-live="polite"></span></p>
+                        </a>
+                    </li>
                 @endif
                 @if(Auth::guard('admin')->user()->can('fcm_notification-create'))
                     <li class="nav-item has-treeview">

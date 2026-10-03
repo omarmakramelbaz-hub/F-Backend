@@ -6,19 +6,40 @@ on:
   pull_request:
     paths:
       - 'app/Services/Dashboard/**'
+      - 'app/Services/Payments/**'
+      - 'app/Console/Kernel.php'
+      - 'app/Console/Commands/AdvanceOrderBoard.php'
+      - 'app/Observers/OrderBoardClockObserver.php'
+      - 'app/Providers/AppServiceProvider.php'
+      - 'app/Http/Controllers/Dashboard/DashboardInboxController.php'
+      - 'app/Http/Controllers/Dashboard/FcmNotificationsController.php'
+      - 'app/Http/Controllers/Dashboard/HomeController.php'
+      - 'app/Http/Controllers/Payment/PaymobController.php'
+      - 'app/Http/Controllers/Api/V1/Delegate/DelegateOrderController.php'
+      - 'config/dashboard_payments.php'
+      - 'database/migrations/*order_board_clocks*'
+      - 'deployment/*dashboard*'
       - 'app/Scopes/OrderScope.php'
       - 'app/Http/Controllers/Dashboard/OrderBoardController.php'
       - 'app/Http/Controllers/Dashboard/OrderController.php'
       - 'app/Http/Controllers/Api/V1/Vendor/OrderController.php'
       - 'resources/views/admin/orders/board*'
       - 'resources/views/admin/login.blade.php'
+      - 'resources/views/admin/index.blade.php'
+      - 'resources/views/admin/chat.blade.php'
+      - 'resources/views/admin/notifications.blade.php'
+      - 'resources/views/admin/layouts/**'
       - 'public/dashboard/branding/**'
       - 'public/dashboard/css/order-board.css'
       - 'public/dashboard/js/order-board.js'
       - 'public/dashboard/js/order-board-menu.js'
       - 'public/dashboard/js/dashboard-navigation.js'
+      - 'public/dashboard/js/dashboard-*.js'
+      - 'public/dashboard/css/dashboard-*.css'
       - 'public/dashboard/css/order-board-menu.css'
       - 'tests/Feature/DashboardOrderMenuTest.php'
+      - 'tests/Feature/DashboardOrderPaymentTest.php'
+      - 'tests/Feature/DashboardInboxTest.php'
       - 'routes/order_board.php'
       - 'tests/Feature/*Board*Test.php'
       - 'tests/Feature/DashboardOrderIsolationTest.php'
@@ -50,10 +71,16 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify application orders and branch isolation
-        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu'
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox'
       - name: Verify compiled templates and JavaScript
         run: |
           php artisan view:cache
           node --check public/dashboard/js/order-board.js
           node --check public/dashboard/js/order-board-menu.js
           node --check public/dashboard/js/dashboard-navigation.js
+          node --check public/dashboard/js/dashboard-spa.js
+          node --check public/dashboard/js/dashboard-inbox.js
+          node --check public/dashboard/js/dashboard-support-chat.js
+          bash -n deployment/apply_order_board.sh
+          bash -n deployment/apply_dashboard_runtime_root.sh
+          bash tests/deployment/dashboard_scheduler.sh

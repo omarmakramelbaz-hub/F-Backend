@@ -340,7 +340,7 @@ class HomeController extends Controller
     }
 
     public function read($id){
-        $data =auth('admin')->user()->notifications->where('id',$id)->first();
+        $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
         $data->update([
             'read_at' => now(),
         ]);
@@ -352,13 +352,7 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       $notification=auth('admin')->user()->unReadNotifications()->get();
-    //   dd($notification);
-       foreach($notification as $noti){
-           $noti->update([
-                'read_at' => now(),
-               ]);
-       }
+       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 

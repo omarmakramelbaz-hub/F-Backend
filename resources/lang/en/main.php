@@ -18,7 +18,7 @@ return [
 'Password' => 'Number Secret',
 'NoUsers' => 'No data to display',
 'EnterPassword' => 'Please enter the password',
-'allrights' => 'All rights reserved to Smart Vision Company',
+'allrights' => 'All intellectual property rights reserved to Mr. Omar Makram Elbaz',
 'email' => 'Email',
 'name' => 'Name',
 'mobile' => 'Mobile Number',

@@ -160,6 +160,8 @@
     line-height: 1.8;
 }
 .dashboard-theme .main-footer a { color: #ff9d50; }
+.dashboard-support-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; min-height: 20px; padding: 2px 5px; margin-inline-start: 6px; border-radius: 7px; background: #fd7201; color: #fff; font-size: 11px; font-weight: 700; line-height: 1.2; }
+.dashboard-support-badge[hidden] { display: none !important; }
 /* Keep primary navigation visible; longer sections open beside the sidebar. */
 .dashboard-theme.dashboard-navigation-ready .main-sidebar .sidebar {
     height: auto !important;

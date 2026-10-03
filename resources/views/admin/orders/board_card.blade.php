@@ -49,7 +49,7 @@
         <div class="ob-notes" title="{{ __('order_board.notes') }}: {{ $card['notes'] }}"><strong>{{ __('order_board.notes') }}:</strong> {{ $card['notes'] }}</div>
     @endif
     <div class="ob-total">
-        @if(!empty($card['payment_label']))<span class="ob-payment" title="{{ __('order_board.payment') }}: {{ $card['payment_label'] }}"><i class="far fa-credit-card" aria-hidden="true"></i><span class="ob-sr-only">{{ __('order_board.payment') }}: </span>{{ $card['payment_label'] }}</span>@endif
+        @if(!empty($card['payment_label']))<span class="ob-payment @if(!empty($card['payment_failed'])) ob-payment-with-failure @endif" title="{{ __('order_board.payment') }}: {{ $card['payment_label'] }}"><span class="ob-payment-method"><i class="far fa-credit-card" aria-hidden="true"></i><span class="ob-sr-only">{{ __('order_board.payment') }}: </span>{{ $card['payment_label'] }}</span>@if(!empty($card['payment_failed']))<strong class="ob-payment-failed">{{ __('order_board.payment_failed') }}</strong>@endif</span>@endif
         <span class="ob-total-amount"><span>{{ __('order_board.total') }}</span>@if($total !== null)<strong><bdi>{{ $total }}</bdi> <small>{{ __('order_board.currency') }}</small></strong>@else<span class="ob-price-pending">{{ __('order_board.price_pending') }}</span>@endif</span>
     </div>
     <div class="ob-order-tools">

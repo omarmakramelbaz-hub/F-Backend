@@ -37,6 +37,7 @@ return [
     'phone' => 'الهاتف',
     'address' => 'العنوان',
     'payment' => 'الدفع',
+    'payment_failed' => 'فشل الدفع',
     'details' => 'عرض التفاصيل',
     'print' => 'طباعة',
     'accept' => 'قبول الطلب',
