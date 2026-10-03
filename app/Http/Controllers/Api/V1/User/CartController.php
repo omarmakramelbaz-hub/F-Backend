@@ -339,7 +339,10 @@ class CartController extends Controller
 
                 $order->user_tax = $user_tax;
                 $order->save();
-                $order_data = new OrderResource($order);
+                // The checkout client only needs the order ID here.
+                // Full order details are fetched on the success/tracking screen.
+                // Avoid serializing OrderResource in this hot path because it performs
+                // multiple relationship/count queries.
                 //send notification for resturant has new order
                 $resturant_owner = User::with('base_resturant.parent.owner')->whereHas('base_resturant', function ($q) use ($order) {
                     $q->where('id', $order->resturant_id);
@@ -418,7 +421,10 @@ class CartController extends Controller
                         (int) $orderCount
                     );
 
-                    return $this->successResponse($order_data, __('api.order sent successfully'));
+                    return $this->successResponse(
+                        ['id' => (int) $order->id],
+                        __('api.order sent successfully')
+                    );
                 }
             }
             return $this->errorResponse(__('api.cannot create order'));
