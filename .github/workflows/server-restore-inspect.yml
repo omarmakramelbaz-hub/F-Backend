@@ -1,0 +1,101 @@
+name: Inspect server restore point 2026-10-01
+
+on:
+  push:
+    branches:
+      - ops/server-restore-20261001
+    paths-ignore:
+      - server_restore_inspection.txt
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
+
+      - name: Inspect server and verified backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -T \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            root@187.127.92.124 \
+            'bash -s' > server_restore_inspection.txt <<'REMOTE'
+          set -euo pipefail
+          echo "SERVER_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for root in /home/fasakha/public_html /home/fasakhaninja/public_html; do
+            if [ -d "$root/.git" ]; then
+              echo "ROOT=$root"
+              echo "HEAD=$(git -C "$root" rev-parse HEAD)"
+              echo "BRANCH=$(git -C "$root" symbolic-ref --short -q HEAD || echo DETACHED)"
+              echo "TRACKED_DIRTY_COUNT=$(git -C "$root" --no-optional-locks status --porcelain --untracked-files=no | wc -l | tr -d ' ')"
+              if [ -e "$root/storage/framework/down" ]; then echo "MAINTENANCE=1"; else echo "MAINTENANCE=0"; fi
+            fi
+          done
+
+          backup=/home/fasakha/erp-release-backups/20260930-212140-869b81b4
+          echo "BACKUP=$backup"
+          if [ ! -d "$backup" ]; then
+            echo "BACKUP_PRESENT=0"
+            exit 0
+          fi
+          echo "BACKUP_PRESENT=1"
+          printf 'BACKUP_OK='
+          tr -d '\r\n' < "$backup/backup.ok"
+          echo
+
+          php -r '
+          $p=$argv[1]."/manifest.json";
+          $m=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR);
+          foreach (["application_root","previous_commit","tracked_local_edits","created_at","database_tables","database_sha256","application_sha256","database_bytes","application_bytes"] as $k) {
+            $v=$m[$k]??null;
+            if (is_bool($v)) $v=$v?"true":"false";
+            echo strtoupper($k)."=".$v.PHP_EOL;
+          }' "$backup"
+
+          echo "DATABASE_SHA256_ACTUAL=$(sha256sum "$backup/database.sql.gz" | awk '{print $1}')"
+          echo "APPLICATION_SHA256_ACTUAL=$(sha256sum "$backup/application.tar.gz" | awk '{print $1}')"
+          gzip -t "$backup/database.sql.gz" && echo "DATABASE_GZIP_OK=1"
+          gzip -t "$backup/application.tar.gz" && echo "APPLICATION_GZIP_OK=1"
+          for entry in ./artisan ./.env ./vendor/autoload.php ./.git/HEAD; do
+            key=$(printf '%s' "$entry" | tr -c 'A-Za-z0-9' '_')
+            if tar -tzf "$backup/application.tar.gz" | grep -Fxq "$entry"; then
+              echo "ARCHIVE_ENTRY_$key=1"
+            else
+              echo "ARCHIVE_ENTRY_$key=0"
+            fi
+          done
+          REMOTE
+
+      - name: Commit inspection report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "server-restore-bot"
+          git config user.email "server-restore-bot@users.noreply.github.com"
+          git add server_restore_inspection.txt
+          git commit -m "Ops: record server restore inspection for 2026-10-01"
+          git push origin HEAD:ops/server-restore-20261001
