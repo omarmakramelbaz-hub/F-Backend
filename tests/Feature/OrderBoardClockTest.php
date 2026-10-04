@@ -105,6 +105,25 @@ class OrderBoardClockTest extends TestCase
         DB::table('go_stores')->insert(['id'=>3,'user_id'=>40]);
     }
 
+    public function test_completed_app_orders_consume_tracked_stock_once_using_portion_weight(): void
+    {
+        require_once database_path('migrations/2026_10_04_190000_create_branch_stock.php');(new \CreateBranchStock)->up();
+        Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('product_id');$t->string('product_name');});
+        Schema::create('product_features',function(Blueprint $t){$t->id();$t->unsignedBigInteger('product_id');$t->string('name');});
+        Schema::table('carts',function(Blueprint $t){$t->unsignedBigInteger('resturant_product_id')->nullable();$t->unsignedBigInteger('product_feature')->nullable();});
+        DB::table('resturant_products')->insert(['id'=>5,'resturant_id'=>100,'product_id'=>50,'product_name'=>'Fish']);
+        DB::table('product_features')->insert(['id'=>6,'product_id'=>50,'name'=>'quarter']);
+        DB::table('branch_stock')->insert(['branch'=>'f:100','product_id'=>5,'unit'=>'kg','quantity_units'=>10000000,'revision'=>1]);
+        $order=$this->legacy();DB::table('carts')->where('order_id',$order->id)->update(['resturant_product_id'=>5,'product_feature'=>6,'qty'=>'3.000']);
+        $this->assertSame(10000000,(int)DB::table('branch_stock')->value('quantity_units'));
+        $this->assertTrue(app(LegacyOrderCompletion::class)->complete($order));
+        $this->assertSame(9250000,(int)DB::table('branch_stock')->value('quantity_units'));
+        $this->assertFalse(app(LegacyOrderCompletion::class)->complete($order));
+        $this->assertSame(1,DB::table('branch_stock_movements')->count());
+        $this->assertSame('app',DB::table('branch_stock_movements')->value('source_type'));
+        $this->assertSame('completed',$order->fresh()->status);
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

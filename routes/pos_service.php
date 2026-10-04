@@ -39,5 +39,6 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
 require __DIR__.'/branch_expenses.php';
 
 require __DIR__.'/branch_operations.php';
+require __DIR__.'/branch_stock.php';
 
 require __DIR__.'/branch_shifts.php';

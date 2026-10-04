@@ -129,6 +129,7 @@ class TakeawayService
                 'unit'=>$line['unit'] ?: null, 'quantity_mode'=>$line['quantity_mode'], 'quantity_millis'=>$line['quantity_millis'],
                 'unit_price_cents'=>$line['unit_price_cents'], 'total_cents'=>$line['total_cents'],
             ]);
+            app(BranchStock::class)->posSale($branch,$id,$quote['items'],(int)$actor->id);
             $newBalance = (int) $till->balance_cents + $delta;
             abort_unless($newBalance <= 100000000000, 422, 'رصيد الخزنة أكبر من الحد المسموح.');
             DB::table('takeaway_tills')->where('id', $till->id)->update(['balance_cents'=>$newBalance, 'revision'=>(int) $till->revision + 1, 'updated_at'=>$when]);
@@ -277,6 +278,7 @@ class TakeawayService
 
     private function price(array $cart, array $branch, array $permissions, int $taxBps, bool $lock, array $context=[]): array
     {
+        app(BranchStock::class)->validateQuantities($branch['value'],$cart['items']);
         if(isset($context['saved_quote']))return $this->savedPrice($cart,$context);
         abort_unless($cart['discount_cents'] === 0 || $permissions['can_manage'], 403, 'الخصم متاح للمالك أو الإدارة المخولة فقط.');
         if ($cart['discount_cents'] > 0 && $cart['discount_reason'] === '') throw ValidationException::withMessages(['discount_reason'=>'اكتب سبب الخصم.']);
@@ -344,6 +346,7 @@ class TakeawayService
     {
         $receipt = $this->presentReceipt($order);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
+            'stock_balances'=>app(BranchStock::class)->balances($order->branch,array_column($receipt['items'],'product_id')),
             'register'=>$this->presentTill($this->till($order->branch)), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 

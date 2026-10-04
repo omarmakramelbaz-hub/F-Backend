@@ -44,6 +44,7 @@ class TakeawayCatalog
         }
         $items = [];
         foreach ($rows as $row) $items[] = $this->present($branch, $row, $images[$row->id] ?? '');
+        $items=app(BranchStock::class)->decorate($branch['value'],$items);
         $this->listingFeatures = null;
         return ['success'=>true, 'ready'=>true, 'branch'=>$branch, 'items'=>$items, 'products'=>$items,
             'categories'=>$this->categories($branch),

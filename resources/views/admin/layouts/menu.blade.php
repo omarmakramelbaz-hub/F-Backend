@@ -79,6 +79,9 @@
                         </a>
                     </li>
                     <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}</p></a></li>
+                    @if(count(app(\App\Services\Dashboard\BranchStock::class)->branches(auth('admin')->user())))
+                    <li class="nav-item"><a href="{{ route('branch-stock.index') }}" class="nav-link {{ request()->is('admin/branch-stock*') ? 'active' : '' }}"><i class="nav-icon fas fa-boxes"></i><p>إضافة بضاعة</p></a></li>
+                    @endif
                     @if(count(app(\App\Services\Dashboard\BranchShiftClosing::class)->branches(auth('admin')->user())))
                     <li class="nav-item"><a href="{{ route('branch-shifts.index') }}" class="nav-link {{ request()->is('admin/branch-shifts*') ? 'active' : '' }}"><i class="nav-icon fas fa-cash-register"></i><p>تقفيل الوردية</p></a></li>
                     @endif

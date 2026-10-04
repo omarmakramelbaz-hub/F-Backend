@@ -49,6 +49,7 @@ class OrderBoardMenu
             ->offset(($page - 1) * $perPage)->limit($perPage)->get();
         $images = $kind === 'f' ? $this->restaurantImages($rows->pluck('id')->all()) : [];
         foreach ($rows as $row) $result['items'][] = $this->present($kind, $row, $images[$row->id] ?? '');
+        if($kind==='f')$result['items']=app(BranchStock::class)->decorate($branch['value'],$result['items']);
         $parameters = ['branch'=>$values['branch'], 'search'=>$search, 'per_page'=>$perPage];
         $result['pagination'] = ['page'=>$page, 'last_page'=>$lastPage, 'per_page'=>$perPage, 'total'=>$total,
             'next_url'=>$page < $lastPage ? route('order-board.menu', $parameters + ['page'=>$page + 1]) : null,
@@ -88,7 +89,7 @@ class OrderBoardMenu
         }, 3);
         $images = $kind === 'f' ? $this->restaurantImages([$productId]) : [];
         return ['success'=>true, 'message'=>$values['available'] ? 'تم تشغيل الصنف.' : 'تم إيقاف الصنف.',
-            'item'=>$this->present($kind, $row, $images[$productId] ?? '')];
+            'item'=>app(BranchStock::class)->decorate($kind.':'.$branchId,[$this->present($kind,$row,$images[$productId]??'')])[0]];
     }
 
     public function canToggle($actor): bool

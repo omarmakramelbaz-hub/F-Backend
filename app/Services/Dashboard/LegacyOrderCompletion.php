@@ -37,6 +37,7 @@ class LegacyOrderCompletion
                 $refund = max(0, Money::minor(number_format($order->total - $order->updated_total, 2, '.', '')));
                 $this->move($order, 'adjustment', (int) $vendor->id, (int) $customer->id, $refund);
             }
+            app(BranchStock::class)->appSale($order);
             $order->status = 'completed';
             $order->save(); // Keep existing coupon/competition observers.
             if ($order->payment_type === 'cash') {

@@ -334,15 +334,15 @@
     }
     function addProduct(product, option) {
         if (!product || isLocked() || !permissions.can_checkout || !product.available) return;
-        var amount = quantity(quantityInput, quantityMode); if (!amount) { notify(label('invalid_quantity')); return; }
-        var mode = product.quantity_mode;
-        if (mode && mode !== 'flexible' && mode !== 'select' && mode !== quantityMode) { notify(label('unit_mismatch')); return; }
+        var mode = product.quantity_mode === 'piece' || product.quantity_mode === 'weight' ? product.quantity_mode : quantityMode;
+        var input = mode === quantityMode ? quantityInput : mode === 'piece' ? '1' : '1.000';
+        var amount = quantity(input, mode); if (!amount) { notify(label('invalid_quantity')); return; }
         var optionKey = option && option.id !== undefined ? String(option.id) : '';
-        var existing = cart.find(function (line) { return line.product.id === product.id && line.mode === quantityMode && String(line.option && line.option.id || '') === optionKey; });
+        var existing = cart.find(function (line) { return line.product.id === product.id && line.mode === mode && String(line.option && line.option.id || '') === optionKey; });
         if (existing) {
             var sum = decimalInput(existing.quantity, 3) + amount.scaled;
-            var checked = quantity(decimal(sum, 3), quantityMode); if (!checked) { notify(label('invalid_quantity')); return; } existing.quantity = checked.value;
-        } else { if (cart.length >= 100) { notify(label('cart_limit')); return; } cart.push({ product: product, option: option || null, mode: quantityMode, quantity: amount.value }); }
+            var checked = quantity(decimal(sum, 3), mode); if (!checked) { notify(label('invalid_quantity')); return; } existing.quantity = checked.value;
+        } else { if (cart.length >= 100) { notify(label('cart_limit')); return; } cart.push({ product: product, option: option || null, mode: mode, quantity: amount.value }); }
         replaceQuantity = true; renderLines(); invalidateQuote(); notify(label('item_added') + ' · ' + product.name, true);
     }
     function productNode(product) {
@@ -355,6 +355,7 @@
         var copy = node('span', 'tp-product-copy'); copy.appendChild(node('strong', 'tp-product-name', product.name));
         var price = node('span', 'tp-product-price'); price.appendChild(node('bdi', '', money(product.unit_price || product.price))); price.appendChild(document.createTextNode(' ' + label('currency'))); copy.appendChild(price);
         var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('flexible_unit'));
+        if(product.stock){unit.textContent='الرصيد: '+product.stock.quantity+' '+product.stock.unit_label;unit.style.color=product.stock.negative?'#b42318':'#126b4a';}
         unit.classList.toggle('is-unavailable', !product.available); unit.classList.toggle('is-weight', product.quantity_mode === 'weight' || product.unit === 'kg'); copy.appendChild(unit);
         if (product.options && product.options.length) copy.appendChild(node('small', 'tp-product-base', label('base_option')));
         button.appendChild(copy); card.appendChild(button);
@@ -448,6 +449,7 @@
             try { renderSaved(); notify(label('uncertain_sale'), false, true); lock(); } catch (_) { /* The pre-write storage still retains the original transaction. */ }
             throw new Error(label('uncertain_sale'));
         }
+        if(result.stock_balances){var list=root.querySelector('[data-pos-products]');list.replaceChildren();products.forEach(function(product){if(result.stock_balances[product.id])product.stock=result.stock_balances[product.id];list.appendChild(productNode(product));});lock();}
         printReceipt(url);
     }
     async function recoverSale() {

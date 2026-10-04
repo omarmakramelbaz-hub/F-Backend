@@ -195,18 +195,18 @@
     }
     function addProduct(product) {
         if (!product || !product.available || step !== 'products' || locked() || !canWrite()) return;
-        var amount = quantity(root.querySelector('[data-phone-quantity]').value, mode); if (!amount) { notify(text('invalid_quantity')); return; }
-        if (product.quantity_mode && !['flexible', 'select', mode].includes(product.quantity_mode)) { notify(text('invalid_quantity')); return; }
-        var existing = cart.find(function (line) { return String(line.product.id) === String(product.id) && line.mode === mode && !line.option; });
-        if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), mode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
-        else cart.push({ product: product, option: null, quantity: amount.value, mode: mode });
+        var itemMode = ['piece','weight'].includes(product.quantity_mode) ? product.quantity_mode : mode;
+        var amount = quantity(itemMode === mode ? root.querySelector('[data-phone-quantity]').value : itemMode === 'piece' ? '1' : '1.000', itemMode); if (!amount) { notify(text('invalid_quantity')); return; }
+        var existing = cart.find(function (line) { return String(line.product.id) === String(product.id) && line.mode === itemMode && !line.option; });
+        if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), itemMode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
+        else cart.push({ product: product, option: null, quantity: amount.value, mode: itemMode });
         changed(true); notify('');
     }
     function productNode(product) {
         var button = element('button', 'ph-product'); button.type = 'button'; button.dataset.phoneProduct = String(product.id); if (!product.available) button.dataset.unavailable = '1';
         if (product.image_url) { var image = element('img', 'ph-product-image'); image.src = product.image_url; image.alt = ''; image.loading = 'lazy'; image.addEventListener('error', function () { var placeholder = element('span', 'ph-product-image ph-product-placeholder'); placeholder.appendChild(element('i', 'fas fa-fish')); image.replaceWith(placeholder); }, { once: true }); button.appendChild(image); }
         else { var placeholder = element('span', 'ph-product-image ph-product-placeholder'); placeholder.appendChild(element('i', 'fas fa-fish')); button.appendChild(placeholder); }
-        var copy = element('span', 'ph-product-copy'); copy.appendChild(element('strong', '', product.name)); copy.appendChild(element('bdi', '', money(product.unit_price || product.price) + ' ' + text('currency'))); copy.appendChild(element('small', product.available ? '' : 'ph-unavailable', product.available ? product.unit || text('piece') + ' / ' + text('weight') : text('unavailable'))); button.appendChild(copy); return button;
+        var copy = element('span', 'ph-product-copy'); copy.appendChild(element('strong', '', product.name)); copy.appendChild(element('bdi', '', money(product.unit_price || product.price) + ' ' + text('currency'))); copy.appendChild(element('small', product.available ? '' : 'ph-unavailable', product.stock ? 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label : (product.available ? product.unit || text('piece') + ' / ' + text('weight') : text('unavailable')))); if(product.stock)copy.querySelector('small').style.color=product.stock.negative?'#b42318':'#126b4a';button.appendChild(copy); return button;
     }
     async function loadCatalog(page) {
         if (!branch || disposed || locked()) return;
@@ -332,7 +332,8 @@
         if (operation.type === 'save') { resetDraft(); notify(text(operation.ticketId ? 'saved_edit' : 'saved'), true); }
         else { notify(text(operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated'), true); if (editing && Number(editing.id) === Number(result.ticket.id)) resetDraft(); }
         var content = root.querySelector('[data-phone-modal-content]'); if (modal.hidden) content = openModal(text('details')); detailContent(result.ticket, content); writing = false; uncertain = false; lock(); frozen = null;
-        if (view === 'orders') loadOrders(orderPage); else if (!loaded && branch) loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
+        if(operation.type==='settle' && branch)loadCatalog(catalogPage);
+        if (view === 'orders') loadOrders(orderPage); else if (!loaded && branch && operation.type!=='settle') loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
         if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
         else if (operation.printKitchen && !result.print_queued) print(result.kitchen_print_url || result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url) || result.ticket.kitchen_print_url);
     }
