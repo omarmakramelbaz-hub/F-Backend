@@ -135,7 +135,7 @@ class DashboardPosServiceTest extends TestCase
     public function test_mixed_tender_moves_only_allocated_cash_and_preserves_breakdown(): void
     {
         $ticket=$this->saved();$v=$this->settlePayload($ticket,10,'mixed');$v['cash_received']='40.00';$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'50.00'],['method'=>'mobile_wallet','amount'=>'20.00']];
-        $result=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertSame('30.00',$result['register']['balance']);$this->assertSame('10.00',$result['receipt']['change']);
+        $result=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertSame('30.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);$this->assertSame('10.00',$result['receipt']['change']);
         $this->assertSame(3000,(int)DB::table('takeaway_till_entries')->value('amount_cents'));$this->assertCount(3,$result['receipt']['payment_breakdown']);
         $this->assertSame('30.00',$result['today']['cash']);$this->assertSame('50.00',$result['today']['card']);$this->assertSame('20.00',$result['today']['mobile_wallet']);
     }
@@ -153,14 +153,14 @@ class DashboardPosServiceTest extends TestCase
         foreach(['prepare','dispatch','finish'] as $i=>$action){$r=$this->tickets()->action('phone',$ticket['id'],['branch'=>'f:100','expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(3+$i),'action'=>$action],$this->actor());$ticket=$r['ticket'];}
         $this->assertSame('finished',$ticket['status']);$this->assertSame('unpaid',$ticket['payment_status']);$this->assertSame(0,DB::table('takeaway_orders')->count());
         $v=$this->settlePayload($ticket);$v['payment_confirmed']=false;$this->denied(fn()=>$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor()),422);
-        $v['payment_confirmed']=true;$paid=$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor());$this->assertSame('120.00',$paid['register']['balance']);
+        $v['payment_confirmed']=true;$paid=$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor());$this->assertSame('120.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
         $this->assertSame('20.00',$paid['receipt']['delivery']);$this->assertSame('Street 1',$paid['receipt']['context']['address']);$this->assertSame('Door 2',$paid['receipt']['context']['delivery_notes']);
     }
     public function test_phone_vat_includes_distance_delivery_fee_without_app_rate_or_wallet_changes(): void
     {
         app(TakeawayService::class)->changeRegister(['branch'=>'f:100','tax_rate'=>'14.00','note'=>'Tax','expected_revision'=>1,'idempotency_key'=>$this->key(21)],$this->actor(12),true);
         $ticket=$this->saved('phone');$this->assertSame('16.80',$ticket['tax']);$this->assertSame('136.80',$ticket['total']);
-        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'card'),$this->actor());$this->assertSame('0.00',$r['register']['balance']);
+        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'card'),$this->actor());$this->assertSame('0.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
         $this->assertSame(1,DB::table('wallets')->count());$this->assertSame(500.0,(float)DB::table('users')->where('id',10)->value('balance'));
     }
     public function test_phone_lookup_exact_normalized_number_is_scoped_and_snapshots_no_app_user(): void
@@ -391,6 +391,35 @@ class DashboardPosServiceTest extends TestCase
         $this->assertSame('paid',$this->tickets()->settle('dine',$ticket['id'],$this->settlePayload($ticket,131),$this->actor())['ticket']['payment_status']);
     }
     private function employeePayload(int $key=800): array {return ['branch'=>'f:100','idempotency_key'=>$this->key($key),'name'=>'أحمد','phone'=>'01012345678','job_title'=>'كاشير','shift'=>'صباحي','hired_on'=>'2026-09-01','active'=>true,'salary'=>'3000.00','effective_month'=>'2026-09'];}
+    public function test_daily_employee_money_cells_and_details_match_date_kind_filters_and_voids(): void
+    {
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$a=$s->employeeSave($this->employeePayload(900),$this->actor())['employee'];
+        $b=$s->employeeSave(array_replace($this->employeePayload(901),['name'=>'محمود','job_title'=>'شيف','shift'=>'مسائي']),$this->actor())['employee'];
+        $base=['branch'=>'f:100','employee_id'=>$a['id'],'day'=>'2026-09-12'];
+        foreach([['deduction','50.00'],['deduction','100.00'],['bonus','200.00'],['advance','500.00']] as $i=>$row)$s->entry($base+['kind'=>$row[0],'amount'=>$row[1],'reason'=>'تأخير','notes'=>'ملاحظة مسجلة','idempotency_key'=>$this->key(902+$i)],$this->actor());
+        $void=$s->entry($base+['kind'=>'deduction','amount'=>'800.00','reason'=>'خطأ','idempotency_key'=>$this->key(906)],$this->actor())['entry'];
+        $s->voidEntry(['branch'=>'f:100','entry_id'=>$void['id'],'expected_revision'=>1,'reason'=>'تصحيح','idempotency_key'=>$this->key(907)],$this->actor());
+        $s->entry(array_replace($base,['day'=>'2026-09-11'])+['kind'=>'deduction','amount'=>'25.00','reason'=>'سابق','idempotency_key'=>$this->key(908)],$this->actor());
+        $s->entry(array_replace($base,['employee_id'=>$b['id']])+['kind'=>'deduction','amount'=>'90.00','reason'=>'غياب','idempotency_key'=>$this->key(909)],$this->actor());
+        $s->attendance($base+['status'=>'present','idempotency_key'=>$this->key(910)],$this->actor());$s->attendance(array_replace($base,['employee_id'=>$b['id']])+['status'=>'absent','idempotency_key'=>$this->key(911)],$this->actor());
+        $listing=$s->listing(['branch'=>'f:100','day'=>'2026-09-12','month'=>'2026-10','job_title'=>'كاشير'],$this->actor());
+        $this->assertCount(1,$listing['items']);$this->assertSame(['count'=>2,'amount'=>'150.00'],$listing['items'][0]['daily']['deduction']);$this->assertSame('200.00',$listing['items'][0]['daily']['bonus']['amount']);$this->assertSame('500.00',$listing['items'][0]['daily']['advance']['amount']);
+        $this->assertSame('0.00',$listing['items'][0]['statement']['deduction']);$this->assertSame('150.00',$listing['summary']['deduction']);$this->assertSame(1,$listing['summary']['present']);$this->assertSame(0,$listing['summary']['absent']);$this->assertCount(2,$listing['options']['job_title']);
+        $detail=$s->entries($base+['kind'=>'deduction'],$this->actor());$this->assertSame(2,$detail['count']);$this->assertSame('150.00',$detail['total']);$this->assertSame(['50.00','100.00'],array_column($detail['items'],'amount'));$this->assertSame('ملاحظة مسجلة',$detail['items'][0]['notes']);$this->assertMatchesRegularExpression('/^\d{2}:\d{2}$/',$detail['items'][0]['time']);
+        $empty=$s->listing(['branch'=>'f:100','day'=>'2026-09-10'],$this->actor());$this->assertSame(['count'=>0,'amount'=>'0.00'],$empty['items'][0]['daily']['advance']);$this->assertSame('0.00',$empty['summary']['deduction']);
+        $filtered=$s->listing(['branch'=>'f:100','day'=>'2026-09-12','search'=>'محمود'],$this->actor());$this->assertSame('90.00',$filtered['summary']['deduction']);$this->assertSame(0,$filtered['summary']['present']);$this->assertSame(1,$filtered['summary']['absent']);
+        $period=$s->statement(['branch'=>'f:100','employee_id'=>$a['id'],'month'=>'2026-09'],$this->actor())['statement'];$s->close(['branch'=>'f:100','employee_id'=>$a['id'],'month'=>'2026-09','preview_hash'=>$period['preview_hash'],'idempotency_key'=>$this->key(912)],$this->actor());
+        $locked=$s->listing(['branch'=>'f:100','day'=>'2026-09-12','month'=>'2026-10','search'=>'أحمد'],$this->actor());$this->assertTrue($locked['items'][0]['day_closed']);$this->assertSame('draft',$locked['items'][0]['statement']['status']);$this->assertSame('150.00',$s->entries($base+['kind'=>'deduction'],$this->actor())['total']);
+    }
+    public function test_daily_entry_details_remain_branch_scoped_for_branch_and_central_accounts(): void
+    {
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(920),$this->actor())['employee'];$v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-12','kind'=>'advance'];
+        $s->entry($v+['amount'=>'75.50','reason'=>'سبب قديم محفوظ','idempotency_key'=>$this->key(921)],$this->actor());
+        $this->denied(fn()=>$s->entries($v,$this->actor(11)),404);$this->denied(fn()=>$s->entries(array_replace($v,['branch'=>'f:101']),$this->actor(1)),404);
+        $this->assertSame('75.50',$s->entries($v,$this->actor(1))['total']);$this->assertSame('سبب قديم محفوظ',$s->entries($v,$this->actor())['items'][0]['reason']);
+        $foreign=$s->listing(['branch'=>'f:101','day'=>'2026-09-12'],$this->actor(11));$this->assertCount(0,$foreign['items']);$this->assertSame('0.00',$foreign['summary']['advance']);
+        $this->invalid(fn()=>$s->entries(array_replace($v,['kind'=>'salary']),$this->actor()));
+    }
     public function test_saved_customer_directory_precedes_orders_and_matches_national_international_and_arabic_phones(): void
     {
         $crm=app(\App\Services\Dashboard\BranchCustomers::class);$v=['branch'=>'f:100','idempotency_key'=>$this->key(801),'name'=>'أحمد','phone'=>'٠١٠٦٤٤٦٤٤٩٩','address'=>'شارع الجيش','latitude'=>31.04,'longitude'=>31.37];$saved=$crm->save($v,$this->actor());

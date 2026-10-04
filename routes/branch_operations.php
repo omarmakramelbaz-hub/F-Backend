@@ -6,7 +6,7 @@ Route::middleware(['lang','IsAdmin'])->group(function(){
     foreach(['customers','delivery-companies','employees'] as $module)Route::prefix('admin/'.$module)->name($module.'.')->group(function()use($module){
         Route::get('/',[Operations::class,'index'])->name('index');Route::get('data',[Operations::class,'data'])->name('data');Route::post('save',[Operations::class,'save'])->name('save');
         if($module==='employees'){
-            foreach(['statement','export'] as $method)Route::get($method,[Operations::class,$method])->name($method);
+            foreach(['statement','entries','export'] as $method)Route::get($method,[Operations::class,$method])->name($method);
             foreach(['attendance','entry','void-entry'=>'voidEntry','close','pay'] as $key=>$method){$path=is_int($key)?$method:$key;Route::post($path,[Operations::class,$method])->name($path);}
         }
     });

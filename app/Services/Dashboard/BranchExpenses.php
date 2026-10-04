@@ -59,7 +59,7 @@ class BranchExpenses
         $balance=(int)DB::table('takeaway_tills')->whereIn('branch',array_column($branches,'value'))->sum('balance_cents');
         return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
-            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0)),'cash_balance'=>Money::decimal($balance)]];
+            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]+($this->access->permissions($actor)['can_manage']?['cash_balance'=>Money::decimal($balance)]:[])];
     }
     public function show(int $id,$actor): array
     {

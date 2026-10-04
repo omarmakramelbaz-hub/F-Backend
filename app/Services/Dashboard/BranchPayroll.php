@@ -67,6 +67,13 @@ class BranchPayroll
         $v=Validator::make($values,['branch'=>'required|string|max:30','employee_id'=>'required|integer|min:1','month'=>'required|date_format:Y-m'])->validate();$this->ops->branches($v['branch'],$actor);$employee=$this->employee($v['employee_id'],$v['branch']);
         return ['success'=>true,'statement'=>$this->period($employee,$v['month'])];
     }
+    public function entries(array $values,$actor): array
+    {
+        $v=Validator::make($values,['branch'=>'required|string|max:30','employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d','kind'=>'required|in:bonus,deduction,advance'])->validate();
+        $this->ops->branches($v['branch'],$actor);$employee=$this->employee($v['employee_id'],$v['branch']);
+        $rows=DB::table('branch_employee_entries')->where('branch',$v['branch'])->where('employee_id',$employee->id)->where('day',$v['day'])->where('kind',$v['kind'])->whereNull('voided_at')->orderBy('created_at')->orderBy('id')->get();
+        return ['success'=>true,'employee'=>(array)$employee,'day'=>$v['day'],'kind'=>$v['kind'],'count'=>$rows->count(),'total'=>Money::decimal((int)$rows->sum('amount_cents')),'items'=>$rows->map(function($row){return ['id'=>(int)$row->id,'time'=>Carbon::parse($row->created_at,'UTC')->setTimezone('Africa/Cairo')->format('H:i'),'amount'=>Money::decimal((int)$row->amount_cents),'reason'=>$row->reason,'notes'=>$row->notes];})->all()];
+    }
     private function period(object $employee,string $month): array
     {
         $closed=DB::table('branch_payrolls')->where('employee_id',$employee->id)->where('month',$month)->first();
@@ -108,13 +115,16 @@ class BranchPayroll
     {
         $v=Validator::make($values,['branch'=>'required|string|max:30','day'=>'nullable|date_format:Y-m-d','month'=>'nullable|date_format:Y-m','search'=>'nullable|string|max:100','job_title'=>'nullable|string|max:100','shift'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$v['day']=$v['day']??now('Africa/Cairo')->toDateString();$v['month']=$v['month']??substr($v['day'],0,7);
         $branches=$this->ops->branches($v['branch'],$actor);$q=DB::table('branch_employees')->whereIn('branch',array_column($branches,'value'));
+        $options=[];foreach(['job_title','shift'] as $key)$options[$key]=(clone $q)->whereNotNull($key)->where($key,'<>','')->distinct()->orderBy($key)->pluck($key)->all();
         if(!empty($v['search']))$q->where('name','like','%'.trim($v['search']).'%');foreach(['job_title','shift'] as $key)if(!empty($v[$key]))$q->where($key,$v[$key]);
         $count=(clone $q)->count();abort_if($export&&$count>1000,422,'اختر فرعًا أو وظيفة لتصدير حتى ألف موظف.');$last=max(1,(int)ceil($count/30));$page=min($last,(int)($v['page']??1));
-        $employees=$q->orderByDesc('active')->orderBy('name')->offset($export?0:($page-1)*30)->limit($export?1000:30)->get();
+        $employees=(clone $q)->orderByDesc('active')->orderBy('name')->offset($export?0:($page-1)*30)->limit($export?1000:30)->get();
         $ids=$employees->pluck('id');$days=DB::table('branch_employee_days')->whereIn('employee_id',$ids)->where('day',$v['day'])->get()->keyBy('employee_id');
-        $items=[];foreach($employees as $employee){$statement=$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$items[]=$item;}
-        $scope=array_column($branches,'value');$today=DB::table('branch_employee_days')->whereIn('branch',$scope)->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
-        $entrySums=DB::table('branch_employee_entries')->whereIn('branch',$scope)->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
-        return ['success'=>true,'items'=>$items,'branches'=>$branches,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0),'absent'=>(int)($today['absent']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
+        $daily=DB::table('branch_employee_entries')->whereIn('employee_id',$ids)->where('day',$v['day'])->whereNull('voided_at')->selectRaw('employee_id,kind,COUNT(*) AS count,SUM(amount_cents) AS amount')->groupBy('employee_id','kind')->get()->groupBy('employee_id');
+        $closed=DB::table('branch_payrolls')->whereIn('employee_id',$ids)->where('month',substr($v['day'],0,7))->pluck('employee_id')->all();
+        $items=[];foreach($employees as $employee){$statement=$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
+        $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
+        $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
+        return ['success'=>true,'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0),'absent'=>(int)($today['absent']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
     }
 }

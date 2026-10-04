@@ -42,7 +42,8 @@
             var actions = el('td'), group = el('div', undefined, 'ex-row-actions'); group.appendChild(actionButton('details', function () { details(item.id); }, 'fa-eye')); if (item.can_edit) group.appendChild(actionButton('edit', function () { edit(item); }, 'fa-pen')); group.appendChild(actionButton('print', function () { print(item.print_url); }, 'fa-print')); actions.appendChild(group); row.appendChild(actions); body.appendChild(row);
         });
         root.querySelector('[data-expense-empty]').hidden = !!data.items.length;
-        root.querySelector('[data-expense-balance]').textContent = data.summary.cash_balance + ' ' + t('currency');
+        root.querySelector('[data-expense-balance]').closest('.ex-balance').hidden = data.summary.cash_balance === undefined;
+        root.querySelector('[data-expense-balance]').textContent = data.summary.cash_balance === undefined ? '' : data.summary.cash_balance + ' ' + t('currency');
         root.querySelectorAll('[data-expense-metric]').forEach(function (node) { var key = node.dataset.expenseMetric; node.textContent = key === 'top_category' ? (data.summary.top_category ? t('cat_' + data.summary.top_category) : '—') : data.summary[key]; });
         root.querySelector('[data-expense-top-amount]').textContent = data.summary.top_amount + ' ' + t('currency');
         root.querySelector('[data-expense-period]').textContent = t('period') + ': ' + data.summary.period + ' ' + t('currency') + ' · ' + t('pending') + ': ' + data.summary.pending;

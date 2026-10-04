@@ -178,13 +178,13 @@ class TakeawayService
         $date = $date ?? $this->businessDate();
         $permissions = $this->access->permissions($actor);
         $entries = DB::table('takeaway_till_entries')->where('branch', $branch['value'])->where('business_date', $date)->orderByDesc('id')->limit(100)->get();
-        return ['success'=>true, 'branch'=>$branch, 'register'=>$this->presentTill($this->till($branch['value'])),
+        return ['success'=>true, 'branch'=>$branch, 'register'=>$this->presentTill($this->till($branch['value']),$permissions['can_manage']),
             'permissions'=>$permissions, 'today'=>$this->daily($branch['value'], $date),
-            'entries'=>$entries->map(function ($entry) {
+            'entries'=>$entries->map(function ($entry) use ($permissions) {
                 return ['id'=>(int) $entry->id, 'kind'=>$entry->kind, 'amount'=>Money::decimal((int) $entry->amount_cents),
-                    'balance'=>Money::decimal((int) $entry->balance_cents), 'note'=>$entry->note, 'actor_id'=>(int) $entry->actor_id,
+                    'note'=>$entry->note, 'actor_id'=>(int) $entry->actor_id,
                     'order_id'=>$entry->order_id ? (int) $entry->order_id : null, 'created_at'=>$this->iso($entry->created_at),
-                    'metadata'=>json_decode($entry->metadata ?? 'null', true)];
+                    'metadata'=>json_decode($entry->metadata ?? 'null', true)]+($permissions['can_manage']?['balance'=>Money::decimal((int)$entry->balance_cents)]:[]);
             })->all()];
     }
 
@@ -238,9 +238,9 @@ class TakeawayService
     public function summary(string $value, $actor): array
     {
         $branch = $this->access->branch($value, $actor);
-        if (!$this->access->ready()) return ['ready'=>false, 'register'=>['balance'=>'0.00','revision'=>1,'tax_rate'=>'0.00'], 'today'=>['date'=>$this->businessDate(),'count'=>0,'total'=>'0.00']];
+        if (!$this->access->ready()) return ['ready'=>false, 'register'=>['revision'=>1,'tax_rate'=>'0.00'], 'today'=>['date'=>$this->businessDate(),'count'=>0,'total'=>'0.00']];
         $permissions = $this->access->permissions($actor);
-        $till = $this->presentTill($this->till($branch['value']));
+        $till = $this->presentTill($this->till($branch['value']),$permissions['can_manage']);
         return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($branch['value'], $this->businessDate()), 'permissions'=>$permissions,
             'policy'=>['tax_rate'=>$till['tax_rate'], 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
                 'payment_methods'=>self::METHODS, 'currency'=>'EGP']];
@@ -334,17 +334,17 @@ class TakeawayService
         return $query->first() ?? (object) ['id'=>null, 'branch'=>$branch, 'balance_cents'=>0, 'tax_bps'=>0, 'revision'=>1];
     }
 
-    private function presentTill(object $till): array
+    private function presentTill(object $till,bool $reveal): array
     {
-        return ['id'=>$till->id ? (int) $till->id : null, 'branch'=>$till->branch, 'balance'=>Money::decimal((int) $till->balance_cents),
-            'revision'=>(int) $till->revision, 'tax_rate'=>Money::decimal((int) $till->tax_bps), 'currency'=>'EGP'];
+        return ['id'=>$till->id ? (int) $till->id : null, 'branch'=>$till->branch,
+            'revision'=>(int) $till->revision, 'tax_rate'=>Money::decimal((int) $till->tax_bps), 'currency'=>'EGP']+($reveal?['balance'=>Money::decimal((int)$till->balance_cents)]:[]);
     }
 
     private function checkoutResult(object $order, $actor, bool $replayed): array
     {
         $receipt = $this->presentReceipt($order);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
-            'register'=>$this->presentTill($this->till($order->branch)), 'today'=>$this->daily($order->branch, $this->businessDate())];
+            'register'=>$this->presentTill($this->till($order->branch),$this->access->permissions($actor)['can_manage']), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 
     private function presentReceipt(object $row): array

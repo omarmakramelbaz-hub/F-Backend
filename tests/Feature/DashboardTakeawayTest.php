@@ -225,7 +225,7 @@ class DashboardTakeawayTest extends TestCase
         $payload['items'][0]['price']='0.01'; $payload['total']='0.01';
         $result = $this->service()->checkout($payload,$this->actor());
         $this->assertSame('9.38',$result['receipt']['total']); $this->assertSame('100.00',$result['receipt']['cash_received']);
-        $this->assertSame('90.62',$result['receipt']['change']); $this->assertSame('9.38',$result['register']['balance']);
+        $this->assertSame('90.62',$result['receipt']['change']); $this->assertSame('9.38',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
         $line = DB::table('takeaway_order_items')->first(); $this->assertSame(750,(int)$line->quantity_millis);
         $this->assertSame(1250,(int)$line->unit_price_cents); $this->assertSame(938,(int)$line->total_cents);
         $this->assertSame(938,(int)DB::table('takeaway_till_entries')->value('amount_cents'));
@@ -247,7 +247,7 @@ class DashboardTakeawayTest extends TestCase
         $payload = $this->payment($this->cart()); DB::table('resturant_products')->where('id',1)->update(['status'=>'hide']);
         $this->denied(fn()=> $this->service()->checkout($payload,$this->actor()),409);
         $this->assertSame(0,DB::table('takeaway_orders')->count()); $this->assertSame(0,DB::table('takeaway_till_entries')->count());
-        $this->assertSame('0.00',$this->service()->summary('f:100',$this->actor())['register']['balance']);
+        $this->assertSame('0.00',$this->service()->summary('f:100',$this->actor(1))['register']['balance']);
     }
 
     public function test_idempotent_sale_retry_returns_saved_receipt_before_live_menu_checks(): void
@@ -257,7 +257,7 @@ class DashboardTakeawayTest extends TestCase
         $second = $this->service()->checkout($payload,$this->actor());
         $this->assertTrue($second['replayed']); $this->assertSame($first['receipt'],$second['receipt']);
         $this->assertSame(1,DB::table('takeaway_orders')->count()); $this->assertSame(1,DB::table('takeaway_till_entries')->count());
-        $this->assertSame('12.50',$second['register']['balance']);
+        $this->assertSame('12.50',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
         $payload['notes']='غيرت الفاتورة'; $this->denied(fn()=> $this->service()->checkout($payload,$this->actor()),409);
     }
 
@@ -291,7 +291,7 @@ class DashboardTakeawayTest extends TestCase
             $this->invalid(fn()=> $this->service()->checkout($payload,$this->actor()));
             $payload['payment_confirmed']=true; $payload['payment_reference']='';
             $sale = $this->service()->checkout($payload,$this->actor());
-            $this->assertSame($method,$sale['receipt']['payment_method']); $this->assertSame('0.00',$sale['register']['balance']);
+            $this->assertSame($method,$sale['receipt']['payment_method']); $this->assertSame('0.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
         }
         $this->assertSame(3,DB::table('takeaway_till_entries')->count()); $this->assertSame(0,(int)DB::table('takeaway_till_entries')->sum('amount_cents'));
         $this->assertSame($before,DB::table('users')->pluck('balance','id')->all()); $this->assertEquals($settings,DB::table('settings')->get()->toArray());
@@ -356,7 +356,7 @@ class DashboardTakeawayTest extends TestCase
         $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
         $values['expected_revision']=$sale['register']['revision']; $values['idempotency_key']=$this->key();
         $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
-        $this->assertSame('12.50',$this->service()->summary('f:100',$this->actor())['register']['balance']);
+        $this->assertSame('12.50',$this->service()->summary('f:100',$this->actor(1))['register']['balance']);
     }
 
     public function test_nonempty_cash_audit_note_and_exact_money_rates_are_required(): void
@@ -451,7 +451,7 @@ class DashboardTakeawayTest extends TestCase
         $quote = $this->postJson(route('takeaway.quote'),$this->cart())->assertOk()->assertJsonPath('total','12.50')->json();
         $payload = $this->payment($this->cart()); $payload['quote_hash']=$quote['quote_hash']; $payload['total']='0.00';
         $this->postJson(route('takeaway.checkout'),$payload)->assertOk()->assertJsonPath('receipt.total','12.50');
-        $this->getJson(route('takeaway.till',['branch'=>'f:100']))->assertOk()->assertJsonPath('register.balance','12.50');
+        $response=$this->getJson(route('takeaway.till',['branch'=>'f:100']))->assertOk()->json();$this->assertArrayNotHasKey('balance',$response['register']);
         $this->getJson(route('takeaway.receipts',['branch'=>'f:101']))->assertNotFound();
     }
 

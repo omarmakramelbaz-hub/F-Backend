@@ -249,6 +249,7 @@
     }
     function updateRegister(value, today) {
         if (value) register = value;
+        root.querySelector('[data-pos-register-balance]').hidden = !register || register.balance === undefined;
         root.querySelector('[data-pos-register-balance]').textContent = register && register.balance !== undefined ? money(register.balance) : '—';
         if (today && today.count !== undefined) {
             invoices[activeInvoice].today = today;
@@ -514,7 +515,7 @@
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked) { notify(label('sale_locked')); return; }
         if (!branch) { notify(label('choose_branch_first')); return; } var content = openModal(label('cash_register')), generation = modalGeneration; modalController = new AbortController();
-        try { var response = await fetch(endpoint(urls.register || urls.tills, { branch: branch }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'register_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); updateRegister(result.register || result, result.today); var summary = node('div', 'tp-modal-summary'); summary.appendChild(node('span', '', label('register_balance'))); summary.appendChild(node('strong', '', money(register && register.balance) + ' ' + label('currency'))); content.appendChild(summary);
+        try { var response = await fetch(endpoint(urls.register || urls.tills, { branch: branch }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'register_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); updateRegister(result.register || result, result.today); var summary = node('div', 'tp-modal-summary'); summary.appendChild(node('span', '', label('register_balance'))); summary.appendChild(node('strong', '', register&&register.balance!==undefined?money(register.balance)+' '+label('currency'):'يظهر في ورقة تقفيل الوردية فقط'));  content.appendChild(summary);
             var rows = result.entries || result.movements || result.items || []; if (rows.length) { var table = node('table'), body = node('tbody'); rows.forEach(function (entry) { var row = node('tr'); row.appendChild(node('td', '', entry.created_label || entry.created_at)); row.appendChild(node('td', '', entry.note || entry.reason || label({ cash_sale: 'cash_sales', expense: 'entry_expense', expense_refund: 'entry_expense_refund', cash_in: 'cash_in', cash_out: 'cash_out', tax_setting: 'till_settings' }[entry.kind] || 'cash_movements'))); row.appendChild(node('td', '', money(entry.amount))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table); } else content.appendChild(node('p', 'tp-empty', label('register_readonly')));
             if ((result.permissions || permissions).can_manage && !selling && !uncertain && !registerLocked) registerForms(content);
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('register_error'))); }
