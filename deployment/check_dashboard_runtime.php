@@ -56,7 +56,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);

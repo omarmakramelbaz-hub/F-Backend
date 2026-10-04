@@ -35,6 +35,7 @@ function valid(lat, lng) {
     return lat !== null && lng !== null && lat !== '' && lng !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180;
 }
 function create(container, options) {
+    var routePath = null, placesToken, predictions = new Map();
     var map, marker, circle, origin, routeLine, provider, observer, disposed = false, g = 0, radius = options.radius || 0;
     var point = valid(options.latitude, options.longitude) ? [Number(options.latitude), Number(options.longitude)] : null;
     var center = point || options.center || [30.0444, 31.2357];
@@ -47,7 +48,7 @@ function create(container, options) {
     container.style.direction = 'ltr';
     function line() {
         if (!map || !branch) return;
-        var path = point ? [branch, point] : [];
+        var path = point ? (routePath || (options.routeOnly ? [] : [branch, point])) : [];
         if (provider === 'google') {
             if (!routeLine) routeLine = new google.maps.Polyline({map: map, strokeColor: '#f58220', strokeOpacity: .9, strokeWeight: 4, clickable: false});
             routeLine.setPath(path.map(function (p) { return {lat: p[0], lng: p[1]}; }));
@@ -59,13 +60,16 @@ function create(container, options) {
     function frame() {
         if (!map || !point) return;
         if (provider === 'google') {
-            if (branch) { var bounds = new google.maps.LatLngBounds(); bounds.extend({lat: branch[0], lng: branch[1]}); bounds.extend({lat: point[0], lng: point[1]}); map.fitBounds(bounds, 45); }
+            if (routePath) { var routeBounds=new google.maps.LatLngBounds(); routePath.forEach(function(p){routeBounds.extend({lat:p[0],lng:p[1]});}); map.fitBounds(routeBounds,45); }
+            else if (branch) { var bounds = new google.maps.LatLngBounds(); bounds.extend({lat: branch[0], lng: branch[1]}); bounds.extend({lat: point[0], lng: point[1]}); map.fitBounds(bounds, 45); }
             else { map.setCenter({lat: point[0], lng: point[1]}); map.setZoom(15); }
-        } else if (branch) map.fitBounds([branch, point], {padding: [35, 35], maxZoom: 16});
+        } else if (routePath) map.fitBounds(routePath.concat([branch,point].filter(Boolean)),{padding:[30,30],maxZoom:16});
+        else if (branch) map.fitBounds([branch, point], {padding: [35, 35], maxZoom: 16});
         else map.setView(point, 15);
     }
     function set(p, pan) {
         if (!valid(p[0], p[1])) return;
+        routePath = null;
         point = [Number(p[0]), Number(p[1])];
         if (!map) return;
         if (provider === 'google') { marker.setPosition({lat: point[0], lng: point[1]}); marker.setVisible(true); if (circle) circle.setCenter(marker.getPosition()); }
@@ -81,7 +85,7 @@ function create(container, options) {
         if (options.change) options.change(lat, lng);
     }
     function clear() {
-        g++; point = null;
+        g++; point = null; routePath = null;
         if (marker) { if (provider === 'google') marker.setVisible(false); else marker.setOpacity(0); }
         line();
         notice.textContent = 'اكتب عنوان العميل لتحديد دبوسه. العلامة الزرقاء تخص الفرع.';
@@ -135,6 +139,25 @@ function create(container, options) {
     }).catch(fallback);
     var api = {
         set: function (lat, lng) { set([lat, lng]); }, clear: clear,
+        route: function(path){routePath=Array.isArray(path)&&path.length>1&&path.every(function(p){return Array.isArray(p)&&valid(p[0],p[1]);})?path:null;line();if(routePath)frame();},
+        suggest: async function(query){
+            var requestGeneration=g;
+            await sdk(options.key);
+            if(disposed||failed||provider!=='google'||!google.maps.importLibrary)throw Error('اقتراحات العناوين تحتاج تفعيل Google Maps وPlaces API أو تشغيل خدمة الخرائط البديلة.');
+            var lib=await google.maps.importLibrary('places');
+            if(!placesToken)placesToken=new lib.AutocompleteSessionToken();
+            var request={input:query,includedRegionCodes:['eg'],language:'ar',region:'eg',sessionToken:placesToken};
+            if(branch)request.locationBias={center:{lat:branch[0],lng:branch[1]},radius:30000};
+            var result=await lib.AutocompleteSuggestion.fetchAutocompleteSuggestions(request);
+            if(disposed||requestGeneration!==g)return [];predictions.clear();
+            return (result.suggestions||[]).filter(function(s){return !!s.placePrediction;}).map(function(s){var p=s.placePrediction;predictions.set(p.placeId,p);return{id:p.placeId,label:p.text.toString()};});
+        },
+        resolve: async function(item){
+            if(disposed||failed||provider!=='google'||!predictions.has(item.id))throw Error('تعذر تحديد العنوان. أعد البحث ثم اختره.');
+            var place=predictions.get(item.id).toPlace();placesToken=null;predictions.delete(item.id);await place.fetchFields({fields:['location','formattedAddress']});
+            if(!place.location)throw Error('لا توجد إحداثيات لهذا العنوان.');
+            return {label:place.formattedAddress||item.label,latitude:place.location.lat(),longitude:place.location.lng()};
+        },
         invalidate: function () { g++; },
         resize: function () { if (provider === 'osm' && map) map.invalidateSize(); else if (provider === 'google' && map) google.maps.event.trigger(map, 'resize'); },
         radius: function (value) { radius = value; if (circle) circle.setRadius(value); },

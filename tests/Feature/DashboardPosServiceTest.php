@@ -135,7 +135,7 @@ class DashboardPosServiceTest extends TestCase
     public function test_mixed_tender_moves_only_allocated_cash_and_preserves_breakdown(): void
     {
         $ticket=$this->saved();$v=$this->settlePayload($ticket,10,'mixed');$v['cash_received']='40.00';$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'50.00'],['method'=>'mobile_wallet','amount'=>'20.00']];
-        $result=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertSame('30.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);$this->assertSame('10.00',$result['receipt']['change']);
+        $result=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertSame('30.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));$this->assertSame('10.00',$result['receipt']['change']);
         $this->assertSame(3000,(int)DB::table('takeaway_till_entries')->value('amount_cents'));$this->assertCount(3,$result['receipt']['payment_breakdown']);
         $this->assertSame('30.00',$result['today']['cash']);$this->assertSame('50.00',$result['today']['card']);$this->assertSame('20.00',$result['today']['mobile_wallet']);
     }
@@ -153,14 +153,14 @@ class DashboardPosServiceTest extends TestCase
         foreach(['prepare','dispatch','finish'] as $i=>$action){$r=$this->tickets()->action('phone',$ticket['id'],['branch'=>'f:100','expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(3+$i),'action'=>$action],$this->actor());$ticket=$r['ticket'];}
         $this->assertSame('finished',$ticket['status']);$this->assertSame('unpaid',$ticket['payment_status']);$this->assertSame(0,DB::table('takeaway_orders')->count());
         $v=$this->settlePayload($ticket);$v['payment_confirmed']=false;$this->denied(fn()=>$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor()),422);
-        $v['payment_confirmed']=true;$paid=$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor());$this->assertSame('120.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
+        $v['payment_confirmed']=true;$paid=$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor());$this->assertSame('120.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $this->assertSame('20.00',$paid['receipt']['delivery']);$this->assertSame('Street 1',$paid['receipt']['context']['address']);$this->assertSame('Door 2',$paid['receipt']['context']['delivery_notes']);
     }
     public function test_phone_vat_includes_distance_delivery_fee_without_app_rate_or_wallet_changes(): void
     {
         app(TakeawayService::class)->changeRegister(['branch'=>'f:100','tax_rate'=>'14.00','note'=>'Tax','expected_revision'=>1,'idempotency_key'=>$this->key(21)],$this->actor(12),true);
         $ticket=$this->saved('phone');$this->assertSame('16.80',$ticket['tax']);$this->assertSame('136.80',$ticket['total']);
-        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'card'),$this->actor());$this->assertSame('0.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
+        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'card'),$this->actor());$this->assertSame('0.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $this->assertSame(1,DB::table('wallets')->count());$this->assertSame(500.0,(float)DB::table('users')->where('id',10)->value('balance'));
     }
     public function test_phone_lookup_exact_normalized_number_is_scoped_and_snapshots_no_app_user(): void
@@ -398,7 +398,7 @@ class DashboardPosServiceTest extends TestCase
         $base=['branch'=>'f:100','employee_id'=>$a['id'],'day'=>'2026-09-12'];
         foreach([['deduction','50.00'],['deduction','100.00'],['bonus','200.00'],['advance','500.00']] as $i=>$row)$s->entry($base+['kind'=>$row[0],'amount'=>$row[1],'reason'=>'تأخير','notes'=>'ملاحظة مسجلة','idempotency_key'=>$this->key(902+$i)],$this->actor());
         $void=$s->entry($base+['kind'=>'deduction','amount'=>'800.00','reason'=>'خطأ','idempotency_key'=>$this->key(906)],$this->actor())['entry'];
-        $s->voidEntry(['branch'=>'f:100','entry_id'=>$void['id'],'expected_revision'=>1,'reason'=>'تصحيح','idempotency_key'=>$this->key(907)],$this->actor());
+        $s->voidEntry(['branch'=>'f:100','entry_id'=>$void['id'],'expected_revision'=>1,'reason'=>'تصحيح','idempotency_key'=>$this->key(907)],$this->actor(1));
         $s->entry(array_replace($base,['day'=>'2026-09-11'])+['kind'=>'deduction','amount'=>'25.00','reason'=>'سابق','idempotency_key'=>$this->key(908)],$this->actor());
         $s->entry(array_replace($base,['employee_id'=>$b['id']])+['kind'=>'deduction','amount'=>'90.00','reason'=>'غياب','idempotency_key'=>$this->key(909)],$this->actor());
         $s->attendance($base+['status'=>'present','idempotency_key'=>$this->key(910)],$this->actor());$s->attendance(array_replace($base,['employee_id'=>$b['id']])+['status'=>'absent','idempotency_key'=>$this->key(911)],$this->actor());
@@ -480,9 +480,49 @@ class DashboardPosServiceTest extends TestCase
         $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave(array_replace($this->employeePayload(),['hired_on'=>'2026-09-16','left_on'=>'']),$this->actor())['employee'];$q=['branch'=>'f:100','employee_id'=>$e['id'],'month'=>'2026-09'];$initial=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$initial['earned_salary']);
         $v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-20','kind'=>'advance','amount'=>'1800.00','reason'=>'Advance','idempotency_key'=>$this->key(860)];$entry=$s->entry($v,$this->actor());
         $this->denied(fn()=>$s->close($q+['idempotency_key'=>$this->key(861),'preview_hash'=>$initial['preview_hash']],$this->actor()),409);$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('-300.00',$preview['net']);
-        $id=DB::table('branch_employee_entries')->value('id');$s->voidEntry(['branch'=>'f:100','entry_id'=>$id,'expected_revision'=>1,'reason'=>'Correction','idempotency_key'=>$this->key(862)],$this->actor());$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$preview['net']);$this->assertNotEmpty($preview['entries'][0]['voided_at']);
+        $id=DB::table('branch_employee_entries')->value('id');$s->voidEntry(['branch'=>'f:100','entry_id'=>$id,'expected_revision'=>1,'reason'=>'Correction','idempotency_key'=>$this->key(862)],$this->actor(1));$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$preview['net']);$this->assertNotEmpty($preview['entries'][0]['voided_at']);
         $this->assertSame(1,DB::table('branch_employee_entries')->count());$this->assertCount(1,$s->listing(['branch'=>'all','month'=>'2026-09'],$this->actor(1))['items']);
-        $this->assertTrue(app(\App\Services\Dashboard\BranchOperations::class)->recover(['branch'=>'f:100','idempotency_key'=>$this->key(862)],$this->actor())['found']);
+        $this->assertTrue(app(\App\Services\Dashboard\BranchOperations::class)->recover(['branch'=>'f:100','idempotency_key'=>$this->key(862)],$this->actor(1))['found']);
         $this->assertFalse(app(\App\Services\Dashboard\BranchOperations::class)->recover(['branch'=>'f:100','idempotency_key'=>$this->key(862)],$this->actor(12))['found']);
     }
+    public function test_open_map_provider_requires_explicit_activation_and_preserves_branch_scope(): void
+    {
+        \Illuminate\Support\Facades\Http::fake();config(['services.maps.phone_open_enabled'=>false]);$maps=app(\App\Services\Dashboard\PhoneMapProvider::class);
+        $this->denied(fn()=>$maps->suggestions(['branch'=>'f:100','query'=>'عنوان اختبار'],$this->actor()),503);
+        config(['services.maps.phone_open_enabled'=>true]);$this->denied(fn()=>$maps->suggestions(['branch'=>'f:101','query'=>'عنوان اختبار'],$this->actor()),404);
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+    }
+    public function test_address_options_filter_country_and_malformed_locations_and_do_not_send_customer_identity(): void
+    {
+        config(['services.maps.phone_open_enabled'=>true]);$http=\Illuminate\Support\Facades\Http::class;
+        $http::fake(['photon.komoot.io/*'=>$http::response(['features'=>[
+            ['geometry'=>['type'=>'Point','coordinates'=>[31.2,30.1]],'properties'=>['name'=>'شارع تجريبي','city'=>'مدينة اختبار','countrycode'=>'EG']],
+            ['geometry'=>['type'=>'Point','coordinates'=>[31.2,30.1]],'properties'=>['name'=>'شارع تجريبي','city'=>'مدينة اختبار','countrycode'=>'EG']],
+            ['geometry'=>['type'=>'Point','coordinates'=>[2,48]],'properties'=>['name'=>'Foreign','countrycode'=>'FR']],
+            ['geometry'=>['type'=>'Point','coordinates'=>[999,30]],'properties'=>['name'=>'Bad','countrycode'=>'EG']]
+        ]])]);
+        $maps=app(\App\Services\Dashboard\PhoneMapProvider::class);$v=['branch'=>'f:100','query'=>'شارع تجريبي'];$r=$maps->suggestions($v,$this->actor());$this->assertCount(1,$r['items']);$this->assertSame(30.1,$r['items'][0]['latitude']);$this->assertSame('شارع تجريبي، مدينة اختبار',$r['items'][0]['label']);$this->assertSame($r,$maps->suggestions($v,$this->actor()));$http::assertSentCount(1);
+        $http::assertSent(fn($r)=>$r['q']==='شارع تجريبي'&&$r['countrycode']==='EG'&&!isset($r['customer_phone'])&&!isset($r['customer_name'])&&$r->hasHeader('User-Agent'));
+    }
+    public function test_road_fee_is_authoritative_cached_and_cannot_fall_back_to_a_straight_line(): void
+    {
+        config(['services.maps.phone_open_enabled'=>true]);$http=\Illuminate\Support\Facades\Http::class;
+        $http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'Ok','routes'=>[['distance'=>1575,'geometry'=>['type'=>'LineString','coordinates'=>[[31,30],[31.001,30.005],[31,30.009]]]]]])]);
+        $v=$this->savePayload('phone');$service=app(\App\Services\Dashboard\PhoneDelivery::class);$q=$service->quote($v,$this->actor())['delivery'];$this->assertSame('31.50',$q['delivery_fee']);$this->assertSame(1575,$q['distance_meters']);$this->assertSame('road_osrm',$q['method']);$this->assertCount(3,$q['route_path']);$http::assertSentCount(1);
+        $v['delivery_quote_hash']=$q['delivery_quote_hash'];$v['delivery_fee']='0.01';$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];$this->assertSame('31.50',$ticket['delivery_fee']);$this->assertSame(1575,$ticket['delivery_location']['distance_meters']);$http::assertSentCount(1);
+        $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'NoRoute','routes'=>[]])]);$changed=array_replace($v,['latitude'=>30.02]);$this->denied(fn()=>$service->quote($changed,$this->actor()),422);
+        $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response([],503)]);$this->denied(fn()=>$service->quote(array_replace($v,['latitude'=>30.03]),$this->actor()),503);
+    }
+
+    public function test_only_primary_owner_can_void_employee_money_even_if_other_accounts_manage_the_branch(): void
+    {
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(950),$this->actor())['employee'];
+        $entry=$s->entry(['branch'=>'f:100','employee_id'=>$employee['id'],'day'=>'2026-09-12','kind'=>'advance','amount'=>'150.00','reason'=>'سلفة','idempotency_key'=>$this->key(951)],$this->actor())['entry'];
+        $v=['branch'=>'f:100','entry_id'=>$entry['id'],'expected_revision'=>1,'reason'=>'تصحيح الأونر','idempotency_key'=>$this->key(952)];$q=['branch'=>'f:100','employee_id'=>$employee['id'],'month'=>'2026-09'];
+        foreach([10,4,12] as $id){$this->assertFalse($s->statement($q,$this->actor($id))['statement']['can_void_entries']);$this->denied(fn()=>$s->voidEntry($v,$this->actor($id)),403);}
+        $this->assertNull(DB::table('branch_employee_entries')->where('id',$entry['id'])->value('voided_at'));$this->assertTrue($s->statement($q,$this->actor(1))['statement']['can_void_entries']);
+        $this->actingAs($this->actor(),'admin');$this->postJson(route('employees.void-entry'),$v)->assertForbidden();
+        $result=$s->voidEntry($v,$this->actor(1));$this->assertFalse($result['replayed']);$this->assertTrue($s->voidEntry($v,$this->actor(1))['replayed']);$this->assertSame(1,(int)DB::table('branch_employee_entries')->where('id',$entry['id'])->value('voided_by'));$this->assertSame(1,DB::table('branch_employee_entries')->count());
+    }
+
 }

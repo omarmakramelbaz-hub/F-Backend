@@ -225,7 +225,7 @@ class DashboardTakeawayTest extends TestCase
         $payload['items'][0]['price']='0.01'; $payload['total']='0.01';
         $result = $this->service()->checkout($payload,$this->actor());
         $this->assertSame('9.38',$result['receipt']['total']); $this->assertSame('100.00',$result['receipt']['cash_received']);
-        $this->assertSame('90.62',$result['receipt']['change']); $this->assertSame('9.38',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
+        $this->assertSame('90.62',$result['receipt']['change']); $this->assertSame('9.38',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $line = DB::table('takeaway_order_items')->first(); $this->assertSame(750,(int)$line->quantity_millis);
         $this->assertSame(1250,(int)$line->unit_price_cents); $this->assertSame(938,(int)$line->total_cents);
         $this->assertSame(938,(int)DB::table('takeaway_till_entries')->value('amount_cents'));
@@ -247,7 +247,7 @@ class DashboardTakeawayTest extends TestCase
         $payload = $this->payment($this->cart()); DB::table('resturant_products')->where('id',1)->update(['status'=>'hide']);
         $this->denied(fn()=> $this->service()->checkout($payload,$this->actor()),409);
         $this->assertSame(0,DB::table('takeaway_orders')->count()); $this->assertSame(0,DB::table('takeaway_till_entries')->count());
-        $this->assertSame('0.00',$this->service()->summary('f:100',$this->actor(1))['register']['balance']);
+        $this->assertSame('0.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
     }
 
     public function test_idempotent_sale_retry_returns_saved_receipt_before_live_menu_checks(): void
@@ -257,7 +257,7 @@ class DashboardTakeawayTest extends TestCase
         $second = $this->service()->checkout($payload,$this->actor());
         $this->assertTrue($second['replayed']); $this->assertSame($first['receipt'],$second['receipt']);
         $this->assertSame(1,DB::table('takeaway_orders')->count()); $this->assertSame(1,DB::table('takeaway_till_entries')->count());
-        $this->assertSame('12.50',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
+        $this->assertSame('12.50',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $payload['notes']='غيرت الفاتورة'; $this->denied(fn()=> $this->service()->checkout($payload,$this->actor()),409);
     }
 
@@ -291,7 +291,7 @@ class DashboardTakeawayTest extends TestCase
             $this->invalid(fn()=> $this->service()->checkout($payload,$this->actor()));
             $payload['payment_confirmed']=true; $payload['payment_reference']='';
             $sale = $this->service()->checkout($payload,$this->actor());
-            $this->assertSame($method,$sale['receipt']['payment_method']); $this->assertSame('0.00',app(\App\Services\Dashboard\TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);
+            $this->assertSame($method,$sale['receipt']['payment_method']); $this->assertSame('0.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         }
         $this->assertSame(3,DB::table('takeaway_till_entries')->count()); $this->assertSame(0,(int)DB::table('takeaway_till_entries')->sum('amount_cents'));
         $this->assertSame($before,DB::table('users')->pluck('balance','id')->all()); $this->assertEquals($settings,DB::table('settings')->get()->toArray());
@@ -339,13 +339,13 @@ class DashboardTakeawayTest extends TestCase
     public function test_cash_movements_are_atomic_audited_replay_safe_and_cannot_overdraw(): void
     {
         $values = ['branch'=>'f:100','direction'=>'in','amount'=>'100.00','note'=>'عهدة بداية الوردية','expected_revision'=>1,'idempotency_key'=>$this->key(10)];
-        $first = $this->service()->changeRegister($values,$this->actor(12),false); $this->assertSame('100.00',$first['register']['balance']);
+        $first = $this->service()->changeRegister($values,$this->actor(12),false); $this->assertSame('100.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $this->assertTrue($this->service()->changeRegister($values,$this->actor(12),false)['replayed']);
         $values['amount']='99.00'; $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
         $values['idempotency_key']=$this->key(11); $values['direction']='out'; $values['amount']='100.01'; $values['expected_revision']=2;
         $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
         $values['amount']='40.00'; $last = $this->service()->changeRegister($values,$this->actor(12),false);
-        $this->assertSame('60.00',$last['register']['balance']); $this->assertSame(2,DB::table('takeaway_till_entries')->count());
+        $this->assertSame('60.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents'))); $this->assertSame(2,DB::table('takeaway_till_entries')->count());
         $this->assertSame(-4000,(int)DB::table('takeaway_till_entries')->orderByDesc('id')->value('amount_cents'));
     }
 
@@ -356,7 +356,7 @@ class DashboardTakeawayTest extends TestCase
         $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
         $values['expected_revision']=$sale['register']['revision']; $values['idempotency_key']=$this->key();
         $this->denied(fn()=> $this->service()->changeRegister($values,$this->actor(12),false),409);
-        $this->assertSame('12.50',$this->service()->summary('f:100',$this->actor(1))['register']['balance']);
+        $this->assertSame('12.50',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
     }
 
     public function test_nonempty_cash_audit_note_and_exact_money_rates_are_required(): void

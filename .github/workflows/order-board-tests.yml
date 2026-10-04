@@ -82,6 +82,7 @@ on:
       - 'public/dashboard/js/dining-pos.js'
       - 'public/dashboard/css/dining-pos.css'
       - 'public/dashboard/js/phone-orders.js'
+      - 'public/dashboard/js/phone-address-search.js'
       - 'public/dashboard/css/phone-orders.css'
       - 'tests/Feature/DashboardPosServiceTest.php'
       - 'deployment/*dashboard*'
@@ -157,6 +158,7 @@ jobs:
           node --check public/dashboard/js/takeaway-pos.js
           node --check public/dashboard/js/dining-pos.js
           node --check public/dashboard/js/phone-orders.js
+          node --check public/dashboard/js/phone-address-search.js
           node --check public/dashboard/js/branch-print-receiver.js
           node --check public/dashboard/js/branch-shifts.js
           node --check public/dashboard/js/branch-expenses.js

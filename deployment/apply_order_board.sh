@@ -82,6 +82,7 @@ php -l app/Services/Dashboard/BranchPayroll.php
 php -l app/Services/Dashboard/BranchCustomers.php
 php -l app/Services/Dashboard/DeliveryCompanies.php
 php -l app/Services/Dashboard/PhoneDelivery.php
+php -l app/Services/Dashboard/PhoneMapProvider.php
 php -l app/Http/Controllers/Dashboard/BranchOperationsController.php
 php -l app/Http/Controllers/Dashboard/BranchExpensesController.php
 php -l app/Http/Controllers/Dashboard/PrintSettingsController.php
@@ -128,6 +129,7 @@ test -s public/dashboard/css/takeaway-pos.css
 test -s public/dashboard/js/dining-pos.js
 test -s public/dashboard/css/dining-pos.css
 test -s public/dashboard/js/phone-orders.js
+test -s public/dashboard/js/phone-address-search.js
 test -s public/dashboard/js/branch-print-receiver.js
 test -s public/dashboard/css/phone-orders.css
 test -s public/dashboard/css/branch-orders.css

@@ -54,8 +54,15 @@ class BranchPayroll
             return ['entry'=>(array)DB::table('branch_employee_entries')->where('id',$id)->first()];
         });
     }
+    private function canVoidEntries($actor): bool
+    {
+        $owner=$this->ops->access->actor($actor);
+        // The installation's primary owner is persisted user 1; copied admin roles do not grant this action.
+        return (int)$owner->id===1&&$owner->account_type==='admin'&&empty($owner->owner_resturant_id);
+    }
     public function voidEntry(array $values,$actor): array
     {
+        abort_unless($this->canVoidEntries($actor),403,'إلغاء الحركة متاح لحساب الأونر فسخانينجا فقط.');
         $v=Validator::make($values,$this->ops->rules()+['entry_id'=>'required|integer|min:1','reason'=>'required|string|max:500'])->validate();abort_if(trim($v['reason'])==='',422,'اكتب سبب إلغاء الحركة.');
         return $this->ops->write('employee.void',$v,$actor,function($branch,$actor)use($v){
             $row=DB::table('branch_employee_entries')->where('branch',$v['branch'])->where('id',$v['entry_id'])->lockForUpdate()->first();abort_unless($row,404);$this->ops->revision($row,$v);abort_if($row->voided_at,409);$this->openMonth($row->employee_id,substr($row->day,0,7));
@@ -65,7 +72,7 @@ class BranchPayroll
     public function statement(array $values,$actor): array
     {
         $v=Validator::make($values,['branch'=>'required|string|max:30','employee_id'=>'required|integer|min:1','month'=>'required|date_format:Y-m'])->validate();$this->ops->branches($v['branch'],$actor);$employee=$this->employee($v['employee_id'],$v['branch']);
-        return ['success'=>true,'statement'=>$this->period($employee,$v['month'])];
+        return ['success'=>true,'statement'=>$this->period($employee,$v['month'])+['can_void_entries'=>$this->canVoidEntries($actor)]];
     }
     public function entries(array $values,$actor): array
     {

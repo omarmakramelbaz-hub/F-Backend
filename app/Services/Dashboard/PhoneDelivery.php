@@ -24,8 +24,10 @@ class PhoneDelivery
         $lat=round((float)$v['latitude'],7);$lng=round((float)$v['longitude'],7);abort_if($lat===0.0&&$lng===0.0,422,'أكد موقع العميل الصحيح.');
         $a=sin(deg2rad($lat-$policy['latitude'])/2)**2+cos(deg2rad($policy['latitude']))*cos(deg2rad($lat))*sin(deg2rad($lng-$policy['longitude'])/2)**2;
         $meters=(int)round(6371000*2*atan2(sqrt(min(1,$a)),sqrt(max(0,1-$a))));
+        $road=app(PhoneMapProvider::class)->enabled()?app(PhoneMapProvider::class)->road($policy,$lat,$lng):null;if($road)$meters=$road['meters'];
         $fee=intdiv($meters*Money::minor($policy['km_price'])+500,1000);abort_unless($fee<=100000000,422,'قيمة التوصيل أكبر من الحد المسموح.');
-        $data=['branch'=>$v['branch'],'branch_latitude'=>$policy['latitude'],'branch_longitude'=>$policy['longitude'],'latitude'=>$lat,'longitude'=>$lng,'distance_meters'=>$meters,'distance_km'=>number_format($meters/1000,3,'.',''),'km_price'=>$policy['km_price'],'delivery_fee'=>Money::decimal($fee),'method'=>'pin_distance'];
+        $data=['branch'=>$v['branch'],'branch_latitude'=>$policy['latitude'],'branch_longitude'=>$policy['longitude'],'latitude'=>$lat,'longitude'=>$lng,'distance_meters'=>$meters,'distance_km'=>number_format($meters/1000,3,'.',''),'km_price'=>$policy['km_price'],'delivery_fee'=>Money::decimal($fee),'method'=>$road?$road['method']:'pin_distance'];
+        if($road)$data['route_path']=$road['path'];
         $data['delivery_quote_hash']=PosServiceTicket::fingerprint($data);return ['success'=>true,'delivery'=>$data];
     }
 }

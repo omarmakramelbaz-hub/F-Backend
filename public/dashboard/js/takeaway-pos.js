@@ -548,7 +548,7 @@
                     var response = await post(urls[kind], operationPayload, writeController.signal); var result = await read(response, 'register_error');
                     if (disposed || operationBranch !== branch) return;
                     if (!result.branch || result.branch.value !== operationBranch || !result.register || result.register.branch !== operationBranch
-                        || minor(result.register.balance) === null || typeof result.replayed !== 'boolean'
+                        || typeof result.replayed !== 'boolean'
                         || !Number.isSafeInteger(Number(result.register.revision)) || Number(result.register.revision) <= Number(operationRegister.revision)) throw new Error(label('uncertain_sale'));
                     try {
                         updateRegister(result.register); root.querySelector('[data-pos-modal-close]').disabled = false; closeModal(true);

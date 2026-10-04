@@ -27,6 +27,7 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
         Route::post('tables', [DineInController::class, 'tableSave'])->name('table-save');
         Route::post('settings', [DineInController::class, 'settings'])->name('settings');
     });
+    Route::post('admin/phone-orders/address-suggestions',[PhoneOrdersController::class,'addressSuggestions'])->middleware('throttle:40,1')->name('phone-orders.address-suggestions');
     Route::get('admin/phone-orders/delivery-settings',[PhoneOrdersController::class,'deliverySettings'])->name('phone-orders.delivery-settings');
     Route::post('admin/phone-orders/delivery-quote',[PhoneOrdersController::class,'deliveryQuote'])->name('phone-orders.delivery-quote');
     Route::get('admin/phone-orders/customers', [PhoneOrdersController::class, 'customers'])->name('phone-orders.customers');

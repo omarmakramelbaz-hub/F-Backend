@@ -26,7 +26,7 @@ class BranchShiftClosing
     public function data(array $values,$actor): array
     {
         $v=Validator::make($values,['branch'=>'required|string|max:40'])->validate();$branch=$this->branch($v['branch'],$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
-        $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','channels','sales_total','delivery_total','expenses_total','net_sales','pending_expenses','unsettled_app_cash']));
+        $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','pending_expenses','unsettled_app_cash']));
         $history=DB::table('branch_shift_closings')->where('branch',$branch['value'])->orderByDesc('sequence')->limit(30)->get()->map(fn($r)=>$this->stub($r))->all();
         return ['success'=>true,'previous_closing_id'=>$last?(int)$last->id:0,'review_token'=>$this->token($built),'report'=>$visible,'history'=>$history];
     }

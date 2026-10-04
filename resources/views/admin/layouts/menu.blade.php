@@ -40,9 +40,6 @@
             <ul class="nav nav-pills nav-sidebar flex-column" data-dashboard-navigation data-widget="treeview" role="menu" style="padding:0px"
                 data-accordion="true">
 
-                @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
-                <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
-                @endif
                 <!-- الصفحة الرئيسيه -->
                 <li class="nav-item">
                     <a href="{{ url('/admin/dashboard') }}"
@@ -64,14 +61,15 @@
                 {{-- @if(session()->get('menu') == 'application') --}}
                 @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
                     <li class="nav-item">
-                        <a href="{{ route('branch-orders.index') }}" class="nav-link {{ request()->is('admin/branch-orders') ? 'active' : '' }}">
-                            <i class="nav-icon fas fa-store"></i><p>{{ __('branch_orders.title') }}</p>
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-shopping-bag"></i>
                             <p>{{ __('takeaway.title') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ route('phone-orders.index') }}" class="nav-link {{ request()->is('admin/phone-orders*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-phone-alt"></i>
+                            <p>{{ __('phone_orders.saved_orders') }}</p>
                         </a>
                     </li>
                     <li class="nav-item">
@@ -80,22 +78,25 @@
                             <p>{{ __('dining.title') }}</p>
                         </a>
                     </li>
-                    @foreach(['customers'=>'قائمة العملاء','delivery-companies'=>'شركات الدليفري','employees'=>'الموظفون والرواتب'] as $module=>$title)
-                    @if($module!=='employees'||in_array(auth('admin')->user()->account_type,['admin','vendor','resturant_owner']))
-                    <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='employees'?'fa-user-clock':($module==='customers'?'fa-address-book':'fa-shipping-fast') }}"></i><p>{{ $title }}</p></a></li>
-                    @endif
-                    @endforeach
-                    <li class="nav-item">
-                        <a href="{{ route('phone-orders.index') }}" class="nav-link {{ request()->is('admin/phone-orders*') ? 'active' : '' }}">
-                            <i class="nav-icon fas fa-phone-alt"></i>
-                            <p>{{ __('phone_orders.title') }}</p>
-                        </a>
-                    </li>
                     <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}</p></a></li>
                     @if(count(app(\App\Services\Dashboard\BranchShiftClosing::class)->branches(auth('admin')->user())))
                     <li class="nav-item"><a href="{{ route('branch-shifts.index') }}" class="nav-link {{ request()->is('admin/branch-shifts*') ? 'active' : '' }}"><i class="nav-icon fas fa-cash-register"></i><p>تقفيل الوردية</p></a></li>
                     @endif
+                    @if(in_array(auth('admin')->user()->account_type,['admin','vendor','resturant_owner']))
+                    <li class="nav-item"><a href="{{ route('employees.index') }}" class="nav-link {{ request()->is('admin/employees*')?'active':'' }}"><i class="nav-icon fas fa-user-clock"></i><p>الموظفون والرواتب</p></a></li>
+                    @endif
+                    <li class="nav-item">
+                        <a href="{{ route('branch-orders.index') }}" class="nav-link {{ request()->is('admin/branch-orders') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-store"></i><p>{{ __('branch_orders.title') }}</p>
+                        </a>
+                    </li>
+                    @foreach(['delivery-companies'=>'شركات الدليفري','customers'=>'قائمة العملاء'] as $module=>$title)
+                    <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='customers'?'fa-address-book':'fa-shipping-fast' }}"></i><p>{{ $title }}</p></a></li>
+                    @endforeach
                     <li class="nav-item"><a href="{{ route('print-settings.index') }}" class="nav-link {{ request()->is('admin/print-settings*') ? 'active' : '' }}"><i class="nav-icon fas fa-print"></i><p>{{ __('printing.title') }}</p></a></li>
+                @endif
+                @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
+                <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
                 @endif
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
