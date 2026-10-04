@@ -74,6 +74,9 @@ php -l app/Http/Controllers/Dashboard/PhoneOrdersController.php
 php -l app/Http/Controllers/Dashboard/BranchOrdersController.php
 php -l app/Services/Dashboard/PosServiceTicket.php
 php -l app/Services/Dashboard/PosServiceTable.php
+php -l app/Services/Dashboard/BranchExpenses.php
+php -l app/Http/Controllers/Dashboard/BranchExpensesController.php
+php -l app/Http/Controllers/Dashboard/PrintSettingsController.php
 php -l app/Services/Dashboard/PosServicePhone.php
 php -l app/Services/Dashboard/PosBranchPrinting.php
 php -l app/Services/Dashboard/TakeawayAccess.php
@@ -86,6 +89,7 @@ php artisan migrate --force --path=database/migrations/2026_10_03_060000_create_
 php artisan migrate --force --path=database/migrations/2026_10_03_140000_create_takeaway_pos.php
 php artisan migrate --force --path=database/migrations/2026_10_03_150000_create_pos_service_tickets.php
 php artisan migrate --force --path=database/migrations/2026_10_04_000001_create_pos_branch_print_jobs.php
+php artisan migrate --force --path=database/migrations/2026_10_04_030000_create_branch_expenses.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
 php artisan route:clear
@@ -110,9 +114,11 @@ test -s public/dashboard/css/phone-orders.css
 test -s public/dashboard/css/branch-orders.css
 test -s public/dashboard/branding/fasakhansta-logo-transparent.png
 php artisan order-board:advance --help >/dev/null
+test -s public/dashboard/js/branch-expenses.js
+test -s public/dashboard/js/print-settings.js
 php deployment/check_dashboard_runtime.php
 trap - ERR
 echo "ORDER BOARD READY: $release_sha"
 echo "Previous code snapshot: $backup_name"
-# Only additive clock/POS/service-ticket migrations are installed; no historical order backfill,
+# Only additive clock/POS/service-ticket/expense migrations are installed; no historical order backfill,
 # payment settings changes, customer releases, or destructive schema rollback.

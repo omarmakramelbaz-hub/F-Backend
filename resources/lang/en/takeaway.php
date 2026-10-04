@@ -1,5 +1,6 @@
 <?php
 return [
+ 'entry_expense'=>'Branch expense','entry_expense_refund'=>'Expense reversal',
     'title' => 'Takeaway orders', 'subtitle' => 'Direct sales from the branch menu', 'branch' => 'Branch',
     'select_branch' => 'Choose a branch', 'cashier' => 'Cashier', 'daily_invoices' => 'Today’s invoices',
     'cash_register' => 'Cash register', 'register_balance' => 'Register balance', 'currency' => 'EGP',

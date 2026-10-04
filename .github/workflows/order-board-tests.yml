@@ -31,6 +31,19 @@ on:
       - 'resources/lang/*/dashboard_push.php'
       - 'routes/takeaway.php'
       - 'routes/pos_service.php'
+      - 'routes/branch_expenses.php'
+      - 'app/Http/Controllers/Dashboard/BranchExpensesController.php'
+      - 'app/Http/Controllers/Dashboard/PrintSettingsController.php'
+      - 'resources/views/admin/expenses/**'
+      - 'resources/views/admin/print_settings/**'
+      - 'resources/lang/*/expenses.php'
+      - 'resources/lang/*/printing.php'
+      - 'public/dashboard/*printing.cmd'
+      - 'public/dashboard/js/branch-expenses.js'
+      - 'public/dashboard/js/print-settings.js'
+      - 'public/dashboard/css/branch-expenses.css'
+      - 'database/migrations/*branch_expenses*'
+      - 'tests/Feature/DashboardBranchExpensesTest.php'
       - 'app/Http/Controllers/Dashboard/*PosService*.php'
       - 'app/Http/Controllers/Dashboard/DineInController.php'
       - 'app/Http/Controllers/Dashboard/PhoneOrdersController.php'
@@ -109,7 +122,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify application orders and branch isolation
-        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification'
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses'
       - name: Verify compiled templates and JavaScript
         run: |
           php artisan view:cache
@@ -124,6 +137,8 @@ jobs:
           node --check public/dashboard/js/dining-pos.js
           node --check public/dashboard/js/phone-orders.js
           node --check public/dashboard/js/branch-print-receiver.js
+          node --check public/dashboard/js/branch-expenses.js
+          node --check public/dashboard/js/print-settings.js
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh
@@ -164,4 +179,4 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
-        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService'
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses'

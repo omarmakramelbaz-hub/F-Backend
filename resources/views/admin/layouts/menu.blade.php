@@ -86,6 +86,8 @@
                             <p>{{ __('phone_orders.title') }}</p>
                         </a>
                     </li>
+                    <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}</p></a></li>
+                    <li class="nav-item"><a href="{{ route('print-settings.index') }}" class="nav-link {{ request()->is('admin/print-settings*') ? 'active' : '' }}"><i class="nav-icon fas fa-print"></i><p>{{ __('printing.title') }}</p></a></li>
                 @endif
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))

@@ -30,6 +30,8 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
+    'branch_expenses'=>['branch','amount_cents','status','revision','attachment_path'],
+    'branch_expense_commands'=>['branch','actor_id','request_key','request_hash','expense_id','snapshot'],
     'pos_branch_print_jobs'=>['branch','ticket_id','kitchen_id','status','claim_token','claimed_by'],
     'pos_service_settings'=>['branch', 'service_bps', 'revision'],
     'pos_service_tables'=>['branch', 'name', 'capacity', 'active_ticket_id', 'revision'],
@@ -44,7 +46,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);

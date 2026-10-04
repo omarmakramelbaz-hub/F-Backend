@@ -8,7 +8,7 @@
     var urls = boot.urls || {}, branchSelect = root.querySelector('[data-phone-branch]'), branch = branchSelect.value;
     var products = new Map(), cart = [], editing = null, quote = null, policy = boot.policy || {}, permissions = boot.permissions || {};
     var category = '', catalogPage = 1, pagination = {}, orderStage = 'new', orderPage = 1, orderPagination = {}, view = 'compose';
-    var step = 'number', receiverTimer, lastIncoming = null;
+    var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
     var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
     var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, mode = 'piece', listeners = [], modal = root.querySelector('[data-phone-modal]');
@@ -24,6 +24,7 @@
         receiverTimer = setTimeout(pollReceiver, 4000);
     }
     function flow(next, focus) {
+        root.querySelector(next === 'number' ? '[data-phone-number-matches]' : '[data-phone-detail-matches]').appendChild(root.querySelector('[data-phone-lookup-result]'));
         step = next; ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
         root.querySelector('[data-phone-step-label]').textContent = text('step_' + next);
         root.querySelector('[data-phone-selected-branch]').textContent = branchSelect.selectedOptions[0] && branchSelect.selectedOptions[0].textContent || '';
@@ -31,11 +32,12 @@
         if (focus !== false && view === 'compose') (next === 'number' ? fields.customer_phone : next === 'details' ? fields.customer_name : root.querySelector('[data-phone-search]')).focus();
         lock();
     }
+    function inputPhoneDigits() { return fields.customer_phone.value.replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[^0-9]/g, ''); }
     function nextNumber() {
         if (locked() || !canWrite()) return;
         fields.customer_phone.value = fields.customer_phone.value.replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).trim();
         if (!/^\+?[0-9 ()-]{6,30}$/.test(fields.customer_phone.value)) { notify(text('required_customer')); fields.customer_phone.focus(); return; }
-        flow('details'); lookupCustomer();
+        clearTimeout(customerTimer); flow('details'); lookupCustomer(false);
     }
     function nextDetails() {
         if (locked() || !canWrite()) return;
@@ -199,20 +201,28 @@
         view = target; root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); if (target === 'orders' && branch) loadOrders(1); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
     }
     function changeBranch() {
-        var selected = branchSelect.value; if (selected === branch) return;
+        var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
         var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
         branch = selected; catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = {}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; }); dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
         var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch) { loadCatalog(1); if (view === 'orders') loadOrders(1); }
     }
-    async function lookupCustomer() {
+    async function lookupCustomer(prefix) {
         if (!branch || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
         var generation = ++customerGeneration, controller = begin('customer'), phone = fields.customer_phone.value.trim(), requestedBranch = branch;
         var resultBox = root.querySelector('[data-phone-lookup-result]'); resultBox.hidden = false; resultBox.textContent = text('loading');
         try {
-            var response = await get(urls.customers, { branch: branch, phone: phone }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
+            var response = await get(urls.customers, { branch: branch, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
             var matches = result.matches || result.customers || result.items || []; resultBox.replaceChildren(); if (!matches.length) { resultBox.textContent = text('lookup_empty'); return; }
-            resultBox.appendChild(element('p', '', text('lookup_found'))); matches.forEach(function (customer) { var button = element('button', '', customer.name + ' · ' + customer.address); button.type = 'button'; button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return; fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || ''; resultBox.hidden = true; changed(false); }); resultBox.appendChild(button); });
+            suggestionIndex = -1; resultBox.appendChild(element('p', '', text('lookup_found'))); matches.forEach(function (customer, index) {
+                var button = element('button'); button.type = 'button'; button.dataset.phoneSuggestion = String(index);
+                button.appendChild(element('bdi', '', customer.phone)); button.appendChild(element('strong', '', customer.name)); button.appendChild(element('small', '', customer.address || text('address_placeholder')));
+                button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return;
+                    clearTimeout(customerTimer); customerGeneration++; abort('customer'); fields.customer_phone.value = customer.phone || phone;
+                    fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || '';
+                    resultBox.hidden = true; changed(false); flow('details');
+                }); resultBox.appendChild(button);
+            });
         } catch (error) { if (disposed || generation !== customerGeneration || error.name === 'AbortError') return; resultBox.textContent = error.message || text('lookup_error'); }
     }
     function validTicket(ticket, id, summary) {
@@ -383,7 +393,16 @@
         if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
         if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
-    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if (key === 'customer_phone') { customerGeneration++; abort('customer'); root.querySelector('[data-phone-lookup-result]').hidden = true; } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    listen(fields.customer_phone, 'keydown', function (event) {
+        var box = root.querySelector('[data-phone-lookup-result]'), suggestions = box.querySelectorAll('[data-phone-suggestion]');
+        if (event.key === 'Escape') { clearTimeout(customerTimer); customerGeneration++; abort('customer'); box.hidden = true; return; }
+        if (box.hidden || !suggestions.length) return;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault(); suggestionIndex = (suggestionIndex + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length;
+            suggestions.forEach(function (button, index) { button.classList.toggle('is-highlighted', index === suggestionIndex); }); suggestions[suggestionIndex].scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'Enter' && suggestionIndex >= 0) { event.preventDefault(); event.stopPropagation(); suggestions[suggestionIndex].click(); }
+    });
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
@@ -391,7 +410,7 @@
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('[data-phone-branch-slot]').appendChild(branchSelect.closest('.ph-branch'));
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     renderLines(); totals(null); flow('number'); if (branch) loadCatalog(1);

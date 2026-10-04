@@ -17,7 +17,7 @@
     const paths = node => Array.from(node.querySelectorAll('a[href]')).filter(link => !link.getAttribute('href').startsWith('#')).map(link => {
         try { return new URL(link.href, location.href).pathname; } catch (error) { return ''; }
     });
-    const priority = node => paths(node).some(path => /\/admin\/(dashboard|applies-orders|takeaway|dining|phone-orders|branch-orders|go-stores)\/?$/.test(path));
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|print-settings|go-stores)\/?$/.test(path));
     function section(node) {
         const routes = paths(node).join(' ');
         if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';

@@ -44,7 +44,7 @@ class DashboardPosServiceTest extends TestCase
         DB::table('wallets')->insert(['amount'=>'100.00']);DB::table('orders')->insert(['status'=>'accepted']);DB::table('order_board_clocks')->insert(['order_id'=>1]);
     }
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
-    private function dropFixtures(): void{foreach(['pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
+    private function dropFixtures(): void{foreach(['pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','user_address','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function tickets(): PosServiceTicket{return app(PosServiceTicket::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
@@ -276,5 +276,31 @@ class DashboardPosServiceTest extends TestCase
         $table=app(PosServiceTable::class)->configure(['branch'=>'f:100','name'=>'1','capacity'=>4,'active'=>true,'idempotency_key'=>$this->key(1)],$this->actor());
         $this->assertSame('1',$table['table']['name']);
         $this->denied(fn()=>app(PosServiceTable::class)->configure(['branch'=>'f:100','service_rate'=>'5.00','note'=>'x','expected_revision'=>1,'idempotency_key'=>$this->key(2)],$this->actor(),true),403);
+    }
+
+    public function test_phone_prefix_suggests_normalized_numbers_without_leaking_other_branches(): void
+    {
+        $this->saved('phone');
+        foreach(['0101','٠١٠١','+20101','20101','0020101'] as $phone){
+            $items=app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>$phone,'prefix'=>true],$this->actor())['items'];
+            $this->assertCount(1,$items);$this->assertSame('Customer',$items[0]['name']);$this->assertSame('Door 2',$items[0]['delivery_notes']);
+        }
+        $this->assertCount(0,app(PosServicePhone::class)->customers(['branch'=>'f:101','phone'=>'010','prefix'=>true],$this->actor(11))['items']);
+        $this->assertCount(1,app(PosServicePhone::class)->customers(['branch'=>'f:101','phone'=>'010','prefix'=>true],$this->actor(1))['items']);
+        $this->denied(fn()=>app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>'01','prefix'=>true],$this->actor()),422);
+    }
+    public function test_registered_app_customer_addresses_are_found_with_branch_history_scope(): void
+    {
+        Schema::table('users',function(Blueprint $t){$t->string('mobile')->nullable();});
+        Schema::table('orders',function(Blueprint $t){$t->unsignedBigInteger('resturant_id')->nullable();$t->unsignedBigInteger('user_id')->nullable();});
+        Schema::create('user_address',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');foreach(['street_name','area_name','floor_no','apartment_no','badge'] as $c)$t->string($c)->nullable();});
+        DB::table('users')->where('id',20)->update(['mobile'=>'+20 10644 64499']);
+        DB::table('user_address')->insert(['user_id'=>20,'street_name'=>'Test Street','area_name'=>'Mansoura','floor_no'=>'2','apartment_no'=>'4','badge'=>'Near school']);
+        $service=app(PosServicePhone::class);$v=['branch'=>'f:100','phone'=>'010644','prefix'=>true];
+        $items=$service->customers($v,$this->actor(1))['items'];$this->assertCount(1,$items);$this->assertStringContainsString('Test Street',$items[0]['address']);$this->assertSame('Mansoura',$items[0]['area']);$this->assertSame('Near school',$items[0]['delivery_notes']);
+        $this->assertCount(0,$service->customers($v,$this->actor())['items']);
+        DB::table('orders')->insert(['status'=>'finished','resturant_id'=>100,'user_id'=>20]);
+        $this->assertCount(1,$service->customers($v,$this->actor())['items']);
+        $this->assertCount(0,$service->customers(['branch'=>'f:101']+$v,$this->actor(11))['items']);
     }
 }

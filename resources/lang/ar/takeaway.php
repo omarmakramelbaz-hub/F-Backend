@@ -1,5 +1,6 @@
 <?php
 return [
+ 'entry_expense'=>'مصروف فرع','entry_expense_refund'=>'عكس مصروف',
     'title' => 'طلبات التيك أواي', 'subtitle' => 'بيع مباشر من مينيو الفرع', 'branch' => 'الفرع',
     'select_branch' => 'اختر الفرع', 'cashier' => 'كاشير', 'daily_invoices' => 'فواتير اليوم',
     'cash_register' => 'درج الكاشير', 'register_balance' => 'رصيد الدرج', 'currency' => 'جنيه',

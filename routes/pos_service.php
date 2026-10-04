@@ -31,3 +31,5 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
     Route::post('admin/phone-orders/print-jobs/claim', [PhoneOrdersController::class, 'printClaim'])->name('phone-orders.print-claim');
     Route::post('admin/phone-orders/print-jobs/complete', [PhoneOrdersController::class, 'printComplete'])->name('phone-orders.print-complete');
 });
+
+require __DIR__.'/branch_expenses.php';

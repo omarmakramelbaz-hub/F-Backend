@@ -25,6 +25,7 @@
                 <a href="{{ route('dining.index', ['branch'=>$branch['value']]) }}"><i class="fas fa-chair" aria-hidden="true"></i>{{ __('dining.title') }}</a>
                 <a href="{{ route('phone-orders.index', ['branch'=>$branch['value']]) }}"><i class="fas fa-phone-alt" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</a>
                 <a href="{{ route('phone-orders.index', ['branch'=>$branch['value'], 'view'=>'orders']) }}"><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</a>
+                <a href="{{ route('branch-expenses.index', ['branch'=>$branch['value']]) }}"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i>{{ __('expenses.title') }}</a>
             </nav>
         </article>
     @endforeach
