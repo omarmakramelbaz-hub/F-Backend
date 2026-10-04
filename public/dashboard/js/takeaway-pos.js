@@ -422,6 +422,7 @@
         var savedRow = root.querySelector('[data-pos-saved]'); savedRow.hidden = !sold;
         if (!sold || !lastReceipt) return;
         savedRow.querySelector('span').textContent = label('sale_saved') + (lastReceipt.number ? ' #' + lastReceipt.number : '') + ' · ' + label(lastReceipt.payment_method === 'mobile_wallet' ? 'wallet' : lastReceipt.payment_method) + (lastReceipt.payment_method === 'cash' ? ' · ' + label('change') + ': ' + money(lastReceipt.change) : '');
+        root.querySelector('[data-pos-details]').hidden = !lastReceipt.details_url;
         var link = root.querySelector('[data-pos-reprint]'); link.hidden = !lastReceipt.receipt_url; if (lastReceipt.receipt_url) link.href = endpoint(lastReceipt.receipt_url);
     }
     function saved(result) {
@@ -500,7 +501,7 @@
     }
     function receiptTable(items, content) {
         var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
-        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
+        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', '', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(item.details_url); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
     }
     async function daily(page) {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
@@ -594,6 +595,7 @@
     if (window.jQuery) window.jQuery(branchSelect).on('change.takeawayPos', changeBranch);
     listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
+    listen(root.querySelector('[data-pos-details]'), 'click', function () { if (lastReceipt && lastReceipt.details_url) window.DashboardInvoiceDetails.open(lastReceipt.details_url); });
     listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); printReceipt(event.currentTarget.href); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
     listen(document, 'keydown', function (event) {

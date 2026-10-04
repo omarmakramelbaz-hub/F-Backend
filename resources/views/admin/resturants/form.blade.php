@@ -310,11 +310,19 @@
 @push('custom-js')
 <script>
     var map, marker, geocoder, infowindow;
+    window.gm_authFailure = function () {
+        var container = document.getElementById('mapid');
+        if (!container || document.getElementById('dashboard-map-error')) return;
+        var notice = document.createElement('p'); notice.id = 'dashboard-map-error'; notice.className = 'alert alert-warning'; notice.setAttribute('role', 'alert');
+        notice.textContent = @json(__('dashboard_maps.unavailable'));
+        container.before(notice);
+    };
 
     // Initialize the map with a default location
     function initialize() {
-        var defaultLat = $("#lat").val() || 24.701925; // Default Latitude
-        var defaultLng = $('#lng').val() || 46.675415; // Default Longitude
+        if (!document.getElementById('mapid')) return;
+        var defaultLat = $("#lat").val() || 30.0444; // Default Latitude
+        var defaultLng = $('#lng').val() || 31.2357; // Default Longitude
 
         var e = new google.maps.LatLng(defaultLat, defaultLng); // Default position
         var t = {
@@ -347,6 +355,8 @@
             infowindow.open(map, marker);
             document.getElementById("lat").value = position.lat();
             document.getElementById("lng").value = position.lng();
+            document.getElementById("latInput").value = position.lat();
+            document.getElementById("lngInput").value = position.lng();
         });
         setupAreaMapsOnPageLoad();
     }
@@ -359,11 +369,14 @@
         var lat = parseFloat(document.getElementById('latInput').value);
         var lng = parseFloat(document.getElementById('lngInput').value);
 
-        if (isNaN(lat) || isNaN(lng)) {
-            alert('Please enter valid latitude and longitude.');
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            alert(@json(__('dashboard_maps.invalid_coordinates')));
             return;
         }
 
+        document.getElementById('lat').value = lat;
+        document.getElementById('lng').value = lng;
+        if (!map || !marker || !window.google || !google.maps) return;
         var position = new google.maps.LatLng(lat, lng);
         marker.setPosition(position);
         map.setCenter(position);
@@ -388,8 +401,8 @@
         var container = rowElem.querySelector('.area-map-container');
         if (!container || container.dataset.initialized) return;
         container.dataset.initialized = '1';
-        var baseLat = parseFloat(document.getElementById('lat').value) || 24.701925;
-        var baseLng = parseFloat(document.getElementById('lng').value) || 46.675415;
+        var baseLat = parseFloat(document.getElementById('lat').value) || 30.0444;
+        var baseLng = parseFloat(document.getElementById('lng').value) || 31.2357;
         var position = new google.maps.LatLng(baseLat, baseLng);
         var m = new google.maps.Map(container, { zoom: 12, center: position, mapTypeId: google.maps.MapTypeId.terrain, streetViewControl: false });
         var mk = new google.maps.Marker({ position: position, map: m });
@@ -449,34 +462,11 @@
 </script>
 
 <!-- Load the Google Maps API -->
-<script src="https://maps.googleapis.com/maps/api/js?key={{env('MAP_KEY')}}&language=ar&callback=initialize" async defer></script>
+@if(config('services.maps.browser_key'))
+<script src="https://maps.googleapis.com/maps/api/js?key={{config('services.maps.browser_key')}}&language=ar&callback=initialize" onerror="gm_authFailure()" async defer></script>
+@else
+<script>gm_authFailure();</script>
+@endif
 
-
-<!--<script>-->
-<!--    function initialize() {-->
-<!--    var e = new google.maps.LatLng($("#lat").val(),$('#lng').val()), t = {-->
-<!--      zoom: 12,-->
-<!--      center: e,-->
-<!--      panControl: !0,-->
-<!--      scrollwheel: 1,-->
-<!--      scaleControl: !0,-->
-<!--      overviewMapControl: !0,-->
-<!--      overviewMapControlOptions: {opened: !0},-->
-<!--      mapTypeId: google.maps.MapTypeId.terrain-->
-<!--    };-->
-<!--    map = new google.maps.Map(document.getElementById("mapid"), t), geocoder = new google.maps.Geocoder, marker = new google.maps.Marker({-->
-<!--      position: e,-->
-<!--      map: map-->
-<!--    }), map.streetViewControl = !1, infowindow = new google.maps.InfoWindow({content: "(24.701925,46.675415)"}), google.maps.event.addListener(map, "click", function (e) {-->
-<!--      marker.setPosition(e.latLng);-->
-<!--      var t = e.latLng, o = "(" + t.lat() + ", " + t.lng() + ")";-->
-<!--      infowindow.setContent(o),-->
-<!--      document.getElementById("lat").value = t.lat(),-->
-<!--      document.getElementById("lng").value = t.lng()-->
-<!--    })-->
-<!--  }-->
-
-<!--</script>-->
-<!--<script src="https://maps.googleapis.com/maps/api/js?key={{env('MAP_KEY')}}&language=ar&callback=initialize"></script>-->
 
 @endpush

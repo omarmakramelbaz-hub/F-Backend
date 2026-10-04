@@ -34,7 +34,7 @@
             <label class="tp-payment-reference" data-pos-reference-wrap hidden><span>{{ __('takeaway.payment_reference') }}</span><input data-pos-payment-reference type="text" maxlength="100" autocomplete="off" placeholder="{{ __('takeaway.payment_reference_placeholder') }}"></label>
             </div>
             <button type="button" class="tp-finish" data-pos-finish disabled><i class="fas fa-print" aria-hidden="true"></i><span>{{ __('takeaway.finish_sale') }}</span><kbd>F9</kbd></button>
-            <div class="tp-saved" data-pos-saved hidden><span></span><a data-pos-reprint target="_blank" rel="noopener">{{ __('takeaway.print_invoice') }}</a><button type="button" data-pos-new>{{ __('takeaway.new_invoice') }}</button></div>
+            <div class="tp-saved" data-pos-saved hidden><span></span><a data-pos-reprint target="_blank" rel="noopener">{{ __('takeaway.print_invoice') }}</a><button type="button" data-pos-details>{{ __('takeaway.details') }}</button><button type="button" data-pos-new>{{ __('takeaway.new_invoice') }}</button></div>
         </section>
         <section class="tp-catalog" aria-labelledby="catalog-title">
             <header class="tp-catalog-heading"><h2 id="catalog-title"><i class="fas fa-th-large" aria-hidden="true"></i>{{ __('takeaway.products') }}</h2><label class="tp-search"><span class="tp-sr-only">{{ __('takeaway.search') }}</span><i class="fas fa-search" aria-hidden="true"></i><input data-pos-search type="search" placeholder="{{ __('takeaway.search') }}" autocomplete="off"></label></header>

@@ -17,6 +17,7 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
             Route::get('tickets/{id}', [$controller, 'show'])->whereNumber('id')->name('show');
             Route::post('tickets/{id}/action', [$controller, 'action'])->whereNumber('id')->name('action');
             Route::post('tickets/{id}/settle', [$controller, 'settle'])->whereNumber('id')->name('settle');
+            Route::get('tickets/{id}/details', [$controller, 'details'])->whereNumber('id')->name('details');
             Route::get('tickets/{id}/print', [$controller, 'print'])->whereNumber('id')->name('print');
             Route::get('kitchen/{id}/print', [$controller, 'kitchen'])->whereNumber('id')->name('kitchen');
         });

@@ -1,4 +1,5 @@
 @php
+    $preview = $preview ?? false;
     $rtl = app()->getLocale() === 'ar';
     $channel = $receipt['channel'] ?? 'takeaway';
     $context = $receipt['context'] ?? [];
@@ -12,7 +13,7 @@
     $paymentLabel = ['cash'=>__('takeaway.cash'), 'card'=>__('takeaway.card'), 'mobile_wallet'=>__('takeaway.wallet'), 'other'=>__('takeaway.other'), 'mixed'=>__('pos_service.mixed'), 'unpaid'=>__('pos_service.unpaid')][$receipt['payment_method']] ?? $receipt['payment_method'];
 @endphp
 <!doctype html>
-<html lang="{{ app()->getLocale() }}" dir="{{ $rtl ? 'rtl' : 'ltr' }}" data-dashboard-receipt="{{ $receipt['print_marker'] ?? 'takeaway' }}">
+<html lang="{{ app()->getLocale() }}" dir="{{ $rtl ? 'rtl' : 'ltr' }}" @if($preview) data-dashboard-invoice-details="1" @else data-dashboard-receipt="{{ $receipt['print_marker'] ?? 'takeaway' }}" @endif>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ __('takeaway.current_invoice') }} {{ $receipt['number'] }}</title>
@@ -22,6 +23,7 @@
 </style>
 </head><body>
 <main class="receipt">
+@if($preview)<h2>{{ __('pos_service.details') }}</h2>@endif
 <header class="heading"><img class="logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="1254" height="1254"><h2>{{ $receipt['branch']['name'] }}</h2>@if(!empty($receipt['branch']['address']))<p>{{ $receipt['branch']['address'] }}</p>@endif @if(!empty($receipt['branch']['phone']))<p><bdi class="number">{{ $receipt['branch']['phone'] }}</bdi></p>@endif<h1>{{ $unpaid ? __('pos_service.unpaid_bill') : __('takeaway.invoice_number') }} <bdi>{{ $receipt['number'] }}</bdi></h1>@if($cancelled)<p><strong>{{ __('pos_service.cancelled') }}</strong></p>@endif</header>
 <dl class="information"><div><dt>{{ __('takeaway.date') }}</dt><dd><bdi>{{ \Carbon\Carbon::parse($receipt['created_at'])->timezone('Africa/Cairo')->format('d/m/Y H:i') }}</bdi></dd></div><div><dt>{{ __('takeaway.cashier') }}</dt><dd>{{ $receipt['cashier']['name'] }}</dd></div>@if($channel !== 'takeaway')@include('admin.pos_service.context')@endif<div><dt>{{ __('takeaway.payment_method') }}</dt><dd>{{ $paymentLabel }}</dd></div>@if(!empty($receipt['payment_reference']))<div class="full-width"><dt>{{ __('takeaway.payment_reference') }}</dt><dd>{{ $receipt['payment_reference'] }}</dd></div>@endif</dl>
 <table><colgroup><col class="item-col"><col class="quantity-col"><col class="price-col"><col class="amount-col"></colgroup><thead><tr><th>{{ __('takeaway.item') }}</th><th class="item-quantity">{{ __('takeaway.quantity') }}</th><th class="item-price">{{ __('takeaway.price') }}</th><th class="item-total">{{ __('takeaway.line_total') }}</th></tr></thead><tbody>@foreach($receipt['items'] as $item)<tr><td class="item-name">{{ $item['name'] }}@if(!empty($item['option_label']))<span class="item-option">{{ $item['option_label'] }}</span>@endif</td><td class="item-quantity"><bdi class="number">{{ $item['quantity_mode'] === 'piece' ? explode('.', (string)$item['quantity'])[0] : $item['quantity'] }}</bdi><span class="item-unit">{{ __('takeaway.'.($item['quantity_mode'] === 'weight' ? 'kg' : 'piece')) }}</span></td><td class="item-price"><bdi class="number">{{ $money($item['unit_price']) }}</bdi></td><td class="item-total"><bdi class="number">{{ $money($item['total']) }}</bdi></td></tr>@endforeach</tbody></table>
@@ -31,7 +33,7 @@
 @endif
 @if(in_array($receipt['payment_method'], ['cash', 'mixed'], true))<div class="summary-row"><span>{{ __('takeaway.cash_received') }}</span><span><bdi>{{ $money($receipt['cash_received']) }}</bdi> {{ __('takeaway.currency') }}</span></div><div class="summary-row"><span>{{ __('takeaway.change') }}</span><span><bdi>{{ $money($receipt['change']) }}</bdi> {{ __('takeaway.currency') }}</span></div>@endif</div>
 @if(!empty($receipt['discount_reason']))<div class="notes"><strong>{{ __('takeaway.discount_reason') }}</strong>{{ $receipt['discount_reason'] }}</div>@endif
-@if(!empty($receipt['notes']))<div class="notes"><strong>{{ __('takeaway.order_notes') }}</strong>{{ $receipt['notes'] }}</div>@endif<p class="footer">{{ $channelTitle }}@if($unpaid) · {{ __('pos_service.unpaid') }}@endif</p><div class="controls"><button type="button" onclick="window.print()">{{ __('takeaway.print_invoice') }}</button></div>
+@if(!empty($receipt['notes']))<div class="notes"><strong>{{ __('takeaway.order_notes') }}</strong>{{ $receipt['notes'] }}</div>@endif<p class="footer">{{ $channelTitle }}@if($unpaid) · {{ __('pos_service.unpaid') }}@endif</p>@if(!$preview)<div class="controls"><button type="button" onclick="window.print()">{{ __('takeaway.print_invoice') }}</button></div>@endif
 </main>
-@if(!request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
+@if(!$preview && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body></html>

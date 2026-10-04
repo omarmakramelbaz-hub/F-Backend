@@ -51,4 +51,6 @@ return [
     'incoming'=>'New branch order received',
     'callcenter_print'=>'Printed by the receiving branch device',
     'printer_setup'=>'Start direct printing',
+    'details' => 'Invoice details',
+    'bill_locked' => 'Bill issued — collection only',
 ];

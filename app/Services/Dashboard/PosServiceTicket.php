@@ -69,6 +69,7 @@ class PosServiceTicket
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
             $existing=!empty($v['ticket_id']);$row=$existing?$this->locked($channel,(int)$v['ticket_id'],$v['branch']):null;$table=null;
             if($row){$this->mutable($row);abort_unless(isset($v['expected_revision'])&&(int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');}
+            if($row&&$row->last_kitchen_id)abort_unless(count($v['items'])>0,409,'لا يمكن تفريغ فاتورة أُرسلت للمطبخ.');
             if($channel==='dine'){
                 $tableId=$row?(int)$row->table_id:(int)($v['table_id']??0);$table=DB::table('pos_service_tables')->where('branch',$v['branch'])->where('id',$tableId)->lockForUpdate()->first();
                 abort_unless($table&&$table->active,422,'اختر طاولة فعلية متاحة.');
@@ -103,7 +104,7 @@ class PosServiceTicket
     }
     public function action(string $channel,int $id,array $values,$actor): array
     {
-        $allowed=$channel==='dine'?'send_kitchen,request_bill,cancel':'send_kitchen,prepare,dispatch,finish,cancel';
+        $allowed=$channel==='dine'?'send_kitchen,request_bill,cancel':'send_kitchen,request_bill,prepare,dispatch,finish,cancel';
         $v=Validator::make($values,$this->commandRules()+['expected_revision'=>'required|integer|min:1','action'=>'required|in:'.$allowed,'reason'=>'nullable|string|max:500'])->validate();
         if($v['action']==='cancel'&&trim($v['reason']??'')==='')throw ValidationException::withMessages(['reason'=>'اكتب سبب الإلغاء.']);
         $hash=self::fingerprint([$channel,$id,'action',$v]);$this->tables->requireReady();
@@ -113,9 +114,13 @@ class PosServiceTicket
             $row=$this->locked($channel,$id,$v['branch']);$this->mutable($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
             $cart=json_decode($row->cart_snapshot,true);if($v['action']!=='cancel')abort_unless(count($cart['items']),422,'الفاتورة فارغة.');
             $status=$row->status;$revision=(int)$row->revision+1;$when=now('UTC');$changes=['revision'=>$revision,'updated_at'=>$when];$meta=[];
-            if($v['action']==='cancel'){$status='cancelled';$changes['cancel_reason']=trim($v['reason']);}
+            if($v['action']==='cancel'){abort_unless(!$row->last_kitchen_id,409,'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');$status='cancelled';$changes['cancel_reason']=trim($v['reason']);}
             elseif($v['action']==='send_kitchen'){$status=$channel==='dine'?'preparing':($row->status==='new'?'preparing':$row->status);}
-            elseif($v['action']==='request_bill')$status='awaiting_bill';
+            elseif($v['action']==='request_bill'){
+                if($channel==='dine')$status='awaiting_bill';
+                $changes+=['bill_issued_at'=>$when,'bill_issued_by'=>$actor->id,'bill_issued_revision'=>$revision];
+                $meta['bill_issued']=true;
+            }
             else{
                 $from=['prepare'=>['new'],'dispatch'=>['new','preparing'],'finish'=>['out_for_delivery']];
                 abort_unless(in_array($row->status,$from[$v['action']],true),409,'المرحلة غير متاحة.');$status=['prepare'=>'preparing','dispatch'=>'out_for_delivery','finish'=>'finished'][$v['action']];
@@ -140,7 +145,7 @@ class PosServiceTicket
         return DB::transaction(function()use($channel,$id,$v,$actor,$hash){
             $actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
-            $row=$this->locked($channel,$id,$v['branch']);$this->mutable($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
+            $row=$this->locked($channel,$id,$v['branch']);$this->collectible($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
             $q=json_decode($row->quote_snapshot,true);abort_unless(!empty($q['quote_hash'])&&hash_equals($q['quote_hash'],$v['quote_hash']),409,'راجع الفاتورة المحفوظة.');
             $cart=json_decode($row->cart_snapshot,true);$snapshot=$this->contextSnapshot($row);$context=['channel'=>$channel,'ticket_id'=>$id,'saved_quote'=>$q,
                 'branch_snapshot'=>$q['branch'],'snapshot'=>$snapshot];
@@ -172,6 +177,10 @@ class PosServiceTicket
             'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'',
             'delivery_fee'=>Money::decimal((int)$row->delivery_cents),'notes'=>$row->notes??'','cancel_reason'=>$row->cancel_reason??'',
             'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$actor->name??''],
+            'kitchen_sent'=>(bool)$row->last_kitchen_id,'bill_locked'=>$this->billLocked($row),
+            'bill_issued_at'=>!empty($row->bill_issued_at)?$this->iso($row->bill_issued_at):null,'bill_issued_by'=>isset($row->bill_issued_by)?(int)$row->bill_issued_by:null,
+            'bill_issued_revision'=>isset($row->bill_issued_revision)?(int)$row->bill_issued_revision:null,
+            'details_url'=>route($prefix.'.details',['id'=>$row->id]),
             'quote_hash'=>$q['quote_hash']??null,'discount_reason'=>$cart['discount_reason']??'','bill_print_url'=>route($prefix.'.print',['id'=>$row->id]),
             'kitchen_print_url'=>$row->last_kitchen_id?route($prefix.'.kitchen',['id'=>$row->last_kitchen_id]):null,
             'receipt_url'=>$row->paid_order_id?route('takeaway.print',['id'=>$row->paid_order_id]):null];
@@ -203,7 +212,9 @@ class PosServiceTicket
         $hint=$this->row($channel,$id,$branch);if($hint->table_id)DB::table('pos_service_tables')->where('branch',$branch)->where('id',$hint->table_id)->lockForUpdate()->first();
         $row=DB::table('pos_service_tickets')->where('branch',$branch)->where('channel',$channel)->where('id',$id)->lockForUpdate()->first();abort_unless($row,404);return $row;
     }
-    private function mutable(object $row): void {abort_unless($row->payment_status==='unpaid'&&$row->status!=='cancelled',409,'الفاتورة أُغلقت.');}
+    private function billLocked(object $row): bool {return !empty($row->bill_issued_at)||$row->status==='awaiting_bill';}
+    private function mutable(object $row): void {$this->collectible($row);abort_unless(!$this->billLocked($row),409,'صدرت فاتورة الدفع؛ المتاح فقط إنهاء الفاتورة وتحصيل قيمتها.');}
+    private function collectible(object $row): void {abort_unless($row->payment_status==='unpaid'&&$row->status!=='cancelled',409,'الفاتورة أُغلقت.');}
     private function release(object $row,$when): void {if($row->table_id)DB::table('pos_service_tables')->where('branch',$row->branch)->where('id',$row->table_id)->where('active_ticket_id',$row->id)->update(['active_ticket_id'=>null,'revision'=>DB::raw('revision + 1'),'updated_at'=>$when]);}
     private function command(string $branch,int $actor,string $key): ?object {return DB::table('pos_service_commands')->where('branch',$branch)->where('actor_id',$actor)->where('request_key',$key)->first();}
     private function record(array $v,$actor,string $hash,string $kind,int $ticket,int $revision,array $meta=[]): object

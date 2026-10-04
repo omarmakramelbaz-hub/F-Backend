@@ -33,6 +33,10 @@ return [
         'project_id' => 'fasakhaninjatest',
     ],
 
+    'maps' => [
+        'browser_key' => env('MAP_BROWSER_KEY', env('MAP_KEY')),
+    ],
+
     'google' => [
         'client_id' => env(
             'GOOGLE_CLIENT_ID',

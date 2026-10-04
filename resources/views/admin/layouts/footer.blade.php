@@ -1113,6 +1113,7 @@ function openOrFocusWindow(orderId) {
 </script>
 
 <script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @include('admin.pos_service.receiver')
 <script src="{{ asset('dashboard/js/dashboard-inbox.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-inbox.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-support-chat.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-support-chat.js')) }}"></script>

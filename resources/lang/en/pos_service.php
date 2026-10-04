@@ -22,4 +22,6 @@ return [
     'sent_at' => 'Sent at',
     'revision' => 'Order revision',
     'kitchen_copy' => 'Kitchen copy — not a payment receipt',
+    'details' => 'Invoice details',
+    'bill_locked' => 'Bill issued — collection only',
 ];

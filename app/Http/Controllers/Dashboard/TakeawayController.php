@@ -63,6 +63,11 @@ class TakeawayController extends Controller
         return response()->json($service->receipts($values, auth('admin')->user()));
     }
 
+    public function details(int $id, TakeawayService $service)
+    {
+        return view('admin.takeaway.receipt', ['receipt'=>$service->receipt($id, auth('admin')->user()), 'preview'=>true]);
+    }
+
     public function print(int $id, TakeawayService $service)
     {
         return view('admin.takeaway.receipt', ['receipt'=>$service->receipt($id, auth('admin')->user())]);

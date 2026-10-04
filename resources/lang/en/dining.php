@@ -168,4 +168,6 @@ return [
     'start_products' => 'Choose products',
     'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',
     'tables_empty' => 'No tables configured. Use Add table to register this branch’s tables.',
+    'details' => 'Invoice details',
+    'bill_locked' => 'Bill issued — collection only',
 ];

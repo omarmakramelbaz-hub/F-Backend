@@ -73,4 +73,6 @@ return [
     'mixed' => 'Mixed payment', 'channel' => 'Order type', 'takeaway' => 'Takeaway', 'dine' => 'Dine-in', 'phone' => 'Phone order',
     'pending_branch_unavailable' => 'This invoice has an unresolved save for a branch you can no longer access. Its transaction is retained until branch access returns and the result is confirmed.',
     'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',
+    'details' => 'Invoice details',
+    'bill_locked' => 'Bill issued — collection only',
 ];

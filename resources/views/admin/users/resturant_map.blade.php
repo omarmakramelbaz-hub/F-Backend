@@ -32,7 +32,7 @@
 
 @endsection
 @push('custom-js')
-<script src="https://maps.googleapis.com/maps/api/js?key={{env('MAP_KEY')}}&language=ar"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key={{config('services.maps.browser_key')}}&language=ar"></script>
 
     <script type="text/javascript">
 

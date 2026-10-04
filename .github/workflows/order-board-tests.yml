@@ -23,6 +23,10 @@ on:
       - 'app/Http/Controllers/Payment/PaymobController.php'
       - 'app/Http/Controllers/Api/V1/Delegate/DelegateOrderController.php'
       - 'config/dashboard_payments.php'
+      - 'config/services.php'
+      - 'resources/views/admin/resturants/form.blade.php'
+      - 'resources/views/admin/users/*_map.blade.php'
+      - 'resources/lang/*/dashboard_maps.php'
       - 'database/migrations/*order_board_clocks*'
       - 'database/migrations/*takeaway_pos*'
       - 'resources/views/admin/takeaway/**'
@@ -133,6 +137,7 @@ jobs:
           node --check public/dashboard/js/dashboard-inbox.js
           node --check public/dashboard/js/dashboard-support-chat.js
           node --check public/dashboard/js/dashboard-print.js
+          node --check public/dashboard/js/dashboard-invoice-details.js
           node --check public/dashboard/js/takeaway-pos.js
           node --check public/dashboard/js/dining-pos.js
           node --check public/dashboard/js/phone-orders.js

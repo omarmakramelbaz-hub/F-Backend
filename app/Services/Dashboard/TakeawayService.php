@@ -364,7 +364,7 @@ class TakeawayService
             'delivery'=>Money::decimal((int)($row->delivery_cents??0)), 'channel'=>$row->channel??'takeaway','ticket_id'=>isset($row->ticket_id)?(int)$row->ticket_id:null,
             'context'=>json_decode($row->context_snapshot??'[]',true)?:[],
             'payment_breakdown'=>array_map(fn($t)=>['method'=>$t['method'],'amount'=>Money::decimal((int)$t['amount_cents']),'confirmed'=>(bool)$t['confirmed'],'reference'=>$t['reference']??''],json_decode($row->tenders_snapshot??'[]',true)?:[]),
-            'status'=>'completed', 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
+            'status'=>'completed', 'details_url'=>route('takeaway.details', ['id'=>$row->id]), 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
         foreach (['subtotal','discount','tax','total','cash_received','change'] as $name) $receipt[$name] = Money::decimal((int) $row->{$name.'_cents'});
         return $receipt;
     }

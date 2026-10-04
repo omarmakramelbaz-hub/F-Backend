@@ -13,7 +13,7 @@ class PosServiceTable
 {
     private TakeawayAccess $access;
     public function __construct(TakeawayAccess $access){$this->access=$access;}
-    public function ready(): bool {return $this->access->ready()&&Schema::hasTable('pos_service_tickets')&&Schema::hasTable('pos_service_commands')&&Schema::hasTable('pos_service_settings')
+    public function ready(): bool {return $this->access->ready()&&Schema::hasColumns('pos_service_tickets',['bill_issued_at','bill_issued_by','bill_issued_revision'])&&Schema::hasTable('pos_service_commands')&&Schema::hasTable('pos_service_settings')
         &&Schema::hasTable('pos_service_tables')&&Schema::hasTable('pos_service_kitchen_tickets')&&Schema::hasColumn('takeaway_orders','channel')&&Schema::hasColumn('takeaway_orders','tenders_snapshot');}
     public function requireReady(): void {abort_unless($this->ready(),503,'قنوات الخدمة لم تُجهز بعد.');}
 

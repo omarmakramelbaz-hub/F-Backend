@@ -90,6 +90,7 @@ php artisan migrate --force --path=database/migrations/2026_10_03_140000_create_
 php artisan migrate --force --path=database/migrations/2026_10_03_150000_create_pos_service_tickets.php
 php artisan migrate --force --path=database/migrations/2026_10_04_000001_create_pos_branch_print_jobs.php
 php artisan migrate --force --path=database/migrations/2026_10_04_030000_create_branch_expenses.php
+php artisan migrate --force --path=database/migrations/2026_10_04_060000_lock_pos_service_bills.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
 php artisan route:clear
@@ -104,6 +105,7 @@ test -s public/dashboard/css/dashboard-spa.css
 test -s public/dashboard/js/dashboard-inbox.js
 test -s public/dashboard/js/dashboard-support-chat.js
 test -s public/dashboard/js/dashboard-print.js
+test -s public/dashboard/js/dashboard-invoice-details.js
 test -s public/dashboard/js/takeaway-pos.js
 test -s public/dashboard/css/takeaway-pos.css
 test -s public/dashboard/js/dining-pos.js

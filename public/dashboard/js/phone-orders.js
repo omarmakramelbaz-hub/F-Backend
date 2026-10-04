@@ -106,6 +106,7 @@
         if (branchSelect.selectize) { if (locked()) branchSelect.selectize.disable(); else branchSelect.selectize.enable(); }
         branchSelect.disabled = locked() || !!boot.receiver_branch;
         root.querySelectorAll('[data-phone-product]').forEach(function (button) { button.disabled = button.disabled || step !== 'products' || !canWrite(); });
+        root.querySelectorAll('[data-phone-remove]').forEach(function (control) { control.disabled = control.disabled || !!editing && !!editing.kitchen_sent && cart.length <= 1; });
         saveButton.disabled = step !== 'products' || locked() || !loaded || !cart.length || !quote || !canWrite() || editing && !dirty;
         saveButton.querySelector('span').textContent = text(writing ? 'saving' : editing ? 'save_changes' : 'save_order');
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
@@ -241,21 +242,21 @@
     function ticketActions(ticket, container, details) {
         var paid = ticket.payment_status === 'paid', cancelled = ticket.status === 'cancelled';
         if (!details) container.appendChild(button('details', function () { detailsModal(ticket.id); }));
-        if (ticket.bill_print_url) container.appendChild(button('receipt', function () { print(ticket.receipt_url || ticket.bill_print_url); }));
+        if (ticket.bill_print_url && !cancelled && (canWrite() || paid || ticket.bill_locked)) container.appendChild(button('receipt', function () { if (paid || ticket.bill_locked) print(ticket.receipt_url || ticket.bill_print_url); else action(ticket, 'request_bill'); }));
         if (!canWrite()) return;
-        if (!paid && !cancelled) container.appendChild(button('edit', function () { editTicket(ticket.id); }));
-        if (!paid && !cancelled) {
+        if (!paid && !cancelled && !ticket.bill_locked) container.appendChild(button('edit', function () { editTicket(ticket.id); }));
+        if (!paid && !cancelled) container.appendChild(button('collect', function () { settlement(ticket.id); }, 'is-warning'));
+        if (!paid && !cancelled && !ticket.bill_locked) {
             if (ticket.status === 'new') container.appendChild(button('prepare', function () { action(ticket, 'prepare'); }, 'is-primary'));
             if (ticket.status === 'preparing') container.appendChild(button('dispatch', function () { action(ticket, 'dispatch'); }, 'is-primary'));
             if (ticket.status === 'out_for_delivery') container.appendChild(button('finish', function () { action(ticket, 'finish'); }, 'is-primary'));
             container.appendChild(button('kitchen', function () { action(ticket, 'send_kitchen', true); }));
-            container.appendChild(button('collect', function () { settlement(ticket.id); }, 'is-warning'));
-            container.appendChild(button('cancel', function () { var reason = window.prompt(text('cancel_prompt')); if (reason && reason.trim()) action(ticket, 'cancel', false, reason.trim()); }));
+            if (!ticket.kitchen_sent) container.appendChild(button('cancel', function () { var reason = window.prompt(text('cancel_prompt')); if (reason && reason.trim()) action(ticket, 'cancel', false, reason.trim()); }));
         }
     }
     function detailContent(ticket, content) {
         content.replaceChildren(); var information = element('dl', 'ph-detail-info');
-        [['saved_number', ticket.number || ticket.id], ['status', text(ticket.status)], ['name', ticket.customer_name], ['phone', ticket.customer_phone], ['area', ticket.area || '—'], ['payment_status', text(ticket.payment_status === 'paid' ? 'paid' : 'unpaid')], ['address', ticket.address], ['date', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (pair) { var row = element('div', pair[0] === 'address' ? 'ph-full' : ''); row.appendChild(element('dt', '', text(pair[0]))); row.appendChild(element('dd', '', pair[1])); information.appendChild(row); }); content.appendChild(information);
+        [['saved_number', ticket.number || ticket.id], ['status', text(ticket.status)], ['name', ticket.customer_name], ['phone', ticket.customer_phone], ['area', ticket.area || '—'], ['payment_status', text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid')], ['address', ticket.address], ['date', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (pair) { var row = element('div', pair[0] === 'address' ? 'ph-full' : ''); row.appendChild(element('dt', '', text(pair[0]))); row.appendChild(element('dd', '', pair[1])); information.appendChild(row); }); content.appendChild(information);
         var table = element('table', 'ph-detail-table'), header = element('thead'), tr = element('tr'); ['item', 'quantity', 'line_total'].forEach(function (key) { tr.appendChild(element('th', '', text(key))); }); header.appendChild(tr); table.appendChild(header); var body = element('tbody');
         ticket.items.forEach(function (item) { var row = element('tr'), cell = element('td', '', item.name); if (item.option_label) cell.appendChild(element('small', '', item.option_label)); row.appendChild(cell); row.appendChild(element('td', '', item.quantity + ' ' + text(item.quantity_mode === 'weight' ? 'kg' : 'piece'))); row.appendChild(element('td', '', money(item.total))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
         var summary = element('dl', 'ph-totals'); ['subtotal', 'discount', 'delivery_fee', 'tax', 'service', 'total'].forEach(function (key) { var row = element('div', key === 'total' ? 'ph-grand-total' : ''); row.appendChild(element('dt', '', text(key))); row.appendChild(element('dd', '', money(ticket[key] === undefined && key === 'delivery_fee' ? ticket.delivery : ticket[key] || '0.00') + ' ' + text('currency'))); summary.appendChild(row); }); content.appendChild(summary);
@@ -270,7 +271,7 @@
     function card(ticket) {
         var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));
         [['fas fa-phone-alt', ticket.customer_phone], ['fas fa-map-marker-alt', ticket.area ? ticket.area + ' · ' + ticket.address : ticket.address], ['far fa-clock', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (entry) { var row = element('p', 'ph-ticket-detail'); row.appendChild(element('i', entry[0])); row.appendChild(element('span', '', entry[1] || '')); article.appendChild(row); });
-        var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); return article;
+        var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); return article;
     }
     async function loadOrders(page, quiet) {
         if (!branch || disposed || locked()) return;
@@ -285,6 +286,7 @@
     function validateWriteResult(result, operation, recovered) {
         if (!validTicket(result.ticket, operation.ticketId) || operation.payload.expected_revision !== undefined && Number(result.ticket.revision) <= Number(operation.payload.expected_revision) || operation.type === 'save' && !recovered && result.ticket.payment_status !== 'unpaid' || operation.type === 'settle' && result.ticket.payment_status !== 'paid') throw new Error(text('uncertain'));
         if (!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket.id)) throw new Error(text('uncertain'));
+        if (operation.type === 'action' && operation.payload.action === 'request_bill' && !result.ticket.bill_locked) throw new Error(text('uncertain'));
         if (operation.type === 'save' && !recovered && !result.replayed && result.ticket.quote_hash !== operation.payload.quote_hash) throw new Error(text('uncertain'));
         var receiptPath = operation.type === 'settle' && result.receipt_url && new URL(endpoint(result.receipt_url)).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
         if (operation.type === 'settle' && (!receiptPath || !result.receipt || Number(receiptPath[1]) !== Number(result.receipt.id) || !Number.isSafeInteger(Number(result.receipt.id)) || !result.receipt_url || !result.receipt.branch || result.receipt.branch.value !== branch || result.receipt.idempotency_key !== operation.payload.idempotency_key || scaled(result.receipt.total, 2) !== scaled(operation.total, 2))) throw new Error(text('uncertain'));
@@ -296,7 +298,8 @@
         else { notify(text(operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated'), true); if (editing && Number(editing.id) === Number(result.ticket.id)) resetDraft(); }
         var content = root.querySelector('[data-phone-modal-content]'); if (modal.hidden) content = openModal(text('details')); detailContent(result.ticket, content); writing = false; uncertain = false; lock(); frozen = null;
         if (view === 'orders') loadOrders(orderPage); else if (!loaded && branch) loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
-        if (operation.type === 'settle') print(result.receipt_url);
+        if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
+        else if (operation.type === 'settle') print(result.receipt_url);
         else if (operation.printKitchen && !result.print_queued) print(result.kitchen_print_url || result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url) || result.ticket.kitchen_print_url);
     }
     async function recover(operation) {
@@ -333,7 +336,7 @@
         execute({ type: 'save', url: endpoint(urls.save), payload: values, ticketId: editing ? editing.id : undefined });
     }
     function action(ticket, actionName, printKitchen, reason) {
-        if (locked() || !canWrite() || !validTicket(ticket, undefined, true)) return;
+        if (locked() || ticket.bill_locked || !canWrite() || !validTicket(ticket, undefined, true)) return;
         execute({ type: 'action', url: endpoint(urls.action, null, ticket.id), ticketId: ticket.id, printKitchen: !!printKitchen, payload: { branch: branch, expected_revision: ticket.revision, idempotency_key: uuid(), action: actionName, reason: reason || '' } });
     }
     async function editTicket(id) {
@@ -341,7 +344,7 @@
         var controller = begin('edit'), requestedBranch = branch, generation = ++editGeneration;
         try {
             var ticket = await fetchTicket(id, controller.signal); if (disposed || generation !== editGeneration || requestedBranch !== branch || locked()) return;
-            if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || !canWrite()) { notify(text('forbidden')); return; }
+            if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || ticket.bill_locked || !canWrite()) { notify(text('forbidden')); return; }
             resetDraft(); editing = ticket; fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
             var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], available: true, quantity_mode: 'select' }; var choice = line.option_id ? (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id, label: line.option_label, price: line.unit_price } : null; return { product: product, option: choice, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
             root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow('products', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
@@ -379,7 +382,7 @@
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
         if (control.dataset.phoneView) { if (control.dataset.phoneView === 'compose' && view === 'compose') { if (!dirty || window.confirm(text('new_warning'))) resetDraft(); } return switchView(control.dataset.phoneView); }
         if (control.dataset.phoneProduct !== undefined) return addProduct(products.get(control.dataset.phoneProduct));
-        if (control.dataset.phoneRemove !== undefined) { cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
+        if (control.dataset.phoneRemove !== undefined) { if (editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.dataset.phoneOrdersPage) return loadOrders(orderPage + (control.dataset.phoneOrdersPage === 'next' ? 1 : -1));
