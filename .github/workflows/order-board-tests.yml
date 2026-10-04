@@ -86,6 +86,8 @@ on:
       - 'public/dashboard/css/phone-orders.css'
       - 'tests/Feature/DashboardPosServiceTest.php'
       - 'deployment/*dashboard*'
+      - 'deployment/*phone_maps*'
+      - 'tests/deployment/phone_maps_activation.sh'
       - 'app/Scopes/OrderScope.php'
       - 'app/Http/Controllers/Dashboard/OrderBoardController.php'
       - 'app/Http/Controllers/Dashboard/OrderController.php'
@@ -168,6 +170,9 @@ jobs:
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh
+          php -l deployment/check_phone_maps.php
+          bash -n deployment/enable_phone_maps.sh
+          bash tests/deployment/phone_maps_activation.sh
   takeaway-mysql:
     runs-on: ubuntu-latest
     services:

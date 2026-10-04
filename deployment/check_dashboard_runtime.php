@@ -64,7 +64,11 @@ foreach (['branch-shifts.index','branch-shifts.close','branch-shifts.print','cus
 }
 echo "DINING AND PHONE POS READY\n";
 
-echo filled(config('services.maps.browser_key')) ? "DASHBOARD MAPS KEY CONFIGURED (Google authorization still requires browser verification)\n" : "DASHBOARD MAPS: OpenStreetMap pin selection is available; automatic address search requires MAP_BROWSER_KEY or MAP_KEY and Google Geocoding authorization.\n";
+if (app(App\Services\Dashboard\PhoneMapProvider::class)->enabled()) {
+    echo "PHONE MAPS: Photon address choices and OSRM road pricing are configured; live reachability is checked by deployment/check_phone_maps.php.\n";
+} else {
+    echo "PHONE MAPS: optional road provider is disabled; activate with deployment/enable_phone_maps.sh after approval.\n";
+}
 
 $firebasePath = config('firebase.credentials', storage_path('app/firebase_credentials.json'));
 echo is_string($firebasePath) && is_file($firebasePath) && is_readable($firebasePath) && filled(config('services.fcm.project_id'))
