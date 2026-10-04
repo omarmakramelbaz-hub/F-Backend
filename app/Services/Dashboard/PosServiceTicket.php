@@ -34,13 +34,14 @@ class PosServiceTicket
             $row=$this->row($channel,(int)$values['ticket_id'],$branch['value']);abort_unless($row->status!=='cancelled',409);
             return json_decode($row->quote_snapshot,true)+['ticket_id'=>(int)$row->id,'revision'=>(int)$row->revision];
         }
-        $delivery=$channel==='phone'?$this->money($values['delivery_fee']??'0','delivery_fee'):0;
+        $delivery=$channel==='phone'?$this->delivery($values,$actor)['cents']:0;
         return $this->sales->quote($values,$actor,$this->pricingContext($channel,$branch['value'],$delivery));
     }
     public function listing(string $channel,array $values,$actor): array
     {
         $this->channel($channel);$this->tables->requireReady();$branch=$this->access->branch($values['branch'],$actor);
         $query=DB::table('pos_service_tickets')->where('branch',$branch['value'])->where('channel',$channel);
+        if(!empty($values['delivery_company_id']))$query->where('delivery_company_id',$values['delivery_company_id']);
         if(!empty($values['status'])&&$values['status']!=='all')$query->where('status',$values['status']);
         if(!empty($values['search']))$query->where(function($q)use($values){$q->where('customer_name','like','%'.$values['search'].'%')->orWhere('customer_phone','like','%'.$values['search'].'%')->orWhere('waiter_name','like','%'.$values['search'].'%');});
         $total=(clone $query)->count();$per=(int)($values['per_page']??20);$last=max(1,(int)ceil($total/$per));$page=min($last,(int)($values['page']??1));
@@ -58,15 +59,21 @@ class PosServiceTicket
             'items'=>'present|array|max:100','discount'=>'nullable|string|max:14','discount_reason'=>'nullable|string|max:500','quote_hash'=>'nullable|string|size:64','reprice'=>'nullable|boolean',
             'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
         $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
-            ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'required|string|max:14'];
+            ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
         $v=Validator::make($values,$rules)->validate();foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
-        $delivery=$channel==='phone'?$this->money($v['delivery_fee'],'delivery_fee'):0;
-        $phoneKey=$channel==='phone'?PosServicePhone::key($v['customer_phone']):null;if($channel==='phone')abort_unless(preg_match('/^\+?[0-9]{6,20}$/D',$phoneKey),422,'رقم الهاتف غير صالح.');
+        $delivery=0;
+        $phoneKey=$channel==='phone'?BranchCustomers::phoneKey($v['customer_phone']):null;if($channel==='phone')abort_unless(preg_match('/^\+?[0-9]{6,20}$/D',$phoneKey),422,'رقم الهاتف غير صالح.');
         $hash=self::fingerprint([$channel,'save',$v]);$this->tables->requireReady();
         return DB::transaction(function()use($channel,$v,$actor,$hash,$delivery,$phoneKey){
             $actor=$this->access->actor($actor);$branch=$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
+            $deliveryData=null;$company=null;
+            if($channel==='phone'){
+                app(BranchOperations::class)->ready();$deliveryData=$this->delivery($v,$actor);$delivery=$deliveryData['cents'];
+                $company=app(DeliveryCompanies::class)->snapshot($v['delivery_company_id']??null,$v['branch']);
+                if(!empty($v['customer_id']))abort_unless(DB::table('branch_customers')->where('branch',$v['branch'])->where('id',$v['customer_id'])->where('phone_key',$phoneKey)->exists(),422,'اختر بيانات العميل من الفرع الحالي.');
+            }
             $existing=!empty($v['ticket_id']);$row=$existing?$this->locked($channel,(int)$v['ticket_id'],$v['branch']):null;$table=null;
             if($row){$this->mutable($row);abort_unless(isset($v['expected_revision'])&&(int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');}
             if($row&&$row->last_kitchen_id)abort_unless(count($v['items'])>0,409,'لا يمكن تفريغ فاتورة أُرسلت للمطبخ.');
@@ -95,6 +102,7 @@ class PosServiceTicket
                 'customer_phone'=>$v['customer_phone']??null,'phone_key'=>$phoneKey,'address'=>$v['address']??null,'area'=>$v['area']??null,'delivery_notes'=>$v['delivery_notes']??null,
                 'delivery_cents'=>$delivery,'notes'=>$v['notes']??null,'cart_snapshot'=>json_encode($cart,JSON_UNESCAPED_UNICODE),'quote_snapshot'=>json_encode($q,JSON_UNESCAPED_UNICODE),
                 'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>$when];
+            if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
             else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>$when->copy()->setTimezone(config('app.timezone'))->toDateString(),'created_at'=>$when]);}
             if($table)DB::table('pos_service_tables')->where('id',$table->id)->update(['active_ticket_id'=>$id,'revision'=>(int)$table->revision+1,'updated_at'=>$when]);
@@ -175,6 +183,7 @@ class PosServiceTicket
         $data=['id'=>(int)$row->id,'channel'=>$row->channel,'branch'=>$q['branch'],'revision'=>(int)$row->revision,'status'=>$row->status,'payment_status'=>$row->payment_status,
             'table'=>json_decode($row->table_snapshot??'null',true),'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count?(int)$row->guest_count:null,
             'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'',
+            'customer_id'=>isset($row->customer_id)?(int)$row->customer_id:null,'customer_revision'=>!empty($row->customer_id)?(int)DB::table('branch_customers')->where('branch',$row->branch)->where('id',$row->customer_id)->value('revision'):null,'delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),
             'delivery_fee'=>Money::decimal((int)$row->delivery_cents),'notes'=>$row->notes??'','cancel_reason'=>$row->cancel_reason??'',
             'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$actor->name??''],
             'kitchen_sent'=>(bool)$row->last_kitchen_id,'bill_locked'=>$this->billLocked($row),
@@ -195,6 +204,12 @@ class PosServiceTicket
             'snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'created_at'=>$when,'updated_at'=>$when]);
         DB::table('pos_service_tickets')->where('id',$id)->update(['last_kitchen_id'=>$kitchenId]);
         app(PosBranchPrinting::class)->enqueue($branch,$id,$kitchenId);
+    }
+    private function delivery(array $values,$actor): array
+    {
+        $snapshot=app(PhoneDelivery::class)->quote($values,$actor)['delivery'];
+        abort_unless(!empty($values['delivery_quote_hash'])&&hash_equals($snapshot['delivery_quote_hash'],$values['delivery_quote_hash']),409,'موقع العميل أو سعر التوصيل تغير. أكد الدبوس وراجع الخدمة.');
+        return ['cents'=>Money::minor($snapshot['delivery_fee']),'snapshot'=>$snapshot];
     }
     private function pricingContext(string $channel,string $branch,int $delivery,bool $lock=false): array
     {
@@ -232,7 +247,7 @@ class PosServiceTicket
         if(!empty($meta['kitchen_id']))$result['kitchen_print_url']=route(($row->channel==='dine'?'dining':'phone-orders').'.kitchen',['id'=>$meta['kitchen_id']]);
         if($row->paid_order_id){$result['receipt']=$this->sales->receipt((int)$row->paid_order_id,$actor);$result['receipt_url']=$result['receipt']['receipt_url'];}return $result;
     }
-    private function contextSnapshot(object $row): array {return ['table'=>json_decode($row->table_snapshot??'null',true),'table_name'=>json_decode($row->table_snapshot??'null',true)['name']??'',
+    private function contextSnapshot(object $row): array {return ['delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),'table'=>json_decode($row->table_snapshot??'null',true),'table_name'=>json_decode($row->table_snapshot??'null',true)['name']??'',
         'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count,'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??''];}
     private function commandRules(): array {return ['branch'=>['required','string','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid'];}
     private function money($value,string $key): int {try{$n=Money::minor($value);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages([$key=>'المبلغ بمنزلتين عشريتين.']);}abort_unless($n>=0&&$n<=100000000,422);return $n;}

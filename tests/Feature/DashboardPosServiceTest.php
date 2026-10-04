@@ -27,7 +27,7 @@ class DashboardPosServiceTest extends TestCase
         DB::purge($this->connection);Schema::clearResolvedInstance('db.schema');if($this->connection==='mysql')$this->dropFixtures();
         Carbon::setTestNow(Carbon::parse('2026-10-03 16:00:00','Africa/Cairo'));
         Schema::create('users',function(Blueprint $t){$t->id();foreach(['name','account_type','app_scope','status'] as $f)$t->string($f);$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->unsignedBigInteger('pending_vendor_id')->nullable();$t->decimal('balance',14,2)->default(500);$t->timestamps();});
-        Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->timestamps();});
+        Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->decimal('lat',10,7)->default(30);$t->decimal('lng',10,7)->default(31);$t->decimal('km_price',10,2)->default(20);$t->timestamps();});
         Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->string('product_name');$t->decimal('product_price',14,2);$t->text('price');$t->string('status');$t->timestamps();});
         Schema::create('wallets',function(Blueprint $t){$t->id();$t->decimal('amount',14,2);});
         Schema::create('orders',function(Blueprint $t){$t->id();$t->string('status');});
@@ -37,6 +37,7 @@ class DashboardPosServiceTest extends TestCase
         require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php');(new \CreatePosServiceTickets)->up();
         require_once database_path('migrations/2026_10_04_060000_lock_pos_service_bills.php');(new \LockPosServiceBills)->up();
         require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php');(new \CreatePosBranchPrintJobs)->up();
+        require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php');(new \CreateBranchOperations)->up();
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[30,'vendor',null]] as [$id,$type,$owner])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'app_scope'=>$id===30?'go_partner':'fasakhansta','status'=>'accepted','owner_resturant_id'=>$owner]);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Foreign']]);
         DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100,'product_name'=>'Fish','product_price'=>'100.00','price'=>'{}','status'=>'show'],['id'=>2,'resturant_id'=>101,'product_name'=>'Foreign','product_price'=>'500.00','price'=>'{}','status'=>'show']]);
@@ -45,7 +46,7 @@ class DashboardPosServiceTest extends TestCase
         DB::table('wallets')->insert(['amount'=>'100.00']);DB::table('orders')->insert(['status'=>'accepted']);DB::table('order_board_clocks')->insert(['order_id'=>1]);
     }
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
-    private function dropFixtures(): void{foreach(['pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','user_address','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
+    private function dropFixtures(): void{foreach(['branch_payrolls','branch_employee_entries','branch_employee_days','branch_employee_salaries','branch_employees','branch_delivery_companies','branch_customers','branch_operation_commands','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','user_address','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function tickets(): PosServiceTicket{return app(PosServiceTicket::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
@@ -56,6 +57,7 @@ class DashboardPosServiceTest extends TestCase
         $cart=$this->cart();$v=$cart+['idempotency_key'=>$this->key($key),'notes'=>'Note'];
         if($channel==='dine')$v+=['table_id'=>$this->table()['id'],'waiter_name'=>'Waiter','guest_count'=>2];
         else $v+=['customer_name'=>'Customer','customer_phone'=>'010 1234 5678','address'=>'Street 1','area'=>'Area','delivery_notes'=>'Door 2','delivery_fee'=>'20.00'];
+        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6371),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];return $v;
     }
     private function saved(string $channel='dine'): array{return $this->tickets()->save($channel,$this->savePayload($channel),$this->actor())['ticket'];}
@@ -154,7 +156,7 @@ class DashboardPosServiceTest extends TestCase
         $v['payment_confirmed']=true;$paid=$this->tickets()->settle('phone',$ticket['id'],$v,$this->actor());$this->assertSame('120.00',$paid['register']['balance']);
         $this->assertSame('20.00',$paid['receipt']['delivery']);$this->assertSame('Street 1',$paid['receipt']['context']['address']);$this->assertSame('Door 2',$paid['receipt']['context']['delivery_notes']);
     }
-    public function test_phone_vat_includes_explicit_delivery_fee_without_app_rate_or_wallet_changes(): void
+    public function test_phone_vat_includes_distance_delivery_fee_without_app_rate_or_wallet_changes(): void
     {
         app(TakeawayService::class)->changeRegister(['branch'=>'f:100','tax_rate'=>'14.00','note'=>'Tax','expected_revision'=>1,'idempotency_key'=>$this->key(21)],$this->actor(12),true);
         $ticket=$this->saved('phone');$this->assertSame('16.80',$ticket['tax']);$this->assertSame('136.80',$ticket['total']);
@@ -387,5 +389,71 @@ class DashboardPosServiceTest extends TestCase
         $v['ticket_id']=$ticket['id'];$v['expected_revision']=1;$v['idempotency_key']=$this->key(130);
         $this->denied(fn()=>$this->tickets()->save('dine',$v,$this->actor()));
         $this->assertSame('paid',$this->tickets()->settle('dine',$ticket['id'],$this->settlePayload($ticket,131),$this->actor())['ticket']['payment_status']);
+    }
+    private function employeePayload(int $key=800): array {return ['branch'=>'f:100','idempotency_key'=>$this->key($key),'name'=>'أحمد','phone'=>'01012345678','job_title'=>'كاشير','shift'=>'صباحي','hired_on'=>'2026-09-01','active'=>true,'salary'=>'3000.00','effective_month'=>'2026-09'];}
+    public function test_saved_customer_directory_precedes_orders_and_matches_national_international_and_arabic_phones(): void
+    {
+        $crm=app(\App\Services\Dashboard\BranchCustomers::class);$v=['branch'=>'f:100','idempotency_key'=>$this->key(801),'name'=>'أحمد','phone'=>'٠١٠٦٤٤٦٤٤٩٩','address'=>'شارع الجيش','latitude'=>31.04,'longitude'=>31.37];$saved=$crm->save($v,$this->actor());
+        $this->assertTrue($crm->save($v,$this->actor())['replayed']);$this->assertSame(1,DB::table('branch_customers')->count());$this->assertSame('01064464499',$saved['customer']['phone_key']);
+        foreach(['01064464499','1064464499','+201064464499','00201064464499','۰۱۰۶۴۴۶۴۴۹۹'] as $number){$items=app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>$number],$this->actor())['items'];$this->assertSame('أحمد',$items[0]['name']);$this->assertSame((int)$saved['customer']['id'],$items[0]['customer_id']);}
+        $this->assertCount(1,app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>'010644','prefix'=>true],$this->actor())['items']);
+        $this->assertCount(0,$crm->listing(['branch'=>'f:100','search'=>'غير موجود'],$this->actor())['items']);
+        $this->denied(fn()=>$crm->listing(['branch'=>'all'],$this->actor()),403);$this->denied(fn()=>$crm->save($v,$this->actor(11)),404);
+        $this->assertCount(0,app(PosServicePhone::class)->customers(['branch'=>'f:101','phone'=>'010644','prefix'=>true],$this->actor(11))['items']);
+        $this->assertCount(1,$crm->listing(['branch'=>'all'],$this->actor(1))['items']);
+        $this->denied(fn()=>$crm->save(array_replace($v,['idempotency_key'=>$this->key(802),'phone'=>'+201064464499']),$this->actor()),409);
+        $this->denied(fn()=>$crm->save(array_replace($v,['customer_id'=>$saved['customer']['id'],'expected_revision'=>99,'idempotency_key'=>$this->key(803)]),$this->actor()),409);
+    }
+    public function test_existing_app_customers_stored_without_leading_zero_are_found_without_exposing_foreign_branch_customers(): void
+    {
+        Schema::table('users',function(Blueprint $t){$t->string('mobile')->nullable();});Schema::table('orders',function(Blueprint $t){$t->unsignedBigInteger('user_id')->nullable();$t->unsignedBigInteger('resturant_id')->nullable();});
+        DB::table('users')->where('id',20)->update(['name'=>'App Customer','mobile'=>'١٠٦٤٤٦٤٤٩٩']);DB::table('orders')->where('id',1)->update(['user_id'=>20,'resturant_id'=>100]);
+        $this->assertSame('App Customer',app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>'010644','prefix'=>true],$this->actor())['items'][0]['name']);
+        $this->assertCount(0,app(PosServicePhone::class)->customers(['branch'=>'f:101','phone'=>'010644','prefix'=>true],$this->actor(11))['items']);
+    }
+    public function test_delivery_fee_is_authoritative_and_stale_or_unconfirmed_location_is_rejected(): void
+    {
+        $v=$this->savePayload('phone');$v['delivery_fee']='0.01';$q=$this->tickets()->quote('phone',$v,$this->actor());$this->assertSame('20.00',$q['delivery']);
+        $v['quote_hash']=$q['quote_hash'];$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];$this->assertSame('20.00',$ticket['delivery_fee']);$this->assertSame(1000,$ticket['delivery_location']['distance_meters']);
+        $this->invalid(fn()=>app(\App\Services\Dashboard\PhoneDelivery::class)->quote(array_replace($v,['location_confirmed'=>false]),$this->actor()));
+        $v['idempotency_key']=$this->key(812);DB::table('resturants')->where('id',100)->update(['km_price'=>'25.00']);$this->denied(fn()=>$this->tickets()->save('phone',$v,$this->actor()),409);
+        $this->assertSame(1,DB::table('pos_service_tickets')->count());$this->denied(fn()=>app(\App\Services\Dashboard\PhoneDelivery::class)->quote(array_replace($v,['branch'=>'f:101']),$this->actor()),404);
+    }
+    public function test_company_assignment_is_branch_scoped_active_and_snapshotted_on_kitchen_and_invoice(): void
+    {
+        $s=app(\App\Services\Dashboard\DeliveryCompanies::class);$company=$s->save(['branch'=>'f:100','idempotency_key'=>$this->key(820),'name'=>'شركة النور','phone'=>'01000000000','active'=>true],$this->actor())['company'];
+        $v=$this->savePayload('phone');$v['delivery_company_id']=$company['id'];$v['send_to_kitchen']=true;$saved=$this->tickets()->save('phone',$v,$this->actor());$this->assertSame('شركة النور',$saved['ticket']['delivery_company']['name']);
+        $count=$s->listing(['branch'=>'f:100'],$this->actor())['items'][0];$this->assertSame(1,$count['orders']);$this->assertSame(1,$count['unpaid']);
+        $s->save(['branch'=>'f:100','company_id'=>$company['id'],'expected_revision'=>1,'idempotency_key'=>$this->key(821),'name'=>'اسم جديد','phone'=>'01000000000','active'=>false],$this->actor());
+        $this->assertSame('شركة النور',$this->tickets()->show('phone',$saved['ticket']['id'],$this->actor())['ticket']['delivery_company']['name']);
+        $v['idempotency_key']=$this->key(822);$this->denied(fn()=>$this->tickets()->save('phone',$v,$this->actor()),422);
+        $foreign=$s->save(['branch'=>'f:101','idempotency_key'=>$this->key(823),'name'=>'Foreign','phone'=>'01000000001','active'=>true],$this->actor(11))['company'];$v['delivery_company_id']=$foreign['id'];$this->denied(fn()=>$this->tickets()->save('phone',$v,$this->actor()),422);
+        $this->assertSame(1,DB::table('pos_service_tickets')->count());
+    }
+    public function test_payroll_periods_reconcile_proration_entries_closure_and_recorded_payment_exactly_once(): void
+    {
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(),$this->actor())['employee'];$id=$employee['id'];
+        $this->assertTrue($s->employeeSave($this->employeePayload(),$this->actor())['replayed']);
+        $attendance=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','status'=>'absent','idempotency_key'=>$this->key(830)];$s->attendance($attendance,$this->actor());$this->assertTrue($s->attendance($attendance,$this->actor())['replayed']);
+        foreach([['bonus','500.00'],['deduction','100.00'],['advance','700.00']] as $n=>$entry){$v=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','kind'=>$entry[0],'amount'=>$entry[1],'reason'=>'Approved','idempotency_key'=>$this->key(831+$n)];$s->entry($v,$this->actor());$this->assertTrue($s->entry($v,$this->actor())['replayed']);}
+        $q=['branch'=>'f:100','employee_id'=>$id,'month'=>'2026-09'];$statement=$s->statement($q,$this->actor())['statement'];$this->assertSame('2700.00',$statement['net']);$this->assertSame('3000.00',$statement['earned_salary']);$this->assertCount(1,$statement['attendance']);
+        $close=$q+['idempotency_key'=>$this->key(840),'preview_hash'=>$statement['preview_hash']];$closed=$s->close($close,$this->actor())['statement'];$this->assertSame('closed',$closed['status']);$this->assertTrue($s->close($close,$this->actor())['replayed']);
+        $this->denied(fn()=>$s->attendance(array_replace($attendance,['idempotency_key'=>$this->key(841),'expected_revision'=>1]),$this->actor()),409);
+        $this->denied(fn()=>$s->entry(array_replace($v,['idempotency_key'=>$this->key(842)]),$this->actor()),409);
+        $pay=['branch'=>'f:100','payroll_id'=>$closed['payroll_id'],'expected_revision'=>1,'payment_method'=>'cash','payment_confirmed'=>true,'idempotency_key'=>$this->key(843)];$paid=$s->pay($pay,$this->actor())['statement'];$this->assertSame('paid',$paid['status']);$this->assertTrue($s->pay($pay,$this->actor())['replayed']);
+        $this->denied(fn()=>$s->pay(array_replace($pay,['idempotency_key'=>$this->key(844)]),$this->actor()),409);$this->assertSame(0,DB::table('takeaway_till_entries')->count());$this->assertSame(1,DB::table('branch_payrolls')->count());
+        $this->denied(fn()=>$s->statement($q,$this->actor(11)),404);
+        $this->denied(fn()=>$s->employeeSave(array_replace($this->employeePayload(845),['employee_id'=>$id,'expected_revision'=>1,'salary'=>'6000.00']),$this->actor()),409);
+        $this->assertSame('2700.00',$s->statement($q,$this->actor())['statement']['net']);
+    }
+    public function test_payroll_stale_preview_void_history_hire_proration_and_negative_balance_are_safe(): void
+    {
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave(array_replace($this->employeePayload(),['hired_on'=>'2026-09-16','left_on'=>'']),$this->actor())['employee'];$q=['branch'=>'f:100','employee_id'=>$e['id'],'month'=>'2026-09'];$initial=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$initial['earned_salary']);
+        $v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-20','kind'=>'advance','amount'=>'1800.00','reason'=>'Advance','idempotency_key'=>$this->key(860)];$entry=$s->entry($v,$this->actor());
+        $this->denied(fn()=>$s->close($q+['idempotency_key'=>$this->key(861),'preview_hash'=>$initial['preview_hash']],$this->actor()),409);$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('-300.00',$preview['net']);
+        $id=DB::table('branch_employee_entries')->value('id');$s->voidEntry(['branch'=>'f:100','entry_id'=>$id,'expected_revision'=>1,'reason'=>'Correction','idempotency_key'=>$this->key(862)],$this->actor());$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$preview['net']);$this->assertNotEmpty($preview['entries'][0]['voided_at']);
+        $this->assertSame(1,DB::table('branch_employee_entries')->count());$this->assertCount(1,$s->listing(['branch'=>'all','month'=>'2026-09'],$this->actor(1))['items']);
+        $this->assertTrue(app(\App\Services\Dashboard\BranchOperations::class)->recover(['branch'=>'f:100','idempotency_key'=>$this->key(862)],$this->actor())['found']);
+        $this->assertFalse(app(\App\Services\Dashboard\BranchOperations::class)->recover(['branch'=>'f:100','idempotency_key'=>$this->key(862)],$this->actor(12))['found']);
     }
 }

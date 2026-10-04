@@ -7,15 +7,33 @@
     var labels = JSON.parse(document.querySelector('#phone-orders-translations').textContent);
     var urls = boot.urls || {}, branchSelect = root.querySelector('[data-phone-branch]'), branch = branchSelect.value;
     var products = new Map(), cart = [], editing = null, quote = null, policy = boot.policy || {}, permissions = boot.permissions || {};
-    var category = '', catalogPage = 1, pagination = {}, orderStage = 'new', orderPage = 1, orderPagination = {}, view = 'compose';
+    var category = '', catalogPage = 1, pagination = {}, orderStage = boot.company_filter ? 'all' : 'new', orderPage = 1, orderPagination = {}, view = 'compose';
     var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
     var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
     var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, mode = 'piece', listeners = [], modal = root.querySelector('[data-phone-modal]');
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
+    var customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, locationGeneration=0, locating=false, lastGeocoded='', contextGeneration=0;
+    var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]');
     var fields = {};
     root.querySelectorAll('[data-phone-field]').forEach(function (input) { fields[input.dataset.phoneField] = input; });
 
+    function invalidateLocation(){deliveryLocation=null;locationGeneration++;if(locationPicker)locationPicker.invalidate();fields.delivery_fee.value='0.00';root.querySelector('[data-phone-distance]').textContent='لم يتم تأكيد الموقع بعد.';quote=null;changed(true);}
+    function setCustomerLocation(customer){invalidateLocation();lastGeocoded='';latInput.value=customer.latitude==null?'':customer.latitude;lngInput.value=customer.longitude==null?'':customer.longitude;if(locationPicker){locationPicker.destroy();locationPicker=null;}}
+    async function loadDeliveryContext(){
+        var selected=branch,generation=++contextGeneration;companySelect.replaceChildren(element('option','','توصيل الفرع'));companySelect.options[0].value='';
+        try{var results=await Promise.all([get(urls.delivery_settings,{branch:selected}).then(function(r){return read(r,'load_error');}),get(urls.companies,{branch:selected,active:1}).then(function(r){return read(r,'load_error');})]);if(disposed||selected!==branch||generation!==contextGeneration)return;
+            deliverySettings=results[0].settings;results[1].items.forEach(function(c){var o=element('option','',c.name);o.value=String(c.id);companySelect.appendChild(o);});
+            if(!deliverySettings.ready)root.querySelector('[data-phone-location-status]').textContent='يجب ضبط دبوس الفرع وسعر الكيلومتر في إعدادات المطعم.';else root.querySelector('[data-phone-location-status]').textContent='سعر الكيلومتر: '+deliverySettings.km_price+' جنيه. الخدمة تُحسب من المسافة بين الدبوسين.';
+            if(locationPicker){locationPicker.destroy();locationPicker=null;}if(step==='details')ensureLocation();
+        }catch(e){if(!disposed&&selected===branch)notify(e.message||'تعذر تحميل إعدادات التوصيل.');}
+    }
+    function ensureLocation(){if(!deliverySettings||disposed)return;if(!locationPicker){locationPicker=DashboardLocationPicker.create(root.querySelector('[data-phone-map]'),{key:boot.maps_key,tileUrl:boot.tile_url,latitude:latInput.value,longitude:lngInput.value,center:deliverySettings.ready?[deliverySettings.latitude,deliverySettings.longitude]:null,origin:deliverySettings.ready?[deliverySettings.latitude,deliverySettings.longitude]:null,locked:locked,change:function(lat,lng){latInput.value=lat;lngInput.value=lng;invalidateLocation();}});}locationPicker.resize();if(!latInput.value&&!lngInput.value&&fields.address.value.trim())locateAddress();}
+    function locateAddress(){if(locked()||!locationPicker||!fields.address.value.trim())return;var address=fields.address.value.trim()+'، '+fields.area.value.trim();if(lastGeocoded===address)return;lastGeocoded=address;locationPicker.geocode(address);}
+    async function confirmLocation(){if(locked()||!branch)return;if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}var generation=++locationGeneration,selected=branch;locating=true;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
+        try{var r=await read(await post(urls.delivery_quote,{branch:branch,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch)return;deliveryLocation=r.delivery;fields.delivery_fee.value=r.delivery.delivery_fee;root.querySelector('[data-phone-distance]').textContent=r.delivery.distance_km+' كم × '+r.delivery.km_price+' جنيه = '+r.delivery.delivery_fee+' جنيه';notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
+        catch(e){if(!disposed&&generation===locationGeneration)notify(e.message||'تعذر حساب الخدمة.');}finally{clearTimeout(timeout);locating=false;lock();if(deliveryLocation)changed(true);}
+    }
     async function pollReceiver() {
         if (disposed) return;
         var printer = window.DashboardBranchPrinter;
@@ -30,7 +48,7 @@
         root.querySelector('[data-phone-selected-branch]').textContent = branchSelect.selectedOptions[0] && branchSelect.selectedOptions[0].textContent || '';
         root.querySelector('[data-phone-customer-summary]').textContent = fields.customer_name.value + ' · ' + fields.customer_phone.value + ' · ' + fields.address.value;
         if (focus !== false && view === 'compose') (next === 'number' ? fields.customer_phone : next === 'details' ? fields.customer_name : root.querySelector('[data-phone-search]')).focus();
-        lock();
+        lock();if(next==='details')ensureLocation();
     }
     function inputPhoneDigits() { return fields.customer_phone.value.replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[^0-9]/g, ''); }
     function nextNumber() {
@@ -44,7 +62,10 @@
         if (!branch) { notify(text('select_branch')); branchSelect.focus(); return; }
         if (!fields.customer_name.value.trim() || !fields.address.value.trim()) { notify(text('required_customer')); (!fields.customer_name.value.trim() ? fields.customer_name : fields.address).focus(); return; }
         if (scaled(fields.delivery_fee.value,2) === null) { notify(text('invalid_money')); fields.delivery_fee.focus(); return; }
-        flow('products'); notify('');
+        if(!deliveryLocation){notify('أكد دبوس موقع العميل لحساب الخدمة أولًا.');return;}
+        var v={branch:branch,name:fields.customer_name.value.trim(),phone:fields.customer_phone.value.trim(),address:fields.address.value.trim(),area:fields.area.value.trim(),delivery_notes:fields.delivery_notes.value.trim(),latitude:deliveryLocation.latitude,longitude:deliveryLocation.longitude,idempotency_key:uuid()};
+        if(customerRef){v.customer_id=customerRef.id;v.expected_revision=customerRef.revision;}
+        execute({type:'customer',url:urls.customer_save,payload:v});
     }
     function text(key) { return labels[key] || key; }
     function element(tag, className, value) { var item = document.createElement(tag); if (className) item.className = className; if (value !== undefined) item.textContent = String(value); return item; }
@@ -95,7 +116,7 @@
     }
     function get(url, parameters, signal) { return fetch(endpoint(url, parameters), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, signal: signal }); }
     function post(url, payload, signal) { return fetch(endpoint(url), { method: 'POST', credentials: 'same-origin', signal: signal, headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) }); }
-    function locked() { return writing || uncertain; }
+    function locked() { return writing || uncertain || locating; }
     function canWrite() { return !!(permissions.can_checkout || permissions.can_operate); }
     function lock() {
         root.classList.toggle('is-locked', locked());
@@ -122,7 +143,7 @@
     }
     function payload() {
         var discount = scaled(fields.discount.value, 2), delivery = scaled(fields.delivery_fee.value, 2);
-        return { branch: branch, items: cart.map(function (line) { var item = { product_id: line.product.id, quantity: line.quantity, quantity_mode: line.mode }; if (line.option && line.option.id) item.option_id = String(line.option.id); return item; }), discount: policy.can_discount ? discount === null ? fields.discount.value : decimal(discount, 2) : '0.00', discount_reason: policy.can_discount ? fields.discount_reason.value.trim() : '', delivery_fee: delivery === null ? fields.delivery_fee.value : decimal(delivery, 2) };
+        return { branch: branch, items: cart.map(function (line) { var item = { product_id: line.product.id, quantity: line.quantity, quantity_mode: line.mode }; if (line.option && line.option.id) item.option_id = String(line.option.id); return item; }), discount: policy.can_discount ? discount === null ? fields.discount.value : decimal(discount, 2) : '0.00', discount_reason: policy.can_discount ? fields.discount_reason.value.trim() : '', delivery_fee: delivery === null ? fields.delivery_fee.value : decimal(delivery, 2), latitude:deliveryLocation&&deliveryLocation.latitude,longitude:deliveryLocation&&deliveryLocation.longitude,location_confirmed:!!deliveryLocation,delivery_quote_hash:deliveryLocation&&deliveryLocation.delivery_quote_hash,customer_id:customerRef&&customerRef.id,delivery_company_id:companySelect.value?Number(companySelect.value):null };
     }
     function sameFinancialDraft() {
         if (!editing) return false;
@@ -137,6 +158,7 @@
         if (!quote && cart.length && branch && loaded) quoteTimer = setTimeout(calculate, 180);
     }
     async function calculate() {
+        if(!deliveryLocation)return;
         if (disposed || locked() || !cart.length || !branch || !loaded) return;
         if (sameFinancialDraft()) { quote = editing; totals(quote); renderLines(); lock(); notify(''); return; }
         var generation = ++quoteGeneration, controller = begin('quote'), draft = payload();
@@ -192,20 +214,20 @@
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
     function resetDraft() {
+        customerRef=null;deliveryLocation=null;lastGeocoded='';locationGeneration++;if(locationPicker){locationPicker.destroy();locationPicker=null;}latInput.value='';lngInput.value='';companySelect.value='';root.querySelector('[data-phone-distance]').textContent='';
         cart = []; editing = null; quote = null; dirty = false; requestKey = uuid(); quoteGeneration++; abort('quote'); clearTimeout(quoteTimer);
         Object.keys(fields).forEach(function (key) { fields[key].value = key === 'discount' || key === 'delivery_fee' ? '0.00' : ''; });
         root.querySelector('[data-phone-edit-number]').textContent = ''; root.querySelector('[data-phone-discount-reason-wrap]').hidden = true; root.querySelector('[data-phone-lookup-result]').hidden = true; renderLines(); totals(null); flow('number', false);
     }
     function switchView(target) {
         if (locked()) { notify(text('locked'), false, true); return; }
-        root.querySelector(target === 'orders' ? '[data-phone-orders-branch-slot]' : '[data-phone-branch-slot]').appendChild(branchSelect.closest('.ph-branch'));
         view = target; root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); if (target === 'orders' && branch) loadOrders(1); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
     }
     function changeBranch() {
         var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
-        var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
-        branch = selected; catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = {}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; }); dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
+        var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason','delivery_fee'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
+        branch = selected; boot.company_filter=0; deliverySettings=null;loadDeliveryContext();catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = {}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; }); dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
         var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch) { loadCatalog(1); if (view === 'orders') loadOrders(1); }
     }
     async function lookupCustomer(prefix) {
@@ -221,9 +243,9 @@
                 button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return;
                     clearTimeout(customerTimer); customerGeneration++; abort('customer'); fields.customer_phone.value = customer.phone || phone;
                     fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || '';
-                    resultBox.hidden = true; changed(false); flow('details');
+                    customerRef=customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
                 }); resultBox.appendChild(button);
-            });
+            });if(!prefix&&matches.length===1)resultBox.querySelector('[data-phone-suggestion]').click();
         } catch (error) { if (disposed || generation !== customerGeneration || error.name === 'AbortError') return; resultBox.textContent = error.message || text('lookup_error'); }
     }
     function validTicket(ticket, id, summary) {
@@ -241,16 +263,16 @@
     function button(label, callback, className) { var control = element('button', className || '', text(label)); control.type = 'button'; control.addEventListener('click', callback); return control; }
     function ticketActions(ticket, container, details) {
         var paid = ticket.payment_status === 'paid', cancelled = ticket.status === 'cancelled';
+        if (canWrite()&&!paid&&!cancelled&&!ticket.bill_locked)container.appendChild(button('kitchen',function(){action(ticket,'send_kitchen',true);},'is-primary'));
         if (!details) container.appendChild(button('details', function () { detailsModal(ticket.id); }));
-        if (ticket.bill_print_url && !cancelled && (canWrite() || paid || ticket.bill_locked)) container.appendChild(button('receipt', function () { if (paid || ticket.bill_locked) print(ticket.receipt_url || ticket.bill_print_url); else action(ticket, 'request_bill'); }));
+        if (ticket.bill_print_url && !cancelled && (canWrite() || paid || ticket.bill_locked)) container.appendChild(button('receipt', function () { if (paid || ticket.bill_locked) print(ticket.receipt_url || ticket.bill_print_url); else action(ticket, 'request_bill'); }, 'is-bill'));
         if (!canWrite()) return;
-        if (!paid && !cancelled && !ticket.bill_locked) container.appendChild(button('edit', function () { editTicket(ticket.id); }));
         if (!paid && !cancelled) container.appendChild(button('collect', function () { settlement(ticket.id); }, 'is-warning'));
         if (!paid && !cancelled && !ticket.bill_locked) {
             if (ticket.status === 'new') container.appendChild(button('prepare', function () { action(ticket, 'prepare'); }, 'is-primary'));
             if (ticket.status === 'preparing') container.appendChild(button('dispatch', function () { action(ticket, 'dispatch'); }, 'is-primary'));
             if (ticket.status === 'out_for_delivery') container.appendChild(button('finish', function () { action(ticket, 'finish'); }, 'is-primary'));
-            container.appendChild(button('kitchen', function () { action(ticket, 'send_kitchen', true); }));
+            container.appendChild(button('edit', function () { editTicket(ticket.id); }));
             if (!ticket.kitchen_sent) container.appendChild(button('cancel', function () { var reason = window.prompt(text('cancel_prompt')); if (reason && reason.trim()) action(ticket, 'cancel', false, reason.trim()); }));
         }
     }
@@ -269,7 +291,7 @@
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
     }
     function card(ticket) {
-        var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));
+        var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));if(ticket.delivery_company)article.appendChild(element('p','ph-ticket-detail','شركة التوصيل: '+ticket.delivery_company.name));
         [['fas fa-phone-alt', ticket.customer_phone], ['fas fa-map-marker-alt', ticket.area ? ticket.area + ' · ' + ticket.address : ticket.address], ['far fa-clock', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (entry) { var row = element('p', 'ph-ticket-detail'); row.appendChild(element('i', entry[0])); row.appendChild(element('span', '', entry[1] || '')); article.appendChild(row); });
         var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); return article;
     }
@@ -277,7 +299,7 @@
         if (!branch || disposed || locked()) return;
         var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'); list.setAttribute('aria-busy', 'true'); if (!quiet) list.replaceChildren(element('p', 'ph-empty', text('loading')));
         try {
-            var response = await get(urls.tickets, { branch: branch, status: orderStage, page: page || 1 }, controller.signal), result = await read(response, 'list_error'); if (disposed || generation !== orderGeneration) return;
+            var response = await get(urls.tickets, { branch: branch, status: orderStage, page: page || 1, delivery_company_id:boot.company_filter||null }, controller.signal), result = await read(response, 'list_error'); if (disposed || generation !== orderGeneration) return;
             var items = result.items || result.tickets; if (!Array.isArray(items)) throw new Error(text('list_error')); list.replaceChildren(); items.forEach(function (ticket) { if (validTicket(ticket, undefined, true)) list.appendChild(card(ticket)); }); if (!list.children.length) list.appendChild(element('p', 'ph-empty', text('empty_orders')));
             orderPagination = result.pagination || {}; orderPage = Number(orderPagination.page || 1); root.querySelector('[data-phone-order-pagination]').hidden = !(orderPagination.last_page > 1); root.querySelector('[data-phone-orders-page-label]').textContent = orderPage + ' / ' + (orderPagination.last_page || 1); lock();
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; list.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
@@ -293,20 +315,23 @@
         if (operation.type === 'action' && operation.payload.action === 'send_kitchen' && !result.kitchen_print_url && !(result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url)) && !result.ticket.kitchen_print_url) throw new Error(text('uncertain'));
     }
     function applyWrite(result, operation, recovered) {
+        if(operation.type==='customer'){
+            var c=result.customer;if(!result.success||!c||c.branch!==branch||!Number.isSafeInteger(Number(c.id))||!Number(c.revision))throw new Error(text('uncertain'));
+            customerRef={id:Number(c.id),revision:Number(c.revision)};writing=false;uncertain=false;frozen=null;category='';root.querySelector('[data-phone-search]').value='';flow('products');notify('تم حفظ بيانات العميل. اختر الأصناف لإرسالها للفرع.',true);loadCatalog(1);if(cart.length&&!quote)calculate();return;
+        }
         validateWriteResult(result, operation, recovered);
         if (operation.type === 'save') { resetDraft(); notify(text(operation.ticketId ? 'saved_edit' : 'saved'), true); }
         else { notify(text(operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated'), true); if (editing && Number(editing.id) === Number(result.ticket.id)) resetDraft(); }
         var content = root.querySelector('[data-phone-modal-content]'); if (modal.hidden) content = openModal(text('details')); detailContent(result.ticket, content); writing = false; uncertain = false; lock(); frozen = null;
         if (view === 'orders') loadOrders(orderPage); else if (!loaded && branch) loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
         if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
-        else if (operation.type === 'settle') print(result.receipt_url);
         else if (operation.printKitchen && !result.print_queued) print(result.kitchen_print_url || result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url) || result.ticket.kitchen_print_url);
     }
     async function recover(operation) {
         var controller = new AbortController(), timeout = setTimeout(function () { controller.abort(); }, 10000);
         try {
-            var response = await get(urls.recover, { branch: operation.payload.branch, idempotency_key: operation.payload.idempotency_key }, controller.signal), result = await read(response, 'write_error'); if (disposed || frozen !== operation || !result.found) return false;
-            if (!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket && result.ticket.id)) throw new Error(text('uncertain'));
+            var response = await get(operation.type==='customer'?urls.operations_recover:urls.recover, { branch: operation.payload.branch, idempotency_key: operation.payload.idempotency_key }, controller.signal), result = await read(response, 'write_error'); if (disposed || frozen !== operation || !result.found) return false;
+            if (operation.type!=='customer'&&(!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket && result.ticket.id))) throw new Error(text('uncertain'));
             applyWrite(result, operation, true); return true;
         } catch (_) { return false; } finally { clearTimeout(timeout); }
     }
@@ -346,8 +371,9 @@
             var ticket = await fetchTicket(id, controller.signal); if (disposed || generation !== editGeneration || requestedBranch !== branch || locked()) return;
             if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || ticket.bill_locked || !canWrite()) { notify(text('forbidden')); return; }
             resetDraft(); editing = ticket; fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
+            customerRef=ticket.customer_id&&ticket.customer_revision?{id:ticket.customer_id,revision:ticket.customer_revision}:null;setCustomerLocation(ticket.delivery_location||{});deliveryLocation=ticket.delivery_location||null;companySelect.value=String(ticket.delivery_company&&ticket.delivery_company.id||'');
             var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], available: true, quantity_mode: 'select' }; var choice = line.option_id ? (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id, label: line.option_label, price: line.unit_price } : null; return { product: product, option: choice, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
-            root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow('products', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
+            root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow(deliveryLocation?'products':'details', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
         } catch (error) { if (disposed || requestedBranch !== branch || error.name === 'AbortError') return; notify(error.message || text('list_error')); }
     }
     async function settlement(id) {
@@ -376,6 +402,7 @@
         if (locked()) return;
         if (control.hasAttribute('data-phone-save')) return save();
         if (control.hasAttribute('data-phone-lookup') || control.hasAttribute('data-phone-next-number')) return nextNumber();
+        if(control.hasAttribute('data-phone-clear-company')){boot.company_filter=0;control.hidden=true;return loadOrders(1);}
         if (control.hasAttribute('data-phone-next-details')) return nextDetails();
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
@@ -396,7 +423,7 @@
         if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
         if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
-    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(['address','area'].includes(key))invalidateLocation();if(key==='customer_phone')customerRef=null; if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
     listen(fields.customer_phone, 'keydown', function (event) {
         var box = root.querySelector('[data-phone-lookup-result]'), suggestions = box.querySelectorAll('[data-phone-suggestion]');
         if (event.key === 'Escape') { clearTimeout(customerTimer); customerGeneration++; abort('customer'); box.hidden = true; return; }
@@ -406,6 +433,8 @@
             suggestions.forEach(function (button, index) { button.classList.toggle('is-highlighted', index === suggestionIndex); }); suggestions[suggestionIndex].scrollIntoView({ block: 'nearest' });
         } else if (event.key === 'Enter' && suggestionIndex >= 0) { event.preventDefault(); event.stopPropagation(); suggestions[suggestionIndex].click(); }
     });
+    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(root.querySelector('[data-phone-confirm-location]'),'click',confirmLocation);
+    [fields.address,fields.area].forEach(function(input){listen(input,'blur',locateAddress);});[latInput,lngInput].forEach(function(input){listen(input,'input',invalidateLocation);});listen(companySelect,'change',function(){changed(false);});
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
@@ -413,10 +442,9 @@
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
-    root.querySelector('[data-phone-branch-slot]').appendChild(branchSelect.closest('.ph-branch'));
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;locationGeneration++;contextGeneration++;if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
-    renderLines(); totals(null); flow('number'); if (branch) loadCatalog(1);
+    renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(orderPage, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');

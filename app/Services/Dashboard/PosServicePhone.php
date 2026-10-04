@@ -12,7 +12,7 @@ class PosServicePhone
     public static function key(string $phone): string
     {
         $phone=strtr($phone,array_combine(preg_split('//u','٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),range(0,9)));
-        return preg_replace('/[^0-9+]/','',$phone);
+        $phone=strtr($phone,array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹',-1,PREG_SPLIT_NO_EMPTY),range(0,9)));return preg_replace('/[^0-9+]/','',$phone);
     }
     public function customers(array $values,$actor): array
     {
@@ -24,12 +24,19 @@ class PosServicePhone
         $keys=[$key];
         if(str_starts_with($key,'0')&&!str_starts_with($key,'00'))$keys=array_merge($keys,['+20'.substr($key,1),'20'.substr($key,1),'0020'.substr($key,1)]);
         elseif(preg_match('/^(?:\+20|0020|20)([1-9][0-9]*)$/',$key,$m))$keys=array_merge($keys,['0'.$m[1],'+20'.$m[1],'20'.$m[1],'0020'.$m[1]]);
+        foreach($keys as $variant)if(preg_match('/^0(1[0125][0-9]*)$/',$variant,$m))$keys[]=$m[1];
+        if(preg_match('/^1[0125][0-9]*$/',$key))$keys=array_merge($keys,['0'.$key,'+20'.$key,'20'.$key,'0020'.$key]);
         $keys=array_unique($keys);$items=[];$seen=[];
         $add=function(array $item)use(&$items,&$seen){
-            $phone=self::key($item['phone']);$phone=preg_replace('/^(?:\+20|0020|20)([1-9])/','0$1',$phone);
+            $phone=BranchCustomers::phoneKey($item['phone']);$item['phone']=$phone;
             $hash=PosServiceTicket::fingerprint([$phone,trim($item['address']),trim($item['area'])]);
             if(isset($seen[$hash])||count($items)>=8)return;$seen[$hash]=true;$items[]=$item;
         };
+        $scope=$central&&$branch['kind']==='f'?array_column(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'),'value'):[$v['branch']];
+        if($this->access->has('branch_customers','phone_key')){
+            $saved=DB::table('branch_customers')->whereIn('branch',$scope);$this->numberFilter($saved,'phone_key',$keys,$prefix);
+            foreach($saved->orderByDesc('updated_at')->limit(20)->get() as $row)$add(['customer_id'=>$row->branch===$v['branch']?(int)$row->id:null,'customer_revision'=>$row->branch===$v['branch']?(int)$row->revision:null,'name'=>$row->name,'phone'=>$row->phone,'address'=>$row->address,'area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'','latitude'=>$row->latitude,'longitude'=>$row->longitude]);
+        }
         $query=DB::table('pos_service_tickets')->where('channel','phone');
         if($central&&$branch['kind']==='f')$query->whereIn('branch',array_column(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'),'value'));
         else $query->where('branch',$v['branch']);
@@ -56,9 +63,9 @@ class PosServicePhone
         }
         return ['success'=>true,'branch'=>$branch,'items'=>$items,'customers'=>$items,'matches'=>$items];
     }
-    private function normalizedColumn(string $column)
+    public static function normalizedColumn(string $column)
     {
-        return DB::raw("REPLACE(REPLACE(REPLACE(REPLACE($column, ' ', ''), '-', ''), '(', ''), ')', '')");
+        $sql="REPLACE(REPLACE(REPLACE(REPLACE($column, ' ', ''), '-', ''), '(', ''), ')', '')";foreach(['٠١٢٣٤٥٦٧٨٩','۰۱۲۳۴۵۶۷۸۹'] as $digits)foreach(preg_split('//u',$digits,-1,PREG_SPLIT_NO_EMPTY) as $n=>$d)$sql="REPLACE($sql, '$d', '$n')";return DB::raw($sql);
     }
     private function numberFilter($query,$column,array $keys,bool $prefix): void
     {

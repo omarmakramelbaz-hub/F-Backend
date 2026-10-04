@@ -36,6 +36,15 @@ on:
       - 'routes/takeaway.php'
       - 'routes/pos_service.php'
       - 'routes/branch_expenses.php'
+      - 'routes/branch_operations.php'
+      - 'database/migrations/*branch_operations*'
+      - 'resources/views/admin/branch_operations/**'
+      - 'resources/views/admin/maps/**'
+      - 'app/Http/Controllers/Dashboard/BranchOperationsController.php'
+      - 'public/dashboard/js/branch-operations.js'
+      - 'public/dashboard/js/dashboard-location-picker.js'
+      - 'public/dashboard/css/branch-operations.css'
+      - 'public/dashboard/vendor/leaflet/**'
       - 'app/Http/Controllers/Dashboard/BranchExpensesController.php'
       - 'app/Http/Controllers/Dashboard/PrintSettingsController.php'
       - 'resources/views/admin/expenses/**'
@@ -143,6 +152,8 @@ jobs:
           node --check public/dashboard/js/phone-orders.js
           node --check public/dashboard/js/branch-print-receiver.js
           node --check public/dashboard/js/branch-expenses.js
+          node --check public/dashboard/js/branch-operations.js
+          node --check public/dashboard/js/dashboard-location-picker.js
           node --check public/dashboard/js/print-settings.js
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh

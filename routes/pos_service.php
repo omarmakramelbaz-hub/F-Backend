@@ -27,6 +27,8 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
         Route::post('tables', [DineInController::class, 'tableSave'])->name('table-save');
         Route::post('settings', [DineInController::class, 'settings'])->name('settings');
     });
+    Route::get('admin/phone-orders/delivery-settings',[PhoneOrdersController::class,'deliverySettings'])->name('phone-orders.delivery-settings');
+    Route::post('admin/phone-orders/delivery-quote',[PhoneOrdersController::class,'deliveryQuote'])->name('phone-orders.delivery-quote');
     Route::get('admin/phone-orders/customers', [PhoneOrdersController::class, 'customers'])->name('phone-orders.customers');
     Route::get('admin/phone-orders/print-jobs', [PhoneOrdersController::class, 'printJobs'])->name('phone-orders.print-jobs');
     Route::post('admin/phone-orders/print-jobs/claim', [PhoneOrdersController::class, 'printClaim'])->name('phone-orders.print-claim');
@@ -34,3 +36,5 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
 });
 
 require __DIR__.'/branch_expenses.php';
+
+require __DIR__.'/branch_operations.php';

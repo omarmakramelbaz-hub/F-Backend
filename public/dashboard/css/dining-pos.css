@@ -123,3 +123,7 @@
 .dp-fixed-total{margin:0}.dp-fixed-total .dp-grand-total{display:flex;justify-content:space-between;align-items:center;padding:4px 0}.dp-fixed-total .dp-grand-total dd{display:flex;gap:5px;align-items:baseline}.dp-fixed-total .dp-grand-total dt{font-size:13px}.dp-fixed-total .dp-grand-total strong{font-size:22px}.dp-customer-name,.dp-table-meta,.dp-payment-box{flex-shrink:0}.dp-invoice-lines{flex:0 0 auto;min-height:105px;max-height:230px}.dp-settings-grid:has(>form:only-child){grid-template-columns:1fr}
 
 #dining-pos .dp-line-quantity-input{width:66px;max-width:100%;min-width:0;padding:5px 2px;text-align:center;border:1px solid #e1e5ef;border-radius:5px;font:inherit;font-weight:700;color:inherit;background:#fff;direction:ltr}#dining-pos .dp-line-quantity-input:disabled{border-color:transparent;background:transparent;opacity:1}
+
+#dining-pos [data-dining-request-bill]{background:#f58220;color:#fff;border:1px solid #de6d0c;font-weight:800;min-height:44px} #dining-pos [data-dining-request-bill]:disabled{opacity:.5}
+
+#dining-pos .dp-actions [data-dining-request-bill]{font-size:13px;min-height:44px}#dining-pos [data-dining-cancel]{font-size:10px;border:0;background:transparent;color:#b42335}

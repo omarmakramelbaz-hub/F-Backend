@@ -11,3 +11,6 @@
     @if(!empty($context['address']))<div class="full-width"><dt>{{ __('pos_service.address') }}</dt><dd>{{ $context['address'] }}</dd></div>@endif
     @if(!empty($context['delivery_notes']))<div class="full-width"><dt>{{ __('pos_service.delivery_notes') }}</dt><dd>{{ $context['delivery_notes'] }}</dd></div>@endif
 @endif
+
+@if(!empty($context['delivery_company']))<div><dt>شركة التوصيل</dt><dd>{{ $context['delivery_company']['name'] }} · <bdi>{{ $context['delivery_company']['phone'] }}</bdi></dd></div>@endif
+@if(!empty($context['delivery_location']))<div><dt>مسافة التوصيل</dt><dd><bdi>{{ $context['delivery_location']['distance_km'] }}</bdi> كم × <bdi>{{ $context['delivery_location']['km_price'] }}</bdi> ج.م / كم</dd></div><div><dt>موقع العميل</dt><dd><bdi>{{ $context['delivery_location']['latitude'] }}, {{ $context['delivery_location']['longitude'] }}</bdi></dd></div>@endif

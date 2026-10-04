@@ -17,3 +17,9 @@
 .ph-lookup-result{max-height:260px;overflow:auto}.ph-lookup-result button{display:flex;flex-wrap:wrap;gap:5px 12px;width:100%;text-align:start;padding:10px;border:1px solid #e2e7ef;border-radius:8px;background:#fff;color:#192e47;margin-top:7px}.ph-lookup-result button bdi{font-weight:800;direction:ltr}.ph-lookup-result button small{width:100%;color:#697d91}.ph-lookup-result button:hover,.ph-lookup-result button.is-highlighted,.ph-lookup-result button:focus-visible{border-color:#ed7c10;background:#fff4e7}
 
 .ph-lookup-result button bdi,.ph-lookup-result button strong{font-size:14px}.ph-lookup-result button small{font-size:11px;line-height:1.7}
+
+#phone-orders .is-bill{background:#f58220;color:#fff;border:1px solid #de6d0c;font-weight:800}
+
+.ph-location{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;margin:12px 0}.ph-location h3{font-size:16px}.ph-location p,.dashboard-map-notice{font-size:12px;line-height:1.8}.ph-location button{padding:9px;border-radius:8px;border:1px solid #dce2eb;background:#fff;margin:8px 0}.ph-location .ph-confirm-location{background:#173e70;color:white;width:100%}#phone-orders.ph-step-details .ph-customer{width:100%;max-width:1000px}#phone-orders .ph-header .ph-branch{display:flex!important}#phone-orders [data-phone-map]{z-index:0}
+
+.ph-step-details .ph-location{grid-column:1/-1}.ph-header>.ph-branch{width:auto;min-width:200px;margin:0}

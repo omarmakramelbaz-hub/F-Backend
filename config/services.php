@@ -34,6 +34,7 @@ return [
     ],
 
     'maps' => [
+        'tile_url' => env('MAP_TILE_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
         'browser_key' => env('MAP_BROWSER_KEY', env('MAP_KEY')),
     ],
 

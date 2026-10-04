@@ -30,12 +30,20 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
+    'branch_operation_commands'=>['branch','actor_id','request_key','request_hash','result'],
+    'branch_customers'=>['branch','phone_key','latitude','longitude','revision'],
+    'branch_delivery_companies'=>['branch','name','active','revision'],
+    'branch_employees'=>['branch','hired_on','left_on','revision'],
+    'branch_employee_salaries'=>['employee_id','effective_month','amount_cents'],
+    'branch_employee_days'=>['employee_id','day','status','revision'],
+    'branch_employee_entries'=>['employee_id','day','kind','amount_cents','voided_at'],
+    'branch_payrolls'=>['employee_id','month','net_cents','snapshot','status','paid_at'],
     'branch_expenses'=>['branch','amount_cents','status','revision','attachment_path'],
     'branch_expense_commands'=>['branch','actor_id','request_key','request_hash','expense_id','snapshot'],
     'pos_branch_print_jobs'=>['branch','ticket_id','kitchen_id','status','claim_token','claimed_by'],
     'pos_service_settings'=>['branch', 'service_bps', 'revision'],
     'pos_service_tables'=>['branch', 'name', 'capacity', 'active_ticket_id', 'revision'],
-    'pos_service_tickets'=>['branch', 'channel', 'status', 'payment_status', 'revision', 'cart_snapshot', 'quote_snapshot', 'paid_order_id', 'bill_issued_at', 'bill_issued_by', 'bill_issued_revision'],
+    'pos_service_tickets'=>['branch', 'channel', 'status', 'payment_status', 'revision', 'cart_snapshot', 'quote_snapshot', 'paid_order_id', 'bill_issued_at', 'bill_issued_by', 'bill_issued_revision','customer_id','delivery_company_id','delivery_company_snapshot','delivery_snapshot'],
     'pos_service_commands'=>['branch', 'actor_id', 'request_key', 'request_hash', 'ticket_id'],
     'pos_service_kitchen_tickets'=>['branch', 'ticket_id', 'revision', 'snapshot'],
     'takeaway_orders'=>['channel', 'ticket_id', 'service_cents', 'delivery_cents', 'context_snapshot', 'tenders_snapshot'],
@@ -46,7 +54,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.close','employees.pay','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);
@@ -54,7 +62,7 @@ foreach (['takeaway.details','dining.details','phone-orders.details','branch-exp
 }
 echo "DINING AND PHONE POS READY\n";
 
-echo filled(config('services.maps.browser_key')) ? "DASHBOARD MAPS KEY CONFIGURED (Google authorization still requires browser verification)\n" : "DASHBOARD MAPS: browser key is missing; configure MAP_BROWSER_KEY or MAP_KEY.\n";
+echo filled(config('services.maps.browser_key')) ? "DASHBOARD MAPS KEY CONFIGURED (Google authorization still requires browser verification)\n" : "DASHBOARD MAPS: OpenStreetMap pin selection is available; automatic address search requires MAP_BROWSER_KEY or MAP_KEY and Google Geocoding authorization.\n";
 
 $firebasePath = config('firebase.credentials', storage_path('app/firebase_credentials.json'));
 echo is_string($firebasePath) && is_file($firebasePath) && is_readable($firebasePath) && filled(config('services.fcm.project_id'))

@@ -80,6 +80,11 @@
                             <p>{{ __('dining.title') }}</p>
                         </a>
                     </li>
+                    @foreach(['customers'=>'قائمة العملاء','delivery-companies'=>'شركات الدليفري','employees'=>'الموظفون والرواتب'] as $module=>$title)
+                    @if($module!=='employees'||in_array(auth('admin')->user()->account_type,['admin','vendor','resturant_owner']))
+                    <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='employees'?'fa-user-clock':($module==='customers'?'fa-address-book':'fa-shipping-fast') }}"></i><p>{{ $title }}</p></a></li>
+                    @endif
+                    @endforeach
                     <li class="nav-item">
                         <a href="{{ route('phone-orders.index') }}" class="nav-link {{ request()->is('admin/phone-orders*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-phone-alt"></i>

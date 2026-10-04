@@ -1,5 +1,6 @@
 <?php
 return [
+    'all'=>'All orders',
     'title'=>'Phone delivery orders', 'subtitle'=>'Receive calls, prepare orders and track collection', 'branch'=>'Branch',
     'select_branch'=>'Choose a branch', 'new_order'=>'New phone order', 'saved_orders'=>'Delivery orders', 'invoice'=>'Order invoice',
     'products'=>'Branch menu', 'search'=>'Search products…', 'customer'=>'Customer and delivery', 'phone'=>'Phone number',
@@ -15,7 +16,7 @@ return [
     'saved'=>'Order saved. Payment is still due.', 'saved_edit'=>'Order changes saved.', 'unpaid'=>'Payment due', 'paid'=>'Paid', 'payment_status'=>'Payment status',
     'new'=>'New', 'preparing'=>'Preparing', 'out_for_delivery'=>'Out for delivery', 'completed'=>'Completed', 'finished'=>'Completed', 'cancelled'=>'Cancelled',
     'prepare'=>'Start preparing', 'dispatch'=>'Out for delivery', 'finish'=>'Complete delivery', 'cancel'=>'Cancel order', 'cancel_reason'=>'Cancellation reason',
-    'edit'=>'Edit order', 'details'=>'Order details', 'receipt'=>'Print invoice', 'kitchen'=>'Print kitchen ticket', 'collect'=>'Record collection',
+    'edit'=>'Edit order', 'details'=>'Order details', 'receipt'=>'Print payment bill', 'kitchen'=>'Send order to kitchen', 'collect'=>'Close invoice and collect payment',
     'collected'=>'Payment recorded.', 'cash'=>'Cash', 'card'=>'Card', 'mobile_wallet'=>'Mobile wallet', 'other'=>'Other',
     'payment_method'=>'Payment method', 'payment_confirmed'=>'The full order amount has actually been collected', 'cash_received'=>'Cash received',
     'payment_reference'=>'Transaction reference', 'change'=>'Change', 'confirm_payment'=>'Confirm collection before recording payment.',

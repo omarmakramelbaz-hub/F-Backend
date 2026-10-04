@@ -185,6 +185,7 @@ $(document).ready(function() {
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 <div data-dashboard-page-scripts hidden>
+<script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
 </div>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
@@ -194,7 +195,7 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
-<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v=20261003-pos-service-1"></script>
+<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
 <!-- AdminLTE for demo purposes -->
@@ -1113,7 +1114,7 @@ function openOrFocusWindow(orderId) {
 </script>
 
 <script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>
-<script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
+
 @include('admin.pos_service.receiver')
 <script src="{{ asset('dashboard/js/dashboard-inbox.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-inbox.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-support-chat.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-support-chat.js')) }}"></script>
