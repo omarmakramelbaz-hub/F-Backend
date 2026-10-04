@@ -16,23 +16,36 @@ class BranchStock
     private function present(object $r): array {return ['product_id'=>(int)$r->product_id,'unit'=>$r->unit,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'negative'=>(int)$r->quantity_units<0,'revision'=>(int)$r->revision];}
     public function balances(string $branch,array $ids): array
     {
+        if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->menuBalances($branch,$ids);
         if(!$ids||!$this->installed())return [];$result=[];
         foreach(DB::table('branch_stock')->where('branch',$branch)->whereIn('product_id',$ids)->get() as $r)$result[(int)$r->product_id]=$this->present($r);
         return $result;
     }
+    public function quoteLines(string $branch,array $lines): array
+    {
+        return app(BranchInventory::class)->installed()?app(BranchInventory::class)->snapshots($branch,$lines):$lines;
+    }
+    public function saleBalances(string $branch,array $ids): array
+    {
+        if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=\Illuminate\Support\Facades\DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all();
+        return $this->balances($branch,$ids);
+    }
     public function decorate(string $branch,array $items): array
     {
+        if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->decorate($branch,$items);
         $stocks=$this->balances($branch,array_column($items,'id'));
         foreach($items as &$item){$item['stock']=$stocks[$item['id']]??null;if($item['stock']){$item['unit']=$item['stock']['unit'];$item['quantity_mode']=$item['stock']['unit']==='kg'?'weight':'piece';}}unset($item);
         return $items;
     }
     public function validateQuantities(string $branch,array $items): void
     {
+        if(app(BranchInventory::class)->installed()){app(BranchInventory::class)->validateQuantities($branch,$items);return;}
         $stocks=$this->balances($branch,array_column($items,'product_id'));
         foreach($items as $item)if(($stocks[$item['product_id']]['unit']??null)==='piece')abort_unless((int)$item['quantity_millis']%1000===0,422,'هذا الصنف مسجل بالقطعة؛ أدخل عددًا صحيحًا.');
     }
     public function listing(array $values,$actor): array
     {
+        if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->listing($values,$actor);
         abort_unless($this->installed(),503,'صفحة إضافة البضاعة تحتاج تحديث قاعدة البيانات.');
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$b=$this->branch($v['branch'],$actor);
         $q=DB::table('resturant_products')->where('resturant_id',$b['id']);$search=trim($v['search']??'');if($search!=='')$q->where('product_name','like','%'.$search.'%');
@@ -43,6 +56,7 @@ class BranchStock
     }
     public function receive(array $values,$actor): array
     {
+        if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->receive($values,$actor);
         abort_unless($this->installed(),503);$v=Validator::make($values,$this->ops->rules()+['product_id'=>'required|integer|min:1','unit'=>'required|in:kg,piece','quantity'=>'required|string|max:16','supplier'=>'nullable|string|max:150','notes'=>'nullable|string|max:500'])->validate();
         $units=$this->units($v['quantity']);abort_if($v['unit']==='piece'&&$units%1000000!==0,422,'كمية القطع يجب أن تكون عددًا صحيحًا.');
         return $this->ops->write('stock.receive',$v,$actor,function($branch,$actor)use($v,$units){
@@ -63,11 +77,13 @@ class BranchStock
     }
     public function posSale(array $branch,int $orderId,array $lines,int $actorId): void
     {
+        if(app(BranchInventory::class)->installed()){app(BranchInventory::class)->posSale($branch,$orderId,$lines,$actorId);return;}
         if($branch['kind']!=='f'||!$this->installed())return;
         $this->consume($branch['value'],'pos',(string)$orderId,$lines,$actorId);
     }
     public function appSale(\App\Models\Order $order): void
     {
+        if(app(BranchInventory::class)->installed()){app(BranchInventory::class)->appSale($order);return;}
         if($order->type!=='current'||!$order->resturant_id||!$this->installed())return;
         // Completion already owns the order lock; serialize with receipts/POS on its branch.
         DB::table('resturants')->where('id',$order->resturant_id)->lockForUpdate()->first();

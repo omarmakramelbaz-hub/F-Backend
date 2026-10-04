@@ -30,6 +30,11 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
+    'stock_ingredients'=>['name','unit','position'],
+    'branch_inventory'=>['branch','ingredient_id','quantity_units','revision'],
+    'branch_inventory_movements'=>['stock_id','branch','ingredient_id','source_type','source_id','quantity_units','balance_units'],
+    'branch_stock_recipes'=>['branch','product_id','unit','revision','variants','updated_by'],
+    'branch_recipe_sales'=>['branch','source_type','source_id','snapshot'],
     'branch_stock'=>['branch','product_id','unit','quantity_units','revision'],
     'branch_stock_movements'=>['stock_id','branch','product_id','source_type','source_id','quantity_units','balance_units'],
     'branch_shift_closings'=>['branch','sequence','request_key','expected_cents','counted_cents','variance_cents','snapshot'],
@@ -58,7 +63,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['branch-stock.recipes','branch-stock.recipe-save','branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);

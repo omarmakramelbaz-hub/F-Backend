@@ -89,7 +89,7 @@ class TakeawayService
             abort_unless(!DB::table('takeaway_till_entries')->where('till_id', $till->id)->where('actor_id', $actor->id)
                 ->where('request_key', $payment['idempotency_key'])->exists(), 409, 'رقم العملية مستخدم بالفعل.');
             $quote = $this->price($cart, $branch, $permissions, (int) $till->tax_bps, true, $context);
-            abort_unless(hash_equals($quote['quote_hash'], $payment['quote_hash']), 409, 'تغير سعر أو ضريبة الفاتورة. راجع الإجمالي وأعد المحاولة.');
+            abort_unless(hash_equals($quote['quote_hash'], $payment['quote_hash']), 409, 'تغير سعر أو ضريبة أو وصفة الفاتورة. راجع الإجمالي وأعد المحاولة.');
             $total = $quote['total_cents'];
             if ($payment['payment_method']==='mixed') {
                 abort_unless(array_sum(array_column($tenders,'amount_cents'))===$total,422,'مجموع وسائل الدفع لا يساوي إجمالي الفاتورة.');
@@ -278,8 +278,8 @@ class TakeawayService
 
     private function price(array $cart, array $branch, array $permissions, int $taxBps, bool $lock, array $context=[]): array
     {
-        app(BranchStock::class)->validateQuantities($branch['value'],$cart['items']);
         if(isset($context['saved_quote']))return $this->savedPrice($cart,$context);
+        app(BranchStock::class)->validateQuantities($branch['value'],$cart['items']);
         abort_unless($cart['discount_cents'] === 0 || $permissions['can_manage'], 403, 'الخصم متاح للمالك أو الإدارة المخولة فقط.');
         if ($cart['discount_cents'] > 0 && $cart['discount_reason'] === '') throw ValidationException::withMessages(['discount_reason'=>'اكتب سبب الخصم.']);
         $rows = $this->catalog->rows($branch, array_column($cart['items'], 'product_id'), $lock);
@@ -289,6 +289,7 @@ class TakeawayService
             $line = $this->catalog->line($branch, $rows[$item['product_id']], $item, $lock);
             $lines[] = $line; $subtotal += $line['total_cents'];
         }
+        $lines=app(BranchStock::class)->quoteLines($branch['value'],$lines);
         abort_unless($subtotal <= 100000000 && $cart['discount_cents'] <= $subtotal, 422, 'الخصم أو إجمالي الفاتورة غير صالح.');
         abort_unless($taxBps >= 0 && $taxBps <= 10000, 503, 'ضريبة الخزنة غير صالحة.');
         $serviceBps=(int)($context['service_bps']??0);$delivery=(int)($context['delivery_cents']??0);
@@ -346,7 +347,7 @@ class TakeawayService
     {
         $receipt = $this->presentReceipt($order);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
-            'stock_balances'=>app(BranchStock::class)->balances($order->branch,array_column($receipt['items'],'product_id')),
+            'stock_balances'=>app(BranchStock::class)->saleBalances($order->branch,array_column($receipt['items'],'product_id')),
             'register'=>$this->presentTill($this->till($order->branch)), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 

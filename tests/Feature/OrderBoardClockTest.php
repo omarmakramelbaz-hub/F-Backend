@@ -124,6 +124,23 @@ class OrderBoardClockTest extends TestCase
         $this->assertSame('completed',$order->fresh()->status);
     }
 
+    public function test_app_completion_uses_explicit_ingredient_recipe_and_never_repeats_deductions(): void
+    {
+        require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php');(new \CreateBranchInventoryRecipes)->up();
+        Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('product_id');$t->string('product_name');});
+        Schema::table('carts',function(Blueprint $t){$t->unsignedBigInteger('resturant_product_id')->nullable();$t->unsignedBigInteger('product_feature')->nullable();});
+        DB::table('resturant_products')->insert(['id'=>5,'resturant_id'=>100,'product_id'=>50,'product_name'=>'وجبة ربع فسيخ']);
+        DB::table('branch_inventory')->insert([['branch'=>'f:100','ingredient_id'=>1,'quantity_units'=>2000000,'revision'=>1],['branch'=>'f:100','ingredient_id'=>20,'quantity_units'=>8000000,'revision'=>1]]);
+        $components=[['ingredient_id'=>1,'name'=>'فسيخ كيلو 4 سمكات','unit'=>'kg','quantity_units'=>250000],['ingredient_id'=>20,'name'=>'خبز بلدي','unit'=>'piece','quantity_units'=>1000000]];
+        DB::table('branch_stock_recipes')->insert(['branch'=>'f:100','product_id'=>5,'unit'=>'piece','revision'=>1,'variants'=>json_encode((object)[6=>$components]),'updated_by'=>1]);
+        $order=$this->legacy();DB::table('carts')->where('order_id',$order->id)->update(['resturant_product_id'=>5,'product_feature'=>6,'qty'=>'2.000']);
+        $this->assertTrue(app(LegacyOrderCompletion::class)->complete($order));
+        $this->assertSame(1500000,(int)DB::table('branch_inventory')->where('ingredient_id',1)->value('quantity_units'));
+        $this->assertSame(6000000,(int)DB::table('branch_inventory')->where('ingredient_id',20)->value('quantity_units'));
+        $this->assertFalse(app(LegacyOrderCompletion::class)->complete($order));$this->assertSame(2,DB::table('branch_inventory_movements')->count());$this->assertSame(1,DB::table('branch_recipe_sales')->count());
+        $this->assertSame('completed',$order->fresh()->status);
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

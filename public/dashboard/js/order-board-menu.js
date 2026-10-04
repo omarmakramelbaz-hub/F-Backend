@@ -72,7 +72,7 @@
             }).join(' · '));
             copy.appendChild(options);
         }
-        if(item.stock){var balance=node('span','ob-menu-item-price','الرصيد: '+item.stock.quantity+' '+item.stock.unit_label);balance.style.color=item.stock.negative?'#b42318':'#126b4a';copy.appendChild(balance);}
+        if(item.stock){var balance=node('span','ob-menu-item-price',(item.stock.label || 'الرصيد: '+item.stock.quantity+' '+item.stock.unit_label));balance.style.color=item.stock.negative?'#b42318':'#126b4a';copy.appendChild(balance);}
         card.appendChild(copy);
         var status = node('span', 'ob-menu-item-status', text(item.available ? 'menu_available' : 'menu_unavailable'));
         status.classList.toggle('is-unavailable', !item.available);

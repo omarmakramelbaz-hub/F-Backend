@@ -79,6 +79,7 @@ php -l app/Http/Controllers/Dashboard/BranchShiftClosingController.php
 php -l app/Services/Dashboard/BranchExpenses.php
 php -l app/Services/Dashboard/BranchOperations.php
 php -l app/Services/Dashboard/BranchStock.php
+php -l app/Services/Dashboard/BranchInventory.php
 php -l app/Http/Controllers/Dashboard/BranchStockController.php
 php -l app/Services/Dashboard/BranchPayroll.php
 php -l app/Services/Dashboard/BranchCustomers.php
@@ -104,6 +105,7 @@ php artisan migrate --force --path=database/migrations/2026_10_04_030000_create_
 php artisan migrate --force --path=database/migrations/2026_10_04_060000_lock_pos_service_bills.php
 php artisan migrate --force --path=database/migrations/2026_10_04_080000_create_branch_operations.php
 php artisan migrate --force --path=database/migrations/2026_10_04_190000_create_branch_stock.php
+php artisan migrate --force --path=database/migrations/2026_10_04_210000_create_branch_inventory_recipes.php
 php artisan migrate --force --path=database/migrations/2026_10_04_100000_create_branch_shift_closings.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
@@ -124,6 +126,7 @@ test -s public/dashboard/js/dashboard-location-picker.js
 test -s public/dashboard/js/branch-shifts.js
 test -s public/dashboard/css/branch-shifts.css
 test -s public/dashboard/js/branch-stock.js
+test -s public/dashboard/js/branch-recipes.js
 test -s public/dashboard/css/branch-stock.css
 test -s public/dashboard/js/branch-operations.js
 test -s public/dashboard/css/branch-operations.css
