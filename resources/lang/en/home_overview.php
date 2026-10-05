@@ -1,5 +1,27 @@
 <?php
 return [
+ 'platform_scope'=>'GO & Fasakhansta · Current platform totals, independent of branch and date filters',
+ 'go_partners'=>'GO partners',
+ 'go_stores'=>'GO stores',
+ 'go_users'=>'GO users',
+ 'fasakhansta_users'=>'Fasakhansta users',
+ 'fasakhansta_stores'=>'Fasakhansta stores',
+ 'activated_accounts'=>'Activated couriers and service providers',
+ 'activated_stores'=>'Stores with activated accounts',
+ 'registered_stores'=>'All registered branches',
+ 'pending_join'=>'Pending join requests',
+ 'pending_stores'=>'Stores',
+ 'pending_people'=>'Partners',
+ 'branch_drawers'=>'Drawer cash by branch',
+ 'branch_sales'=>'Branch sales by order channel',
+ 'branch_inventory'=>'Available goods by branch',
+ 'branch_expenses'=>'Total expenses by branch',
+ 'total'=>'Total',
+ 'top_ten'=>'Top 10 branches by sales',
+ 'zero_stock'=>'Recorded stock depleted',
+ 'stock_matrix_note'=>'Each column is a branch. Scroll horizontally for more branches; “Not started” does not mean zero stock.',
+ 'platform_method'=>'GO and Fasakhansta counts are current platform totals, independent of filters. GO partners are activated courier/service-provider accounts; stores are profiles with activated accounts. Pending applications exclude accepted and declined requests. Branches rank by completed gross sales in the selected period.',
+
  'previous_branch'=>'Previous branch',
  'next_branch'=>'Next branch',
 

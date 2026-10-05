@@ -113,7 +113,7 @@ class HomeOverview
             $cancelled+=(clone $q)->where('status','cancelled')->whereBetween('business_date',[$filters['from'],$filters['to']])->count();
             foreach((clone $q)->where('payment_status','unpaid')->where('status','!=','cancelled')->select('branch','status')->selectRaw('COUNT(*) AS n')->groupBy('branch','status')->get() as $r){$g=in_array($r->status,['new','open'],true)?'new':($r->status==='out_for_delivery'?'courier':(in_array($r->status,['awaiting_bill','finished'],true)?'awaiting_payment':'preparing'));$active[$g]+=(int)$r->n;$branches[$r->branch]['active'][$g]+=(int)$r->n;}
         }
-        $inventory=$this->inventory($keys,$modules['inventory']); $alerts=[];
+        $inventory=$this->inventory($keys,$modules['inventory'],$owner); $alerts=[];
         foreach(array_slice($inventory['attention'],0,5) as $i) $alerts[]=['kind'=>$i['quantity_units']<0?'negative_stock':'empty_stock','tone'=>$i['quantity_units']<0?'red':'amber','name'=>$i['name'],'branch'=>$branches[$i['branch']]['name'],'value'=>$i['quantity'],'unit'=>$i['unit'],'url'=>route('branch-stock.index',['branch'=>$i['branch']])];
         if($late) $alerts[]=['kind'=>'late_orders','tone'=>'red','value'=>$late,'url'=>route('orders.applies',$filters['branch']?['branch'=>$filters['branch']]:[])];
         if($modules['expenses']) {$n=DB::table('branch_expenses')->whereIn('branch',$keys)->where('status','pending')->count();if($n)$alerts[]=['kind'=>'pending_expenses','tone'=>'amber','value'=>$n,'url'=>route('branch-expenses.index',$filters['branch']?['branch'=>$filters['branch']]:[])];}
@@ -123,7 +123,7 @@ class HomeOverview
         $customers=$this->customers($ids,$central,$from,$until,$modules['app']);
         $recent=$this->recent($ids,$keys,$from,$until,$finance,$modules);
         $ranking=array_values($branches);usort($ranking,fn($a,$b)=>$finance?$b['sales']['gross_cents']<=>$a['sales']['gross_cents']:$b['sales']['count']<=>$a['sales']['count']);
-        $ranked=array_map(fn($b)=>['branch'=>$b['value'],'name'=>$b['name'],'count'=>$b['sales']['count'],'amount_cents'=>$finance?$b['sales']['gross_cents']:null],array_slice($ranking,0,5));
+        $ranked=array_map(fn($b)=>['branch'=>$b['value'],'name'=>$b['name'],'count'=>$b['sales']['count'],'amount_cents'=>$finance?$b['sales']['gross_cents']:null],array_slice($ranking,0,$owner?10:5));
         $completed=$sales['count'];$channels=[];foreach($sales['channels'] as $key=>$c)$channels[]=['key'=>$key,'count'=>$c['count'],'amount_cents'=>$finance?$c['gross_cents']:null];
         // Financial summaries are removed server-side for cashiers, including chart values and recent receipts.
         foreach($branches as &$b){$b['completed']=$b['sales']['count'];if(!$finance)unset($b['sales']);} unset($b);
@@ -132,7 +132,7 @@ class HomeOverview
         if($owner){
             $ready=$modules['app']&&$modules['pos']&&$modules['expenses']&&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])&&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])&&$this->has('branch_shift_sources',['source','source_id'])&&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
             $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances($keys,$actor):[];
-            $drawer=['owner_drawer'=>['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts]];
+            $drawer=['owner_platform'=>$this->platformCounts(), 'owner_drawer'=>['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts]];
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'modules'=>$modules,'sales'=>$finance?$sales:null,'previous'=>$finance?$previous:null,'completed'=>$completed,'cancelled'=>$cancelled,
@@ -173,14 +173,47 @@ class HomeOverview
     {
         $key=$when->format($trend['mode']==='hour'?'Y-m-d H':($trend['mode']==='month'?'Y-m':'Y-m-d'));if(isset($trend['points'][$key])){$trend['points'][$key]['count']++;$trend['points'][$key]['amount_cents']+=$gross;}
     }
-    private function inventory(array $keys,bool $ready): array
+    private function inventory(array $keys,bool $ready,bool $byBranch=false): array
     {
         if(!$ready)return ['items'=>[],'attention'=>[],'tracked'=>0,'unconfigured_recipes'=>0];
         $stock=DB::table('branch_inventory')->whereIn('branch',$keys)->get()->groupBy('ingredient_id');$items=[];$attention=[];
         foreach(DB::table('stock_ingredients')->orderBy('position')->get() as $i){$rows=$stock[$i->id]??collect();$units=(int)$rows->sum('quantity_units');$items[]=['id'=>(int)$i->id,'name'=>$i->name,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity($units),'quantity_units'=>$units,'tracked_branches'=>$rows->count(),'negative_branches'=>$rows->where('quantity_units','<',0)->count()];foreach($rows as $r)if($r->quantity_units<=0)$attention[]=['name'=>$i->name,'branch'=>$r->branch,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity((int)$r->quantity_units),'quantity_units'=>(int)$r->quantity_units];}
+        if($byBranch)foreach($items as &$item){
+            // Null means no opening/receipt has been recorded, not zero stock.
+            $balances=array_fill_keys($keys,null);
+            foreach($stock[$item['id']]??collect() as $row)$balances[$row->branch]=['quantity'=>app(BranchInventory::class)->quantity((int)$row->quantity_units),'quantity_units'=>(int)$row->quantity_units];
+            $item['balances']=$balances;
+        }unset($item);
         usort($attention,fn($a,$b)=>$a['quantity_units']<=>$b['quantity_units']);$missing=0;
         if($this->has('branch_stock_recipes',['branch','product_id'])&&$this->has('resturant_products',['resturant_id','status'])){foreach($keys as $key){$id=(int)substr($key,2);$missing+=DB::table('resturant_products')->where('resturant_id',$id)->where('status','show')->whereNotIn('id',DB::table('branch_stock_recipes')->where('branch',$key)->select('product_id'))->count();}}
         return ['items'=>$items,'attention'=>$attention,'tracked'=>count(array_filter($items,fn($i)=>$i['tracked_branches']>0)),'unconfigured_recipes'=>$missing];
+    }
+    /** Current platform totals for the primary owner only; independent of branch/date filters. */
+    private function platformCounts(): array
+    {
+        $out=['go_partners'=>null,'go_stores'=>null,'go_users'=>null,'fasakhansta_users'=>null,
+            'fasakhansta_stores'=>DB::table('resturants')->count(),'pending_stores'=>null,'pending_partners'=>null,'pending_total'=>null];
+        if($this->has('users',['account_type','app_scope'])){
+            $users=DB::table('users')->where('account_type','user');
+            $out['go_users']=(clone $users)->whereIn('app_scope',['go','go_customer','go_drive'])->count();
+            $out['fasakhansta_users']=(clone $users)->where(function($q){$q->whereNull('app_scope')->orWhereIn('app_scope',['','fasakhansta']);})->count();
+        }
+        $applications=$this->has('pending_vendors',['id','type','status','profession_key']);
+        if($applications){
+            $pending=DB::table('pending_vendors')->where('status','pending')->where(function($q){$q->whereIn('type',['vendor','delegate'])->orWhere('profession_key','store_owner');});
+            $out['pending_total']=(clone $pending)->count();
+            $out['pending_stores']=(clone $pending)->where(function($q){$q->where('type','vendor')->orWhere('profession_key','store_owner');})->count();
+            $out['pending_partners']=$out['pending_total']-$out['pending_stores'];
+        }
+        if($applications&&$this->has('users',['account_type','app_scope','status','pending_vendor_id'])){
+            $storeApplications=DB::table('pending_vendors')->where('profession_key','store_owner')->select('id');
+            $accounts=DB::table('users')->where('app_scope','go_partner')->where('status','accepted');
+            $out['go_partners']=(clone $accounts)->where('account_type','delegate')->where(function($q) use($storeApplications){$q->whereNull('pending_vendor_id')->orWhereNotIn('pending_vendor_id',$storeApplications);})->count();
+            if($this->has('go_stores',['user_id']))$out['go_stores']=(clone $accounts)
+                ->where(function($q) use($storeApplications){$q->where('account_type','vendor')->orWhere(function($q) use($storeApplications){$q->where('account_type','delegate')->whereIn('pending_vendor_id',$storeApplications);});})
+                ->whereIn('id',DB::table('go_stores')->select('user_id'))->count();
+        }
+        return $out;
     }
     private function customers(array $ids,bool $central,Carbon $from,Carbon $until,bool $app): array
     {

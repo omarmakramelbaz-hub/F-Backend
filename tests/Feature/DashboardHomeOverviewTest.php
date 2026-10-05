@@ -22,13 +22,14 @@ class DashboardHomeOverviewTest extends TestCase
         if($this->connection==='sqlite')config(['database.connections.sqlite.database'=>':memory:']);
         DB::purge($this->connection);Schema::clearResolvedInstance('db.schema');if($this->connection==='mysql')$this->dropFixtures();
         Carbon::setTestNow(Carbon::parse('2026-10-05 10:00:00','Africa/Cairo'));
-        Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->string('account_type');$t->string('app_scope')->nullable();$t->string('status')->default('accepted');$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->timestamps();});
+        Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->string('account_type');$t->string('app_scope')->nullable();$t->unsignedBigInteger('pending_vendor_id')->nullable();$t->string('status')->default('accepted');$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->timestamps();});
         Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->string('status')->default('opened');$t->string('control')->default('show');$t->timestamps();});
         Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->string('status')->default('show');});
         Schema::create('orders',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('user_id')->nullable();$t->string('order_no')->nullable();$t->string('type')->default('current');$t->string('status')->nullable();$t->string('accepted_notify')->nullable();$t->string('delegate_from_out')->nullable();$t->string('payment_type')->default('cash');$t->string('transfer_price_by')->nullable();$t->decimal('total_price',15,2)->default(0);$t->decimal('delivery_price',15,2)->default(0);$t->decimal('user_tax',15,2)->default(0);$t->timestamps();});
         Schema::create('carts',function(Blueprint $t){$t->id();$t->unsignedBigInteger('order_id');$t->decimal('price',15,2);$t->decimal('qty',10,3);$t->decimal('updated_total',15,2)->nullable();});
         Schema::create('settings',function(Blueprint $t){$t->id();$t->string('name');$t->text('payload');});
-        Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('status');});
+        Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('status');$t->string('type')->default('delegate');$t->string('profession_key')->nullable();});
+        Schema::create('go_stores',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id')->unique();$t->string('name')->default('GO store');});
         foreach(['2026_10_03_060000_create_order_board_clocks.php'=>'CreateOrderBoardClocks','2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos','2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets','2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses','2026_10_04_100000_create_branch_shift_closings.php'=>'CreateBranchShiftClosings','2026_10_04_210000_create_branch_inventory_recipes.php'=>'CreateBranchInventoryRecipes','2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs'] as $file=>$class){require_once database_path('migrations/'.$file);(new $class)->up();}
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[21,'user',null],[22,'user',null],[30,'admin',null]] as [$id,$type,$parent])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'app_scope'=>$id===22?'go_customer':'fasakhansta','created_at'=>'2026-10-05 01:00:00']);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main','parent_id'=>null],['id'=>101,'user_id'=>11,'name'=>'Foreign','parent_id'=>null],['id'=>102,'user_id'=>11,'name'=>'Child','parent_id'=>100]]);
@@ -81,7 +82,7 @@ class DashboardHomeOverviewTest extends TestCase
         $this->sale(1);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>123450]);DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>76500,'tax_bps'=>0,'revision'=>1]);
         $owner=$this->overview();$this->assertTrue($owner['owner_drawer']['ready']);$this->assertSame(199950,$owner['owner_drawer']['total_cents']);$this->assertSame(123450,$owner['owner_drawer']['branches']['f:100']['expected_cents']);
         $this->assertSame(123450,$this->overview(['branch'=>'f:100'])['owner_drawer']['total_cents']);
-        foreach([4,10,12] as $id){$this->assertArrayNotHasKey('owner_drawer',$this->overview([],$id));$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$this->actor($id)),403);}
+        foreach([4,10,12] as $id){$this->assertArrayNotHasKey('owner_platform',$this->overview([],$id));$this->assertArrayNotHasKey('owner_drawer',$this->overview([],$id));$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$this->actor($id)),403);}
         $spoof=$this->actor(10);$spoof->id=10;$spoof->account_type='admin';$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$spoof),403);
     }
     public function test_owner_drawer_excludes_cash_delivery_and_includes_vendor_collected_app_cash(): void
@@ -108,6 +109,46 @@ class DashboardHomeOverviewTest extends TestCase
         $this->order(1,['status'=>'pending','accepted_notify'=>'yes','created_at'=>'2026-09-01 10:00:00']);$this->order(2,['status'=>'accepted','delegate_from_out'=>'in_resturant']);$this->order(3,['status'=>'shipped']);$this->order(4,['status'=>'pending']);
         $r=$this->overview();$this->assertSame(['new'=>1,'preparing'=>1,'courier'=>2,'awaiting_payment'=>0],$r['active']);$this->assertSame(2,$r['customers']['total']);$this->assertSame(2,$r['customers']['period']);$this->assertTrue($r['customers']['global']);$this->assertSame(0,$r['completed']);$this->assertContains('late_orders',array_column($r['alerts'],'kind'));
         $r=$this->overview(['branch'=>'f:100']);$this->assertFalse($r['customers']['global']);$this->assertSame(1,$r['customers']['total']);
+    }
+    public function test_owner_platform_counts_separate_customers_partners_stores_and_pending_requests(): void
+    {
+        // Accepted and rejected applications must not appear in the pending tile.
+        foreach([[2,'accepted','delegate','plumber'],[3,'accepted','delegate','store_owner'],[4,'pending','vendor','store_owner'],[5,'pending','delegate','electrician'],[6,'declined','vendor','store_owner'],[7,'pending','vendor',null],[8,'pending','user',null],[9,'pending','delegate','store_owner']] as [$id,$status,$type,$profession])
+            DB::table('pending_vendors')->insert(['id'=>$id,'status'=>$status,'type'=>$type,'profession_key'=>$profession]);
+        foreach([[40,'delegate','go_partner','accepted',2],[41,'delegate','go_partner','accepted',3],[42,'vendor','go_partner','accepted',null],[43,'delegate','go_partner','pending',2],[44,'vendor','go_partner','pending',4],[45,'delegate','fasakhansta','accepted',null],[46,'user','go','accepted',null],[47,'user',null,'accepted',null],[48,'user','','accepted',null],[49,'user','other_app','accepted',null],[50,'vendor','go_partner','accepted',null],[51,'delegate','go_partner','accepted',null],[52,'delegate','go_partner','blocked',2]] as [$id,$type,$scope,$status,$application])
+            DB::table('users')->insert(['id'=>$id,'name'=>'Platform '.$id,'account_type'=>$type,'app_scope'=>$scope,'status'=>$status,'pending_vendor_id'=>$application]);
+        foreach([41,42,44,45] as $id)DB::table('go_stores')->insert(['user_id'=>$id]);
+        $counts=$this->overview()['owner_platform'];
+        $this->assertSame(['go_partners'=>2,'go_stores'=>2,'go_users'=>2,'fasakhansta_users'=>4,'fasakhansta_stores'=>3,'pending_stores'=>3,'pending_partners'=>2,'pending_total'=>5],$counts);
+        $this->assertSame($counts,$this->overview(['branch'=>'f:100','period'=>'week'])['owner_platform']);
+        foreach([4,10,12] as $actor)$this->assertArrayNotHasKey('owner_platform',$this->overview([],$actor));
+        $this->actingAs($this->actor(1),'admin');$this->getJson('/admin/dashboard/overview?branch=f:100')->assertOk()->assertJsonPath('owner_platform.go_stores',2);
+    }
+    public function test_owner_stock_matrix_preserves_individual_branch_balances_and_untracked_cells(): void
+    {
+        DB::table('branch_inventory')->insert([['branch'=>'f:100','ingredient_id'=>1,'quantity_units'=>5250000],['branch'=>'f:101','ingredient_id'=>1,'quantity_units'=>-1250000],['branch'=>'f:100','ingredient_id'=>20,'quantity_units'=>0]]);
+        $items=$this->overview()['inventory']['items'];
+        $this->assertSame('5.25',$items[0]['balances']['f:100']['quantity']);
+        $this->assertSame('-1.25',$items[0]['balances']['f:101']['quantity']);
+        $this->assertNull($items[0]['balances']['f:102']);
+        $this->assertSame('0',$items[19]['balances']['f:100']['quantity']);
+        $this->assertSame('piece',$items[19]['unit']);
+        $this->assertSame(['f:100'],array_keys($this->overview(['branch'=>'f:100'])['inventory']['items'][0]['balances']));
+        $this->assertArrayNotHasKey('balances',$this->overview([],10)['inventory']['items'][0]);
+    }
+    public function test_owner_gets_top_ten_and_exact_channel_and_expense_values_for_each_branch(): void
+    {
+        for($i=0;$i<12;$i++){
+            DB::table('resturants')->insert(['id'=>200+$i,'user_id'=>11,'name'=>'Branch '.$i]);
+            $this->sale(100+$i,'f:'.(200+$i),'takeaway',1000*($i+1));
+        }
+        $this->sale(200,'f:200','dine',12500);$this->sale(201,'f:200','phone',15000,2000);$this->order(1,['resturant_id'=>200]);
+        $this->expense(1,['branch'=>'f:200']);$this->expense(2,['branch'=>'f:201','amount_cents'=>2000]);$this->expense(3,['branch'=>'f:200','status'=>'pending','amount_cents'=>999999]);
+        $r=$this->overview();$this->assertCount(10,$r['ranking']);$this->assertSame('f:200',$r['ranking'][0]['branch']);$this->assertSame(42000,$r['ranking'][0]['amount_cents']);$this->assertSame('f:203',$r['ranking'][9]['branch']);
+        $b=collect($r['branch_cards'])->keyBy('value');$this->assertSame([1000,12500,15000,13500],array_map(fn($c)=>$b['f:200']['sales']['channels'][$c]['gross_cents'],['takeaway','dine','phone','app']));
+        $this->assertSame(3000,$b['f:200']['sales']['expenses_cents']);$this->assertSame(2000,$b['f:201']['sales']['expenses_cents']);$this->assertSame(5000,$r['sales']['expenses_cents']);
+        $this->assertSame($r['sales']['gross_cents'],array_sum(array_column(array_column($r['branch_cards'],'sales'),'gross_cents')));
+        $single=$this->overview(['branch'=>'f:201']);$this->assertCount(1,$single['ranking']);$this->assertSame(2000,$single['sales']['gross_cents']);
     }
     public function test_filters_reject_future_reversed_and_excessive_ranges(): void
     {

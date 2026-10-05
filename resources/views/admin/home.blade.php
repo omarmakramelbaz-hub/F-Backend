@@ -18,6 +18,9 @@
     <div class="ho-notice" role="status" data-ho-notice hidden></div>
     <p class="ho-notice" data-ho-empty hidden>{{ __('home_overview.no_branches') }}</p>
     <div data-ho-content>
+        @if(isset($boot['initial']['owner_platform']))
+            @include('admin.home_owner')
+        @else
         <div class="ho-kpis" data-ho-kpis></div>
         <div class="ho-workspace">
             <aside class="ho-panel ho-alerts"><header><h2><i class="fas fa-bell" aria-hidden="true"></i> {{ __('home_overview.alerts') }}</h2><span class="ho-count" data-ho-alert-count></span></header><div data-ho-alerts></div><p class="ho-caption">{{ __('home_overview.now') }} · {{ __('home_overview.scope') }}</p></aside>
@@ -37,7 +40,8 @@
         </div>
         <div class="ho-app-metrics" data-ho-app></div>
         <div class="ho-summary" data-ho-summary></div>
-        <details class="ho-method"><summary>{{ __('home_overview.method_title') }}</summary><p>{{ __('home_overview.method') }}</p><p data-ho-drawer-note hidden>{{ __('home_overview.drawer_note') }}</p><p data-ho-legacy hidden>{{ __('home_overview.legacy_note') }}</p></details>
+        @endif
+        <details class="ho-method"><summary>{{ __('home_overview.method_title') }}</summary>@if(isset($boot['initial']['owner_platform']))<p>{{ __('home_overview.platform_method') }}</p>@endif<p>{{ __('home_overview.method') }}</p><p data-ho-drawer-note hidden>{{ __('home_overview.drawer_note') }}</p><p data-ho-legacy hidden>{{ __('home_overview.legacy_note') }}</p></details>
     </div>
 </section>
 </div>

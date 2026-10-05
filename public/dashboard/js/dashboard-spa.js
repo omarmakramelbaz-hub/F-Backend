@@ -390,6 +390,10 @@
             else if (node.nodeType === 8 && node.textContent.trim() === 'dashboard-page-css:end') recording = false;
             else if (recording && node.nodeType === 1 && node.matches('link[rel="stylesheet"],style')) nodes.push(node);
         });
+        // Legacy map partials include Leaflet CSS beside their footer scripts.
+        // Stage that CSS too: script-only navigation otherwise drops it, leaving
+        // map tiles in normal document flow and covering the form/sidebar.
+        doc.querySelectorAll('[data-dashboard-page-scripts] link[rel="stylesheet"], [data-dashboard-page-scripts] style').forEach(function (node) { nodes.push(node); });
         return nodes;
     }
     async function stageCss(doc, url) {

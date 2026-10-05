@@ -43,6 +43,7 @@ on:
       - 'app/Services/Dashboard/HomeOverview.php'
       - 'app/Http/Controllers/Dashboard/HomeController.php'
       - 'resources/views/admin/home.blade.php'
+      - 'resources/views/admin/home_owner.blade.php'
       - 'resources/lang/*/home_overview.php'
       - 'public/dashboard/js/home-overview.js'
       - 'public/dashboard/css/home-overview.css'
