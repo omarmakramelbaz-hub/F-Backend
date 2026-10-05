@@ -40,6 +40,13 @@ on:
       - 'routes/branch_stock.php'
       - 'app/Services/Dashboard/BranchStock.php'
       - 'app/Services/Dashboard/BranchInventory.php'
+      - 'app/Services/Dashboard/HomeOverview.php'
+      - 'app/Http/Controllers/Dashboard/HomeController.php'
+      - 'resources/views/admin/home.blade.php'
+      - 'resources/lang/*/home_overview.php'
+      - 'public/dashboard/js/home-overview.js'
+      - 'public/dashboard/css/home-overview.css'
+      - 'tests/Feature/DashboardHomeOverviewTest.php'
       - 'app/Http/Controllers/Dashboard/BranchStockController.php'
       - 'database/migrations/*branch_stock*'
       - 'database/migrations/*branch_inventory*'
@@ -157,7 +164,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify application orders and branch isolation
-        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe'
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'
       - name: Verify compiled templates and JavaScript
         run: |
           php artisan view:cache
@@ -177,6 +184,7 @@ jobs:
           node --check public/dashboard/js/branch-shifts.js
           node --check public/dashboard/js/branch-stock.js
           node --check public/dashboard/js/branch-recipes.js
+          node --check public/dashboard/js/home-overview.js
           node --check public/dashboard/js/branch-expenses.js
           node --check public/dashboard/js/branch-operations.js
           node --check public/dashboard/js/dashboard-location-picker.js
@@ -224,4 +232,4 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
-        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe'
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'

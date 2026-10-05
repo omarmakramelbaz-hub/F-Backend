@@ -101,6 +101,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('/coupon_wheelsDeleteAll', [CouponWheelController::class,'deleteAll']);
 
         Route::get('/dashboard', [HomeController::class, 'index'])->name('admin_dash');
+        Route::get('/dashboard/overview', [HomeController::class, 'overview'])->name('dashboard.overview');
         Route::get('/notifications', [HomeController::class, 'notifications'])->name('notifications');
         Route::put('/read/{id}', [HomeController::class, 'read'])->name('read_notify');
         Route::get('/bulk-notifications', [HomeController::class, 'bulk_notifications'])->name('bulk-notifications');

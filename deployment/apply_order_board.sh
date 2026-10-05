@@ -80,6 +80,8 @@ php -l app/Services/Dashboard/BranchExpenses.php
 php -l app/Services/Dashboard/BranchOperations.php
 php -l app/Services/Dashboard/BranchStock.php
 php -l app/Services/Dashboard/BranchInventory.php
+php -l app/Services/Dashboard/HomeOverview.php
+php -l app/Http/Controllers/Dashboard/HomeController.php
 php -l app/Http/Controllers/Dashboard/BranchStockController.php
 php -l app/Services/Dashboard/BranchPayroll.php
 php -l app/Services/Dashboard/BranchCustomers.php
@@ -127,6 +129,8 @@ test -s public/dashboard/js/branch-shifts.js
 test -s public/dashboard/css/branch-shifts.css
 test -s public/dashboard/js/branch-stock.js
 test -s public/dashboard/js/branch-recipes.js
+test -s public/dashboard/js/home-overview.js
+test -s public/dashboard/css/home-overview.css
 test -s public/dashboard/css/branch-stock.css
 test -s public/dashboard/js/branch-operations.js
 test -s public/dashboard/css/branch-operations.css

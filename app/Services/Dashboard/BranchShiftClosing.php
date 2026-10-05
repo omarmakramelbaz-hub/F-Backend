@@ -18,6 +18,15 @@ class BranchShiftClosing
         abort_unless(Schema::hasTable('branch_shift_sources')&&Schema::hasTable('branch_expense_commands')&&$this->access->ready(),503,'صفحة تقفيل الوردية تحتاج تحديث قاعدة البيانات.');
         $branch=$this->access->branch($value,$actor,$lock);abort_unless($branch['kind']==='f',404);return $branch;
     }
+    /** Owner-only live expected cash, using exactly the shift reconciliation formula. */
+    public function ownerBalances(array $branches,$actor): array
+    {
+        $actor=$this->access->actor($actor);
+        abort_unless((int)$actor->id===1&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        $out=[];
+        foreach($branches as $value){$branch=$this->branch($value,$actor);$built=$this->build($branch,$this->latest($value));$out[$value]=['expected_cents'=>$built['expected'],'as_of'=>now('Africa/Cairo')->toIso8601String()];}
+        return $out;
+    }
     private function latest(string $branch){return DB::table('branch_shift_closings')->where('branch',$branch)->orderByDesc('sequence')->first();}
     private function unclaimed($q,string $branch,string $source,string $column)
     {
