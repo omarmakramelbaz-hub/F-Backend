@@ -18,9 +18,9 @@ class PhoneDeliveryBoard
     }
     public function listing(array $values,$actor): array
     {
-        $v=Validator::make($values,['branch'=>['required','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'delivery_company_id'=>'nullable|integer|min:1','preparing_page'=>'nullable|integer|min:1','courier_page'=>'nullable|integer|min:1','finished_page'=>'nullable|integer|min:1'])->validate();
-        $this->ready(); $branch=$this->ops->access->branch($v['branch'],$actor); $columns=[];
-        $base=DB::table('pos_service_tickets as t')->leftJoin('phone_delivery_dispatches as d','d.ticket_id','=','t.id')->where('t.branch',$branch['value'])->where('t.channel','phone');
+        $v=Validator::make($values,['branch'=>['nullable','regex:/^(all|(f|gs):[1-9][0-9]{0,18})$/D'],'delivery_company_id'=>'nullable|integer|min:1','preparing_page'=>'nullable|integer|min:1','courier_page'=>'nullable|integer|min:1','finished_page'=>'nullable|integer|min:1'])->validate();
+        $this->ready(); $scope=$v['branch']??'all';$branches=$this->ops->branches($scope,$actor);$branchValues=array_column($branches,'value');$columns=[];
+        $base=DB::table('pos_service_tickets as t')->leftJoin('phone_delivery_dispatches as d','d.ticket_id','=','t.id')->whereIn('t.branch',$branchValues)->where('t.channel','phone');
         if(!empty($v['delivery_company_id'])) $base->whereRaw('COALESCE(d.company_id,t.delivery_company_id) = ?',[$v['delivery_company_id']]);
         foreach(['preparing','courier','finished'] as $stage) {
             $q=clone $base;
@@ -38,8 +38,8 @@ class PhoneDeliveryBoard
             })->all();
             $columns[$stage]=['items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count]];
         }
-        $companies=DB::table('branch_delivery_companies')->where('branch',$branch['value'])->where('active',true)->orderBy('name')->get(['id','name'])->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->name])->all();
-        return ['success'=>true,'branch'=>$branch['value'],'columns'=>$columns,'companies'=>$companies];
+        $companies=DB::table('branch_delivery_companies')->whereIn('branch',$branchValues)->where('active',true)->orderBy('name')->get(['id','name','branch'])->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->name,'branch'=>$r->branch])->all();
+        return ['success'=>true,'branch'=>$scope,'columns'=>$columns,'companies'=>$companies];
     }
     public function dispatch(array $values,$actor): array
     {

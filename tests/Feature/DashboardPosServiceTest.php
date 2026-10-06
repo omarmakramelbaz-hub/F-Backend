@@ -442,6 +442,44 @@ class DashboardPosServiceTest extends TestCase
         $this->assertSame('App Customer',app(PosServicePhone::class)->customers(['branch'=>'f:100','phone'=>'010644','prefix'=>true],$this->actor())['items'][0]['name']);
         $this->assertCount(0,app(PosServicePhone::class)->customers(['branch'=>'f:101','phone'=>'010644','prefix'=>true],$this->actor(11))['items']);
     }
+    public function test_customer_lookup_keeps_selected_branch_identity_for_shared_and_alternate_addresses(): void
+    {
+        $crm=app(\App\Services\Dashboard\BranchCustomers::class);
+        $v=['branch'=>'f:100','idempotency_key'=>$this->key(840),'name'=>'Repeat customer','phone'=>'01064464499','address'=>'Saved address','latitude'=>30.1,'longitude'=>31.2];
+        $local=$crm->save($v,$this->actor())['customer'];
+        $foreign=$crm->save(array_replace($v,['branch'=>'f:101','idempotency_key'=>$this->key(841)]),$this->actor(11))['customer'];
+        DB::table('branch_customers')->where('id',$foreign['id'])->update(['updated_at'=>now()->addMinute()]);
+        $service=app(PosServicePhone::class);$lookup=['branch'=>'f:100','phone'=>$v['phone']];
+        $match=$service->customers($lookup,$this->actor(1))['items'];
+        $this->assertCount(1,$match);$this->assertSame((int)$local['id'],$match[0]['customer_id']);$this->assertSame((int)$local['revision'],$match[0]['customer_revision']);
+        // Another delivery address must update this customer's branch record,
+        // rather than attempt to create a duplicate customer on the next order.
+        DB::table('branch_customers')->where('id',$foreign['id'])->update(['address'=>'Other address','latitude'=>30.2,'longitude'=>31.3]);
+        $match=$service->customers($lookup,$this->actor(1))['items'];
+        $this->assertCount(2,$match);$this->assertSame('Saved address',$match[0]['address']);
+        $this->assertSame((int)$local['id'],$match[1]['customer_id']);$this->assertEquals(30.2,$match[1]['latitude']);
+        $second=$crm->save(array_replace($v,['idempotency_key'=>$this->key(842),'customer_id'=>$match[1]['customer_id'],'expected_revision'=>$match[1]['customer_revision'],'address'=>$match[1]['address'],'latitude'=>$match[1]['latitude'],'longitude'=>$match[1]['longitude']]),$this->actor(1))['customer'];
+        $this->assertSame((int)$local['id'],(int)$second['id']);$this->assertSame(2,DB::table('branch_customers')->count());
+        $this->assertCount(1,$service->customers($lookup,$this->actor())['items']);
+        $this->denied(fn()=>$service->customers($lookup,$this->actor(11)),404);
+    }
+    public function test_customer_lookup_restores_coordinates_from_order_history_and_app_addresses(): void
+    {
+        Schema::table('users',function(Blueprint $t){$t->string('mobile')->nullable();});
+        Schema::create('user_address',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->string('address');$t->decimal('lat',10,7);$t->decimal('lng',10,7);});
+        $ticket=$this->saved('phone');$service=app(PosServicePhone::class);
+        $items=$service->customers(['branch'=>'f:100','phone'=>$ticket['customer_phone']],$this->actor())['items'];
+        $this->assertEquals($ticket['delivery_location']['latitude'],$items[0]['latitude']);$this->assertEquals($ticket['delivery_location']['longitude'],$items[0]['longitude']);
+        // A directory entry without coordinates can reuse the same address's
+        // verified historical pin, while retaining its own revision and id.
+        $customer=app(\App\Services\Dashboard\BranchCustomers::class)->save(['branch'=>'f:100','idempotency_key'=>$this->key(850),'name'=>$ticket['customer_name'],'phone'=>$ticket['customer_phone'],'address'=>$ticket['address'],'area'=>$ticket['area']],$this->actor())['customer'];
+        $items=$service->customers(['branch'=>'f:100','phone'=>$ticket['customer_phone']],$this->actor())['items'];
+        $this->assertCount(1,$items);$this->assertSame((int)$customer['id'],$items[0]['customer_id']);$this->assertEquals($ticket['delivery_location']['latitude'],$items[0]['latitude']);
+        DB::table('users')->where('id',20)->update(['mobile'=>'01055555555']);DB::table('user_address')->insert(['user_id'=>20,'address'=>'App address','lat'=>30.3,'lng'=>31.4]);
+        $items=$service->customers(['branch'=>'f:100','phone'=>'01055555555'],$this->actor(1))['items'];
+        $this->assertEquals(30.3,$items[0]['latitude']);$this->assertEquals(31.4,$items[0]['longitude']);
+        $this->assertCount(0,$service->customers(['branch'=>'f:100','phone'=>'01055555555'],$this->actor())['items']);
+    }
     public function test_delivery_fee_is_authoritative_and_stale_or_unconfirmed_location_is_rejected(): void
     {
         $v=$this->savePayload('phone');$v['delivery_fee']='0.01';$q=$this->tickets()->quote('phone',$v,$this->actor());$this->assertSame('20.00',$q['delivery']);
@@ -609,6 +647,30 @@ class DashboardPosServiceTest extends TestCase
         $board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);$r=$board->listing(['branch'=>'f:100','preparing_page'=>2],$this->actor());
         $this->assertSame(23,$r['columns']['preparing']['pagination']['total']);$this->assertCount(3,$r['columns']['preparing']['items']);$this->assertCount(0,$r['columns']['courier']['items']);
         $this->denied(fn()=>$board->listing(['branch'=>'f:101'],$this->actor()),404);
+    }
+    public function test_central_delivery_board_lists_all_branches_and_keeps_company_and_write_scopes(): void
+    {
+        $local=$this->saved('phone');$v=$this->savePayload('phone',1600);$v['branch']='f:101';$v['items'][0]['product_id']=2;
+        $v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor(11))['delivery']['delivery_quote_hash'];
+        $v['quote_hash']=$this->tickets()->quote('phone',$v,$this->actor(11))['quote_hash'];
+        $foreign=$this->tickets()->save('phone',$v,$this->actor(11))['ticket'];
+        $companies=app(\App\Services\Dashboard\DeliveryCompanies::class);$board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);
+        $company=$companies->save(['branch'=>'f:100','idempotency_key'=>$this->key(1601),'name'=>'Local','phone'=>'01011111111','active'=>true],$this->actor())['company'];
+        $other=$companies->save(['branch'=>'f:101','idempotency_key'=>$this->key(1602),'name'=>'Foreign','phone'=>'01022222222','active'=>true],$this->actor(11))['company'];
+        foreach([[],['branch'=>'all']] as $filter){
+            $all=$board->listing($filter,$this->actor(1));$this->assertSame('all',$all['branch']);$this->assertSame(2,$all['columns']['preparing']['pagination']['total']);
+            $this->assertSame(['f:100','f:101'],array_column(array_column($all['columns']['preparing']['items'],'branch'),'value'));
+            $this->assertEqualsCanonicalizing(['f:100','f:101'],array_column($all['companies'],'branch'));
+            foreach([10,11,4,12] as $id)$this->denied(fn()=>$board->listing($filter,$this->actor($id)),403);
+        }
+        $only=$board->listing(['branch'=>'f:100'],$this->actor(1));$this->assertSame([$local['id']],array_column($only['columns']['preparing']['items'],'id'));$this->assertSame([$company['id']],array_column($only['companies'],'id'));
+        $dispatch=['branch'=>'f:101','ticket_id'=>$foreign['id'],'company_id'=>$other['id'],'expected_revision'=>$foreign['revision'],'idempotency_key'=>$this->key(1603)];
+        $this->invalid(fn()=>$board->dispatch(array_replace($dispatch,['branch'=>'all']),$this->actor(1)));
+        $this->denied(fn()=>$board->dispatch(array_replace($dispatch,['company_id'=>$company['id']]),$this->actor(1)),422);
+        $board->dispatch($dispatch,$this->actor(1));$all=$board->listing(['branch'=>'all'],$this->actor(1));
+        $this->assertSame(1,$all['columns']['preparing']['pagination']['total']);$this->assertSame([$foreign['id']],array_column($all['columns']['courier']['items'],'id'));
+        $mixed=$this->batchPayload([$local,$foreign],1604);$this->denied(fn()=>$board->finish($mixed,$this->actor(1)),404);
+        $this->assertSame(0,DB::table('takeaway_orders')->count());
     }
     public function test_employee_wallet_and_auto_notes_are_revisioned_scoped_and_do_not_mark_attendance_or_transfer_money(): void
     {

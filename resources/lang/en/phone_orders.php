@@ -1,5 +1,9 @@
 <?php
 return [
+    'order_steps' => 'Order steps',
+    'start_order' => 'Start with a phone number',
+    'start_order_hint' => 'Find the customer and saved address, or register a new customer in a few steps.',
+    'phone_search_hint' => 'Type at least 3 digits to find saved customers.',
     'all'=>'All orders',
     'title'=>'Phone delivery orders', 'subtitle'=>'Receive calls, prepare orders and track collection', 'branch'=>'Branch',
     'select_branch'=>'Choose a branch', 'new_order'=>'New phone order', 'saved_orders'=>'Delivery orders', 'invoice'=>'Order invoice',
@@ -55,11 +59,12 @@ return [
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
     'all_companies' => 'All delivery companies',
+    'all_branches' => 'All branches',
     'board_preparing' => 'Preparing',
     'board_courier' => 'With courier',
     'board_finished' => 'Completed orders',
     'select_orders' => 'Select courier orders to finish together',
-    'same_courier' => 'Select orders from one company for the same courier.',
+    'same_courier' => 'Select orders from one branch and one company for the same courier.',
     'finish_orders' => 'Finish orders',
     'courier_company' => 'Courier company',
     'assign_company' => 'Hand over to delivery company',

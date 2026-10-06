@@ -29,19 +29,32 @@ class PosServicePhone
         $keys=array_unique($keys);$items=[];$seen=[];
         $add=function(array $item)use(&$items,&$seen){
             $phone=BranchCustomers::phoneKey($item['phone']);$item['phone']=$phone;
+            $lat=$item['latitude']??null;$lng=$item['longitude']??null;
+            $located=is_numeric($lat)&&is_numeric($lng)&&abs((float)$lat)<=90&&abs((float)$lng)<=180&&!((float)$lat===0.0&&(float)$lng===0.0);
+            $item['latitude']=$located?(float)$lat:null;$item['longitude']=$located?(float)$lng:null;
             $hash=PosServiceTicket::fingerprint([$phone,trim($item['address']),trim($item['area'])]);
-            if(isset($seen[$hash])||count($items)>=8)return;$seen[$hash]=true;$items[]=$item;
+            if(isset($seen[$hash])) {
+                $index=$seen[$hash];
+                if(!isset($items[$index]['latitude'],$items[$index]['longitude'])&&isset($item['latitude'],$item['longitude'])) {
+                    $items[$index]['latitude']=$item['latitude'];$items[$index]['longitude']=$item['longitude'];
+                }
+                return;
+            }
+            if(count($items)>=8)return;$seen[$hash]=count($items);$items[]=$item;
         };
         $scope=$central&&$branch['kind']==='f'?array_column(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'),'value'):[$v['branch']];
         if($this->access->has('branch_customers','phone_key')){
             $saved=DB::table('branch_customers')->whereIn('branch',$scope);$this->numberFilter($saved,'phone_key',$keys,$prefix);
-            foreach($saved->orderByDesc('updated_at')->limit(20)->get() as $row)$add(['customer_id'=>$row->branch===$v['branch']?(int)$row->id:null,'customer_revision'=>$row->branch===$v['branch']?(int)$row->revision:null,'name'=>$row->name,'phone'=>$row->phone,'address'=>$row->address,'area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'','latitude'=>$row->latitude,'longitude'=>$row->longitude]);
+            foreach($saved->orderByRaw('CASE WHEN branch = ? THEN 0 ELSE 1 END',[$v['branch']])->orderByDesc('updated_at')->orderByDesc('id')->limit(20)->get() as $row)$add(['customer_id'=>$row->branch===$v['branch']?(int)$row->id:null,'customer_revision'=>$row->branch===$v['branch']?(int)$row->revision:null,'name'=>$row->name,'phone'=>$row->phone,'address'=>$row->address,'area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'','latitude'=>$row->latitude,'longitude'=>$row->longitude]);
         }
         $query=DB::table('pos_service_tickets')->where('channel','phone');
         if($central&&$branch['kind']==='f')$query->whereIn('branch',array_column(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'),'value'));
         else $query->where('branch',$v['branch']);
         $this->numberFilter($query,'phone_key',$keys,$prefix);
-        foreach($query->orderByDesc('id')->limit(40)->get() as $row)$add(['name'=>$row->customer_name,'phone'=>$row->customer_phone,'address'=>$row->address,'area'=>$row->area??'','last_ticket_id'=>(int)$row->id,'delivery_notes'=>$row->delivery_notes??'']);
+        foreach($query->orderByDesc('id')->limit(40)->get() as $row) {
+            $location=json_decode($row->delivery_snapshot??'null',true);
+            $add(['name'=>$row->customer_name,'phone'=>$row->customer_phone,'address'=>$row->address,'area'=>$row->area??'','last_ticket_id'=>(int)$row->id,'delivery_notes'=>$row->delivery_notes??'','latitude'=>$location['latitude']??null,'longitude'=>$location['longitude']??null]);
+        }
         // Existing app customers are available to the call center. Branch staff
         // can only look up app customers who have ordered from their own branch.
         if(count($items)<8&&$branch['kind']==='f'&&$this->access->has('users','mobile')) {
@@ -57,9 +70,18 @@ class PosServicePhone
                 if($addresses->isEmpty())$add(['name'=>$customer->name??'','phone'=>$customer->mobile,'address'=>'','area'=>'','delivery_notes'=>'']);
                 foreach($addresses as $address) {
                     $parts=array_filter([$address->address??($address->address_name??null),$address->street_name??null,!empty($address->floor_no)?'الدور '.$address->floor_no:null,!empty($address->apartment_no)?'شقة '.$address->apartment_no:null]);
-                    $add(['name'=>$customer->name??'','phone'=>$customer->mobile,'address'=>implode('، ',array_unique($parts)),'area'=>$address->area_name??'','delivery_notes'=>$address->badge??'']);
+                    $add(['name'=>$customer->name??'','phone'=>$customer->mobile,'address'=>implode('، ',array_unique($parts)),'area'=>$address->area_name??'','delivery_notes'=>$address->badge??'','latitude'=>$address->lat??($address->latitude??null),'longitude'=>$address->lng??($address->longitude??null)]);
                 }
             }
+        }
+        // An address from history or another branch still belongs to the existing
+        // customer in the selected branch. Keep that identity for the next order.
+        if($items&&$this->access->has('branch_customers','phone_key')) {
+            $local=DB::table('branch_customers')->where('branch',$v['branch'])->whereIn('phone_key',array_column($items,'phone'))->get()->keyBy('phone_key');
+            foreach($items as &$item) {
+                $row=$local->get($item['phone']);$item['customer_id']=$row?(int)$row->id:null;$item['customer_revision']=$row?(int)$row->revision:null;
+            }
+            unset($item);
         }
         return ['success'=>true,'branch'=>$branch,'items'=>$items,'customers'=>$items,'matches'=>$items];
     }
