@@ -14,12 +14,12 @@
     var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
     var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, mode = 'piece', listeners = [], modal = root.querySelector('[data-phone-modal]');
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
-    var customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, locationGeneration=0, locating=false, lastGeocoded='', savedAddressPending='', contextGeneration=0, locationPreviewTimer, addressSearch;
+    var manualDeliveryFee=false, customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, locationGeneration=0, locating=false, lastGeocoded='', savedAddressPending='', contextGeneration=0, locationPreviewTimer, addressSearch;
     var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]');
     var fields = {};
     root.querySelectorAll('[data-phone-field]').forEach(function (input) { fields[input.dataset.phoneField] = input; });
 
-    function invalidateLocation(){clearTimeout(locationPreviewTimer);abort('location');deliveryLocation=null;locationGeneration++;if(locationPicker)locationPicker.invalidate();fields.delivery_fee.value='0.00';root.querySelector('[data-phone-distance]').textContent='لم يتم تأكيد الموقع بعد.';quote=null;changed(true);}
+    function invalidateLocation(){clearTimeout(locationPreviewTimer);abort('location');deliveryLocation=null;locationGeneration++;if(locationPicker)locationPicker.invalidate();if(!manualDeliveryFee)fields.delivery_fee.value='0.00';root.querySelector('[data-phone-distance]').textContent='لم يتم تأكيد الموقع بعد.';quote=null;changed(true);}
     function addressChanged(){invalidateLocation();lastGeocoded='';savedAddressPending='';latInput.value='';lngInput.value='';if(locationPicker)locationPicker.clear();if(addressSearch)addressSearch.schedule();}
     function previewLocation(){clearTimeout(locationPreviewTimer);locationPreviewTimer=setTimeout(function(){if(!disposed&&!locked()&&DashboardLocationPicker.valid(latInput.value,lngInput.value))confirmLocation(true);},350);}
     function setCustomerLocation(customer){if(addressSearch)addressSearch.reset();invalidateLocation();lastGeocoded='';latInput.value=customer.latitude==null?'':customer.latitude;lngInput.value=customer.longitude==null?'':customer.longitude;savedAddressPending=DashboardLocationPicker.valid(latInput.value,lngInput.value)?'':fields.address.value.trim();if(locationPicker){locationPicker.destroy();locationPicker=null;}}
@@ -49,7 +49,7 @@
         fields.address.value=point.label;invalidateLocation();latInput.value=point.latitude;lngInput.value=point.longitude;if(locationPicker)locationPicker.set(point.latitude,point.longitude);previewLocation();
     }});
     async function confirmLocation(preview){if(locked()||!branch)return;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
-        try{var r=await read(await post(urls.delivery_quote,{branch:branch,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch)return;deliveryLocation=preview?null:r.delivery;fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=(r.delivery.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+r.delivery.distance_km+' كم × '+r.delivery.km_price+' جنيه = '+r.delivery.delivery_fee+' جنيه'+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
+        try{var r=await read(await post(urls.delivery_quote,{branch:branch,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch)return;deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=(r.delivery.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+r.delivery.distance_km+' كم × '+r.delivery.km_price+' جنيه = '+r.delivery.delivery_fee+' جنيه'+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
         catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
     }
     async function pollReceiver() {
@@ -174,7 +174,7 @@
     }
     function payload() {
         var discount = scaled(fields.discount.value, 2), delivery = scaled(fields.delivery_fee.value, 2);
-        return { branch: branch, items: cart.map(function (line) { var item = { product_id: line.product.id, quantity: line.quantity, quantity_mode: line.mode }; if (line.option && line.option.id) item.option_id = String(line.option.id); return item; }), discount: policy.can_discount ? discount === null ? fields.discount.value : decimal(discount, 2) : '0.00', discount_reason: policy.can_discount ? fields.discount_reason.value.trim() : '', delivery_fee: delivery === null ? fields.delivery_fee.value : decimal(delivery, 2), latitude:deliveryLocation&&deliveryLocation.latitude,longitude:deliveryLocation&&deliveryLocation.longitude,location_confirmed:!!deliveryLocation,delivery_quote_hash:deliveryLocation&&deliveryLocation.delivery_quote_hash,customer_id:customerRef&&customerRef.id,delivery_company_id:companySelect.value?Number(companySelect.value):null };
+        return { branch: branch, items: cart.map(function (line) { var item = { product_id: line.product.id, quantity: line.quantity, quantity_mode: line.mode }; if (line.option && line.option.id) item.option_id = String(line.option.id); return item; }), discount: policy.can_discount ? discount === null ? fields.discount.value : decimal(discount, 2) : '0.00', discount_reason: policy.can_discount ? fields.discount_reason.value.trim() : '', delivery_fee_manual: manualDeliveryFee, delivery_fee: delivery === null ? fields.delivery_fee.value : decimal(delivery, 2), latitude:deliveryLocation&&deliveryLocation.latitude,longitude:deliveryLocation&&deliveryLocation.longitude,location_confirmed:!!deliveryLocation,delivery_quote_hash:deliveryLocation&&deliveryLocation.delivery_quote_hash,customer_id:customerRef&&customerRef.id,delivery_company_id:companySelect.value?Number(companySelect.value):null };
     }
     function sameFinancialDraft() {
         if (!editing) return false;
@@ -245,6 +245,7 @@
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
     function resetDraft() {
+        manualDeliveryFee=false;
         clearTimeout(customerTimer); customerGeneration++; abort('customer'); suggestionIndex = -1;
         if (addressSearch) addressSearch.reset();
         clearTimeout(locationPreviewTimer);abort('location');customerRef=null;deliveryLocation=null;lastGeocoded='';savedAddressPending='';locationGeneration++;if(locationPicker){locationPicker.destroy();locationPicker=null;}latInput.value='';lngInput.value='';companySelect.value='';root.querySelector('[data-phone-distance]').textContent='';
@@ -310,36 +311,69 @@
     }
     function detailContent(ticket, content) {
         content.replaceChildren(); var information = element('dl', 'ph-detail-info');
-        [['branch', ticket.branch.name], ['saved_number', ticket.number || ticket.id], ['status', text(ticket.status)], ['name', ticket.customer_name], ['phone', ticket.customer_phone], ['area', ticket.area || '—'], ['payment_status', text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid')], ['address', ticket.address], ['date', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (pair) { var row = element('div', pair[0] === 'address' ? 'ph-full' : ''); row.appendChild(element('dt', '', text(pair[0]))); row.appendChild(element('dd', '', pair[1])); information.appendChild(row); }); content.appendChild(information);
+        [['branch', ticket.branch.name], ['saved_number', ticket.number || ticket.id], ['status', text(ticket.status)], ['name', ticket.customer_name], ['phone', ticket.customer_phone], ['area', ticket.area || '—'], ['payment_status', text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid')], ['address', ticket.address], ['courier_company', ticket.courier_company ? ticket.courier_company.name : '—'], ['date', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (pair) { var row = element('div', pair[0] === 'address' ? 'ph-full' : ''); row.appendChild(element('dt', '', text(pair[0]))); row.appendChild(element('dd', '', pair[1])); information.appendChild(row); }); content.appendChild(information);
         var table = element('table', 'ph-detail-table'), header = element('thead'), tr = element('tr'); ['item', 'quantity', 'line_total'].forEach(function (key) { tr.appendChild(element('th', '', text(key))); }); header.appendChild(tr); table.appendChild(header); var body = element('tbody');
         ticket.items.forEach(function (item) { var row = element('tr'), cell = element('td', '', item.name); if (item.option_label) cell.appendChild(element('small', '', item.option_label)); row.appendChild(cell); row.appendChild(element('td', '', item.quantity + ' ' + text(item.quantity_mode === 'weight' ? 'kg' : 'piece'))); row.appendChild(element('td', '', money(item.total))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
         var summary = element('dl', 'ph-totals'); ['subtotal', 'discount', 'delivery_fee', 'tax', 'service', 'total'].forEach(function (key) { var row = element('div', key === 'total' ? 'ph-grand-total' : ''); row.appendChild(element('dt', '', text(key))); row.appendChild(element('dd', '', money(ticket[key] === undefined && key === 'delivery_fee' ? ticket.delivery : ticket[key] || '0.00') + ' ' + text('currency'))); summary.appendChild(row); }); content.appendChild(summary);
         [['order_notes', ticket.notes], ['customer_note', ticket.delivery_notes], ['discount_reason', ticket.discount_reason], ['cancel_reason', ticket.cancel_reason]].forEach(function (entry) { if (entry[1]) { var note = element('p', 'ph-detail-note'); note.appendChild(element('strong', '', text(entry[0]) + ': ')); note.appendChild(document.createTextNode(entry[1])); content.appendChild(note); } });
-        var actions = element('div', 'ph-detail-actions'); ticketActions(ticket, actions, true); content.appendChild(actions); lock();
+        var actions = element('div', 'ph-detail-actions'); ticketActions(ticket, actions, true);
+        if (ticket.batch_print_url) actions.appendChild(button('batch_receipt', function () { print(ticket.batch_print_url); }));
+        content.appendChild(actions); dispatchControl(ticket, content); lock();
     }
     async function detailsModal(id) {
         if (locked()) return; var content = openModal(text('details')), generation = modalGeneration, controller = begin('modal');
         try { var ticket = await fetchTicket(id, controller.signal); if (disposed || modal.hidden || generation !== modalGeneration) return; detailContent(ticket, content); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
     }
+    function dispatchControl(ticket, container) {
+        if (!canWrite() || ticket.payment_status === 'paid' || ['new','preparing'].indexOf(ticket.status) < 0) return;
+        var companies=boardCompanies.filter(function(company){return company.branch===ticket.branch.value;});
+        var label=element('label','ph-board-company',text('assign_company')), select=element('select'); select.dataset.phoneBoardCompany=String(ticket.id); select.setAttribute('aria-label',text('assign_company')+' #'+ticket.id);
+        var placeholder=element('option','',text(companies.length?'choose_company':'no_companies')); placeholder.value='';select.appendChild(placeholder);
+        companies.forEach(function(company){var option=element('option','',company.name);option.value=String(company.id);select.appendChild(option);});
+        if(!companies.length)select.dataset.unavailable='';
+        select.addEventListener('change',function(){if(locked()||!select.value)return;execute({type:'dispatch_company',url:urls['dispatch-company'],ticketId:ticket.id,payload:{branch:ticket.branch.value,ticket_id:ticket.id,company_id:Number(select.value),expected_revision:ticket.revision,idempotency_key:uuid()}});});label.appendChild(select);container.appendChild(label);
+    }
     function card(ticket, column) {
-        var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header);article.appendChild(element('p','ph-ticket-branch',ticket.branch.name)); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));if(ticket.courier_company)article.appendChild(element('p','ph-ticket-detail',text('courier_company')+': '+ticket.courier_company.name));
-        [['fas fa-phone-alt', ticket.customer_phone], ['fas fa-map-marker-alt', ticket.area ? ticket.area + ' · ' + ticket.address : ticket.address], ['far fa-clock', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (entry) { var row = element('p', 'ph-ticket-detail'); row.appendChild(element('i', entry[0])); row.appendChild(element('span', '', entry[1] || '')); article.appendChild(row); });
-        var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); article.dataset.phoneTicket=String(ticket.id);
-        if (column==='preparing' && canWrite()) {
-            var companies=boardCompanies.filter(function(company){return company.branch===ticket.branch.value;});
-            var label=element('label','ph-board-company',text('assign_company')), select=element('select'); select.dataset.phoneBoardCompany=String(ticket.id); select.setAttribute('aria-label',text('assign_company')+' #'+ticket.id);
-            var placeholder=element('option','',text(companies.length?'choose_company':'no_companies')); placeholder.value='';select.appendChild(placeholder);
-            companies.forEach(function(company){var option=element('option','',company.name);option.value=String(company.id);select.appendChild(option);});
-            if(!companies.length)select.dataset.unavailable='';
-            select.addEventListener('change',function(){if(locked()||!select.value)return;execute({type:'dispatch_company',url:urls['dispatch-company'],ticketId:ticket.id,payload:{branch:ticket.branch.value,ticket_id:ticket.id,company_id:Number(select.value),expected_revision:ticket.revision,idempotency_key:uuid()}});});label.appendChild(select);article.appendChild(label);
+        var article = element('article', 'ph-ticket ph-ticket-compact');
+        article.dataset.phoneTicket = String(ticket.id);
+        var number = '#' + (ticket.number || ticket.id);
+        var heading = element('div', 'ph-ticket-heading');
+        heading.appendChild(element('strong', 'ph-ticket-number', number));
+        var name = element('span', 'ph-ticket-name', ticket.customer_name); name.title = ticket.customer_name; heading.appendChild(name);
+        if (ticket.status === 'cancelled') { var state = element('span', 'ph-stage', text('cancelled')); state.dataset.stage = 'cancelled'; heading.appendChild(state); }
+        article.appendChild(heading);
+        var amount = element('bdi', 'ph-ticket-amount', money(ticket.total) + ' ' + text('currency'));
+        amount.title = text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'); article.appendChild(amount);
+        var metadata = element('div', 'ph-ticket-meta');
+        var branchName = element('span', 'ph-ticket-branch', ticket.branch.name); branchName.title = ticket.branch.name; metadata.appendChild(branchName);
+        metadata.appendChild(element('bdi', 'ph-ticket-phone', ticket.customer_phone));
+        var address = ticket.area ? ticket.area + ' · ' + ticket.address : ticket.address;
+        var location = element('span', 'ph-ticket-address', address || ''); location.title = address || ''; metadata.appendChild(location);
+        metadata.title = [address, ticket.courier_company && ticket.courier_company.name, ticket.created_label || dateLabel(ticket.created_at)].filter(Boolean).join(' · ');
+        article.appendChild(metadata);
+        var actions = element('div', 'ph-ticket-quick-actions');
+        var details = button('compact_details', function () { detailsModal(ticket.id); });
+        details.title = text('details_actions') + ' ' + number; details.setAttribute('aria-label', details.title); actions.appendChild(details);
+        if (ticket.bill_print_url && ticket.status !== 'cancelled' && (canWrite() || ticket.payment_status === 'paid' || ticket.bill_locked)) {
+            var receipt = button('receipt', function () { if (ticket.payment_status === 'paid' || ticket.bill_locked) print(ticket.receipt_url || ticket.bill_print_url, true); else action(ticket, 'request_bill'); }, 'is-bill');
+            receipt.title = text('receipt') + ' ' + number; receipt.setAttribute('aria-label', receipt.title);
+            Array.from(receipt.childNodes).forEach(function (node) { if (node.nodeType === 3) node.remove(); }); actions.appendChild(receipt);
         }
-        if(column==='courier'&&canWrite()){
-            var choice=element('label','ph-board-select'),check=element('input');check.type='checkbox';check.dataset.phoneBatchSelect=String(ticket.id);check.checked=selectedOrders.has(ticket.id);check.setAttribute('aria-label',text('select_order')+' #'+ticket.id);
-            if(!ticket.courier_company){check.dataset.unavailable='';choice.appendChild(element('small','',text('missing_company')));}
-            check.addEventListener('change',function(){if(locked())return;var first=selectedOrders.values().next().value;if(check.checked&&first&&(first.branch.value!==ticket.branch.value||Number(first.courier_company.id)!==Number(ticket.courier_company.id))){check.checked=false;notify(text('same_courier'));return;}if(check.checked)selectedOrders.set(ticket.id,ticket);else selectedOrders.delete(ticket.id);updateBatchTotal();});choice.prepend(check);choice.appendChild(element('span','',text('select_order')));article.prepend(choice);
+        article.appendChild(actions);
+        if (column === 'courier' && canWrite()) {
+            var choice = element('label', 'ph-board-select'), check = element('input'); check.type = 'checkbox';
+            check.dataset.phoneBatchSelect = String(ticket.id); check.checked = selectedOrders.has(ticket.id);
+            choice.title = text(ticket.courier_company ? 'select_order' : 'missing_company') + ' ' + number; check.setAttribute('aria-label', choice.title);
+            if (!ticket.courier_company) check.dataset.unavailable = '';
+            check.addEventListener('change', function () {
+                if (locked()) return; var first = selectedOrders.values().next().value;
+                if (check.checked && first && (first.branch.value !== ticket.branch.value || Number(first.courier_company.id) !== Number(ticket.courier_company.id))) { check.checked = false; notify(text('same_courier')); return; }
+                if (check.checked) selectedOrders.set(ticket.id, ticket); else selectedOrders.delete(ticket.id);
+                article.classList.toggle('is-selected', check.checked); updateBatchTotal();
+            });
+            choice.appendChild(check); heading.prepend(choice); article.classList.toggle('is-selected', check.checked);
         }
-        if(ticket.batch_print_url)actions.appendChild(button('batch_receipt',function(){print(ticket.batch_print_url);}));
         return article;
     }
     function updateBatchTotal(){
@@ -472,7 +506,7 @@
             if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || ticket.bill_locked || !canWrite()) { notify(text('forbidden')); return; }
             if(ticket.branch.value!==branch){branchSelect.value=ticket.branch.value;if(branchSelect.selectize)branchSelect.selectize.setValue(ticket.branch.value,true);changeBranch(true);}
             resetDraft(); editing = ticket; fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
-            customerRef=ticket.customer_id&&ticket.customer_revision?{id:ticket.customer_id,revision:ticket.customer_revision}:null;setCustomerLocation(ticket.delivery_location||{});deliveryLocation=ticket.delivery_location||null;companySelect.value=String(ticket.delivery_company&&ticket.delivery_company.id||'');
+            customerRef=ticket.customer_id&&ticket.customer_revision?{id:ticket.customer_id,revision:ticket.customer_revision}:null;setCustomerLocation(ticket.delivery_location||{});deliveryLocation=ticket.delivery_location||null;manualDeliveryFee=!!(deliveryLocation&&deliveryLocation.fee_mode==='manual');fields.delivery_fee.value=ticket.delivery_fee||ticket.delivery||'0.00';companySelect.value=String(ticket.delivery_company&&ticket.delivery_company.id||'');
             var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], available: true, quantity_mode: 'select' }; var choice = line.option_id ? (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id, label: line.option_label, price: line.unit_price } : null; return { product: product, option: choice, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
             root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow(deliveryLocation?'products':'details', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
         } catch (error) { if (disposed || requestedBranch !== branch || error.name === 'AbortError') return; notify(error.message || text('list_error')); }
@@ -506,6 +540,7 @@
         if (control.hasAttribute('data-phone-lookup') || control.hasAttribute('data-phone-next-number')) return nextNumber();
         if(control.hasAttribute('data-phone-clear-company')){boot.company_filter=0;control.hidden=true;selectedOrders.clear();boardPages={preparing:1,courier:1,finished:1};return loadOrders();}
         if (control.hasAttribute('data-phone-next-details')) return nextDetails();
+        if (control.hasAttribute('data-phone-delivery-auto')) { manualDeliveryFee=false; fields.delivery_fee.value=deliveryLocation?(deliveryLocation.calculated_delivery_fee||deliveryLocation.delivery_fee):'0.00'; changed(true); if(!deliveryLocation)confirmLocation(true); return; }
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
@@ -523,7 +558,7 @@
         if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
         if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
-    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(['address','area'].includes(key))addressChanged();if(key==='customer_phone')customerRef=null; if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(['address','area'].includes(key))addressChanged();if(key==='customer_phone')customerRef=null; if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
     listen(fields.customer_phone, 'keydown', function (event) {
         var box = root.querySelector('[data-phone-lookup-result]'), suggestions = box.querySelectorAll('[data-phone-suggestion]');
         if (event.key === 'Escape') { clearTimeout(customerTimer); customerGeneration++; abort('customer'); box.hidden = true; return; }
@@ -549,3 +584,4 @@
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
 }());
+

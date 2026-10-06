@@ -59,7 +59,7 @@ class PosServiceTicket
             'items'=>'present|array|max:100','discount'=>'nullable|string|max:14','discount_reason'=>'nullable|string|max:500','quote_hash'=>'nullable|string|size:64','reprice'=>'nullable|boolean',
             'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
         $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
-            ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
+            ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','delivery_fee_manual'=>'nullable|boolean','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
         $v=Validator::make($values,$rules)->validate();foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
         $delivery=0;
@@ -209,6 +209,13 @@ class PosServiceTicket
     {
         $snapshot=app(PhoneDelivery::class)->quote($values,$actor)['delivery'];
         abort_unless(!empty($values['delivery_quote_hash'])&&hash_equals($snapshot['delivery_quote_hash'],$values['delivery_quote_hash']),409,'موقع العميل أو سعر التوصيل تغير. أكد الدبوس وراجع الخدمة.');
+        $manual=Validator::make($values,['delivery_fee_manual'=>'nullable|boolean','delivery_fee'=>'required_if:delivery_fee_manual,1,true|nullable|string|max:14'])->validate();
+        if($manual['delivery_fee_manual']??false){
+            $actor=$this->access->actor($actor);abort_unless($this->access->permissions($actor)['can_checkout'],403);
+            $fee=$this->money($manual['delivery_fee'],'delivery_fee');
+            $snapshot['calculated_delivery_fee']=$snapshot['delivery_fee'];
+            $snapshot['delivery_fee']=Money::decimal($fee);$snapshot['fee_mode']='manual';$snapshot['fee_actor_id']=(int)$actor->id;
+        }
         return ['cents'=>Money::minor($snapshot['delivery_fee']),'snapshot'=>$snapshot];
     }
     private function pricingContext(string $channel,string $branch,int $delivery,bool $lock=false): array
@@ -254,3 +261,4 @@ class PosServiceTicket
     private function channel(string $channel): void {abort_unless(in_array($channel,['dine','phone'],true),404);}
     private function iso(string $time): string {return Carbon::parse($time,'UTC')->setTimezone(config('app.timezone'))->toIso8601String();}
 }
+

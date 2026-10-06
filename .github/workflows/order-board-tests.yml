@@ -190,6 +190,7 @@ jobs:
           node --check public/dashboard/js/branch-stock.js
           node --check public/dashboard/js/branch-recipes.js
           node --check public/dashboard/js/home-overview.js
+          node --check public/dashboard/js/branch-home.js
           node --check public/dashboard/js/branch-expenses.js
           node --check public/dashboard/js/branch-operations.js
           node --check public/dashboard/js/dashboard-location-picker.js
@@ -238,3 +239,4 @@ jobs:
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
         run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
+

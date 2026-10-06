@@ -72,7 +72,7 @@ class HomeController extends Controller
     {
         $boot=['initial'=>$overview->data($request->query(),auth('admin')->user()),
             'url'=>route('dashboard.overview'),'locale'=>app()->getLocale(),'labels'=>__('home_overview')];
-        return response()->view('admin.home',compact('boot'))->header('Cache-Control','private, no-store');
+        return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
@@ -227,3 +227,4 @@ class HomeController extends Controller
     }
 
 }
+

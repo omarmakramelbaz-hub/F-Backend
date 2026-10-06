@@ -68,3 +68,27 @@
  .ho-compact .ho-owner{grid-template-rows:auto auto 340px 230px}
 }
 @media(min-width:1100px) and (min-height:760px) and (max-height:850px){.ho-owner-ranking .ho-rank>div:first-child{line-height:1.15}}
+
+
+/* Branch home contains only stock and today's expenses. */
+#branch-home{--ho-ink:#182b43;--ho-muted:#78859a;--ho-line:#dce4ee;--ho-orange:#f58220;color:#182b43;font:inherit;display:grid;gap:18px;padding:22px 24px}
+#branch-home .ho-heading h1{font-size:22px;margin:0}
+#branch-home .ho-heading-tools{flex-wrap:wrap}
+#branch-home select{max-width:240px;border:1px solid #dce4ee;border-radius:8px;padding:7px;background:#fff;color:inherit}
+#branch-home .bh-panels{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-items:start}
+#branch-home .ho-panel{min-width:0;overflow:hidden;background:#fff;border:1px solid #dce4ee;border-radius:12px}
+#branch-home .ho-panel>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px;border-bottom:1px solid #e7edf4}
+#branch-home h2{font-size:18px;margin:0}
+#branch-home .ho-scroll{max-height:calc(100dvh - 290px);overflow:auto;padding:0 18px 14px}
+#branch-home table{width:100%;border-collapse:collapse;text-align:start}
+#branch-home th,#branch-home td{padding:12px 8px;border-bottom:1px solid #edf1f5;text-align:start}
+#branch-home th{color:#62748b;font-size:12px;position:sticky;top:0;background:#fff}
+#branch-home td:last-child{white-space:nowrap;font-weight:700}
+#branch-home .ho-stock-search{padding:14px 18px}
+#branch-home .ho-stock-search input{width:100%;padding:10px;border:1px solid #dce4ee;border-radius:8px}
+#branch-home .bh-expense-total{display:flex;flex-direction:column;gap:5px;padding:24px 26px;background:#fff7ee}
+#branch-home .bh-expense-total strong{font-size:32px;color:#b85d06;font-variant-numeric:tabular-nums}
+#branch-home .bh-expense-total small{color:#7b664f}
+#branch-home .bh-negative{color:#b42318}
+#branch-home [hidden]{display:none!important}
+@media(max-width:767px){#branch-home .bh-panels{grid-template-columns:1fr}#branch-home .ho-scroll{max-height:440px}#branch-home .ho-heading{flex-wrap:wrap}#branch-home h2{font-size:16px}}

@@ -52,6 +52,26 @@ class DashboardHomeOverviewTest extends TestCase
     }
     private function order(int $id,array $values=[]): void {DB::table('orders')->insert($values+['id'=>$id,'resturant_id'=>100,'user_id'=>20,'status'=>'completed','type'=>'current','total_price'=>'100','delivery_price'=>'20','user_tax'=>'5','created_at'=>'2026-10-05 01:00:00','updated_at'=>'2026-10-05 02:00:00']);}
     private function expense(int $id,array $values=[]): void {DB::table('branch_expenses')->insert($values+['id'=>$id,'branch'=>'f:100','actor_id'=>10,'occurred_on'=>'2026-10-05','category'=>'purchases','description'=>'Goods','amount_cents'=>3000,'payment_method'=>'card','status'=>'approved']);}
+    public function test_branch_home_has_only_stock_and_todays_approved_expenses(): void
+    {
+        $this->expense(1,['amount_cents'=>1250]);$this->expense(2,['amount_cents'=>250]);
+        $this->expense(3,['occurred_on'=>'2026-10-04','amount_cents'=>70000]);
+        $this->expense(4,['branch'=>'f:101','amount_cents'=>88888]);$this->expense(5,['status'=>'pending','amount_cents'=>90000]);
+        DB::table('branch_inventory')->insert(['branch'=>'f:100','ingredient_id'=>1,'quantity_units'=>5250000]);
+        foreach([10,4,12] as $id){
+            $r=$this->overview(['period'=>'week','branch'=>'f:100'],$id);$this->assertTrue($r['branch_home']);
+            $this->assertSame('2026-10-05',$r['today_expenses']['date']);$this->assertSame(1500,$r['today_expenses']['total_cents']);
+            $this->assertCount(1,$r['today_expenses']['items']);$this->assertSame('5.25',$r['inventory']['items'][0]['quantity']);
+        }
+        $this->assertFalse($this->overview()['branch_home']);
+        $this->actingAs($this->actor(10),'admin');
+        $response=app(\App\Http\Controllers\Dashboard\HomeController::class)->index(\Illuminate\Http\Request::create('/admin'),app(HomeOverview::class));
+        $view=$response->getOriginalContent();$this->assertSame('admin.home_branch',$view->name());
+        $template=file_get_contents(resource_path('views/admin/home_branch.blade.php'));
+        $this->assertSame(2,substr_count($template,'data-bh-panel='));
+        $this->assertStringNotContainsString('data-ho-kpis',$template);$this->assertStringNotContainsString('data-ho-chart',$template);
+    }
+
     public function test_combines_completed_channels_and_approved_expenses_without_counting_drafts_twice(): void
     {
         $this->sale(1,'f:100','dine');$this->sale(2,'f:100','phone',25000,5000);$this->sale(3,'f:101','takeaway',999999);$this->sale(4,'f:100','takeaway',9000,0,'2026-10-04');
@@ -206,3 +226,4 @@ class DashboardHomeOverviewTest extends TestCase
     }
 
 }
+

@@ -1,5 +1,8 @@
 <?php
 return [
+    'delivery_auto'=>'Use automatic fee',
+    'compact_details' => 'View',
+    'details_actions' => 'Order details and actions',
     'order_steps' => 'Order steps',
     'start_order' => 'Start with a phone number',
     'start_order_hint' => 'Find the customer and saved address, or register a new customer in a few steps.',
@@ -10,7 +13,7 @@ return [
     'products'=>'Branch menu', 'search'=>'Search products…', 'customer'=>'Customer and delivery', 'phone'=>'Phone number',
     'phone_placeholder'=>'Enter the customer’s phone number', 'lookup'=>'Find customer', 'name'=>'Customer name', 'name_placeholder'=>'Customer name',
     'address'=>'Delivery address', 'address_placeholder'=>'Street, building, floor and landmark', 'area'=>'Area', 'area_placeholder'=>'Delivery area',
-    'delivery_fee'=>'Delivery fee', 'delivery_fee_hint'=>'Enter the confirmed delivery fee for this address.',
+    'delivery_fee'=>'Delivery fee', 'delivery_fee_hint'=>'Calculated from the location. You can change it manually for this order.',
     'customer_note'=>'Delivery instructions', 'customer_note_placeholder'=>'Entrance, preferred time or another note…',
     'order_notes'=>'Kitchen notes', 'notes_placeholder'=>'Write a preparation note…', 'quantity'=>'Quantity', 'piece'=>'Piece', 'weight'=>'Weight (kg)', 'kg'=>'kg',
     'add_hint'=>'Press a product to add it. Change its quantity or option in the invoice.', 'options'=>'Size / extras', 'base'=>'No extras',
@@ -82,3 +85,4 @@ return [
     'batch_completed' => 'Orders collected and completed. Printing the combined receipt.',
     'company_dispatched' => 'Order handed over to the delivery company.',
 ];
+

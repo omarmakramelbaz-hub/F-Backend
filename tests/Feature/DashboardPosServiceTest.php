@@ -67,6 +67,40 @@ class DashboardPosServiceTest extends TestCase
     private function denied(callable $call,int $status=409): void{try{$call();$this->fail('Expected '.$status);}catch(HttpException $e){$this->assertSame($status,$e->getStatusCode());}}
     private function invalid(callable $call): void{try{$call();$this->fail('Expected invalid payload');}catch(ValidationException $e){$this->assertNotEmpty($e->errors());}}
 
+    public function test_manual_phone_delivery_fee_is_quoted_saved_updated_and_settled_with_receipts(): void
+    {
+        $v=$this->savePayload('phone',1800);$v['delivery_fee_manual']=true;$v['delivery_fee']='37.25';
+        // A fee change must invalidate the previous payable quote.
+        $this->denied(fn()=>$this->tickets()->save('phone',$v,$this->actor()),409);
+        $q=$this->tickets()->quote('phone',$v,$this->actor());$v['quote_hash']=$q['quote_hash'];
+        $this->assertSame('137.25',$q['total']);
+        $result=$this->tickets()->save('phone',$v,$this->actor());$ticket=$result['ticket'];
+        $this->assertSame('37.25',$ticket['delivery_fee']);$this->assertSame('manual',$ticket['delivery_location']['fee_mode']);
+        $this->assertSame('20.00',$ticket['delivery_location']['calculated_delivery_fee']);$this->assertSame(10,$ticket['delivery_location']['fee_actor_id']);
+        $this->assertTrue($this->tickets()->save('phone',$v,$this->actor())['replayed']);
+        $v=array_replace($v,['ticket_id'=>$ticket['id'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(1801),'delivery_fee'=>'0.00']);
+        $v['quote_hash']=$this->tickets()->quote('phone',$v,$this->actor())['quote_hash'];
+        $ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];$this->assertSame('100.00',$ticket['total']);$this->assertSame('0.00',$ticket['delivery_fee']);
+        $v=array_replace($v,['expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(1802),'delivery_fee'=>'12.50']);
+        $v['quote_hash']=$this->tickets()->quote('phone',$v,$this->actor())['quote_hash'];
+        $ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];
+        $paid=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,1803),$this->actor());
+        $this->assertSame(1250,(int)DB::table('takeaway_orders')->value('delivery_cents'));
+        $this->assertSame(11250,(int)DB::table('takeaway_orders')->value('total_cents'));
+        $this->assertSame('12.50',$this->tickets()->show('phone',$ticket['id'],$this->actor())['ticket']['delivery_fee']);
+        $this->assertSame(1,DB::table('takeaway_orders')->count());
+    }
+    public function test_manual_delivery_fee_keeps_location_scope_and_amount_validation(): void
+    {
+        $v=$this->savePayload('phone',1810);$v['delivery_fee_manual']=true;$v['delivery_fee']='5.00';
+        $this->denied(fn()=>$this->tickets()->quote('phone',$v,$this->actor(11)),404);
+        $this->denied(fn()=>$this->tickets()->quote('phone',array_replace($v,['delivery_quote_hash'=>str_repeat('f',64)]),$this->actor()),409);
+        foreach(['-1.00','1000000.01'] as $bad)$this->denied(fn()=>$this->tickets()->quote('phone',array_replace($v,['delivery_fee'=>$bad]),$this->actor()),422);
+        foreach(['1.234','abc',''] as $bad)$this->invalid(fn()=>$this->tickets()->quote('phone',array_replace($v,['delivery_fee'=>$bad]),$this->actor()));
+        $q=$this->tickets()->quote('phone',array_replace($v,['delivery_fee_manual'=>false]),$this->actor());$this->assertSame('120.00',$q['total']);
+        $this->assertSame(0,DB::table('pos_service_tickets')->count());
+    }
+
     public function test_branch_staff_can_configure_real_tables_only_in_their_own_branch(): void
     {
         $this->assertCount(0,app(PosServiceTable::class)->listing('f:100',$this->actor())['tables']);
@@ -688,3 +722,4 @@ class DashboardPosServiceTest extends TestCase
         $this->assertSame(0,DB::table('takeaway_orders')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
 }
+

@@ -147,10 +147,22 @@ class HomeOverview
             $drawer['owner_drawer']=['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts];
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
+            'branch_home'=>!$centralAccount,'today_expenses'=>!$centralAccount?$this->todayExpenses($keys,$modules['expenses']):null,
             'modules'=>$modules,'sales'=>$finance?$sales:null,'previous'=>$finance?$previous:null,'completed'=>$completed,'cancelled'=>$cancelled,
             'active'=>$active,'app_orders'=>$appOrders,'customers'=>$customers,'open_branches'=>count(array_filter($branches,fn($b)=>$b['open']===true)),
             'selected_branches'=>count($selected),'branch_cards'=>array_values($branches),'ranking'=>$ranked,'channels'=>$channels,'trend'=>array_values($trend['points']),
             'inventory'=>$inventory,'alerts'=>$alerts,'recent'=>$recent,'legacy_app_dates'=>$appFallback]+$drawer;
+    }
+    private function todayExpenses(array $keys,bool $ready): array
+    {
+        $today=now('Africa/Cairo')->toDateString();$items=[];$total=0;
+        if($ready){
+            $names=app(ExpenseCategories::class)->options();
+            foreach(DB::table('branch_expenses')->whereIn('branch',$keys)->where('occurred_on',$today)->where('status','approved')->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderBy('category')->get() as $row){
+                $amount=(int)$row->amount;$total+=$amount;$items[]=['name'=>$names[$row->category]??$row->category,'amount_cents'=>$amount];
+            }
+        }
+        return ['date'=>$today,'total_cents'=>$ready?$total:null,'items'=>$items];
     }
     // Legacy restaurant records have no branch/store type. Use their explicit
     // store label for presentation only; never change ownership or sales scope.
@@ -249,3 +261,4 @@ class HomeOverview
         usort($out,fn($a,$b)=>strcmp(Carbon::parse($b['at'])->utc()->toDateTimeString(),Carbon::parse($a['at'])->utc()->toDateTimeString()));return array_slice($out,0,8);
     }
 }
+

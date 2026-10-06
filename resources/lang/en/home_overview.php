@@ -1,5 +1,12 @@
 <?php
 return [
+    'branch_stock_title'=>'Stock balance',
+    'today_expenses_title'=>'Today’s expenses',
+    'today_expenses_note'=>'Approved expenses today',
+    'no_today_expenses'=>'No approved expenses today',
+    'expense_category'=>'Expense category',
+    'expense_amount'=>'Amount',
+
  'compact_orders'=>'Branch orders',
  'top_ten_orders'=>'Top 10 branches by order count',
  'admin_method'=>'Platform counters show current totals independently of filters. Branch activity, trends and rankings use completed order counts for the selected period. Approved expenses use the expense date; stock balances show the current position.',
@@ -44,3 +51,4 @@ return [
     'compact_drawer'=>'Drawer cash',
     'compact_expenses'=>'Expenses',
 ];
+
