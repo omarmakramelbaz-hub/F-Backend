@@ -14,10 +14,11 @@ class BranchExpensesController extends Controller
         $actor=auth('admin')->user();$branches=$access->branches($actor);$selected=$request->input('branch',$branches[0]['value']);
         $data=$expenses->listing($request->all()+['branch'=>$selected],$actor);
         $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>now('Africa/Cairo')->toDateString(),'urls'=>[]];
-        foreach(['data','save','recover','export','report'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
+        foreach(['data','save','recover','export','report','categorySave'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
         foreach(['show','review'] as $name)$boot['urls'][$name]=str_replace('991770','__EXPENSE__',route('branch-expenses.'.$name,['id'=>991770]));
         return view('admin.expenses.index',compact('boot'));
     }
+    public function categorySave(Request $request,\App\Services\Dashboard\ExpenseCategories $categories){return response()->json($categories->save($request->all(),auth('admin')->user()));}
     public function data(Request $request,BranchExpenses $expenses){return response()->json($expenses->listing($request->all(),auth('admin')->user()));}
     public function save(Request $request,BranchExpenses $expenses){return response()->json($expenses->save($request->except('attachment'),auth('admin')->user(),$request->file('attachment')));}
     public function show(int $id,BranchExpenses $expenses){return response()->json($expenses->show($id,auth('admin')->user()));}
@@ -37,7 +38,7 @@ class BranchExpensesController extends Controller
         return response()->streamDownload(function()use($data){
             $stream=fopen('php://output','w');fwrite($stream,"\xEF\xBB\xBF");
             fputcsv($stream,array_map(fn($k)=>__('expenses.'.$k),['number','branch','date','category','description','amount','payment_method','actor','status','supplier','cost_center','notes']));
-            foreach($data['items'] as $item){$row=[$item['number'],$item['branch_name'],$item['occurred_on'],__('expenses.cat_'.$item['category']),$item['description'],$item['amount'],__('expenses.method_'.$item['payment_method']),$item['actor_name'],__('expenses.status_'.$item['status']),$item['supplier'],$item['cost_center'],$item['notes']];
+            foreach($data['items'] as $item){$row=[$item['number'],$item['branch_name'],$item['occurred_on'],$item['category_name'],$item['description'],$item['amount'],__('expenses.method_'.$item['payment_method']),$item['actor_name'],__('expenses.status_'.$item['status']),$item['supplier'],$item['cost_center'],$item['notes']];
                 fputcsv($stream,array_map(fn($value)=>preg_match('/^[\s]*[=+@\-]/u',(string)$value)?"'".$value:$value,$row));}
             fclose($stream);
         },'branch-expenses-'.$data['filters']['from'].'-'.$data['filters']['to'].'.csv',['Content-Type'=>'text/csv; charset=UTF-8','X-Content-Type-Options'=>'nosniff']);

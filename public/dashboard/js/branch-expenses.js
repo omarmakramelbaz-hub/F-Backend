@@ -4,7 +4,7 @@
     var root = document.getElementById('branch-expenses'); if (!root) return;
     var boot = JSON.parse(document.getElementById('branch-expenses-bootstrap').textContent), labels = JSON.parse(document.getElementById('branch-expenses-labels').textContent);
     var form = root.querySelector('[data-expense-form]'), filters = root.querySelector('[data-expense-filters]'), branch = root.querySelector('[data-expense-branch]'), editor = root.querySelector('[data-expense-editor]'), dialog = root.querySelector('[data-expense-dialog]');
-    var current = boot.initial, rows = new Map(), editing = null, dirty = false, busy = false, frozen = null, disposed = false, generation = 0, controller, listeners = [];
+    var current = boot.initial, rows = new Map(), editing = null, dirty = false, busy = false, frozen = null, disposed = false, generation = 0, controller, listeners = [], categoryBusy=false,categoryController;
     var pendingKey = 'fasakhansta:expense-pending:' + boot.actor_id;
     function t(key) { return labels[key] || key; }
     function el(tag, value, className) { var node = document.createElement(tag); if (value !== undefined) node.textContent = String(value); if (className) node.className = className; return node; }
@@ -12,7 +12,7 @@
     function url(value, params, id) { var u = new URL(id === undefined ? value : value.replace('__EXPENSE__', String(id)), location.href); if (u.origin !== location.origin) throw new Error(t('error')); Object.keys(params || {}).forEach(function (key) { if (params[key] !== '') u.searchParams.set(key, params[key]); }); return u.href; }
     function uuid() { return crypto.randomUUID(); }
     function notice(value, retry) { var box = root.querySelector('[data-expense-message]'); box.hidden = !value; box.querySelector('span').textContent = value || ''; box.querySelector('button').hidden = !retry; }
-    function locked() { return busy || !!frozen; }
+    function locked() { return busy || categoryBusy || !!frozen; }
     function lock() {
         root.querySelectorAll('button,input,textarea,select').forEach(function (control) { control.disabled = locked(); });
         root.querySelector('[data-expense-retry]').disabled = busy;
@@ -32,11 +32,22 @@
         if (!response.ok || !data || data.success === false) { var error = new Error(response.status === 401 || response.status === 419 ? t('session') : data && data.message || t('error')); error.status = response.status; throw error; } return data;
     }
     function actionButton(label, callback, icon) { var button = el('button'); button.type = 'button'; button.title = t(label); button.setAttribute('aria-label', t(label)); if (icon) button.appendChild(el('i', undefined, 'fas ' + icon)); else button.textContent = t(label); button.addEventListener('click', callback); return button; }
+    function categoryName(key){return (current.categories||{})[key]||t('cat_'+key);}
+    function categoryOptions(categories){current.categories=categories;[form.elements.category,filters.elements.category].forEach(function(select){var chosen=select.value;select.replaceChildren(el('option',select===form.elements.category?t('category'):t('all_categories')));select.firstChild.value='';Object.keys(categories).forEach(function(key){var option=el('option',categories[key]);option.value=key;select.appendChild(option);});select.value=chosen;});}
+    async function saveCategory(){
+        if(locked())return;var input=root.querySelector('[data-expense-category-name]'),status=root.querySelector('[data-expense-category-status]'),name=input.value.trim();if(!name){input.focus();return;}
+        categoryBusy=true;generation++;if(controller)controller.abort();categoryController=new AbortController();var timeout=setTimeout(function(){categoryController.abort();},15000);lock();status.textContent=t('saving');
+        try{var result=await request(url(boot.urls.categorySave),{method:'POST',signal:categoryController.signal,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify({name:name,idempotency_key:uuid()})});if(disposed)return;categoryOptions(result.categories);form.elements.category.value=result.category.key;dirty=true;input.value='';status.textContent=t('category_saved');}
+        catch(error){if(!disposed)status.textContent=error.name==='AbortError'?t('category_retry'):error.message;}
+        finally{clearTimeout(timeout);categoryBusy=false;if(!disposed)lock();}
+    }
+    var categoryButton=root.querySelector('[data-expense-category-save]');if(categoryButton)on(categoryButton,'click',saveCategory);
+    var categoryInput=root.querySelector('[data-expense-category-name]');if(categoryInput)on(categoryInput,'keydown',function(event){if(event.key==='Enter'){event.preventDefault();event.stopPropagation();saveCategory();}});
     function render(data) {
-        current = data; rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
+        current = data; if(data.categories)categoryOptions(data.categories); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
-            [item.number,item.occurred_on,item.branch_name,t('cat_' + item.category),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value) { row.appendChild(el('td', value)); });
+            [item.number,item.occurred_on,item.branch_name,item.category_name||categoryName(item.category),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value) { row.appendChild(el('td', value)); });
             var status = el('td'), tag = el('span', t('status_' + item.status), 'ex-tag'); tag.dataset.status = item.status; status.appendChild(tag); row.appendChild(status);
             var fileCell = el('td'); if (item.attachment_url) { var link = el('a', '↧'); link.href = url(item.attachment_url); link.dataset.spaOff = ''; link.title = item.attachment_name; fileCell.appendChild(link); } else fileCell.textContent = '—'; row.appendChild(fileCell);
             var actions = el('td'), group = el('div', undefined, 'ex-row-actions'); group.appendChild(actionButton('details', function () { details(item.id); }, 'fa-eye')); if (item.can_edit) group.appendChild(actionButton('edit', function () { edit(item); }, 'fa-pen')); group.appendChild(actionButton('print', function () { print(item.print_url); }, 'fa-print')); actions.appendChild(group); row.appendChild(actions); body.appendChild(row);
@@ -44,7 +55,7 @@
         root.querySelector('[data-expense-empty]').hidden = !!data.items.length;
         root.querySelector('[data-expense-balance]').closest('.ex-balance').hidden = data.summary.cash_balance === undefined;
         root.querySelector('[data-expense-balance]').textContent = data.summary.cash_balance === undefined ? '' : data.summary.cash_balance + ' ' + t('currency');
-        root.querySelectorAll('[data-expense-metric]').forEach(function (node) { var key = node.dataset.expenseMetric; node.textContent = key === 'top_category' ? (data.summary.top_category ? t('cat_' + data.summary.top_category) : '—') : data.summary[key]; });
+        root.querySelectorAll('[data-expense-metric]').forEach(function (node) { var key = node.dataset.expenseMetric; node.textContent = key === 'top_category' ? (data.summary.top_category ? categoryName(data.summary.top_category) : '—') : data.summary[key]; });
         root.querySelector('[data-expense-top-amount]').textContent = data.summary.top_amount + ' ' + t('currency');
         root.querySelector('[data-expense-period]').textContent = t('period') + ': ' + data.summary.period + ' ' + t('currency') + ' · ' + t('pending') + ': ' + data.summary.pending;
         root.querySelector('[data-expense-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total;
@@ -113,7 +124,7 @@
         try {
             var data = await request(url(boot.urls.show, null, id)); if (disposed || token !== generation) return;
             var item = data.expense, content = root.querySelector('[data-expense-detail]'); content.replaceChildren(); var grid = el('dl', undefined, 'ex-detail-grid');
-            [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',t('cat_'+item.category)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
+            [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',item.category_name||categoryName(item.category)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
             if (item.attachment_url) { var attachment = el('a',item.attachment_name,'ex-button'); attachment.href = url(item.attachment_url); attachment.dataset.spaOff = ''; content.appendChild(attachment); }
             var actions = el('div',undefined,'ex-detail-actions'); actions.appendChild(actionButton('print',function(){print(item.print_url);},'fa-print'));
             if (boot.permissions.can_approve) (item.status === 'pending' ? ['approve','reject'] : item.status === 'approved' ? ['void'] : []).forEach(function(action){actions.appendChild(actionButton(action,function(){review(item,action);}));}); content.appendChild(actions);
@@ -132,7 +143,7 @@
     on(root.querySelector('[data-expense-report]'),'click',function(){print(url(boot.urls.report,values()));});on(root.querySelector('[data-expense-retry]'),'click',function(){if(frozen)execute(frozen,true);});
     function mayLeave(){if(locked()){notice(t('uncertain'),true);return false;}return !dirty||confirm(t('unsaved'));}
     on(window,'beforeunload',function(event){if(locked()||dirty){event.preventDefault();event.returnValue='';}});
-    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);window.DashboardSPA.onCleanup(function(){disposed=true;if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();});}
+    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();});}
     reset();Object.keys(boot.initial.filters).forEach(function(key){if(filters.elements[key])filters.elements[key].value=boot.initial.filters[key];});render(boot.initial);
     try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
 }());

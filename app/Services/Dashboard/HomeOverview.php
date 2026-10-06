@@ -37,8 +37,10 @@ class HomeOverview
     {
         $actor = $this->access->actor($actor);
         $all = array_values(array_filter($this->access->branches($actor), fn($b)=>$b['kind'] === 'f'));
+        foreach($all as &$entry)$entry['display_group']=$this->displayGroup($entry['name']);unset($entry);
+        usort($all,fn($a,$b)=>[$a['display_group']==='store'?1:0,$a['id']]<=>[$b['display_group']==='store'?1:0,$b['id']]);
         $filters = $this->range($values); $selected = $all;
-        if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $selected = [$branch]; }
+        if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $branch['display_group']=$this->displayGroup($branch['name']); $selected = [$branch]; }
         $finance = $this->access->permissions($actor)['can_manage'];
         $owner = (int)$actor->id===1 && $actor->account_type==='admin' && empty($actor->owner_resturant_id);
         $central = $actor->account_type === 'admin' && empty($actor->owner_resturant_id) && $filters['branch'] === '';
@@ -124,6 +126,7 @@ class HomeOverview
         $recent=$this->recent($ids,$keys,$from,$until,$finance,$modules);
         $ranking=array_values($branches);usort($ranking,fn($a,$b)=>$finance?$b['sales']['gross_cents']<=>$a['sales']['gross_cents']:$b['sales']['count']<=>$a['sales']['count']);
         $ranked=array_map(fn($b)=>['branch'=>$b['value'],'name'=>$b['name'],'count'=>$b['sales']['count'],'amount_cents'=>$finance?$b['sales']['gross_cents']:null],array_slice($ranking,0,$owner?10:5));
+        if($owner){foreach($ranked as $i=>&$rank)$rank['sales_rank']=$i+1;unset($rank);usort($ranked,fn($a,$b)=>[$this->displayGroup($a['name'])==='store'?1:0,$a['sales_rank']]<=>[$this->displayGroup($b['name'])==='store'?1:0,$b['sales_rank']]);}
         $completed=$sales['count'];$channels=[];foreach($sales['channels'] as $key=>$c)$channels[]=['key'=>$key,'count'=>$c['count'],'amount_cents'=>$finance?$c['gross_cents']:null];
         // Financial summaries are removed server-side for cashiers, including chart values and recent receipts.
         foreach($branches as &$b){$b['completed']=$b['sales']['count'];if(!$finance)unset($b['sales']);} unset($b);
@@ -139,6 +142,12 @@ class HomeOverview
             'active'=>$active,'app_orders'=>$appOrders,'customers'=>$customers,'open_branches'=>count(array_filter($branches,fn($b)=>$b['open']===true)),
             'selected_branches'=>count($selected),'branch_cards'=>array_values($branches),'ranking'=>$ranked,'channels'=>$channels,'trend'=>array_values($trend['points']),
             'inventory'=>$inventory,'alerts'=>$alerts,'recent'=>$recent,'legacy_app_dates'=>$appFallback]+$drawer;
+    }
+    // Legacy restaurant records have no branch/store type. Use their explicit
+    // store label for presentation only; never change ownership or sales scope.
+    private function displayGroup(string $name): string
+    {
+        return preg_match('/(?<![\p{L}\p{N}])(?:[اأإ]?ستور|متجر|stores?)(?![\p{L}\p{N}])/iu',$name)?'store':'branch';
     }
     private function appQuery(array $ids) { return DB::table('orders')->whereIn('orders.resturant_id',$ids)->where('orders.type','current'); }
     private function appGroup(object $r): string

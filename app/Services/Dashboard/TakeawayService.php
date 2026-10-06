@@ -178,8 +178,8 @@ class TakeawayService
         $branch = $this->access->branch($value, $actor);
         $date = $date ?? $this->businessDate();
         $permissions = $this->access->permissions($actor);
-        $entries = DB::table('takeaway_till_entries')->where('branch', $branch['value'])->where('business_date', $date)->orderByDesc('id')->limit(100)->get();
-        return ['success'=>true, 'branch'=>$branch, 'register'=>$this->presentTill($this->till($branch['value'])),
+        $entries = DB::table('takeaway_till_entries')->where('branch', $branch['value'])->where('business_date', $date)->where('kind', '!=', 'shift_close')->orderByDesc('id')->limit(100)->get();
+        return ['success'=>true, 'branch'=>$branch, 'register'=>$this->presentTill($this->till($branch['value']), $actor),
             'permissions'=>$permissions, 'today'=>$this->daily($branch['value'], $date),
             'entries'=>$entries->map(function ($entry) use ($permissions) {
                 return ['id'=>(int) $entry->id, 'kind'=>$entry->kind, 'amount'=>Money::decimal((int) $entry->amount_cents),
@@ -241,7 +241,7 @@ class TakeawayService
         $branch = $this->access->branch($value, $actor);
         if (!$this->access->ready()) return ['ready'=>false, 'register'=>['revision'=>1,'tax_rate'=>'0.00'], 'today'=>['date'=>$this->businessDate(),'count'=>0,'total'=>'0.00']];
         $permissions = $this->access->permissions($actor);
-        $till = $this->presentTill($this->till($branch['value']));
+        $till = $this->presentTill($this->till($branch['value']), $actor);
         return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($branch['value'], $this->businessDate()), 'permissions'=>$permissions,
             'policy'=>['tax_rate'=>$till['tax_rate'], 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
                 'payment_methods'=>self::METHODS, 'currency'=>'EGP']];
@@ -337,10 +337,20 @@ class TakeawayService
         return $query->first() ?? (object) ['id'=>null, 'branch'=>$branch, 'balance_cents'=>0, 'tax_bps'=>0, 'revision'=>1];
     }
 
-    private function presentTill(object $till): array
+    private function presentTill(object $till, $actor): array
     {
-        return ['id'=>$till->id ? (int) $till->id : null, 'branch'=>$till->branch,
+        $result = ['id'=>$till->id ? (int) $till->id : null, 'branch'=>$till->branch,
             'revision'=>(int) $till->revision, 'tax_rate'=>Money::decimal((int) $till->tax_bps), 'currency'=>'EGP'];
+        // Re-read persisted identity: a manager or a client-side permission flag is not the owner.
+        $actor = $this->access->actor($actor);
+        if ((int)$actor->id === 1 && $actor->account_type === 'admin' && empty($actor->owner_resturant_id)) {
+            $balance = (int)$till->balance_cents;
+            if (str_starts_with($till->branch, 'f:') && \Illuminate\Support\Facades\Schema::hasTable('branch_shift_sources')) {
+                $balance = app(BranchShiftClosing::class)->ownerBalances([$till->branch], $actor)[$till->branch]['expected_cents'];
+            }
+            $result['balance'] = Money::decimal($balance);
+        }
+        return $result;
     }
 
     private function checkoutResult(object $order, $actor, bool $replayed): array
@@ -348,7 +358,7 @@ class TakeawayService
         $receipt = $this->presentReceipt($order);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
             'stock_balances'=>app(BranchStock::class)->saleBalances($order->branch,array_column($receipt['items'],'product_id')),
-            'register'=>$this->presentTill($this->till($order->branch)), 'today'=>$this->daily($order->branch, $this->businessDate())];
+            'register'=>$this->presentTill($this->till($order->branch), $actor), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 
     private function presentReceipt(object $row): array

@@ -16,14 +16,44 @@ class BranchPayroll
         $q=DB::table('branch_employees')->where('branch',$branch)->where('id',$id);if($lock)$q->lockForUpdate();$row=$q->first();abort_unless($row,404);return $row;
     }
     private function openMonth(int $id,string $month): void {abort_if(DB::table('branch_payrolls')->where('employee_id',$id)->where('month',$month)->exists(),409,'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.');}
+    private function walletNumber($value): string
+    {
+        $value=strtr(trim((string)$value),array_combine(preg_split('//u','٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),range(0,9)));
+        $value=preg_replace('/[\s()-]/u','',$value); $value=preg_replace('/^(?:\+20|0020)(1[0125][0-9]{8})$/','0$1',$value);
+        abort_unless($value===''||preg_match('/^01[0125][0-9]{8}$/D',$value),422,'أدخل رقم محفظة مصري صحيحًا من 11 رقمًا.');
+        return $value;
+    }
+    public function wallet(array $values,$actor): array
+    {
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','wallet_phone'=>'nullable|string|max:30'])->validate();
+        $number=$this->walletNumber($v['wallet_phone']??'');
+        return $this->ops->write('employee.wallet',$v,$actor,function($branch,$actor)use($v,$number){
+            $employee=$this->employee($v['employee_id'],$branch['value'],true); $this->ops->revision($employee,$v);
+            DB::table('branch_employees')->where('id',$employee->id)->update(['wallet_phone'=>$number?:null,'revision'=>(int)$employee->revision+1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')]);
+            return ['employee'=>(array)$this->employee($employee->id,$branch['value'])];
+        });
+    }
+    public function dailyNotes(array $values,$actor): array
+    {
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d|before_or_equal:today','notes'=>'nullable|string|max:1000'])->validate();
+        return $this->ops->write('employee.notes',$v,$actor,function($branch,$actor)use($v){
+            $employee=$this->employee($v['employee_id'],$branch['value'],true); $this->employmentDay($employee,$v['day']); $this->openMonth($employee->id,substr($v['day'],0,7));
+            $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first(); if($old)$this->ops->revision($old,$v);
+            $data=['notes'=>trim($v['notes']??''),'revision'=>$old?(int)$old->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            if($old)DB::table('branch_employee_days')->where('id',$old->id)->update($data);
+            else DB::table('branch_employee_days')->insert($data+['branch'=>$branch['value'],'employee_id'=>$employee->id,'day'=>$v['day'],'status'=>'unrecorded','created_at'=>now('UTC')]);
+            return ['attendance'=>(array)DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first()];
+        });
+    }
     public function employeeSave(array $values,$actor): array
     {
-        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m'])->validate();
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','wallet_phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m'])->validate();
+        if(array_key_exists('wallet_phone',$v))$v['wallet_phone']=$this->walletNumber($v['wallet_phone']);
         $v['left_on']=!empty($v['left_on'])?$v['left_on']:null;
         $amount=$this->ops->money($v['salary']);foreach(['name','phone','job_title','shift','notes'] as $key)$v[$key]=trim($v[$key]??'');abort_if($v['name']===''||$v['job_title']==='',422,'أدخل اسم الموظف ووظيفته.');
         return $this->ops->write('employee.save',$v,$actor,function($branch,$actor)use($v,$amount){
             $row=!empty($v['employee_id'])?$this->employee($v['employee_id'],$v['branch'],true):null;if($row)$this->ops->revision($row,$v);
-            $data=array_intersect_key($v,array_flip(['branch','name','phone','job_title','shift','hired_on','left_on','notes','active']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
             if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else $id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);
             $previous=DB::table('branch_employee_salaries')->where('employee_id',$id)->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
             if(!$previous||(int)$previous->amount_cents!==$amount){

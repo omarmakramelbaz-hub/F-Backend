@@ -7,7 +7,8 @@
     var labels = JSON.parse(document.querySelector('#phone-orders-translations').textContent);
     var urls = boot.urls || {}, branchSelect = root.querySelector('[data-phone-branch]'), branch = branchSelect.value;
     var products = new Map(), cart = [], editing = null, quote = null, policy = boot.policy || {}, permissions = boot.permissions || {};
-    var category = '', catalogPage = 1, pagination = {}, orderStage = boot.company_filter ? 'all' : 'new', orderPage = 1, orderPagination = {}, view = 'compose';
+    var category = '', catalogPage = 1, pagination = {}, view = 'compose';
+    var boardPages = {preparing:1,courier:1,finished:1}, selectedOrders = new Map(), boardCompanies = [], boardData = null;
     var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
     var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
@@ -33,7 +34,7 @@
     }
     function ensureLocation(){if(!deliverySettings||disposed)return;if(!locationPicker){locationPicker=DashboardLocationPicker.create(root.querySelector('[data-phone-map]'),{key:boot.maps_key,preferOpenMap:!!boot.open_phone_maps,routeOnly:!!boot.open_phone_maps,tileUrl:boot.tile_url,latitude:latInput.value,longitude:lngInput.value,center:deliverySettings.ready?[deliverySettings.latitude,deliverySettings.longitude]:null,origin:deliverySettings.ready?[deliverySettings.latitude,deliverySettings.longitude]:null,locked:locked,change:function(lat,lng){if(addressSearch)addressSearch.reset();latInput.value=lat;lngInput.value=lng;invalidateLocation();previewLocation();}});}locationPicker.resize();if(!latInput.value&&!lngInput.value&&fields.address.value.trim())locateAddress();else if(!deliveryLocation)previewLocation();}
     function locateAddress(){if(!addressSearch)return;addressSearch.search();}
-    addressSearch=PhoneAddressSearch.create({input:fields.address,box:root.querySelector('[data-phone-address-options]'),status:root.querySelector('[data-phone-address-status]'),locked:locked,query:function(){return fields.address.value.trim()+(fields.area.value.trim()?'، '+fields.area.value.trim():'');},search:async function(query,signal){
+    addressSearch=PhoneAddressSearch.create({input:fields.address,box:root.querySelector('[data-phone-address-options]'),status:root.querySelector('[data-phone-address-status]'),locked:locked,query:function(){return fields.address.value.trim();},search:async function(query,signal){
         if(boot.open_phone_maps){var r=await read(await post(urls.address_suggestions,{branch:branch,query:query},signal),'load_error');return r.items||[];}
         if(!locationPicker)throw Error('انتظر تحميل خريطة الفرع.');return locationPicker.suggest(query);
     },resolve:function(item){return boot.open_phone_maps?Promise.resolve(item):locationPicker.resolve(item);},select:function(point){
@@ -47,7 +48,7 @@
         if (disposed) return;
         var printer = window.DashboardBranchPrinter;
         root.querySelector('[data-phone-printer-status]').textContent = printer ? printer.status : text('callcenter_print');
-        if (view === 'orders' && !locked()) loadOrders(orderPage, true);
+        if (view === 'orders' && !locked()) loadOrders(undefined, true);
         receiverTimer = setTimeout(pollReceiver, 4000);
     }
     function flow(next, focus) {
@@ -141,8 +142,7 @@
         saveButton.querySelector('span').textContent = text(writing ? 'saving' : editing ? 'save_changes' : 'save_order');
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
         root.querySelector('[data-phone-page="next"]').disabled = locked() || catalogPage >= Number(pagination.last_page || 1);
-        root.querySelector('[data-phone-orders-page="previous"]').disabled = locked() || orderPage <= 1;
-        root.querySelector('[data-phone-orders-page="next"]').disabled = locked() || orderPage >= Number(orderPagination.last_page || 1);
+        root.querySelector('[data-phone-batch-finish]').disabled = locked() || !canWrite() || !selectedOrders.size;
         if (!canWrite()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-mode],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
     }
     function totals(value) {
@@ -206,7 +206,7 @@
         var button = element('button', 'ph-product'); button.type = 'button'; button.dataset.phoneProduct = String(product.id); if (!product.available) button.dataset.unavailable = '1';
         if (product.image_url) { var image = element('img', 'ph-product-image'); image.src = product.image_url; image.alt = ''; image.loading = 'lazy'; image.addEventListener('error', function () { var placeholder = element('span', 'ph-product-image ph-product-placeholder'); placeholder.appendChild(element('i', 'fas fa-fish')); image.replaceWith(placeholder); }, { once: true }); button.appendChild(image); }
         else { var placeholder = element('span', 'ph-product-image ph-product-placeholder'); placeholder.appendChild(element('i', 'fas fa-fish')); button.appendChild(placeholder); }
-        var copy = element('span', 'ph-product-copy'); copy.appendChild(element('strong', '', product.name)); copy.appendChild(element('bdi', '', money(product.unit_price || product.price) + ' ' + text('currency'))); copy.appendChild(element('small', product.available ? '' : 'ph-unavailable', product.stock ? (product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label) : (product.available ? product.unit || text('piece') + ' / ' + text('weight') : text('unavailable')))); if(product.stock)copy.querySelector('small').style.color=product.stock.negative?'#b42318':'#126b4a';button.appendChild(copy); return button;
+        var copy = element('span', 'ph-product-copy'); copy.appendChild(element('strong', '', product.name)); copy.appendChild(element('bdi', '', money(product.unit_price || product.price) + ' ' + text('currency'))); copy.appendChild(element('small', product.available ? '' : 'ph-unavailable', product.stock ? (product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label) : (product.available ? product.unit || text('piece') + ' / ' + text('weight') : text('unavailable')))); if(product.stock)copy.querySelector('small').style.color='#b42318';button.appendChild(copy); return button;
     }
     async function loadCatalog(page) {
         if (!branch || disposed || locked()) return;
@@ -230,14 +230,14 @@
     }
     function switchView(target) {
         if (locked()) { notify(text('locked'), false, true); return; }
-        view = target; root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); if (target === 'orders' && branch) loadOrders(1); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
+        view = target; root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); if (target === 'orders' && branch) loadOrders(); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
     }
     function changeBranch() {
         var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
         var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason','delivery_fee'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
-        branch = selected; boot.company_filter=0; deliverySettings=null;loadDeliveryContext();catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = {}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; }); dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
-        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch) { loadCatalog(1); if (view === 'orders') loadOrders(1); }
+        branch = selected; selectedOrders.clear(); boardPages={preparing:1,courier:1,finished:1}; boardData=null; updateBatchTotal(); boot.company_filter=0; deliverySettings=null;loadDeliveryContext();catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = {}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; }); dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
+        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch) { loadCatalog(1); if (view === 'orders') loadOrders(); }
     }
     async function lookupCustomer(prefix) {
         if (!branch || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
@@ -276,11 +276,8 @@
         if (!details) container.appendChild(button('details', function () { detailsModal(ticket.id); }));
         if (ticket.bill_print_url && !cancelled && (canWrite() || paid || ticket.bill_locked)) container.appendChild(button('receipt', function () { if (paid || ticket.bill_locked) print(ticket.receipt_url || ticket.bill_print_url); else action(ticket, 'request_bill'); }, 'is-bill'));
         if (!canWrite()) return;
-        if (!paid && !cancelled) container.appendChild(button('collect', function () { settlement(ticket.id); }, 'is-warning'));
+        if (details && !paid && !cancelled) container.appendChild(button('collect', function () { settlement(ticket.id); }, 'is-warning'));
         if (!paid && !cancelled && !ticket.bill_locked) {
-            if (ticket.status === 'new') container.appendChild(button('prepare', function () { action(ticket, 'prepare'); }, 'is-primary'));
-            if (ticket.status === 'preparing') container.appendChild(button('dispatch', function () { action(ticket, 'dispatch'); }, 'is-primary'));
-            if (ticket.status === 'out_for_delivery') container.appendChild(button('finish', function () { action(ticket, 'finish'); }, 'is-primary'));
             container.appendChild(button('edit', function () { editTicket(ticket.id); }));
             if (!ticket.kitchen_sent) container.appendChild(button('cancel', function () { var reason = window.prompt(text('cancel_prompt')); if (reason && reason.trim()) action(ticket, 'cancel', false, reason.trim()); }));
         }
@@ -299,20 +296,69 @@
         try { var ticket = await fetchTicket(id, controller.signal); if (disposed || modal.hidden || generation !== modalGeneration) return; detailContent(ticket, content); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
     }
-    function card(ticket) {
-        var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));if(ticket.delivery_company)article.appendChild(element('p','ph-ticket-detail','شركة التوصيل: '+ticket.delivery_company.name));
+    function card(ticket, column) {
+        var article = element('article', 'ph-ticket'), header = element('div', 'ph-ticket-heading'); header.appendChild(element('strong', '', '#' + (ticket.number || ticket.id))); var stage = element('span', 'ph-stage', text(ticket.status)); stage.dataset.stage = ticket.status; header.appendChild(stage); article.appendChild(header); article.appendChild(element('p', 'ph-ticket-name', ticket.customer_name));if(ticket.courier_company)article.appendChild(element('p','ph-ticket-detail',text('courier_company')+': '+ticket.courier_company.name));
         [['fas fa-phone-alt', ticket.customer_phone], ['fas fa-map-marker-alt', ticket.area ? ticket.area + ' · ' + ticket.address : ticket.address], ['far fa-clock', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (entry) { var row = element('p', 'ph-ticket-detail'); row.appendChild(element('i', entry[0])); row.appendChild(element('span', '', entry[1] || '')); article.appendChild(row); });
-        var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); return article;
+        var summary = element('div', 'ph-ticket-summary'); summary.appendChild(element('strong', '', money(ticket.total) + ' ' + text('currency'))); summary.appendChild(element('span', 'ph-payment-state' + (ticket.payment_status === 'paid' ? ' is-paid' : ''), text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'))); article.appendChild(summary); var actions = element('div', 'ph-ticket-actions'); ticketActions(ticket, actions, false); article.appendChild(actions); article.dataset.phoneTicket=String(ticket.id);
+        if (column==='preparing' && canWrite()) {
+            var label=element('label','ph-board-company',text('assign_company')), select=element('select'); select.dataset.phoneBoardCompany=String(ticket.id); select.setAttribute('aria-label',text('assign_company')+' #'+ticket.id);
+            var placeholder=element('option','',text(boardCompanies.length?'choose_company':'no_companies')); placeholder.value='';select.appendChild(placeholder);
+            boardCompanies.forEach(function(company){var option=element('option','',company.name);option.value=String(company.id);select.appendChild(option);});
+            if(!boardCompanies.length)select.dataset.unavailable='';
+            select.addEventListener('change',function(){if(locked()||!select.value)return;execute({type:'dispatch_company',url:urls['dispatch-company'],ticketId:ticket.id,payload:{branch:branch,ticket_id:ticket.id,company_id:Number(select.value),expected_revision:ticket.revision,idempotency_key:uuid()}});});label.appendChild(select);article.appendChild(label);
+        }
+        if(column==='courier'&&canWrite()){
+            var choice=element('label','ph-board-select'),check=element('input');check.type='checkbox';check.dataset.phoneBatchSelect=String(ticket.id);check.checked=selectedOrders.has(ticket.id);check.setAttribute('aria-label',text('select_order')+' #'+ticket.id);
+            if(!ticket.courier_company){check.dataset.unavailable='';choice.appendChild(element('small','',text('missing_company')));}
+            check.addEventListener('change',function(){if(locked())return;var first=selectedOrders.values().next().value;if(check.checked&&first&&Number(first.courier_company.id)!==Number(ticket.courier_company.id)){check.checked=false;notify(text('same_courier'));return;}if(check.checked)selectedOrders.set(ticket.id,ticket);else selectedOrders.delete(ticket.id);updateBatchTotal();});choice.prepend(check);choice.appendChild(element('span','',text('select_order')));article.prepend(choice);
+        }
+        if(ticket.batch_print_url)actions.appendChild(button('batch_receipt',function(){print(ticket.batch_print_url);}));
+        return article;
     }
-    async function loadOrders(page, quiet) {
-        if (!branch || disposed || locked()) return;
-        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'); list.setAttribute('aria-busy', 'true'); if (!quiet) list.replaceChildren(element('p', 'ph-empty', text('loading')));
+    function updateBatchTotal(){
+        var total=0n;selectedOrders.forEach(function(ticket){total+=scaled(ticket.total,2);});
+        root.querySelector('[data-phone-batch-total]').textContent=selectedOrders.size?selectedOrders.size+' '+text('selected_orders')+' · '+money(decimal(total,2))+' '+text('currency'):text('select_orders');lock();
+    }
+    function renderBoard(){
+        var list=root.querySelector('[data-phone-order-list]');list.replaceChildren();
+        ['preparing','courier','finished'].forEach(function(stage){
+            var data=boardData.columns[stage],section=element('section','ph-board-column ph-board-'+stage);section.dataset.phoneColumn=stage;
+            var heading=element('h3','',text('board_'+stage));heading.appendChild(element('bdi','',data.pagination.total));section.appendChild(heading);
+            var cards=element('div','ph-board-cards');data.items.forEach(function(ticket){cards.appendChild(card(ticket,stage));});if(!data.items.length)cards.appendChild(element('p','ph-empty',text('empty_orders')));section.appendChild(cards);
+            if(data.pagination.last_page>1){var nav=element('nav','ph-pagination');['previous','next'].forEach(function(direction){var control=button(direction,function(){if(locked())return;if(stage==='courier'){selectedOrders.clear();updateBatchTotal();}boardPages[stage]+=direction==='next'?1:-1;loadOrders();});if(direction==='previous'&&data.pagination.page<=1||direction==='next'&&data.pagination.page>=data.pagination.last_page)control.dataset.unavailable='';nav.appendChild(control);if(direction==='previous')nav.appendChild(element('span','',data.pagination.page+' / '+data.pagination.last_page));});section.appendChild(nav);}
+            list.appendChild(section);
+        });updateBatchTotal();
+    }
+    async function loadOrders(unused, quiet) {
+        if (!branch || disposed || locked() || quiet && (!modal.hidden || document.activeElement && document.activeElement.matches('[data-phone-board-company]'))) return;
+        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'); list.setAttribute('aria-busy', 'true');
         try {
-            var response = await get(urls.tickets, { branch: branch, status: orderStage, page: page || 1, delivery_company_id:boot.company_filter||null }, controller.signal), result = await read(response, 'list_error'); if (disposed || generation !== orderGeneration) return;
-            var items = result.items || result.tickets; if (!Array.isArray(items)) throw new Error(text('list_error')); list.replaceChildren(); items.forEach(function (ticket) { if (validTicket(ticket, undefined, true)) list.appendChild(card(ticket)); }); if (!list.children.length) list.appendChild(element('p', 'ph-empty', text('empty_orders')));
-            orderPagination = result.pagination || {}; orderPage = Number(orderPagination.page || 1); root.querySelector('[data-phone-order-pagination]').hidden = !(orderPagination.last_page > 1); root.querySelector('[data-phone-orders-page-label]').textContent = orderPage + ' / ' + (orderPagination.last_page || 1); lock();
-        } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; list.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
+            var result=await read(await get(urls.board,{branch:branch,preparing_page:boardPages.preparing,courier_page:boardPages.courier,finished_page:boardPages.finished,delivery_company_id:boot.company_filter||null},controller.signal),'list_error');
+            if(disposed||generation!==orderGeneration)return;
+            if(result.branch!==branch||!result.columns||!Array.isArray(result.companies))throw Error(text('list_error'));
+            ['preparing','courier','finished'].forEach(function(stage){var column=result.columns[stage];if(!column||!Array.isArray(column.items)||!column.pagination||column.items.some(function(t){return !validTicket(t,undefined,true);}))throw Error(text('list_error'));boardPages[stage]=column.pagination.page;});
+            var current=new Map(result.columns.courier.items.map(function(t){return[t.id,t];}));var removed=false;
+            selectedOrders.forEach(function(t,id){var next=current.get(id);if(!next||next.revision!==t.revision){selectedOrders.delete(id);removed=true;}});
+            if(removed)notify(text('selection_changed'));
+            boardData=result;boardCompanies=result.companies;renderBoard();
+        } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
         finally { if (generation === orderGeneration) list.setAttribute('aria-busy', 'false'); }
+    }
+    function finishBatch(){
+        if(locked()||!canWrite()||!selectedOrders.size)return;
+        var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody');
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id));row.appendChild(element('td','',money(t.total)));body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
+        var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
+        var method=element('select');['cash','card','mobile_wallet','other'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
+        var cash=element('input');cash.inputMode='decimal';cash.maxLength=14;cash.value=decimal(total,2);var cashLabel=field('cash_received',cash);
+        var reference=element('input');reference.maxLength=150;var referenceLabel=field('payment_reference',reference);referenceLabel.hidden=true;
+        var confirm=element('label','ph-settle-confirm'),check=element('input');check.type='checkbox';check.dataset.phoneBatchConfirmed='';confirm.appendChild(check);confirm.appendChild(element('span','',text('payment_confirmed')));form.appendChild(confirm);
+        var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
+        method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
+        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=scaled(cash.value,2);if(method.value==='cash'&&(received===null||received<total)){notify(text('cash_insufficient'));return;}
+            execute({type:'batch',url:urls['finish-batch'],payload:{branch:branch,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
+        });lock();
     }
     function validateWriteResult(result, operation, recovered) {
         if (!validTicket(result.ticket, operation.ticketId) || operation.payload.expected_revision !== undefined && Number(result.ticket.revision) <= Number(operation.payload.expected_revision) || operation.type === 'save' && !recovered && result.ticket.payment_status !== 'unpaid' || operation.type === 'settle' && result.ticket.payment_status !== 'paid') throw new Error(text('uncertain'));
@@ -324,6 +370,17 @@
         if (operation.type === 'action' && operation.payload.action === 'send_kitchen' && !result.kitchen_print_url && !(result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url)) && !result.ticket.kitchen_print_url) throw new Error(text('uncertain'));
     }
     function applyWrite(result, operation, recovered) {
+        if(operation.type==='dispatch_company'||operation.type==='batch'){
+            if(!result.success||!result.operation||result.operation.idempotency_key!==operation.payload.idempotency_key||result.operation.kind!==(operation.type==='batch'?'phone.batch':'phone.dispatch'))throw Error(text('uncertain'));
+            if(operation.type==='dispatch_company'){
+                if(result.branch!==branch||Number(result.ticket_id)!==Number(operation.ticketId)||Number(result.revision)<=operation.payload.expected_revision||!result.company||Number(result.company.id)!==operation.payload.company_id)throw Error(text('uncertain'));
+            }else{
+                var batch=result.batch,ids=function(items,key){return items.map(function(t){return Number(t[key]);}).sort(function(a,b){return a-b;}).join(',');};
+                if(!batch||!batch.branch||batch.branch.value!==branch||batch.idempotency_key!==operation.payload.idempotency_key||scaled(batch.total,2)!==scaled(operation.payload.total,2)||!Array.isArray(batch.items)||ids(batch.items,'ticket_id')!==ids(operation.payload.items,'id')||!Number.isSafeInteger(batch.id)||!new URL(endpoint(batch.print_url)).pathname.endsWith('/phone-orders/batches/'+batch.id+'/print'))throw Error(text('uncertain'));
+            }
+            writing=false;uncertain=false;frozen=null;modal.hidden=true;selectedOrders.clear();updateBatchTotal();notify(text(operation.type==='batch'?'batch_completed':'company_dispatched'),true);loadOrders();
+            if(operation.type==='batch'){loadCatalog(catalogPage);print(result.batch.print_url);}return;
+        }
         if(operation.type==='customer'){
             var c=result.customer;if(!result.success||!c||c.branch!==branch||!Number.isSafeInteger(Number(c.id))||!Number(c.revision))throw new Error(text('uncertain'));
             customerRef={id:Number(c.id),revision:Number(c.revision)};writing=false;uncertain=false;frozen=null;category='';root.querySelector('[data-phone-search]').value='';flow('products');notify('تم حفظ بيانات العميل. اختر الأصناف لإرسالها للفرع.',true);loadCatalog(1);if(cart.length&&!quote)calculate();return;
@@ -333,15 +390,15 @@
         else { notify(text(operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated'), true); if (editing && Number(editing.id) === Number(result.ticket.id)) resetDraft(); }
         var content = root.querySelector('[data-phone-modal-content]'); if (modal.hidden) content = openModal(text('details')); detailContent(result.ticket, content); writing = false; uncertain = false; lock(); frozen = null;
         if(operation.type==='settle' && branch)loadCatalog(catalogPage);
-        if (view === 'orders') loadOrders(orderPage); else if (!loaded && branch && operation.type!=='settle') loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
+        if (view === 'orders') loadOrders(); else if (!loaded && branch && operation.type!=='settle') loadCatalog(catalogPage); else if (cart.length && !quote) calculate();
         if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
         else if (operation.printKitchen && !result.print_queued) print(result.kitchen_print_url || result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url) || result.ticket.kitchen_print_url);
     }
     async function recover(operation) {
         var controller = new AbortController(), timeout = setTimeout(function () { controller.abort(); }, 10000);
         try {
-            var response = await get(operation.type==='customer'?urls.operations_recover:urls.recover, { branch: operation.payload.branch, idempotency_key: operation.payload.idempotency_key }, controller.signal), result = await read(response, 'write_error'); if (disposed || frozen !== operation || !result.found) return false;
-            if (operation.type!=='customer'&&(!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket && result.ticket.id))) throw new Error(text('uncertain'));
+            var response = await get(['customer','dispatch_company','batch'].includes(operation.type)?urls.operations_recover:urls.recover, { branch: operation.payload.branch, idempotency_key: operation.payload.idempotency_key }, controller.signal), result = await read(response, 'write_error'); if (disposed || frozen !== operation || !result.found) return false;
+            if (!['customer','dispatch_company','batch'].includes(operation.type)&&(!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket && result.ticket.id))) throw new Error(text('uncertain'));
             applyWrite(result, operation, true); return true;
         } catch (_) { return false; } finally { clearTimeout(timeout); }
     }
@@ -354,8 +411,8 @@
         catch (error) {
             if (disposed || frozen !== operation) return;
             if (wasUncertain || !error.status || error.status < 400 || error.status >= 500) { uncertain = true; notify(text('uncertain'), false, true); }
-            else { uncertain = false; frozen = null; if (error.status === 409) { quote = null; quoteGeneration++; totals(null); } notify(error.message || text('write_error'), false, true); }
-        } finally { clearTimeout(timeout); writing = false; lock(); if (!uncertain && !frozen && operation.type === 'settle' && !modal.hidden && modal.querySelector('[data-phone-settle-submit]')) settlement(operation.ticketId); }
+            else { uncertain = false; frozen = null; if (error.status === 409) { quote = null; quoteGeneration++; totals(null); } notify(error.message || text('write_error'), false, true); if(operation.type==='dispatch_company'||operation.type==='batch'&&error.status===409)operation.refreshBoard=true; }
+        } finally { clearTimeout(timeout); writing = false; lock(); if(operation.refreshBoard&&!uncertain){selectedOrders.clear();modal.hidden=true;updateBatchTotal();loadOrders();} if (!uncertain && !frozen && operation.type === 'settle' && !modal.hidden && modal.querySelector('[data-phone-settle-submit]')) settlement(operation.ticketId); }
     }
     function save() {
         if (step !== 'products') return;
@@ -408,11 +465,12 @@
 
     listen(root, 'click', function (event) {
         var control = event.target.closest('button'); if (!control || !root.contains(control)) return;
-        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); if (view === 'orders') return loadOrders(orderPage); if (!loaded) return loadCatalog(catalogPage); return calculate(); }
+        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); if (view === 'orders') return loadOrders(); if (!loaded) return loadCatalog(catalogPage); return calculate(); }
         if (locked()) return;
+        if (control.hasAttribute('data-phone-batch-finish')) return finishBatch();
         if (control.hasAttribute('data-phone-save')) return save();
         if (control.hasAttribute('data-phone-lookup') || control.hasAttribute('data-phone-next-number')) return nextNumber();
-        if(control.hasAttribute('data-phone-clear-company')){boot.company_filter=0;control.hidden=true;return loadOrders(1);}
+        if(control.hasAttribute('data-phone-clear-company')){boot.company_filter=0;control.hidden=true;selectedOrders.clear();boardPages={preparing:1,courier:1,finished:1};return loadOrders();}
         if (control.hasAttribute('data-phone-next-details')) return nextDetails();
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
@@ -422,9 +480,7 @@
         if (control.dataset.phoneRemove !== undefined) { if (editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
-        if (control.dataset.phoneOrdersPage) return loadOrders(orderPage + (control.dataset.phoneOrdersPage === 'next' ? 1 : -1));
-        if (control.dataset.phoneStage) { orderStage = control.dataset.phoneStage; root.querySelectorAll('[data-phone-stage]').forEach(function (tab) { var selected = tab.dataset.phoneStage === orderStage; tab.classList.toggle('is-active', selected); tab.setAttribute('aria-pressed', String(selected)); }); return loadOrders(1); }
-        if (control.hasAttribute('data-phone-refresh')) return loadOrders(orderPage);
+        if (control.hasAttribute('data-phone-refresh')) return loadOrders();
         if (control.dataset.phoneMode) { mode = control.dataset.phoneMode; root.querySelectorAll('[data-phone-mode]').forEach(function (tab) { tab.setAttribute('aria-pressed', String(tab.dataset.phoneMode === mode)); }); root.querySelector('[data-phone-quantity]').value = mode === 'piece' ? '1' : '1.000'; }
     });
     listen(root, 'change', function (event) {
@@ -456,6 +512,6 @@
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     receiverTimer = setTimeout(pollReceiver, 1000);
-    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(orderPage, true); } });
+    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
 }());

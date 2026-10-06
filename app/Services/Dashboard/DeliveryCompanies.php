@@ -15,7 +15,10 @@ class DeliveryCompanies
         if(isset($v['active']))$q->where('active',$v['active']);if(!empty($v['search']))$q->where('name','like','%'.trim($v['search']).'%');
         $count=(clone $q)->count();$last=max(1,(int)ceil($count/50));$page=min($last,(int)($v['page']??1));
         $items=$q->orderByDesc('active')->orderBy('name')->offset(($page-1)*50)->limit(50)->get();
-        $counts=DB::table('pos_service_tickets')->whereIn('branch',array_column($branches,'value'))->whereIn('delivery_company_id',$items->pluck('id'))->where('status','!=','cancelled')->selectRaw("delivery_company_id,COUNT(*) AS orders,SUM(CASE WHEN payment_status='unpaid' THEN 1 ELSE 0 END) AS unpaid")->groupBy('delivery_company_id')->get()->keyBy('delivery_company_id');
+        $orders=DB::table('pos_service_tickets as t')->whereIn('t.branch',array_column($branches,'value'))->where('t.channel','phone')->where('t.status','!=','cancelled');
+        $companyColumn='t.delivery_company_id';
+        if(\Illuminate\Support\Facades\Schema::hasTable('phone_delivery_dispatches')){$orders->leftJoin('phone_delivery_dispatches as d','d.ticket_id','=','t.id');$companyColumn='COALESCE(d.company_id,t.delivery_company_id)';}
+        $counts=$orders->whereIn(DB::raw($companyColumn),$items->pluck('id'))->selectRaw($companyColumn." AS delivery_company_id,COUNT(*) AS orders,SUM(CASE WHEN t.payment_status='unpaid' THEN 1 ELSE 0 END) AS unpaid")->groupBy(DB::raw($companyColumn))->get()->keyBy('delivery_company_id');
         return ['success'=>true,'branches'=>$branches,'items'=>$items->map(function($r)use($counts){$item=(array)$r;$item['active']=(bool)$r->active;$item['orders']=(int)($counts[$r->id]->orders??0);$item['unpaid']=(int)($counts[$r->id]->unpaid??0);return $item;})->all(),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count]];
     }
     public function save(array $values,$actor): array

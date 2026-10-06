@@ -41,6 +41,7 @@ class DashboardBranchExpensesTest extends TestCase
         require_once database_path('migrations/2026_10_04_060000_lock_pos_service_bills.php');(new \LockPosServiceBills)->up();
         require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php');(new \CreatePosBranchPrintJobs)->up();
         require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php');(new \CreateBranchExpenses)->up();
+        require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php');(new \CreateBranchExpensesCategories)->up();
         Storage::fake('local');
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[30,'vendor',null]] as [$id,$type,$owner])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'app_scope'=>$id===30?'go_partner':'fasakhansta','status'=>'accepted','owner_resturant_id'=>$owner]);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Foreign']]);
@@ -50,7 +51,7 @@ class DashboardBranchExpensesTest extends TestCase
         DB::table('wallets')->insert(['amount'=>'100.00']);DB::table('orders')->insert(['status'=>'accepted']);DB::table('order_board_clocks')->insert(['order_id'=>1]);
     }
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
-    private function dropFixtures(): void{foreach(['branch_expense_commands','branch_expenses','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
+    private function dropFixtures(): void{foreach(['branch_expense_categories','branch_expense_commands','branch_expenses','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function service(): BranchExpenses{return app(BranchExpenses::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
@@ -165,4 +166,25 @@ class DashboardBranchExpensesTest extends TestCase
         $this->actingAs($this->actor(),'admin')->get(route('print-settings.test'))->assertOk()->assertSee('data-dashboard-receipt="print-test"',false);
         $this->actingAs($this->actor(20),'admin')->getJson(route('print-settings.test'))->assertForbidden();
     }
+    public function test_only_persisted_owner_adds_categories_and_retry_does_not_duplicate(): void
+    {
+        $categories=app(\App\Services\Dashboard\ExpenseCategories::class);$v=['name'=>'أدوات نظافة','idempotency_key'=>$this->key(981)];
+        foreach([4,10,12,30] as $id){$this->assertFalse($this->service()->permissions($this->actor($id))['can_manage_categories']);$this->denied(fn()=>$categories->save($v,$this->actor($id)),403);}
+        $this->actingAs($this->actor(4),'admin');$this->postJson(route('branch-expenses.categorySave'),$v)->assertForbidden();
+        $this->actingAs($this->actor(1),'admin');$r=$this->postJson(route('branch-expenses.categorySave'),$v)->assertOk()->json();$this->assertFalse($r['replayed']);$this->assertSame('أدوات نظافة',$r['category']['name']);
+        $this->assertTrue($categories->save($v,$this->actor(1))['replayed']);$this->assertSame($r['category'],$categories->save(['name'=>'  أدوات   نظافة  ','idempotency_key'=>$this->key(982)],$this->actor(1))['category']);$this->assertSame(1,DB::table('branch_expense_categories')->count());
+        $this->denied(fn()=>$categories->save(array_replace($v,['name'=>'بند مختلف']),$this->actor(1)),409);$this->invalid(fn()=>$categories->save(['name'=>'   ','idempotency_key'=>$this->key(983)],$this->actor(1)));
+        $stale=$this->actor(1);DB::table('users')->where('id',1)->update(['owner_resturant_id'=>100]);$this->denied(fn()=>$categories->save($v,$stale),403);
+    }
+    public function test_new_categories_are_usable_in_scoped_expenses_filters_prints_and_exports(): void
+    {
+        $r=app(\App\Services\Dashboard\ExpenseCategories::class)->save(['name'=>'أدوات نظافة','idempotency_key'=>$this->key(984)],$this->actor(1));$category=$r['category']['key'];
+        $item=$this->create(985,['category'=>$category]);$this->assertSame('أدوات نظافة',$item['category_name']);
+        $listing=$this->service()->listing(['branch'=>'f:100','category'=>$category],$this->actor());$this->assertCount(1,$listing['items']);$this->assertSame('أدوات نظافة',$listing['categories'][$category]);
+        $this->assertCount(0,$this->service()->listing(['branch'=>'f:101','category'=>$category],$this->actor(11))['items']);
+        $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertOk()->assertSee('أدوات نظافة');$this->get(route('branch-expenses.report',['branch'=>'f:100','category'=>$category]))->assertOk()->assertSee('أدوات نظافة');
+        $export=$this->get(route('branch-expenses.export',['branch'=>'f:100','category'=>$category]))->assertOk();$this->assertStringContainsString('أدوات نظافة',$export->streamedContent());
+        $this->invalid(fn()=>$this->create(986,['category'=>'custom_999999']));
+    }
+
 }

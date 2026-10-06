@@ -3,7 +3,7 @@
     if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
     var root=document.getElementById('home-overview');if(!root)return;
     var boot=JSON.parse(document.getElementById('home-overview-bootstrap').textContent),text=boot.labels,form=root.querySelector('[data-ho-filters]');
-    var data=boot.initial,period=data.filters.period,disposed=false,controller,sequence=0,timer,listeners=[],editing=false,lastLoaded=Date.now();
+    var data=boot.initial,period=data.filters.period,disposed=false,controller,sequence=0,timer,listeners=[],editing=false,lastLoaded=Date.now(),ownerObserver,ownerFrame;
     var colors={app:'#508ef2',takeaway:'#f8b758',phone:'#67c4a1',dine:'#ad8ee6'},icons={app:'mobile-alt',takeaway:'shopping-bag',phone:'motorcycle',dine:'utensils'};
     var numbers=new Intl.NumberFormat(boot.locale==='ar'?'ar-EG-u-nu-latn':'en-GB',{maximumFractionDigits:2});
     function $(name){return root.querySelector('[data-ho-'+name+']');}
@@ -35,7 +35,7 @@
     }
     function svg(tag,attrs){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attrs||{}).forEach(function(k){n.setAttribute(k,attrs[k]);});return n;}
     function chart(){
-        var financial=data.can_view_financials,points=data.trend,values=points.map(function(p){return financial?p.amount_cents/100:p.count;}),max=Math.max(1,...values),w=data.owner_platform?Math.max(360,$('chart').clientWidth-24):660,h=data.owner_platform?230:190,left=48,right=18,top=15,bottom=28;
+        var financial=data.can_view_financials,points=data.trend,values=points.map(function(p){return financial?p.amount_cents/100:p.count;}),max=Math.max(1,...values),w=data.owner_platform?Math.max(360,$('chart').clientWidth-24):660,h=data.owner_platform?Math.max(110,$('chart').clientHeight):190,left=48,right=18,top=15,bottom=28;
         $('trend-title').textContent=financial?text.sales_trend:text.orders_trend;$('trend-caption').textContent=data.filters.from+' — '+data.filters.to;
         $('trend-total').textContent=financial?money(data.sales.gross_cents):fmt(data.completed)+' '+text.order;
         var drawing=svg('svg',{viewBox:'0 0 '+w+' '+h,role:'img','aria-label':(financial?text.sales_trend:text.orders_trend)+' · '+data.filters.from+' — '+data.filters.to});
@@ -74,7 +74,7 @@
         renderRanking();
     }
     function renderRanking(){
-        var ranks=$('ranking'),max=Math.max(1,...data.ranking.map(function(r){return data.can_view_financials?r.amount_cents:r.count;}));ranks.replaceChildren();data.ranking.forEach(function(r,i){var row=el('div',undefined,'ho-rank'),copy=el('div'),track=el('div',undefined,'ho-rank-track'),bar=el('span');copy.append(el('i',i+1),el('span',r.name),el('b',data.can_view_financials?money(r.amount_cents):fmt(r.count)));bar.style.width=Math.max(0,(data.can_view_financials?r.amount_cents:r.count)/max*100)+'%';track.appendChild(bar);row.append(copy,track);ranks.appendChild(row);});
+        var ranks=$('ranking'),max=Math.max(1,...data.ranking.map(function(r){return data.can_view_financials?r.amount_cents:r.count;}));ranks.replaceChildren();data.ranking.forEach(function(r,i){var row=el('div',undefined,'ho-rank'),copy=el('div'),track=el('div',undefined,'ho-rank-track'),bar=el('span');copy.append(el('i',r.sales_rank||i+1),el('span',r.name),el('b',data.can_view_financials?money(r.amount_cents):fmt(r.count)));bar.style.width=Math.max(0,(data.can_view_financials?r.amount_cents:r.count)/max*100)+'%';track.appendChild(bar);row.append(copy,track);ranks.appendChild(row);});
     }
 
     function amount(value,ready){return ready?money(value):'—';}
@@ -86,40 +86,46 @@
         var pending=card(text.pending_join,fmt(p.pending_total),'',p.pending_total===null?text.unavailable:text.pending_stores+': '+fmt(p.pending_stores)+' · '+text.pending_people+': '+fmt(p.pending_partners),'user-clock','orange');pending.dataset.hoMetric='pending_total';n.appendChild(pending);
         var salesReady=data.modules.pos&&data.modules.app;
         $('drawer-total').textContent=amount(data.owner_drawer.total_cents,data.owner_drawer.ready);
-        $('sales-total').textContent=amount(data.sales.gross_cents,salesReady);
         $('expenses-total').textContent=amount(data.sales.expenses_cents,data.modules.expenses);
         var drawers=$('drawers'),expenses=$('branch-expenses'),rows=$('branch-sales');drawers.replaceChildren();expenses.replaceChildren();rows.replaceChildren();
+        function branchName(b){var name=el('span',b.name,'ho-row-name');name.title=b.name;return name;}
         data.branch_cards.forEach(function(b){
-            var cash=data.owner_drawer.branches[b.value],drawer=el('article',undefined,'ho-mini-branch');drawer.dataset.hoBranch=b.value;
-            drawer.append(el('h3',b.name),el('strong',amount(cash?cash.expected_cents:null,data.owner_drawer.ready&&!!cash)));drawers.appendChild(drawer);
-            var expense=el('article',undefined,'ho-mini-branch ho-mini-expense');expense.dataset.hoBranch=b.value;expense.append(el('h3',b.name),el('strong',amount(b.sales.expenses_cents,data.modules.expenses)));expenses.appendChild(expense);
-            var tr=el('tr');tr.dataset.hoBranch=b.value;var name=el('th',b.name);name.scope='row';tr.appendChild(name);
-            ['takeaway','dine','phone','app'].forEach(function(c){var td=el('td'),entry=b.sales.channels[c],ready=c==='app'?data.modules.app:data.modules.pos;td.dataset.hoChannel=c;td.append(el('strong',amount(entry.gross_cents,ready)),el('small',ready?fmt(entry.count)+' '+text.order:text.unavailable));tr.appendChild(td);});
-            var total=el('td',undefined,'ho-cell-total');total.append(el('strong',amount(b.sales.gross_cents,salesReady)),el('small',salesReady?fmt(b.sales.count)+' '+text.order:text.unavailable));tr.appendChild(total);rows.appendChild(tr);
+            var cash=data.owner_drawer.branches[b.value],drawer=el('article',undefined,'ho-owner-row');drawer.dataset.hoBranch=b.value;
+            drawer.append(branchName(b),el('strong',data.owner_drawer.ready&&cash?decimal(cash.expected_cents):'—'));drawers.appendChild(drawer);
+            var expense=el('article',undefined,'ho-owner-row');expense.dataset.hoBranch=b.value;expense.append(branchName(b),el('strong',data.modules.expenses?decimal(b.sales.expenses_cents):'—'));expenses.appendChild(expense);
+            var row=el('article',undefined,'ho-owner-row ho-sales-line');row.dataset.hoBranch=b.value;row.appendChild(branchName(b));
+            ['takeaway','dine','phone','app'].forEach(function(c){var entry=b.sales.channels[c],ready=c==='app'?data.modules.app:data.modules.pos,cell=el('span',ready?decimal(entry.gross_cents):'—');cell.dataset.hoChannel=c;cell.title=text[c]+': '+amount(entry.gross_cents,ready)+' · '+fmt(entry.count)+' '+text.order;row.appendChild(cell);});
+            row.appendChild(el('strong',salesReady?decimal(b.sales.gross_cents):'—'));rows.appendChild(row);
         });
-        var totalRow=el('tr'),label=el('th',text.total);label.scope='row';totalRow.appendChild(label);['takeaway','dine','phone','app'].forEach(function(c){totalRow.appendChild(el('td',amount(data.sales.channels[c].gross_cents,c==='app'?data.modules.app:data.modules.pos)));});totalRow.appendChild(el('td',amount(data.sales.gross_cents,salesReady)));$('sales-footer').replaceChildren(totalRow);
-        if(!data.branch_cards.length){drawers.appendChild(el('p',text.no_branches,'ho-empty'));expenses.appendChild(el('p',text.no_branches,'ho-empty'));}
+        var footer=$('sales-footer');footer.replaceChildren(el('span',text.total));['takeaway','dine','phone','app'].forEach(function(c){footer.appendChild(el('strong',(c==='app'?data.modules.app:data.modules.pos)?decimal(data.sales.channels[c].gross_cents):'—'));});footer.appendChild(el('strong',salesReady?decimal(data.sales.gross_cents):'—'));
+        if(!data.branch_cards.length)[drawers,expenses,rows].forEach(function(list){list.appendChild(el('p',text.no_branches,'ho-empty'));});
     }
     function renderOwnerStock(){
-        var head=el('tr'),label=el('th',text.ingredient);label.scope='col';head.appendChild(label);
-        data.branch_cards.forEach(function(b){var th=el('th',b.name);th.scope='col';th.dataset.hoBranch=b.value;head.appendChild(th);});$('stock-head').replaceChildren(head);
-        var search=$('stock-search').value.trim().toLocaleLowerCase(),items=data.inventory.items.filter(function(i){return i.name.toLocaleLowerCase().includes(search);}),n=$('stock');n.replaceChildren();
-        items.forEach(function(i){var row=el('tr'),name=el('th'),unit=text[i.unit==='kg'?'kg':'unit'];name.scope='row';name.append(el('strong',i.name),el('small',unit));row.appendChild(name);
-            data.branch_cards.forEach(function(b){var balance=i.balances[b.value],td=el('td');td.dataset.hoBranch=b.value;
-                if(balance===null||balance===undefined){td.appendChild(el('span',text.untracked,'ho-stock-unknown'));}
-                else {td.appendChild(el('strong',fmt(Number(balance.quantity))+' '+unit));if(balance.quantity_units<0){td.className='ho-stock-warning';td.appendChild(el('small',text.negative));}else if(balance.quantity_units===0)td.appendChild(el('small',text.zero_stock));}
-                row.appendChild(td);
-            });n.appendChild(row);
+        var select=$('stock-ingredient'),selected=select.value,n=$('stock');select.replaceChildren();
+        data.inventory.items.forEach(function(item){var option=el('option',item.name+' · '+text[item.unit==='kg'?'kg':'unit']);option.value=String(item.id);select.appendChild(option);});
+        if(data.inventory.items.some(function(i){return String(i.id)===selected;}))select.value=selected;
+        var item=data.inventory.items.find(function(i){return String(i.id)===select.value;});n.replaceChildren();
+        if(item)data.branch_cards.forEach(function(b){var balance=item.balances[b.value],row=el('article',undefined,'ho-owner-row'),name=el('span',b.name,'ho-row-name');name.title=b.name;row.dataset.hoBranch=b.value;
+            var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,balance&&balance.quantity_units<0?'ho-stock-warning':'');row.append(name,qty);n.appendChild(row);
         });
-        if(!items.length){var tr=el('tr'),td=el('td',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty');td.colSpan=data.branch_cards.length+1;tr.appendChild(td);n.appendChild(tr);}
-        $('stock-count').textContent=fmt(items.length)+' / '+fmt(data.inventory.items.length);routeLink($('stock-link'),data.filters.branch);
+        else n.appendChild(el('p',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty'));
+        routeLink($('stock-link'),data.filters.branch);
     }
+    function sizeOwner(){
+        if(!data.owner_platform||disposed)return;
+        var wrapper=root.closest('.ho-wrapper'),desktop=window.matchMedia('(min-width:1100px) and (min-height:700px)').matches;
+        if(desktop){var footer=document.querySelector('.main-footer'),available=window.innerHeight-wrapper.getBoundingClientRect().top-(footer?footer.getBoundingClientRect().height:0);wrapper.style.setProperty('--ho-height',Math.max(520,available)+'px');}
+        else wrapper.style.removeProperty('--ho-height');
+        root.querySelectorAll('.ho-owner-list').forEach(function(list){if(list.clientHeight)list.style.setProperty('--ho-row-height',(list.clientHeight/10)+'px');});
+        chart();
+    }
+    function queueOwnerSize(){if(!data.owner_platform||disposed)return;cancelAnimationFrame(ownerFrame);ownerFrame=requestAnimationFrame(sizeOwner);}
 
     function renderSummary(){var n=$('summary');n.hidden=!data.can_view_financials;n.replaceChildren();if(!data.can_view_financials)return;var s=data.sales;[['gross',s.gross_cents,'coins','blue'],['delivery',s.delivery_cents,'motorcycle','orange'],['approved_expenses',s.expenses_cents,'file-invoice-dollar','red'],['net',s.net_cents,'chart-line','green']].forEach(function(a){var box=el('div'),copy=el('div');copy.append(el('span',text[a[0]]),el('strong',money(a[1])));box.append(icon(a[2],'ho-icon ho-'+a[3]),copy);n.appendChild(box);});}
     function render(){
         $('updated').textContent=text.updated+' '+new Date(data.updated_at).toLocaleTimeString(boot.locale==='ar'?'ar-EG':'en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Cairo'});$('range').textContent=scopeLabel()+' · '+data.filters.from+' — '+data.filters.to;
         $('empty').hidden=!!data.selected_branches;$('content').hidden=!data.selected_branches&&!data.owner_platform;$('drawer-note').hidden=!data.owner_drawer;$('legacy').hidden=!(data.modules.app&&data.can_view_financials);
-        if(data.owner_platform){renderOwner();chart();renderStock();renderRanking();}
+        if(data.owner_platform){renderOwner();chart();renderStock();renderRanking();queueOwnerSize();}
         else {renderKpis();chart();renderLive();renderStock();renderAlerts();renderRecent();renderApp();renderBranches();renderSummary();}
         if(!data.can_view_financials)note(text.cashier_note);
     }
@@ -136,11 +142,12 @@
     }
     form.elements.branch.value=data.filters.branch;form.elements.from.value=data.filters.from;form.elements.to.value=data.filters.to;var today=new Date().toLocaleDateString('en-CA',{timeZone:'Africa/Cairo'});form.elements.from.max=today;form.elements.to.max=today;
     root.querySelectorAll('[data-ho-period]').forEach(function(b){on(b,'click',function(){period=b.dataset.hoPeriod;periodButtons();if(period==='custom'){editing=true;if(controller)controller.abort();sequence++;$('refresh').disabled=false;root.removeAttribute('aria-busy');}else refresh(true);});});
-    on(form,'submit',function(event){event.preventDefault();if(form.reportValidity())refresh(true);});on(form.elements.branch,'change',function(){refresh(true);});on(form.elements.from,'input',editDates);on(form.elements.to,'input',editDates);on($('refresh'),'click',function(){if(form.reportValidity())refresh(false);});on($('stock-search'),'input',renderStock);
+    on(form,'submit',function(event){event.preventDefault();if(form.reportValidity())refresh(true);});on(form.elements.branch,'change',function(){refresh(true);});on(form.elements.from,'input',editDates);on(form.elements.to,'input',editDates);on($('refresh'),'click',function(){if(form.reportValidity())refresh(false);});on($('stock-search'),'input',renderStock);on($('stock-ingredient'),'change',renderStock);
     function editDates(){editing=true;if(controller){controller.abort();controller=null;sequence++;$('refresh').disabled=false;root.removeAttribute('aria-busy');}}
     ['prev','next'].forEach(function(direction){on($('branch-'+direction),'click',function(){var list=$('branches'),sign=(root.dir==='rtl'?-1:1)*(direction==='next'?1:-1);list.scrollBy({left:sign*(list.clientWidth-24),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});});
     function automatic(){if(!disposed&&!document.hidden&&!editing&&!controller&&Date.now()-lastLoaded>45000)refresh(false);}
     on(document,'visibilitychange',automatic);on(window,'focus',automatic);timer=setInterval(automatic,60000);
-    if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){disposed=true;sequence++;if(controller)controller.abort();clearInterval(timer);listeners.forEach(function(off){off();});});
+    if(data.owner_platform){on(window,'resize',queueOwnerSize);ownerObserver=new ResizeObserver(queueOwnerSize);root.querySelectorAll('.ho-owner-list,[data-ho-chart]').forEach(function(n){ownerObserver.observe(n);});}
+    if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){disposed=true;sequence++;if(controller)controller.abort();clearInterval(timer);if(ownerObserver)ownerObserver.disconnect();cancelAnimationFrame(ownerFrame);listeners.forEach(function(off){off();});});
     periodButtons();render();
 }());

@@ -162,4 +162,13 @@ class DashboardHomeOverviewTest extends TestCase
         $this->getJson('/admin/dashboard/overview?branch=f:101')->assertNotFound();
         $this->actingAs($this->actor(20),'admin');$this->getJson('/admin/dashboard/overview')->assertForbidden();
     }
+    public function test_branches_precede_stores_in_every_owner_list_while_sales_rank_remains_truthful(): void
+    {
+        DB::table('resturants')->where('id',100)->update(['name'=>'المنصورة ستور']);DB::table('resturants')->where('id',101)->update(['name'=>'فرع شبرا']);DB::table('resturants')->where('id',102)->update(['name'=>'Cairo Store']);
+        $this->sale(90,'f:100','takeaway',50000);$this->sale(91,'f:101','takeaway',10000);$this->sale(92,'f:102','takeaway',30000);
+        $r=$this->overview();$this->assertSame(['f:101','f:100','f:102'],array_column($r['branches'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_column($r['branch_cards'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_keys($r['owner_drawer']['branches']));
+        $this->assertSame(['f:101','f:100','f:102'],array_column($r['ranking'],'branch'));$this->assertSame([3,1,2],array_column($r['ranking'],'sales_rank'));$this->assertSame('store',$r['branch_cards'][1]['display_group']);
+        $this->assertSame(['f:100'],array_column($this->overview(['branch'=>'f:100'])['branch_cards'],'value'));
+    }
+
 }

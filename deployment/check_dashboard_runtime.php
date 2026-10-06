@@ -42,11 +42,15 @@ $serviceSchema = [
     'branch_operation_commands'=>['branch','actor_id','request_key','request_hash','result'],
     'branch_customers'=>['branch','phone_key','latitude','longitude','revision'],
     'branch_delivery_companies'=>['branch','name','active','revision'],
-    'branch_employees'=>['branch','hired_on','left_on','revision'],
+    'branch_employees'=>['branch','hired_on','left_on','revision','wallet_phone'],
+    'phone_delivery_dispatches'=>['ticket_id','branch','company_id','company_snapshot'],
+    'phone_delivery_batches'=>['branch','actor_id','request_key','snapshot','total_cents'],
+    'phone_delivery_batch_items'=>['batch_id','ticket_id','order_id','total_cents'],
     'branch_employee_salaries'=>['employee_id','effective_month','amount_cents'],
     'branch_employee_days'=>['employee_id','day','status','revision'],
     'branch_employee_entries'=>['employee_id','day','kind','amount_cents','voided_at'],
     'branch_payrolls'=>['employee_id','month','net_cents','snapshot','status','paid_at'],
+    'branch_expense_categories'=>['name','name_hash','created_by','request_key'],
     'branch_expenses'=>['branch','amount_cents','status','revision','attachment_path'],
     'branch_expense_commands'=>['branch','actor_id','request_key','request_hash','expense_id','snapshot'],
     'pos_branch_print_jobs'=>['branch','ticket_id','kitchen_id','status','claim_token','claimed_by'],
@@ -63,7 +67,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['admin_dash','dashboard.overview','branch-stock.recipes','branch-stock.recipe-save','branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['admin_dash','dashboard.overview','branch-stock.recipes','branch-stock.recipe-save','branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.board','phone-orders.dispatch-company','phone-orders.finish-batch','phone-orders.batch-print','employees.wallet','employees.daily-notes','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.categorySave','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);

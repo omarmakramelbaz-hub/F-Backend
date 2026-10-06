@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
 @endpush
 @section('content')
-<div class="content-wrapper ho-wrapper">
+<div class="content-wrapper ho-wrapper{{ isset($boot['initial']['owner_platform'])?' ho-compact':'' }}">
 <section id="home-overview" dir="{{ app()->getLocale()==='ar'?'rtl':'ltr' }}" aria-labelledby="ho-title">
     <header class="ho-heading">
         <div><span class="ho-eyebrow">{{ __('home_overview.eyebrow') }}</span><h1 id="ho-title">{{ __('home_overview.title') }}</h1><p>{{ __('home_overview.subtitle') }}</p></div>

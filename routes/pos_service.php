@@ -31,6 +31,10 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
     Route::get('admin/phone-orders/delivery-settings',[PhoneOrdersController::class,'deliverySettings'])->name('phone-orders.delivery-settings');
     Route::post('admin/phone-orders/delivery-quote',[PhoneOrdersController::class,'deliveryQuote'])->name('phone-orders.delivery-quote');
     Route::get('admin/phone-orders/customers', [PhoneOrdersController::class, 'customers'])->name('phone-orders.customers');
+    Route::get('admin/phone-orders/board', [PhoneOrdersController::class, 'board'])->name('phone-orders.board');
+    Route::post('admin/phone-orders/dispatch-company', [PhoneOrdersController::class, 'dispatchCompany'])->name('phone-orders.dispatch-company');
+    Route::post('admin/phone-orders/finish-batch', [PhoneOrdersController::class, 'finishBatch'])->name('phone-orders.finish-batch');
+    Route::get('admin/phone-orders/batches/{id}/print', [PhoneOrdersController::class, 'batchPrint'])->whereNumber('id')->name('phone-orders.batch-print');
     Route::get('admin/phone-orders/print-jobs', [PhoneOrdersController::class, 'printJobs'])->name('phone-orders.print-jobs');
     Route::post('admin/phone-orders/print-jobs/claim', [PhoneOrdersController::class, 'printClaim'])->name('phone-orders.print-claim');
     Route::post('admin/phone-orders/print-jobs/complete', [PhoneOrdersController::class, 'printComplete'])->name('phone-orders.print-complete');

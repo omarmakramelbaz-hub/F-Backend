@@ -19,12 +19,12 @@ class BranchExpenses
     public function permissions($actor): array
     {
         $actor=$this->access->actor($actor);$write=$this->access->permissions($actor)['can_checkout'];
-        return ['can_create'=>$write,'can_approve'=>$write&&(($actor->account_type==='admin'&&empty($actor->owner_resturant_id))||$actor->account_type==='resturant_owner')];
+        return ['can_manage_categories'=>app(ExpenseCategories::class)->canCreate($actor),'can_create'=>$write,'can_approve'=>$write&&(($actor->account_type==='admin'&&empty($actor->owner_resturant_id))||$actor->account_type==='resturant_owner')];
     }
     public function ready(): void {abort_unless(Schema::hasTable('branch_expenses')&&Schema::hasTable('branch_expense_commands')&&$this->access->ready(),503,'صفحة المصروفات تحتاج تحديث قاعدة البيانات.');}
     public function filters(array $values): array
     {
-        $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>['nullable',Rule::in(self::CATEGORIES)],'status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
+        $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>['nullable',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
         $v['from']=$v['from']??now('Africa/Cairo')->startOfMonth()->toDateString();$v['to']=$v['to']??now('Africa/Cairo')->toDateString();
         abort_if($v['to']<$v['from'],422,'راجع الفترة المطلوبة.');return $v;
     }
@@ -53,10 +53,10 @@ class BranchExpenses
         $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']))+1;
         $top=(clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderByDesc('amount')->first();
         $names=DB::table('users')->whereIn('id',$rows->pluck('actor_id')->merge($rows->pluck('reviewer_id'))->filter()->unique())->pluck('name','id');
-        $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);
-        $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve']))->all();
+        $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);$categories=app(ExpenseCategories::class)->options();
+        $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$categories))->all();
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
-        return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
+        return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,'categories'=>$categories,
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
             'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]];
     }
@@ -64,7 +64,7 @@ class BranchExpenses
     {
         $this->ready();$row=DB::table('branch_expenses')->where('id',$id)->first();abort_unless($row,404);$branch=$this->access->branch($row->branch,$actor);
         $names=DB::table('users')->whereIn('id',array_filter([$row->actor_id,$row->reviewer_id]))->pluck('name','id');
-        $item=$this->present($row,$actor,$names[$row->actor_id]??'',$names[$row->reviewer_id]??'',$branch['name'],$this->permissions($actor)['can_approve']);
+        $item=$this->present($row,$actor,$names[$row->actor_id]??'',$names[$row->reviewer_id]??'',$branch['name'],$this->permissions($actor)['can_approve'],app(ExpenseCategories::class)->options());
         $item['history']=DB::table('branch_expense_commands')->where('expense_id',$id)->orderBy('id')->get(['kind','actor_id','revision','snapshot','created_at'])->map(function($r){$r->snapshot=json_decode($r->snapshot,true);unset($r->snapshot['attachment_path'],$r->snapshot['attachment_hash'],$r->snapshot['attachment_mime']);return $r;})->all();
         return ['success'=>true,'expense'=>$item];
     }
@@ -76,7 +76,7 @@ class BranchExpenses
     private function commandRules(): array {return ['branch'=>['required','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid','expected_revision'=>'nullable|integer|min:1'];}
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
-        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(self::CATEGORIES)],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
+        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
         if($v['description']==='')throw ValidationException::withMessages(['description'=>'اكتب بيان المصروف.']);
         try{$amount=Money::minor($v['amount']);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages(['amount'=>'القيمة غير صالحة.']);}
@@ -137,10 +137,11 @@ class BranchExpenses
         $row=DB::table('branch_expenses')->where('id',$id)->first();
         DB::table('branch_expense_commands')->insert(['branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'expense_id'=>$id,'kind'=>$kind,'revision'=>$row->revision,'snapshot'=>json_encode($row,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
-    private function present(object $row,$actor,string $name,string $reviewer,string $branchName,bool $canApprove): array
+    private function present(object $row,$actor,string $name,string $reviewer,string $branchName,bool $canApprove,array $categories): array
     {
         $result=(array)$row;unset($result['attachment_path'],$result['attachment_hash'],$result['attachment_mime']);$result['id']=(int)$row->id;$result['revision']=(int)$row->revision;$result['actor_id']=(int)$row->actor_id;
         $result['number']='EXP-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT);$result['amount']=Money::decimal((int)$row->amount_cents);$result['actor_name']=$name;$result['reviewer_name']=$reviewer;$result['branch_name']=$branchName;
+        $result['category_name']=$categories[$row->category]??$row->category;
         $result['can_edit']=$row->status==='pending'&&((int)$row->actor_id===(int)$actor->id||$canApprove);
         $result['attachment_url']=$row->attachment_path?route('branch-expenses.attachment',['id'=>$row->id]):null;
         $result['print_url']=route('branch-expenses.print',['id'=>$row->id]);return $result;

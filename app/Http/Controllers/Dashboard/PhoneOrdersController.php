@@ -12,4 +12,8 @@ class PhoneOrdersController extends PosServiceController
     public function deliveryQuote(Request $request,\App\Services\Dashboard\PhoneDelivery $delivery){return response()->json($delivery->quote($request->all(),auth('admin')->user()));}
     public function addressSuggestions(Request $request,\App\Services\Dashboard\PhoneMapProvider $maps){return response()->json($maps->suggestions($request->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function customers(Request $request,PosServicePhone $phone){return response()->json($phone->customers($request->all(),auth('admin')->user()));}
+    public function board(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->listing($request->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
+    public function dispatchCompany(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->dispatch($request->all(),auth('admin')->user()));}
+    public function finishBatch(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->finish($request->all(),auth('admin')->user()));}
+    public function batchPrint(int $id,\App\Services\Dashboard\PhoneDeliveryBoard $board){return view('admin.phone_orders.batch_receipt',['batch'=>$board->receipt($id,auth('admin')->user())]);}
 }

@@ -3,6 +3,7 @@ use App\Http\Controllers\Dashboard\BranchExpensesController;
 use Illuminate\Support\Facades\Route;
 Route::middleware(['lang','IsAdmin'])->prefix('admin/branch-expenses')->name('branch-expenses.')->group(function(){
     foreach(['index'=>'/','data'=>'data','recover'=>'recover','export'=>'export','report'=>'report'] as $action=>$path)Route::get($path,[BranchExpensesController::class,$action])->name($action);
+    Route::post('categories',[BranchExpensesController::class,'categorySave'])->name('categorySave');
     Route::post('save',[BranchExpensesController::class,'save'])->name('save');
     Route::get('{id}',[BranchExpensesController::class,'show'])->whereNumber('id')->name('show');
     Route::post('{id}/review',[BranchExpensesController::class,'review'])->whereNumber('id')->name('review');
