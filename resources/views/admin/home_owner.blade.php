@@ -10,7 +10,7 @@
         </section>
         <section class="ho-owner-column ho-owner-stock" aria-labelledby="ho-stock-title">
             <header><h2 id="ho-stock-title"><i class="fas fa-boxes" aria-hidden="true"></i> {{ __('home_overview.compact_stock') }}</h2><a data-ho-stock-link href="{{ route('branch-stock.index') }}">{{ __('home_overview.view_all') }}</a></header>
-            <label class="ho-stock-select"><span class="sr-only">{{ __('home_overview.ingredient') }}</span><select data-ho-stock-ingredient></select></label>
+            <label class="ho-stock-select"><span class="sr-only">{{ __('home_overview.branch') }}</span><select data-ho-stock-branch></select></label>
             <div class="ho-owner-list" data-ho-stock tabindex="0" role="region" aria-label="{{ __('home_overview.compact_stock') }}"></div>
             <div class="ho-list-totals ho-caption">{{ __('home_overview.current_balance') }}</div>
         </section>

@@ -98,6 +98,8 @@ php -l app/Services/Dashboard/TakeawayCatalog.php
 php -l app/Services/Dashboard/TakeawayService.php
 php -l app/Services/Dashboard/OrderProviderDelivery.php
 php -l app/Services/Dashboard/DashboardPushSender.php
+php -l app/Services/Dashboard/DashboardPushCampaigns.php
+php -l app/Console/Commands/DispatchDashboardPush.php
 php -l app/Http/Traits/FcmFirebase.php
 php artisan migrate --force --path=database/migrations/2026_10_03_060000_create_order_board_clocks.php
 php artisan migrate --force --path=database/migrations/2026_10_03_140000_create_takeaway_pos.php
@@ -109,6 +111,7 @@ php artisan migrate --force --path=database/migrations/2026_10_04_060000_lock_po
 php artisan migrate --force --path=database/migrations/2026_10_04_080000_create_branch_operations.php
 php artisan migrate --force --path=database/migrations/2026_10_06_130000_create_phone_delivery_batches.php
 php artisan migrate --force --path=database/migrations/2026_10_06_140000_add_employee_wallet_phone.php
+php artisan migrate --force --path=database/migrations/2026_10_06_160000_create_dashboard_push_campaigns.php
 php artisan migrate --force --path=database/migrations/2026_10_04_190000_create_branch_stock.php
 php artisan migrate --force --path=database/migrations/2026_10_04_210000_create_branch_inventory_recipes.php
 php artisan migrate --force --path=database/migrations/2026_10_04_100000_create_branch_shift_closings.php
@@ -133,6 +136,7 @@ test -s public/dashboard/css/branch-shifts.css
 test -s public/dashboard/js/branch-stock.js
 test -s public/dashboard/js/branch-recipes.js
 test -s public/dashboard/js/home-overview.js
+test -s public/dashboard/js/dashboard-push.js
 test -s public/dashboard/css/home-overview.css
 test -s public/dashboard/css/branch-stock.css
 test -s public/dashboard/js/branch-operations.js

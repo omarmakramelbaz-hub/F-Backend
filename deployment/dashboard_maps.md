@@ -1,53 +1,39 @@
-# Dashboard maps and automatic address lookup
+# Delivery addresses and dashboard maps — October 6
 
-The branch location form, delivery-area maps, and restaurant/delegate directories now use locally bundled Leaflet with OpenStreetMap tiles, so selecting and saving a pin does not depend on Google billing. The phone order map uses Google for automatic address lookup when authorized, and falls back to OpenStreetMap pin selection after a load/authorization failure. Fallback never fabricates an address or automatically confirms a suggested location.
+The delivery address field now always uses Google Places API (New) Autocomplete Data on a Google map. The former `PHONE_OPEN_MAPS_ENABLED` switch no longer replaces address search with Photon. It continues to control **server-side OSRM road routing/pricing**; keep it enabled on the approved installation for road distance × the restaurant’s saved kilometre price.
 
-`MAP_TILE_URL` can replace the default OpenStreetMap-compatible tile endpoint. Attribution stays visible; browser caching and referrers are preserved, and there is no offline prefetch. Public tile availability is best effort: https://operations.osmfoundation.org/policies/tiles/.
+Typing two characters starts a search after a 250 ms pause. Suggestions are restricted to Egypt with a 30 km location bias around the chosen branch, rather than a hard city boundary. Only the typed address is searched. Selecting a result with mouse/arrows + Enter fetches its location and formatted address together, updates the customer pin, and previews the road and fee. The employee must confirm the pin before saving. Editing the address, changing branch/customer, moving the pin, or leaving the page invalidates obsolete results and fee confirmations. No first result is selected silently.
 
-The dashboard reads `services.maps.browser_key` through Laravel configuration, including when `config:cache` is enabled. `MAP_BROWSER_KEY` may hold a dedicated browser key; when unset it falls back to the existing `MAP_KEY`. Keep existing server-side/app keys unchanged.
+Google session tokens are shared by suggestions and the selected place details, then renewed. Google result lists are not cached; this also prevents expired prediction IDs from breaking selection after editing back to an earlier query. The compact list identifies Google Maps and the map retains Google attribution. Saved confirmation does not trust browser-provided fees or route geometry: the server recalculates against branch settings.
 
-A dark map marked “For development purposes only” does not identify one exact cause. On the affected branch device open Chrome DevTools → Console and record the `Google Maps JavaScript API error: ...` code. Do not send the complete script URL or key.
+## Google Cloud setup
 
-In the Google Cloud project owning the browser key:
+The browser key is `MAP_BROWSER_KEY`, falling back to the existing `MAP_KEY`, read through Laravel configuration. In the project owning that key:
 
-- Enable Maps JavaScript API and Geocoding API.
-- Check the project's active billing account.
-- Use website (HTTP referrer) restrictions allowing `https://fasakhaninja.com/*` and, if used, `https://www.fasakhaninja.com/*`. Keep API restrictions limited to the APIs this key needs.
-- `MissingKeyMapError` / `InvalidKeyMapError`: check the configured browser key. `RefererNotAllowedMapError`: correct the website restriction. `ApiNotActivatedMapError`: enable the API. `BillingNotEnabledMapError`: resolve billing in the owning project.
+- Enable **Maps JavaScript API** and **Places API (New)**; keep Geocoding API enabled if used elsewhere.
+- Enable billing and restrict the browser key to the APIs it needs and the website referrers `https://fasakhaninja.com/*` and, if used, `https://www.fasakhaninja.com/*`.
+- Check the browser console’s error **code**, without copying the full script URL/key. Missing/invalid key, rejected referrer, disabled API and billing errors require their corresponding Cloud setting to be fixed.
 
-After updating an environment value, regenerate configuration **only if the site already uses configuration caching**; otherwise clear the existing configuration cache. The pinned deployment installer preserves the site's cache mode automatically. Reload the restaurant form and verify that a map click updates both displayed and submitted coordinates and that save/reopen preserves them. The map form also supports saving explicit coordinates through Search when map tiles cannot load; it does not silently replace a saved location after an authorization failure.
+The installer preserves configuration-cache mode. After changing environment values, rebuild a cache only if the installation already uses it; otherwise clear the cache. Reload the delivery form after updates.
 
-Reference: https://developers.google.com/maps/documentation/javascript/error-messages
+Google failure presents an explicit setup message. The bundled Leaflet map remains available for manual pin selection; Google-derived results are not silently displayed on a non-Google map. A failed road request leaves the quote unconfirmed and never substitutes a guessed distance. Restaurant/location directory maps retain their local Leaflet integration and SPA stylesheet handling.
 
-Google Cloud activation, key restrictions, billing, and live map rendering require the production account/device. Code validation cannot establish that they are correctly configured.
+## Approved route provider
 
-Phone delivery fees are computed server-side from the rounded distance in metres between the saved restaurant pin and confirmed customer pin, multiplied by `resturants.km_price`, then rounded to EGP cents. This is straight-line pin distance, not road routing. The quote is checked again on save. A changed pin/rate requires confirmation again; no manually entered fee is trusted.
+The owner approved disclosure of addresses/coordinates to Photon and OSRM on October 4 and explicitly requested Google address search on October 6. Address suggestions now go to Google, and confirmed branch/customer coordinates go to the configured OSRM endpoint. Names, phone numbers and order contents are not included. `PHONE_OSRM_URL` defaults to `https://routing.openstreetmap.de/routed-car`; approved deployments may use a compatible managed service. Public service availability is best effort.
 
-October 4 delivery follow-up: a successful address lookup now moves the customer marker and fits both the branch and customer into view. An orange straight line joins them, and the server automatically previews pin-distance × configured km price. The operator still confirms the customer pin before saving customer details/creating the order. Editing the address clears the old coordinates, line, fee and confirmation. Late geocoding responses cannot override a newer address or manual selection.
+The route provider retains bounded requests, validation, short locks, per-provider throttling and a 30-minute route cache. Route distance is rounded to metres and multiplied by the saved price with integer-cent rounding. The legacy Photon endpoint remains for compatibility but is not used by the delivery field.
 
-Authorization handling is installed even when a preceding SPA page already loaded Google. `REQUEST_DENIED`, `gm_authFailure`, and Google's development-watermark/error DOM switch to the bundled Leaflet map. This restores **manual** pin selection and automatic distance/fee calculation; it does not activate Google's address search. `ZERO_RESULTS` is distinct from key/billing rejection. Live Google authentication and live tiles must still be checked on the production branch device. The browser tests simulate provider replies, including out-of-order responses and authorization rejection; local PHP quotes and order saves run against the real controllers.
+`deployment/enable_phone_maps.sh` is retained for the already-approved OSRM setup; its historical preflight also tests Photon. It does not activate Google Cloud APIs, billing or browser-key permissions. `deployment/check_dashboard_runtime.php` reports browser-key presence, not live Google authorization.
 
+## Verification
 
-## Address suggestions and optional road routing (October 4 evening)
+Browser fixtures exercise Google suggestions, mouse/keyboard selection, repeated queries, obsolete responses, pin/route/fee updates, explicit confirmation, actual local order saving and auth-failure fallback. Provider responses are synthetic and external network calls are blocked. Live address relevance and Firebase/Google credentials cannot be established without the production account/device.
 
-Typing two address characters requests suggestions after a 250 ms pause. Only the entered address is searched; an unrelated saved area is not appended. Operators select a result using the mouse or arrows + Enter, then review and confirm the customer pin. Typing another address, selecting another customer, changing branch or moving the pin invalidates older results and quotes. No first result is silently accepted. The existing Google mode uses Places API (New) autocomplete and location details on a Google map, and retains the existing pin-distance pricing. Google Places must be enabled alongside Maps JavaScript; this release does not activate Cloud APIs or billing.
-
-A complete alternative flow is prepared but **disabled by default**: `PHONE_OPEN_MAPS_ENABLED=false`. Do not enable it without the owner's approval to disclose address searches to Photon and branch/customer coordinates to FOSSGIS OSRM. An automatic approval review blocked the attempted external smoke check for this reason. It was not retried. All alternative-provider tests use synthetic replies with HTTP fakes; live availability and local address coverage are not verified.
-
-Approval update, 2026-10-04: the owner explicitly approved sending addresses and branch/customer coordinates to Photon and OSRM. Subsequent HTTPS checks returned Photon suggestions for the public city query “شبرا الخيمة” and a successful OSRM route between two public Cairo coordinates. This does not establish reachability from the production server or the coverage of every customer address. The earlier blocked request preceded this approval.
-
-After the reviewed code release is installed, run `bash deployment/enable_phone_maps.sh` **as the application owner**. It checks both approved services through the server's PHP runtime using public example locations before changing settings. It saves the existing environment/configuration outside the web checkout in a private directory, changes only `PHONE_OPEN_MAPS_ENABLED`, preserves whether configuration caching was enabled, and verifies the effective setting in a fresh process. A configuration failure restores both saved files. It does not restart the VPS or change Google/app settings. Refresh the dashboard after it reports `PHONE MAPS ENABLED` and reconfirm any open order's location because road pricing replaces its previous straight-line quote.
-
-After explicit approval, `PHONE_OPEN_MAPS_ENABLED=true` selects the bundled Leaflet map, Photon address choices and server-side OSRM road routing. `PHONE_PHOTON_URL` and `PHONE_OSRM_URL` may point to an operator-managed compatible HTTPS service. Defaults are `https://photon.komoot.io/api/` and `https://routing.openstreetmap.de/routed-car`. Searches are limited to Egypt and biased near the saved branch pin. Customer names, phone numbers and order contents are not sent; the entered address query and coordinates are sent as needed. Providers may retain access logs.
-
-The optional mode changes new delivery quotes to **road distance in metres × the saved branch km price**, with integer-cent rounding. The server obtains and validates the route; browser-supplied prices, distances and geometry are not trusted. A missing route or provider failure leaves the location unconfirmed and does not silently substitute direct distance. Saved bill snapshots and completed orders remain unchanged. Changing the provider invalidates outstanding delivery quotes, which must be confirmed again.
-
-Requests use identifying User-Agent headers, no redirects, connection/request timeouts, per-provider locks and at least 1.05 seconds between uncached requests. Search replies are cached for two minutes and routes for thirty minutes; repeated preview/confirmation/save reuses the same route. These public services have no availability guarantee and must remain low-volume; use an operator-hosted or contracted endpoint as usage grows. Attribution and a fix-the-map link remain visible.
-
-Primary references: https://github.com/komoot/photon and https://github.com/komoot/photon/blob/master/docs/api-v1.md ; https://routing.openstreetmap.de/about.html ; https://project-osrm.org/docs/v5.24.0/api/ ; https://developers.google.com/maps/documentation/javascript/place-autocomplete-data .
-
-## October 6 autocomplete responsiveness
-
-Autocomplete keeps one network request in flight per field, remembers the latest typed query, discards obsolete replies, caches exact successful lookups in memory, and retries brief HTTP 429 contention automatically up to three times. Editing invalidates the selected pin/quote as before; branch/customer changes clear the field cache. The server releases the shared provider-rate lock **before** HTTP I/O, so one slow search cannot hold all devices behind an eight-second lock. Public Photon traffic remains capped at one new request/second across devices; positive results are cached for a day and empty results for a minute. Search connection/overall timeouts are 2/5 seconds. OSRM routing/authoritative pricing remain unchanged.
-
-Photon supports search-as-you-type but its public demo has no availability guarantee and its address coverage differs from Google Places (https://github.com/komoot/photon#demo-server). No Google billing or new provider is activated by this change. Local browser checks used synthetic Photon/OSRM replies and actual Laravel quotes/order saves; direct live provider access from the development workspace was blocked by its network proxy. Run `php deployment/check_phone_maps.php --preflight` from the production PHP runtime to verify public search/routing reachability without using customer data.
+Primary references:
+- https://developers.google.com/maps/documentation/javascript/place-autocomplete-data
+- https://developers.google.com/maps/documentation/javascript/reference/autocomplete-data
+- https://developers.google.com/maps/documentation/places/web-service/policies
+- https://developers.google.com/maps/documentation/javascript/error-messages
+- https://project-osrm.org/docs/v5.24.0/api/
+- https://routing.openstreetmap.de/about.html

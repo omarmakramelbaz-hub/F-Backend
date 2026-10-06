@@ -49,3 +49,11 @@ for line in "${noncovering[@]}"; do
     fi
 done
 printf '%s minute-scheduler coverage checks passed.\n' "$((${#covering[@]} + ${#noncovering[@]}))"
+
+for command in schedule:run schedule:work dashboard-push:dispatch; do
+    printf '* * * * * cd %s && php artisan %s\n' "$project" "$command" | dashboard_minute_scheduler "$project" dashboard-push:dispatch
+done
+if printf '* * * * * cd %s && php artisan order-board:advance\n' "$project" | dashboard_minute_scheduler "$project" dashboard-push:dispatch; then
+    echo 'Order-only cron incorrectly considered notification dispatch coverage' >&2; exit 1
+fi
+printf 'Dedicated notification dispatcher coverage checks passed.\n'

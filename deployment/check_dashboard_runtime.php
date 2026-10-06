@@ -30,6 +30,8 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
+    'dashboard_push_campaigns'=>['actor_id','request_key','claim','status'],
+    'dashboard_push_devices'=>['campaign_id','token_hash','status','reason'],
     'stock_ingredients'=>['name','unit','position'],
     'branch_inventory'=>['branch','ingredient_id','quantity_units','revision'],
     'branch_inventory_movements'=>['stock_id','branch','ingredient_id','source_type','source_id','quantity_units','balance_units'],
@@ -67,7 +69,7 @@ foreach ($serviceSchema as $table=>$columns) {
         exit(1);
     }
 }
-foreach (['admin_dash','dashboard.overview','branch-stock.recipes','branch-stock.recipe-save','branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.board','phone-orders.dispatch-company','phone-orders.finish-batch','phone-orders.batch-print','employees.wallet','employees.daily-notes','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.categorySave','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
+foreach (['dashboard-push.status','dashboard-push.step','dashboard-push.resume','admin_dash','dashboard.overview','branch-stock.recipes','branch-stock.recipe-save','branch-stock.index','branch-stock.data','branch-stock.receive','branch-shifts.index','branch-shifts.close','branch-shifts.print','customers.index','customers.save','delivery-companies.index','delivery-companies.save','employees.index','employees.entries','employees.close','employees.pay','phone-orders.board','phone-orders.dispatch-company','phone-orders.finish-batch','phone-orders.batch-print','employees.wallet','employees.daily-notes','phone-orders.address-suggestions','phone-orders.delivery-settings','phone-orders.delivery-quote','takeaway.details','dining.details','phone-orders.details','branch-expenses.index','branch-expenses.categorySave','branch-expenses.save','branch-expenses.review','print-settings.index','print-settings.test','branch-orders.index', 'dining.index', 'dining.save', 'dining.settle', 'phone-orders.index', 'phone-orders.save', 'phone-orders.settle'] as $name) {
     if (!Illuminate\Support\Facades\Route::has($name)) {
         fwrite(STDERR, "Dining/phone POS routes are not ready.\n");
         exit(1);
@@ -76,13 +78,15 @@ foreach (['admin_dash','dashboard.overview','branch-stock.recipes','branch-stock
 echo "DINING AND PHONE POS READY\n";
 
 if (app(App\Services\Dashboard\PhoneMapProvider::class)->enabled()) {
-    echo "PHONE MAPS: Photon address choices and OSRM road pricing are configured; live reachability is checked by deployment/check_phone_maps.php.\n";
+    echo "PHONE MAPS: Google address choices and OSRM road pricing are selected. Google browser/API readiness must be verified in the delivery screen.\n";
 } else {
     echo "PHONE MAPS: optional road provider is disabled; activate with deployment/enable_phone_maps.sh after approval.\n";
 }
 
+echo filled(config('services.maps.browser_key')) ? "GOOGLE ADDRESS SEARCH: browser key present; enable Maps JavaScript API, Places API (New), billing and website referrers.\n" : "GOOGLE ADDRESS SEARCH: MAP_BROWSER_KEY is missing.\n";
+
 $firebasePath = config('firebase.credentials', storage_path('app/firebase_credentials.json'));
-echo is_string($firebasePath) && is_file($firebasePath) && is_readable($firebasePath) && filled(config('services.fcm.project_id'))
+echo is_string($firebasePath) && is_file($firebasePath) && is_readable($firebasePath) && filled(app(App\Services\Dashboard\DashboardPushSender::class)->projectId())
     ? "MANUAL NOTIFICATION CONFIG READY\n"
     : "MANUAL NOTIFICATION CONFIG: existing Firebase credentials need checking.\n";
 

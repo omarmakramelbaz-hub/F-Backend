@@ -14,6 +14,9 @@ on:
       - 'app/Observers/UserObserver.php'
       - 'app/Http/Controllers/Dashboard/TakeawayController.php'
       - 'app/Console/Kernel.php'
+      - 'app/Console/Commands/DispatchDashboardPush.php'
+      - 'database/migrations/*dashboard_push*'
+      - 'public/dashboard/js/dashboard-push.js'
       - 'app/Console/Commands/AdvanceOrderBoard.php'
       - 'app/Observers/OrderBoardClockObserver.php'
       - 'app/Providers/AppServiceProvider.php'
@@ -174,6 +177,7 @@ jobs:
           node --check public/dashboard/js/dashboard-navigation.js
           node --check public/dashboard/js/dashboard-spa.js
           node --check public/dashboard/js/dashboard-inbox.js
+          node --check public/dashboard/js/dashboard-push.js
           node --check public/dashboard/js/dashboard-support-chat.js
           node --check public/dashboard/js/dashboard-print.js
           node --check public/dashboard/js/dashboard-invoice-details.js
@@ -233,4 +237,4 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
-        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'

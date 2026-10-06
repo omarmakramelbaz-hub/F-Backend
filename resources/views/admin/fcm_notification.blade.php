@@ -23,8 +23,11 @@
         <div class="col-lg-12 col-md-12 card">
           <div class="card-body">
             <!--<h2>Send notification</h2>-->
-            <form method="post" action="{{route('fcm_notifications.store')}}">
+            <div id="dashboard-push" data-status-url="{{ route('dashboard-push.status', ['campaign' => 0]) }}" data-step-url="{{ route('dashboard-push.step', ['campaign' => 0]) }}" data-resume-url="{{ route('dashboard-push.resume', ['campaign' => 0]) }}">
+            <form data-push-form method="post" action="{{route('fcm_notifications.store')}}">
               @csrf
+              <input type="hidden" name="durable" value="1">
+              <input type="hidden" name="request_key" value="{{ \Illuminate\Support\Str::uuid() }}">
               <input type="hidden" name="account_type" value="{{request()->account_type??'user'}}"/>
               <div class="form-group col-sm-10">
                 <label for="title"> @lang('main.notify_title')</label>
@@ -74,6 +77,21 @@
                 <button type="submit" class="btn btn-success">@lang('main.send')</button>
               </div>
             </form>
+            <div class="form-group col-sm-10">
+              <label for="push-history">{{ __('dashboard_push.history') }}</label>
+              <select id="push-history" class="form-control" data-push-history>
+                <option value="">{{ __('main.choose') }}</option>
+                @foreach($campaigns as $campaign)
+                <option value="{{ $campaign->id }}">{{ $campaign->created_at }} · {{ $campaign->title }}</option>
+                @endforeach
+              </select>
+            </div>
+            <div class="alert alert-info col-sm-10" data-push-progress role="status" aria-live="polite" hidden></div>
+            <div class="col-sm-10 mb-3">
+              <button type="button" class="btn btn-warning" data-push-resume hidden>{{ __('dashboard_push.resume') }}</button>
+              <button type="button" class="btn btn-outline-secondary" data-push-new hidden>{{ __('dashboard_push.new') }}</button>
+            </div>
+            </div>
           </div>
         </div>
       </div>
@@ -82,12 +100,7 @@
 </div>
 
 @endsection
-
-
-
-
-
-
-
-
-
+@push('custom-js')
+<script id="dashboard-push-labels" type="application/json">@json(trans('dashboard_push'))</script>
+<script src="{{ asset('dashboard/js/dashboard-push.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-push.js')) }}"></script>
+@endpush

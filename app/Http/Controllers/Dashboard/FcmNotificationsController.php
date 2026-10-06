@@ -13,13 +13,15 @@ class FcmNotificationsController extends Controller
 
  function __construct()
     {
-         $this->middleware('permission:fcm_notification-create', ['only' => ['create','store']]);
+         $this->middleware('permission:fcm_notification-create', ['only' => ['create','store','campaignStatus','campaignStep','campaignResume']]);
     }
 	public function create()
 	{
 		$type = request()->validate(['account_type' => 'nullable|in:user,vendor,delegate,resturant_owner,admin'])['account_type'] ?? 'user';
 		$users = $this->manualRecipients($type)->get();
-		return view('admin.fcm_notification', compact('users'));
+		$campaigns = app(\App\Services\Dashboard\DashboardPushCampaigns::class)->ready()
+            ? \DB::table('dashboard_push_campaigns')->where('actor_id', auth('admin')->id())->where('account_type', $type)->orderByDesc('id')->limit(10)->get(['id', 'title', 'created_at']) : collect();
+        return view('admin.fcm_notification', compact('users', 'campaigns'));
 	}
 	
 	public function testNotification(){
@@ -49,6 +51,7 @@ class FcmNotificationsController extends Controller
             'zone_id' => 'exclude_unless:send_by,0|required|array|min:1', 'zone_id.*' => 'integer|min:1|exists:areas,id',
             'user_id' => 'exclude_unless:send_by,1|exclude_unless:choose_user,1|required|array|min:1',
             'user_id.*' => 'integer|min:1',
+            'durable' => 'nullable|boolean', 'request_key' => 'required_if:durable,1|nullable|uuid',
         ]);
         $type = $data['account_type'] ?? 'user';
         $query = $this->manualRecipients($type);
@@ -63,11 +66,17 @@ class FcmNotificationsController extends Controller
             }
         }
         $tokens = $query->with('tokens')->get()->flatMap(fn ($user) => $user->tokens->pluck('token'))->all();
+        if (!empty($data['durable']) || count($tokens) > 100) {
+            $data['request_key'] = $data['request_key'] ?? (string) \Illuminate\Support\Str::uuid();
+            $campaign = app(\App\Services\Dashboard\DashboardPushCampaigns::class)->create(auth('admin')->user(), $data, $tokens);
+            if ($request->expectsJson() || $request->header('X-Dashboard-SPA') === '1') return response()->json(['success' => true, 'campaign' => $campaign, 'message' => trans('dashboard_push.queued')], 202);
+            return redirect()->route('fcm_notifications.create', ['account_type' => $type, 'campaign' => $campaign['id']])->with('success', trans('dashboard_push.queued'));
+        }
         $result = app(\App\Services\Dashboard\DashboardPushSender::class)->send($tokens, $data['title'], $data['body'], $type);
         $partial = $result['failed'] || $result['not_sent'] || $result['invalid'];
         $key = $result['accepted'] ? ($partial ? 'partial' : 'sent')
             : ($result['reason'] === 'payload_too_large' ? 'too_large' : (!empty($result['empty']) ? 'empty' : 'failed'));
-        $message = trans('dashboard_push.'.$key, $result);
+        $message = trans('dashboard_push.'.$key, array_filter($result, 'is_scalar'));
         $json = $request->expectsJson() || $request->header('X-Dashboard-SPA') === '1';
         $counts = array_intersect_key($result, array_flip(['accepted', 'failed', 'attempted', 'not_sent', 'invalid']));
         if (!$result['accepted']) {
@@ -78,6 +87,24 @@ class FcmNotificationsController extends Controller
         if ($partial) \Log::warning('Dashboard manual notification incomplete', ['reason' => $result['reason']] + $counts);
         if ($json) return response()->json(['success' => true, 'message' => $message, 'severity' => $partial ? 'warning' : 'success'] + $counts);
         return redirect()->back()->with($partial ? 'error' : 'success', $message);
+    }
+
+    public function campaignStatus(int $campaign)
+    {
+        return response()->json(app(\App\Services\Dashboard\DashboardPushCampaigns::class)->status($campaign, auth('admin')->user()));
+    }
+
+    public function campaignStep(int $campaign)
+    {
+        $service = app(\App\Services\Dashboard\DashboardPushCampaigns::class);
+        $service->status($campaign, auth('admin')->user()); // Authorize before any send.
+        $service->step($campaign);
+        return response()->json($service->status($campaign, auth('admin')->user()));
+    }
+
+    public function campaignResume(int $campaign)
+    {
+        return response()->json(app(\App\Services\Dashboard\DashboardPushCampaigns::class)->resume($campaign, auth('admin')->user()));
     }
 
     private function manualRecipients(string $type)

@@ -90,6 +90,9 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
             Route::post('update/orders/{order}/total/price', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrderTotalPrice'])->name('updateOrderTotalPrice');
 
         Route::get('/adminLogout', [HomeController::class, 'adminLogout']);
+        Route::get('fcm_notifications/campaigns/{campaign}', [FcmNotificationsController::class, 'campaignStatus'])->whereNumber('campaign')->name('dashboard-push.status');
+        Route::post('fcm_notifications/campaigns/{campaign}/step', [FcmNotificationsController::class, 'campaignStep'])->whereNumber('campaign')->name('dashboard-push.step');
+        Route::post('fcm_notifications/campaigns/{campaign}/resume', [FcmNotificationsController::class, 'campaignResume'])->whereNumber('campaign')->name('dashboard-push.resume');
         Route::resource('/fcm_notifications', FcmNotificationsController::class);
         Route::get('/choose_type', [HomeController::class, 'chooseType'])->name('chooseType');
         Route::get('/choose_type/change', [HomeController::class, 'chooseTypeChange'])->name('chooseTypeChange');

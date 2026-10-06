@@ -101,15 +101,17 @@
         if(!data.branch_cards.length)[drawers,expenses,rows].forEach(function(list){list.appendChild(el('p',text.no_branches,'ho-empty'));});
     }
     function renderOwnerStock(){
-        var select=$('stock-ingredient'),selected=select.value,n=$('stock');select.replaceChildren();
-        data.inventory.items.forEach(function(item){var option=el('option',item.name+' · '+text[item.unit==='kg'?'kg':'unit']);option.value=String(item.id);select.appendChild(option);});
-        if(data.inventory.items.some(function(i){return String(i.id)===selected;}))select.value=selected;
-        var item=data.inventory.items.find(function(i){return String(i.id)===select.value;});n.replaceChildren();
-        if(item)data.branch_cards.forEach(function(b){var balance=item.balances[b.value],row=el('article',undefined,'ho-owner-row'),name=el('span',b.name,'ho-row-name');name.title=b.name;row.dataset.hoBranch=b.value;
+        var select=$('stock-branch'),selected=select.value,n=$('stock');select.replaceChildren();
+        data.branch_cards.forEach(function(branch){var option=el('option',branch.name);option.value=branch.value;select.appendChild(option);});
+        if(data.branch_cards.some(function(b){return b.value===selected;}))select.value=selected;
+        if(window.jQuery&&select.classList.contains('select2-hidden-accessible'))window.jQuery(select).trigger('change.select2');
+        n.replaceChildren();
+        if(select.value&&data.modules.inventory)data.inventory.items.forEach(function(item){
+            var balance=item.balances[select.value],row=el('article',undefined,'ho-owner-row'),name=el('span',item.name,'ho-row-name');name.title=item.name;row.dataset.hoIngredient=item.id;
             var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,balance&&balance.quantity_units<0?'ho-stock-warning':'');row.append(name,qty);n.appendChild(row);
         });
-        else n.appendChild(el('p',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty'));
-        routeLink($('stock-link'),data.filters.branch);
+        if(!n.children.length)n.appendChild(el('p',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty'));
+        routeLink($('stock-link'),select.value||data.filters.branch);
     }
     function sizeOwner(){
         if(!data.owner_platform||disposed)return;
@@ -142,7 +144,8 @@
     }
     form.elements.branch.value=data.filters.branch;form.elements.from.value=data.filters.from;form.elements.to.value=data.filters.to;var today=new Date().toLocaleDateString('en-CA',{timeZone:'Africa/Cairo'});form.elements.from.max=today;form.elements.to.max=today;
     root.querySelectorAll('[data-ho-period]').forEach(function(b){on(b,'click',function(){period=b.dataset.hoPeriod;periodButtons();if(period==='custom'){editing=true;if(controller)controller.abort();sequence++;$('refresh').disabled=false;root.removeAttribute('aria-busy');}else refresh(true);});});
-    on(form,'submit',function(event){event.preventDefault();if(form.reportValidity())refresh(true);});on(form.elements.branch,'change',function(){refresh(true);});on(form.elements.from,'input',editDates);on(form.elements.to,'input',editDates);on($('refresh'),'click',function(){if(form.reportValidity())refresh(false);});on($('stock-search'),'input',renderStock);on($('stock-ingredient'),'change',renderStock);
+    on(form,'submit',function(event){event.preventDefault();if(form.reportValidity())refresh(true);});on(form.elements.branch,'change',function(){refresh(true);});on(form.elements.from,'input',editDates);on(form.elements.to,'input',editDates);on($('refresh'),'click',function(){if(form.reportValidity())refresh(false);});on($('stock-search'),'input',renderStock);on($('stock-branch'),'change',renderStock);
+    [form.elements.branch,$('stock-branch')].filter(Boolean).forEach(function(select){if(window.jQuery){window.jQuery(select).on('change.homeOverview',function(e){if(!e.originalEvent)select.dispatchEvent(new Event('change',{bubbles:true}));});listeners.push(function(){window.jQuery(select).off('.homeOverview');});}});
     function editDates(){editing=true;if(controller){controller.abort();controller=null;sequence++;$('refresh').disabled=false;root.removeAttribute('aria-busy');}}
     ['prev','next'].forEach(function(direction){on($('branch-'+direction),'click',function(){var list=$('branches'),sign=(root.dir==='rtl'?-1:1)*(direction==='next'?1:-1);list.scrollBy({left:sign*(list.clientWidth-24),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});});
     function automatic(){if(!disposed&&!document.hidden&&!editing&&!controller&&Date.now()-lastLoaded>45000)refresh(false);}

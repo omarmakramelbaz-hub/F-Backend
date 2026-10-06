@@ -35,7 +35,7 @@ function valid(lat, lng) {
     return lat !== null && lng !== null && lat !== '' && lng !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180;
 }
 function create(container, options) {
-    var routePath = null, placesToken, predictions = new Map();
+    var routePath = null, placesToken, googlePoint=false, predictions = new Map();
     var map, marker, circle, origin, routeLine, provider, observer, disposed = false, g = 0, radius = options.radius || 0;
     var point = valid(options.latitude, options.longitude) ? [Number(options.latitude), Number(options.longitude)] : null;
     var center = point || options.center || [30.0444, 31.2357];
@@ -80,12 +80,13 @@ function create(container, options) {
     function changed(lat, lng, pan) {
         if (disposed) return;
         if (options.locked && options.locked()) { if (point) set(point, false); return; }
+        googlePoint=false;
         g++; // A manual choice supersedes any address search still in flight.
         set([lat, lng], pan);
         if (options.change) options.change(lat, lng);
     }
     function clear() {
-        g++; point = null; routePath = null;
+        g++; point = null; routePath = null; googlePoint=false; predictions.clear();
         if (marker) { if (provider === 'google') marker.setVisible(false); else marker.setOpacity(0); }
         line();
         notice.textContent = 'اكتب عنوان العميل لتحديد دبوسه. العلامة الزرقاء تخص الفرع.';
@@ -102,7 +103,8 @@ function create(container, options) {
     }
     function fallback() {
         if (disposed || provider === 'osm') return;
-        g++;
+        g++; predictions.clear(); placesToken=null;
+        if(googlePoint){point=null;routePath=null;googlePoint=false;if(options.unavailable)options.unavailable();}
         removeGoogle();
         provider = 'osm';
         container.replaceChildren();
@@ -118,7 +120,7 @@ function create(container, options) {
         if (branch) L.circleMarker(branch, {radius: 7, color: '#173e70', fillOpacity: 1}).addTo(map).bindTooltip('الفرع', {permanent: true});
         line(); if (point) frame();
     }
-    (options.preferOpenMap ? Promise.reject() : sdk(options.key)).then(function () {
+    var ready=(options.preferOpenMap ? Promise.reject() : sdk(options.key)).then(function () {
         if (disposed || failed) return fallback();
         provider = 'google';
         var c = {lat: (point || center)[0], lng: (point || center)[1]};
@@ -129,7 +131,7 @@ function create(container, options) {
         marker.addListener('dragend', function (e) { changed(e.latLng.lat(), e.latLng.lng(), false); });
         if (branch) origin = new google.maps.Marker({map: map, position: {lat: branch[0], lng: branch[1]}, label: 'الفرع', title: 'موقع الفرع'});
         line(); if (point) frame();
-        notice.textContent = 'حدد دبوس العميل بدقة ثم أكد الموقع. الخط يوضح المسافة المباشرة من الفرع.';
+        notice.textContent = options.routeOnly ? 'اختر عنوان العميل ثم راجع الدبوس وأكده. يظهر الطريق بعد حساب الخدمة.' : 'حدد دبوس العميل بدقة ثم أكد الموقع. الخط يوضح المسافة المباشرة من الفرع.';
         // Billing failures may render a watermarked map without invoking gm_authFailure.
         observer = new MutationObserver(function () {
             if (container.querySelector('.gm-err-container,.gm-err-message') || /for development purposes only/i.test(container.textContent)) { failed = true; fallback(); }
@@ -142,9 +144,10 @@ function create(container, options) {
         route: function(path){routePath=Array.isArray(path)&&path.length>1&&path.every(function(p){return Array.isArray(p)&&valid(p[0],p[1]);})?path:null;line();if(routePath)frame();},
         suggest: async function(query){
             var requestGeneration=g;
-            await sdk(options.key);
-            if(disposed||failed||provider!=='google'||!google.maps.importLibrary)throw Error('اقتراحات العناوين تحتاج تفعيل Google Maps وPlaces API أو تشغيل خدمة الخرائط البديلة.');
+            await ready;
+            if(disposed||failed||provider!=='google'||!google.maps.importLibrary)throw Error('بحث Google غير متاح. يلزم مفتاح Google صالح مع Maps JavaScript API وPlaces API (New) والفوترة ونطاق الموقع.');
             var lib=await google.maps.importLibrary('places');
+            if(disposed||requestGeneration!==g)return [];
             if(!placesToken)placesToken=new lib.AutocompleteSessionToken();
             var request={input:query,includedRegionCodes:['eg'],language:'ar',region:'eg',sessionToken:placesToken};
             if(branch)request.locationBias={center:{lat:branch[0],lng:branch[1]},radius:30000};
@@ -154,8 +157,10 @@ function create(container, options) {
         },
         resolve: async function(item){
             if(disposed||failed||provider!=='google'||!predictions.has(item.id))throw Error('تعذر تحديد العنوان. أعد البحث ثم اختره.');
-            var place=predictions.get(item.id).toPlace();placesToken=null;predictions.delete(item.id);await place.fetchFields({fields:['location','formattedAddress']});
+            var generation=g,place=predictions.get(item.id).toPlace();placesToken=null;predictions.clear();await place.fetchFields({fields:['location','formattedAddress']});
+            if(disposed||failed||provider!=='google'||generation!==g)throw Error('تغير العنوان أو الفرع. أعد اختيار العنوان.');
             if(!place.location)throw Error('لا توجد إحداثيات لهذا العنوان.');
+            googlePoint=true;
             return {label:place.formattedAddress||item.label,latitude:place.location.lat(),longitude:place.location.lng()};
         },
         invalidate: function () { g++; },

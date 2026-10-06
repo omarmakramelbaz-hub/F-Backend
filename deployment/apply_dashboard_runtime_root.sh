@@ -3,7 +3,7 @@ set -euo pipefail
 
 # A minute scheduler must cover this exact checkout. Other cron jobs are retained.
 dashboard_minute_scheduler() {
-    awk -v project="$1" '
+    awk -v project="$1" -v task="${2:-order-board:advance}" '
         function word(value, quote) {
             quote = substr(value, 1, 1)
             if ((quote == "\042" || quote == "\047") && substr(value, length(value), 1) == quote)
@@ -35,7 +35,7 @@ dashboard_minute_scheduler() {
             } else {
                 if (!php(args[position++]) || word(args[position++]) != project "/artisan") next
             }
-            if (word(args[position]) ~ /^(schedule:run|schedule:work|order-board:advance)$/) found = 1
+            if (word(args[position]) ~ /^(schedule:run|schedule:work)$/ || word(args[position]) == task) found = 1
         }
         END { exit !found }
     '
@@ -131,6 +131,26 @@ APP_RELEASE
     else
         echo 'ORDER CLOCK SCHEDULER READY: existing application minute scheduler retained.'
     fi
+    # Existing installs sometimes run only order-board:advance, not schedule:run.
+    # Add this dedicated dispatcher without enabling unrelated legacy schedules.
+    local push_scheduled=0
+    for cron_user in "$owner" root; do
+        if { crontab -u "$cron_user" -l 2>/dev/null || true; } | dashboard_minute_scheduler "$project" dashboard-push:dispatch; then push_scheduled=1; fi
+    done
+    for cron_file in /etc/crontab /etc/cron.d/*; do
+        if test -f "$cron_file" && dashboard_minute_scheduler "$project" dashboard-push:dispatch < "$cron_file"; then push_scheduled=1; fi
+    done
+    if test "$push_scheduled" = 0; then
+        local push_cron push_backup
+        push_cron="$(mktemp)"
+        { crontab -u "$owner" -l 2>/dev/null || true; } > "$push_cron"
+        push_backup="/root/order-board-release-backups/push-cron-$(date -u +%Y%m%dT%H%M%SZ)-${release:0:8}"
+        (umask 077; mkdir -p "$push_backup"; cp "$push_cron" "$push_backup/crontab-before.txt")
+        printf '\n# Continue saved manual notification campaigns.\n* * * * * cd %s && %s artisan dashboard-push:dispatch >> /dev/null 2>&1\n' "$project" "$php_binary" >> "$push_cron"
+        crontab -u "$owner" "$push_cron"
+        rm -f "$push_cron"
+    fi
+    echo 'MANUAL NOTIFICATION DISPATCH SCHEDULER READY'
     echo "DASHBOARD UPDATE READY: $release"
 }
 
