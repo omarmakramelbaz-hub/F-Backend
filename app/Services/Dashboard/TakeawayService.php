@@ -85,6 +85,8 @@ class TakeawayService
                 abort_unless(hash_equals($existing->request_hash, $requestHash), 409, 'تم استخدام رقم العملية لفاتورة مختلفة.');
                 return $this->checkoutResult($existing, $actor, true);
             }
+            // Old receipts remain replayable; new POS collections accept cash only.
+            abort_unless($payment['payment_method']==='cash'&&empty($payment['tenders']),422,'الدفع متاح كاش فقط.');
             // A movement/setting key cannot be reused to create a sale.
             abort_unless(!DB::table('takeaway_till_entries')->where('till_id', $till->id)->where('actor_id', $actor->id)
                 ->where('request_key', $payment['idempotency_key'])->exists(), 409, 'رقم العملية مستخدم بالفعل.');
@@ -244,7 +246,7 @@ class TakeawayService
         $till = $this->presentTill($this->till($branch['value']), $actor);
         return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($branch['value'], $this->businessDate()), 'permissions'=>$permissions,
             'policy'=>['tax_rate'=>$till['tax_rate'], 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
-                'payment_methods'=>self::METHODS, 'currency'=>'EGP']];
+                'payment_methods'=>['cash'], 'currency'=>'EGP']];
     }
 
     private function cart(array $values): array
@@ -411,3 +413,4 @@ class TakeawayService
     private function iso(string $time): string { return Carbon::parse($time, 'UTC')->setTimezone(config('app.timezone', 'Africa/Cairo'))->toIso8601String(); }
     private function hash(array $values): string { return hash('sha256', json_encode($values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
 }
+

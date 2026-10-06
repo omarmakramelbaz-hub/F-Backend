@@ -64,6 +64,7 @@ class PhoneDeliveryBoard
         ])->validate(); $this->ready();
         $expected=$this->ops->money($v['total']); $received=$v['payment_method']==='cash'?$this->ops->money($v['cash_received']??''):0;
         return $this->ops->write('phone.batch',$v,$actor,function($branch,$actor)use($v,$expected,$received){
+            abort_unless($v['payment_method']==='cash',422,'الدفع متاح كاش فقط.');
             $requested=collect($v['items'])->keyBy('id');
             $rows=DB::table('pos_service_tickets')->where('branch',$branch['value'])->where('channel','phone')->whereIn('id',$requested->keys())->orderBy('id')->lockForUpdate()->get();
             abort_unless($rows->count()===$requested->count(),404);
@@ -101,3 +102,4 @@ class PhoneDeliveryBoard
         return json_decode($row->snapshot,true)+['id'=>(int)$row->id];
     }
 }
+

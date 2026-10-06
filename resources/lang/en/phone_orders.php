@@ -40,7 +40,7 @@ return [
     'session_expired'=>'Your session has expired. Reload the page and sign in.', 'forbidden'=>'You cannot perform this action.',
     'stale'=>'This order or item changed. Refresh and review its latest details.', 'locked'=>'Wait until the save result has been confirmed.',
     'unsaved'=>'This phone order has unsaved changes. Leave the screen?', 'branch_change'=>'Changing branches will clear this unsaved order. Continue?',
-    'new_warning'=>'Clear this unsaved order and start a new one?', 'close'=>'Close', 'payment_note'=>'Saving an order does not collect cash. Record actual collection separately.',
+    'new_warning'=>'Clear this unsaved order and start a new one?', 'close'=>'Close', 'payment_note' => 'Cash only. Enter the amount received to calculate change.',
     'ticket_updated'=>'Order stage updated.', 'cancelled_message'=>'Order cancelled.', 'created_by'=>'Employee', 'delivery_details'=>'Delivery details',
     'save_first'=>'Save this order before printing.', 'read_only'=>'This account can view branch orders.', 'saved_summary'=>'Saved orders stay linked to this branch.',
     'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',

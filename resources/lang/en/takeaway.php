@@ -51,7 +51,7 @@ return [
     'movement_saved' => 'Register entry saved.',
     'settings_saved' => 'Register settings saved.',
     'register_readonly' => 'Balance and activity for this branch.',
-    'payment_note' => 'Card, mobile wallet and other tenders record payments collected outside this dashboard.',
+    'payment_note' => 'Cash only. Enter the amount received to calculate change.',
     'print_error' => 'The sale was saved but could not print. Print the saved invoice again.',
     'quote_required' => 'Review the invoice once calculation completes.',
     'choose_base' => 'No extras',
@@ -76,3 +76,4 @@ return [
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
 ];
+

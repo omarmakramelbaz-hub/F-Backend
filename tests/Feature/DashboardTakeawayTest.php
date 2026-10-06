@@ -283,29 +283,41 @@ class DashboardTakeawayTest extends TestCase
         $this->denied(fn()=> $this->service()->receipts(['branch'=>'f:101','idempotency_key'=>$this->key()],$this->actor()),404);
     }
 
-    public function test_external_tenders_require_confirmed_collection_and_never_move_physical_cash_or_app_money(): void
+    public function test_new_takeaway_sales_accept_only_cash_without_mutating_accounts_on_rejected_methods(): void
     {
-        $before = DB::table('users')->pluck('balance','id')->all(); $settings = DB::table('settings')->get()->toArray();
-        foreach (['card','mobile_wallet','other'] as $index=>$method) {
-            $payload = $this->payment($this->cart(),$index+1,$method); $payload['payment_confirmed']=false;
-            $this->invalid(fn()=> $this->service()->checkout($payload,$this->actor()));
-            $payload['payment_confirmed']=true; $payload['payment_reference']='';
-            $sale = $this->service()->checkout($payload,$this->actor());
-            $this->assertSame($method,$sale['receipt']['payment_method']); $this->assertSame('0.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
+        $before=DB::table('users')->pluck('balance','id')->all();
+        foreach(['card','mobile_wallet','wallet','other','mixed'] as $index=>$method){
+            $payload=$this->payment($this->cart(),$index+1,$method);$payload['payment_confirmed']=true;
+            $this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
         }
-        $this->assertSame(3,DB::table('takeaway_till_entries')->count()); $this->assertSame(0,(int)DB::table('takeaway_till_entries')->sum('amount_cents'));
-        $this->assertSame($before,DB::table('users')->pluck('balance','id')->all()); $this->assertEquals($settings,DB::table('settings')->get()->toArray());
-        $this->assertSame(1,DB::table('wallets')->count()); $this->assertSame(1,DB::table('orders')->count());
-        $this->assertSame(1,DB::table('carts')->count()); $this->assertSame(1,DB::table('order_board_clocks')->count());
+        $this->assertSame(['cash'],$this->service()->summary('f:100',$this->actor())['policy']['payment_methods']);
+        $this->assertSame(0,DB::table('takeaway_orders')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
+        $this->assertSame($before,DB::table('users')->pluck('balance','id')->all());$this->assertSame(1,DB::table('wallets')->count());
+        $payload=$this->payment($this->cart(),20);$result=$this->service()->checkout($payload,$this->actor());
+        $this->assertSame('cash',$result['receipt']['payment_method']);$this->assertTrue($this->service()->checkout($payload,$this->actor())['replayed']);
+        $this->assertSame(1,DB::table('takeaway_orders')->count());
     }
 
-    public function test_received_cash_below_total_is_rejected_and_wallet_alias_is_recorded_external(): void
+    public function test_received_cash_below_total_and_wallet_alias_are_rejected(): void
     {
         $payload = $this->payment($this->cart()); $payload['cash_received']='12.49';
         $this->invalid(fn()=> $this->service()->checkout($payload,$this->actor()));
         $payload['payment_method']='wallet'; $payload['payment_confirmed']=true;
-        $this->assertSame('mobile_wallet',$this->service()->checkout($payload,$this->actor())['receipt']['payment_method']);
+        $this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
         $this->assertSame(0,(int)DB::table('takeaway_tills')->value('balance_cents'));
+    }
+
+    public function test_historical_card_receipt_is_recoverable_without_a_second_sale(): void
+    {
+        $payload=$this->payment($this->cart(),40);$saved=$this->service()->checkout($payload,$this->actor());$id=$saved['receipt']['id'];
+        $payload['payment_method']='card';$payload['payment_confirmed']=true;
+        $canonical=$this->service()->canonicalCart($payload);
+        $hash=hash('sha256',json_encode([$canonical,$payload['quote_hash'],'card',0,trim($payload['payment_reference']??''),trim($payload['notes']??'')],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+        DB::table('takeaway_orders')->where('id',$id)->update(['payment_method'=>'card','cash_received_cents'=>0,'change_cents'=>0,'request_hash'=>$hash]);
+        $before=DB::table('takeaway_tills')->value('balance_cents');
+        $replayed=$this->service()->checkout($payload,$this->actor());$this->assertTrue($replayed['replayed']);$this->assertSame('card',$replayed['receipt']['payment_method']);
+        $this->assertSame($before,DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(1,DB::table('takeaway_orders')->count());
+        $payload['idempotency_key']=$this->key(41);$this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
     }
 
     public function test_pos_tax_is_independent_configured_audited_and_quote_change_is_detected(): void
@@ -476,3 +488,4 @@ class DashboardTakeawayTest extends TestCase
         $this->actingAs($this->actor(11),'admin')->get($sale['receipt_url'],['Accept'=>'application/json'])->assertNotFound();
     }
 }
+

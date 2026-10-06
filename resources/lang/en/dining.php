@@ -36,7 +36,7 @@ return [
     'cash_received_placeholder' => 'Cash collected from the customer',
     'change' => 'Change',
     'payment_confirmed' => 'The invoice amount has already been collected',
-    'payment_note' => 'Payment is recorded only when the dining invoice is closed.',
+    'payment_note' => 'Cash only. Enter the amount received to calculate change.',
     'confirm_payment' => 'Confirm collection before closing the invoice.',
     'cash_insufficient' => 'Cash received is less than the invoice total.',
     'products' => 'Products',
@@ -171,3 +171,4 @@ return [
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
 ];
+

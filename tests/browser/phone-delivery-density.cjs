@@ -5,13 +5,13 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const read = p => fs.readFileSync(path.join(__dirname, '../..', p), 'utf8');
 const source = read('public/dashboard/js/phone-orders.js');
-function fn(name) {
-  const start = source.indexOf('    function ' + name + '(');
+function fn(name, input = source) {
+  const start = input.search(new RegExp('    (?:async )?function ' + name + '\\('));
   assert(start >= 0, name);
-  const rest = source.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
+  const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketActions','detailContent','dispatchControl','card','updateBatchTotal','renderBoard'].map(fn).join('\n');
+const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketActions','detailContent','dispatchControl','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -19,7 +19,7 @@ function ticket(id, stage) {
   return {id, number:'20261007-'+String(id).padStart(4,'0'), channel:'phone', revision:1, status:stage==='courier'?'out_for_delivery':stage==='finished'?'finished':'new',payment_status:stage==='finished'?'paid':'unpaid',
     customer_name:'أحمد محمود عبد الرحمن',customer_phone:'01012345678',address:'شارع الجمهورية بجوار المدرسة، الدور الثالث',area:'المحلة',created_at:'2026-10-07T10:30:00Z',
     branch:{value:'f:100',name:'فرع المحلة الكبرى'},courier_company:stage==='courier'?{id:1,name:'شركة النور'}:null,
-    total:'1250.50',subtotal:'1200.00',discount:'0.00',delivery_fee:'50.50',tax:'0.00',service:'0.00',bill_print_url:'/receipt/'+id,
+    quote_hash:'a'.repeat(64),total:'1250.50',subtotal:'1200.00',discount:'0.00',delivery_fee:'50.50',tax:'0.00',service:'0.00',bill_print_url:'/receipt/'+id,
     items:[{name:'صنف تجريبي',quantity:'2',quantity_mode:'piece',total:'1200.00'}]};
 }
 const css=read('public/dashboard/css/phone-orders.css');
@@ -31,12 +31,14 @@ async function board(page,width,height,locale='ar',count=20) {
   await page.evaluate(({labels,columns,functions})=>{
     window.calls=[]; window.alerts=[];
     const setup=`var labels=${JSON.stringify(labels)},boardData=${JSON.stringify({columns})};
-var root=document.getElementById('phone-orders'),modal=root.querySelector('[data-phone-modal]'),selectedOrders=new Map(),boardCompanies=[{id:1,branch:'f:100',name:'شركة النور'},{id:2,branch:'f:101',name:'فرع آخر'}],boardPages={preparing:1,courier:1,finished:1},urls={'dispatch-company':'/dispatch'};
+var root=document.getElementById('phone-orders'),modal=root.querySelector('[data-phone-modal]'),selectedOrders=new Map(),boardCompanies=[{id:1,branch:'f:100',name:'شركة النور'},{id:2,branch:'f:101',name:'فرع آخر'}],boardPages={preparing:1,courier:1,finished:1},urls={'dispatch-company':'/dispatch','finish-batch':'/batch',quote:'/quote',settle:'/settle'},modalGeneration=0,disposed=false;
+function begin(){return new AbortController();}function endpoint(url){return url;}async function fetchTicket(id){return Object.values(boardData.columns).flatMap(c=>c.items).find(t=>t.id===id);}async function post(url,values){var t=await fetchTicket(values.ticket_id);return {total:t.total,quote_hash:t.quote_hash};}async function read(result){return result;}
+function openModal(){modalGeneration++;modal.hidden=false;return root.querySelector('[data-phone-modal-content]');}
 function canWrite(){return true;}function locked(){return false;}function lock(){root.querySelectorAll('[data-unavailable]').forEach(n=>n.disabled=true);}
 function action(t,a){calls.push({id:t.id,action:a});}function print(url){calls.push({print:url});}function settlement(id){calls.push({settlement:id});}function editTicket(id){calls.push({edit:id});}function execute(op){calls.push(op);}function uuid(){return 'test-command';}function notify(message){alerts.push(message);}function loadOrders(){calls.push({page:true});}
 function detailsModal(id){var t=Object.values(boardData.columns).flatMap(c=>c.items).find(t=>t.id===id);modal.hidden=false;detailContent(t,root.querySelector('[data-phone-modal-content]'));}
 ${functions}
-renderBoard();document.getElementById('close').onclick=function(){modal.hidden=true;};window.testBoard={selectedOrders,boardData,renderBoard,card};`;
+renderBoard();document.getElementById('close').onclick=function(){modal.hidden=true;};window.testBoard={selectedOrders,boardData,renderBoard,card,finishBatch,settlement};`;
     (0,eval)(setup);
   },{labels,columns,functions});
   return labels;
@@ -66,6 +68,18 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    assert.equal(await page.evaluate(()=>testBoard.selectedOrders.size),2);
    await page.locator('[data-phone-column="preparing"] .ph-ticket').first().getByRole('button',{name:labels.receipt+' #20261007-0001',exact:true}).click();
    assert.equal(await page.evaluate(()=>calls.at(-1).action),'request_bill');
+   await page.evaluate(()=>testBoard.finishBatch());
+   assert.deepEqual(await dialog.locator('select option').evaluateAll(nodes=>nodes.map(n=>n.value)),['cash']);
+   await dialog.locator('[data-phone-batch-confirmed]').check();
+   await dialog.locator('[data-phone-batch-submit]').click();
+   assert.equal(await page.evaluate(()=>calls.at(-1).payload.payment_method),'cash');
+   await page.locator('#close').click();
+   await page.evaluate(()=>testBoard.settlement(1));
+   assert.deepEqual(await dialog.locator('[data-phone-settle-method] option').evaluateAll(nodes=>nodes.map(n=>n.value)),['cash']);
+   await dialog.locator('[data-phone-settle-confirmed]').check();
+   await dialog.locator('[data-phone-settle-submit]').click();
+   assert.equal(await page.evaluate(()=>calls.at(-1).payload.payment_method),'cash');
+   await page.locator('#close').click();
    await page.locator('[data-phone-column="preparing"] .ph-board-cards').evaluate(n=>n.scrollTop=n.scrollHeight);
    assert(await page.locator('[data-phone-column="preparing"] .ph-board-cards').evaluate(n=>n.scrollTop>0));
   }
@@ -87,6 +101,16 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
   assert.match(await page.locator('[data-bh-stock]').innerText(),/25.5/);
   await page.screenshot({path:'test-results/phone-delivery/branch-home.png',fullPage:true});
   await page.locator('[data-bh-search]').fill('رنجة');assert.equal(await page.locator('[data-bh-stock] tr').count(),1);
+  for(const module of ['takeaway','dining']) {
+   const prefix=module==='takeaway'?'pos':'dining',js=read('public/dashboard/js/'+module+'-pos.js');
+   await page.setContent(`<div id="cash-test"><div data-${prefix}-payments></div><div data-${prefix}-cash-wrap></div><div data-${prefix}-payment-confirm-wrap hidden></div><div data-${prefix}-reference-wrap hidden></div></div>`);
+   const production=['label','node','renderPayments','setPayment'].concat(module==='takeaway'?['applyPayment']:[]).map(name=>fn(name,js)).join('\n');
+   const state=await page.evaluate(({production,prefix})=>{
+    var test=`(function(){var root=document.getElementById('cash-test'),labels={cash:'كاش'},paymentMethod='cash',confirmedInput=document.createElement('input');function locked(){return false;}function isLocked(){return false;}function storeInvoice(){}function showChange(){}${production} renderPayments(['card','mobile_wallet','other']);setPayment('card');return {method:paymentMethod,buttons:[...root.querySelectorAll('[data-${prefix}-payment]')].map(n=>n.getAttribute('data-${prefix}-payment')),cashVisible:!root.querySelector('[data-${prefix}-cash-wrap]').hidden};})()`;
+    return (0,eval)(test);
+   },{production,prefix});
+   assert.deepEqual(state,{method:'cash',buttons:['cash'],cashVisible:true});
+  }
   assert.deepEqual(errors,[]);
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

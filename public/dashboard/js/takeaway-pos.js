@@ -79,7 +79,7 @@
                     || ['discount', 'discountReason', 'notes', 'cash', 'reference', 'category', 'search'].some(function (key) { return typeof value[key] !== 'string'; })) throw new Error('Invalid draft fields');
                 if (value.uncertain || value.frozenPayload) throw new Error('Invalid pending sale');
                 if (!fresh && !value.uncertain) return newInvoice(value.branch);
-                return Object.assign(newInvoice(value.branch), value, { quarantined: false, products: [], categories: [], register: null, today: null });
+                return Object.assign(newInvoice(value.branch), value, { quarantined: false, paymentMethod: 'cash', confirmed: false, reference: '', products: [], categories: [], register: null, today: null });
                 } catch (_) { return newInvoice(String(boot.selected_branch || '')); }
             });
             invoices = restored; activeInvoice = Number.isInteger(savedState.active) && savedState.active >= 0 && savedState.active < 5 ? savedState.active : 0; return true;
@@ -365,13 +365,13 @@
     function renderPayments(methods) {
         var list = root.querySelector('[data-pos-payments]'); list.replaceChildren();
         var icons = { cash: 'far fa-money-bill-alt', card: 'far fa-credit-card', mobile_wallet: 'fas fa-mobile-alt', other: 'fas fa-ellipsis-h' };
-        (methods || ['cash', 'card', 'mobile_wallet', 'other']).forEach(function (method) { var key = typeof method === 'string' ? method : method.value;
+        ['cash'].forEach(function (method) { var key = typeof method === 'string' ? method : method.value;
             if (!icons[key]) return; var button = node('button', 'tp-payment'); button.type = 'button'; button.dataset.posPayment = key; button.appendChild(node('i', icons[key])); button.appendChild(node('span', '', label(key === 'mobile_wallet' ? 'wallet' : key))); button.setAttribute('aria-pressed', String(key === paymentMethod)); button.classList.toggle('is-active', key === paymentMethod); list.appendChild(button);
         });
         applyPayment();
     }
     function setPayment(method) {
-        if (isLocked()) return; if (paymentMethod !== method) confirmedInput.checked = false; paymentMethod = method; applyPayment(); storeInvoice();
+        if (isLocked() || method !== 'cash') return; if (paymentMethod !== method) confirmedInput.checked = false; paymentMethod = method; applyPayment(); storeInvoice();
     }
     function applyPayment() {
         root.querySelectorAll('[data-pos-payment]').forEach(function (button) { var selected = button.dataset.posPayment === paymentMethod; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); });
@@ -618,3 +618,4 @@
     if (restored) switchInvoice(activeInvoice, true);
     else { renderLines(); renderPayments(); showQuantity(); lock(); if (branch) loadCatalog(1); }
 }());
+

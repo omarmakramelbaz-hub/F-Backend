@@ -168,13 +168,20 @@ class DashboardPosServiceTest extends TestCase
         $this->assertSame(1,DB::table('takeaway_orders')->count());$this->assertSame(1,DB::table('takeaway_till_entries')->count());
         $v['idempotency_key']=$this->key(11);$this->denied(fn()=>$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor()));
     }
-    public function test_mixed_tender_moves_only_allocated_cash_and_preserves_breakdown(): void
+    public function test_dining_and_phone_reject_all_non_cash_methods_and_keep_tickets_unpaid(): void
     {
-        $ticket=$this->saved();$v=$this->settlePayload($ticket,10,'mixed');$v['cash_received']='40.00';$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'50.00'],['method'=>'mobile_wallet','amount'=>'20.00']];
-        $result=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertSame('30.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));$this->assertSame('10.00',$result['receipt']['change']);
-        $this->assertSame(3000,(int)DB::table('takeaway_till_entries')->value('amount_cents'));$this->assertCount(3,$result['receipt']['payment_breakdown']);
-        $this->assertSame('30.00',$result['today']['cash']);$this->assertSame('50.00',$result['today']['card']);$this->assertSame('20.00',$result['today']['mobile_wallet']);
+        foreach(['dine','phone'] as $channel){
+            $ticket=$this->tickets()->save($channel,$this->savePayload($channel,$channel==='dine'?1900:1910),$this->actor())['ticket'];
+            foreach(['card','mobile_wallet','wallet','other','mixed'] as $i=>$method){
+                $v=$this->settlePayload($ticket,1920+$i,$method);
+                if($method==='mixed')$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'70.00']];
+                $this->denied(fn()=>$this->tickets()->settle($channel,$ticket['id'],$v,$this->actor()),422);
+            }
+            $this->assertSame('unpaid',$this->tickets()->show($channel,$ticket['id'],$this->actor())['ticket']['payment_status']);
+        }
+        $this->assertSame(0,DB::table('takeaway_orders')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
+
     public function test_mixed_underpayment_duplicate_methods_and_unconfirmed_external_parts_rollback(): void
     {
         $ticket=$this->saved();$v=$this->settlePayload($ticket,10,'mixed');$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'69.99']];
@@ -196,7 +203,7 @@ class DashboardPosServiceTest extends TestCase
     {
         app(TakeawayService::class)->changeRegister(['branch'=>'f:100','tax_rate'=>'14.00','note'=>'Tax','expected_revision'=>1,'idempotency_key'=>$this->key(21)],$this->actor(12),true);
         $ticket=$this->saved('phone');$this->assertSame('16.80',$ticket['tax']);$this->assertSame('136.80',$ticket['total']);
-        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'card'),$this->actor());$this->assertSame('0.00',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
+        $r=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket,10,'cash'),$this->actor());$this->assertSame('136.80',\App\Services\GoServices\Money::decimal((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')));
         $this->assertSame(1,DB::table('wallets')->count());$this->assertSame(500.0,(float)DB::table('users')->where('id',10)->value('balance'));
     }
     public function test_phone_lookup_exact_normalized_number_is_scoped_and_snapshots_no_app_user(): void
@@ -223,12 +230,12 @@ class DashboardPosServiceTest extends TestCase
         $this->denied(fn()=>$this->tickets()->show('dine',$ticket['id'],$this->actor(11)),404);
         $actor=$this->actor();DB::table('resturants')->where('id',100)->update(['user_id'=>11]);$this->denied(fn()=>$this->tickets()->recover('dine',['branch'=>'f:100','idempotency_key'=>$v['idempotency_key']],$actor),404);
     }
-    public function test_actual_print_endpoints_render_unpaid_kitchen_and_paid_mixed_context_safely(): void
+    public function test_actual_print_endpoints_render_unpaid_kitchen_and_paid_cash_context_safely(): void
     {
         $ticket=$this->saved();$sent=$this->tickets()->action('dine',$ticket['id'],['branch'=>'f:100','expected_revision'=>1,'idempotency_key'=>$this->key(3),'action'=>'send_kitchen'],$this->actor());
         $this->actingAs($this->actor(),'admin');$sent=$this->tickets()->action('dine',$ticket['id'],['branch'=>'f:100','expected_revision'=>$sent['ticket']['revision'],'idempotency_key'=>$this->key(4),'action'=>'request_bill'],$this->actor())+['kitchen_print_url'=>$sent['kitchen_print_url']];$this->get($ticket['bill_print_url'].'?dashboard_print=1')->assertOk()->assertSee('data-dashboard-receipt=',false)->assertSee('Waiter');
         $this->get($sent['kitchen_print_url'].'?dashboard_print=1')->assertOk()->assertSee('data-dashboard-receipt=',false)->assertSee('Fish');
-        $v=$this->settlePayload($sent['ticket'],10,'mixed');$v['tenders']=[['method'=>'cash','amount'=>'30.00'],['method'=>'card','amount'=>'70.00']];
+        $v=$this->settlePayload($sent['ticket'],10,'cash');
         $paid=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->get($paid['receipt_url'].'?dashboard_print=1')->assertOk()->assertSee('Waiter')->assertSee('Table 1');
         $this->actingAs($this->actor(11),'admin')->get($sent['kitchen_print_url'],['Accept'=>'application/json'])->assertNotFound();
         $this->actingAs($this->actor(20),'admin')->getJson(route('dining.tickets',['branch'=>'f:100']))->assertForbidden();
@@ -653,6 +660,15 @@ class DashboardPosServiceTest extends TestCase
         $listing=$board->listing(['branch'=>'f:100'],$this->actor());$this->assertSame(0,$listing['columns']['courier']['pagination']['total']);$this->assertSame(2,$listing['columns']['finished']['pagination']['total']);$this->assertSame($r['batch']['print_url'],$listing['columns']['finished']['items'][0]['batch_print_url']);
         $this->assertSame(24000,(int)DB::table('takeaway_tills')->value('balance_cents'));
     }
+    public function test_delivery_batch_rejects_non_cash_collection_without_settling_any_ticket(): void
+    {
+        $ticket=$this->dispatchPhone();$board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);$v=$this->batchPayload([$ticket]);
+        foreach(['card','mobile_wallet','other'] as $method)$this->denied(fn()=>$board->finish(array_replace($v,['payment_method'=>$method]),$this->actor()),422);
+        $this->assertSame('unpaid',$this->tickets()->show('phone',$ticket['id'],$this->actor())['ticket']['payment_status']);
+        $this->assertSame(0,DB::table('phone_delivery_batches')->count());$this->assertSame(0,DB::table('takeaway_orders')->count());
+        $paid=$board->finish($v,$this->actor());$this->assertSame('cash',$paid['batch']['payment_method']);$this->assertTrue($board->finish($v,$this->actor())['replayed']);
+    }
+
     public function test_batch_rejects_mixed_companies_unconfirmed_cash_stale_quotes_and_branch_mismatch(): void
     {
         $a=$this->dispatchPhone();$b=$this->dispatchPhone(1010);$board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);$v=$this->batchPayload([$a,$b]);
