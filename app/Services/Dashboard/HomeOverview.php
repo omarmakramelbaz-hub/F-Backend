@@ -41,9 +41,11 @@ class HomeOverview
         usort($all,fn($a,$b)=>[$a['display_group']==='store'?1:0,$a['id']]<=>[$b['display_group']==='store'?1:0,$b['id']]);
         $filters = $this->range($values); $selected = $all;
         if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $branch['display_group']=$this->displayGroup($branch['name']); $selected = [$branch]; }
-        $finance = $this->access->permissions($actor)['can_manage'];
-        $owner = (int)$actor->id===1 && $actor->account_type==='admin' && empty($actor->owner_resturant_id);
-        $central = $actor->account_type === 'admin' && empty($actor->owner_resturant_id) && $filters['branch'] === '';
+        $centralAccount = $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
+        $owner = (int)$actor->id === 1 && $centralAccount;
+        // Order-management grants do not grant central admins access to sales amounts.
+        $finance = $centralAccount ? $owner : $this->access->permissions($actor)['can_manage'];
+        $central = $centralAccount && $filters['branch'] === '';
         $keys = array_column($selected, 'value'); $ids = array_column($selected, 'id');
         $from = Carbon::parse($filters['from'], 'Africa/Cairo'); $until = Carbon::parse($filters['to'], 'Africa/Cairo')->addDay();
         $previousFrom = $from->copy()->subDays($from->diffInDays($until));
@@ -115,7 +117,7 @@ class HomeOverview
             $cancelled+=(clone $q)->where('status','cancelled')->whereBetween('business_date',[$filters['from'],$filters['to']])->count();
             foreach((clone $q)->where('payment_status','unpaid')->where('status','!=','cancelled')->select('branch','status')->selectRaw('COUNT(*) AS n')->groupBy('branch','status')->get() as $r){$g=in_array($r->status,['new','open'],true)?'new':($r->status==='out_for_delivery'?'courier':(in_array($r->status,['awaiting_bill','finished'],true)?'awaiting_payment':'preparing'));$active[$g]+=(int)$r->n;$branches[$r->branch]['active'][$g]+=(int)$r->n;}
         }
-        $inventory=$this->inventory($keys,$modules['inventory'],$owner); $alerts=[];
+        $inventory=$this->inventory($keys,$modules['inventory'],$centralAccount); $alerts=[];
         foreach(array_slice($inventory['attention'],0,5) as $i) $alerts[]=['kind'=>$i['quantity_units']<0?'negative_stock':'empty_stock','tone'=>$i['quantity_units']<0?'red':'amber','name'=>$i['name'],'branch'=>$branches[$i['branch']]['name'],'value'=>$i['quantity'],'unit'=>$i['unit'],'url'=>route('branch-stock.index',['branch'=>$i['branch']])];
         if($late) $alerts[]=['kind'=>'late_orders','tone'=>'red','value'=>$late,'url'=>route('orders.applies',$filters['branch']?['branch'=>$filters['branch']]:[])];
         if($modules['expenses']) {$n=DB::table('branch_expenses')->whereIn('branch',$keys)->where('status','pending')->count();if($n)$alerts[]=['kind'=>'pending_expenses','tone'=>'amber','value'=>$n,'url'=>route('branch-expenses.index',$filters['branch']?['branch'=>$filters['branch']]:[])];}
@@ -125,17 +127,24 @@ class HomeOverview
         $customers=$this->customers($ids,$central,$from,$until,$modules['app']);
         $recent=$this->recent($ids,$keys,$from,$until,$finance,$modules);
         $ranking=array_values($branches);usort($ranking,fn($a,$b)=>$finance?$b['sales']['gross_cents']<=>$a['sales']['gross_cents']:$b['sales']['count']<=>$a['sales']['count']);
-        $ranked=array_map(fn($b)=>['branch'=>$b['value'],'name'=>$b['name'],'count'=>$b['sales']['count'],'amount_cents'=>$finance?$b['sales']['gross_cents']:null],array_slice($ranking,0,$owner?10:5));
-        if($owner){foreach($ranked as $i=>&$rank)$rank['sales_rank']=$i+1;unset($rank);usort($ranked,fn($a,$b)=>[$this->displayGroup($a['name'])==='store'?1:0,$a['sales_rank']]<=>[$this->displayGroup($b['name'])==='store'?1:0,$b['sales_rank']]);}
+        $ranked=array_map(fn($b)=>['branch'=>$b['value'],'name'=>$b['name'],'count'=>$b['sales']['count'],'amount_cents'=>$finance?$b['sales']['gross_cents']:null],array_slice($ranking,0,$centralAccount?10:5));
+        if($centralAccount){foreach($ranked as $i=>&$rank)$rank['sales_rank']=$i+1;unset($rank);usort($ranked,fn($a,$b)=>[$this->displayGroup($a['name'])==='store'?1:0,$a['sales_rank']]<=>[$this->displayGroup($b['name'])==='store'?1:0,$b['sales_rank']]);}
         $completed=$sales['count'];$channels=[];foreach($sales['channels'] as $key=>$c)$channels[]=['key'=>$key,'count'=>$c['count'],'amount_cents'=>$finance?$c['gross_cents']:null];
-        // Financial summaries are removed server-side for cashiers, including chart values and recent receipts.
-        foreach($branches as &$b){$b['completed']=$b['sales']['count'];if(!$finance)unset($b['sales']);} unset($b);
+        // Central admins receive counts and approved expenses, never sales or drawer amounts.
+        foreach($branches as &$b){
+            $b['completed']=$b['sales']['count'];
+            if($centralAccount){
+                $b['order_counts']=array_map(fn($c)=>$c['count'],$b['sales']['channels']);
+                $b['expenses_cents']=$b['sales']['expenses_cents'];
+            }
+            if(!$finance)unset($b['sales']);
+        } unset($b);
         foreach($trend['points'] as &$point)if(!$finance)unset($point['amount_cents']);unset($point);
-        $drawer=[];
+        $drawer=$centralAccount?['owner_platform'=>$this->platformCounts(),'expenses_cents'=>$sales['expenses_cents']]:[];
         if($owner){
             $ready=$modules['app']&&$modules['pos']&&$modules['expenses']&&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])&&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])&&$this->has('branch_shift_sources',['source','source_id'])&&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
             $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances($keys,$actor):[];
-            $drawer=['owner_platform'=>$this->platformCounts(), 'owner_drawer'=>['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts]];
+            $drawer['owner_drawer']=['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts];
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'modules'=>$modules,'sales'=>$finance?$sales:null,'previous'=>$finance?$previous:null,'completed'=>$completed,'cancelled'=>$cancelled,

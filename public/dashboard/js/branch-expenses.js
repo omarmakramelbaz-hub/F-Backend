@@ -4,7 +4,8 @@
     var root = document.getElementById('branch-expenses'); if (!root) return;
     var boot = JSON.parse(document.getElementById('branch-expenses-bootstrap').textContent), labels = JSON.parse(document.getElementById('branch-expenses-labels').textContent);
     var form = root.querySelector('[data-expense-form]'), filters = root.querySelector('[data-expense-filters]'), branch = root.querySelector('[data-expense-branch]'), editor = root.querySelector('[data-expense-editor]'), dialog = root.querySelector('[data-expense-dialog]');
-    var current = boot.initial, rows = new Map(), editing = null, dirty = false, busy = false, frozen = null, disposed = false, generation = 0, controller, listeners = [], categoryBusy=false,categoryController;
+    var current = boot.initial, rows = new Map(), editing = null, dirty = false, busy = false, frozen = null, disposed = false, generation = 0, controller, listeners = [], categoryBusy=false,categoryController,categoryEditing=null,categoryPending=null;
+    var categoriesDialog=root.querySelector('[data-expense-categories-dialog]');
     var pendingKey = 'fasakhansta:expense-pending:' + boot.actor_id;
     function t(key) { return labels[key] || key; }
     function el(tag, value, className) { var node = document.createElement(tag); if (value !== undefined) node.textContent = String(value); if (className) node.className = className; return node; }
@@ -33,18 +34,49 @@
     }
     function actionButton(label, callback, icon) { var button = el('button'); button.type = 'button'; button.title = t(label); button.setAttribute('aria-label', t(label)); if (icon) button.appendChild(el('i', undefined, 'fas ' + icon)); else button.textContent = t(label); button.addEventListener('click', callback); return button; }
     function categoryName(key){return (current.categories||{})[key]||t('cat_'+key);}
-    function categoryOptions(categories){current.categories=categories;[form.elements.category,filters.elements.category].forEach(function(select){var chosen=select.value;select.replaceChildren(el('option',select===form.elements.category?t('category'):t('all_categories')));select.firstChild.value='';Object.keys(categories).forEach(function(key){var option=el('option',categories[key]);option.value=key;select.appendChild(option);});select.value=chosen;});}
-    async function saveCategory(){
-        if(locked())return;var input=root.querySelector('[data-expense-category-name]'),status=root.querySelector('[data-expense-category-status]'),name=input.value.trim();if(!name){input.focus();return;}
+    function categoryOptions(data){
+        current.categories=data.categories;current.active_categories=data.active_categories||data.categories;current.category_items=data.category_items||[];
+        [form.elements.category,filters.elements.category].forEach(function(select){
+            var chosen=select.value,items=select===form.elements.category?Object.assign({},current.active_categories):current.categories;
+            if(select===form.elements.category&&editing&&current.categories[editing.category])items[editing.category]=current.categories[editing.category];
+            select.replaceChildren(el('option',select===form.elements.category?t('category'):t('all_categories')));select.firstChild.value='';
+            Object.keys(items).forEach(function(key){var option=el('option',items[key]+(!current.active_categories[key]?' · '+t('deleted_category'):''));option.value=key;select.appendChild(option);});select.value=chosen;
+            if(window.jQuery)window.jQuery(select).trigger('change.select2');
+        });
+        renderCategories();
+    }
+    function renderCategories(){
+        var list=root.querySelector('[data-expense-category-list]');if(!list)return;list.replaceChildren();
+        current.category_items.forEach(function(item){
+            var row=el('div',undefined,'ex-category-row'),actions=el('div');row.dataset.categoryKey=item.key;row.appendChild(el('strong',item.name));
+            var editButton=actionButton('edit',function(){if(locked())return;categoryEditing=item;var input=root.querySelector('[data-expense-category-name]');input.value=item.name;root.querySelector('[data-expense-category-save]').textContent=t('save_category_edit');root.querySelector('[data-expense-category-cancel]').hidden=false;input.focus();},'fa-pen');
+            var removeButton=actionButton('delete_category',function(){if(!locked()&&confirm(t('confirm_delete_category')+'\n'+item.name))changeCategory({action:'delete',key:item.key,expected_revision:item.revision});},'fa-trash');
+            removeButton.className='ex-category-delete';actions.append(editButton,removeButton);row.appendChild(actions);list.appendChild(row);
+        });
+        if(!list.children.length)list.appendChild(el('p',t('no_categories'),'ex-category-help'));
+    }
+    function resetCategory(){categoryEditing=null;root.querySelector('[data-expense-category-name]').value='';root.querySelector('[data-expense-category-save]').textContent=t('add_category');root.querySelector('[data-expense-category-cancel]').hidden=true;}
+    async function changeCategory(payload){
+        if(locked())return;var status=root.querySelector('[data-expense-category-status]'),signature=JSON.stringify(payload);
+        if(!categoryPending||categoryPending.signature!==signature)categoryPending={signature:signature,values:Object.assign({},payload,{idempotency_key:uuid()})};
         categoryBusy=true;generation++;if(controller)controller.abort();categoryController=new AbortController();var timeout=setTimeout(function(){categoryController.abort();},15000);lock();status.textContent=t('saving');
-        try{var result=await request(url(boot.urls.categorySave),{method:'POST',signal:categoryController.signal,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify({name:name,idempotency_key:uuid()})});if(disposed)return;categoryOptions(result.categories);form.elements.category.value=result.category.key;dirty=true;input.value='';status.textContent=t('category_saved');}
-        catch(error){if(!disposed)status.textContent=error.name==='AbortError'?t('category_retry'):error.message;}
+        try{
+            var result=await request(url(boot.urls.categorySave),{method:'POST',signal:categoryController.signal,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify(categoryPending.values)});
+            if(disposed)return;categoryPending=null;categoryOptions(result);
+            if(payload.action==='create'&&result.active_categories[result.category.key]){form.elements.category.value=result.category.key;dirty=true;if(window.jQuery)window.jQuery(form.elements.category).trigger('change.select2');}
+            resetCategory();status.textContent=t(payload.action==='delete'?'category_removed':'category_saved');await load(current.pagination.page);
+        }catch(error){if(!disposed){status.textContent=error.name==='AbortError'||!error.status?t('category_retry'):error.message;if(error.status>=400&&error.status<500){categoryPending=null;await load(current.pagination.page);}}}
         finally{clearTimeout(timeout);categoryBusy=false;if(!disposed)lock();}
     }
-    var categoryButton=root.querySelector('[data-expense-category-save]');if(categoryButton)on(categoryButton,'click',saveCategory);
-    var categoryInput=root.querySelector('[data-expense-category-name]');if(categoryInput)on(categoryInput,'keydown',function(event){if(event.key==='Enter'){event.preventDefault();event.stopPropagation();saveCategory();}});
+    if(categoriesDialog){
+        root.querySelectorAll('[data-expense-categories-open]').forEach(function(button){on(button,'click',function(){if(locked())return;renderCategories();categoriesDialog.showModal();root.querySelector('[data-expense-category-name]').focus();});});
+        on(root.querySelector('[data-expense-category-form]'),'submit',function(event){event.preventDefault();if(locked())return;var input=root.querySelector('[data-expense-category-name]'),name=input.value.trim();if(!name){input.focus();return;}var payload={action:categoryEditing?'update':'create',name:name};if(categoryEditing){payload.key=categoryEditing.key;payload.expected_revision=categoryEditing.revision;}changeCategory(payload);});
+        on(root.querySelector('[data-expense-category-cancel]'),'click',function(){if(!locked())resetCategory();});
+        on(root.querySelector('[data-expense-categories-close]'),'click',function(){if(!locked())categoriesDialog.close();});
+        on(categoriesDialog,'cancel',function(event){if(locked())event.preventDefault();});
+    }
     function render(data) {
-        current = data; if(data.categories)categoryOptions(data.categories); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
+        current = data; if(data.categories)categoryOptions(data); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
             [item.number,item.occurred_on,item.branch_name,item.category_name||categoryName(item.category),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value) { row.appendChild(el('td', value)); });
@@ -68,11 +100,11 @@
         catch (error) { if (!disposed && error.name !== 'AbortError') notice(error.message); }
     }
     function reset() {
-        editing = null; form.reset(); form.elements.occurred_on.value = boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
+        editing = null; categoryOptions(current); form.reset(); form.elements.occurred_on.value = boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
         root.querySelector('[data-expense-existing-file]').hidden = true; root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
     }
     function edit(item) {
-        if (locked() || dirty && !confirm(t('unsaved'))) return; reset(); editing = item;
+        if (locked() || dirty && !confirm(t('unsaved'))) return; reset(); editing = item; categoryOptions(current);
         Array.from(form.elements).forEach(function (field) { if (field.name && field.type !== 'file' && item[field.name] !== undefined) field.value = item[field.name] || ''; });
         var file = root.querySelector('[data-expense-existing-file]'); file.hidden = !item.attachment_url; if (item.attachment_url) { file.href = url(item.attachment_url); file.textContent = item.attachment_name; }
         editor.hidden = false; root.querySelector('[data-expense-form-title]').textContent = t('edit') + ' · ' + item.number; lock(); form.elements.description.focus();
@@ -143,7 +175,7 @@
     on(root.querySelector('[data-expense-report]'),'click',function(){print(url(boot.urls.report,values()));});on(root.querySelector('[data-expense-retry]'),'click',function(){if(frozen)execute(frozen,true);});
     function mayLeave(){if(locked()){notice(t('uncertain'),true);return false;}return !dirty||confirm(t('unsaved'));}
     on(window,'beforeunload',function(event){if(locked()||dirty){event.preventDefault();event.returnValue='';}});
-    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();});}
+    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();if(categoriesDialog)categoriesDialog.close();});}
     reset();Object.keys(boot.initial.filters).forEach(function(key){if(filters.elements[key])filters.elements[key].value=boot.initial.filters[key];});render(boot.initial);
     try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
 }());

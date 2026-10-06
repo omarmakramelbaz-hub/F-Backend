@@ -1,5 +1,8 @@
 <?php
 return [
+ 'compact_orders'=>'Branch orders',
+ 'top_ten_orders'=>'Top 10 branches by order count',
+ 'admin_method'=>'Platform counters show current totals independently of filters. Branch activity, trends and rankings use completed order counts for the selected period. Approved expenses use the expense date; stock balances show the current position.',
  'platform_scope'=>'GO & Fasakhansta · Current platform totals, independent of branch and date filters',
  'go_partners'=>'GO partners',
  'go_stores'=>'GO stores',

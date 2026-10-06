@@ -18,7 +18,7 @@
     function badge(value,tone){return el('span',value,'ho-badge ho-'+tone);}
     function note(value){var n=$('notice');n.hidden=!value;n.textContent=value||'';}
     function scopeLabel(){return data.filters.branch?(data.branches.find(function(b){return b.value===data.filters.branch;})||{}).name:text.all_branches;}
-    function card(label,value,unit,noteValue,iconName,tone){var n=el('article',undefined,'ho-kpi'),copy=el('div'),v=el('div',value,'ho-value');if(unit)v.appendChild(el('small',unit));copy.append(el('span',label,'ho-kpi-label'),v,el('small',noteValue,'ho-kpi-note'));n.append(copy,icon(iconName,'ho-icon ho-'+tone));return n;}
+    function card(label,value,unit,noteValue,iconName,tone){var n=el('article',undefined,'ho-kpi'),copy=el('div'),v=el('div',value,'ho-value');n.title=label+(noteValue?' · '+noteValue:'');if(unit)v.appendChild(el('small',unit));copy.append(el('span',label,'ho-kpi-label'),v,el('small',noteValue,'ho-kpi-note'));n.append(copy,icon(iconName,'ho-icon ho-'+tone));return n;}
     function renderKpis(){
         var n=$('kpis');n.replaceChildren();var financial=data.can_view_financials,s=data.sales,previous=data.previous;
         var change=financial&&previous.gross_cents>0?((s.gross_cents-previous.gross_cents)*100/previous.gross_cents):null;
@@ -84,22 +84,35 @@
             var tile=card(text[a[0]],fmt(p[a[0]]),'',p[a[0]]===null?text.unavailable:text[a[3]],a[1],a[2]);tile.dataset.hoMetric=a[0];n.appendChild(tile);
         });
         var pending=card(text.pending_join,fmt(p.pending_total),'',p.pending_total===null?text.unavailable:text.pending_stores+': '+fmt(p.pending_stores)+' · '+text.pending_people+': '+fmt(p.pending_partners),'user-clock','orange');pending.dataset.hoMetric='pending_total';n.appendChild(pending);
-        var salesReady=data.modules.pos&&data.modules.app;
-        $('drawer-total').textContent=amount(data.owner_drawer.total_cents,data.owner_drawer.ready);
-        $('expenses-total').textContent=amount(data.sales.expenses_cents,data.modules.expenses);
-        var drawers=$('drawers'),expenses=$('branch-expenses'),rows=$('branch-sales');drawers.replaceChildren();expenses.replaceChildren();rows.replaceChildren();
+        var salesReady=data.modules.pos&&data.modules.app,financial=data.can_view_financials;
+        var drawers=$('drawers'),expenses=$('branch-expenses'),rows=$('branch-sales');
+        if(drawers){$('drawer-total').textContent=amount(data.owner_drawer.total_cents,data.owner_drawer.ready);drawers.replaceChildren();}
+        $('expenses-total').textContent=amount(data.expenses_cents,data.modules.expenses);
+        expenses.replaceChildren();rows.replaceChildren();
         function branchName(b){var name=el('span',b.name,'ho-row-name');name.title=b.name;return name;}
         data.branch_cards.forEach(function(b){
-            var cash=data.owner_drawer.branches[b.value],drawer=el('article',undefined,'ho-owner-row');drawer.dataset.hoBranch=b.value;
-            drawer.append(branchName(b),el('strong',data.owner_drawer.ready&&cash?decimal(cash.expected_cents):'—'));drawers.appendChild(drawer);
-            var expense=el('article',undefined,'ho-owner-row');expense.dataset.hoBranch=b.value;expense.append(branchName(b),el('strong',data.modules.expenses?decimal(b.sales.expenses_cents):'—'));expenses.appendChild(expense);
+            if(drawers){
+                var cash=data.owner_drawer.branches[b.value],drawer=el('article',undefined,'ho-owner-row');drawer.dataset.hoBranch=b.value;
+                drawer.append(branchName(b),el('strong',data.owner_drawer.ready&&cash?decimal(cash.expected_cents):'—'));drawers.appendChild(drawer);
+            }
+            var expense=el('article',undefined,'ho-owner-row');expense.dataset.hoBranch=b.value;expense.append(branchName(b),el('strong',data.modules.expenses?decimal(b.expenses_cents):'—'));expenses.appendChild(expense);
             var row=el('article',undefined,'ho-owner-row ho-sales-line');row.dataset.hoBranch=b.value;row.appendChild(branchName(b));
-            ['takeaway','dine','phone','app'].forEach(function(c){var entry=b.sales.channels[c],ready=c==='app'?data.modules.app:data.modules.pos,cell=el('span',ready?decimal(entry.gross_cents):'—');cell.dataset.hoChannel=c;cell.title=text[c]+': '+amount(entry.gross_cents,ready)+' · '+fmt(entry.count)+' '+text.order;row.appendChild(cell);});
-            row.appendChild(el('strong',salesReady?decimal(b.sales.gross_cents):'—'));rows.appendChild(row);
+            ['takeaway','dine','phone','app'].forEach(function(c){
+                var ready=c==='app'?data.modules.app:data.modules.pos,count=b.order_counts[c],value=financial?b.sales.channels[c].gross_cents:count;
+                var cell=el('span',ready?(financial?decimal(value):fmt(value)):'—');cell.dataset.hoChannel=c;
+                cell.title=text[c]+': '+(ready?(financial?money(value)+' · ':'')+fmt(count)+' '+text.order:'—');row.appendChild(cell);
+            });
+            row.appendChild(el('strong',salesReady?(financial?decimal(b.sales.gross_cents):fmt(b.completed)):'—'));rows.appendChild(row);
         });
-        var footer=$('sales-footer');footer.replaceChildren(el('span',text.total));['takeaway','dine','phone','app'].forEach(function(c){footer.appendChild(el('strong',(c==='app'?data.modules.app:data.modules.pos)?decimal(data.sales.channels[c].gross_cents):'—'));});footer.appendChild(el('strong',salesReady?decimal(data.sales.gross_cents):'—'));
-        if(!data.branch_cards.length)[drawers,expenses,rows].forEach(function(list){list.appendChild(el('p',text.no_branches,'ho-empty'));});
+        var footer=$('sales-footer');footer.replaceChildren(el('span',text.total));
+        ['takeaway','dine','phone','app'].forEach(function(c){
+            var ready=c==='app'?data.modules.app:data.modules.pos,entry=data.channels.find(function(channel){return channel.key===c;});
+            footer.appendChild(el('strong',ready?(financial?decimal(entry.amount_cents):fmt(entry.count)):'—'));
+        });
+        footer.appendChild(el('strong',salesReady?(financial?decimal(data.sales.gross_cents):fmt(data.completed)):'—'));
+        if(!data.branch_cards.length)[drawers,expenses,rows].filter(Boolean).forEach(function(list){list.appendChild(el('p',text.no_branches,'ho-empty'));});
     }
+
     function renderOwnerStock(){
         var select=$('stock-branch'),selected=select.value,n=$('stock');select.replaceChildren();
         data.branch_cards.forEach(function(branch){var option=el('option',branch.name);option.value=branch.value;select.appendChild(option);});
@@ -129,7 +142,7 @@
         $('empty').hidden=!!data.selected_branches;$('content').hidden=!data.selected_branches&&!data.owner_platform;$('drawer-note').hidden=!data.owner_drawer;$('legacy').hidden=!(data.modules.app&&data.can_view_financials);
         if(data.owner_platform){renderOwner();chart();renderStock();renderRanking();queueOwnerSize();}
         else {renderKpis();chart();renderLive();renderStock();renderAlerts();renderRecent();renderApp();renderBranches();renderSummary();}
-        if(!data.can_view_financials)note(text.cashier_note);
+        if(!data.can_view_financials&&!data.owner_platform)note(text.cashier_note);
     }
     function periodButtons(){root.querySelectorAll('[data-ho-period]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.hoPeriod===period));});$('dates').hidden=period!=='custom';}
     function params(){var p={branch:form.elements.branch.value,period:period};if(period==='custom'){p.from=form.elements.from.value;p.to=form.elements.to.value;}return p;}

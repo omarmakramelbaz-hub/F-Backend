@@ -24,3 +24,47 @@
 
 /* Keep the branch picker inside its compact stock header after Select2 initializes. */
 #home-overview .ho-stock-select .select2-container{width:100%!important;min-width:0}#home-overview .ho-stock-select .select2-selection{height:26px!important;min-height:26px!important}#home-overview .ho-stock-select .select2-selection__rendered{line-height:24px!important;font-size:11px!important}#home-overview .ho-stock-select .select2-selection__arrow{height:24px!important}
+
+/* Distinct sections keep the compact overview readable without adding page scroll. */
+.ho-owner-middle,.ho-owner-bottom{gap:8px;padding:8px;background:#eaf0f7;border-color:#cbd7e5;box-shadow:0 2px 8px #1934540a}
+.ho-owner-column,.ho-owner-column:first-child,.ho-owner-trend,.ho-owner-ranking{--ho-accent:#245ea6;--ho-tint:#eaf2ff;border:1px solid #cedbec;border-top:3px solid var(--ho-accent);border-radius:8px;background:white;overflow:hidden}
+.ho-owner-stock{--ho-accent:#087d85;--ho-tint:#e5f5f4}
+.ho-owner-drawers{--ho-accent:#15805a;--ho-tint:#e7f5ee}
+.ho-owner-expenses{--ho-accent:#b95b14;--ho-tint:#fff0e1}
+.ho-owner-ranking{--ho-accent:#7952b3;--ho-tint:#f1ebfa}
+.ho-owner header{min-height:47px;padding:8px 10px;background:var(--ho-tint);border-bottom:1px solid #dbe4ed}
+#home-overview .ho-owner h2{font-size:15px!important;font-weight:800;color:var(--ho-accent);line-height:1.5;white-space:normal}
+.ho-owner h2 i{color:var(--ho-accent);font-size:14px;margin-inline-end:5px}
+.ho-owner header .ho-caption{color:#586b82}
+.ho-owner .ho-list-labels{color:#52667f;font-weight:700;border-bottom:1px solid #dde5ef}
+.ho-owner .ho-list-totals{background:var(--ho-tint);border-top:2px solid #d5e0ec;color:#203d5c;font-weight:700}
+.ho-owner .ho-list-totals strong{font-weight:800}
+.ho-owner-row:nth-child(even){background:#f2f6fa}
+.ho-owner-row:hover{background:#eaf1fa}
+.ho-owner-list{scrollbar-color:#9aadc2 #eef2f7}
+.ho-platform-grid .ho-kpi{border-color:#d0dcea;border-top:3px solid #7897c1}
+.ho-platform-grid .ho-kpi-label{font-weight:700;color:#405977;font-size:12px}
+.ho-platform-grid [data-ho-metric=go_stores]{border-top-color:#9162c6}
+.ho-platform-grid [data-ho-metric=fasakhansta_users]{border-top-color:#e7a13c}
+.ho-platform-grid [data-ho-metric=fasakhansta_stores]{border-top-color:#299b75}
+.ho-platform-grid [data-ho-metric=pending_total]{border-top-color:#ed8b31}
+@media(min-width:1100px) and (min-height:700px){.ho-admin-overview .ho-owner-middle{grid-template-columns:minmax(0,2.2fr) minmax(0,1.35fr) minmax(0,1fr)}}
+@media(min-width:1100px) and (max-width:1450px){#home-overview .ho-owner h2{font-size:13px!important}.ho-owner h2 i{font-size:12px;margin-inline-end:3px}.ho-owner header{padding-inline:7px}.ho-owner-middle,.ho-owner-bottom{padding:5px;gap:5px}.ho-platform-grid .ho-kpi-label{font-size:11px}.ho-owner-trend header strong{font-size:15px}}
+@media(max-width:1099px),(max-height:699px){.ho-owner-middle,.ho-owner-bottom{padding:8px;gap:10px}.ho-admin-overview .ho-owner-sales{grid-column:1/-1}}
+@media(max-width:700px){#home-overview .ho-owner h2{font-size:16px!important}.ho-platform-grid .ho-kpi-label{font-size:12px}.ho-owner header{min-height:50px}}
+@media(min-width:1100px) and (min-height:760px){
+ .ho-wrapper.ho-compact{padding-bottom:0!important}
+ .ho-compact .ho-heading{margin-bottom:4px}
+ .ho-compact .ho-platform-caption{display:none}
+ .ho-compact .ho-owner{grid-template-rows:74px minmax(270px,1.5fr) minmax(180px,1fr)}
+ .ho-compact .ho-platform-grid .ho-kpi{min-height:0;padding-block:6px}
+ .ho-compact .ho-platform-grid .ho-value{font-size:22px;line-height:1.25}
+ .ho-compact .ho-platform-grid .ho-kpi-note{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+ .ho-compact .ho-owner header{min-height:41px;padding-block:5px}
+}
+@media(min-width:1100px) and (min-height:700px) and (max-height:759px){
+ .ho-compact{height:auto;min-height:calc(100vh - 110px)!important}
+ .ho-compact #home-overview{height:auto}
+ .ho-compact .ho-owner{grid-template-rows:auto auto 340px 230px}
+}
+@media(min-width:1100px) and (min-height:760px) and (max-height:850px){.ho-owner-ranking .ho-rank>div:first-child{line-height:1.15}}

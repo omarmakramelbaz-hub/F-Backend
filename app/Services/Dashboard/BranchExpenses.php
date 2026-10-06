@@ -56,9 +56,9 @@ class BranchExpenses
         $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);$categories=app(ExpenseCategories::class)->options();
         $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$categories))->all();
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
-        return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,'categories'=>$categories,
+        return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
-            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]];
+            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]]+app(ExpenseCategories::class)->choices($permissions['can_manage_categories']);
     }
     public function show(int $id,$actor): array
     {
@@ -88,9 +88,11 @@ class BranchExpenses
         try{
             if($file){$path=$file->store('branch-expenses','local');abort_unless($path,503,'تعذّر حفظ المرفق.');$attachment['attachment_path']=$path;}
             $result=DB::transaction(function()use($v,$actor,$amount,$hash,$attachment,$permissions){
+                if(Schema::hasTable('branch_expense_category_settings'))DB::table('users')->where('id',1)->sharedLock()->first();
                 $this->access->branch($v['branch'],$actor,true);if($old=$this->replay($v,$actor,$hash))return $old;
                 $row=!empty($v['expense_id'])?DB::table('branch_expenses')->where('branch',$v['branch'])->where('id',$v['expense_id'])->lockForUpdate()->first():null;
                 if(!empty($v['expense_id'])){abort_unless($row,404);abort_unless($row->status==='pending',409,'يمكن تعديل المصروف المعلّق فقط.');abort_unless((int)$row->actor_id===(int)$actor->id||$permissions['can_approve'],403);abort_unless((int)($v['expected_revision']??0)===(int)$row->revision,409,'المصروف تغير؛ حدّث الصفحة.');}
+                if(!isset(app(ExpenseCategories::class)->options(false)[$v['category']])&&(!$row||$row->category!==$v['category']))throw ValidationException::withMessages(['category'=>__('expenses.category_deleted')]);
                 $data=array_intersect_key($v,array_flip(['branch','occurred_on','category','description','payment_method','payment_reference','supplier','cost_center','notes']));$data+=['amount_cents'=>$amount,'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>now('UTC')];$data=array_merge($data,$attachment);
                 if($row){$id=(int)$row->id;DB::table('branch_expenses')->where('id',$id)->update($data);}else $id=DB::table('branch_expenses')->insertGetId($data+['actor_id'=>$actor->id,'status'=>'pending','created_at'=>now('UTC')]);
                 if($v['approve']??false){$fresh=DB::table('branch_expenses')->where('id',$id)->first();$this->postCash($fresh,$actor,-1);DB::table('branch_expenses')->where('id',$id)->update(['status'=>'approved','reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC')]);}

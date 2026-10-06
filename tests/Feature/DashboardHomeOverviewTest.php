@@ -77,6 +77,40 @@ class DashboardHomeOverviewTest extends TestCase
         $spoof=$this->actor(10);$spoof->account_type='admin';$this->assertFalse(app(HomeOverview::class)->data([],$spoof)['can_view_financials']);
         $owned=$this->overview([],12);$this->assertSame(['f:100','f:102'],array_column($owned['branches'],'value'));$this->assertTrue($owned['can_view_financials']);$this->assertArrayNotHasKey('owner_drawer',$owned);
     }
+    public function test_central_admin_gets_owner_layout_data_without_sales_or_drawer_even_with_order_management_grants(): void
+    {
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        foreach(['order-list','order-create','order-edit'] as $name){
+            $permission=\Spatie\Permission\Models\Permission::create(['name'=>$name,'guard_name'=>'admin']);
+            DB::table('model_has_permissions')->insert(['permission_id'=>$permission->id,'model_type'=>User::class,'model_id'=>30]);
+        }
+        $this->assertTrue(app(\App\Services\Dashboard\TakeawayAccess::class)->permissions($this->actor(30))['can_manage']);
+        $this->sale(1,'f:100','phone',87654321,1234500);
+        $this->sale(2,'f:101','dine',76543210);
+        $this->expense(1);$this->expense(2,['branch'=>'f:101','amount_cents'=>4321]);$this->expense(3,['status'=>'pending','amount_cents'=>999999]);
+        DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>98765432]);
+        DB::table('branch_inventory')->insert(['branch'=>'f:100','ingredient_id'=>1,'quantity_units'=>5250000]);
+        for($i=0;$i<10;$i++)DB::table('resturants')->insert(['id'=>200+$i,'user_id'=>11,'name'=>'Branch '.$i]);
+        foreach([[],['period'=>'week'],['branch'=>'f:100'],['branch'=>'f:101','can_view_financials'=>true,'owner'=>true]] as $filter){
+            $r=$this->overview($filter,30);
+            $this->assertSame($this->overview($filter)['owner_platform'],$r['owner_platform']);
+            $this->assertFalse($r['can_view_financials']);$this->assertNull($r['sales']);$this->assertNull($r['previous']);
+            $this->assertArrayNotHasKey('owner_drawer',$r);
+            foreach($r['branch_cards'] as $b){$this->assertArrayNotHasKey('sales',$b);$this->assertSame($b['completed'],array_sum($b['order_counts']));$this->assertArrayHasKey('expenses_cents',$b);}
+            foreach($r['trend'] as $point)$this->assertArrayNotHasKey('amount_cents',$point);
+            foreach($r['ranking'] as $rank)$this->assertNull($rank['amount_cents']);
+            foreach($r['channels'] as $channel)$this->assertNull($channel['amount_cents']);
+            foreach(['87654321','76543210','98765432','gross_cents','delivery_cents','net_cents','expected_cents'] as $secret)$this->assertStringNotContainsString($secret,json_encode($r));
+        }
+        $r=$this->overview([],30);$this->assertSame(7321,$r['expenses_cents']);$this->assertCount(10,$r['ranking']);
+        $this->assertSame('5.25',$r['inventory']['items'][0]['balances']['f:100']['quantity']);$this->assertNull($r['inventory']['items'][0]['balances']['f:101']);
+        $b=collect($r['branch_cards'])->keyBy('value');$this->assertSame(1,$b['f:100']['order_counts']['phone']);$this->assertSame(1,$b['f:101']['order_counts']['dine']);$this->assertSame(3000,$b['f:100']['expenses_cents']);
+        $this->assertSame(4321,$this->overview(['branch'=>'f:101'],30)['expenses_cents']);
+        $this->assertSame(87654321,$this->overview(['branch'=>'f:100'])['sales']['gross_cents']);
+        $this->actingAs($this->actor(30),'admin');$response=$this->getJson('/admin/dashboard/overview?branch=f:100&can_view_financials=1')->assertOk()->assertJsonPath('can_view_financials',false)->assertJsonPath('sales',null)->assertJsonPath('expenses_cents',3000)->assertHeader('Cache-Control','no-store, private');$this->assertArrayNotHasKey('owner_drawer',$response->json());
+    }
+
     public function test_only_primary_owner_sees_live_cash_using_the_existing_shift_formula(): void
     {
         $this->sale(1);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>123450]);DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>76500,'tax_bps'=>0,'revision'=>1]);

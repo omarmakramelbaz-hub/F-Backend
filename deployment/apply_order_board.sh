@@ -107,6 +107,7 @@ php artisan migrate --force --path=database/migrations/2026_10_03_150000_create_
 php artisan migrate --force --path=database/migrations/2026_10_04_000001_create_pos_branch_print_jobs.php
 php artisan migrate --force --path=database/migrations/2026_10_04_030000_create_branch_expenses.php
 php artisan migrate --force --path=database/migrations/2026_10_06_120000_create_branch_expenses_categories.php
+php artisan migrate --force --path=database/migrations/2026_10_06_200000_manage_expense_categories.php
 php artisan migrate --force --path=database/migrations/2026_10_04_060000_lock_pos_service_bills.php
 php artisan migrate --force --path=database/migrations/2026_10_04_080000_create_branch_operations.php
 php artisan migrate --force --path=database/migrations/2026_10_06_130000_create_phone_delivery_batches.php

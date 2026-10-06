@@ -42,6 +42,7 @@ class DashboardBranchExpensesTest extends TestCase
         require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php');(new \CreatePosBranchPrintJobs)->up();
         require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php');(new \CreateBranchExpenses)->up();
         require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php');(new \CreateBranchExpensesCategories)->up();
+        require_once database_path('migrations/2026_10_06_200000_manage_expense_categories.php');(new \ManageExpenseCategories)->up();
         Storage::fake('local');
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[30,'vendor',null]] as [$id,$type,$owner])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'app_scope'=>$id===30?'go_partner':'fasakhansta','status'=>'accepted','owner_resturant_id'=>$owner]);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Foreign']]);
@@ -51,7 +52,7 @@ class DashboardBranchExpensesTest extends TestCase
         DB::table('wallets')->insert(['amount'=>'100.00']);DB::table('orders')->insert(['status'=>'accepted']);DB::table('order_board_clocks')->insert(['order_id'=>1]);
     }
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
-    private function dropFixtures(): void{foreach(['branch_expense_categories','branch_expense_commands','branch_expenses','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
+    private function dropFixtures(): void{foreach(['branch_expense_category_commands','branch_expense_category_settings','branch_expense_categories','branch_expense_commands','branch_expenses','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function service(): BranchExpenses{return app(BranchExpenses::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
@@ -185,6 +186,45 @@ class DashboardBranchExpensesTest extends TestCase
         $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertOk()->assertSee('أدوات نظافة');$this->get(route('branch-expenses.report',['branch'=>'f:100','category'=>$category]))->assertOk()->assertSee('أدوات نظافة');
         $export=$this->get(route('branch-expenses.export',['branch'=>'f:100','category'=>$category]))->assertOk();$this->assertStringContainsString('أدوات نظافة',$export->streamedContent());
         $this->invalid(fn()=>$this->create(986,['category'=>'custom_999999']));
+    }
+
+    public function test_owner_can_edit_and_remove_builtin_and_custom_categories_without_losing_expenses(): void
+    {
+        $categories=app(\App\Services\Dashboard\ExpenseCategories::class);$owner=$this->actor(1);
+        $custom=$categories->save(['name'=>'Cleaning','idempotency_key'=>$this->key(900)],$owner)['category'];
+        $pending=$this->create(901,['category'=>$custom['key']]);$approved=$this->create(902,['category'=>'purchases','payment_method'=>'bank','approve'=>true],1);
+        foreach([$custom,['key'=>'purchases','revision'=>0]] as $i=>$item){
+            $edit=['action'=>'update','key'=>$item['key'],'expected_revision'=>0,'name'=>'Revised '.$i,'idempotency_key'=>$this->key(910+$i)];
+            $changed=$categories->save($edit,$owner);$this->assertSame('Revised '.$i,$changed['categories'][$item['key']]);$this->assertSame(1,$changed['category']['revision']);
+            $this->assertTrue($categories->save($edit,$owner)['replayed']);
+            $this->denied(fn()=>$categories->save(array_replace($edit,['idempotency_key'=>$this->key(920+$i)]),$owner),409);
+            $this->denied(fn()=>$categories->save(array_replace($edit,['name'=>'Other']),$owner),409);
+            $delete=['action'=>'delete','key'=>$item['key'],'expected_revision'=>1,'idempotency_key'=>$this->key(930+$i)];
+            foreach([4,10,12,30] as $actor){$this->denied(fn()=>$categories->save($edit,$this->actor($actor)),403);$this->denied(fn()=>$categories->save($delete,$this->actor($actor)),403);}
+            $removed=$categories->save($delete,$owner);$this->assertFalse($removed['category']['active']);$this->assertSame('Revised '.$i,$removed['categories'][$item['key']]);$this->assertArrayNotHasKey($item['key'],$removed['active_categories']);
+            $this->assertTrue($categories->save($delete,$owner)['replayed']);
+            $this->invalid(fn()=>$this->create(940+$i,['category'=>$item['key']]));
+            $r=$this->service()->listing(['branch'=>'f:100','category'=>$item['key']],$this->actor());$this->assertCount(1,$r['items']);$this->assertSame('Revised '.$i,$r['items'][0]['category_name']);$this->assertSame([],$r['category_items']);
+            $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$r['items'][0]['id']]))->assertOk()->assertSee('Revised '.$i);
+        }
+        $this->assertSame(2,DB::table('branch_expenses')->count());$this->assertSame(25100,(int)DB::table('branch_expenses')->sum('amount_cents'));
+        // Existing pending records may retain their removed category while being corrected.
+        $updated=$this->create(950,['expense_id'=>$pending['id'],'expected_revision'=>$pending['revision'],'category'=>$custom['key'],'description'=>'Corrected']);$this->assertSame($pending['id'],$updated['id']);
+        $this->assertSame('Revised 0',$updated['category_name']);
+        $restored=$categories->save(['name'=>'Revised 0','idempotency_key'=>$this->key(951)],$owner);$this->assertSame($custom['key'],$restored['category']['key']);$this->assertTrue($restored['category']['active']);$this->assertSame(3,$restored['category']['revision']);
+        $this->create(952,['category'=>$custom['key']]);
+    }
+    public function test_category_name_collisions_and_removed_choices_are_validated_without_changing_cash(): void
+    {
+        $categories=app(\App\Services\Dashboard\ExpenseCategories::class);$owner=$this->actor(1);$this->cash();
+        $category=$categories->save(['name'=>'Office supplies','idempotency_key'=>$this->key(960)],$owner)['category'];
+        $this->invalid(fn()=>$categories->save(['action'=>'update','key'=>'gas','expected_revision'=>0,'name'=>'Office supplies','idempotency_key'=>$this->key(961)],$owner));
+        $categories->save(['action'=>'update','key'=>$category['key'],'expected_revision'=>0,'name'=>'Stationery','idempotency_key'=>$this->key(962)],$owner);
+        $another=$categories->save(['name'=>'Office supplies','idempotency_key'=>$this->key(963)],$owner);$this->assertNotSame($category['key'],$another['category']['key']);
+        $delete=['action'=>'delete','key'=>'gas','expected_revision'=>0,'idempotency_key'=>$this->key(964)];
+        $this->actingAs($this->actor(4),'admin');$this->postJson(route('branch-expenses.categorySave'),$delete)->assertForbidden();
+        $this->actingAs($owner,'admin');$this->postJson(route('branch-expenses.categorySave'),$delete)->assertOk()->assertJsonPath('category.active',false);
+        $this->assertSame(100000,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
 
 }

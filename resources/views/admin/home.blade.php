@@ -41,7 +41,7 @@
         <div class="ho-app-metrics" data-ho-app></div>
         <div class="ho-summary" data-ho-summary></div>
         @endif
-        <details class="ho-method"><summary>{{ __('home_overview.method_title') }}</summary>@if(isset($boot['initial']['owner_platform']))<p>{{ __('home_overview.platform_method') }}</p>@endif<p>{{ __('home_overview.method') }}</p><p data-ho-drawer-note hidden>{{ __('home_overview.drawer_note') }}</p><p data-ho-legacy hidden>{{ __('home_overview.legacy_note') }}</p></details>
+        <details class="ho-method"><summary>{{ __('home_overview.method_title') }}</summary>@if(isset($boot['initial']['owner_platform']))<p>{{ __($boot['initial']['can_view_financials'] ? 'home_overview.platform_method' : 'home_overview.admin_method') }}</p>@endif @if($boot['initial']['can_view_financials'] || !isset($boot['initial']['owner_platform']))<p>{{ __('home_overview.method') }}</p>@endif<p data-ho-drawer-note hidden>{{ __('home_overview.drawer_note') }}</p><p data-ho-legacy hidden>{{ __('home_overview.legacy_note') }}</p></details>
     </div>
 </section>
 </div>
