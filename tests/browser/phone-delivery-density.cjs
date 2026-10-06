@@ -111,6 +111,16 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    },{production,prefix});
    assert.deepEqual(state,{method:'cash',buttons:['cash'],cashVisible:true});
   }
+  for(const module of ['takeaway-pos','dining-pos','phone-orders']) {
+   const js=read('public/dashboard/js/'+module+'.js');
+   const production=fn('productNode',js);
+   const output=await page.evaluate(production=>{
+    var script=`(function(){var permissions={can_checkout:true,can_operate:true};function locked(){return false;}function isLocked(){return false;}function label(k){return k;}function text(k){return k;}function money(v){return v;}function node(tag,css,value){var n=document.createElement(tag);if(css)n.className=css;if(value!==undefined)n.textContent=value;return n;}var element=node;${production} var p={id:1,name:'صنف بدون وصفة',available:true,unit_price:'100.00',quantity_mode:'piece',stock:{source:'direct',configured:false,tracked:true,quantity:'7',unit_label:'قطعة',negative:false,label:'رصيد الوحدة: 7 قطعة'}};return productNode(p).textContent;})()`;
+    return (0,eval)(script);
+   },production);
+   assert(output.includes('رصيد الوحدة: 7 قطعة'),module);
+   assert(!output.includes('الوصفة غير مسجلة'),module);
+  }
   assert.deepEqual(errors,[]);
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

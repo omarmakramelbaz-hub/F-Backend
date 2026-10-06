@@ -17,7 +17,12 @@ class BranchStock
     public function balances(string $branch,array $ids): array
     {
         if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->menuBalances($branch,$ids);
-        if(!$ids||!$this->installed())return [];$result=[];
+        return $this->directBalances($branch,$ids);
+    }
+    /** Recorded SKU balances, independent of recipe installation. */
+    public function directBalances(string $branch,array $ids): array
+    {
+        if(!$ids||!$this->installed()||!str_starts_with($branch,'f:'))return [];$result=[];
         foreach(DB::table('branch_stock')->where('branch',$branch)->whereIn('product_id',$ids)->get() as $r)$result[(int)$r->product_id]=$this->present($r);
         return $result;
     }
@@ -27,7 +32,7 @@ class BranchStock
     }
     public function saleBalances(string $branch,array $ids): array
     {
-        if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=\Illuminate\Support\Facades\DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all();
+        if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=array_values(array_unique(array_merge($ids,DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all())));
         return $this->balances($branch,$ids);
     }
     public function decorate(string $branch,array $items): array
@@ -97,12 +102,15 @@ class BranchStock
         }
         $this->consume('f:'.$order->resturant_id,'app',(string)$order->id,$lines,null);
     }
+    public function consumeDirect(string $branch,string $type,string $source,array $lines,?int $actor): void
+    {
+        if($this->installed()&&str_starts_with($branch,'f:')&&$lines)$this->consume($branch,$type,$source,$lines,$actor);
+    }
     private function consume(string $branch,string $type,string $source,array $lines,?int $actor): void
     {
-        $this->validateQuantities($branch,$lines);
         $ids=array_values(array_unique(array_column($lines,'product_id')));sort($ids,SORT_NUMERIC);
         foreach(DB::table('branch_stock')->where('branch',$branch)->whereIn('product_id',$ids)->orderBy('product_id')->lockForUpdate()->get() as $r){
-            $units=0;$name='';foreach($lines as $line){if((int)$line['product_id']!==(int)$r->product_id)continue;$denominator=1;
+            $units=0;$name='';foreach($lines as $line){if((int)$line['product_id']!==(int)$r->product_id)continue;if($r->unit==='piece')abort_unless((int)$line['quantity_millis']%1000===0,422,'هذا الصنف مسجل بالقطعة؛ أدخل عددًا صحيحًا.');$denominator=1;
                 if($r->unit==='kg'&&preg_match('/(?:^| \/ )(نصف|ربع)(?: \/ |$)/u',$line['option_label']??'',$m))$denominator=$m[1]==='نصف'?2:4;
                 $units+=intdiv((int)$line['quantity_millis']*1000,$denominator);$name=$line['name'];
             }
@@ -110,3 +118,4 @@ class BranchStock
         }
     }
 }
+

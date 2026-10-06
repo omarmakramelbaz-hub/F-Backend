@@ -83,6 +83,75 @@ class DashboardBranchRecipeTest extends TestCase
     {
         $s=app(TakeawayService::class);$q=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key($key),'payment_method'=>'cash','cash_received'=>'1000.00'];return [$s->checkout($v,$this->actor()),$v];
     }
+    private function directStock(int $product,int $units,string $unit='piece',string $branch='f:100'): void
+    {
+        DB::table('branch_stock')->insert(['branch'=>$branch,'product_id'=>$product,'unit'=>$unit,'quantity_units'=>$units,'revision'=>1]);
+    }
+    public function test_unconfigured_cards_use_scoped_direct_stock_and_refresh_it_after_cash_sale(): void
+    {
+        $this->directStock(1,7000000);$this->directStock(1,99000000,'piece','f:101');
+        $catalog=app(\App\Services\Dashboard\TakeawayCatalog::class)->listing(['branch'=>'f:100'],$this->actor());$item=$catalog['items'][0];
+        $this->assertSame('7',$item['stock']['quantity']);$this->assertSame('direct',$item['stock']['source']);$this->assertFalse($item['stock']['configured']);
+        $this->assertSame('رصيد الوحدة: 7 قطعة',$item['stock']['label']);$this->assertSame('piece',$item['quantity_mode']);
+        $cart=$this->cart();$cart['items'][0]['quantity']='2';[$sale,$v]=$this->pay($cart);
+        $this->assertSame('5',$sale['stock_balances'][1]['quantity']);$this->assertSame(5000000,(int)DB::table('branch_stock')->where('branch','f:100')->value('quantity_units'));
+        $this->assertSame(99000000,(int)DB::table('branch_stock')->where('branch','f:101')->value('quantity_units'));
+        $this->assertTrue(app(TakeawayService::class)->checkout($v,$this->actor())['replayed']);$this->assertSame(1,DB::table('branch_stock_movements')->where('source_type','pos')->count());
+        $this->assertSame(0,DB::table('branch_inventory_movements')->count());
+        $audit=json_decode(DB::table('branch_recipe_sales')->value('snapshot'),true);$this->assertSame([],$audit['unmapped']);$this->assertSame('direct',$audit['lines'][0]['recipe']['stock_source']);
+    }
+    public function test_recipe_and_direct_stock_are_deducted_once_without_changing_each_others_balances(): void
+    {
+        DB::table('resturant_products')->insert(['id'=>3,'resturant_id'=>100,'product_name'=>'Direct SKU','product_price'=>'50','price'=>'{}','status'=>'show']);
+        $this->directStock(1,8000000);$this->directStock(3,4000000);
+        $this->receiveIngredient(1,'5');$this->receiveIngredient(16,'2',81);$this->receiveIngredient(20,'10',82,'piece');$this->inventory()->saveRecipe($this->recipePayload(),$this->actor(1));
+        $cart=$this->cart();$cart['items'][]=['product_id'=>3,'quantity'=>'2','quantity_mode'=>'piece'];[$sale]=$this->pay($cart);
+        $this->assertSame(4750000,$this->ingredientBalance(1));$this->assertSame(8000000,(int)DB::table('branch_stock')->where('product_id',1)->value('quantity_units'));
+        $this->assertSame('2',$sale['stock_balances'][3]['quantity']);$this->assertSame('9',$sale['stock_balances'][1]['quantity']);
+        $this->assertSame(1,DB::table('branch_stock_movements')->count());
+    }
+    public function test_direct_weight_zero_and_unknown_balances_are_distinct_and_unit_rules_apply(): void
+    {
+        $missing=$this->inventory()->menuBalances('f:100',[1])[1];$this->assertFalse($missing['tracked']);$this->assertSame('—',$missing['quantity']);$this->assertSame('رصيد الوحدة غير مسجّل',$missing['label']);
+        $this->directStock(1,125000,'kg');$cart=$this->cart();$this->denied(fn()=>app(TakeawayService::class)->quote($cart,$this->actor()),422);
+        $cart['items'][0]['quantity_mode']='weight';$cart['items'][0]['quantity']='0.125';[$sale]=$this->pay($cart);
+        $this->assertSame('0',$sale['stock_balances'][1]['quantity']);$this->assertTrue($sale['stock_balances'][1]['tracked']);
+        [$sale]=$this->pay($cart,101);$this->assertSame('-0.125',$sale['stock_balances'][1]['quantity']);$this->assertTrue($sale['stock_balances'][1]['negative']);
+        $this->assertSame([],$this->inventory()->menuBalances('gs:30',[1]));
+    }
+    public function test_saved_direct_stock_source_stays_frozen_if_recipe_is_added_before_settlement(): void
+    {
+        $this->directStock(1,6000000);$ticket=$this->saved();$this->assertSame('direct',$ticket['items'][0]['inventory']['stock_source']);
+        $this->inventory()->saveRecipe($this->recipePayload(),$this->actor(1));$this->receiveIngredient(1,'4');
+        $v=$this->settlePayload($ticket);$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());
+        $this->assertSame(5000000,(int)DB::table('branch_stock')->value('quantity_units'));$this->assertSame(4000000,$this->ingredientBalance(1));
+        $this->assertTrue($this->tickets()->settle('dine',$ticket['id'],$v,$this->actor())['replayed']);$this->assertSame(1,DB::table('branch_stock_movements')->count());
+    }
+
+    public function test_app_sales_use_direct_weight_stock_and_portions_once_when_recipes_are_installed(): void
+    {
+        $this->directStock(1,2000000,'kg');
+        Schema::table('resturant_products',function(Blueprint $t){$t->unsignedBigInteger('product_id')->nullable();});
+        Schema::create('product_features',function(Blueprint $t){$t->id();$t->unsignedBigInteger('product_id');$t->string('name');});
+        Schema::create('carts',function(Blueprint $t){$t->id();$t->unsignedBigInteger('order_id');$t->unsignedBigInteger('resturant_product_id');$t->string('qty');$t->unsignedBigInteger('product_feature')->nullable();});
+        DB::table('resturant_products')->where('id',1)->update(['product_id'=>99]);DB::table('product_features')->insert(['id'=>6,'product_id'=>99,'name'=>'quarter']);
+        DB::table('carts')->insert(['order_id'=>77,'resturant_product_id'=>1,'qty'=>'2','product_feature'=>6]);
+        $order=new \App\Models\Order;$order->forceFill(['id'=>77,'type'=>'current','resturant_id'=>100]);
+        DB::transaction(fn()=>$this->inventory()->appSale($order));DB::transaction(fn()=>$this->inventory()->appSale($order));
+        $this->assertSame(1500000,(int)DB::table('branch_stock')->value('quantity_units'));$this->assertSame(1,DB::table('branch_stock_movements')->where('source_type','app')->count());
+        $this->assertSame(0,DB::table('branch_inventory_movements')->count());
+    }
+
+    public function test_pre_update_unpaid_bill_without_source_marker_consumes_its_direct_stock(): void
+    {
+        $this->directStock(1,3000000);$ticket=$this->saved();
+        $q=json_decode(DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('quote_snapshot'),true);
+        unset($q['items'][0]['inventory']['stock_source']);$q['items'][0]['inventory']['unit']=null;
+        DB::table('pos_service_tickets')->where('id',$ticket['id'])->update(['quote_snapshot'=>json_encode($q)]);
+        $this->tickets()->settle('dine',$ticket['id'],$this->settlePayload($ticket),$this->actor());
+        $this->assertSame(2000000,(int)DB::table('branch_stock')->value('quantity_units'));$this->assertSame(1,DB::table('branch_stock_movements')->count());
+    }
+
     public function test_goods_dropdown_contains_only_the_twenty_three_requested_raw_goods_and_preserves_legacy_balances(): void
     {
         DB::table('resturant_products')->where('id',1)->update(['product_name'=>'وجبة فسيخ']);
@@ -164,3 +233,4 @@ class DashboardBranchRecipeTest extends TestCase
         $this->denied(fn()=>$this->pay($this->cart(),101),422);$this->assertSame(1000000,$this->ingredientBalance(1));$this->assertSame(1,DB::table('branch_inventory_movements')->count());$this->assertSame(1,DB::table('branch_recipe_sales')->count());
     }
 }
+

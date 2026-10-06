@@ -355,7 +355,7 @@
         var copy = node('span', 'tp-product-copy'); copy.appendChild(node('strong', 'tp-product-name', product.name));
         var price = node('span', 'tp-product-price'); price.appendChild(node('bdi', '', money(product.unit_price || product.price))); price.appendChild(document.createTextNode(' ' + label('currency'))); copy.appendChild(price);
         var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('flexible_unit'));
-        if(product.stock){unit.textContent=(product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label);unit.style.color='#b42318';}
+        if(product.stock){unit.textContent=(product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label);unit.style.color=product.stock.negative||product.stock.quantity==='0'?'#b42318':product.stock.tracked===false?'#64748b':'#158346';}
         unit.classList.toggle('is-unavailable', !product.available); unit.classList.toggle('is-weight', product.quantity_mode === 'weight' || product.unit === 'kg'); copy.appendChild(unit);
         if (product.options && product.options.length) copy.appendChild(node('small', 'tp-product-base', label('base_option')));
         button.appendChild(copy); card.appendChild(button);
