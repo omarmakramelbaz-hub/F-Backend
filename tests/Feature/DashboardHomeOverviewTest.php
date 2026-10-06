@@ -65,8 +65,11 @@ class DashboardHomeOverviewTest extends TestCase
         }
         $this->assertFalse($this->overview()['branch_home']);
         $this->actingAs($this->actor(10),'admin');
-        $response=app(\App\Http\Controllers\Dashboard\HomeController::class)->index(\Illuminate\Http\Request::create('/admin'),app(HomeOverview::class));
-        $view=$response->getOriginalContent();$this->assertSame('admin.home_branch',$view->name());
+        // Isolate view selection from the global site's unrelated settings/header.
+        $factory=\Mockery::mock(\Illuminate\Contracts\Routing\ResponseFactory::class);
+        $factory->shouldReceive('view')->once()->with('admin.home_branch',\Mockery::on(fn($data)=>$data['boot']['initial']['branch_home']&&$data['boot']['initial']['today_expenses']['total_cents']===1500))->andReturn(new \Illuminate\Http\Response(''));
+        $this->app->instance(\Illuminate\Contracts\Routing\ResponseFactory::class,$factory);
+        app(\App\Http\Controllers\Dashboard\HomeController::class)->index(\Illuminate\Http\Request::create('/admin'),app(HomeOverview::class));
         $template=file_get_contents(resource_path('views/admin/home_branch.blade.php'));
         $this->assertSame(2,substr_count($template,'data-bh-panel='));
         $this->assertStringNotContainsString('data-ho-kpis',$template);$this->assertStringNotContainsString('data-ho-chart',$template);
