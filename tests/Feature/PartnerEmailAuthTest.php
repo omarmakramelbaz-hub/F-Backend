@@ -56,6 +56,8 @@ class PartnerEmailAuthTest extends TestCase
         Storage::fake('public');
         require_once base_path('database/migrations/2026_09_27_180000_create_go_store_catalog.php');
         (new \CreateGoStoreCatalog())->up();
+        require_once base_path('database/migrations/2026_10_07_180000_create_go_product_image_requests.php');
+        (new \CreateGoProductImageRequests())->up();
         Schema::table('pending_vendors', function (Blueprint $table) {
             $table->timestamp('reviewed_at')->nullable();
             $table->string('decline_reason')->nullable();
@@ -245,6 +247,97 @@ class PartnerEmailAuthTest extends TestCase
             'storefront'=>json_encode(['name'=>'متجر المدينة','kind'=>'supermarket','address'=>'شارع النيل القاهرة',
                 'user_id'=>999,'commission_rate'=>0,'products'=>[['name'=>'أرز','unit'=>'كيلو','price'=>'80.50',
                     'price_cents'=>1,'user_id'=>999,'options'=>[['label'=>'نصف كيلو','price'=>'42.75']]]]], JSON_UNESCAPED_UNICODE)];
+    }
+
+    public function test_ai_signup_submits_sixty_products_with_only_logo_upload_and_is_idempotent(): void
+    {
+        $token = $this->uploadSession();
+        $this->postJson('/api/partner-applications/catalog-images', ['catalog_upload_token'=>$token,
+            'images'=>['logo'=>UploadedFile::fake()->image('logo.png')]])->assertOk();
+        $payload = $this->stagedPayload($token, 60);
+        $store = json_decode($payload['storefront'], true);
+        $store['auto_images'] = true;
+        $payload['storefront'] = json_encode($store);
+        $id = $this->postJson('/api/partner-applications', $payload)->assertOk()->json('data.application_id');
+        $this->assertSame(60, DB::table('go_product_image_requests')->count());
+        $this->assertSame(0, DB::table('media')->where('collection_name', 'go_store_draft_product')->count());
+        $review = app(\App\Services\GoStores\ApplicationCatalog::class)->review(PendingVendor::findOrFail($id));
+        $this->assertCount(60, $review['products']);
+        $this->assertSame('', $review['products'][0]['image_url']);
+        $this->assertSame('pending', $review['products'][0]['image_status']);
+        $this->postJson('/api/partner-applications', $payload)->assertOk()->assertJsonPath('data.application_id', $id);
+        $this->assertSame(60, DB::table('go_product_image_requests')->count());
+    }
+
+    private function automaticApplication(): PendingVendor
+    {
+        $payload = $this->storeApplicationPayload($this->proof('application'));
+        unset($payload['product_images']);
+        $store = json_decode($payload['storefront'], true);
+        $store['auto_images'] = true;
+        $payload['storefront'] = json_encode($store);
+        $this->postJson('/api/partner-applications', $payload)->assertOk();
+        return PendingVendor::firstOrFail();
+    }
+
+    public function test_ai_result_attaches_after_approval_without_changing_name_price_or_options(): void
+    {
+        $application = $this->automaticApplication();
+        $owner = User::create(['name'=>'Store', 'account_type'=>'vendor', 'app_scope'=>'go_partner', 'pending_vendor_id'=>$application->id]);
+        DB::transaction(fn () => app(\App\Services\GoStores\ApplicationCatalog::class)->promote($application, $owner));
+        $before = DB::table('go_store_products')->first();
+        $this->assertSame('', app(\App\Services\GoStores\Catalog::class)->present($before)['image_url']);
+        Storage::disk('public')->put('go-stores/ai/fixture.jpg', 'fixture');
+        $search = \Mockery::mock(\App\Services\GoStores\ProductImageSearch::class);
+        $search->shouldReceive('configured')->andReturn(true);
+        $search->shouldReceive('find')->once()->with('أرز', 'supermarket')->andReturn([
+            'path'=>'go-stores/ai/fixture.jpg', 'provenance'=>['unbranded'=>true],
+        ]);
+        app()->instance(\App\Services\GoStores\ProductImageSearch::class, $search);
+        $this->assertSame(1, app(\App\Services\GoStores\AutomaticProductImages::class)->process(3));
+        $after = DB::table('go_store_products')->first();
+        $this->assertSame('go-stores/ai/fixture.jpg', $after->image_path);
+        foreach (['name', 'price_cents', 'options', 'user_id'] as $field) $this->assertEquals($before->$field, $after->$field);
+        $this->assertSame('ready', DB::table('go_product_image_requests')->value('status'));
+        $this->assertSame(0, app(\App\Services\GoStores\AutomaticProductImages::class)->process(3));
+    }
+
+    public function test_ai_no_match_and_provider_failure_keep_products_and_do_not_attach_wrong_images(): void
+    {
+        $application = $this->automaticApplication();
+        $search = \Mockery::mock(\App\Services\GoStores\ProductImageSearch::class);
+        $search->shouldReceive('configured')->andReturn(true);
+        $search->shouldReceive('find')->once()->andThrow(new \RuntimeException('provider outage'));
+        app()->instance(\App\Services\GoStores\ProductImageSearch::class, $search);
+        $service = app(\App\Services\GoStores\AutomaticProductImages::class);
+        $this->assertSame(0, $service->process(1));
+        $this->assertSame('pending', DB::table('go_product_image_requests')->value('status'));
+        DB::table('go_product_image_requests')->update(['next_attempt_at'=>now()->subMinute()]);
+        $search = \Mockery::mock(\App\Services\GoStores\ProductImageSearch::class);
+        $search->shouldReceive('configured')->andReturn(true);
+        $search->shouldReceive('find')->once()->andReturn(null);
+        app()->instance(\App\Services\GoStores\ProductImageSearch::class, $search);
+        $this->assertSame(1, $service->process(1));
+        $this->assertSame('no_match', DB::table('go_product_image_requests')->value('status'));
+        $this->assertSame('', DB::table('go_product_image_requests')->value('image_path'));
+        $this->assertCount(1, app(\App\Services\GoStores\ApplicationCatalog::class)->review($application)['products']);
+    }
+
+    public function test_ai_does_not_overwrite_an_image_manually_changed_during_search(): void
+    {
+        $application = $this->automaticApplication();
+        $owner = User::create(['name'=>'Store', 'account_type'=>'vendor', 'app_scope'=>'go_partner', 'pending_vendor_id'=>$application->id]);
+        DB::transaction(fn () => app(\App\Services\GoStores\ApplicationCatalog::class)->promote($application, $owner));
+        $search = \Mockery::mock(\App\Services\GoStores\ProductImageSearch::class);
+        $search->shouldReceive('configured')->andReturn(true);
+        $search->shouldReceive('find')->once()->andReturnUsing(function () {
+            DB::table('go_store_products')->update(['image_path'=>'manual.jpg']);
+            return ['path'=>'automatic.jpg', 'provenance'=>['unbranded'=>true]];
+        });
+        app()->instance(\App\Services\GoStores\ProductImageSearch::class, $search);
+        app(\App\Services\GoStores\AutomaticProductImages::class)->process(1);
+        $this->assertSame('manual.jpg', DB::table('go_store_products')->value('image_path'));
+        $this->assertSame('superseded', DB::table('go_product_image_requests')->value('status'));
     }
 
     public function test_store_application_review_approval_and_activation_keep_catalog_and_logo(): void

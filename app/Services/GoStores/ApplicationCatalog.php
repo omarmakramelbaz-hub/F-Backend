@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -23,10 +24,13 @@ class ApplicationCatalog
         if (is_string($request->input('storefront'))) {
             $request->merge(['storefront' => json_decode($request->input('storefront'), true)]);
         }
+        $automatic = $request->input('storefront.auto_images') === true;
+        if ($automatic) abort_unless(Schema::hasTable('go_product_image_requests'), 503, 'تجهيز صور المنتجات قيد التفعيل. حاول لاحقًا.');
         $price = ['required', 'numeric', 'min:0.01', 'max:1000000', 'regex:/^\d{1,7}(?:\.\d{1,2})?$/D'];
         $data = $request->validate([
             'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             'storefront' => 'required|array',
+            'storefront.auto_images' => 'sometimes|boolean',
             'storefront.name' => 'required|string|min:2|max:150',
             'storefront.kind' => 'required|in:supermarket,restaurant,pharmacy',
             'storefront.address' => 'required|string|min:5|max:500',
@@ -39,12 +43,13 @@ class ApplicationCatalog
             'storefront.products.*.options.*.label' => 'required|string|min:1|max:60',
             'storefront.products.*.options.*.price' => $price,
             'store_logo' => 'required|image|mimes:jpg,jpeg,png,webp|max:1024|dimensions:max_width=4096,max_height=4096',
-            'product_images' => 'required|array|min:1|max:60',
+            'product_images' => ($automatic ? 'nullable|array|max:60' : 'required|array|min:1|max:60'),
             'product_images.*' => 'required|image|mimes:jpg,jpeg,png,webp|max:1024|dimensions:max_width=4096,max_height=4096',
         ]);
         $store = $data['storefront'];
         if (array_keys($store['products']) !== range(0, count($store['products']) - 1)
-            || array_keys($request->file('product_images')) !== array_keys($store['products'])) {
+            || (!$automatic && array_keys($request->file('product_images', [])) !== array_keys($store['products']))
+            || array_diff(array_keys($request->file('product_images', [])), array_keys($store['products']))) {
             throw ValidationException::withMessages(['product_images' => 'أضف صورة لكل منتج.']);
         }
         foreach (['name' => 2, 'address' => 5] as $key => $minimum) {
@@ -59,7 +64,7 @@ class ApplicationCatalog
             }
         }
         $size = $request->file('store_logo')->getSize() + ($request->file('photo')?->getSize() ?? 0);
-        foreach ($request->file('product_images') as $image) $size += $image->getSize();
+        foreach ($request->file('product_images', []) as $image) $size += $image->getSize();
         if (!$request->attributes->get('go_staged_catalog') && $size > 6 * 1024 * 1024) throw ValidationException::withMessages(['product_images' => 'إجمالي الصور يجب ألا يتجاوز 6 ميجا. قلّل حجم الصور أو عدد المنتجات.']);
         return $store;
     }
@@ -72,11 +77,17 @@ class ApplicationCatalog
         foreach ($store['products'] as $index => $product) {
             $options = array_map(fn ($option) => ['id' => (string) Str::uuid(), 'label' => trim($option['label']),
                 'price_cents' => $this->cents((string) $option['price'])], $product['options']);
-            $application->addMedia($request->file('product_images.'.$index))->preservingOriginal()->withCustomProperties([
+            $properties = [
                 'name' => trim($product['name']), 'description' => trim($product['description'] ?? ''),
                 'unit' => trim($product['unit']), 'price_cents' => $this->cents((string) $product['price']),
                 'options' => $options, 'request_key' => (string) Str::uuid(),
-            ])->toMediaCollection('go_store_draft_product', 'public');
+            ];
+            if ($request->hasFile('product_images.'.$index)) {
+                $application->addMedia($request->file('product_images.'.$index))->preservingOriginal()
+                    ->withCustomProperties($properties)->toMediaCollection('go_store_draft_product', 'public');
+            } else {
+                app(AutomaticProductImages::class)->capture($application, $properties, $store['kind']);
+            }
         }
     }
 
@@ -106,6 +117,7 @@ class ApplicationCatalog
             ]);
             $media->forceFill(['model_type' => $owner->getMorphClass(), 'model_id' => $owner->id, 'collection_name' => 'go_store_product'])->save();
         }
+        app(AutomaticProductImages::class)->promote($application, $owner);
         $logo->forceFill(['model_type' => $owner->getMorphClass(), 'model_id' => $owner->id, 'collection_name' => 'go_store_logo'])->save();
         $application->unsetRelation('media');
     }
@@ -123,7 +135,8 @@ class ApplicationCatalog
         }
         if (!$logo) return null;
         return $logo->custom_properties + ['logo_url' => $logo->getUrl(),
-            'products' => $products->map(fn ($media) => $media->custom_properties + ['image_url' => $media->getUrl()])->all()];
+            'products' => array_merge($products->map(fn ($media) => $media->custom_properties + ['image_url' => $media->getUrl()])->all(),
+                app(AutomaticProductImages::class)->review($application))];
     }
 
     private function cents(string $value): int

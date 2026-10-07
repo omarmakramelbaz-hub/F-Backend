@@ -82,7 +82,11 @@ class ApplicationUploads
             $request->merge(['storefront' => $store]);
             $request->files->set('store_logo', $this->file($directory, $record, 'logo'));
             $images = [];
-            foreach ($store['products'] as $index => $product) $images[] = $this->file($directory, $record, 'p'.$index);
+            foreach ($store['products'] as $index => $product) {
+                if (($store['auto_images'] ?? false) !== true || isset($record['files']['p'.$index])) {
+                    $images[$index] = $this->file($directory, $record, 'p'.$index);
+                }
+            }
             $request->files->set('product_images', $images);
             // This attribute is set only here, never from client input/headers.
             $request->attributes->set('go_staged_catalog', true);
