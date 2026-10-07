@@ -71,7 +71,7 @@ return [
     'same_courier' => 'Select orders from one branch and one company for the same courier.',
     'finish_orders' => 'Finish orders',
     'courier_company' => 'Courier company',
-    'assign_company' => 'Hand over to delivery company',
+    'assign_company' => 'Choose courier',
     'choose_company' => 'Choose company — hand over order',
     'no_companies' => 'No active companies for this branch',
     'select_order' => 'Select for combined collection',

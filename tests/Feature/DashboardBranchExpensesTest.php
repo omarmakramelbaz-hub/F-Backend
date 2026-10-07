@@ -96,6 +96,15 @@ class DashboardBranchExpensesTest extends TestCase
         $this->assertSame(-12550,(int)DB::table('takeaway_till_entries')->value('amount_cents'));
         $this->denied(fn()=>$this->review($item,'approve',21));$this->assertCount(2,$retry['expense']['history']);
     }
+    public function test_drawer_omits_expense_and_refund_rows_without_changing_the_ledger_or_balance(): void
+    {
+        $this->cash();$expense=$this->review($this->create())['expense'];
+        $cart=['branch'=>'f:100','items'=>[['product_id'=>1,'quantity'=>'1','quantity_mode'=>'piece']],'discount'=>'0.00','discount_reason'=>''];$pos=app(TakeawayService::class);$quote=$pos->quote($cart,$this->actor());
+        $pos->checkout($cart+['quote_hash'=>$quote['quote_hash'],'idempotency_key'=>$this->key(50),'payment_method'=>'cash','cash_received'=>'100.00'],$this->actor());
+        $drawer=$pos->register('f:100',$this->actor());$this->assertCount(1,$drawer['entries']);$this->assertSame('sale',$drawer['entries'][0]['kind']);$this->assertSame(97450,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $this->review($expense,'void',21);$this->assertCount(1,$pos->register('f:100',$this->actor())['entries']);$this->assertSame(110000,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $this->assertSame(3,DB::table('takeaway_till_entries')->count());$this->assertSame(1,DB::table('takeaway_till_entries')->where('kind','expense')->count());$this->assertSame(1,DB::table('takeaway_till_entries')->where('kind','expense_refund')->count());
+    }
     public function test_cancellation_reverses_cash_once_and_keeps_audit(): void
     {
         $this->cash();$item=$this->review($this->create())['expense'];$void=$this->review($item,'void',21);$retry=$this->review($item,'void',21);

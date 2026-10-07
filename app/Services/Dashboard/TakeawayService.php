@@ -180,7 +180,7 @@ class TakeawayService
         $branch = $this->access->branch($value, $actor);
         $date = $date ?? $this->businessDate();
         $permissions = $this->access->permissions($actor);
-        $entries = DB::table('takeaway_till_entries')->where('branch', $branch['value'])->where('business_date', $date)->where('kind', '!=', 'shift_close')->orderByDesc('id')->limit(100)->get();
+        $entries = DB::table('takeaway_till_entries')->where('branch', $branch['value'])->where('business_date', $date)->whereNotIn('kind', ['shift_close','expense','expense_refund'])->orderByDesc('id')->limit(100)->get();
         return ['success'=>true, 'branch'=>$branch, 'register'=>$this->presentTill($this->till($branch['value']), $actor),
             'permissions'=>$permissions, 'today'=>$this->daily($branch['value'], $date),
             'entries'=>$entries->map(function ($entry) use ($permissions) {
@@ -413,4 +413,3 @@ class TakeawayService
     private function iso(string $time): string { return Carbon::parse($time, 'UTC')->setTimezone(config('app.timezone', 'Africa/Cairo'))->toIso8601String(); }
     private function hash(array $values): string { return hash('sha256', json_encode($values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
 }
-

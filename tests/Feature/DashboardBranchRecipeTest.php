@@ -72,6 +72,30 @@ class DashboardBranchRecipeTest extends TestCase
         $payload=$this->recipePayload();$payload['product_id']=3;$this->inventory()->saveRecipe($payload,$this->actor(1));
         $this->assertSame(0,$this->inventory()->listing(['branch'=>'f:100'],$this->actor())['unconfigured_count']);
     }
+    public function test_cola_chips_and_misspelled_roe_cards_consume_one_matching_piece(): void
+    {
+        $names=['مشروب كولا'=>22,'طبق بطاطس شيبسي'=>21,'علبة بطاخ رنجه ورن400جرام'=>13];$ids=[];
+        foreach($names as $name=>$ingredient){$id=100+count($ids);$ids[$id]=$ingredient;DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>100,'product_name'=>$name,'product_price'=>'15','price'=>'{}','status'=>'show']);$this->receiveIngredient($ingredient,'10',1000+$ingredient,'piece');}
+        $items=$this->inventory()->decorate('f:100',array_map(fn($id)=>['id'=>$id,'unit'=>'','quantity_mode'=>'piece'],array_keys($ids)));
+        foreach($items as $item){$this->assertSame('piece',$item['quantity_mode']);$this->assertSame($ids[$item['id']],$item['stock']['ingredient_id']);$this->assertSame('10',$item['stock']['quantity']);}
+        $cart=$this->cart();$cart['items']=array_map(fn($id)=>['product_id'=>$id,'quantity'=>'2','quantity_mode'=>'piece'],array_keys($ids));[$sale,$payment]=$this->pay($cart);
+        $this->assertSame('90.00',$sale['receipt']['total']);foreach($ids as $id=>$ingredient){$this->assertSame(8000000,$this->ingredientBalance($ingredient));$this->assertSame('8',$sale['stock_balances'][$id]['quantity']);}
+        $this->assertTrue(app(TakeawayService::class)->checkout($payment,$this->actor())['replayed']);$this->assertSame(3,DB::table('branch_inventory_movements')->where('source_type','pos')->count());
+    }
+    public function test_vegetable_cards_show_raw_balance_without_changing_plate_price_then_consume_saved_grams(): void
+    {
+        $names=['بصل جوليان احمر'=>16,'طبق فلفل اخضر'=>17,'طبق ليمون'=>19];$ids=[];
+        foreach($names as $name=>$ingredient){$id=100+count($ids);$ids[$id]=$ingredient;DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>100,'product_name'=>$name,'product_price'=>'15','price'=>'{}','status'=>'show']);$this->receiveIngredient($ingredient,'2',1000+$ingredient);}
+        $catalog=app(\App\Services\Dashboard\TakeawayCatalog::class)->listing(['branch'=>'f:100'],$this->actor());$items=array_column($catalog['items'],null,'id');
+        $review=array_column($this->inventory()->recipes(['branch'=>'f:100'],$this->actor(1))['items'],null,'id');
+        foreach($ids as $id=>$ingredient){$this->assertSame('piece',$items[$id]['quantity_mode']);$this->assertSame('15.00',$items[$id]['unit_price']);$this->assertSame('ingredient_preview',$items[$id]['stock']['source']);$this->assertSame('2',$items[$id]['stock']['quantity']);$this->assertSame('kg',$items[$id]['stock']['unit']);$this->assertFalse($items[$id]['stock']['configured']);
+            $this->assertSame([['ingredient_id'=>$ingredient,'measure'=>'g','quantity'=>'']],$review[$id]['recipe_hint']);
+            $recipe=$this->recipePayload(2000+$id,$id);$recipe['components']=[['ingredient_id'=>$ingredient,'measure'=>'g','quantity'=>'50']];$this->inventory()->saveRecipe($recipe,$this->actor(1));
+        }
+        $cart=$this->cart();$cart['items']=array_map(fn($id)=>['product_id'=>$id,'quantity'=>'2','quantity_mode'=>'piece'],array_keys($ids));[$sale]=$this->pay($cart);
+        $this->assertSame('90.00',$sale['receipt']['total']);foreach($ids as $id=>$ingredient){$this->assertSame(1900000,$this->ingredientBalance($ingredient));$this->assertSame('38',$sale['stock_balances'][$id]['quantity']);}
+        $foreign=$this->inventory()->menuBalances('f:101',array_keys($ids));foreach($foreign as $stock)$this->assertFalse($stock['tracked']);
+    }
     public function test_canned_herring_migration_is_repeatable_and_preserves_registered_stock(): void
     {
         $this->receiveIngredient(24,'7',1200,'piece');$before=DB::table('branch_inventory')->get()->toJson();

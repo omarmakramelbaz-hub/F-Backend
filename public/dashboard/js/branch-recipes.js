@@ -38,20 +38,20 @@
         remove.type='button';remove.setAttribute('aria-label','حذف المكوّن');remove.addEventListener('click',function(){if(locked()||!canManage)return;row.remove();dirty=true;});row.append(select,quantity,measure,remove);return row;
     }
     function renderVariant(){
-        var body=panel.querySelector('[data-recipe-components]');body.replaceChildren();var values=chosen&&chosen.recipe&&chosen.recipe.variants[feature]||[];
+        var body=panel.querySelector('[data-recipe-components]');body.replaceChildren();var values=chosen&&chosen.recipe&&chosen.recipe.variants[feature]||chosen&&chosen.recipe_hint||[];
         (values.length?values:[{}]).forEach(function(c){body.appendChild(ingredientRow(c));});dirty=false;lock();
     }
     function selectProduct(item,force){
         if(!force&&(locked()||dirty&&!confirm('ترك تعديلات الوصفة غير المحفوظة؟')))return;
         chosen=item;feature='0';form.hidden=!item;panel.querySelector('[data-recipe-empty]').hidden=!!item;
         panel.querySelector('[data-recipe-title]').textContent=item?item.name:'اختر صنفًا لتسجيل وصفته';
-        panel.querySelector('[data-recipe-revision]').textContent=item&&item.recipe?(item.recipe.raw_stock?'مرتبط مباشرة برصيد البضاعة':'نسخة الوصفة '+item.recipe.revision):!canManage?'عرض الوصفات — التعديل من حساب الإدارة أو المالك':'';
+        panel.querySelector('[data-recipe-revision]').textContent=item&&item.recipe?(item.recipe.raw_stock?'مرتبط مباشرة برصيد البضاعة':'نسخة الوصفة '+item.recipe.revision):item&&item.stock_source==='ingredient_preview'?'سجّل وزن الخضار بالجرام لكل طبق لتفعيل الخصم من البضاعة':!canManage?'عرض الوصفات — التعديل من حساب الإدارة أو المالك':'';
         if(!item){dirty=false;return;}
         form.elements.feature_id.replaceChildren();item.features.forEach(function(f){var option=el('option',f.label+(item.recipe&&item.recipe.variants[String(f.id)]?' · مسجلة':' · غير مسجلة'));option.value=f.id;form.elements.feature_id.appendChild(option);});
         form.elements.unit.value=item.recipe?item.recipe.unit:'piece';renderVariant();renderProducts();
     }
     function renderProducts(){
-        var list=panel.querySelector('[data-recipe-products]');list.replaceChildren();products.forEach(function(item){var button=el('button'),name=el('span',item.name),count=item.features.filter(function(f){return item.recipe&&item.recipe.variants[String(f.id)];}).length,badge=el('small',item.stock_source==='direct'?'رصيد وحدة مستقل':item.stock_source==='unconfigured'?'يحتاج وصفة':item.stock_source==='ingredient'?'مرتبط بالبضاعة':count+'/'+item.features.length+' أحجام',item.stock_source==='ingredient'||item.stock_source==='direct'||count===item.features.length?'is-ready':'');button.type='button';button.dataset.recipeProduct=item.id;button.setAttribute('aria-pressed',String(!!chosen&&chosen.id===item.id));button.append(name,badge);button.addEventListener('click',function(){selectProduct(item,false);});list.appendChild(button);});if(!products.size)list.appendChild(el('p','لا توجد أصناف مطابقة.','bs-note'));
+        var list=panel.querySelector('[data-recipe-products]');list.replaceChildren();products.forEach(function(item){var button=el('button'),name=el('span',item.name),count=item.features.filter(function(f){return item.recipe&&item.recipe.variants[String(f.id)];}).length,badge=el('small',item.stock_source==='direct'?'رصيد وحدة مستقل':item.stock_source==='ingredient_preview'?'يحتاج وزن الطبق':item.stock_source==='unconfigured'?'يحتاج وصفة':item.stock_source==='ingredient'?'مرتبط بالبضاعة':count+'/'+item.features.length+' أحجام',item.stock_source==='ingredient'||item.stock_source==='direct'||count===item.features.length?'is-ready':'');button.type='button';button.dataset.recipeProduct=item.id;button.setAttribute('aria-pressed',String(!!chosen&&chosen.id===item.id));button.append(name,badge);button.addEventListener('click',function(){selectProduct(item,false);});list.appendChild(button);});if(!products.size)list.appendChild(el('p','لا توجد أصناف مطابقة.','bs-note'));
     }
     async function load(page,selectId,selectFeature){
         if(busy||frozen||disposed)return;clearTimeout(timer);if(controller)controller.abort();controller=new AbortController();var token=++generation,atBranch=branch.value;loading=true;lock();
