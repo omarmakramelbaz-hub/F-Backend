@@ -85,6 +85,11 @@
     }
 
     async function run(job) {
+        if (window.FasakhanstaDesktop && typeof window.FasakhanstaDesktop.printReceipt === 'function') {
+            try { await window.FasakhanstaDesktop.printReceipt(job.url.href); job.resolve(); }
+            catch (error) { job.reject(error); }
+            return;
+        }
         var controller = new AbortController();
         var frame = null;
         var disposed = false;

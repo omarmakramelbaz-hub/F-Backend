@@ -58,6 +58,8 @@ $snapshot=$service->snapshot($device);check(count($snapshot['products'])===1,'re
 $data=['channel'=>'takeaway','items'=>[['product_id'=>1,'option_id'=>'','quantity_mode'=>'weight','quantity'=>'0.250']],
  'delivery_cents'=>0,'discount'=>'0.00','discount_reason'=>'','cash_received'=>'100.00','total_cents'=>2850,
  'customer_name'=>'','customer_phone'=>'','address'=>'','table_name'=>'','notes'=>''];
+$unpriced=$snapshot;$unpriced['products'][0]['variants'][0]['unit_price_cents']=0;
+denied(fn()=>app(DesktopPosQuote::class)->build($unpriced,app(TakeawayService::class)->canonicalCart(['branch'=>'f:100']+$data),'takeaway',0),422,'unconfigured zero-price offline variant cannot be imported as a sale');
 $event=['id'=>(string)Str::uuid(),'order_id'=>(string)Str::uuid(),'snapshot_id'=>$snapshot['id'],'kind'=>'sale','revision'=>1,'occurred_at'=>now('UTC')->toIso8601String(),'data'=>$data];
 DB::table('resturant_products')->where('id',1)->update(['product_price'=>'400.00']);
 $first=$service->ingest($device,$event);check($first['receipt']['total']==='28.50','offline paid price preserved after menu price changes');

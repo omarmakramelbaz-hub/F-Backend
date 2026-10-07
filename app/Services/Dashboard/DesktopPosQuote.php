@@ -18,6 +18,7 @@ class DesktopPosQuote
         foreach ($cart['items'] as $item) {
             $v = $variants[$item['product_id'].'|'.$item['option_id']] ?? null;
             abort_unless($v && empty($item['feature_id']) && empty($item['product_clean']), 422, 'الصنف غير موجود في نسخة المينيو المحفوظة.');
+            abort_unless($v['unit_price_cents'] > 0, 422, 'سعر الصنف غير محدد في نسخة المينيو المحفوظة.');
             abort_unless($v['quantity_mode'] === 'select' || $v['quantity_mode'] === $item['quantity_mode'], 422, 'وحدة الصنف غير صحيحة.');
             $qty = $item['quantity_millis'];
             abort_unless($qty > 0 && $qty <= 1000000 && ($item['quantity_mode'] !== 'piece' || $qty % 1000 === 0), 422);

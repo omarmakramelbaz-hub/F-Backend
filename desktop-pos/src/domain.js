@@ -21,6 +21,7 @@
     for(const item of d.items) {
       const p=snapshot.products.find(p=>p.id===item.product_id), v=p?.variants.find(v=>v.option_id===item.option_id);
       if(!p||!v||!['piece','weight'].includes(item.quantity_mode)||(v.quantity_mode!=='select'&&v.quantity_mode!==item.quantity_mode)) throw Error('الصنف أو الوحدة غير متاح في المينيو المحفوظ.');
+      if(!Number.isSafeInteger(v.unit_price_cents)||v.unit_price_cents<=0)throw Error('سعر الصنف غير محدد في المينيو. حدّث الأسعار من الداشبورد قبل استخدامه.');
       const qty=decimal(item.quantity,3);
       if(qty<1||qty>1000000||(item.quantity_mode==='piece'&&qty%1000!==0)) throw Error('العدد صحيح أو الوزن حتى ٣ منازل عشرية، وبحد أقصى ١٠٠٠.');
       const key=item.product_id+'|'+item.option_id+'|'+item.quantity_mode;

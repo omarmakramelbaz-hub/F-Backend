@@ -1,7 +1,7 @@
 {
   "name": "fasakhansta-desktop-pos",
-  "version": "0.1.0",
-  "description": "Fasakhansta branch POS with durable offline orders and reconciliation",
+  "version": "0.2.0",
+  "description": "Full Fasakhansta dashboard desktop app with durable offline branch orders",
   "main": "src/main.cjs",
   "author": "Fasakhansta",
   "private": true,

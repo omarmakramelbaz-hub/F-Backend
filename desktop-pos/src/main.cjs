@@ -1,9 +1,10 @@
-const {app,BrowserWindow,ipcMain,protocol,net,safeStorage,shell,dialog}=require('electron');
+const {app,BrowserWindow,ipcMain,protocol,net,safeStorage,dialog}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require('./receipt.cjs');
+const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
-if(!app.requestSingleInstanceLock())app.quit();
-let win,store,sync,timer,retryMs=5000;
+if(!(process.env.POS_TEST_PROFILE&&!app.isPackaged)&&!app.requestSingleInstanceLock())app.quit();
+let win,store,sync,dashboard,timer,retryMs=5000,quitting=false;
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -18,6 +19,7 @@ function state() {
   const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||''};
 }
 function notify() {if(win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
+function localOrders(message='') {if(win&&!win.isDestroyed()){win.show();if(win.isMinimized())win.restore();win.focus();if(message)win.webContents.send('pos:notice',message);}}
 function writable() {if(store.get('authorization_blocked'))throw Error('ربط الجهاز متوقف من الإدارة. العمليات السابقة محفوظة؛ يلزم إعادة تفعيل الربط.');}
 async function tick() {
   if(store.get('connection')) {await sync.run();if(sync.online&&!sync.error){retryMs=5000;store.set('last_synced',new Date().toISOString());}else retryMs=Math.min(retryMs*2,60000);notify();}
@@ -44,7 +46,8 @@ app.whenReady().then(async()=>{
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
-  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,title:'فسخانستا — كاشير الفرع',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,title:'فسخانستا — الطلبات المحلية',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win.on('close',e=>{if(!quitting){e.preventDefault();app.quit();}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith('fasakhansta://pos/'))e.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   handle('state',()=>state());handle('new',()=>{writable();if(store.openOrders().filter(o=>o.status==='draft').length>=5)throw Error('الحد الأقصى ٥ فواتير مفتوحة؛ أكمل واحدة أولًا.');return store.newOrder();});
@@ -60,12 +63,15 @@ app.whenReady().then(async()=>{
     await sync.run();notify();return state();
   });
   handle('printers',()=>win.webContents.getPrintersAsync());handle('printer',name=>{store.set('printer',String(name));return true;});
-  handle('dashboard',async()=>{const c=store.get('connection');if(!c)throw Error('اربط الجهاز أولًا.');await shell.openExternal(origin(c.origin)+'/admin/desktop-pos');});
+  handle('dashboard',async()=>{await dashboard.open();return true;});
   handle('backup',async()=>{
     const r=await dialog.showSaveDialog(win,{title:'نسخة من سجل عمليات الجهاز',defaultPath:'Fasakhansta-POS-Backup.sqlite',filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(r.canceled)return false;const {backup}=require('node:sqlite');await backup(store.db,r.filePath);return true;
   });
-  await win.loadURL('fasakhansta://pos/index.html');tick();
+  await win.loadURL('fasakhansta://pos/index.html');
+  const dashboardOrigin=!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN);
+  dashboard=createDashboard({origin:dashboardOrigin,offline:localOrders,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>store.get('printer')||''});
+  tick();await dashboard.open();
 });
-app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
-app.on('window-all-closed',()=>app.quit());app.on('before-quit',()=>{clearTimeout(timer);if(store)store.close();});
+app.on('second-instance',()=>{if(dashboard?.isVisible())dashboard.reveal();else localOrders();});
+app.on('window-all-closed',()=>app.quit());app.on('before-quit',()=>{quitting=true;clearTimeout(timer);if(store)store.close();});

@@ -3,7 +3,7 @@
 <div class="content-wrapper"><section class="content-header"><h1>برنامج الكمبيوتر — فسخانستا</h1></section>
 <section class="content">
 <div class="card"><div class="card-body">
-    <p>الطلبات والطباعة تعمل على الكمبيوتر وقت انقطاع الإنترنت. العمليات تُرفع تلقائيًا عند عودة الاتصال.</p>
+    <p>يفتح برنامج الكمبيوتر الداشبورد الأصلية كاملة بنفس حسابك وصلاحياتك. بعد تجهيز ربط الجهاز، تعمل الطلبات والطباعة محليًا وقت انقطاع الإنترنت وتُرفع العمليات تلقائيًا عند عودة الاتصال.</p>
     <form method="get"><label>الفرع <select name="branch" onchange="this.form.submit()">@foreach($branches as $b)<option value="{{ $b['value'] }}" @if($selected===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label></form>
     @if(!$ready)<p>البرنامج يحتاج تفعيل تحديثه على السيرفر.</p>@endif
     @if($installer)<a class="btn btn-warning my-3" href="{{ route('desktop-pos.download') }}">تحميل برنامج ويندوز</a>@else<p class="my-3">ملف تثبيت ويندوز لم يُرفع بعد.</p>@endif
