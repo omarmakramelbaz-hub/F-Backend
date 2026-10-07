@@ -1,0 +1,61 @@
+name: GO product images - server readiness
+on:
+  push:
+    branches: ['codex/go-store-ai-images-20261007']
+    paths: ['.github/workflows/go-product-images-readiness.yml']
+permissions:
+  contents: read
+concurrency:
+  group: go-product-image-readiness
+  cancel-in-progress: false
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect server and provider readiness without changing production
+        shell: bash
+        env:
+          DEPLOY_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$DEPLOY_KEY_B64" ]]; then
+            echo 'SERVER_ACCESS=SSH_SECRET_UNAVAILABLE'
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s' "$DEPLOY_KEY_B64" | tr -d '\r\n ' | base64 --decode > ~/.ssh/go_image_readiness
+          trap 'rm -f ~/.ssh/go_image_readiness /tmp/go-image-readiness.sh' EXIT
+          ssh-keygen -y -f ~/.ssh/go_image_readiness >/dev/null
+          cat > /tmp/go-image-readiness.sh <<'CHECK'
+          set -euo pipefail
+          for GO_IMAGE_PROJECT in /home/fasakha/public_html /home/fasakhaninja/public_html; do
+            if [[ -f "$GO_IMAGE_PROJECT/artisan" && -f "$GO_IMAGE_PROJECT/vendor/autoload.php" ]]; then
+              cd "$GO_IMAGE_PROJECT"
+              echo "PROJECT_ROOT=$GO_IMAGE_PROJECT"
+              printf 'DEPLOYED_COMMIT='; git rev-parse HEAD
+              printf 'DEPLOYED_BRANCH='; git branch --show-current
+              if git diff --quiet && git diff --cached --quiet; then echo 'TRACKED_WORKTREE=CLEAN'; else echo 'TRACKED_WORKTREE=MODIFIED'; fi
+              php <<'PHP'
+          <?php
+          require 'vendor/autoload.php';
+          Dotenv\Dotenv::createImmutable(getcwd())->safeLoad();
+          foreach (['GO_PRODUCT_IMAGES_OPENAI_KEY', 'GO_PRODUCT_IMAGES_BRAVE_KEY'] as $name) {
+              $value = $_ENV[$name] ?? getenv($name);
+              echo $name.'='.(is_string($value) && trim($value) !== '' ? 'SET' : 'MISSING').PHP_EOL;
+          }
+          $app = require 'bootstrap/app.php';
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+          echo 'IMAGE_REQUEST_SCHEMA='.(Illuminate\Support\Facades\Schema::hasTable('go_product_image_requests') ? 'PRESENT' : 'MISSING').PHP_EOL;
+          echo 'IMAGE_SERVICE_CODE='.(is_file('app/Services/GoStores/ProductImageSearch.php') ? 'PRESENT' : 'MISSING').PHP_EOL;
+          PHP
+              exit 0
+            fi
+          done
+          echo 'SERVER_ACCESS=LARAVEL_PROJECT_NOT_FOUND'
+          exit 1
+          CHECK
+          ssh -T -i ~/.ssh/go_image_readiness -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            root@187.127.92.124 'bash -s' < /tmp/go-image-readiness.sh
