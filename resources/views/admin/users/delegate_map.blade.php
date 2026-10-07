@@ -30,45 +30,8 @@
     	    </div>
 		</section>            
 
+</div>
 @endsection
 @push('custom-js')
-<script src="https://maps.googleapis.com/maps/api/js?key={{env('MAP_KEY')}}&language=ar"></script>
-
-    <script type="text/javascript">
-
-                    var jArray = <?php echo json_encode($arr); ?>;
-                    //console.log(jArray);
-                    var locations=[];
-                    for(var i=0; i<jArray.length; i++){
-                        locations.push(jArray[i]);
-                    }
-                    var map = new google.maps.Map(document.getElementById('map'), {
-                        zoom: 4,
-                        center: new google.maps.LatLng(26.866136552951208, 30.043314297356353),
-                        mapTypeId: google.maps.MapTypeId.ROADMAP
-                    });
-
-                    var infowindow = new google.maps.InfoWindow();
-
-                    var marker, i;
-
-                    for (i = 0; i < locations.length; i++) {
-                        marker = new google.maps.Marker({
-                            position: new google.maps.LatLng(locations[i][1], locations[i][2]),
-                            map: map,
-                            url:locations[i][3]
-                        });
-
-                        google.maps.event.addListener(marker, 'click', (function(marker, i) {
-                            return function() {
-                                // console.log();
-                                infowindow.setContent('<a target="_blank" href="'+locations[i][3]+'">'+locations[i][0]+'</a><p>'+locations[i][4]+'</p>');
-                                      // window.location.href = marker.url;
-                                // infowindow.setContent(locations[i][3]);
-
-                                infowindow.open(map, marker);
-                            }
-                        })(marker, i));
-                    }
-                </script>
+@include('admin.maps.directory', ['mapKind'=>'delegate'])
 @endpush

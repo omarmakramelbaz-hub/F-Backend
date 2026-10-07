@@ -1,0 +1,95 @@
+name: Phone delivery layout
+
+on:
+  push:
+    branches: ['codex/unified-app-orders-20261003']
+    paths:
+      - 'public/dashboard/css/phone-orders.css'
+      - 'public/dashboard/js/phone-orders.js'
+      - 'public/dashboard/js/takeaway-pos.js'
+      - 'public/dashboard/js/dining-pos.js'
+      - 'public/dashboard/js/branch-recipes.js'
+      - 'public/dashboard/css/branch-stock.css'
+      - 'tests/browser/recipe-menu.cjs'
+      - 'resources/views/admin/branch_stock/index.blade.php'
+      - 'resources/views/admin/expenses/index.blade.php'
+      - 'public/dashboard/js/branch-expenses.js'
+      - 'public/dashboard/css/branch-expenses.css'
+      - 'tests/browser/expense-form.cjs'
+      - 'tests/browser/dashboard-save-actions.cjs'
+      - 'tests/browser/dashboard-notices.cjs'
+      - 'public/dashboard/branding/dashboard-brand.css'
+      - 'resources/views/admin/layouts/footer.blade.php'
+      - 'resources/views/admin/products/**'
+      - 'public/dashboard/js/dashboard-spa.js'
+      - 'resources/views/admin/phone_orders/index.blade.php'
+      - 'resources/lang/*/phone_orders.php'
+      - 'public/dashboard/js/branch-home.js'
+      - 'public/dashboard/css/home-overview.css'
+      - 'resources/views/admin/home_branch.blade.php'
+      - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/stock-expenses-address.cjs'
+      - 'public/dashboard/js/dashboard-expense-badge.js'
+      - 'public/dashboard/js/dashboard-location-picker.js'
+      - '.github/workflows/phone-delivery-layout.yml'
+  pull_request:
+    paths:
+      - 'public/dashboard/css/phone-orders.css'
+      - 'public/dashboard/js/phone-orders.js'
+      - 'public/dashboard/js/takeaway-pos.js'
+      - 'public/dashboard/js/dining-pos.js'
+      - 'public/dashboard/js/branch-recipes.js'
+      - 'public/dashboard/css/branch-stock.css'
+      - 'tests/browser/recipe-menu.cjs'
+      - 'resources/views/admin/branch_stock/index.blade.php'
+      - 'resources/views/admin/expenses/index.blade.php'
+      - 'public/dashboard/js/branch-expenses.js'
+      - 'public/dashboard/css/branch-expenses.css'
+      - 'tests/browser/expense-form.cjs'
+      - 'tests/browser/dashboard-save-actions.cjs'
+      - 'tests/browser/dashboard-notices.cjs'
+      - 'public/dashboard/branding/dashboard-brand.css'
+      - 'resources/views/admin/layouts/footer.blade.php'
+      - 'resources/views/admin/products/**'
+      - 'public/dashboard/js/dashboard-spa.js'
+      - 'resources/views/admin/phone_orders/index.blade.php'
+      - 'public/dashboard/js/branch-home.js'
+      - 'public/dashboard/css/home-overview.css'
+      - 'resources/views/admin/home_branch.blade.php'
+      - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/stock-expenses-address.cjs'
+      - 'public/dashboard/js/dashboard-expense-badge.js'
+      - 'public/dashboard/js/dashboard-location-picker.js'
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/delivery-browser" --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/delivery-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check queue density and preserved actions
+        env:
+          NODE_PATH: ${{ runner.temp }}/delivery-browser/node_modules
+        run: |
+          node tests/browser/phone-delivery-density.cjs
+          node tests/browser/stock-expenses-address.cjs
+          node tests/browser/recipe-menu.cjs
+          node tests/browser/expense-form.cjs
+          node tests/browser/dashboard-save-actions.cjs
+          node tests/browser/dashboard-notices.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-delivery-layout
+          path: test-results/phone-delivery/
+          retention-days: 7

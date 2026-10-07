@@ -129,6 +129,9 @@ $token = $json['token'];
                 'order_id' => $order->id,
                 'user_id' => $order->user_id,
                 'intention_order_id' => $intention_order_id,
+                // Bind future signed failure evidence to the amount actually
+                // sent to Paymob, independent of later menu/order edits.
+                'total_price' => \App\Services\GoServices\Money::decimal((int) $amount_cents),
             ]);
             if(auth('api')->check()){
             return $this->successResponse(['order_id' => $order->id ,'link' => 'https://accept.paymob.com/unifiedcheckout/?publicKey=egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX&clientSecret='.$client_secret],__('api.wallet charge successfully'));
@@ -384,6 +387,12 @@ $token = $json['token'];
             return (new CheckoutController)->checkout_done($request->order, $payment_details);
 
         } else {
+            try {
+                app(\App\Services\Payments\LegacyPaymentFailure::class)->record($request);
+            } catch (\Throwable $exception) {
+                // Failure evidence must not block the existing customer redirect.
+                \Log::warning('Paymob failure evidence could not be recorded', ['exception' => get_class($exception)]);
+            }
             // dd($payment_details,$request);
                     return redirect()->route('payFailed');
 

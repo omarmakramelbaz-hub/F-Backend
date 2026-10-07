@@ -38,6 +38,7 @@ trait FcmFirebase {
         
         // Initialize Google Client and get access token
         $client = new GoogleClient();
+        $client->setHttpClient(new \GuzzleHttp\Client(['connect_timeout' => 4, 'timeout' => 12]));
         $client->setAuthConfig($credentialsFilePath);
         $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
         $client->refreshTokenWithAssertion();
@@ -108,6 +109,8 @@ trait FcmFirebase {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 12);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
             
@@ -322,4 +325,3 @@ trait FcmFirebase {
         ];
     }
 }
-

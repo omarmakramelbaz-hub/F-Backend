@@ -1,7 +1,10 @@
 <?php
 namespace App\Http\Controllers\Api\V1\Vendor;
+use App\Services\Dashboard\OrderProviderDelivery;
 use App\Services\OrderBroadcastService;
 use App\Services\OrderAction;
+use App\Services\Dashboard\BestEffortOrderMail;
+use App\Services\Dashboard\LegacyOrderCompletion;
 use App\Events\OrderStatusUpdated;
 use App\Events\OrderUpdated;
 use App\Http\Controllers\Controller;
@@ -24,7 +27,6 @@ use \Carbon\Carbon;
 use App\Models\Wallet;
 use App\Models\GeneralSettings;
 use App\Interfaces\ResturantRepositoryInterface;
-use Mail;
 use DB;
 use App\Http\Requests\Api\Vendor\UpdateOrderTotalRequest;
 use App\Events\DelegateUpdated;
@@ -84,6 +86,7 @@ class OrderController extends Controller
 
     public function getSingleOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
 
         if ($request->wantsJson() || $request->is('api/*')) {
             $carts = OrderResource::make($order);
@@ -96,11 +99,15 @@ class OrderController extends Controller
     public function searchDelegates()
     {
         // dd(request()->all());
-        $resturant = Resturant::where('id', request('resturant_id'))->first();
+        $order = Order::where('id', request('order_id'))->firstOrFail();
+        $this->assertAdminOrderAccess($order);
+        $resturant = auth('admin')->check()
+            ? $order->resturant
+            : Resturant::where('id', request('resturant_id'))->firstOrFail();
+        abort_unless($resturant, 404);
         $latitude = $resturant->lat;
         $longitude = $resturant->lng;
-        $order = Order::where('id', request('order_id'))->first();
-        $delegates = User::where('connected', 'active')->where('status', 'accepted')->where('account_type', 'delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians(' . $latitude . ') ) * cos( radians( lat ) ) * 
+        $delegates = $this->orderUsers()->where('connected', 'active')->where('status', 'accepted')->where('account_type', 'delegate')->select(\DB::raw('*, ( 6367 * acos( cos( radians(' . $latitude . ') ) * cos( radians( lat ) ) *
           cos( radians( lng ) - radians(' . $longitude . ') ) + sin( radians(' . $latitude . ') ) * sin( radians( lat ) ) ) ) AS distance'))
             ->having('distance', '<', 10)
             ->orderBy('distance')->get();
@@ -111,7 +118,7 @@ class OrderController extends Controller
             foreach ($delegates as $key => $value) {
                 $order->update(['delegate_from_out' => 'out_resturant']);
 
-                broadcast(new DelegateUpdated($order, 1, $value->id));
+                app(OrderProviderDelivery::class)->event(new DelegateUpdated($order, 1, $value->id), (int) $order->id);
                 DelegateNotification::create([
                     'delegate_id' => $value->id,
                     'order_id' => $order->id,
@@ -130,18 +137,30 @@ class OrderController extends Controller
 
     public function updateOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->updateOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderLocked(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
         // dd($request);
         if ($request->type == 'in_resturant') {
             $up = $order->update(['status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
             //send notification for user has order    
-            $user_order_owner = User::where('id', $order->user_id)->first();
+            $user_order_owner = $this->orderUsers()->where('id', $order->user_id)->first();
             if ($user_order_owner) {
                 Notification::send($user_order_owner, new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
             }
 
             $email = $user_order_owner->email ?? null;
             if ($email) {
-                Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                app(BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                     $message->to($email);
                     $message->subject('Your order has been received!');
 
@@ -149,9 +168,9 @@ class OrderController extends Controller
             }
             OrderBroadcastService::accept($order);
 
-broadcast(new OrderFinishedUpdated($order, 1, $order->user_id));
+app(OrderProviderDelivery::class)->event(new OrderFinishedUpdated($order, 1, $order->user_id), (int) $order->id);
 
-event(new OrderStatusUpdated($order));
+app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
             if ($request->wantsJson() || $request->is('api/*')) {
                 $orderData = OrderResource::make($order->fresh());
                 return $this->successResponse($orderData, __('api.order has prepared from resturant'));
@@ -165,16 +184,16 @@ event(new OrderStatusUpdated($order));
     $order->update(['delegate_from_out' => 'out_resturant']);
 
     // إشعار العميل
-    broadcast(new OrderFinishedUpdated($order, 1, $order->user_id));
+    app(OrderProviderDelivery::class)->event(new OrderFinishedUpdated($order, 1, $order->user_id), (int) $order->id);
 
     // إشعار الفرع
-    $vendor = User::find(optional($order->resturant)->user_id);
+    $vendor = $this->orderUsers()->find(optional($order->resturant)->user_id);
     if ($vendor) {
         OrderBroadcastService::outForDelivery($order);
     }
 
     // إشعار الإدارة الرئيسية (الحساب 635)
-    $mainAdmin = User::where('account_type', 'resturant_owner')->first();
+    $mainAdmin = $this->orderUsers()->where('account_type', 'resturant_owner')->first();
     if ($mainAdmin) {
     }
 
@@ -237,6 +256,23 @@ event(new OrderStatusUpdated($order));
 
     public function updateOrderStatus(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true) && $locked->status !== $request->status, 409, 'تم إغلاق الطلب.');
+            return $this->updateOrderStatusLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderStatusLocked(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
+        if ($request->status === 'completed' && $order->type === 'current') {
+            app(LegacyOrderCompletion::class)->complete($order);
+            if ($request->wantsJson() || $request->is('api/*')) return $this->successResponse('success', __('api.order updated successfully'));
+            return redirect()->route('orders.applies')->with('success_code', 'completed');
+        }
     
 \Log::info('UPDATE_ORDER_STATUS', [
     'order_id' => $order->id,
@@ -247,8 +283,8 @@ event(new OrderStatusUpdated($order));
             $data = $order->update(['status' => $request->status]);
             OrderBroadcastService::decline($order);
 
-$user_order_owner = User::where('id', $order->user_id)->first();
-$resturant_owner = User::where('id', $order->resturant->user_id)->first();
+$user_order_owner = $this->orderUsers()->where('id', $order->user_id)->first();
+$resturant_owner = $this->orderUsers()->where('id', $order->resturant->user_id)->first();
 
 // تحديث جميع شاشات الأدمن
 if ($resturant_owner) {
@@ -320,7 +356,7 @@ if ($resturant_owner) {
 
                 $email = $user_order_owner->email;
                 if ($email) {
-                    Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                    app(BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                         $message->to($email);
                         $message->subject('Your order has been received!');
 
@@ -328,7 +364,7 @@ if ($resturant_owner) {
                 }
             }
 
-            event(new OrderStatusUpdated($order));
+            app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
         }
         if ($request->wantsJson() || $request->is('api/*')) {
             return $this->successResponse("success", __('api.order updated successfully'));
@@ -343,6 +379,18 @@ if ($resturant_owner) {
 
     public function acceptOrder(Request $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->acceptOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function acceptOrderLocked(Request $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
         if ($order->accepted_notify != 'yes') {
 
     $data = $order->update(['accepted_notify' => 'yes']);
@@ -351,11 +399,12 @@ if ($resturant_owner) {
     OrderBroadcastService::accept($order);
 
     // إشعار الفرع
-    $vendor = User::find(optional($order->resturant)->user_id);
+    $vendor = $this->orderUsers()->find(optional($order->resturant)->user_id);
     if ($vendor) {
     }
 
-    Notification::send($order->user, new \App\Notifications\NotifyAcceptOrderNotification($order));
+    $customer = auth('admin')->check() ? $this->orderUsers()->find($order->user_id) : $order->user;
+    if ($customer) Notification::send($customer, new \App\Notifications\NotifyAcceptOrderNotification($order));
 }
         if ($request->wantsJson() || $request->is('api/*')) {
             return $this->successResponse("success", __('api.accepted order successfully'));
@@ -565,8 +614,29 @@ if ($resturant_owner) {
 
     public function transfer_order_price($id)
     {
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->grand_total > 0 && $locked->transfer_price_by === null && !$locked->delegate_id;
+            $result = $this->transferOrderPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Restaurant settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferOrderPriceLocked($id)
+    {
         try {
             $order = Order::find($id);
+            if ($order && auth('admin')->check()) {
+                // Authorize through the scoped order before resolving the
+                // actual settlement recipient outside dashboard user lists.
+                $restaurant = Resturant::withoutGlobalScopes()->find($order->resturant_id);
+                if ($restaurant) $restaurant->setRelation('user', $this->orderUsers()->find($restaurant->user_id));
+                $order->setRelation('resturant', $restaurant);
+            }
             $vendor = $order->resturant?->user;
             if ($order && $order->grand_total > 0 && $order->transfer_price_by == null && $order->delegate_id == null) {
                 $app_price = $order->app_percentage;
@@ -574,9 +644,7 @@ if ($resturant_owner) {
                 // if($vendor->balance>=$app_price){
 
                 // transfer tax for app
-                $setting = app(GeneralSettings::class);
-                $setting->app_balance = $setting->app_balance + $app_price;
-                $setting->save();
+                app(LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($app_price, 2, '.', '')));
                 Wallet::create([
                     'from_user' => $vendor->id,
                     'amount' => $app_price,
@@ -611,6 +679,18 @@ if ($resturant_owner) {
 
     public function updateOrderTotalPrice(UpdateOrderTotalRequest $request, Order $order)
     {
+        $this->assertAdminOrderAccess($order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiRestaurantParty($locked);
+            $locked->unsetRelation('carts');
+            return $this->updateOrderTotalPriceLocked($request, $locked);
+        }, 3);
+    }
+
+    private function updateOrderTotalPriceLocked(UpdateOrderTotalRequest $request, Order $order)
+    {
+        $this->assertAdminOrderAccess($order);
         $setting = app(GeneralSettings::class);
         //   return $order;
         if ($order->status == 'pending' || $order->status == 'accepted' || $order->status == 'another_delegate') {
@@ -652,5 +732,28 @@ if ($resturant_owner) {
             return redirect()->back()->with("success", __('api.order updated successfully'));
         }
 
+    }
+    private function assertAdminOrderAccess(Order $order): void
+    {
+        if (auth('admin')->check()) {
+            Order::whereKey($order->getKey())->firstOrFail();
+        }
+    }
+
+    private function assertApiRestaurantParty(Order $order): void
+    {
+        if (auth('admin')->check() || !auth('api')->check() || $order->type !== 'current') return;
+        $actor = auth('api')->user();
+        abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner'], true)
+            && in_array((int) $order->resturant_id, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);
+    }
+
+    private function orderUsers()
+    {
+        // Mutation callers first authorize their order. The dashboard's user
+        // listing scope must not hide its actual notification/refund recipients.
+        return auth('admin')->check()
+            ? User::withoutGlobalScope(\App\Scopes\AdminScope::class)
+            : User::query();
     }
 }
