@@ -106,4 +106,29 @@ class GoProductImageSearchTest extends TestCase
             }
         }
     }
+
+    public function test_live_check_reports_success_only_after_an_unbranded_image_is_saved(): void
+    {
+        $this->providers(['index'=>0, 'confidence'=>0.97, 'visible_brand_or_text'=>false, 'matches_product'=>true]);
+        $this->artisan('go-stores:find-product-images', ['--check'=>'أرز'])
+            ->expectsOutput('LIVE UNBRANDED IMAGE VERIFIED')->assertExitCode(0);
+        $this->assertCount(1, Storage::disk('public')->allFiles());
+    }
+
+    public function test_live_check_fails_without_saving_a_branded_match(): void
+    {
+        $this->providers(['index'=>0, 'confidence'=>0.99, 'visible_brand_or_text'=>true, 'matches_product'=>true]);
+        $this->artisan('go-stores:find-product-images', ['--check'=>'أرز'])
+            ->expectsOutput('No confident unbranded match was found.')->assertExitCode(1);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_live_check_does_not_expose_provider_errors(): void
+    {
+        Http::fake(['api.openai.com/v1/responses'=>Http::response(['error'=>'secret-fixture'], 401)]);
+        $this->artisan('go-stores:find-product-images', ['--check'=>'أرز'])
+            ->expectsOutput('Live image search failed. Check provider credentials, quotas and server connectivity.')
+            ->assertExitCode(1);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
 }

@@ -30,7 +30,16 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
     'fcm' => [
-        'project_id' => 'fasakhaninjatest',
+        'project_id' => env('FCM_PROJECT_ID', 'fasakhaninjatest'),
+    ],
+
+    'maps' => [
+        // Enable only after approval to send address queries/coordinates to these providers.
+        'phone_open_enabled' => env('PHONE_OPEN_MAPS_ENABLED', false),
+        'photon_url' => env('PHONE_PHOTON_URL', 'https://photon.komoot.io/api/'),
+        'osrm_url' => env('PHONE_OSRM_URL', 'https://routing.openstreetmap.de/routed-car'),
+        'tile_url' => env('MAP_TILE_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+        'browser_key' => env('MAP_BROWSER_KEY', env('MAP_KEY')),
     ],
 
     'google' => [

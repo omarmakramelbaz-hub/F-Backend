@@ -8,7 +8,7 @@ Provider errors retry up to three times. No confident unbranded match results in
 
 ## Activation order
 
-1. Review and deploy the backend changes against the server's actual current version. Do not reset the server to a repository snapshot: the deployed ERP may have additional changes.
+1. Deploy the backend changes against the server's actual current version. The integration includes the deployed ERP baseline `a6bebb2d95d12a43147602684685c906cb4f8d4b`; its image-only diff preserves the existing ERP. Verify the server version again if further ERP changes have shipped. Do not reset the server to the older `main` snapshot.
 2. Configure these values in the server environment or `.env`, never in GitHub source, app code or chat:
 
    ```dotenv
@@ -18,11 +18,13 @@ Provider errors retry up to three times. No confident unbranded match results in
    GO_PRODUCT_IMAGES_MODEL=gpt-4.1-mini
    ```
 
-3. Run `bash deployment/launch_go_product_images.sh`. This applies only the new image-request table and clears configuration caches. Confirm that the server's existing `php artisan schedule:run` cron is active.
-4. Submit a test store with name/price-only products. Run `php artisan go-stores:find-product-images --limit=1`. Review the real selected image for product match and absence of branding before releasing the app changes.
+3. Run `bash deployment/launch_go_product_images.sh` from a server console. It checks provider configuration, performs a real search for `تفاح أحمر`, prints the selected image URL, then applies only the new image-request table and clears caches. Missing keys, a provider failure or no confident unbranded image stops installation before migration. Pass another test product name as the script's first argument if needed. Confirm that the existing `php artisan schedule:run` cron is active.
+4. Review the selected image for product match and absence of branding. Submit a test store with name/price-only products and run `php artisan go-stores:find-product-images --limit=1`; verify the product image appears in its review/catalog. `Processed 0` alone does not establish that providers work. To repeat the independent provider check, run `php artisan go-stores:find-product-images --check="تفاح أحمر"`.
 5. Deploy GO Partner after the backend accepts `auto_images` signup submissions. Android and iOS releases require their usual app distribution steps.
 
 Setting `GO_PRODUCT_IMAGES_ENABLED=false` stops provider calls and preserves requests for later processing. Keep the new table and existing images to preserve approved catalogs. Provider usage is separate from a ChatGPT subscription.
+
+The current GitHub VPS identity is restricted to its forced deployment command. It ignores requested shell commands, so it cannot inspect environment keys or run this installer. Use the server's normal administrative console for configuration and activation; never treat a successful SSH workflow as evidence that the image providers are configured.
 
 ## Validation
 

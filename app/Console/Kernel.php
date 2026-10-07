@@ -37,6 +37,8 @@ class Kernel extends ConsoleKernel
 
     protected function schedule(Schedule $schedule)
     {
+        $schedule->command('dashboard-push:dispatch')->everyMinute()->withoutOverlapping(2);
+        $schedule->command('order-board:advance')->everyMinute()->withoutOverlapping(5);
         // Continue quotation waves and retry notices even while clients are closed.
         // The command checks schema/readiness before touching marketplace tables.
         $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();

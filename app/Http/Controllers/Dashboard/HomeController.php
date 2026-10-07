@@ -68,157 +68,16 @@ class HomeController extends Controller
         }
         return redirect('admin/dashboard');
     }
-    public function index(GeneralSettings $settings, Request $request)
+    public function index(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
-        if(auth('admin')->id() === 635 || auth()->user()->roles->pluck("id")->first() == 11){
-        $month =request('day')?? date('m');
-        $users = DB::table('users')
-                    ->whereMonth('created_at',$month)
-                    ->selectRaw('day(created_at) as day')
-                    ->selectRaw('count(*) as count')
-                    ->groupBy('day')
-                    ->orderBy('day')
-                    ->pluck('count', 'day')->toArray();
-                    // dd($users);
-        $user_day_count=[];
-        for ($i=0; $i < 31; $i++) { 
-            if(array_key_exists($i+1, $users)) {
-                array_push( $user_day_count, $users[$i+1]);
-            }else{
-                array_push( $user_day_count, 0);
-            }
-        }
-        $users_monthlyChart = new UserChart;
-        $users_monthlyChart->labels(['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31']);
-        $users_monthlyChart->dataset(trans('main.users_monthlyChart'), 'line', $user_day_count)->options([
-            'fill' => 'true',
-            'borderColor' => '#364576'
-        ]);
+        $boot=['initial'=>$overview->data($request->query(),auth('admin')->user()),
+            'url'=>route('dashboard.overview'),'locale'=>app()->getLocale(),'labels'=>__('home_overview')];
+        return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
+    }
 
-        $year =request('year')?? date('Y');
-        $users2 = DB::table('users')
-                    ->whereYear('created_at',$year)
-                    ->selectRaw('month(created_at) as month')
-                    ->selectRaw('count(*) as count')
-                    ->groupBy('month')
-                    ->orderBy('month')
-                    ->pluck('count', 'month')->toArray();
-                    // dd($users2);
-        $user_month_count=[];
-        for ($i=0; $i < 12; $i++) { 
-            if(array_key_exists($i+1, $users2)) {
-                array_push( $user_month_count, $users2[$i+1]);
-            }else{
-                array_push( $user_month_count, 0);
-            }
-        }
-        $users_yearlyChart = new UserChart;
-        $users_yearlyChart->labels(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
-        $users_yearlyChart->dataset(trans('main.users_yearlyChart'), 'line', $user_month_count)->options([
-            'fill' => 'true',
-            'borderColor' => '#364576'
-        ]);
-        $adminsCount = User::where('account_type','admin')->count();
-        $vendorsCount = User::where('account_type','vendor')->count();
-        $usersDelegateTypeCatCount=User::where('account_type','delegate')->count();
-        $usersUserTypeCatCount= User::where('account_type','user')->count();
-        $ticketsCount= User::count();
-        $subcategorysCount= Category::whereNotNull('parent_id')->count();
-        $categorysCount= Category::whereNull('parent_id')->count();
-        $ordersCount = Order::where('type','!=','wallet')->whereNotNull('status')->count();
-        $pending_vendorsCount = PendingVendor::count();
-        $rolesCount = Role::count();
-        $faqsCount = QuestionAnswer::count();
-        $contactsCount= Contact::count();
-        $productsCount = Product::count();
-        $areasCount = Area::count();
-        $resturantsCount= Resturant::count();
-        $bannersCount= Banner::count();
-
-        $delegates_most_ordered = Order::where('status','completed')->groupBy('delegate_id')->take(10)->get();
-        $latest_orders = Order::where('status','!=','pending')->orderBy('id','DESC')->groupBy('id')->take(10)->get();
-        $resturants_most_ordered = Order::where('status','completed')->groupBy('resturant_id')->take(10)->get();
-         $CouponWheel=CouponWheel::first();
-            $now=Carbon::now();
-            if($CouponWheel){
-            $startDate = Carbon::parse($CouponWheel->start_date);
-            $endDate = Carbon::parse($CouponWheel->end_date);
-            }
-            $winner=CouponSubscripe::orderBy('created_at','desc')->where('status','winner')->first();
-            $winnerShow=0;
-           if($CouponWheel && $CouponWheel->status=='show'&& $now->greaterThanOrEqualTo($startDate) && $now->greaterThanOrEqualTo($endDate) && $winner){
-                 $winnerShow=1;
-            }
-        return view('admin.home' , compact('winnerShow','winner','resturants_most_ordered','latest_orders','delegates_most_ordered','bannersCount','faqsCount','adminsCount','vendorsCount','usersDelegateTypeCatCount','usersUserTypeCatCount','ticketsCount','subcategorysCount','categorysCount','ordersCount','pending_vendorsCount','contactsCount','productsCount','areasCount','resturantsCount','rolesCount','users_monthlyChart','users_yearlyChart'));
-        }else{
-            $all_orders = Order::where('type','!=','wallet')->whereNotNull('status')->get();
-            
-            $resturant_id = auth('admin')->user()->base_resturant?->id;
-        $orders = Order::query()->where('resturant_id',$resturant_id)->where('status','completed');
-        $orders=$orders->get();
-        $delivery_price=0;
-    
-        // calculate delegate not payed orders
-        $not_payed=$orders->whereNull('transfer_price_by')->whereNull('delegate_id')->where('payment_type','cash');
-        $not_payed_total=0;$total=0;
-        if($not_payed){
-        foreach($not_payed as $not){
-            $total=$total+$not->total;
-            $not_payed_total=$not_payed_total+$not->app_percentage;
-             $delivery_price=$delivery_price+$not->delivery_price;
-        }
-        }
-        // calculate delegate  payed orders
-        $payed=$orders->where('transfer_price_by','vendor')->where('payment_type','cash');
-        $payed_total=0;
-        // return $payed->count();
-        if($payed){
-        foreach($payed as $pay){
-            $total=$total+$pay->total;
-            $payed_total=$payed_total+$pay->app_percentage;
-            $delivery_price=$delivery_price+$pay->delivery_price;
-        }
-        }
-        
-        $vendor_orders=auth('admin')->user()->base_resturant?->orders;
-        
-        // المكاسب من الطلبات الكاش المدفوع رسومها +لم يتم دفع رسومها
-        $gain_from_cash_delivery=$vendor_orders?->where('payment_type','cash')->where('status','completed');
-        $gain_cash=0;
-        if($gain_from_cash_delivery){
-            foreach($gain_from_cash_delivery as $cash){
-                if($cash->delegate_id==null){
-                    $gain_cash=$gain_cash+$cash->delivery_price+$cash->vendor_percentage;
-                }else{
-                    $gain_cash=$gain_cash+$cash->vendor_percentage;
-                }
-            }
-        }
-                // المكاسب من الطلبات الاونلاين المدفوع رسومها   
-         $gain_from_online_delivery=$vendor_orders?->where('status','completed')->where('payment_type','!=','cash')->whereNotNull('transfer_price_by');
-         $gain_online=0;
-         if($gain_from_online_delivery){
-         foreach($gain_from_online_delivery as $online){
-            if($online->delegate_id==null){
-                $gain_online=$gain_online+$online->delivery_price+$online->vendor_percentage;
-            }else{
-                $gain_online=$gain_online+$online->vendor_percentage;
-            }
-        }
-         }
-        // رسوم لم يتم تحويلها
-        $not_transfer_cash_orders=$not_payed_total;
-        // رسوم تم تحويلها
-        $transfer_cash_orders=$payed_total;
-        // المبالغ المستلمه تم دفع رسومها +لم يتم دفع رسومها
-        $total_cash_order=$total+$delivery_price;
-        //المكسب من الابلكيشن
-        $total_gain_from_app=$gain_online+$gain_cash;
-        $today_orders =Order::where('type','!=','wallet')->where('status','completed')->whereDay('created_at', now()->day)->get();
-
-    
-            return view('admin.home' , compact('today_orders','all_orders','not_transfer_cash_orders','transfer_cash_orders','total_cash_order','total_gain_from_app','gain_cash','gain_online'));
-        }
+    public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
+    {
+        return response()->json($overview->data($request->query(),auth('admin')->user()))->header('Cache-Control','private, no-store');
     }
 
     public function loginPage(GeneralSettings $settings){
@@ -263,19 +122,16 @@ class HomeController extends Controller
             // dd(auth('admin')->user()->id);
             session()->put('id_user', auth('admin')->user()->id);
            if($user->account_type=='admin'){
-            return redirect('admin/dashboard')
-                    ->with('success',trans('main.signed in'));
+            return redirect('admin/dashboard');
            }elseif($user->account_type=='vendor'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/applies-orders')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/applies-orders');
            }
            elseif($user->account_type=='resturant_owner'){
                            session()->put('id_user', auth('admin')->user()->id);
 
-               return redirect('admin/resturants')
-                    ->with('success',trans('main.signed in'));
+               return redirect('admin/resturants');
            }
         }
     }
@@ -291,7 +147,7 @@ class HomeController extends Controller
 
         // Regenerate the CSRF token for security
         request()->session()->regenerateToken();
-        return redirect("admin/login")->with('error',trans('main.logout success'));
+        return redirect("admin/login");
     }
 
 
@@ -340,7 +196,7 @@ class HomeController extends Controller
     }
 
     public function read($id){
-        $data =auth('admin')->user()->notifications->where('id',$id)->first();
+        $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
         $data->update([
             'read_at' => now(),
         ]);
@@ -352,13 +208,7 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       $notification=auth('admin')->user()->unReadNotifications()->get();
-    //   dd($notification);
-       foreach($notification as $noti){
-           $noti->update([
-                'read_at' => now(),
-               ]);
-       }
+       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 
@@ -377,3 +227,4 @@ class HomeController extends Controller
     }
 
 }
+

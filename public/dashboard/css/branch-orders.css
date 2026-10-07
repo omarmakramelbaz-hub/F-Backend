@@ -1,0 +1,23 @@
+body.dashboard-theme .content-wrapper.branch-orders-wrapper{background:#f6f7fa;color:#252932}
+.branch-orders{padding:24px;color:#252932;max-width:1600px;margin:auto;font-family:'Almarai',sans-serif}
+.bo-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+.bo-heading h1{font-size:25px;font-weight:800;margin:0 0 8px}
+.bo-heading p{margin:0;color:#666b74}
+.bo-heading>span{white-space:nowrap;background:#fff1e2;color:#a94f00;border-radius:10px;padding:9px 15px;font-weight:700}
+.bo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:20px}
+.bo-card{background:#fff;border:1px solid #e6e8ec;border-radius:16px;padding:22px;box-shadow:0 4px 18px #15203906}
+.bo-card>header{display:flex;gap:12px;align-items:center;margin-bottom:24px}
+.bo-icon{display:grid;place-items:center;flex:0 0 45px;height:45px;border-radius:12px;background:#fff1e2;color:#df710f;font-size:20px}
+.bo-card h2{font-size:20px;font-weight:800;margin:0 0 5px;overflow-wrap:anywhere}
+.bo-card header p{color:#747b86;font-size:13px;margin:0;overflow-wrap:anywhere}
+.bo-card h3{font-size:14px;font-weight:700;color:#656d79;margin-bottom:10px}
+.bo-accounts{list-style:none;padding:0;margin:0 0 20px}
+.bo-accounts li{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #edf0f3;overflow-wrap:anywhere}
+.bo-accounts small{color:#77808e;font-size:12px}
+.bo-accounts .bo-receiver{color:#257043;background:#edf7ef;border-radius:6px;padding:5px 8px;white-space:nowrap}
+.bo-note{color:#90531a;background:#fff5e8;border-radius:8px;padding:10px;font-size:13px}
+.bo-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.bo-actions a{display:flex;align-items:center;gap:8px;color:#303743;background:#f5f6f8;border:1px solid #e6e8ec;border-radius:9px;padding:12px;font-size:13px;font-weight:700;text-decoration:none}
+.bo-actions a:hover,.bo-actions a:focus-visible{color:#a84a00;border-color:#f39744;background:#fff4e9}
+.bo-actions a:last-child{grid-column:1/-1}
+@media(max-width:600px){.branch-orders{padding:16px}.bo-heading{align-items:flex-start}.bo-heading h1{font-size:22px}.bo-card{padding:17px}.bo-accounts li{flex-wrap:wrap}.bo-heading p{font-size:13px}}

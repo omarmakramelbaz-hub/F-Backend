@@ -4,6 +4,8 @@
 @endif
 @include('admin.layouts.navbar')
 
+<div id="dashboard-page" data-dashboard-page style="display:contents">
 @yield('content')
+</div>
 
 @include('admin.layouts.footer')
