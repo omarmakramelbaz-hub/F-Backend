@@ -304,7 +304,7 @@
         if(!canWrite()||stage==='finished')return;
         if(stage==='preparing'){
             if(!ticket.bill_locked){container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));container.appendChild(button('kitchen_order',function(){action(ticket,'send_kitchen',true);},'is-primary'));}
-            var company=button('assign_company',function(){var choice=container.querySelector('[data-phone-board-company]');if(!choice){dispatchControl(ticket,container);choice=container.querySelector('[data-phone-board-company]');}if(choice)choice.focus();});container.appendChild(company);
+            container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);}));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
             container.appendChild(button('finish_collect',function(){settlement(ticket.id);},'is-warning'));
@@ -332,6 +332,15 @@
         companies.forEach(function(company){var option=element('option','',company.name);option.value=String(company.id);select.appendChild(option);});
         if(!companies.length)select.dataset.unavailable='';
         select.addEventListener('change',function(){if(locked()||!select.value)return;execute({type:'dispatch_company',url:urls['dispatch-company'],ticketId:ticket.id,payload:{branch:ticket.branch.value,ticket_id:ticket.id,company_id:Number(select.value),expected_revision:ticket.revision,idempotency_key:uuid()}});});label.appendChild(select);container.appendChild(label);
+    }
+    async function dispatchModal(id) {
+        if(locked()||!canWrite())return;
+        var content=openModal(text('assign_company')),generation=modalGeneration,controller=begin('modal');
+        try{var ticket=await fetchTicket(id,controller.signal);if(disposed||modal.hidden||generation!==modalGeneration)return;
+            content.replaceChildren();
+            if(ticketStage(ticket)!=='preparing'){content.appendChild(element('p','ph-empty',text('forbidden')));return;}
+            dispatchControl(ticket,content);lock();var choice=content.querySelector('[data-phone-board-company]');if(choice)choice.focus();
+        }catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
     function card(ticket, column) {
         var article = element('article', 'ph-ticket ph-ticket-compact');

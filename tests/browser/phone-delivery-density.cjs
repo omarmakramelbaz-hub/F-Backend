@@ -11,7 +11,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -70,9 +70,12 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    assert.equal(await dialog.isVisible(),false);
    await preparing.getByRole('button',{name:labels.kitchen_order,exact:true}).click();assert.equal(await page.evaluate(()=>calls.at(-1).action),'send_kitchen');
    await preparing.getByRole('button',{name:labels.assign_company,exact:true}).click();
-   await preparing.locator('[data-phone-board-company]').selectOption('1');
+   assert.equal(await dialog.locator('.ph-detail-table').count(),0);
+   await dialog.locator('[data-phone-board-company]').selectOption('1');
    assert.equal(await page.evaluate(()=>calls.at(-1).payload.branch),'f:100');
-   assert.equal(await preparing.locator('[data-phone-board-company] option').count(),2);
+   assert.equal(await dialog.locator('[data-phone-board-company] option').count(),2);
+   assert.equal(await dialog.locator('[data-phone-board-company]').evaluate(select=>{const s=select.getBoundingClientRect(),d=select.closest('[role="dialog"]').getBoundingClientRect();return s.bottom<=d.bottom+1&&s.left>=d.left-1&&s.right<=d.right+1;}),true);
+   await page.locator('#close').click();
    await page.locator('[data-phone-batch-select="101"]').check();
    await page.locator('[data-phone-batch-select="102"]').check();
    assert.equal(await page.evaluate(()=>testBoard.selectedOrders.size),2);

@@ -137,8 +137,6 @@
 #phone-orders .ph-ticket-quick-actions button i{display:none}
 #phone-orders .ph-ticket-quick-actions button.is-primary{background:#158346;border-color:#158346;color:#fff}
 #phone-orders .ph-ticket-quick-actions button.is-warning{background:#fff5df;border-color:#edcf90;color:#805616}
-#phone-orders .ph-ticket-quick-actions .ph-board-company{flex-basis:100%;margin:0;font-size:10px}
-#phone-orders .ph-ticket-quick-actions .ph-board-company select{min-height:25px}
 #phone-orders .ph-ticket-compact .ph-board-select{padding:0;margin:0;gap:0;background:transparent;flex:0 0 16px}
 #phone-orders .ph-ticket-compact .ph-board-select input{width:15px;height:15px;margin:0;cursor:pointer}
 #phone-orders .ph-ticket-compact .ph-stage{padding:0 3px;font-size:9px;line-height:16px;flex-shrink:0}
@@ -158,7 +156,6 @@
  #phone-orders .ph-ticket-compact{grid-template-rows:18px 18px auto;min-height:112px;padding:5px}
  #phone-orders .ph-ticket-quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  #phone-orders .ph-ticket-quick-actions button{height:30px;font-size:11px;padding:0 6px}
- #phone-orders .ph-ticket-quick-actions .ph-board-company{grid-column:1/-1}
  #phone-orders.ph-view-orders .ph-batch-bar{flex-wrap:wrap;padding:6px 8px}
  #phone-orders.ph-view-orders .ph-orders>.ph-panel-heading{align-self:start;padding-top:7px}
 }
