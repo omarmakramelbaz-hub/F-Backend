@@ -9,6 +9,8 @@ on:
       - 'public/dashboard/js/takeaway-pos.js'
       - 'public/dashboard/js/dining-pos.js'
       - 'public/dashboard/js/branch-recipes.js'
+      - 'public/dashboard/css/branch-stock.css'
+      - 'tests/browser/recipe-menu.cjs'
       - 'resources/views/admin/branch_stock/index.blade.php'
       - 'resources/views/admin/expenses/index.blade.php'
       - 'public/dashboard/js/branch-expenses.js'
@@ -37,6 +39,8 @@ on:
       - 'public/dashboard/js/takeaway-pos.js'
       - 'public/dashboard/js/dining-pos.js'
       - 'public/dashboard/js/branch-recipes.js'
+      - 'public/dashboard/css/branch-stock.css'
+      - 'tests/browser/recipe-menu.cjs'
       - 'resources/views/admin/branch_stock/index.blade.php'
       - 'resources/views/admin/expenses/index.blade.php'
       - 'public/dashboard/js/branch-expenses.js'
@@ -79,6 +83,7 @@ jobs:
         run: |
           node tests/browser/phone-delivery-density.cjs
           node tests/browser/stock-expenses-address.cjs
+          node tests/browser/recipe-menu.cjs
           node tests/browser/expense-form.cjs
           node tests/browser/dashboard-save-actions.cjs
           node tests/browser/dashboard-notices.cjs
