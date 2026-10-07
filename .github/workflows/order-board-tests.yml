@@ -134,6 +134,7 @@ on:
       - 'tests/Feature/DashboardTakeawayTest.php'
       - 'tests/Feature/OrderProviderDeliveryTest.php'
       - 'tests/Feature/DashboardManualNotificationTest.php'
+      - 'tests/browser/dashboard-push.cjs'
       - 'tests/Feature/DashboardOrderMenuTest.php'
       - 'tests/Feature/DashboardOrderPaymentTest.php'
       - 'tests/Feature/DashboardInboxTest.php'
@@ -201,6 +202,14 @@ jobs:
           php -l deployment/check_phone_maps.php
           bash -n deployment/enable_phone_maps.sh
           bash tests/deployment/phone_maps_activation.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify notification audience and campaign UI
+        run: |
+          npm install --prefix "$RUNNER_TEMP/notification-browser" --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/notification-browser/node_modules/.bin/playwright" install --with-deps chromium-headless-shell
+          NODE_PATH="$RUNNER_TEMP/notification-browser/node_modules" node tests/browser/dashboard-push.cjs
   takeaway-mysql:
     runs-on: ubuntu-latest
     services:
@@ -239,4 +248,3 @@ jobs:
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
         run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
-

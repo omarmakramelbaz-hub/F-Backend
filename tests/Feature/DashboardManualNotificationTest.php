@@ -38,6 +38,8 @@ class DashboardManualNotificationTest extends TestCase
         require_once base_path('database/migrations/2022_08_05_174522_create_permission_tables.php');
         require_once base_path('database/migrations/2026_10_06_160000_create_dashboard_push_campaigns.php');
         (new \CreateDashboardPushCampaigns())->up();
+        require_once base_path('database/migrations/2026_10_07_170000_add_audience_to_dashboard_push_campaigns.php');
+        (new \AddAudienceToDashboardPushCampaigns())->up();
         (new \CreatePermissionTables())->up(); app(PermissionRegistrar::class)->forgetCachedPermissions();
         $permission = Permission::create(['name' => 'fcm_notification-create', 'guard_name' => 'admin']);
         foreach ([1 => 'admin', 2 => 'admin', 10 => 'vendor', 11 => 'vendor', 20 => 'user', 21 => 'user', 22 => 'user', 30 => 'delegate'] as $id => $type) {
@@ -176,10 +178,10 @@ class DashboardManualNotificationTest extends TestCase
             protected function clock(): float { return array_shift($this->times) ?? 25; }
             protected function accessToken(float $timeout = 12): string { return 'fixture-oauth'; }
         };
-        $result = $sender->send(array_map(fn ($id) => $this->token($id), range(100, 120)), 'Title', 'Body', 'user');
-        $this->assertSame(10, $result['accepted']); $this->assertSame(10, $result['attempted']);
+        $result = $sender->send(array_map(fn ($id) => $this->token($id), range(100, 160)), 'Title', 'Body', 'user');
+        $this->assertSame(50, $result['accepted']); $this->assertSame(50, $result['attempted']);
         $this->assertSame(0, $result['failed']); $this->assertSame(11, $result['not_sent']);
-        $this->assertSame('time_budget', $result['reason']); $this->assertCount(10, Http::recorded());
+        $this->assertSame('time_budget', $result['reason']); $this->assertCount(50, Http::recorded());
     }
 
     public function test_budget_includes_authentication_and_never_starts_device_requests_after_deadline(): void
@@ -198,10 +200,10 @@ class DashboardManualNotificationTest extends TestCase
     public function test_permanent_provider_refusal_stops_remaining_chunks_without_claiming_they_were_attempted(): void
     {
         $this->fake(fn () => Http::response(['error' => ['status' => 'PERMISSION_DENIED']], 403));
-        $result = app(DashboardPushSender::class)->send(array_map(fn ($id) => $this->token($id), range(100, 120)), 'Title', 'Body', 'user');
-        $this->assertSame(0, $result['accepted']); $this->assertSame(10, $result['attempted']);
-        $this->assertSame(10, $result['failed']); $this->assertSame(11, $result['not_sent']);
-        $this->assertCount(10, Http::recorded());
+        $result = app(DashboardPushSender::class)->send(array_map(fn ($id) => $this->token($id), range(100, 160)), 'Title', 'Body', 'user');
+        $this->assertSame(0, $result['accepted']); $this->assertSame(50, $result['attempted']);
+        $this->assertSame(50, $result['failed']); $this->assertSame(11, $result['not_sent']);
+        $this->assertCount(50, Http::recorded());
     }
 
     public function test_spa_html_accept_header_still_receives_actual_json_result(): void
@@ -322,5 +324,83 @@ class DashboardManualNotificationTest extends TestCase
             config(['services.fcm.project_id' => 'explicit-cross-project']);
             $this->assertSame('explicit-cross-project', app(DashboardPushSender::class)->projectId());
         } finally { unlink($file); }
+    }
+
+    public function test_audience_counts_people_without_tokens_and_deduplicates_devices_without_sending(): void
+    {
+        DB::table('user_tokens')->where('user_id', 22)->delete();
+        DB::table('user_tokens')->insert([
+            ['user_id' => 20, 'token' => $this->token(20)],
+            ['user_id' => 20, 'token' => $this->token(40)],
+            ['user_id' => 21, 'token' => $this->token(40)],
+            ['user_id' => 22, 'token' => 'bad'],
+        ]);
+        $response = $this->actingAs($this->actor(1), 'admin')->getJson('/admin/fcm_notifications/audience?send_by=1&choose_user=0')
+            ->assertOk()->assertJsonPath('counts.users', 3)->assertJsonPath('counts.with_devices', 2)
+            ->assertJsonPath('counts.without_devices', 1)->assertJsonPath('counts.devices', 3)->assertJsonPath('counts.invalid', 1);
+        $this->assertStringNotContainsString($this->token(20), $response->getContent());
+        Http::assertNothingSent();
+    }
+
+    public function test_audience_preview_enforces_permission_account_family_and_zone_scope(): void
+    {
+        $url = '/admin/fcm_notifications/audience?send_by=1&choose_user=0';
+        $this->getJson($url)->assertRedirect('/admin/login');
+        $this->actingAs($this->actor(2), 'admin')->getJson($url)->assertForbidden();
+        $this->actingAs($this->actor(10), 'admin')->getJson($url)->assertOk()->assertJsonPath('counts.users', 1);
+        $this->getJson('/admin/fcm_notifications/audience?send_by=1&choose_user=1&user_id[]=21')->assertStatus(422);
+        $this->getJson('/admin/fcm_notifications/audience?send_by=0&zone_id[]=200')->assertOk()->assertJsonPath('counts.users', 0);
+        $this->actingAs($this->actor(1), 'admin')->getJson('/admin/fcm_notifications/audience?send_by=0&zone_id[]=200')
+            ->assertOk()->assertJsonPath('counts.users', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_campaign_user_snapshot_is_immutable_when_replayed_after_device_registration(): void
+    {
+        DB::table('user_tokens')->where('user_id', 22)->delete();
+        $input = $this->queued(['choose_user' => '0', 'user_id' => []]);
+        $first = $this->actingAs($this->actor(1), 'admin')->postJson('/admin/fcm_notifications', $input)->assertStatus(202)
+            ->assertJsonPath('campaign.audience.users', 3)->assertJsonPath('campaign.audience.without_devices', 1)->json('campaign');
+        DB::table('user_tokens')->insert(['user_id' => 22, 'token' => $this->token(22)]);
+        $this->postJson('/admin/fcm_notifications', $input)->assertStatus(202)
+            ->assertJsonPath('campaign.id', $first['id'])->assertJsonPath('campaign.audience.without_devices', 1)->assertJsonPath('campaign.not_sent', 2);
+        Http::assertNothingSent();
+    }
+
+    public function test_selected_user_without_device_is_counted_without_fabricated_delivery(): void
+    {
+        DB::table('user_tokens')->where('user_id', 20)->delete();
+        $this->actingAs($this->actor(1), 'admin')->postJson('/admin/fcm_notifications', $this->queued())->assertStatus(202)
+            ->assertJsonPath('campaign.audience.users', 1)->assertJsonPath('campaign.audience.without_devices', 1)
+            ->assertJsonPath('campaign.accepted', 0)->assertJsonPath('campaign.not_sent', 0)->assertJsonPath('campaign.status', 'finished');
+        Http::assertNothingSent();
+    }
+
+    public function test_existing_campaign_continues_fifty_at_a_time_without_resending_processed_devices(): void
+    {
+        foreach (range(100, 159) as $n) DB::table('user_tokens')->insert(['user_id' => 20, 'token' => $this->token($n)]);
+        $id = $this->actingAs($this->actor(1), 'admin')->postJson('/admin/fcm_notifications', $this->queued())->json('campaign.id');
+        DB::table('dashboard_push_campaigns')->where('id', $id)->update(['audience' => null]);
+        $old = DB::table('dashboard_push_devices')->where('campaign_id', $id)->orderBy('id')->first();
+        DB::table('dashboard_push_devices')->where('id', $old->id)->update(['status' => 'accepted', 'token' => null]);
+        $base = '/admin/fcm_notifications/campaigns/'.$id;
+        $this->postJson($base.'/step')->assertOk()->assertJsonPath('accepted', 51)->assertJsonPath('not_sent', 10)
+            ->assertJsonPath('audience', null)->assertJsonPath('audience_message', trans('dashboard_push.audience_legacy'));
+        $this->assertCount(50, Http::recorded());
+        $this->postJson($base.'/step')->assertOk()->assertJsonPath('accepted', 61)->assertJsonPath('status', 'finished');
+        $this->postJson($base.'/step')->assertOk();
+        $this->assertCount(60, Http::recorded());
+        Http::assertNotSent(fn ($r) => $r['message']['token'] === $this->token(20));
+    }
+
+    public function test_audience_counts_all_11050_accounts_instead_of_only_registered_devices(): void
+    {
+        $rows = [];
+        for ($i = 100; $i < 11147; $i++) $rows[] = ['id' => $i, 'name' => 'Fixture user', 'account_type' => 'user'];
+        foreach (array_chunk($rows, 400) as $chunk) DB::table('users')->insert($chunk);
+        $this->actingAs($this->actor(1), 'admin')->getJson('/admin/fcm_notifications/audience?send_by=1&choose_user=0')
+            ->assertOk()->assertJsonPath('counts.users', 11050)->assertJsonPath('counts.with_devices', 3)
+            ->assertJsonPath('counts.without_devices', 11047)->assertJsonPath('counts.devices', 3);
+        Http::assertNothingSent();
     }
 }

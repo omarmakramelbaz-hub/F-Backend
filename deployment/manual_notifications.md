@@ -25,3 +25,13 @@ Check Google/Firebase setup on the production account. If the campaign pauses, t
 References:
 - https://firebase.google.com/docs/cloud-messaging/send/v1-api
 - https://firebase.google.com/docs/cloud-messaging/error-codes
+
+## October 7 — throughput and audience counts
+
+A durable claim now processes up to 50 device requests concurrently under the existing 24-second sender deadline and two-minute claim lease. Completed outcomes are saved in groups rather than one update per device. An open page starts the next queued batch after 200 ms; when another worker holds the claim it waits 1.5 seconds. No accepted, device-rejected or uncertain attempt is retried, and an existing campaign retains exactly its saved recipients. Actual throughput still depends on Firebase and server connectivity; the change does not promise five-times faster end-to-end delivery.
+
+The authorized audience preview counts all accounts matching the current type, areas or selected users, including accounts without usable token records. It separately reports users with at least one syntactically valid token, users without one, unique token/device targets, and invalid token records. Multiple devices do not inflate the user count; shared tokens are sent once. These are registrations, not proof of delivery or currently valid Firebase tokens. The endpoint never sends and returns no tokens. Recipient/account-family authorization is unchanged. Legacy `users.fcm_id`/`device_token` fields are not silently reintroduced into delivery, including tokens removed at logout.
+
+New campaigns store these audience counts at creation in the nullable `audience` field added by `2026_10_07_170000_add_audience_to_dashboard_push_campaigns`. Request replay retains the original snapshot and device set even if users register more devices later. Existing campaigns have no historical user snapshot and explicitly show that their progress counts devices only. They continue without rebuilding the campaign. The pinned installer includes the additive migration and runtime check.
+
+The submit button now settles to “Notification saved” instead of retaining the generic dashboard spinner throughout campaign processing. The progress area continues to show provider acceptance/failures separately. To inspect a live total of 11,050 accounts, use the audience preview for the corresponding account type and selection after deployment; screenshots of device counters cannot establish how many distinct users lack tokens.

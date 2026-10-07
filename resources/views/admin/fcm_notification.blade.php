@@ -23,7 +23,10 @@
         <div class="col-lg-12 col-md-12 card">
           <div class="card-body">
             <!--<h2>Send notification</h2>-->
-            <div id="dashboard-push" data-status-url="{{ route('dashboard-push.status', ['campaign' => 0]) }}" data-step-url="{{ route('dashboard-push.step', ['campaign' => 0]) }}" data-resume-url="{{ route('dashboard-push.resume', ['campaign' => 0]) }}">
+            <div id="dashboard-push" data-audience-url="{{ route('dashboard-push.audience') }}" data-status-url="{{ route('dashboard-push.status', ['campaign' => 0]) }}" data-step-url="{{ route('dashboard-push.step', ['campaign' => 0]) }}" data-resume-url="{{ route('dashboard-push.resume', ['campaign' => 0]) }}">
+            <p class="col-sm-10 font-weight-bold">{{ __('dashboard_push.total_users', ['total' => $totalUsers]) }}</p>
+            <div class="alert alert-light border col-sm-10" data-push-audience role="status" aria-live="polite" style="white-space:pre-line">{{ __('dashboard_push.audience_choose') }}</div>
+            <p class="text-muted col-sm-10">{{ __('dashboard_push.audience_note') }}</p>
             <form data-push-form method="post" action="{{route('fcm_notifications.store')}}">
               @csrf
               <input type="hidden" name="durable" value="1">

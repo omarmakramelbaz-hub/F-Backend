@@ -30,7 +30,7 @@ if (!Illuminate\Support\Facades\Route::has('takeaway.checkout') || !Illuminate\S
 echo "TAKEAWAY POS READY\n";
 
 $serviceSchema = [
-    'dashboard_push_campaigns'=>['actor_id','request_key','claim','status'],
+    'dashboard_push_campaigns'=>['actor_id','request_key','claim','status','audience'],
     'dashboard_push_devices'=>['campaign_id','token_hash','status','reason'],
     'stock_ingredients'=>['name','unit','position'],
     'branch_inventory'=>['branch','ingredient_id','quantity_units','revision'],

@@ -13,15 +13,16 @@ class FcmNotificationsController extends Controller
 
  function __construct()
     {
-         $this->middleware('permission:fcm_notification-create', ['only' => ['create','store','campaignStatus','campaignStep','campaignResume']]);
+         $this->middleware('permission:fcm_notification-create', ['only' => ['create','store','campaignStatus','campaignStep','campaignResume','audience']]);
     }
 	public function create()
 	{
 		$type = request()->validate(['account_type' => 'nullable|in:user,vendor,delegate,resturant_owner,admin'])['account_type'] ?? 'user';
-		$users = $this->manualRecipients($type)->get();
+		$totalUsers = $this->manualRecipients($type)->count();
+		$users = $this->manualRecipients($type)->whereHas('tokens')->get(['id', 'name', 'mobile']);
 		$campaigns = app(\App\Services\Dashboard\DashboardPushCampaigns::class)->ready()
             ? \DB::table('dashboard_push_campaigns')->where('actor_id', auth('admin')->id())->where('account_type', $type)->orderByDesc('id')->limit(10)->get(['id', 'title', 'created_at']) : collect();
-        return view('admin.fcm_notification', compact('users', 'campaigns'));
+        return view('admin.fcm_notification', compact('users', 'campaigns', 'totalUsers'));
 	}
 	
 	public function testNotification(){
@@ -54,21 +55,11 @@ class FcmNotificationsController extends Controller
             'durable' => 'nullable|boolean', 'request_key' => 'required_if:durable,1|nullable|uuid',
         ]);
         $type = $data['account_type'] ?? 'user';
-        $query = $this->manualRecipients($type);
-        if ((string) $data['send_by'] === '0') {
-            $zones = $data['zone_id'];
-            $query->whereHas('addresses', fn ($q) => $q->whereIn('area_id', $zones));
-        } elseif ((string) ($data['choose_user'] ?? '') === '1') {
-            $ids = array_unique(array_map('intval', $data['user_id']));
-            $query->whereIn('id', $ids);
-            if ((clone $query)->count() !== count($ids)) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['user_id' => trans('dashboard_push.recipients')]);
-            }
-        }
-        $tokens = $query->with('tokens')->get()->flatMap(fn ($user) => $user->tokens->pluck('token'))->all();
+        $audience = app(\App\Services\Dashboard\DashboardPushAudience::class)->collect($this->recipientQuery($data));
+        $tokens = $audience['tokens'];
         if (!empty($data['durable']) || count($tokens) > 100) {
             $data['request_key'] = $data['request_key'] ?? (string) \Illuminate\Support\Str::uuid();
-            $campaign = app(\App\Services\Dashboard\DashboardPushCampaigns::class)->create(auth('admin')->user(), $data, $tokens);
+            $campaign = app(\App\Services\Dashboard\DashboardPushCampaigns::class)->create(auth('admin')->user(), $data, $tokens, $audience['counts']);
             if ($request->expectsJson() || $request->header('X-Dashboard-SPA') === '1') return response()->json(['success' => true, 'campaign' => $campaign, 'message' => trans('dashboard_push.queued')], 202);
             return redirect()->route('fcm_notifications.create', ['account_type' => $type, 'campaign' => $campaign['id']])->with('success', trans('dashboard_push.queued'));
         }
@@ -87,6 +78,34 @@ class FcmNotificationsController extends Controller
         if ($partial) \Log::warning('Dashboard manual notification incomplete', ['reason' => $result['reason']] + $counts);
         if ($json) return response()->json(['success' => true, 'message' => $message, 'severity' => $partial ? 'warning' : 'success'] + $counts);
         return redirect()->back()->with($partial ? 'error' : 'success', $message);
+    }
+
+    public function audience(Request $request)
+    {
+        $data = $request->validate([
+            'account_type' => 'nullable|in:user,vendor,delegate,resturant_owner,admin',
+            'send_by' => 'required|in:0,1', 'choose_user' => 'required_if:send_by,1|nullable|in:0,1',
+            'zone_id' => 'exclude_unless:send_by,0|required|array|min:1', 'zone_id.*' => 'integer|min:1|exists:areas,id',
+            'user_id' => 'exclude_unless:send_by,1|exclude_unless:choose_user,1|required|array|min:1', 'user_id.*' => 'integer|min:1',
+        ]);
+        $audience = app(\App\Services\Dashboard\DashboardPushAudience::class)->collect($this->recipientQuery($data));
+        // Counts only: never expose device tokens or send from a preview request.
+        return response()->json(['counts' => $audience['counts'], 'message' => trans('dashboard_push.audience_summary', $audience['counts'])]);
+    }
+
+    private function recipientQuery(array $data)
+    {
+        $query = $this->manualRecipients($data['account_type'] ?? 'user');
+        if ((string) $data['send_by'] === '0') {
+            $query->whereHas('addresses', fn ($q) => $q->whereIn('area_id', $data['zone_id']));
+        } elseif ((string) ($data['choose_user'] ?? '') === '1') {
+            $ids = array_unique(array_map('intval', $data['user_id']));
+            $query->whereIn('id', $ids);
+            if ((clone $query)->count() !== count($ids)) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['user_id' => trans('dashboard_push.recipients')]);
+            }
+        }
+        return $query;
     }
 
     public function campaignStatus(int $campaign)
@@ -111,7 +130,7 @@ class FcmNotificationsController extends Controller
     {
         $actor = auth('admin')->user();
         abort_unless($actor, 401);
-        $query = User::withoutGlobalScopes()->where('account_type', $type)->whereHas('tokens');
+        $query = User::withoutGlobalScopes()->where('account_type', $type);
         // Keep non-administrator senders within the existing dashboard account family.
         if ($actor->account_type !== 'admin') $query->where(function ($q) use ($actor) {
             $q->where('added_by', $actor->id)->orWhere('id', $actor->id);

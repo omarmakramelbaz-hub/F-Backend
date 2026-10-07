@@ -99,6 +99,7 @@ php -l app/Services/Dashboard/TakeawayService.php
 php -l app/Services/Dashboard/OrderProviderDelivery.php
 php -l app/Services/Dashboard/DashboardPushSender.php
 php -l app/Services/Dashboard/DashboardPushCampaigns.php
+php -l app/Services/Dashboard/DashboardPushAudience.php
 php -l app/Console/Commands/DispatchDashboardPush.php
 php -l app/Http/Traits/FcmFirebase.php
 php artisan migrate --force --path=database/migrations/2026_10_03_060000_create_order_board_clocks.php
@@ -113,6 +114,7 @@ php artisan migrate --force --path=database/migrations/2026_10_04_080000_create_
 php artisan migrate --force --path=database/migrations/2026_10_06_130000_create_phone_delivery_batches.php
 php artisan migrate --force --path=database/migrations/2026_10_06_140000_add_employee_wallet_phone.php
 php artisan migrate --force --path=database/migrations/2026_10_06_160000_create_dashboard_push_campaigns.php
+php artisan migrate --force --path=database/migrations/2026_10_07_170000_add_audience_to_dashboard_push_campaigns.php
 php artisan migrate --force --path=database/migrations/2026_10_04_190000_create_branch_stock.php
 php artisan migrate --force --path=database/migrations/2026_10_04_210000_create_branch_inventory_recipes.php
 php artisan migrate --force --path=database/migrations/2026_10_04_100000_create_branch_shift_closings.php

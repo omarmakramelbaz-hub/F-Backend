@@ -14,12 +14,12 @@ class DashboardPushCampaigns
     public function ready(): bool { return Schema::hasTable('dashboard_push_campaigns') && Schema::hasTable('dashboard_push_devices'); }
     private function scope(User $actor): string { return hash('sha256', $actor->account_type.'|'.$actor->added_by); }
 
-    public function create(User $actor, array $data, array $tokens): array
+    public function create(User $actor, array $data, array $tokens, ?array $audience = null): array
     {
         abort_unless($this->ready(), 503, trans('dashboard_push.upgrade'));
         $key = $data['request_key']; unset($data['request_key'], $data['durable']);
         $hash = hash('sha256', json_encode($data, JSON_UNESCAPED_UNICODE));
-        $id = DB::transaction(function () use ($actor, $data, $tokens, $key, $hash) {
+        $id = DB::transaction(function () use ($actor, $data, $tokens, $key, $hash, $audience) {
             // Serializes duplicate browser submissions before any provider calls.
             User::withoutGlobalScopes()->whereKey($actor->id)->lockForUpdate()->firstOrFail();
             $existing = DB::table('dashboard_push_campaigns')->where('actor_id', $actor->id)->where('request_key', $key)->first();
@@ -29,9 +29,11 @@ class DashboardPushCampaigns
                 if (!DashboardPushSender::validToken($token)) { $invalid++; continue; }
                 $valid[hash('sha256', $token)] = $token;
             }
-            $id = DB::table('dashboard_push_campaigns')->insertGetId(['actor_id' => $actor->id, 'request_key' => $key, 'request_hash' => $hash,
+            $values = ['actor_id' => $actor->id, 'request_key' => $key, 'request_hash' => $hash,
                 'actor_scope' => $this->scope($actor), 'account_type' => $data['account_type'] ?? 'user', 'title' => $data['title'], 'body' => $data['body'],
-                'invalid' => $invalid, 'status' => $valid ? 'queued' : 'finished', 'created_at' => now(), 'updated_at' => now()]);
+                'invalid' => $invalid, 'status' => $valid ? 'queued' : 'finished', 'created_at' => now(), 'updated_at' => now()];
+            if (Schema::hasColumn('dashboard_push_campaigns', 'audience')) $values['audience'] = $audience === null ? null : json_encode($audience);
+            $id = DB::table('dashboard_push_campaigns')->insertGetId($values);
             foreach (array_chunk($valid, 100, true) as $chunk) {
                 $rows = [];
                 foreach ($chunk as $tokenHash => $token) $rows[] = ['campaign_id' => $id, 'token_hash' => $tokenHash, 'token' => Crypt::encryptString($token), 'status' => 'pending'];
@@ -52,6 +54,8 @@ class DashboardPushCampaigns
             'failed' => (int) ($counts['failed'] ?? 0), 'uncertain' => (int) ($counts['uncertain'] ?? 0), 'invalid' => (int) $campaign->invalid,
             'not_sent' => (int) ($counts['pending'] ?? 0) + (int) ($counts['blocked'] ?? 0), 'sending' => (int) ($counts['sending'] ?? 0), 'reasons' => $reasons];
         $result['message'] = trans('dashboard_push.progress', array_filter($result, 'is_scalar'));
+        $result['audience'] = isset($campaign->audience) ? json_decode($campaign->audience, true) : null;
+        $result['audience_message'] = $result['audience'] ? trans('dashboard_push.audience_summary', $result['audience']) : trans('dashboard_push.audience_legacy');
         $result['diagnostic'] = $campaign->reason ? trans('dashboard_push.reason_'.$campaign->reason) : '';
         $result['issues'] = [];
         foreach ($reasons as $reason => $count) $result['issues'][] = trans('dashboard_push.reason_'.$reason).' ('.$count.')';
@@ -89,7 +93,7 @@ class DashboardPushCampaigns
                 DB::table('dashboard_push_campaigns')->where('id', $id)->update(['status' => 'paused', 'reason' => 'authorization', 'claim' => null, 'claimed_at' => null, 'updated_at' => now()]);
                 return null;
             }
-            $devices = DB::table('dashboard_push_devices')->where('campaign_id', $id)->where('status', 'pending')->orderBy('id')->limit(10)->get();
+            $devices = DB::table('dashboard_push_devices')->where('campaign_id', $id)->where('status', 'pending')->orderBy('id')->limit(DashboardPushSender::BATCH_SIZE)->get();
             if ($devices->isEmpty()) {
                 DB::table('dashboard_push_campaigns')->where('id', $id)->update(['status' => 'finished', 'claim' => null, 'claimed_at' => null, 'updated_at' => now()]);
                 return null;
@@ -120,12 +124,16 @@ class DashboardPushCampaigns
             $c = DB::table('dashboard_push_campaigns')->where('id', $id)->lockForUpdate()->first();
             if (!$c || $c->claim !== $work['claim']) return;
             $pause = in_array($result['reason'], ['authentication', 'configuration', 'permission', 'payload_too_large'], true);
+            $groups = [];
             foreach ($work['devices'] as $d) {
                 $outcome = $result['outcomes'][$d->token_hash] ?? ['status' => 'pending', 'reason' => null];
                 $values = $outcome;
                 if (in_array($values['status'], ['accepted', 'failed', 'uncertain'], true)) $values['token'] = null;
-                DB::table('dashboard_push_devices')->where('id', $d->id)->update($values);
+                $group = json_encode($values);
+                if (!isset($groups[$group])) $groups[$group] = ['values' => $values, 'ids' => []];
+                $groups[$group]['ids'][] = $d->id;
             }
+            foreach ($groups as $group) DB::table('dashboard_push_devices')->where('campaign_id', $id)->whereIn('id', $group['ids'])->update($group['values']);
             $pending = DB::table('dashboard_push_devices')->where('campaign_id', $id)->whereIn('status', ['pending', 'blocked'])->exists();
             DB::table('dashboard_push_campaigns')->where('id', $id)->update(['status' => $pause ? 'paused' : ($pending ? 'queued' : 'finished'),
                 'reason' => $pause ? $result['reason'] : null, 'claim' => null, 'claimed_at' => null, 'updated_at' => now()]);
