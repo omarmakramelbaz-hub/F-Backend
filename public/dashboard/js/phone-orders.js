@@ -579,9 +579,13 @@
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
+    if(window.ResizeObserver){
+        var mapResizeObserver=new ResizeObserver(function(){if(!disposed&&step==='details'&&view==='compose'&&locationPicker)locationPicker.resize();});
+        mapResizeObserver.observe(root.querySelector('[data-phone-map]'));
+        if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){mapResizeObserver.disconnect();});
+    }
     renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
 }());
-

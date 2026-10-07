@@ -32,7 +32,7 @@ class BranchStock
     }
     public function saleBalances(string $branch,array $ids): array
     {
-        if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=array_values(array_unique(array_merge($ids,DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all())));
+        if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=array_values(array_unique(array_merge($ids,DB::table('resturant_products')->where('resturant_id',(int)substr($branch,2))->where('status','show')->pluck('id')->all(),DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all())));
         return $this->balances($branch,$ids);
     }
     public function decorate(string $branch,array $items): array
@@ -118,4 +118,3 @@ class BranchStock
         }
     }
 }
-

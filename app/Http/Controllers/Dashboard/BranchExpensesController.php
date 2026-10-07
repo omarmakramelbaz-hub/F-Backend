@@ -30,7 +30,7 @@ class BranchExpensesController extends Controller
         return response()->json($command?$expenses->show($command->expense_id,$actor)+['found'=>true]:['success'=>true,'found'=>false]);
     }
     public function attachment(int $id,BranchExpenses $expenses){$file=$expenses->attachment($id,auth('admin')->user());return Storage::disk('local')->download($file['path'],$file['name'],['Content-Type'=>$file['mime'],'X-Content-Type-Options'=>'nosniff']);}
-    public function print(int $id,BranchExpenses $expenses){$expense=$expenses->show($id,auth('admin')->user())['expense'];return view('admin.expenses.receipt',compact('expense'));}
+    public function print(int $id,BranchExpenses $expenses){$expenses->show($id,auth('admin')->user());abort(410,'طباعة المصروفات غير متاحة.');}
     public function report(Request $request,BranchExpenses $expenses){$data=$expenses->listing($request->all(),auth('admin')->user(),true);return view('admin.expenses.report',compact('data'));}
     public function export(Request $request,BranchExpenses $expenses)
     {

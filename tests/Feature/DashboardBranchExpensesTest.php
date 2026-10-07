@@ -92,10 +92,19 @@ class DashboardBranchExpensesTest extends TestCase
         $item=$this->create();$this->denied(fn()=>$this->review($item));$this->assertSame('pending',$this->service()->show($item['id'],$this->actor())['expense']['status']);
         $this->assertSame(100,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
-    public function test_non_cash_approval_and_void_do_not_touch_till(): void
+    public function test_only_drawer_expenses_can_be_created_and_legacy_non_cash_cannot_be_approved(): void
     {
-        $item=$this->create(1,['payment_method'=>'bank','approve'=>true],1);$this->assertSame('approved',$item['status']);$this->review($item,'void');
-        $this->assertSame(0,DB::table('takeaway_tills')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
+        $this->cash();
+        foreach(['bank','card','mobile_wallet'] as $method)$this->invalid(fn()=>$this->create(1,['payment_method'=>$method,'approve'=>true],1));
+        $item=$this->create();DB::table('branch_expenses')->where('id',$item['id'])->update(['payment_method'=>'bank']);
+        $this->denied(fn()=>$this->review($item),422);
+        $this->assertSame('pending',DB::table('branch_expenses')->value('status'));
+        $this->assertSame(100000,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(0,DB::table('takeaway_till_entries')->count());
+    }
+    public function test_legacy_approved_bank_expense_can_be_voided_without_refunding_cash(): void
+    {
+        $item=$this->create();DB::table('branch_expenses')->where('id',$item['id'])->update(['payment_method'=>'bank','status'=>'approved']);$item['status']='approved';
+        $this->review($item,'void');$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
     public function test_branch_bound_admin_is_isolated_for_all_read_and_write_paths(): void
     {
@@ -108,17 +117,18 @@ class DashboardBranchExpensesTest extends TestCase
         $this->denied(fn()=>$this->review($own,'approve',20,4),403);
         $this->assertCount(2,$this->service()->listing(['branch'=>'all'],$this->actor(1))['items']);
     }
-    public function test_pending_edit_requires_creator_or_reviewer_and_latest_revision(): void
+    public function test_registered_expenses_cannot_be_edited_by_creator_admin_or_owner(): void
     {
         $item=$this->create();$v=$this->payload(2,['expense_id'=>$item['id'],'expected_revision'=>1,'amount'=>'200.00']);
-        $this->denied(fn()=>$this->service()->save($v,$this->actor(4)),403);
-        $edited=$this->service()->save($v,$this->actor())['expense'];$this->assertSame('200.00',$edited['amount']);$this->assertSame(2,$edited['revision']);
-        $this->denied(fn()=>$this->service()->save(array_merge($v,['idempotency_key'=>$this->key(3)]),$this->actor()));
+        foreach([1,4,10,12] as $actor)$this->denied(fn()=>$this->service()->save($v,$this->actor($actor)),403);
+        $this->assertSame('125.50',$this->service()->show($item['id'],$this->actor())['expense']['amount']);
+        $this->assertFalse($this->service()->show($item['id'],$this->actor())['expense']['can_edit']);
+        $this->assertNull($this->service()->show($item['id'],$this->actor())['expense']['print_url']);
     }
     public function test_edit_of_reviewed_expense_is_forbidden_and_rejected_spend_has_no_cash_effect(): void
     {
         $item=$this->create();$rejected=$this->review($item,'reject')['expense'];$this->assertSame('rejected',$rejected['status']);
-        $this->denied(fn()=>$this->service()->save($this->payload(2,['expense_id'=>$item['id'],'expected_revision'=>2]),$this->actor()));
+        $this->denied(fn()=>$this->service()->save($this->payload(2,['expense_id'=>$item['id'],'expected_revision'=>2]),$this->actor()),403);
         $this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
     public function test_idempotency_conflict_never_reuses_key_for_different_amount(): void
@@ -142,7 +152,8 @@ class DashboardBranchExpensesTest extends TestCase
     }
     public function test_metrics_count_only_approved_expenses_and_filters_and_branches_apply(): void
     {
-        $this->create(1,['payment_method'=>'bank','approve'=>true],1);$this->create(2,['amount'=>'10.00']);$this->create(3,['payment_method'=>'bank','approve'=>true,'branch'=>'f:101','amount'=>'25.00','category'=>'gas'],1);
+        $this->cash();DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>100000,'tax_bps'=>0,'revision'=>1]);
+        $this->create(1,['approve'=>true],1);$this->create(2,['amount'=>'10.00']);$this->create(3,['approve'=>true,'branch'=>'f:101','amount'=>'25.00','category'=>'gas'],1);
         $all=$this->service()->listing(['branch'=>'all'],$this->actor(1));$this->assertSame('150.50',$all['summary']['today']);$this->assertSame(2,$all['summary']['count']);$this->assertSame(1,$all['summary']['pending']);
         $own=$this->service()->listing(['branch'=>'f:100'],$this->actor());$this->assertSame('125.50',$own['summary']['period']);$this->assertCount(2,$own['items']);
         $gas=$this->service()->listing(['branch'=>'all','category'=>'gas'],$this->actor(1));$this->assertCount(1,$gas['items']);$this->assertSame('25.00',$gas['summary']['period']);
@@ -151,7 +162,7 @@ class DashboardBranchExpensesTest extends TestCase
     {
         $item=$this->create(1,['description'=>'=SUM(1,2)']);$this->actingAs($this->actor(),'admin');
         $this->getJson(route('branch-expenses.recover',['branch'=>'f:100','idempotency_key'=>$this->key(1)]))->assertOk()->assertJsonPath('found',true);
-        $this->get($item['print_url'])->assertOk()->assertSee('data-dashboard-receipt=',false)->assertSee('EXP-000001');
+        $this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertStatus(410);
         $csv=$this->get(route('branch-expenses.export',['branch'=>'f:100']))->assertOk()->streamedContent();$this->assertStringContainsString("'=SUM(1,2)",$csv);
         $this->get(route('branch-expenses.report',['branch'=>'f:100']))->assertOk()->assertSee('data-dashboard-receipt=',false);
         $this->actingAs($this->actor(4),'admin')->getJson(route('branch-expenses.recover',['branch'=>'f:100','idempotency_key'=>$this->key(1)]))->assertOk()->assertJsonPath('found',false);
@@ -183,7 +194,7 @@ class DashboardBranchExpensesTest extends TestCase
         $item=$this->create(985,['category'=>$category]);$this->assertSame('أدوات نظافة',$item['category_name']);
         $listing=$this->service()->listing(['branch'=>'f:100','category'=>$category],$this->actor());$this->assertCount(1,$listing['items']);$this->assertSame('أدوات نظافة',$listing['categories'][$category]);
         $this->assertCount(0,$this->service()->listing(['branch'=>'f:101','category'=>$category],$this->actor(11))['items']);
-        $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertOk()->assertSee('أدوات نظافة');$this->get(route('branch-expenses.report',['branch'=>'f:100','category'=>$category]))->assertOk()->assertSee('أدوات نظافة');
+        $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertStatus(410);$this->get(route('branch-expenses.report',['branch'=>'f:100','category'=>$category]))->assertOk()->assertSee('أدوات نظافة');
         $export=$this->get(route('branch-expenses.export',['branch'=>'f:100','category'=>$category]))->assertOk();$this->assertStringContainsString('أدوات نظافة',$export->streamedContent());
         $this->invalid(fn()=>$this->create(986,['category'=>'custom_999999']));
     }
@@ -192,7 +203,7 @@ class DashboardBranchExpensesTest extends TestCase
     {
         $categories=app(\App\Services\Dashboard\ExpenseCategories::class);$owner=$this->actor(1);
         $custom=$categories->save(['name'=>'Cleaning','idempotency_key'=>$this->key(900)],$owner)['category'];
-        $pending=$this->create(901,['category'=>$custom['key']]);$approved=$this->create(902,['category'=>'purchases','payment_method'=>'bank','approve'=>true],1);
+        $this->cash();$pending=$this->create(901,['category'=>$custom['key']]);$approved=$this->create(902,['category'=>'purchases','approve'=>true],1);
         foreach([$custom,['key'=>'purchases','revision'=>0]] as $i=>$item){
             $edit=['action'=>'update','key'=>$item['key'],'expected_revision'=>0,'name'=>'Revised '.$i,'idempotency_key'=>$this->key(910+$i)];
             $changed=$categories->save($edit,$owner);$this->assertSame('Revised '.$i,$changed['categories'][$item['key']]);$this->assertSame(1,$changed['category']['revision']);
@@ -205,12 +216,12 @@ class DashboardBranchExpensesTest extends TestCase
             $this->assertTrue($categories->save($delete,$owner)['replayed']);
             $this->invalid(fn()=>$this->create(940+$i,['category'=>$item['key']]));
             $r=$this->service()->listing(['branch'=>'f:100','category'=>$item['key']],$this->actor());$this->assertCount(1,$r['items']);$this->assertSame('Revised '.$i,$r['items'][0]['category_name']);$this->assertSame([],$r['category_items']);
-            $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$r['items'][0]['id']]))->assertOk()->assertSee('Revised '.$i);
+            $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$r['items'][0]['id']]))->assertStatus(410);
         }
         $this->assertSame(2,DB::table('branch_expenses')->count());$this->assertSame(25100,(int)DB::table('branch_expenses')->sum('amount_cents'));
-        // Existing pending records may retain their removed category while being corrected.
-        $updated=$this->create(950,['expense_id'=>$pending['id'],'expected_revision'=>$pending['revision'],'category'=>$custom['key'],'description'=>'Corrected']);$this->assertSame($pending['id'],$updated['id']);
-        $this->assertSame('Revised 0',$updated['category_name']);
+        // Registered expenses remain immutable even when their category is removed.
+        $this->denied(fn()=>$this->create(950,['expense_id'=>$pending['id'],'expected_revision'=>$pending['revision'],'category'=>$custom['key'],'description'=>'Corrected']),403);
+        $this->assertSame('Revised 0',$this->service()->show($pending['id'],$this->actor())['expense']['category_name']);
         $restored=$categories->save(['name'=>'Revised 0','idempotency_key'=>$this->key(951)],$owner);$this->assertSame($custom['key'],$restored['category']['key']);$this->assertTrue($restored['category']['active']);$this->assertSame(3,$restored['category']['revision']);
         $this->create(952,['category'=>$custom['key']]);
     }
