@@ -2,13 +2,13 @@
 namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
-use App\Services\Dashboard\{DesktopPos, TakeawayAccess};
+use App\Services\Dashboard\{DesktopPos, DesktopPosInstaller, TakeawayAccess};
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\{DB, Schema};
 
 class DesktopPosController extends Controller
 {
-    public function index(Request $request, TakeawayAccess $access)
+    public function index(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads)
     {
         $actor=auth('admin')->user(); abort_unless($access->canAccess($actor),403);
         $branches=array_values(array_filter($access->branches($actor),fn($b)=>$b['kind']==='f')); $values=array_column($branches,'value');
@@ -18,7 +18,8 @@ class DesktopPosController extends Controller
         // No pairing hashes or device credentials are rendered into the dashboard.
         $operations=$ready?DB::table('desktop_pos_operations')->where('branch',$selected)->orderByDesc('id')->paginate(30):null;
         $installer=is_file(config('desktop_pos.installer'));
-        return view('admin.desktop_pos.index',compact('branches','selected','devices','operations','ready','installer'));
+        $canUpload=$uploads->canUpload($actor,$access);
+        return view('admin.desktop_pos.index',compact('branches','selected','devices','operations','ready','installer','canUpload'));
     }
     public function issue(Request $request,DesktopPos $pos)
     {
@@ -39,5 +40,40 @@ class DesktopPosController extends Controller
         abort_unless($access->canAccess(auth('admin')->user()),403); $path=config('desktop_pos.installer');
         abort_unless(is_file($path),404,'ملف تثبيت البرنامج لم يُرفع بعد.');
         return response()->download($path,'Fasakhansta-POS-Setup.exe',['Cache-Control'=>'private, no-store']);
+    }
+
+    public function uploadStart(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads)
+    {
+        abort_unless($uploads->canUpload(auth('admin')->user(),$access),403);
+        $v=$request->validate(['size'=>'required|integer|min:1']);
+        $previous=$request->session()->get('desktop_installer_upload');
+        $result=$uploads->start((int)$v['size'],$previous['id']??null);
+        $request->session()->put('desktop_installer_upload',['id'=>$result['upload_id'],'actor'=>(int)auth('admin')->id()]);
+        return response()->json($result);
+    }
+
+    public function uploadChunk(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads)
+    {
+        $id=$this->uploadSession($request,$access,$uploads);
+        $v=$request->validate(['offset'=>'required|integer|min:0','chunk'=>'required|file|max:512']);
+        $offset=$uploads->chunk($id,(int)$v['offset'],$request->file('chunk')->getPathname());
+        return response()->json(['offset'=>$offset]);
+    }
+
+    public function uploadFinish(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads)
+    {
+        $id=$this->uploadSession($request,$access,$uploads);
+        $uploads->finish($id);
+        return response()->json(['download_url'=>route('desktop-pos.download')]);
+    }
+
+    private function uploadSession(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads): string
+    {
+        abort_unless($uploads->canUpload(auth('admin')->user(),$access),403);
+        $v=$request->validate(['upload_id'=>'required|string|size:64|regex:/\A[0-9a-f]{64}\z/D']);
+        $session=$request->session()->get('desktop_installer_upload');
+        abort_unless($session && (int)$session['actor']===(int)auth('admin')->id()
+            && hash_equals($session['id'],$v['upload_id']),403);
+        return $session['id'];
     }
 }

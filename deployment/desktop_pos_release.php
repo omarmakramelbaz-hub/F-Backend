@@ -78,7 +78,7 @@ try {
             foreach ($indexes as $index) { ksort($index); if (array_values($index)===$columns) $valid=true; }
             if (!$valid) throw new RuntimeException('Desktop idempotency index verification failed.');
         }
-        foreach (['desktop-pos.index','desktop-pos.issue','desktop-pos.revoke','desktop-pos.download'] as $name) {
+        foreach (['desktop-pos.index','desktop-pos.issue','desktop-pos.revoke','desktop-pos.download','desktop-pos.upload-start','desktop-pos.upload-chunk','desktop-pos.upload-finish'] as $name) {
             if (!Illuminate\Support\Facades\Route::has($name)) throw new RuntimeException('Desktop dashboard route is missing.');
         }
         $kernel=$app->make(Illuminate\Contracts\Http\Kernel::class);
@@ -88,7 +88,7 @@ try {
         if ($response->getStatusCode()!==401) throw new RuntimeException('Unauthenticated desktop health must return HTTP 401.');
         echo "DESKTOP POS SCHEMA AND AUTHENTICATION VERIFIED\n";
         echo 'Dashboard page: '.route('desktop-pos.index')."\n";
-        echo is_file(config('desktop_pos.installer')) ? "WINDOWS INSTALLER AVAILABLE\n" : "Pairing is ready. Upload Fasakhansta-POS-Setup.exe to storage/app/desktop-pos/ to enable dashboard downloads.\n";
+        echo is_file(config('desktop_pos.installer')) ? "WINDOWS INSTALLER AVAILABLE\n" : "Pairing is ready. Open the dashboard page and upload Fasakhansta-POS-Setup.exe using the upload button.\n";
     } else throw new RuntimeException('Unknown release check.');
 } catch (Throwable $error) {
     // Known validation messages have no credentials; framework/database exceptions are suppressed.

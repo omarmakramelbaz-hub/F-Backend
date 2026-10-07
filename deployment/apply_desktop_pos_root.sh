@@ -94,6 +94,7 @@ set -euo pipefail
 cd "$1"
 "$2" -l app/Services/Dashboard/DesktopPos.php
 "$2" -l app/Services/Dashboard/DesktopPosQuote.php
+"$2" -l app/Services/Dashboard/DesktopPosInstaller.php
 "$2" -l app/Http/Controllers/Api/DesktopPosController.php
 "$2" -l app/Http/Controllers/Dashboard/DesktopPosController.php
 "$2" artisan migrate --path=database/migrations/2026_10_07_210000_create_desktop_pos.php --force
