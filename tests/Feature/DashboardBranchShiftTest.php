@@ -86,6 +86,7 @@ class DashboardBranchShiftTest extends TestCase
         $this->create(201,['amount'=>'100.00','approve'=>true],1);
         // Historical bank expenses still reconcile without debiting the cash drawer.
         $legacy=$this->create(202,['amount'=>'50.00'],1);DB::table('branch_expenses')->where('id',$legacy['id'])->update(['payment_method'=>'bank','status'=>'approved']);
+        DB::table('branch_expense_commands')->where('expense_id',$legacy['id'])->update(['snapshot'=>json_encode(DB::table('branch_expenses')->where('id',$legacy['id'])->first())]);
         $this->create(203,['amount'=>'99.00']);
         $before=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');$preview=$this->shifts()->data(['branch'=>'f:100'],$this->actor());
         $this->assertSame(1,$preview['report']['pending_expenses']);
