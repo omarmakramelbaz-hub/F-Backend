@@ -136,6 +136,8 @@
 #phone-orders .ph-ticket-quick-actions button{height:19px;min-width:0;padding:0 4px;border:1px solid #cddae9;border-radius:4px;background:#fff;color:#284f7b;font-size:9px;line-height:17px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 #phone-orders .ph-ticket-quick-actions button i{display:none}
 #phone-orders .ph-ticket-quick-actions button.is-primary{background:#158346;border-color:#158346;color:#fff}
+#phone-orders .ph-ticket-quick-actions button.is-orange{background:var(--ph-orange);border-color:#d96616;color:#18263b}
+#phone-orders .ph-ticket-quick-actions button.is-orange:hover:not(:disabled),#phone-orders .ph-ticket-quick-actions button.is-orange:focus-visible{background:#f58a3f}
 #phone-orders .ph-ticket-quick-actions button.is-warning{background:#fff5df;border-color:#edcf90;color:#805616}
 #phone-orders .ph-ticket-compact .ph-board-select{padding:0;margin:0;gap:0;background:transparent;flex:0 0 16px}
 #phone-orders .ph-ticket-compact .ph-board-select input{width:15px;height:15px;margin:0;cursor:pointer}

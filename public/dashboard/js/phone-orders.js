@@ -300,11 +300,11 @@
     function ticketStage(ticket) {return ticket.payment_status==='paid'||['finished','cancelled'].includes(ticket.status)?'finished':ticket.status==='out_for_delivery'?'courier':'preparing';}
     function ticketActions(ticket, container) {
         var stage=ticketStage(ticket);
-        container.appendChild(button('view_order',function(){detailsModal(ticket.id);}));
+        container.appendChild(button('view_order',function(){detailsModal(ticket.id);},'is-orange'));
         if(!canWrite()||stage==='finished')return;
         if(stage==='preparing'){
             if(!ticket.bill_locked){container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));container.appendChild(button('kitchen_order',function(){action(ticket,'send_kitchen',true);},'is-primary'));}
-            container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);}));
+            container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);},'is-orange'));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
             container.appendChild(button('finish_collect',function(){settlement(ticket.id);},'is-warning'));
