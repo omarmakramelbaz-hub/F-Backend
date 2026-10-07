@@ -83,7 +83,10 @@ class DashboardBranchShiftTest extends TestCase
     {
         $this->cash(10000);$this->sale(101,'dine',100000,60000);$this->sale(102,'takeaway',50000,50000);$this->sale(103,'phone',22000,22000,2000);$this->sale(104,'phone',33000,0,3000);$this->sale(105,'takeaway',99900,99900,0,'f:101');
         $this->appSale('cash','vendor',40000,4000);$this->appSale('cash','delegate',60000,6000);$this->appSale('card','admin',70000,7000);$this->appSale('cash','vendor',99900,0,'101');
-        $this->create(201,['amount'=>'100.00','approve'=>true],1);$this->create(202,['amount'=>'50.00','payment_method'=>'bank','approve'=>true],1);$this->create(203,['amount'=>'99.00']);
+        $this->create(201,['amount'=>'100.00','approve'=>true],1);
+        // Historical bank expenses still reconcile without debiting the cash drawer.
+        $legacy=$this->create(202,['amount'=>'50.00'],1);DB::table('branch_expenses')->where('id',$legacy['id'])->update(['payment_method'=>'bank','status'=>'approved']);
+        $this->create(203,['amount'=>'99.00']);
         $before=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');$preview=$this->shifts()->data(['branch'=>'f:100'],$this->actor());
         $this->assertSame(1,$preview['report']['pending_expenses']);
         foreach(['channels','sales_total','delivery_total','expenses_total','net_sales','expected_cash','opening_cash','variance','counted_cash','till_balance'] as $key)$this->assertArrayNotHasKey($key,$preview['report']);
