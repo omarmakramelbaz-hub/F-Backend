@@ -82,7 +82,7 @@ class Catalog
         $options = json_decode($row->options, true) ?: [];
         return ['id' => (int) $row->id, 'name' => $row->name, 'description' => $row->description,
             'unit' => $row->unit, 'price' => $this->money((int) $row->price_cents),
-            'image_url' => Storage::disk('public')->url($row->image_path),
+            'image_url' => $row->image_path ? Storage::disk('public')->url($row->image_path) : '',
             'available' => (bool) $row->available, 'revision' => (int) $row->revision,
             'options' => array_map(function ($option) {
                 return ['id' => $option['id'], 'label' => $option['label'], 'price' => $this->money($option['price_cents'])];

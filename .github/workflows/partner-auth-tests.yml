@@ -30,6 +30,8 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/PartnerCommissionSettingsTest.php
       - name: Test GO stores, images, option prices and ownership
         run: vendor/bin/phpunit tests/Feature/GoStoreCatalogTest.php
+      - name: Test AI product search and rejection of branded images
+        run: vendor/bin/phpunit tests/Feature/GoProductImageSearchTest.php
       - name: Test direct admin store creation and account isolation
         run: vendor/bin/phpunit tests/Feature/GoStoreAdminCreationTest.php
       - name: Test GO wallet minimum across account types
