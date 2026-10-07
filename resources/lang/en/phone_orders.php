@@ -3,6 +3,7 @@ return [
     'delivery_auto'=>'Use automatic fee',
     'compact_details' => 'View',
     'details_actions' => 'Order details and actions',
+    'view_order'=>'View order', 'order_actions'=>'Take action', 'edit_order'=>'Edit order', 'kitchen_order'=>'Send order to kitchen', 'print_order'=>'Print order', 'finish_collect'=>'Finish order and collect cash',
     'order_steps' => 'Order steps',
     'start_order' => 'Start with a phone number',
     'start_order_hint' => 'Find the customer and saved address, or register a new customer in a few steps.',
@@ -85,4 +86,3 @@ return [
     'batch_completed' => 'Orders collected and completed. Printing the combined receipt.',
     'company_dispatched' => 'Order handed over to the delivery company.',
 ];
-

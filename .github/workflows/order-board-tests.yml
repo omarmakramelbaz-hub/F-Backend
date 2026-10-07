@@ -192,6 +192,7 @@ jobs:
           node --check public/dashboard/js/home-overview.js
           node --check public/dashboard/js/branch-home.js
           node --check public/dashboard/js/branch-expenses.js
+          node --check public/dashboard/js/dashboard-expense-badge.js
           node --check public/dashboard/js/branch-operations.js
           node --check public/dashboard/js/dashboard-location-picker.js
           node --check public/dashboard/js/print-settings.js

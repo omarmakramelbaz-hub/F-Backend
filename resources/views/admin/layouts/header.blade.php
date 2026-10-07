@@ -62,7 +62,7 @@
        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
         <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-spa.css') }}?v=20261003-pos-service-1">
-        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003-spa-1">
+        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-brand.css')) }}">
         
     <style>
     .cke_notification_warning{

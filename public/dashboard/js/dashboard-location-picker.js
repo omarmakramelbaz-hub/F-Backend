@@ -34,6 +34,14 @@ function sdk(key) {
 function valid(lat, lng) {
     return lat !== null && lng !== null && lat !== '' && lng !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180;
 }
+function addressArea(components) {
+    var priorities=['sublocality_level_1','sublocality','neighborhood','administrative_area_level_3','locality','administrative_area_level_2'];
+    for (var type of priorities) {
+        var component=(components||[]).find(function(c){return Array.isArray(c.types)&&c.types.includes(type)&&typeof c.longText==='string'&&c.longText.trim();});
+        if(component)return component.longText.trim().slice(0,150);
+    }
+    return '';
+}
 function create(container, options) {
     var routePath = null, placesToken, googlePoint=false, predictions = new Map();
     var map, marker, circle, origin, routeLine, provider, observer, disposed = false, g = 0, radius = options.radius || 0;
@@ -157,11 +165,11 @@ function create(container, options) {
         },
         resolve: async function(item){
             if(disposed||failed||provider!=='google'||!predictions.has(item.id))throw Error('تعذر تحديد العنوان. أعد البحث ثم اختره.');
-            var generation=g,place=predictions.get(item.id).toPlace();placesToken=null;predictions.clear();await place.fetchFields({fields:['location','formattedAddress']});
+            var generation=g,place=predictions.get(item.id).toPlace();placesToken=null;predictions.clear();await place.fetchFields({fields:['location','formattedAddress','addressComponents']});
             if(disposed||failed||provider!=='google'||generation!==g)throw Error('تغير العنوان أو الفرع. أعد اختيار العنوان.');
             if(!place.location)throw Error('لا توجد إحداثيات لهذا العنوان.');
             googlePoint=true;
-            return {label:place.formattedAddress||item.label,latitude:place.location.lat(),longitude:place.location.lng()};
+            return {label:place.formattedAddress||item.label,area:addressArea(place.addressComponents),latitude:place.location.lat(),longitude:place.location.lng()};
         },
         invalidate: function () { g++; },
         resize: function () { if (provider === 'osm' && map) map.invalidateSize(); else if (provider === 'google' && map) google.maps.event.trigger(map, 'resize'); },

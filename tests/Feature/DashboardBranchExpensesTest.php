@@ -71,6 +71,23 @@ class DashboardBranchExpensesTest extends TestCase
         $this->denied(fn()=>$this->create(2,['approve'=>true]),403);
         $this->assertSame(1,DB::table('branch_expenses')->count());
     }
+    public function test_pending_badge_counts_all_accessible_dates_and_drops_after_approval_or_rejection(): void
+    {
+        $this->cash();$first=$this->create();$second=$this->create(2,['occurred_on'=>'2026-09-01']);
+        $foreign=$this->create(3,['branch'=>'f:101'],11);
+        $this->assertSame(3,$this->service()->pendingCount($this->actor(1)));
+        $this->assertSame(2,$this->service()->pendingCount($this->actor(12)));
+        $this->review($first);$this->assertSame(2,$this->service()->pendingCount($this->actor(1)));
+        $this->assertSame(1,$this->service()->pendingCount($this->actor(12)));
+        $this->review($second,'reject',21);$this->assertSame(0,$this->service()->pendingCount($this->actor(12)));
+        $this->review($foreign,'reject',22);$this->assertSame(0,$this->service()->pendingCount($this->actor(1)));
+        foreach([4,10,11,20,30] as $id)$this->denied(fn()=>$this->service()->pendingCount($this->actor($id)),403);
+    }
+    public function test_pending_count_route_cannot_be_used_by_a_branch_account(): void
+    {
+        $this->create();$this->actingAs($this->actor(10),'admin')->getJson(route('branch-expenses.pendingCount'))->assertForbidden();
+        $this->actingAs($this->actor(1),'admin')->getJson(route('branch-expenses.pendingCount'))->assertOk()->assertJson(['success'=>true,'count'=>1]);
+    }
     public function test_approval_and_lost_response_retry_debit_cash_exactly_once(): void
     {
         $this->cash();$item=$this->create();$first=$this->review($item);$retry=$this->review($item);

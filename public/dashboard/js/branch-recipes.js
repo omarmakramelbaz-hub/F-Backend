@@ -15,7 +15,7 @@
         panel.querySelector('[data-recipe-retry]').disabled=busy||loading;
         if(!locked()){
             form.querySelectorAll('button,input,select').forEach(function(c){c.disabled=!canManage;});
-            form.elements.feature_id.disabled=false;if(chosen&&chosen.recipe)form.elements.unit.disabled=true;
+            form.elements.feature_id.disabled=false;if(chosen&&chosen.recipe&&chosen.recipe.id)form.elements.unit.disabled=true;
             panel.querySelector('[data-recipe-prev]').disabled=!current||current.pagination.page<=1;panel.querySelector('[data-recipe-next]').disabled=!current||current.pagination.page>=current.pagination.last_page;
         }
         panel.querySelector('[data-recipe-save]').hidden=!canManage;panel.querySelector('[data-recipe-add]').hidden=!canManage;
@@ -45,13 +45,13 @@
         if(!force&&(locked()||dirty&&!confirm('ترك تعديلات الوصفة غير المحفوظة؟')))return;
         chosen=item;feature='0';form.hidden=!item;panel.querySelector('[data-recipe-empty]').hidden=!!item;
         panel.querySelector('[data-recipe-title]').textContent=item?item.name:'اختر صنفًا لتسجيل وصفته';
-        panel.querySelector('[data-recipe-revision]').textContent=item&&item.recipe?'نسخة الوصفة '+item.recipe.revision:!canManage?'عرض الوصفات — التعديل من حساب الإدارة أو المالك':'';
+        panel.querySelector('[data-recipe-revision]').textContent=item&&item.recipe?(item.recipe.raw_stock?'مرتبط مباشرة برصيد البضاعة':'نسخة الوصفة '+item.recipe.revision):!canManage?'عرض الوصفات — التعديل من حساب الإدارة أو المالك':'';
         if(!item){dirty=false;return;}
         form.elements.feature_id.replaceChildren();item.features.forEach(function(f){var option=el('option',f.label+(item.recipe&&item.recipe.variants[String(f.id)]?' · مسجلة':' · غير مسجلة'));option.value=f.id;form.elements.feature_id.appendChild(option);});
         form.elements.unit.value=item.recipe?item.recipe.unit:'piece';renderVariant();renderProducts();
     }
     function renderProducts(){
-        var list=panel.querySelector('[data-recipe-products]');list.replaceChildren();products.forEach(function(item){var button=el('button'),name=el('span',item.name),count=item.features.filter(function(f){return item.recipe&&item.recipe.variants[String(f.id)];}).length,badge=el('small',count+'/'+item.features.length+' أحجام',count===item.features.length?'is-ready':'');button.type='button';button.dataset.recipeProduct=item.id;button.setAttribute('aria-pressed',String(!!chosen&&chosen.id===item.id));button.append(name,badge);button.addEventListener('click',function(){selectProduct(item,false);});list.appendChild(button);});if(!products.size)list.appendChild(el('p','لا توجد أصناف مطابقة.','bs-note'));
+        var list=panel.querySelector('[data-recipe-products]');list.replaceChildren();products.forEach(function(item){var button=el('button'),name=el('span',item.name),count=item.features.filter(function(f){return item.recipe&&item.recipe.variants[String(f.id)];}).length,badge=el('small',item.stock_source==='direct'?'رصيد وحدة مستقل':item.stock_source==='unconfigured'?'يحتاج وصفة':item.stock_source==='ingredient'?'مرتبط بالبضاعة':count+'/'+item.features.length+' أحجام',item.stock_source==='ingredient'||item.stock_source==='direct'||count===item.features.length?'is-ready':'');button.type='button';button.dataset.recipeProduct=item.id;button.setAttribute('aria-pressed',String(!!chosen&&chosen.id===item.id));button.append(name,badge);button.addEventListener('click',function(){selectProduct(item,false);});list.appendChild(button);});if(!products.size)list.appendChild(el('p','لا توجد أصناف مطابقة.','bs-note'));
     }
     async function load(page,selectId,selectFeature){
         if(busy||frozen||disposed)return;clearTimeout(timer);if(controller)controller.abort();controller=new AbortController();var token=++generation,atBranch=branch.value;loading=true;lock();
@@ -84,10 +84,10 @@
     on(form,'submit',function(event){event.preventDefault();if(locked()||!canManage||!chosen)return;
         var components=Array.from(panel.querySelectorAll('.bs-component')).map(function(row){return {ingredient_id:Number(row.querySelector('[data-recipe-ingredient]').value),quantity:row.querySelector('[data-recipe-quantity]').value.trim().replace(/[٠-٩]/g,function(d){return '٠١٢٣٤٥٦٧٨٩'.indexOf(d);}).replace(/٫/g,'.'),measure:row.querySelector('[data-recipe-measure]').value};});
         if(!components.length||components.some(function(c){return !c.ingredient_id||!/^\d{1,7}(?:\.\d{1,3})?$/.test(c.quantity)||Number(c.quantity)<=0;})||new Set(components.map(function(c){return c.ingredient_id;})).size!==components.length){notice('أدخل مكوّنات مختلفة ومقدارًا موجبًا لكل مكوّن.');return;}
-        var op={branch:branch.value,product_id:chosen.id,feature_id:Number(feature),unit:form.elements.unit.value,components:components,idempotency_key:crypto.randomUUID()};if(chosen.recipe)op.expected_revision=chosen.recipe.revision;save(op,false,false);
+        var op={branch:branch.value,product_id:chosen.id,feature_id:Number(feature),unit:form.elements.unit.value,components:components,idempotency_key:crypto.randomUUID()};if(chosen.recipe&&chosen.recipe.id)op.expected_revision=chosen.recipe.revision;save(op,false,false);
     });
     on(form,'input',function(event){if(event.target!==form.elements.feature_id)dirty=true;});on(form.elements.feature_id,'change',function(){if(dirty&&!confirm('ترك مقادير الحجم غير المحفوظة؟')){form.elements.feature_id.value=feature;return;}feature=form.elements.feature_id.value;renderVariant();});
-    on(panel.querySelector('[data-recipe-add]'),'click',function(){if(locked()||!canManage)return;if(panel.querySelectorAll('.bs-component').length>=23){notice('تم بلوغ عدد أصناف البضاعة.');return;}panel.querySelector('[data-recipe-components]').appendChild(ingredientRow());dirty=true;});
+    on(panel.querySelector('[data-recipe-add]'),'click',function(){if(locked()||!canManage)return;if(panel.querySelectorAll('.bs-component').length>=ingredients.size){notice('تم بلوغ عدد أصناف البضاعة.');return;}panel.querySelector('[data-recipe-components]').appendChild(ingredientRow());dirty=true;});
     on(search,'input',function(){clearTimeout(timer);timer=setTimeout(function(){load(1);},350);});
     on(panel.querySelector('[data-recipe-refresh]'),'click',function(){if(dirty&&!confirm('إعادة تحميل الوصفة وترك التعديلات غير المحفوظة؟'))return;var id=chosen&&chosen.id;dirty=false;load(current?current.pagination.page:1,id,feature);});
     on(panel.querySelector('[data-recipe-prev]'),'click',function(){load(current.pagination.page-1);});on(panel.querySelector('[data-recipe-next]'),'click',function(){load(current.pagination.page+1);});on(panel.querySelector('[data-recipe-retry]'),'click',function(){if(frozen)save(frozen,true,false);});
