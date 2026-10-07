@@ -24,7 +24,7 @@ const read=p=>fs.readFileSync(path.join(__dirname,'../..',p),'utf8');
   const expense=read('public/dashboard/js/branch-expenses.js'),reviewStart=expense.indexOf('    function review('),reviewEnd=expense.indexOf('\n    async function details',reviewStart);
   assert(reviewStart>0&&reviewEnd>reviewStart);
   const approval=await page.evaluate(code=>{
-   return (0,eval)(`(function(){var calls=[],confirms=0,boot={urls:{review:'/review'}};function locked(){return false;}function url(v,p,id){return v+'/'+id;}function t(k){return k;}function uuid(){return 'operation-key';}function execute(op){calls.push(op);}function confirm(){confirms++;return true;}function prompt(){return 'رفض';}${code}
+   return (0,eval)(`(function(){var calls=[],confirms=0,boot={urls:{review:'/review'}};function locked(){return false;}function rowNotice(){}function url(v,p,id){return v+'/'+id;}function t(k){return k;}function uuid(){return 'operation-key';}function execute(op){calls.push(op);}function confirm(){confirms++;return true;}function prompt(){return 'رفض';}${code}
 review({id:42,branch:'f:100',revision:2},'approve');var afterApprove=confirms;review({id:42,branch:'f:100',revision:2},'reject');return {calls,afterApprove,confirms};})()`);
   },expense.slice(reviewStart,reviewEnd));
   assert.equal(approval.afterApprove,0);assert.equal(approval.confirms,1);assert.equal(approval.calls[0].values.action,'approve');assert.equal(approval.calls[0].values.expected_revision,2);

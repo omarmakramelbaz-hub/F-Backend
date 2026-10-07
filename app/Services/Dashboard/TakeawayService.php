@@ -222,7 +222,8 @@ class TakeawayService
             abort_unless((int) $till->revision === (int) $values['expected_revision'], 409, 'تغير رصيد أو إعداد الخزنة. حدّث البيانات.');
             $delta = $setting ? 0 : ($values['direction'] === 'in' ? $amount : -$amount);
             $balance = (int) $till->balance_cents + $delta;
-            abort_unless($balance >= 0 && $balance <= 100000000000, 409, 'الرصيد النقدي غير كافٍ أو المبلغ غير مسموح.');
+            abort_unless($balance >= -100000000000 && $balance <= 100000000000
+                && ($setting || $values['direction'] === 'in' || $balance >= 0), 409, 'الرصيد النقدي غير كافٍ أو المبلغ غير مسموح.');
             $when = now('UTC');
             $changes = ['balance_cents'=>$balance, 'revision'=>(int) $till->revision + 1, 'updated_at'=>$when];
             if ($setting) $changes['tax_bps'] = $amount;

@@ -107,6 +107,17 @@ class DashboardBranchShiftTest extends TestCase
         $this->assertSame('0.00',$next['opening_cash']);$this->assertSame('85.00',$next['expected_cash']);$this->assertSame('2.00',$next['variance']);$this->assertSame('زيادة',$next['variance_label']);$this->assertSame('-10.00',$next['expenses_total']);$this->assertSame(0,$next['channels']['app']['count']);$this->assertSame('50.00',$next['app_branch_cash']);$this->assertSame('25.00',$next['channels']['takeaway']['gross']);$this->assertSame('0.00',$next['channels']['phone']['gross']);
         $this->assertSame($paper,$this->shifts()->receipt($first['id'],$this->actor()));$empty=$this->shifts()->data(['branch'=>'f:100'],$this->actor());$this->assertArrayNotHasKey('sales_total',$empty['report']);
     }
+    public function test_overdrawn_expense_reconciles_in_shift_receipt_and_resets_the_drawer_once(): void
+    {
+        $this->cash(0);$this->create(700,['amount'=>'50.00','approve'=>true],1);
+        $this->assertSame(-5000,(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents'));
+        $values=$this->closing(701,'0.00');$first=$this->shifts()->close($values,$this->actor());$paper=$this->shifts()->receipt($first['closing']['id'],$this->actor());
+        $this->assertSame('50.00',$paper['expenses_total']);$this->assertSame('-50.00',$paper['expected_cash']);$this->assertSame('0.00',$paper['counted_cash']);$this->assertSame('50.00',$paper['variance']);
+        $this->assertSame(-5000,$paper['till_reset']['before_cents']);$this->assertSame(0,(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents'));
+        $this->assertTrue($this->shifts()->close($values,$this->actor())['replayed']);$this->assertSame(1,DB::table('takeaway_till_entries')->where('kind','shift_close')->count());
+        $this->assertSame(5000,(int)DB::table('takeaway_till_entries')->where('kind','shift_close')->value('amount_cents'));
+        $this->assertSame($paper,$this->shifts()->receipt($first['closing']['id'],$this->actor()));
+    }
     public function test_shift_scope_stale_device_and_ambiguous_write_recovery_do_not_duplicate_or_expose_private_totals(): void
     {
         $this->sale(120,'takeaway',1000,1000);$v=$this->closing(910,'10.00');$closed=$this->shifts()->close($v,$this->actor());$id=$closed['closing']['id'];

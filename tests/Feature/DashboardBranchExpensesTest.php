@@ -112,11 +112,47 @@ class DashboardBranchExpensesTest extends TestCase
         $this->assertSame(2,DB::table('takeaway_till_entries')->count());$this->assertCount(3,$void['expense']['history']);
         $this->denied(fn()=>$this->review($void['expense'],'approve',22));
     }
-    public function test_insufficient_funds_rolls_back_create_and_approval_without_command(): void
+    public function test_admin_and_owner_can_approve_from_zero_drawer_cash_over_http_exactly_once(): void
     {
-        $this->cash(100);$this->denied(fn()=>$this->create(1,['approve'=>true],1));$this->assertSame(0,DB::table('branch_expenses')->count());$this->assertSame(0,DB::table('branch_expense_commands')->count());
-        $item=$this->create();$this->denied(fn()=>$this->review($item));$this->assertSame('pending',$this->service()->show($item['id'],$this->actor())['expense']['status']);
-        $this->assertSame(100,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(0,DB::table('takeaway_till_entries')->count());
+        foreach([1,12] as $index=>$actorId){
+            $item=$this->create(100+$index);$values=['branch'=>'f:100','action'=>'approve','expected_revision'=>$item['revision'],'idempotency_key'=>$this->key(200+$index)];
+            $this->actingAs($this->actor($actorId),'admin')->postJson(route('branch-expenses.review',['id'=>$item['id']]),$values)->assertOk()->assertJsonPath('expense.status','approved');
+            $this->postJson(route('branch-expenses.review',['id'=>$item['id']]),$values)->assertOk()->assertJsonPath('replayed',true);
+            $this->assertSame(-12550*($index+1),(int)DB::table('takeaway_tills')->value('balance_cents'));
+            $this->assertSame($index+1,DB::table('takeaway_till_entries')->count());
+        }
+        $this->assertSame(0,$this->service()->pendingCount($this->actor(1)));
+        $register=app(TakeawayService::class)->register('f:100',$this->actor(1));$this->assertSame('-251.00',$register['register']['balance']);
+        $this->assertArrayNotHasKey('balance',app(TakeawayService::class)->register('f:100',$this->actor(10))['register']);
+    }
+    public function test_save_and_approve_below_cash_balance_and_refund_are_replay_safe(): void
+    {
+        $this->cash(100);$values=$this->payload(300,['approve'=>'1']);$first=$this->service()->save($values,$this->actor(12));
+        $this->assertSame('approved',$first['expense']['status']);$this->assertSame(-12450,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $this->assertTrue($this->service()->save($values,$this->actor(12))['replayed']);$this->assertSame(1,DB::table('takeaway_till_entries')->count());
+        $void=$this->review($first['expense'],'void',301,12);$this->assertSame('voided',$void['expense']['status']);$this->assertSame(100,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $this->assertTrue($this->review($first['expense'],'void',301,12)['replayed']);$this->assertSame(2,DB::table('takeaway_till_entries')->count());
+    }
+    public function test_partial_cash_in_can_reconcile_an_overdrawn_expense_without_enabling_cash_out(): void
+    {
+        $this->review($this->create());$pos=app(TakeawayService::class);$owner=$this->actor(12);
+        $payload=['branch'=>'f:100','idempotency_key'=>$this->key(400),'expected_revision'=>DB::table('takeaway_tills')->value('revision'),'direction'=>'in','amount'=>'25.50','note'=>'نقدية للدرج'];
+        $first=$pos->changeRegister($payload,$owner,false);$this->assertSame(-10000,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $this->assertTrue($pos->changeRegister($payload,$owner,false)['replayed']);$this->assertSame(-10000,(int)DB::table('takeaway_tills')->value('balance_cents'));
+        $out=array_merge($payload,['idempotency_key'=>$this->key(401),'expected_revision'=>$first['register']['revision'],'direction'=>'out','amount'=>'1.00']);
+        $this->denied(fn()=>$pos->changeRegister($out,$owner,false));$this->assertSame(2,DB::table('takeaway_till_entries')->count());
+        $tax=$pos->changeRegister(['branch'=>'f:100','idempotency_key'=>$this->key(403),'expected_revision'=>$first['register']['revision'],'tax_rate'=>'14.00','note'=>'إعداد الضريبة'],$owner,true);
+        $this->assertSame(-10000,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame('14.00',$tax['register']['tax_rate']);
+        $second=$pos->changeRegister(array_merge($payload,['idempotency_key'=>$this->key(402),'expected_revision'=>$tax['register']['revision'],'amount'=>'100.00']),$owner,false);
+        $this->assertSame(0,(int)DB::table('takeaway_tills')->value('balance_cents'));
+    }
+    public function test_expense_balance_limit_still_rolls_back_without_posting_cash(): void
+    {
+        $this->cash(-99999999900);$this->denied(fn()=>$this->create(500,['approve'=>true],1));
+        $this->assertSame(0,DB::table('branch_expenses')->count());$this->assertSame(0,DB::table('branch_expense_commands')->count());
+        $item=$this->create(501);$this->denied(fn()=>$this->review($item,'approve',502));
+        $this->assertSame('pending',$this->service()->show($item['id'],$this->actor())['expense']['status']);
+        $this->assertSame(-99999999900,(int)DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
     public function test_only_drawer_expenses_can_be_created_and_legacy_non_cash_cannot_be_approved(): void
     {

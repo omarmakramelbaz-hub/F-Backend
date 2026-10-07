@@ -132,7 +132,9 @@ class BranchExpenses
         if($expense->payment_method!=='cash')return;$when=now('UTC');
         DB::table('takeaway_tills')->insertOrIgnore(['branch'=>$expense->branch,'balance_cents'=>0,'tax_bps'=>0,'revision'=>1,'created_at'=>$when,'updated_at'=>$when]);
         $till=DB::table('takeaway_tills')->where('branch',$expense->branch)->lockForUpdate()->first();$delta=$sign*(int)$expense->amount_cents;$balance=(int)$till->balance_cents+$delta;
-        abort_unless($balance>=0&&$balance<=100000000000,409,'رصيد خزنة الفرع لا يسمح بهذه العملية.');
+        // Approval records money already spent by the branch, including an
+        // overdraft while the recorded drawer cash is awaiting reconciliation.
+        abort_unless($balance>=-100000000000&&$balance<=100000000000,409,'رصيد خزنة الفرع خارج الحد المسموح.');
         $requestKey=\Illuminate\Support\Str::uuid()->toString();$kind=$sign<0?'expense':'expense_refund';
         DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>$balance,'revision'=>(int)$till->revision+1,'updated_at'=>$when]);
         DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$expense->branch,'actor_id'=>$actor->id,'request_key'=>$requestKey,'request_hash'=>PosServiceTicket::fingerprint([$kind,$expense->id]),'kind'=>$kind,'amount_cents'=>$delta,'balance_cents'=>$balance,'business_date'=>$when->copy()->setTimezone('Africa/Cairo')->toDateString(),'note'=>mb_substr(($sign<0?'مصروف ':'عكس مصروف ').'EXP-'.$expense->id.' · '.$expense->description,0,500),'metadata'=>json_encode(['expense_id'=>(int)$expense->id,'occurred_on'=>$expense->occurred_on]),'created_at'=>$when,'updated_at'=>$when]);

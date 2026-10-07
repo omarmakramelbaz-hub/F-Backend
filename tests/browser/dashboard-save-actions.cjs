@@ -44,7 +44,7 @@ const fields=req=>Object.fromEntries([...req.postData().matchAll(/name="([^"\r\n
   await page.route('http://localhost/**',route=>{
    const req=route.request(),p=new URL(req.url()).pathname;
    if(p==='/dashboard/js/dashboard-spa.js')return route.fulfill({contentType:'application/javascript',body:read('public/dashboard/js/dashboard-spa.js')});
-   if(req.method()==='POST'){posted.push({path:p,values:fields(req),csrf:req.headers()['x-csrf-token']});return route.fulfill({json:{success:true,redirect:'/admin/products'}});}
+   if(req.method()==='POST'){posted.push({path:p,values:fields(req),csrf:req.headers()['x-csrf-token']});return route.fulfill({json:{success:true,redirect:'/admin/products',message:'تم التعديل بنجاح',severity:'success'}});}
    if(p==='/admin/products/42/edit')return route.fulfill({contentType:'text/html',body:shell(productPage(true))});
    if(p==='/admin/products/create')return route.fulfill({contentType:'text/html',body:shell(productPage(false))});
    return route.fulfill({contentType:'text/html',body:list()});
@@ -59,9 +59,10 @@ const fields=req=>Object.fromEntries([...req.postData().matchAll(/name="([^"\r\n
    const sent=posted.at(-1);assert.equal(sent.path,edit?'/admin/products/42':'/admin/products');assert.equal(sent.csrf,'fixture-token');assert.equal(sent.values._token,'fixture-token');assert.equal(sent.values.added_by,'1');assert.equal(sent.values.category_id,'1');assert.equal(sent.values.name_ar,'علبة رنجة مخلية كبيرة');assert.equal(sent.values.status,'hide');assert.equal(sent.values.has_clean,'1');assert.equal(sent.values['product_features[]'],'large');
    if(edit){assert.equal(sent.values._method,'PUT');assert.equal(sent.values.product_id,'42');}else{assert(!('_method' in sent.values));assert(!('product_id' in sent.values));}
    assert.equal(await page.evaluate(()=>window.fixtureShell),42);
+   await page.waitForFunction(()=>document.querySelector('.dashboard-spa-status').hidden);
   }
   assert.equal(posted.length,3);assert.deepEqual(errors,[]);await page.close();console.log('Product edit/create save after SPA navigation passed.');
-  for(const [role,nativeUuid] of [['admin',true],['owner',true],['branch',true],['admin',false],['owner',false]]){
+  for(const [role,nativeUuid,firstError=false] of [['admin',true],['owner',true],['branch',true],['admin',false],['owner',false],['admin',true,true]]){
    const approve=role!=='branch',p=await browser.newPage(),reviews=[],saves=[],pageErrors=[];let status='pending',revision=1;
    const item=()=>({id:42,number:'EXP-000042',occurred_on:'2026-10-07',branch:'f:100',branch_name:'فرع المحلة',category:'purchases',description:'خامات',amount:'50.00',payment_method:'cash',actor_name:'مدير الفرع',status,revision,history:[]});
    const data=()=>({success:true,items:[item()],categories:{purchases:'مشتريات'},active_categories:{purchases:'مشتريات'},category_items:[],actors:[],filters:{branch:'f:100',from:'2026-10-01',to:'2026-10-07'},pagination:{page:1,last_page:1,total:1},summary:{today:'0.00',month:'0.00',average:'0.00',count:0,top_category:null,top_amount:'0.00',period:'0.00',pending:status==='pending'?1:0}});
@@ -72,7 +73,9 @@ const fields=req=>Object.fromEntries([...req.postData().matchAll(/name="([^"\r\n
     const req=route.request(),url=new URL(req.url());
     if(url.pathname.startsWith('/dashboard/js/'))return route.fulfill({contentType:'application/javascript',body:read('public'+url.pathname)});
     if(url.pathname==='/admin/branch-expenses/42/review'){
-     reviews.push(req.postDataJSON());assert.equal(req.method(),'POST');assert.equal(req.headers()['x-csrf-token'],'fixture-token');status='approved';revision++;return route.fulfill({json:{success:true,expense:item()}});
+     reviews.push(req.postDataJSON());assert.equal(req.method(),'POST');assert.equal(req.headers()['x-csrf-token'],'fixture-token');
+     if(firstError&&reviews.length===1)return route.fulfill({status:409,json:{message:'حالة المصروف تغيرت؛ حدّث الصفحة.'}});
+     status='approved';revision++;return route.fulfill({json:{success:true,expense:item()}});
     }
     if(url.pathname==='/admin/branch-expenses/save'){
      saves.push(fields(req));return route.fulfill({json:{success:true,expense:item()}});
@@ -83,7 +86,11 @@ const fields=req=>Object.fromEntries([...req.postData().matchAll(/name="([^"\r\n
    });
    await p.goto('http://localhost/admin/products');await p.waitForFunction(()=>window.DashboardSPA.ready());await p.locator('#open-expenses').click();await p.waitForSelector('[data-status="pending"]');
    assert.equal(await p.locator('[data-expense-approve]').count(),approve?1:0);
-   if(approve){await p.locator('[data-expense-approve]').click();try{await p.waitForSelector('[data-status="approved"]',{timeout:3000});}catch(error){console.error({role,reviews,pageErrors,notice:await p.locator('[data-expense-message]').textContent()});throw error;}assert.equal(reviews.length,1);assert.equal(reviews[0].action,'approve');assert.equal(reviews[0].branch,'f:100');assert.equal(reviews[0].expected_revision,1);assert.match(reviews[0].idempotency_key,/^[0-9a-f-]{36}$/);assert.equal(await p.locator('[data-expense-approve]').count(),0);assert(await p.locator('[data-expense-message]').isHidden());}
+   if(approve){
+    await p.locator('[data-expense-approve]').click();
+    if(firstError){await p.waitForSelector('[data-expense-row-message]:not([hidden])');assert.equal(await p.locator('[data-expense-row-message]').textContent(),'حالة المصروف تغيرت؛ حدّث الصفحة.');await p.waitForFunction(()=>!document.querySelector('[data-expense-approve]').disabled);await p.locator('[data-expense-approve]').click();}
+    try{await p.waitForSelector('[data-status="approved"]',{timeout:3000});}catch(error){console.error({role,reviews,pageErrors,notice:await p.locator('[data-expense-message]').textContent()});throw error;}assert.equal(reviews.length,firstError?2:1);assert.equal(reviews[0].action,'approve');assert.equal(reviews[0].branch,'f:100');assert.equal(reviews[0].expected_revision,1);assert.match(reviews[0].idempotency_key,/^[0-9a-f-]{36}$/);assert.equal(await p.locator('[data-expense-approve]').count(),0);assert(await p.locator('[data-expense-message]').isHidden());
+   }
    if(!nativeUuid){
     const form=p.locator('[data-expense-form]');
     async function fillExpense(){await form.locator('[name="category"]').selectOption('purchases');await form.locator('[name="description"]').fill('خامات جديدة');await form.locator('[name="amount"]').fill('25.00');}
