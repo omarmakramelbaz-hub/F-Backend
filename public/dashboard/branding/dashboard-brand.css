@@ -359,6 +359,7 @@ html[dir="rtl"] .dashboard-theme.sidebar-collapse .main-sidebar { transform: tra
 .dashboard-theme .btn-success:hover { background: #0b6638 !important; border-color: #0b6638 !important; }
 /* Completed actions are reflected in the page; only errors and warnings notify. */
 body.dashboard-theme #toast-container > .toast-success,
+body.dashboard-theme .alert-success,
 body.dashboard-theme [role="status"].is-success,
 body.dashboard-theme [role="alert"].is-success { display: none !important; }
 .dashboard-theme .btn-danger { background: #d5263d; border-color: #d5263d; color: #fff; }

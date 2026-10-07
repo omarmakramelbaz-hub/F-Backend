@@ -5,7 +5,7 @@ const read=p=>fs.readFileSync(path.join(__dirname,'../..',p),'utf8');
  const browser=await chromium.launch({headless:true});
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/*',route=>route.abort());
-  await page.setContent('<html dir="rtl"><body class="dashboard-theme"><div role="status" class="is-success" id="saved">تم الحفظ</div><div role="alert" class="is-success" id="success-alert">تم التعديل</div><div role="alert" id="failed">تعذر الحفظ</div><div role="status" id="warning">راجع البيانات</div><button class="btn-success" id="approve">اعتماد وصرف</button><span data-status="approved" id="approved">تم الاعتماد</span></body></html>');
+  await page.setContent('<html dir="rtl"><body class="dashboard-theme"><div role="status" class="is-success" id="saved">تم الحفظ</div><div role="alert" class="is-success" id="success-alert">تم التعديل</div><div class="alert alert-success" id="store-success">تم حفظ المتجر</div><div role="alert" id="failed">تعذر الحفظ</div><div role="status" id="warning">راجع البيانات</div><button class="btn-success" id="approve">اعتماد وصرف</button><span data-status="approved" id="approved">تم الاعتماد</span></body></html>');
   await page.addStyleTag({content:read('public/dashboard/branding/dashboard-brand.css')});
   await page.addStyleTag({content:read('public/dashboard/plugins/toastr/toastr.min.css')});
   await page.addScriptTag({content:read('public/dashboard/plugins/jquery/jquery.min.js')});
@@ -18,7 +18,7 @@ const read=p=>fs.readFileSync(path.join(__dirname,'../..',p),'utf8');
   await page.waitForSelector('#toast-container .toast-error');assert.equal(await page.locator('#toast-container .toast-success').count(),0,'Flash success/info must not produce green toasts');
   await page.evaluate(()=>{toastr.success('legacy success');toastr.warning('warning fixture');});
   assert(await page.locator('#toast-container .toast-success').isHidden());assert(await page.locator('#toast-container .toast-error').isVisible());assert(await page.locator('#toast-container .toast-warning').isVisible());
-  for(const id of ['saved','success-alert'])assert(await page.locator('#'+id).isHidden());
+  for(const id of ['saved','success-alert','store-success'])assert(await page.locator('#'+id).isHidden());
   for(const id of ['failed','warning','approve','approved'])assert(await page.locator('#'+id).isVisible());
   assert.deepEqual(errors,[]);await page.close();console.log('Success notifications suppressed; errors, warnings, approval buttons and saved statuses remain visible.');
  }finally{await browser.close();}
