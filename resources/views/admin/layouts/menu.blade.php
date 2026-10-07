@@ -13,16 +13,6 @@
         <div class="container user-panel mt-1 mb-1 d-flex">
             <div class="d-flex align-items-center gap-2">
                 <div class="">
-                    @if(auth('admin')->user()->getFirstMediaUrl('photo_profile', 'thumb'))
-                        <img class="avatar" src="{{auth('admin')->user()->getFirstMediaUrl('photo_profile', 'thumb')}}"
-                            alt="admin image">
-                    @else
-                        <!--<img class="avatar" src="{{url('dashboard/dist/img/avatar_icon.png')}}" alt="admin image">-->
-                        <i class="fas fa-user-gear"></i>
-                    @endif
-
-                </div>
-                <div class="">
                     @if(auth('admin')->user()->id == 1)
                         <a style="line-height: 45px;"
                             href="{{ url('/admin/users/' . Auth::guard('admin')->user()->id . '/edit?account_type=admin') }}"

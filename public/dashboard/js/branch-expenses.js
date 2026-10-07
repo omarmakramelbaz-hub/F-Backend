@@ -15,6 +15,7 @@
     function notice(value, retry) { var box = root.querySelector('[data-expense-message]'); box.hidden = !value; box.querySelector('span').textContent = value || ''; box.querySelector('button').hidden = !retry; }
     function locked() { return busy || categoryBusy || !!frozen; }
     function lock() {
+        if(frozen&&frozen.fileName&&!frozen.file&&!form.elements.attachment){var recovery=el('label',t('missing_file')),file=el('input');recovery.dataset.expenseRecoveryFile='';file.type='file';file.name='attachment';file.accept='image/jpeg,image/png,application/pdf';recovery.appendChild(file);form.insertBefore(recovery,form.querySelector('.ex-form-actions'));}
         root.querySelectorAll('button,input,textarea,select').forEach(function (control) { control.disabled = locked(); });
         root.querySelector('[data-expense-retry]').disabled = busy;
         if (frozen && !busy && frozen.fileName && !frozen.file) form.elements.attachment.disabled = false;
@@ -105,7 +106,7 @@
     }
     function reset() {
         editing = null; categoryOptions(current); form.reset(); form.elements.occurred_on.value = boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
-        root.querySelector('[data-expense-existing-file]').hidden = true; root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
+        var recovery=form.querySelector('[data-expense-recovery-file]');if(recovery)recovery.remove();root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
     }
     async function print(address) { if (locked()) return; try { await window.DashboardPrint.print(url(address)); } catch (error) { notice(error.message || t('error')); } }
     function setPending(operation) { frozen = operation; var saved = Object.assign({}, operation); delete saved.file; sessionStorage.setItem(pendingKey, JSON.stringify(saved)); lock(); }
@@ -144,7 +145,7 @@
         v.amount = v.amount.trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/٫/g,'.');
         v.approve = approve ? '1' : '0';
         v.idempotency_key = uuid(); if (editing) { v.expense_id = editing.id; v.expected_revision = editing.revision; }
-        var file = form.elements.attachment.files[0]; execute({ type: 'save', url: url(boot.urls.save), values: v, file: file || null, fileName: file && file.name, fileSize: file && file.size }, false);
+        execute({ type: 'save', url: url(boot.urls.save), values: v }, false);
     }
     function review(item, action) {
         if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
