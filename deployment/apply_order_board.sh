@@ -115,6 +115,7 @@ php artisan migrate --force --path=database/migrations/2026_10_06_140000_add_emp
 php artisan migrate --force --path=database/migrations/2026_10_06_160000_create_dashboard_push_campaigns.php
 php artisan migrate --force --path=database/migrations/2026_10_04_190000_create_branch_stock.php
 php artisan migrate --force --path=database/migrations/2026_10_04_210000_create_branch_inventory_recipes.php
+php artisan migrate --force --path=database/migrations/2026_10_07_160000_add_canned_herring_stock.php
 php artisan migrate --force --path=database/migrations/2026_10_04_100000_create_branch_shift_closings.php
 # Preserve the existing cache mode: legacy controllers read env() directly.
 if test "$config_cached" = 1; then php artisan config:cache; else php artisan config:clear; fi
@@ -128,6 +129,7 @@ test -s public/dashboard/js/dashboard-navigation.js
 test -s public/dashboard/js/dashboard-spa.js
 test -s public/dashboard/css/dashboard-spa.css
 test -s public/dashboard/js/dashboard-inbox.js
+test -s public/dashboard/js/dashboard-expense-badge.js
 test -s public/dashboard/js/dashboard-support-chat.js
 test -s public/dashboard/js/dashboard-print.js
 test -s public/dashboard/js/dashboard-invoice-details.js

@@ -40,6 +40,7 @@ class DashboardBranchRecipeTest extends TestCase
         require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php');(new \CreateBranchOperations)->up();
         require_once database_path('migrations/2026_10_04_190000_create_branch_stock.php');(new \CreateBranchStock)->up();
         require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php');(new \CreateBranchInventoryRecipes)->up();
+        require_once database_path('migrations/2026_10_07_160000_add_canned_herring_stock.php');(new \AddCannedHerringStock)->up();
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[30,'vendor',null]] as [$id,$type,$owner])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'app_scope'=>$id===30?'go_partner':'fasakhansta','status'=>'accepted','owner_resturant_id'=>$owner]);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Foreign']]);
         DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100,'product_name'=>'Fish','product_price'=>'100.00','price'=>'{}','status'=>'show'],['id'=>2,'resturant_id'=>101,'product_name'=>'Foreign','product_price'=>'500.00','price'=>'{}','status'=>'show']]);
@@ -50,6 +51,33 @@ class DashboardBranchRecipeTest extends TestCase
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
     private function dropFixtures(): void{foreach(['branch_recipe_sales','branch_stock_recipes','branch_inventory_movements','branch_inventory','stock_ingredients','branch_stock_movements','branch_stock','branch_payrolls','branch_employee_entries','branch_employee_days','branch_employee_salaries','branch_employees','branch_delivery_companies','branch_customers','branch_operation_commands','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','user_address','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
+    public function test_canned_menu_names_bind_to_piece_goods_of_the_correct_size(): void
+    {
+        $names=['علبة أنشوجة وزن 200 جرام'=>15,'علبة بطارخ رنجة وزن400جرام'=>13,'علبة رنجة كان مخليه وزن400 جرام'=>25,'علبة سردين مخلي وزن200 جرام'=>11,'علبة سردين مخلي وزن400 جرام'=>12,'علبة فسيخ وزن200جرام'=>9,'علية فسيخ وزن400جرام'=>10,'علبة ملوحه وزن200جرام'=>14,'علبة رنجه كان مخلية وزن٢٠٠جرام'=>24];
+        $ids=[];foreach($names as $name=>$ingredient){$id=100+count($ids);$ids[$id]=$ingredient;DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>100,'product_name'=>$name,'product_price'=>'50','price'=>'{}','status'=>'show']);}
+        foreach(array_unique($ids) as $id)$this->receiveIngredient($id,'8',1000+$id,'piece');
+        $balances=$this->inventory()->menuBalances('f:100',array_keys($ids));
+        foreach($ids as $id=>$ingredient){$this->assertSame($ingredient,$balances[$id]['ingredient_id']);$this->assertSame('piece',$balances[$id]['unit']);$this->assertSame('8',$balances[$id]['quantity']);}
+        $this->receiveIngredient(5,'99',1099);$cart=$this->cart('f:100',102);$cart['items'][0]['quantity']='2';[$sale]=$this->pay($cart);
+        $this->assertSame('6',$sale['stock_balances'][102]['quantity']);$this->assertSame(6000000,$this->ingredientBalance(25));$this->assertSame(8000000,$this->ingredientBalance(24));$this->assertSame(99000000,$this->ingredientBalance(5));
+    }
+    public function test_effective_recipe_review_excludes_bound_goods_but_marks_missing_prepared_recipes(): void
+    {
+        DB::table('resturant_products')->where('id',1)->update(['product_name'=>'رنجه هيرنج مبطرخ']);
+        DB::table('resturant_products')->insert(['id'=>3,'resturant_id'=>100,'product_name'=>'وجبة رنجة بلس','product_price'=>'50','price'=>'{}','status'=>'show']);
+        $balances=$this->inventory()->menuBalances('f:100',[1,3]);$this->assertSame(5,$balances[1]['ingredient_id']);$this->assertFalse($balances[3]['configured']);$this->assertSame('يحتاج ربط المكونات بالبضاعة',$balances[3]['label']);
+        $review=$this->inventory()->recipes(['branch'=>'f:100'],$this->actor(1));$rows=array_column($review['items'],null,'id');
+        $this->assertSame('ingredient',$rows[1]['stock_source']);$this->assertTrue($rows[1]['recipe']['raw_stock']);$this->assertSame('unconfigured',$rows[3]['stock_source']);
+        $this->assertSame(1,$this->inventory()->listing(['branch'=>'f:100'],$this->actor())['unconfigured_count']);
+        $payload=$this->recipePayload();$payload['product_id']=3;$this->inventory()->saveRecipe($payload,$this->actor(1));
+        $this->assertSame(0,$this->inventory()->listing(['branch'=>'f:100'],$this->actor())['unconfigured_count']);
+    }
+    public function test_canned_herring_migration_is_repeatable_and_preserves_registered_stock(): void
+    {
+        $this->receiveIngredient(24,'7',1200,'piece');$before=DB::table('branch_inventory')->get()->toJson();
+        (new \AddCannedHerringStock)->up();(new \AddCannedHerringStock)->down();
+        $this->assertSame(25,DB::table('stock_ingredients')->count());$this->assertSame($before,DB::table('branch_inventory')->get()->toJson());
+    }
     private function tickets(): PosServiceTicket{return app(PosServiceTicket::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
     private function table(string $branch='f:100',int $key=1): array{return app(PosServiceTable::class)->configure(['branch'=>$branch,'name'=>'Table '.$key,'capacity'=>4,'active'=>true,'idempotency_key'=>$this->key($key)],$this->actor(12))['table'];}
@@ -150,7 +178,7 @@ class DashboardBranchRecipeTest extends TestCase
     }
     public function test_direct_weight_zero_and_unknown_balances_are_distinct_and_unit_rules_apply(): void
     {
-        $missing=$this->inventory()->menuBalances('f:100',[1])[1];$this->assertFalse($missing['tracked']);$this->assertSame('—',$missing['quantity']);$this->assertSame('رصيد الوحدة غير مسجّل',$missing['label']);
+        $missing=$this->inventory()->menuBalances('f:100',[1])[1];$this->assertFalse($missing['tracked']);$this->assertSame('—',$missing['quantity']);$this->assertSame('يحتاج ربط المكونات بالبضاعة',$missing['label']);
         $this->directStock(1,125000,'kg');$cart=$this->cart();$this->denied(fn()=>app(TakeawayService::class)->quote($cart,$this->actor()),422);
         $cart['items'][0]['quantity_mode']='weight';$cart['items'][0]['quantity']='0.125';[$sale]=$this->pay($cart);
         $this->assertSame('0',$sale['stock_balances'][1]['quantity']);$this->assertTrue($sale['stock_balances'][1]['tracked']);
@@ -190,13 +218,13 @@ class DashboardBranchRecipeTest extends TestCase
         $this->assertSame(2000000,(int)DB::table('branch_stock')->value('quantity_units'));$this->assertSame(1,DB::table('branch_stock_movements')->count());
     }
 
-    public function test_goods_dropdown_contains_only_the_twenty_three_requested_raw_goods_and_preserves_legacy_balances(): void
+    public function test_goods_dropdown_includes_canned_herring_and_preserves_legacy_balances(): void
     {
         DB::table('resturant_products')->where('id',1)->update(['product_name'=>'وجبة فسيخ']);
         DB::table('branch_stock')->insert(['branch'=>'f:100','product_id'=>1,'unit'=>'piece','quantity_units'=>7000000,'revision'=>1]);
         $r=app(\App\Services\Dashboard\BranchStock::class)->listing(['branch'=>'f:100'],$this->actor());
-        $this->assertCount(23,$r['items']);$this->assertSame('فسيخ كيلو 4 سمكات',$r['items'][0]['name']);$this->assertSame('مياه',$r['items'][22]['name']);$this->assertNotContains('وجبة فسيخ',array_column($r['items'],'name'));
-        $this->assertSame('7',$r['legacy'][0]['quantity']);$this->assertSame(1,$r['unconfigured_count']);
+        $this->assertCount(25,$r['items']);$this->assertSame('فسيخ كيلو 4 سمكات',$r['items'][0]['name']);$this->assertSame('مياه',$r['items'][22]['name']);$this->assertNotContains('وجبة فسيخ',array_column($r['items'],'name'));
+        $this->assertSame('7',$r['legacy'][0]['quantity']);$this->assertSame(0,$r['unconfigured_count']);
         $this->invalid(fn()=>app(\App\Services\Dashboard\BranchStock::class)->receive(['branch'=>'f:100','product_id'=>1,'quantity'=>'1','unit'=>'piece','idempotency_key'=>$this->key(80)],$this->actor()));
         $this->assertSame(7000000,(int)DB::table('branch_stock')->value('quantity_units'));$this->assertSame(0,DB::table('branch_inventory')->count());
     }

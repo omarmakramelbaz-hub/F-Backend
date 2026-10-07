@@ -127,9 +127,9 @@
 #phone-orders .ph-ticket-compact .ph-ticket-name{font-size:12px;line-height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #phone-orders .ph-ticket-compact .ph-ticket-amount{grid-column:2;grid-row:1;color:#b35d0b;font-size:11px;font-weight:800;white-space:nowrap;line-height:18px;text-align:end}
 #phone-orders .ph-ticket-meta{grid-column:1;grid-row:2;display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;line-height:17px;font-size:10px;color:#526981}
-#phone-orders .ph-ticket-compact .ph-ticket-branch{margin:0;padding:0 4px;max-width:48%;flex-shrink:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:10px;font-weight:600;line-height:17px;border-radius:3px}
+#phone-orders .ph-ticket-compact .ph-ticket-branch{margin:0;padding:0 4px;max-width:28%;flex-shrink:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:10px;font-weight:600;line-height:17px;border-radius:3px}
 #phone-orders .ph-ticket-phone{flex-shrink:0;line-height:17px;font-size:10px}
-#phone-orders .ph-ticket-address{display:none;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
+#phone-orders .ph-ticket-address{display:block;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:40px}
 #phone-orders .ph-ticket-quick-actions{grid-column:2;grid-row:2;display:flex;justify-content:flex-end;gap:3px}
 #phone-orders .ph-ticket-quick-actions button{height:21px;min-width:26px;padding:0 5px;border:1px solid #cddae9;border-radius:4px;background:#fff;color:#284f7b;font-size:10px;line-height:18px;display:inline-flex;align-items:center;justify-content:center}
 #phone-orders .ph-ticket-compact .ph-board-select{padding:0;margin:0;gap:0;background:transparent;flex:0 0 16px}

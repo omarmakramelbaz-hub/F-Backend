@@ -11,7 +11,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketActions','detailContent','dispatchControl','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','actionsModal','dispatchControl','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -55,10 +55,18 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    console.log({width,height,locale,metrics});
    for(const m of metrics){assert(m.visible>=10,JSON.stringify(m));assert(m.overflow);assert(!m.wide);assert(m.top<210);assert(m.bottom<=height-40);}
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-   await page.locator('[data-phone-column="preparing"] .ph-ticket').first().getByRole('button',{name:labels.details_actions+' #20261007-0001',exact:true}).click();
+   assert.equal(await page.locator('.ph-ticket-address').first().innerText(),'المحلة');
+   assert(!(await page.locator('.ph-ticket').first().innerText()).includes('شارع الجمهورية'));
+   assert.equal(await page.locator('[data-phone-column="finished"] .ph-ticket').first().getByRole('button').count(),1);
+   await page.locator('[data-phone-column="finished"] .ph-ticket').first().getByRole('button').click();
+   assert.equal(await page.getByRole('dialog').locator('.ph-detail-actions button').count(),0);await page.locator('#close').click();
+   await page.locator('[data-phone-column="preparing"] .ph-ticket').first().getByRole('button',{name:labels.order_actions+' #20261007-0001',exact:true}).click();
    const dialog=page.getByRole('dialog');
-   await dialog.getByRole('button',{name:labels.edit,exact:true}).click();
+   await dialog.getByRole('button',{name:labels.edit_order,exact:true}).click();
    assert.equal(await page.evaluate(()=>calls.at(-1).edit),1);
+   assert.equal(await dialog.getByRole('button',{name:labels.finish_collect,exact:true}).count(),0);
+   await dialog.getByRole('button',{name:labels.kitchen_order,exact:true}).click();assert.equal(await page.evaluate(()=>calls.at(-1).action),'send_kitchen');
+   await dialog.getByRole('button',{name:labels.assign_company,exact:true}).click();
    await dialog.locator('[data-phone-board-company]').selectOption('1');
    assert.equal(await page.evaluate(()=>calls.at(-1).payload.branch),'f:100');
    assert.equal(await dialog.locator('[data-phone-board-company] option').count(),2);
@@ -66,7 +74,11 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    await page.locator('[data-phone-batch-select="101"]').check();
    await page.locator('[data-phone-batch-select="102"]').check();
    assert.equal(await page.evaluate(()=>testBoard.selectedOrders.size),2);
-   await page.locator('[data-phone-column="preparing"] .ph-ticket').first().getByRole('button',{name:labels.receipt+' #20261007-0001',exact:true}).click();
+   await page.locator('[data-phone-column="courier"] .ph-ticket').first().getByRole('button',{name:labels.order_actions+' #20261007-0101',exact:true}).click();
+   assert.equal(await dialog.getByRole('button',{name:labels.edit_order,exact:true}).count(),0);
+   assert.equal(await dialog.getByRole('button',{name:labels.kitchen_order,exact:true}).count(),0);
+   assert.equal(await dialog.getByRole('button',{name:labels.finish_collect,exact:true}).count(),1);
+   await dialog.getByRole('button',{name:labels.print_order,exact:true}).click();
    assert.equal(await page.evaluate(()=>calls.at(-1).action),'request_bill');
    await page.evaluate(()=>testBoard.finishBatch());
    assert.deepEqual(await dialog.locator('select option').evaluateAll(nodes=>nodes.map(n=>n.value)),['cash']);

@@ -1,3 +1,5 @@
+.dashboard-expense-badge {background:#dc3545!important;color:#fff!important;border-radius:999px;min-width:22px;padding:4px 7px;margin-inline-start:6px;vertical-align:middle;line-height:1;font-size:12px}
+.dashboard-expense-badge[hidden] {display:none!important}
 .main-sidebar .dashboard-brand {
     display: flex;
     align-items: center;

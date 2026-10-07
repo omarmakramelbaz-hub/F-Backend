@@ -22,6 +22,12 @@ class BranchExpenses
         return ['can_manage_categories'=>app(ExpenseCategories::class)->canCreate($actor),'can_create'=>$write,'can_approve'=>$write&&(($actor->account_type==='admin'&&empty($actor->owner_resturant_id))||$actor->account_type==='resturant_owner')];
     }
     public function ready(): void {abort_unless(Schema::hasTable('branch_expenses')&&Schema::hasTable('branch_expense_commands')&&$this->access->ready(),503,'صفحة المصروفات تحتاج تحديث قاعدة البيانات.');}
+    public function pendingCount($actor): int
+    {
+        abort_unless($this->permissions($actor)['can_approve'],403);
+        if(!Schema::hasTable('branch_expenses')||!$this->access->ready())return 0;
+        return DB::table('branch_expenses')->whereIn('branch',array_column($this->access->branches($actor),'value'))->where('status','pending')->count();
+    }
     public function filters(array $values): array
     {
         $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>['nullable',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();

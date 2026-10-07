@@ -78,7 +78,12 @@
                             <p>{{ __('dining.title') }}</p>
                         </a>
                     </li>
-                    <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}</p></a></li>
+                    <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}
+                        @if(app(\App\Services\Dashboard\BranchExpenses::class)->permissions(auth('admin')->user())['can_approve'])
+                            @php($pendingExpenses = app(\App\Services\Dashboard\BranchExpenses::class)->pendingCount(auth('admin')->user()))
+                            <span class="badge dashboard-expense-badge" data-expense-pending-count data-count-url="{{ route('branch-expenses.pendingCount') }}" data-count-label="{{ app()->getLocale() === 'ar' ? 'مصروفات تنتظر الاعتماد' : 'Expenses awaiting approval' }}" aria-live="polite" aria-atomic="true" aria-label="{{ $pendingExpenses }} {{ app()->getLocale() === 'ar' ? 'مصروفات تنتظر الاعتماد' : 'Expenses awaiting approval' }}" @if(!$pendingExpenses) hidden @endif>{{ $pendingExpenses }}</span>
+                        @endif
+                    </p></a></li>
                     @if(count(app(\App\Services\Dashboard\BranchStock::class)->branches(auth('admin')->user())))
                     <li class="nav-item"><a href="{{ route('branch-stock.index') }}" class="nav-link {{ request()->is('admin/branch-stock*') ? 'active' : '' }}"><i class="nav-icon fas fa-boxes"></i><p>إضافة بضاعة</p></a></li>
                     @endif

@@ -115,7 +115,9 @@
         if (!data.found) return false; await completed(data, true); return true;
     }
     async function completed(data, recovered) {
-        clearPending(); busy = false; dirty = false; dialog.close(); if(branch.value!=='all'&&data.expense){branch.value=data.expense.branch;if(branch.selectize)branch.selectize.setValue(branch.value,true);} reset(); notice(t(recovered ? 'recovered' : 'saved')); await load(current.pagination.page); lock();
+        window.dispatchEvent(new Event('dashboard:expenses-changed'));
+        var approved=frozen&&frozen.values&&(frozen.values.action==='approve'||frozen.values.approve==='1');
+        clearPending(); busy = false; dirty = false; dialog.close(); if(branch.value!=='all'&&data.expense){branch.value=data.expense.branch;if(branch.selectize)branch.selectize.setValue(branch.value,true);} reset(); notice(approved?'':t(recovered ? 'recovered' : 'saved')); await load(current.pagination.page); lock();
     }
     async function execute(operation, retry) {
         if (busy || disposed) return; busy = true;
@@ -140,13 +142,13 @@
         if (locked() || !form.reportValidity()) return;
         var v = {}; Array.from(form.elements).forEach(function (field) { if (field.name && field.type !== 'file') v[field.name] = field.value; });
         v.amount = v.amount.trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/٫/g,'.');
-        v.approve = approve ? '1' : '0'; if (approve && !confirm(t('confirm_approve'))) return;
+        v.approve = approve ? '1' : '0';
         v.idempotency_key = uuid(); if (editing) { v.expense_id = editing.id; v.expected_revision = editing.revision; }
         var file = form.elements.attachment.files[0]; execute({ type: 'save', url: url(boot.urls.save), values: v, file: file || null, fileName: file && file.name, fileSize: file && file.size }, false);
     }
     function review(item, action) {
         if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
-        if (!confirm(t('confirm_' + action))) return;
+        if (action !== 'approve' && !confirm(t('confirm_' + action))) return;
         execute({ type: 'review', url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
     }
     async function details(id) {

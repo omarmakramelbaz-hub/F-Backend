@@ -20,6 +20,7 @@ class BranchExpensesController extends Controller
     }
     public function categorySave(Request $request,\App\Services\Dashboard\ExpenseCategories $categories){return response()->json($categories->save($request->all(),auth('admin')->user()));}
     public function data(Request $request,BranchExpenses $expenses){return response()->json($expenses->listing($request->all(),auth('admin')->user()));}
+    public function pendingCount(BranchExpenses $expenses){return response()->json(['success'=>true,'count'=>$expenses->pendingCount(auth('admin')->user())])->header('Cache-Control','private, no-store');}
     public function save(Request $request,BranchExpenses $expenses){return response()->json($expenses->save($request->except('attachment'),auth('admin')->user(),$request->file('attachment')));}
     public function show(int $id,BranchExpenses $expenses){return response()->json($expenses->show($id,auth('admin')->user()));}
     public function review(int $id,Request $request,BranchExpenses $expenses){return response()->json($expenses->review($id,$request->all(),auth('admin')->user()));}

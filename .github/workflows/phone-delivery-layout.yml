@@ -14,6 +14,9 @@ on:
       - 'public/dashboard/css/home-overview.css'
       - 'resources/views/admin/home_branch.blade.php'
       - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/stock-expenses-address.cjs'
+      - 'public/dashboard/js/dashboard-expense-badge.js'
+      - 'public/dashboard/js/dashboard-location-picker.js'
       - '.github/workflows/phone-delivery-layout.yml'
   pull_request:
     paths:
@@ -26,6 +29,9 @@ on:
       - 'public/dashboard/css/home-overview.css'
       - 'resources/views/admin/home_branch.blade.php'
       - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/stock-expenses-address.cjs'
+      - 'public/dashboard/js/dashboard-expense-badge.js'
+      - 'public/dashboard/js/dashboard-location-picker.js'
 
 permissions:
   contents: read
@@ -46,7 +52,9 @@ jobs:
       - name: Check queue density and preserved actions
         env:
           NODE_PATH: ${{ runner.temp }}/delivery-browser/node_modules
-        run: node tests/browser/phone-delivery-density.cjs
+        run: |
+          node tests/browser/phone-delivery-density.cjs
+          node tests/browser/stock-expenses-address.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
