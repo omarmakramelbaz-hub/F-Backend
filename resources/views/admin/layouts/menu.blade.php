@@ -50,6 +50,9 @@
                 @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
                 @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
+                    @if(config('desktop_pos.enabled'))
+                    <li class="nav-item"><a href="{{ route('desktop-pos.index') }}" class="nav-link {{ request()->is('admin/desktop-pos*')?'active':'' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
+                    @endif
                     <li class="nav-item">
                         <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-shopping-bag"></i>

@@ -38,6 +38,13 @@ use App\Http\Controllers\Api\V1\PartnerApplicationController;
 use App\Http\Controllers\Api\V1\PartnerServiceRequestController;
 use App\Http\Controllers\Api\V1\PartnerEmailAuthController;
 
+Route::prefix('desktop-pos')->withoutMiddleware('throttle:api')->group(function () {
+    Route::post('pair',[\App\Http\Controllers\Api\DesktopPosController::class,'pair'])->middleware('throttle:10,1');
+    Route::get('snapshot',[\App\Http\Controllers\Api\DesktopPosController::class,'snapshot'])->middleware('throttle:desktop-pos');
+    Route::get('health',[\App\Http\Controllers\Api\DesktopPosController::class,'health'])->middleware('throttle:desktop-pos');
+    Route::post('sync',[\App\Http\Controllers\Api\DesktopPosController::class,'sync'])->middleware('throttle:desktop-pos');
+});
+
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
 
 

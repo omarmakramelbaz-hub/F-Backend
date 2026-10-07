@@ -26,11 +26,15 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('web')->group(base_path('routes/order_board.php'));
             Route::middleware('web')->group(base_path('routes/takeaway.php'));
             Route::middleware('web')->group(base_path('routes/pos_service.php'));
+            Route::middleware('web')->group(base_path('routes/desktop_pos.php'));
         });
     }
 
     protected function configureRateLimiting()
     {
+        RateLimiter::for('desktop-pos', function (Request $request) {
+            return Limit::perMinute(300)->by(hash('sha256', $request->bearerToken() ?? $request->ip()));
+        });
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
