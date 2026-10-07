@@ -298,36 +298,31 @@
     async function print(url, closeAfter) { try { if (!window.DashboardPrint) throw new Error('Missing printer'); await window.DashboardPrint.print(endpoint(url)); if(closeAfter&&!modal.hidden&&!locked())closeModal(); } catch (_) { notify(text('print_error'), false); } }
     function button(label, callback, className) { var control = element('button', className || '', text(label)); control.type = 'button';var icon={details:'far fa-file-alt',view_order:'far fa-file-alt',order_actions:'fas fa-ellipsis-h',kitchen_order:'fas fa-utensils',print_order:'fas fa-print',finish_collect:'fas fa-check-circle',edit_order:'far fa-edit',kitchen:'fas fa-utensils',receipt:'fas fa-print',collect:'fas fa-check-circle',edit:'far fa-edit',cancel:'fas fa-times'}[label];if(icon){var glyph=element('i',icon);glyph.setAttribute('aria-hidden','true');control.prepend(glyph);} control.addEventListener('click', callback); return control; }
     function ticketStage(ticket) {return ticket.payment_status==='paid'||['finished','cancelled'].includes(ticket.status)?'finished':ticket.status==='out_for_delivery'?'courier':'preparing';}
-    function ticketActions(ticket, container, details) {
+    function ticketActions(ticket, container) {
         var stage=ticketStage(ticket);
         container.appendChild(button('view_order',function(){detailsModal(ticket.id);}));
         if(!canWrite()||stage==='finished')return;
         if(stage==='preparing'){
             if(!ticket.bill_locked){container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));container.appendChild(button('kitchen_order',function(){action(ticket,'send_kitchen',true);},'is-primary'));}
-            var company=button('assign_company',function(){var choice=container.querySelector('[data-phone-board-company]');if(!choice){dispatchControl(ticket,container);choice=container.querySelector('[data-phone-board-company]');}if(choice)choice.focus();});container.appendChild(company);
+            container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);}));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
             container.appendChild(button('finish_collect',function(){settlement(ticket.id);},'is-warning'));
         }
     }
-    function detailContent(ticket, content, withActions) {
+    function detailContent(ticket, content) {
         content.replaceChildren(); var information = element('dl', 'ph-detail-info');
         [['branch', ticket.branch.name], ['saved_number', ticket.number || ticket.id], ['status', text(ticket.status)], ['name', ticket.customer_name], ['phone', ticket.customer_phone], ['area', ticket.area || '—'], ['payment_status', text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid')], ['address', ticket.address], ['courier_company', ticket.courier_company ? ticket.courier_company.name : '—'], ['date', ticket.created_label || dateLabel(ticket.created_at)]].forEach(function (pair) { var row = element('div', pair[0] === 'address' ? 'ph-full' : ''); row.appendChild(element('dt', '', text(pair[0]))); row.appendChild(element('dd', '', pair[1])); information.appendChild(row); }); content.appendChild(information);
         var table = element('table', 'ph-detail-table'), header = element('thead'), tr = element('tr'); ['item', 'quantity', 'line_total'].forEach(function (key) { tr.appendChild(element('th', '', text(key))); }); header.appendChild(tr); table.appendChild(header); var body = element('tbody');
         ticket.items.forEach(function (item) { var row = element('tr'), cell = element('td', '', item.name); if (item.option_label) cell.appendChild(element('small', '', item.option_label)); row.appendChild(cell); row.appendChild(element('td', '', item.quantity + ' ' + text(item.quantity_mode === 'weight' ? 'kg' : 'piece'))); row.appendChild(element('td', '', money(item.total))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
         var summary = element('dl', 'ph-totals'); ['subtotal', 'discount', 'delivery_fee', 'tax', 'service', 'total'].forEach(function (key) { var row = element('div', key === 'total' ? 'ph-grand-total' : ''); row.appendChild(element('dt', '', text(key))); row.appendChild(element('dd', '', money(ticket[key] === undefined && key === 'delivery_fee' ? ticket.delivery : ticket[key] || '0.00') + ' ' + text('currency'))); summary.appendChild(row); }); content.appendChild(summary);
         [['order_notes', ticket.notes], ['customer_note', ticket.delivery_notes], ['discount_reason', ticket.discount_reason], ['cancel_reason', ticket.cancel_reason]].forEach(function (entry) { if (entry[1]) { var note = element('p', 'ph-detail-note'); note.appendChild(element('strong', '', text(entry[0]) + ': ')); note.appendChild(document.createTextNode(entry[1])); content.appendChild(note); } });
-        if(withActions){var actions = element('div', 'ph-detail-actions'); ticketActions(ticket, actions, true);content.appendChild(actions);}lock();
+        lock();
     }
     async function detailsModal(id) {
         if (locked()) return; var content = openModal(text('details')), generation = modalGeneration, controller = begin('modal');
         try { var ticket = await fetchTicket(id, controller.signal); if (disposed || modal.hidden || generation !== modalGeneration) return; detailContent(ticket, content); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
-    }
-    async function actionsModal(id) {
-        if(locked())return;var content=openModal(text('order_actions')),generation=modalGeneration,controller=begin('modal');
-        try{var ticket=await fetchTicket(id,controller.signal);if(disposed||modal.hidden||generation!==modalGeneration)return;detailContent(ticket,content,true);}
-        catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
     function dispatchControl(ticket, container) {
         if (!canWrite() || ticket.payment_status === 'paid' || ['new','preparing'].indexOf(ticket.status) < 0) return;
@@ -337,6 +332,15 @@
         companies.forEach(function(company){var option=element('option','',company.name);option.value=String(company.id);select.appendChild(option);});
         if(!companies.length)select.dataset.unavailable='';
         select.addEventListener('change',function(){if(locked()||!select.value)return;execute({type:'dispatch_company',url:urls['dispatch-company'],ticketId:ticket.id,payload:{branch:ticket.branch.value,ticket_id:ticket.id,company_id:Number(select.value),expected_revision:ticket.revision,idempotency_key:uuid()}});});label.appendChild(select);container.appendChild(label);
+    }
+    async function dispatchModal(id) {
+        if(locked()||!canWrite())return;
+        var content=openModal(text('assign_company')),generation=modalGeneration,controller=begin('modal');
+        try{var ticket=await fetchTicket(id,controller.signal);if(disposed||modal.hidden||generation!==modalGeneration)return;
+            content.replaceChildren();
+            if(ticketStage(ticket)!=='preparing'){content.appendChild(element('p','ph-empty',text('forbidden')));return;}
+            dispatchControl(ticket,content);lock();var choice=content.querySelector('[data-phone-board-company]');if(choice)choice.focus();
+        }catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
     function card(ticket, column) {
         var article = element('article', 'ph-ticket ph-ticket-compact');
@@ -357,11 +361,8 @@
         metadata.title = [address, ticket.courier_company && ticket.courier_company.name, ticket.created_label || dateLabel(ticket.created_at)].filter(Boolean).join(' · ');
         article.appendChild(metadata);
         var actions = element('div', 'ph-ticket-quick-actions');
-        var details = button('compact_details', function () { detailsModal(ticket.id); });
-        details.title = text('view_order') + ' ' + number; details.setAttribute('aria-label', details.title); actions.appendChild(details);
-        if (canWrite() && ticketStage(ticket)!=='finished') {
-            var operations=button('order_actions',function(){actionsModal(ticket.id);});operations.title=text('order_actions')+' '+number;operations.setAttribute('aria-label',operations.title);actions.appendChild(operations);
-        }
+        ticketActions(ticket, actions);
+        actions.querySelectorAll('button').forEach(function(control){control.title=control.textContent+' '+number;});
         article.appendChild(actions);
         if (column === 'courier' && canWrite()) {
             var choice = element('label', 'ph-board-select'), check = element('input'); check.type = 'checkbox';

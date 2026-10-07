@@ -79,7 +79,11 @@ class BranchInventory
         $q=DB::table('resturant_products')->where('resturant_id',$b['id']);$search=trim($v['search']??'');if($search!=='')$q->where('product_name','like','%'.$search.'%');
         $total=(clone $q)->count();$last=max(1,(int)ceil($total/50));$page=min($last,(int)($v['page']??1));$rows=$q->orderBy('product_name')->orderBy('id')->offset(($page-1)*50)->limit(50)->get();
         $recipes=$this->saleRecipes($b['value'],$rows->pluck('id')->all());$direct=app(BranchStock::class)->directBalances($b['value'],$rows->pluck('id')->all());$items=[];
-        foreach($rows as $p)$items[]=['id'=>(int)$p->id,'name'=>$p->product_name,'features'=>$this->features($p),'recipe'=>$this->recipe($recipes[$p->id]??null),'stock_source'=>isset($recipes[$p->id])?(!empty($recipes[$p->id]->raw_stock)?'ingredient':'recipe'):(isset($direct[$p->id])?'direct':'unconfigured')];
+        $ingredients=[];foreach($this->ingredientList() as $i)$ingredients[$this->stockName($i['name'])]=$i;
+        foreach($rows as $p){$side=$ingredients[$this->sideStockName($p->product_name)]??null;
+            $items[]=['id'=>(int)$p->id,'name'=>$p->product_name,'features'=>$this->features($p),'recipe'=>$this->recipe($recipes[$p->id]??null),'stock_source'=>isset($recipes[$p->id])?(!empty($recipes[$p->id]->raw_stock)?'ingredient':'recipe'):(isset($direct[$p->id])?'direct':($side?'ingredient_preview':'unconfigured')),
+                'recipe_hint'=>$side?[['ingredient_id'=>$side['id'],'measure'=>'g','quantity'=>'']]:[]];
+        }
         return ['success'=>true,'branch'=>$b,'items'=>$items,'ingredients'=>array_values($this->ingredientList()),'can_manage'=>$this->canManage($actor),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
     }
     public function saveRecipe(array $values,$actor): array
@@ -119,7 +123,7 @@ class BranchInventory
         }
         // Only approved 200g/400g sealed cans are equivalent to one stock piece.
         if(preg_match('/^(?:علبه|عليه)\s+(?<fish>فسيخ|سردين|رنجه)(?:\s+كان)?(?:\s+مخلي(?:ه)?)?\s*وزن\s*(?<grams>200|400)\s*جرام$/u',$name,$m))return $this->stockName('علبة '.$m['fish'].' '.($m['grams']==='200'?'صغيرة':'كبيرة'));
-        if(preg_match('/^علبه\s+بطارخ(?:\s+رنجه)?\s*(?:وزن|ورن)\s*400\s*جرام$/u',$name))return $this->stockName('علبة بطارخ');
+        if(preg_match('/^علبه\s+(?:بطارخ|بطاخ)(?:\s+رنجه)?\s*(?:وزن|ورن)\s*400\s*جرام$/u',$name))return $this->stockName('علبة بطارخ');
         if(preg_match('/^علبه\s+(?<fish>انشوجه|ملوحه)(?:\s+مخلي(?:ه)?)?\s*وزن\s*200\s*جرام$/u',$name,$m))return $this->stockName('علبة '.$m['fish']);
         return [
             'رنجه هيرنج'=>$this->stockName('رنجة سمينة'),
@@ -128,7 +132,13 @@ class BranchInventory
             'سردين'=>$this->stockName('سردين بلدي'),
             'مياه معدنيه'=>$this->stockName('مياه'),
             'عدد 1 خبز بلدي'=>$this->stockName('خبز بلدي'),
+            'مشروب كولا'=>$this->stockName('بيبسي'),
+            'طبق بطاطس شيبسي'=>$this->stockName('شيبسي'),
         ][$name]??$name;
+    }
+    private function sideStockName(string $name): string
+    {
+        return ['بصل جوليان احمر'=>'بصل','طبق فلفل اخضر'=>'فلفل','طبق ليمون'=>'ليمون'][$this->stockName($name)]??'';
     }
     /** Only whole raw goods have a one-to-one stock binding; prepared dishes require a saved recipe. */
     private function saleRecipes(string $branch,array $ids): array
@@ -168,12 +178,17 @@ class BranchInventory
         if(!str_starts_with($branch,'f:')||!$ids)return [];
         $recipes=$this->saleRecipes($branch,$ids);$stocks=$this->stocks($branch);$out=[];
         $direct=app(BranchStock::class)->directBalances($branch,$ids);
+        $sideProducts=DB::table('resturant_products')->where('resturant_id',(int)substr($branch,2))->whereIn('id',$ids)->pluck('product_name','id');$ingredients=[];
+        foreach($this->ingredientList() as $i)$ingredients[$this->stockName($i['name'])]=$i;
         foreach($ids as $id){$r=$recipes[$id]??null;$variants=$r?json_decode($r->variants,true):[];$base=$variants['0']??[];
             if(!$r&&isset($direct[$id])){
                 $value=$direct[$id]+['configured'=>false,'tracked'=>true,'source'=>'direct'];
                 $value['label']='رصيد الوحدة: '.$value['quantity'].' '.$value['unit_label'];$out[(int)$id]=$value;continue;
             }
             $value=['product_id'=>(int)$id,'unit'=>$r->unit??'','unit_label'=>$r&&$r->unit==='kg'?'كجم':'وحدة','quantity'=>'—','negative'=>false,'revision'=>(int)($r->revision??0),'configured'=>(bool)$r,'tracked'=>(bool)$base,'label'=>$r?'وصفة الحجم الأساسي غير مسجلة':'يحتاج ربط المكونات بالبضاعة'];
+            $side=!$r?($ingredients[$this->sideStockName($sideProducts[$id]??'')]??null):null;
+            if($side){$row=$stocks[$side['id']]??null;$value=array_merge($value,$this->stock($side,$row));$value['source']='ingredient_preview';$value['tracked']=(bool)$row;$value['needs_portion']=true;
+                $value['label']=($row?'رصيد الخام: '.$value['quantity'].' '.$value['unit_label']:'رصيد الخام لم يسجّل بعد').' · سجّل وزن الطبق في الوصفة';$out[(int)$id]=$value;continue;}
             if(!empty($r->raw_stock)){
                 $i=$base[0];$row=$stocks[$i['ingredient_id']]??null;$value=array_merge($value,$this->stock(['id'=>$i['ingredient_id'],'unit'=>$i['unit'],'unit_label'=>$i['unit']==='kg'?'كجم':'قطعة'],$row));
                 $value['source']='ingredient';$value['tracked']=(bool)$row;$value['label']=$row?'رصيد البضاعة: '.$value['quantity'].' '.$value['unit_label']:'رصيد البضاعة لم يسجّل بعد';$out[(int)$id]=$value;continue;
@@ -186,7 +201,7 @@ class BranchInventory
     public function decorate(string $branch,array $items): array
     {
         if(!str_starts_with($branch,'f:'))return $items;$stocks=$this->menuBalances($branch,array_column($items,'id'));
-        foreach($items as &$item){$item['stock']=$stocks[$item['id']]??null;if(($item['stock']['configured']??false)||($item['stock']['source']??'')==='direct'){$item['unit']=$item['stock']['unit'];$item['quantity_mode']=$item['unit']==='kg'?'weight':'piece';}}unset($item);return $items;
+        foreach($items as &$item){$item['stock']=$stocks[$item['id']]??null;if(($item['stock']['configured']??false)||($item['stock']['source']??'')==='direct'){$item['unit']=$item['stock']['unit'];$item['quantity_mode']=$item['unit']==='kg'?'weight':'piece';}elseif(($item['stock']['source']??'')==='ingredient_preview'){$item['quantity_mode']='piece';}}unset($item);return $items;
     }
     public function validateQuantities(string $branch,array $items): void
     {

@@ -54,6 +54,30 @@ window.searchAddress=addressSearch;`);
   assert.equal(await page.locator('#lat').inputValue(),'30.01');assert.equal(await page.locator('#lng').inputValue(),'31.02');assert((await page.evaluate(()=>requestedFields)).includes('addressComponents'));
   await page.evaluate(()=>{components=[{types:['locality'],longText:'المنصورة'}];searchAddress.search();});await page.locator('#options button').click();await page.waitForFunction(()=>document.getElementById('area').value==='المنصورة');
   await page.evaluate(()=>{components=[{types:['country'],longText:'مصر'}];searchAddress.search();});await page.locator('#options button').click();await page.waitForFunction(()=>document.getElementById('area').value==='');
-  assert.deepEqual(errors,[]);console.log('Pending expense badge and selected-address area checks passed.');
+  // Enter a vegetable plate weight through the actual recipe form; no quantity is prefilled.
+  await page.unroute('http://localhost/**');
+  let saved=[];
+  const item={id:101,name:'بصل جوليان احمر',features:[{id:0,label:'الحجم الأساسي'}],recipe:null,stock_source:'ingredient_preview',recipe_hint:[{ingredient_id:16,measure:'g',quantity:''}]};
+  const ingredients=[{id:16,name:'بصل',unit:'kg'}],recipeBoot={actor_id:1,initial:{ingredients,can_manage_recipes:true},urls:{recipes:'/recipes',recipe_save:'/recipe-save',recover:'/recipe-recover'}};
+  const panel='<section data-inventory-panel="recipes"'+read('resources/views/admin/branch_stock/index.blade.php').split('<section data-inventory-panel="recipes"')[1].split('\n</section>')[0]+'\n</section>';
+  await page.route('http://localhost/**',route=>{
+   const request=route.request(),pathname=new URL(request.url()).pathname;
+   if(pathname==='/recipes')return route.fulfill({json:{success:true,can_manage:true,items:[item],ingredients,pagination:{page:1,last_page:1,total:1}}});
+   if(pathname==='/recipe-save'){
+    const op=request.postDataJSON();saved.push(op);item.recipe={id:1,revision:1,unit:op.unit,variants:{'0':op.components}};item.stock_source='recipe';
+    return route.fulfill({json:{success:true,recipe:item.recipe,operation:op}});
+   }
+   return route.fulfill({contentType:'text/html',body:`<meta name="csrf-token" content="fixture"><div id="branch-stock"><select data-stock-branch><option value="f:100">فرع المحلة</option></select><button data-inventory-tab="recipes">الوصفات</button>${panel}</div><script id="branch-stock-bootstrap" type="application/json">${JSON.stringify(recipeBoot)}</script>`});
+  });
+  await page.goto('http://localhost/recipe-test');await page.addScriptTag({content:read('public/dashboard/js/branch-recipes.js')});
+  await page.locator('[data-inventory-tab="recipes"]').click();await page.locator('[data-recipe-product="101"]').click();
+  assert.equal(await page.locator('[data-recipe-ingredient]').inputValue(),'16');assert.equal(await page.locator('[data-recipe-measure]').inputValue(),'g');
+  assert.equal(await page.locator('[data-recipe-quantity]').inputValue(),'');assert.equal(await page.locator('[data-recipe-form] select[name="unit"]').inputValue(),'piece');
+  assert.match(await page.locator('[data-recipe-revision]').innerText(),/وزن الخضار بالجرام لكل طبق/);
+  await page.locator('[data-recipe-save]').click();assert.equal(saved.length,0);
+  await page.locator('[data-recipe-quantity]').fill('50');await page.locator('[data-recipe-save]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-recipe-revision]').textContent==='نسخة الوصفة 1');
+  assert.equal(saved.length,1);assert.deepEqual(saved[0].components,[{ingredient_id:16,quantity:'50',measure:'g'}]);assert.equal(saved[0].unit,'piece');
+  assert.deepEqual(errors,[]);console.log('Expense badge, address area and vegetable plate recipe checks passed.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
