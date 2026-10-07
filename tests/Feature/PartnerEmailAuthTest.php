@@ -340,6 +340,23 @@ class PartnerEmailAuthTest extends TestCase
         $this->assertSame('superseded', DB::table('go_product_image_requests')->value('status'));
     }
 
+    public function test_approval_during_ai_search_attaches_the_image_to_the_promoted_product(): void
+    {
+        $application = $this->automaticApplication();
+        $owner = User::create(['name'=>'Store', 'account_type'=>'vendor', 'app_scope'=>'go_partner', 'pending_vendor_id'=>$application->id]);
+        $search = \Mockery::mock(\App\Services\GoStores\ProductImageSearch::class);
+        $search->shouldReceive('configured')->andReturn(true);
+        $search->shouldReceive('find')->once()->andReturnUsing(function () use ($application, $owner) {
+            DB::transaction(fn () => app(\App\Services\GoStores\ApplicationCatalog::class)->promote($application, $owner));
+            return ['path'=>'go-stores/ai/approved-during-search.jpg', 'provenance'=>['unbranded'=>true]];
+        });
+        app()->instance(\App\Services\GoStores\ProductImageSearch::class, $search);
+        app(\App\Services\GoStores\AutomaticProductImages::class)->process(1);
+        $this->assertSame('go-stores/ai/approved-during-search.jpg', DB::table('go_store_products')->value('image_path'));
+        $this->assertSame(1, DB::table('go_store_products')->count());
+        $this->assertSame('ready', DB::table('go_product_image_requests')->value('status'));
+    }
+
     public function test_store_application_review_approval_and_activation_keep_catalog_and_logo(): void
     {
         $this->postJson('/api/partner-applications', $this->storeApplicationPayload($this->proof('application')))->assertOk();

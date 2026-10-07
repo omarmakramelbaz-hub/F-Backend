@@ -49,7 +49,10 @@ class ProductImageSearch
                 // A broken/unsafe candidate is skipped, not attached as a fallback.
             }
         }
-        if (!$candidates) return null;
+        if (!$candidates) {
+            if ($results) throw new \RuntimeException('No downloadable image candidates');
+            return null;
+        }
         $content = [['type' => 'input_text', 'text' => json_encode([
             'product_name' => $name, 'generic_name' => $plan['generic_name'], 'store_kind' => $kind,
         ], JSON_UNESCAPED_UNICODE)]];
