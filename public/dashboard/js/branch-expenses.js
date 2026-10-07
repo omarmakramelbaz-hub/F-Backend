@@ -11,7 +11,14 @@
     function el(tag, value, className) { var node = document.createElement(tag); if (value !== undefined) node.textContent = String(value); if (className) node.className = className; return node; }
     function on(target, type, callback) { target.addEventListener(type, callback); listeners.push(function () { target.removeEventListener(type, callback); }); }
     function url(value, params, id) { var u = new URL(id === undefined ? value : value.replace('__EXPENSE__', String(id)), location.href); if (u.origin !== location.origin) throw new Error(t('error')); Object.keys(params || {}).forEach(function (key) { if (params[key] !== '') u.searchParams.set(key, params[key]); }); return u.href; }
-    function uuid() { return crypto.randomUUID(); }
+    function uuid() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+        if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') throw new Error(t('error'));
+        var bytes = window.crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+        var hex = Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+    }
     function notice(value, retry) { var box = root.querySelector('[data-expense-message]'); box.hidden = !value; box.querySelector('span').textContent = value || ''; box.querySelector('button').hidden = !retry; }
     function locked() { return busy || categoryBusy || !!frozen; }
     function lock() {
@@ -144,13 +151,17 @@
         var v = {}; Array.from(form.elements).forEach(function (field) { if (field.name && field.type !== 'file') v[field.name] = field.value; });
         v.amount = v.amount.trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/٫/g,'.');
         v.approve = approve ? '1' : '0';
-        v.idempotency_key = uuid(); if (editing) { v.expense_id = editing.id; v.expected_revision = editing.revision; }
-        execute({ type: 'save', url: url(boot.urls.save), values: v }, false);
+        try {
+            v.idempotency_key = uuid(); if (editing) { v.expense_id = editing.id; v.expected_revision = editing.revision; }
+            execute({ type: 'save', url: url(boot.urls.save), values: v }, false);
+        } catch (error) { notice(error.message || t('error')); }
     }
     function review(item, action) {
         if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
         if (action !== 'approve' && !confirm(t('confirm_' + action))) return;
-        execute({ type: 'review', url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
+        try {
+            execute({ type: 'review', url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
+        } catch (error) { notice(error.message || t('error')); }
     }
     async function details(id) {
         if (locked()) return; var token = ++generation;
