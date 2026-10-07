@@ -22,7 +22,7 @@
 @endif
 <label>{{ __('expenses.description') }} <b>*</b><textarea name="description" maxlength="500" rows="2" required></textarea></label>
 <div class="ex-pair"><label>{{ __('expenses.amount') }} <b>*</b><input name="amount" inputmode="decimal" placeholder="0.00" maxlength="14" required></label><label>{{ __('expenses.date') }} <b>*</b><input name="occurred_on" type="date" value="{{ $boot['today'] }}" max="{{ $boot['today'] }}" required></label></div>
-<label>{{ __('expenses.payment_method') }} <b>*</b><select name="payment_method" required>@foreach(\App\Services\Dashboard\BranchExpenses::METHODS as $method)<option value="{{ $method }}">{{ __('expenses.method_'.$method) }}</option>@endforeach</select></label>
+<label>{{ __('expenses.payment_method') }} <b>*</b><input type="hidden" name="payment_method" value="cash"><input value="{{ __('expenses.method_cash') }}" readonly aria-readonly="true"></label>
 <label>{{ __('expenses.payment_reference') }}<input name="payment_reference" maxlength="150"></label>
 <div class="ex-pair"><label>{{ __('expenses.supplier') }}<input name="supplier" maxlength="150"></label><label>{{ __('expenses.cost_center') }}<input name="cost_center" maxlength="150"></label></div>
 <label class="ex-upload"><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i>{{ __('expenses.attachment') }}<input name="attachment" type="file" accept="image/jpeg,image/png,application/pdf"><small>{{ __('expenses.attachment_hint') }}</small><a data-expense-existing-file data-spa-off hidden></a></label>

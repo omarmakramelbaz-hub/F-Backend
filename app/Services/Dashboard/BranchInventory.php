@@ -104,10 +104,39 @@ class BranchInventory
     {
         if(preg_match('/^f:([0-9]+):/D',(string)($line['option_id']??''),$m))return (int)$m[1];return (int)($line['feature_id']??0);
     }
+    private function stockName(string $name): string
+    {
+        $name=strtr($name,['أ'=>'ا','إ'=>'ا','آ'=>'ا','ة'=>'ه','ى'=>'ي','٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9']);
+        return trim(preg_replace('/\s+/u',' ',preg_replace('/[ـ\x{064B}-\x{065F}]/u','',$name)));
+    }
+    /** Only whole raw goods have a one-to-one stock binding; prepared dishes require a saved recipe. */
+    private function saleRecipes(string $branch,array $ids): array
+    {
+        $recipes=DB::table('branch_stock_recipes')->where('branch',$branch)->whereIn('product_id',$ids)->get()->keyBy('product_id')->all();
+        $direct=app(BranchStock::class)->directBalances($branch,$ids);$ingredients=[];
+        foreach($this->ingredientList() as $i)$ingredients[$this->stockName($i['name'])]=$i;
+        $products=DB::table('resturant_products')->where('resturant_id',(int)substr($branch,2))->whereIn('id',$ids)->get();
+        $features=[];
+        if(Schema::hasTable('product_features'))$features=DB::table('product_features')->whereIn('product_id',$products->pluck('product_id')->filter())->whereIn('name',['half','quarter'])->get()->groupBy('product_id')->all();
+        foreach($products as $p){
+            if(isset($recipes[$p->id])||isset($direct[$p->id]))continue;
+            $name=$this->stockName($p->product_name);
+            if(preg_match('/^فسيخ(?: (?:دسوق|نبروه))? (?:(?<count>[1-4]) (?:قطعه|قطع|سمكه|سمكات)|(?<word>سمكتين|سمكه))$/u',$name,$m)){
+                $count=!empty($m['count'])?(int)$m['count']:(($m['word']??'')==='سمكتين'?2:1);
+                $name=$this->stockName('فسيخ كيلو '.([1=>'سمكة',2=>'سمكتين',3=>'3 سمكات',4=>'4 سمكات'][$count]));
+            }
+            $i=$ingredients[$name]??null;if(!$i)continue;
+            $component=['ingredient_id'=>$i['id'],'name'=>$i['name'],'unit'=>$i['unit'],'quantity_units'=>1000000,'measure'=>$i['unit'],'quantity'=>'1'];
+            $variants=['0'=>[$component]];
+            if($i['unit']==='kg')foreach($features[$p->product_id??0]??[] as $f){$part=$component;$part['quantity_units']=$f->name==='half'?500000:250000;$part['quantity']=$f->name==='half'?'0.5':'0.25';$variants[(string)$f->id]=[$part];}
+            $recipes[$p->id]=(object)['id'=>0,'unit'=>$i['unit'],'revision'=>0,'variants'=>json_encode((object)$variants,JSON_UNESCAPED_UNICODE),'raw_stock'=>true];
+        }
+        return $recipes;
+    }
     public function snapshots(string $branch,array $lines): array
     {
         if(!str_starts_with($branch,'f:'))return $lines;
-        $recipes=DB::table('branch_stock_recipes')->where('branch',$branch)->whereIn('product_id',array_column($lines,'product_id'))->get()->keyBy('product_id');
+        $recipes=$this->saleRecipes($branch,array_column($lines,'product_id'));
         $direct=app(BranchStock::class)->directBalances($branch,array_column($lines,'product_id'));
         foreach($lines as &$line){$r=$recipes[$line['product_id']]??null;$f=$this->feature($line);$variants=$r?json_decode($r->variants,true):[];$components=$variants[(string)$f]??null;
             if($r&&$r->unit==='piece')abort_unless((int)$line['quantity_millis']%1000===0,422,'وصفة هذا الصنف للوحدة؛ أدخل عددًا صحيحًا.');
@@ -120,7 +149,7 @@ class BranchInventory
     public function menuBalances(string $branch,array $ids): array
     {
         if(!str_starts_with($branch,'f:')||!$ids)return [];
-        $recipes=DB::table('branch_stock_recipes')->where('branch',$branch)->whereIn('product_id',$ids)->get()->keyBy('product_id');$stocks=$this->stocks($branch);$out=[];
+        $recipes=$this->saleRecipes($branch,$ids);$stocks=$this->stocks($branch);$out=[];
         $direct=app(BranchStock::class)->directBalances($branch,$ids);
         foreach($ids as $id){$r=$recipes[$id]??null;$variants=$r?json_decode($r->variants,true):[];$base=$variants['0']??[];
             if(!$r&&isset($direct[$id])){
@@ -128,6 +157,10 @@ class BranchInventory
                 $value['label']='رصيد الوحدة: '.$value['quantity'].' '.$value['unit_label'];$out[(int)$id]=$value;continue;
             }
             $value=['product_id'=>(int)$id,'unit'=>$r->unit??'','unit_label'=>$r&&$r->unit==='kg'?'كجم':'وحدة','quantity'=>'—','negative'=>false,'revision'=>(int)($r->revision??0),'configured'=>(bool)$r,'tracked'=>(bool)$base,'label'=>$r?'وصفة الحجم الأساسي غير مسجلة':'رصيد الوحدة غير مسجّل'];
+            if(!empty($r->raw_stock)){
+                $i=$base[0];$row=$stocks[$i['ingredient_id']]??null;$value=array_merge($value,$this->stock(['id'=>$i['ingredient_id'],'unit'=>$i['unit'],'unit_label'=>$i['unit']==='kg'?'كجم':'قطعة'],$row));
+                $value['source']='ingredient';$value['tracked']=(bool)$row;$value['label']=$row?'رصيد البضاعة: '.$value['quantity'].' '.$value['unit_label']:'رصيد البضاعة لم يسجّل بعد';$out[(int)$id]=$value;continue;
+            }
             if($base){$available=1000000000000;foreach($base as $c){$n=(int)($stocks[$c['ingredient_id']]->quantity_units??0);$value['negative']=$value['negative']||$n<0;$available=min($available,intdiv(max(0,$n)*1000,(int)$c['quantity_units']));}
                 if($r->unit==='piece')$available=intdiv($available,1000)*1000;$value['quantity']=$this->quantity($available*1000);$value['label']='المتاح بالمكونات: '.$value['quantity'].' '.$value['unit_label'];}
             $out[(int)$id]=$value;
@@ -140,7 +173,7 @@ class BranchInventory
     }
     public function validateQuantities(string $branch,array $items): void
     {
-        if(!str_starts_with($branch,'f:'))return;$recipes=DB::table('branch_stock_recipes')->where('branch',$branch)->whereIn('product_id',array_column($items,'product_id'))->get()->keyBy('product_id');
+        if(!str_starts_with($branch,'f:'))return;$recipes=$this->saleRecipes($branch,array_column($items,'product_id'));
         $direct=app(BranchStock::class)->directBalances($branch,array_column($items,'product_id'));
         foreach($items as $i){$r=$recipes[$i['product_id']]??null;$unit=$r->unit??($direct[$i['product_id']]['unit']??null);if(!$unit)continue;
             abort_unless(($i['quantity_mode']??'')===($unit==='kg'?'weight':'piece'),422,'وحدة الصنف تغيرت؛ حدّث المينيو واختر الصنف مرة أخرى.');
@@ -158,6 +191,7 @@ class BranchInventory
                 // Unpaid bills created before direct stock support still consume their recorded SKU balance.
                 $direct=$direct??app(BranchStock::class)->directBalances($branch['value'],array_column($lines,'product_id'));
                 if(isset($direct[$line['product_id']])){$line['inventory']['stock_source']='direct';$line['inventory']['unit']=$direct[$line['product_id']]['unit'];}
+                elseif(!empty($this->saleRecipes($branch['value'],[$line['product_id']])[$line['product_id']]->raw_stock))$line['inventory']=$this->snapshots($branch['value'],[$line])[0]['inventory'];
             }
         }unset($line);
         $this->consume($branch['value'],'pos',(string)$orderId,$lines,$actorId);
@@ -190,4 +224,3 @@ class BranchInventory
         DB::table('branch_recipe_sales')->insert(['branch'=>$branch,'source_type'=>$type,'source_id'=>$source,'snapshot'=>json_encode(['lines'=>$snapshots,'deductions'=>$deductions,'unmapped'=>$unmapped],JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
 }
-

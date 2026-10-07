@@ -80,9 +80,13 @@
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
             [item.number,item.occurred_on,item.branch_name,item.category_name||categoryName(item.category),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value) { row.appendChild(el('td', value)); });
-            var status = el('td'), tag = el('span', t('status_' + item.status), 'ex-tag'); tag.dataset.status = item.status; status.appendChild(tag); row.appendChild(status);
+            var status = el('td'), statusActions = el('div', undefined, 'ex-status-actions'), tag = el('span', t('status_' + item.status), 'ex-tag'); tag.dataset.status = item.status; statusActions.appendChild(tag);
+            if (boot.permissions.can_approve && item.status === 'pending' && item.payment_method === 'cash') {
+                var approve = actionButton('approve', function () { review(item, 'approve'); }); approve.className = 'ex-approve ex-status-approve'; approve.dataset.expenseApprove = item.id; statusActions.appendChild(approve);
+            }
+            status.appendChild(statusActions); row.appendChild(status);
             var fileCell = el('td'); if (item.attachment_url) { var link = el('a', '↧'); link.href = url(item.attachment_url); link.dataset.spaOff = ''; link.title = item.attachment_name; fileCell.appendChild(link); } else fileCell.textContent = '—'; row.appendChild(fileCell);
-            var actions = el('td'), group = el('div', undefined, 'ex-row-actions'); group.appendChild(actionButton('details', function () { details(item.id); }, 'fa-eye')); if (item.can_edit) group.appendChild(actionButton('edit', function () { edit(item); }, 'fa-pen')); group.appendChild(actionButton('print', function () { print(item.print_url); }, 'fa-print')); actions.appendChild(group); row.appendChild(actions); body.appendChild(row);
+            var actions = el('td'), group = el('div', undefined, 'ex-row-actions'); group.appendChild(actionButton('details', function () { details(item.id); }, 'fa-eye')); actions.appendChild(group); row.appendChild(actions); body.appendChild(row);
         });
         root.querySelector('[data-expense-empty]').hidden = !!data.items.length;
         root.querySelector('[data-expense-balance]').closest('.ex-balance').hidden = data.summary.cash_balance === undefined;
@@ -102,12 +106,6 @@
     function reset() {
         editing = null; categoryOptions(current); form.reset(); form.elements.occurred_on.value = boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
         root.querySelector('[data-expense-existing-file]').hidden = true; root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
-    }
-    function edit(item) {
-        if (locked() || dirty && !confirm(t('unsaved'))) return; reset(); editing = item; categoryOptions(current);
-        Array.from(form.elements).forEach(function (field) { if (field.name && field.type !== 'file' && item[field.name] !== undefined) field.value = item[field.name] || ''; });
-        var file = root.querySelector('[data-expense-existing-file]'); file.hidden = !item.attachment_url; if (item.attachment_url) { file.href = url(item.attachment_url); file.textContent = item.attachment_name; }
-        editor.hidden = false; root.querySelector('[data-expense-form-title]').textContent = t('edit') + ' · ' + item.number; lock(); form.elements.description.focus();
     }
     async function print(address) { if (locked()) return; try { await window.DashboardPrint.print(url(address)); } catch (error) { notice(error.message || t('error')); } }
     function setPending(operation) { frozen = operation; var saved = Object.assign({}, operation); delete saved.file; sessionStorage.setItem(pendingKey, JSON.stringify(saved)); lock(); }
@@ -158,7 +156,7 @@
             var item = data.expense, content = root.querySelector('[data-expense-detail]'); content.replaceChildren(); var grid = el('dl', undefined, 'ex-detail-grid');
             [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',item.category_name||categoryName(item.category)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
             if (item.attachment_url) { var attachment = el('a',item.attachment_name,'ex-button'); attachment.href = url(item.attachment_url); attachment.dataset.spaOff = ''; content.appendChild(attachment); }
-            var actions = el('div',undefined,'ex-detail-actions'); actions.appendChild(actionButton('print',function(){print(item.print_url);},'fa-print'));
+            var actions = el('div',undefined,'ex-detail-actions');
             if (boot.permissions.can_approve) (item.status === 'pending' ? ['approve','reject'] : item.status === 'approved' ? ['void'] : []).forEach(function(action){actions.appendChild(actionButton(action,function(){review(item,action);}));}); content.appendChild(actions);
             content.appendChild(el('h3',t('history'))); var history = el('ul',undefined,'ex-history'); (item.history || []).forEach(function (entry) { var status = entry.snapshot && entry.snapshot.status; history.appendChild(el('li',String(entry.created_at)+' · #'+entry.actor_id+' · '+t('status_'+status)+' · '+(entry.snapshot && entry.snapshot.description || ''))); }); content.appendChild(history); dialog.showModal();
         } catch (error) { if (!disposed) notice(error.message); }

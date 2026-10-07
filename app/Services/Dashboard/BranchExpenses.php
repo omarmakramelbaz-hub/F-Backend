@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 class BranchExpenses
 {
     public const CATEGORIES=['purchases','electricity','water','gas','packaging','maintenance','transport','fuel','rent','salaries','other'];
-    public const METHODS=['cash','bank','card','mobile_wallet'];
+    public const METHODS=['cash'];
     private TakeawayAccess $access;
     public function __construct(TakeawayAccess $access){$this->access=$access;}
     public function permissions($actor): array
@@ -77,6 +77,7 @@ class BranchExpenses
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
         $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
+        abort_if(!empty($v['expense_id']),403,'تعديل المصروفات المسجلة غير متاح.');
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
         if($v['description']==='')throw ValidationException::withMessages(['description'=>'اكتب بيان المصروف.']);
         try{$amount=Money::minor($v['amount']);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages(['amount'=>'القيمة غير صالحة.']);}
@@ -114,6 +115,7 @@ class BranchExpenses
             $this->access->branch($v['branch'],$actor,true);if($old=$this->replay($v,$actor,$hash))return $old;
             $row=DB::table('branch_expenses')->where('branch',$v['branch'])->where('id',$id)->lockForUpdate()->first();abort_unless($row,404);
             abort_unless((int)($v['expected_revision']??0)===(int)$row->revision&&$row->status===($v['action']==='void'?'approved':'pending'),409,'حالة المصروف تغيرت؛ حدّث الصفحة.');
+            if($v['action']==='approve')abort_unless($row->payment_method==='cash',422,'لا يمكن اعتماد مصروف خارج خزنة الدرج.');
             if($v['action']==='approve')$this->postCash($row,$actor,-1);elseif($v['action']==='void')$this->postCash($row,$actor,1);
             DB::table('branch_expenses')->where('id',$id)->update(['status'=>['approve'=>'approved','reject'=>'rejected','void'=>'voided'][$v['action']],'revision'=>(int)$row->revision+1,'reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC'),'review_reason'=>$v['reason'],'updated_at'=>now('UTC')]);
             $this->record($v,$actor,$id,$hash,$v['action']);return $this->show($id,$actor)+['replayed'=>false];
@@ -144,8 +146,8 @@ class BranchExpenses
         $result=(array)$row;unset($result['attachment_path'],$result['attachment_hash'],$result['attachment_mime']);$result['id']=(int)$row->id;$result['revision']=(int)$row->revision;$result['actor_id']=(int)$row->actor_id;
         $result['number']='EXP-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT);$result['amount']=Money::decimal((int)$row->amount_cents);$result['actor_name']=$name;$result['reviewer_name']=$reviewer;$result['branch_name']=$branchName;
         $result['category_name']=$categories[$row->category]??$row->category;
-        $result['can_edit']=$row->status==='pending'&&((int)$row->actor_id===(int)$actor->id||$canApprove);
+        $result['can_edit']=false;
         $result['attachment_url']=$row->attachment_path?route('branch-expenses.attachment',['id'=>$row->id]):null;
-        $result['print_url']=route('branch-expenses.print',['id'=>$row->id]);return $result;
+        $result['print_url']=null;return $result;
     }
 }
