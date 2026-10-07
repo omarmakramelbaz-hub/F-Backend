@@ -14,6 +14,8 @@ use GuzzleHttp\Promise\RejectedPromise;
 /** Manual dashboard notices: actual selected device tokens, never a universal topic. */
 class DashboardPushSender
 {
+    // One bounded parallel wave per durable claim; keep the existing request deadline.
+    public const BATCH_SIZE = 50;
     protected function clock(): float
     {
         return hrtime(true) / 1000000000;
@@ -74,7 +76,7 @@ class DashboardPushSender
         try { $bearer = $this->accessToken(min(12, $remaining)); }
         catch (\Throwable $error) { return $this->unavailable($result, 'authentication'); }
         $url = 'https://fcm.googleapis.com/v1/projects/'.$project.'/messages:send';
-        foreach (array_chunk($tokens, 10) as $chunk) {
+        foreach (array_chunk($tokens, self::BATCH_SIZE) as $chunk) {
             $remaining = $deadline - $this->clock();
             if ($remaining <= 0.1) return $this->unavailable($result, 'time_budget');
             $timeout = min(12, $remaining);

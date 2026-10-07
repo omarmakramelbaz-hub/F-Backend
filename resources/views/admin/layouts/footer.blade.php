@@ -541,7 +541,7 @@ $(function() {
     $(window).on("load", function() {
         $('.card-body').css('opacity',1);
     });
-    $( "form" ).submit(function() {
+    $( "form" ).not("[data-push-form]").submit(function() {
         $(this).find("button[type='submit']").html('<i class="fa fa-spinner fa-spin"></i>@lang('main.under click')');
     });
 });
