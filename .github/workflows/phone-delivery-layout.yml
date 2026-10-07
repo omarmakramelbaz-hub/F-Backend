@@ -15,6 +15,9 @@ on:
       - 'public/dashboard/css/branch-expenses.css'
       - 'tests/browser/expense-form.cjs'
       - 'tests/browser/dashboard-save-actions.cjs'
+      - 'tests/browser/dashboard-notices.cjs'
+      - 'public/dashboard/branding/dashboard-brand.css'
+      - 'resources/views/admin/layouts/footer.blade.php'
       - 'resources/views/admin/products/**'
       - 'public/dashboard/js/dashboard-spa.js'
       - 'resources/views/admin/phone_orders/index.blade.php'
@@ -40,6 +43,9 @@ on:
       - 'public/dashboard/css/branch-expenses.css'
       - 'tests/browser/expense-form.cjs'
       - 'tests/browser/dashboard-save-actions.cjs'
+      - 'tests/browser/dashboard-notices.cjs'
+      - 'public/dashboard/branding/dashboard-brand.css'
+      - 'resources/views/admin/layouts/footer.blade.php'
       - 'resources/views/admin/products/**'
       - 'public/dashboard/js/dashboard-spa.js'
       - 'resources/views/admin/phone_orders/index.blade.php'
@@ -75,6 +81,7 @@ jobs:
           node tests/browser/stock-expenses-address.cjs
           node tests/browser/expense-form.cjs
           node tests/browser/dashboard-save-actions.cjs
+          node tests/browser/dashboard-notices.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -20,6 +20,12 @@
         return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
     }
     function notice(value, retry) { var box = root.querySelector('[data-expense-message]'); box.hidden = !value; box.querySelector('span').textContent = value || ''; box.querySelector('button').hidden = !retry; }
+    function rowNotice(id, value) {
+        var row = root.querySelector('[data-expense-id="' + Number(id) + '"]'); if (!row) return;
+        var box = row.querySelector('[data-expense-row-message]');
+        if (!box) { box = el('p', undefined, 'ex-review-error'); box.dataset.expenseRowMessage = ''; box.setAttribute('role', 'alert'); row.querySelector('.ex-status-actions').parentNode.appendChild(box); }
+        box.textContent = value || ''; box.hidden = !value;
+    }
     function locked() { return busy || categoryBusy || !!frozen; }
     function lock() {
         if(frozen&&frozen.fileName&&!frozen.file&&!form.elements.attachment){var recovery=el('label',t('missing_file')),file=el('input');recovery.dataset.expenseRecoveryFile='';file.type='file';file.name='attachment';file.accept='image/jpeg,image/png,application/pdf';recovery.appendChild(file);form.insertBefore(recovery,form.querySelector('.ex-form-actions'));}
@@ -144,6 +150,7 @@
             if (disposed) return; dialog.close();
             if (!retry && error.status >= 400 && error.status < 500) { clearPending(); notice(error.message); }
             else { notice((error.message === t('missing_file') ? error.message + ' ' : '') + t('uncertain'), true); }
+            if (operation.type === 'review') rowNotice(operation.expenseId, error.status >= 400 && error.status < 500 ? error.message : t('uncertain'));
         } finally { clearTimeout(timeout); busy = false; if (!disposed) lock(); }
     }
     function save(approve) {
@@ -159,9 +166,10 @@
     function review(item, action) {
         if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
         if (action !== 'approve' && !confirm(t('confirm_' + action))) return;
+        rowNotice(item.id, '');
         try {
-            execute({ type: 'review', url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
-        } catch (error) { notice(error.message || t('error')); }
+            execute({ type: 'review', expenseId: item.id, url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
+        } catch (error) { notice(error.message || t('error')); rowNotice(item.id, error.message || t('error')); }
     }
     async function details(id) {
         if (locked()) return; var token = ++generation;

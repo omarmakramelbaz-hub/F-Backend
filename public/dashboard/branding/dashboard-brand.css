@@ -357,6 +357,11 @@ html[dir="rtl"] .dashboard-theme.sidebar-collapse .main-sidebar { transform: tra
 .dashboard-theme .btn-primary:hover, .dashboard-theme .btn-info:hover { background: #c95200 !important; border-color: #c95200 !important; }
 .dashboard-theme .btn-success { background: #14814a !important; border: 1px solid #14814a !important; color: #fff !important; }
 .dashboard-theme .btn-success:hover { background: #0b6638 !important; border-color: #0b6638 !important; }
+/* Completed actions are reflected in the page; only errors and warnings notify. */
+body.dashboard-theme #toast-container > .toast-success,
+body.dashboard-theme .alert-success,
+body.dashboard-theme [role="status"].is-success,
+body.dashboard-theme [role="alert"].is-success { display: none !important; }
 .dashboard-theme .btn-danger { background: #d5263d; border-color: #d5263d; color: #fff; }
 .dashboard-theme .btn-danger:hover { background: #b61b30; border-color: #b61b30; }
 .dashboard-theme .btn-warning { background: #fff1d9; border-color: #edc480; color: #82520e; }

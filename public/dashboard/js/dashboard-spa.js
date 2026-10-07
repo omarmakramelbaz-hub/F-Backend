@@ -329,6 +329,7 @@
     }
     function notify(message, retry, severity) {
         if (!status) return;
+        if (severity === 'success') message = '';
         if (['success', 'warning', 'error'].indexOf(severity) !== -1) status.dataset.severity = severity;
         else delete status.dataset.severity;
         status.textContent = '';

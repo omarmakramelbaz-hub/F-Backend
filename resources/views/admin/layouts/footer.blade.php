@@ -416,12 +416,6 @@ $('.selectize').selectize()
         @if (Session::has('error'))
             toastr.error('{{ Session::get('error') }}');
         @endif
-        @if (Session::has('success'))
-            toastr.success('{{ Session::get('success') }}');
-        @endif
-        @if (Session::has('info'))
-            toastr.success('{{ Session::get('info') }}');
-        @endif
         @if (count($errors))
               @foreach ($errors->all() as $error)
                   toastr.error('{{ $error}}');
