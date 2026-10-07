@@ -30,7 +30,8 @@ class GoProductImageSearchTest extends TestCase
 
     private function providers(array $choice): string
     {
-        $bytes = file_get_contents(UploadedFile::fake()->image('rice.jpg', 200, 200)->getPathname());
+        $file = UploadedFile::fake()->image('rice.jpg', 200, 200);
+        $bytes = file_get_contents($file->getPathname());
         $download = \Mockery::mock(ProductImageDownload::class);
         $download->shouldReceive('fetch')->once()->with('https://images.example.com/rice.jpg')->andReturn($bytes);
         app()->instance(ProductImageDownload::class, $download);
