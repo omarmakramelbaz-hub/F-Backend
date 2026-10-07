@@ -23,7 +23,10 @@
 <section data-inventory-panel="recipes" data-recipe-panel hidden>
 <header class="bs-recipe-heading"><div><h2>وصفات أصناف المينيو</h2><p>حدد ما يُستهلك عند بيع وحدة واحدة أو كيلو واحد من الصنف. لكل حجم وصفة مستقلة.</p></div></header>
 <div class="bs-message" data-recipe-message role="status" hidden></div><button type="button" class="bs-button" data-recipe-retry hidden>التحقق من حفظ الوصفة وإعادة المحاولة</button>
-<div class="bs-recipe-layout"><section class="bs-panel"><header><h2>أصناف البيع</h2><button class="bs-button" type="button" data-recipe-refresh>تحديث</button></header><label class="bs-recipe-search">بحث في المينيو<input type="search" maxlength="100" data-recipe-search placeholder="وجبة، ساندوتش، سلطة أو صنف مباشر"></label><div class="bs-recipe-list" data-recipe-products></div><footer class="bs-pagination"><button type="button" class="bs-button" data-recipe-prev>السابق</button><span data-recipe-page></span><button type="button" class="bs-button" data-recipe-next>التالي</button></footer></section>
+<div class="bs-recipe-layout"><section class="bs-panel"><header><h2>أصناف البيع</h2><button class="bs-button" type="button" data-recipe-refresh>تحديث</button></header>
+<label class="bs-recipe-search">بحث في كل أصناف المينيو<input type="search" maxlength="100" data-recipe-search placeholder="وجبة، ساندوتش، سلطة أو صنف مباشر"></label>
+<label class="bs-recipe-search">حالة الوصفة<select data-recipe-filter><option value="all">كل أصناف البيع</option><option value="missing">أصناف تحتاج وصفة</option><option value="ready">أصناف مرتبطة بالبضاعة</option></select></label>
+<div class="bs-recipe-list" data-recipe-products></div><footer class="bs-pagination"><span data-recipe-page aria-live="polite"></span></footer></section>
 <section class="bs-panel"><header><div><h2 data-recipe-title>اختر صنفًا لتسجيل وصفته</h2><p data-recipe-revision></p></div></header><form data-recipe-form hidden>
 <div class="bs-pair"><label>حجم الصنف<select name="feature_id" data-recipe-feature></select></label><label>المقادير لكل<select name="unit"><option value="piece">وحدة واحدة / طبق / وجبة / ساندوتش</option><option value="kg">كيلو واحد مباع</option></select></label></div>
 <p class="bs-note">اختر الخامة والكمية لكل مكوّن. الصنف المباشر مثل علبة أو مشروب يحتاج ربطه بالبضاعة المقابلة أيضًا. خيارات التنظيف والتغليف تستخدم وصفة نفس الحجم.</p>
