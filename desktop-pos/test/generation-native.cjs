@@ -96,11 +96,11 @@ async function main() {
     snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
     const retainedPointer = await runtime.metadata.read('prepared');
-    const retainedFiles = await fs.readdir(path.join(profile, 'generations'));
+    const retainedFiles = await fs.readdir(path.join(runtime.profile, 'generations'));
     await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata,
       download: async () => ({ ...snapshot, source: { ...snapshot.source, sha256: '0'.repeat(64) } }) }).run(), /نسخة البرنامج/);
     assert.deepEqual(await runtime.metadata.read('prepared'), retainedPointer);
-    assert.deepEqual(await fs.readdir(path.join(profile, 'generations')), retainedFiles);
+    assert.deepEqual(await fs.readdir(path.join(runtime.profile, 'generations')), retainedFiles);
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
     assert.equal((await runtime.control({ action: 'pending' })).counts.acknowledged, 1);
     assert.equal(imageRequests, 2);
