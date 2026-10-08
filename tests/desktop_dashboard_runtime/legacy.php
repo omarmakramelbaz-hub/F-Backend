@@ -53,6 +53,7 @@ DB::table('settings')->insert(['group'=>'private','name'=>'service_account','loc
 DB::statement('SET FOREIGN_KEY_CHECKS=1');config(['desktop_dashboard.enabled'=>true]);
 $actor=User::withoutGlobalScopes()->findOrFail(10);$id=(string)\Illuminate\Support\Str::uuid();
 $link=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$id,'name'=>'اختبار مخطط السيرفر','nonce'=>bin2hex(random_bytes(32))],$actor);
+require __DIR__.'/media.php';
 $snapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($link['token']));
 verify(count($snapshot['tables'])===106,'all 106 inspected schemas are available for original dashboard queries');
 $userIds=array_column($snapshot['tables']['users']['rows'],'id');sort($userIds);
@@ -65,6 +66,9 @@ verify(!str_contains(DesktopDashboardBootstrap::json($snapshot),'never-export')&
 verify(collect($snapshot['tables']['settings']['rows'])->firstWhere('name','app_balance')['payload']==='"0"','a branch dataset excludes the platform owner balance');
 config(['database.connections.mysql.database'=>$stage,'desktop_dashboard.device_id'=>$id]);DB::purge();
 $imported=app(DesktopDashboardImport::class)->import($snapshot);
+verify(app(DesktopDashboardImport::class)->verify($imported)['verified'],'an independent staging verification hashes the actual scoped local images');
+$shortened=$imported;$shortened['media']=[];
+rejectMedia(fn()=>app(DesktopDashboardImport::class)->verify($shortened),409,'a modified receipt cannot drop required images from the persisted snapshot manifest');
 verify($imported['tables']===106&&DB::table('users')->count()===3,'the full inspected dataset imports with legacy cyclic foreign keys intact');
 verify(app(\App\Models\GeneralSettings::class)->site_name==='فسخانستا','the original settings class resolves from imported safe settings');
 $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=(int)substr(strrchr(stream_socket_get_name($reservation,false),':'),1);fclose($reservation);
@@ -96,6 +100,10 @@ try{
         verify($status===200&&str_contains($page,'dashboard-brand.css')&&str_contains($page,'dashboard-spa.js'),'original local dashboard page renders: '.$path);
     }
     verify($http('/dashboard/branding/dashboard-brand.css')[0]===200&&$http('/dashboard/js/dashboard-spa.js')[0]===200,'the original dashboard style and navigation scripts are served locally');
+    [$imageStatus,$localImage]=$http('/storage/products/3/'.rawurlencode('رنجة.png'));
+    verify($imageStatus===200&&$localImage===$imageBytes,'the protected original local HTTP gateway serves the downloaded Arabic product image');
+    verify(str_ends_with(\App\Models\Resturant::findOrFail(100)->getFirstMediaUrl('logo'),'/storage/resturants/1/logo.png'),
+        'the original media library retains its model rows and generates the correct nested local disk URL');
     [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$csrf);
     [$status,$quote]=$http('/admin/takeaway/quote',['_token'=>$csrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'],['Accept: application/json']);
     verify($status===200&&isset(json_decode($quote,true)['quote_hash']),'original POST price calculation works locally without creating an outbox entry');

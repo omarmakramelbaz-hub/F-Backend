@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const http = require('node:http');
 const LocalRuntime = require('../src/local-runtime.cjs');
 const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
 
@@ -13,6 +14,19 @@ async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
   const [bundle, sourceFile] = process.argv.slice(2);
   const snapshot = JSON.parse(await fs.readFile(sourceFile, 'utf8'));
+  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=', 'base64');
+  const imagePath = 'products/42/رنجة.png', imageTicket = 'synthetic-media-capability';
+  snapshot.media = [{ path: imagePath, sha256: crypto.createHash('sha256').update(imageBytes).digest('hex'),
+    bytes: imageBytes.length, mime: 'image/png', ticket: imageTicket }];
+  let imageRequests = 0;
+  const mediaServer = http.createServer((request, response) => {
+    if (request.headers.authorization !== 'Bearer synthetic-device' || new URL(request.url, 'http://fixture').searchParams.get('ticket') !== imageTicket) {
+      response.writeHead(403).end(); return;
+    }
+    imageRequests++; response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': imageBytes.length }); response.end(imageBytes);
+  });
+  await new Promise(resolve => mediaServer.listen(0, '127.0.0.1', resolve));
+  const mediaOrigin = 'http://127.0.0.1:' + mediaServer.address().port;
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-generation-'));
   const key = crypto.randomBytes(32), failures = [];
   // Test adapter for Electron safeStorage. This is not shipped or a DPAPI integration claim.
@@ -21,7 +35,9 @@ async function main() {
       return Buffer.concat([iv, cipher.update(value), cipher.final(), cipher.getAuthTag()]); },
     decryptString(value) { const cipher = crypto.createDecipheriv('aes-256-gcm', key, value.subarray(0, 12));
       cipher.setAuthTag(value.subarray(-16)); return Buffer.concat([cipher.update(value.subarray(12, -16)), cipher.final()]).toString(); } };
-  const create = () => new LocalRuntime({ bundle, profile, safeStorage, onFailure: error => failures.push(error) });
+  const create = () => new LocalRuntime({ bundle, profile, safeStorage,
+    downloadMedia: ticket => fetch(mediaOrigin + '/image?ticket=' + encodeURIComponent(ticket), { headers: { Authorization: 'Bearer synthetic-device' }, redirect: 'error' }),
+    onFailure: error => failures.push(error) });
   let runtime = create();
   const php = async (code, input = {}, env = runtime.environment) => {
     const child = spawn(runtime.php, ['-c', path.join(bundle, 'php/php.ini'), '-r', code], { cwd: runtime.application,
@@ -42,6 +58,8 @@ async function main() {
       token: 'a'.repeat(64), serverOrigin: 'https://fixture.test', fullCoverage: true, mediaVerified: true,
       generation: id, database: candidate.database, snapshotId: snapshot.snapshot_id, refreshId: crypto.randomUUID(), sourceRevision: candidate.sourceRevision };
     await runtime.activate(initial, () => runtime.metadata.write('prepared', initial));
+    const localImage = await fetch(runtime.origin + '/storage/products/42/' + encodeURIComponent('رنجة.png'), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
+    assert.equal(localImage.status, 200); assert.deepEqual(Buffer.from(await localImage.arrayBuffer()), imageBytes);
     const loginSession = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session');
     await fs.writeFile(loginSession, 'synthetic preserved session');
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
@@ -63,6 +81,8 @@ async function main() {
     snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
     const next = await coordinator().run(); assert.notEqual(next.database, initial.database);
+    assert.equal(imageRequests, 2);
+    assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session'), 'utf8'), 'synthetic preserved session');
     const archived = await php(bootstrap + "echo json_encode(['commands'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_commands')->where('status','acknowledged')->count(),'state'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('state')]);",
       {}, { ...runtime.environment, DB_DATABASE: initial.database });
@@ -79,7 +99,13 @@ async function main() {
     const status = await runtime.control({ action: 'refresh-status', refresh_id: intent.id, token: intent.token });
     assert.equal(status.held, false); assert.equal((await runtime.connection()).database, next.database);
     assert.equal(failures.length, 0);
-    console.log('PASS real Windows supervisor stages, verifies and activates coherent data, preserves the old journal and sessions, and recovers a held fence after restart');
-  } finally { await runtime.stop(); await fs.rm(profile, { recursive: true, force: true }); }
+    const activeImage = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath);
+    await runtime.stop(); await fs.unlink(activeImage); runtime = create();
+    await assert.rejects(runtime.start());
+    assert.equal((await runtime.connection()).database, next.database);
+    await fs.writeFile(activeImage, imageBytes); runtime = create(); await runtime.start();
+    assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
+    console.log('PASS real Windows supervisor stages, verifies and activates coherent data and downloaded Arabic images, preserves the old journal and sessions, and recovers a held fence after restart');
+  } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

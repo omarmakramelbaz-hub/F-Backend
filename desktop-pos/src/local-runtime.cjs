@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
+const media = require('./dashboard-media.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
@@ -29,7 +30,7 @@ async function run(file, args, options, input = '', timeout = 90000) {
   const child = startChild(file, args, options, true);
   let output = ''; let overflow = false;
   child.stdout.setEncoding('utf8');
-  child.stdout.on('data', bytes => { output += bytes.toString(); if (Buffer.byteLength(output) > 1024 * 1024) { overflow = true; child.kill(); } });
+  child.stdout.on('data', bytes => { output += bytes.toString(); if (Buffer.byteLength(output) > 20 * 1024 * 1024) { overflow = true; child.kill(); } });
   child.stdin.on('error', () => {});
   child.stdin.end(input);
   let timer;
@@ -52,12 +53,13 @@ async function stopChild(child) {
 
 /** Manages private PHP/MariaDB processes. It never contacts the production database. */
 class LocalRuntime {
-  constructor({ bundle, profile, safeStorage, platform = process.platform, onFailure = () => {} }) {
+  constructor({ bundle, profile, safeStorage, downloadMedia, platform = process.platform, onFailure = () => {} }) {
     this.bundle = bundle; this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
     this.controlToken = crypto.randomBytes(32).toString('hex');
     this.metadata = new GenerationStore(this.profile, safeStorage);
+    this.downloadMedia = downloadMedia;
   }
   async settings() {
     await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
@@ -158,6 +160,11 @@ class LocalRuntime {
         break;
       } catch (error) { if (Date.now() > deadline) throw error; await pause(150); }
     }
+    if (active?.format === 2) {
+      const verified = JSON.parse(await run(php, [...phpArgs, path.join(application, 'desktop/verify-media.php')],
+        { env: runtimeEnvironment, cwd: application }, JSON.stringify(active)));
+      if (verified.verified !== true) throw Error('صور نسخة الجهاز غير مكتملة؛ العمليات محفوظة.');
+    }
     await this.startWeb();
     database.failure.then(error => { if (!this.stopping) this.onFailure(error); });
     return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
@@ -193,6 +200,7 @@ class LocalRuntime {
   }
   async stage(snapshot, id, archive) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
+    media.manifest(snapshot.media || []);
     const database = 'fasakhansta_dashboard_stage_' + id;
     const value = { generation: id, database }, env = this.environmentFor(value);
     const root = path.join(this.profile, 'generations', id);
@@ -207,15 +215,17 @@ class LocalRuntime {
     await run(this.php, [...phpArgs, path.join(this.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
     const receipt = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
+    const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping);
     if (archive) await run(this.php, [...phpArgs, path.join(this.application, 'desktop/archive.php')], options,
       JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token }), 90000);
     const checked = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));
     if (checked.verified !== true || checked.snapshot_id !== snapshot.snapshot_id || checked.device_id !== settings.deviceId
         || checked.actor_id !== snapshot.actor_id || checked.schema_hash !== snapshot.schema_hash
-        || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage))
+        || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage)
+        || JSON.stringify(checked.media) !== JSON.stringify(images.files))
       throw Error('تعذر التحقق من اكتمال قاعدة التجهيز.');
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
-    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision };
+    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision, mediaVerified: images.verified };
   }
   async drainWeb() {
     if (this.children[1] && this.origin) {

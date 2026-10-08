@@ -16,6 +16,7 @@ class DesktopDashboardImport
             'coverage'=>'required|array'])->validate();
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
+        $media=DesktopDashboardMedia::receipt($snapshot['media']??[]);
         $allowed=DesktopDashboardSchema::TABLES;
         $schema=[];$rowCount=0;
         foreach($snapshot['tables'] as $table=>$part){
@@ -64,6 +65,11 @@ class DesktopDashboardImport
         (new \CreateDesktopDashboardLocalState)->up();
         require_once database_path('migrations/2026_10_08_210000_create_desktop_dashboard_archived_commands.php');
         (new \CreateDesktopDashboardArchivedCommands)->up();
+        require_once database_path('migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php');
+        (new \CreateDesktopDashboardMediaManifest)->up();
+        $mediaJson=DesktopDashboardBootstrap::json($media);
+        DB::table('desktop_dashboard_media_manifest')->insert(['device_id'=>$snapshot['device_id'],'snapshot_id'=>$snapshot['snapshot_id'],
+            'sha256'=>hash('sha256',$mediaJson),'files'=>$mediaJson]);
         DB::table('desktop_dashboard_local_state')->insert([
             'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'snapshot_id'=>$snapshot['snapshot_id'],
             'schema_hash'=>$snapshot['schema_hash'],'branches'=>DesktopDashboardBootstrap::json($snapshot['branches']),
@@ -72,7 +78,7 @@ class DesktopDashboardImport
         ]);
         return ['format'=>1,'snapshot_id'=>$snapshot['snapshot_id'],'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],
             'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage'],
-            'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables'])];
+            'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables']),'media'=>$media];
     }
 
     /** Reopen and inspect the staging database in an independent native PHP process. */
@@ -102,6 +108,11 @@ class DesktopDashboardImport
                 abort_unless(DB::table($table)->count()===$count,409,'عدد سجلات التجهيز غير متطابق.');$rows+=$count;
             }
             abort_unless(count($receipt['table_rows'])===$receipt['tables']&&$rows===$receipt['rows'],409);
+            $media=DesktopDashboardMedia::receipt($receipt['media']??[]);
+            $manifest=DB::table('desktop_dashboard_media_manifest')->where('device_id',$receipt['device_id'])->first();
+            abort_unless($manifest&&$manifest->snapshot_id===$receipt['snapshot_id']
+                &&hash_equals($manifest->sha256,hash('sha256',DesktopDashboardBootstrap::json($media))),409,'قائمة صور التجهيز لا تطابق النسخة المعتمدة.');
+            DesktopDashboardMedia::verifyFiles($media);
             return array_merge($receipt,['verified'=>true]);
         });
     }

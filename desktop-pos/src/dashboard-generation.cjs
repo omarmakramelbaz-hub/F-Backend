@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const media = require('./dashboard-media.cjs');
 
 const uuid = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value || '');
 const hash = value => /^[a-f0-9]{64}$/.test(value || '');
@@ -96,13 +97,14 @@ class DashboardGeneration {
           || snapshot.schema_hash !== previous.schemaHash || !Array.isArray(snapshot.branches) || !snapshot.branches.length)
         throw Error('نسخة السيرفر لا تطابق حساب الجهاز أو مخططه.');
       if (snapshot.coverage?.full_dashboard !== true || snapshot.coverage?.media !== true
-          || !Array.isArray(snapshot.media) || snapshot.media.length !== 0)
+          || !Array.isArray(snapshot.media))
         throw Error('نسخة الداشبورد لم تكتمل بعد؛ بيانات الجهاز الحالية محفوظة.');
-      // Uploaded media requires its own verified download contract before nonempty manifests can activate.
+      media.manifest(snapshot.media);
       const candidate = await this.runtime.stage(snapshot, intent.generation, intent);
+      if (candidate.mediaVerified !== true) throw Error('لم يتم التحقق من صور الداشبورد؛ بيانات الجهاز الحالية محفوظة.');
       const next = { ...previous, format: 2, generation: intent.generation, database: candidate.database,
         snapshotId: snapshot.snapshot_id, schemaHash: snapshot.schema_hash, branches: snapshot.branches,
-        fullCoverage: true, mediaVerified: true, refreshId: intent.id, sourceRevision: candidate.sourceRevision };
+        fullCoverage: true, mediaVerified: candidate.mediaVerified, refreshId: intent.id, sourceRevision: candidate.sourceRevision };
       if (!prepared(next, previous.deviceId)) throw Error('نسخة التجهيز المحلية غير مكتملة.');
       await this.metadata.write('generations/' + intent.id, { format: 1, previous, next, fence, receipt: candidate.receipt });
       await this.transition(() => this.runtime.activate(next, () => this.metadata.write('prepared', next)));

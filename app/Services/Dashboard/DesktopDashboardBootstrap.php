@@ -70,11 +70,12 @@ class DesktopDashboardBootstrap
                 $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash('sha256',$encoded)];
             }
             ksort($schema);
-            return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>(string)Str::uuid(),'device_id'=>$fresh->id,
+            $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
+            return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'generated_at'=>now('UTC')->toIso8601String(),
-                'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,
+                'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
-                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>false]];
+                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>$media['complete']]];
         });
     }
     private function redactJson(string $value): string

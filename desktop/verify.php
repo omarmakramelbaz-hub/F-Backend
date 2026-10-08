@@ -1,6 +1,6 @@
 <?php
 try{
-    $input=stream_get_contents(STDIN,1024*1024+1);if(strlen($input)>1024*1024)throw new RuntimeException('Receipt is too large.');
+    $input=stream_get_contents(STDIN,16*1024*1024+1);if(strlen($input)>16*1024*1024)throw new RuntimeException('Receipt is too large.');
     $receipt=json_decode($input,true,128,JSON_THROW_ON_ERROR);
     $app=require __DIR__.'/bootstrap.php';
     $result=$app->make(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($receipt);

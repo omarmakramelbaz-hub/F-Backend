@@ -17,4 +17,13 @@ if(preg_match('/^[a-z]:[\\\\\/]/i',$storage)){
 // The distribution never loads the production .env or production configuration caches.
 $app->useEnvironmentPath($storage.'/private');
 $app->make(Kernel::class)->bootstrap();
+// Named image disks have nested roots. Keep their original media rows, and route their
+// generated URLs to the corresponding files inside this generation's private public disk.
+foreach(config('filesystems.disks',[]) as $name=>$disk){
+    $base=str_replace('\\','/',storage_path('app/public'));$root=str_replace('\\','/',$disk['root']??'');
+    if(($disk['driver']??'')==='local'&&($root===$base||str_starts_with($root,$base.'/'))){
+        $relative=trim(substr($root,strlen($base)),'/');
+        config(['filesystems.disks.'.$name.'.url'=>rtrim(config('app.url'),'/').'/storage'.($relative?'/'.$relative:'')]);
+    }
+}
 return $app;

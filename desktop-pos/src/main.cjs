@@ -41,6 +41,24 @@ async function dashboardRequest(command, bootstrap=false) {
     return data;
   }finally{requests.delete(controller);}
 }
+async function dashboardMediaRequest(ticket) {
+  const credential=await localRuntime.connection(),controller=new AbortController();requests.add(controller);
+  try{
+    const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/media?ticket='+encodeURIComponent(ticket),{
+      method:'GET',headers:{Accept:'image/*',Authorization:'Bearer '+credential.token},redirect:'error',
+      signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});
+    if(!response.ok){const error=Error('لم يؤكد السيرفر تنزيل صورة الحساب؛ بيانات الجهاز الحالية محفوظة.');error.status=response.status;throw error;}
+    // Keep shutdown's abort controller until the image stream finishes, not only its headers.
+    const reader=response.body?.getReader();
+    if(!reader){requests.delete(controller);return response;}
+    const stream=new ReadableStream({
+      async pull(target){try{const part=await reader.read();if(part.done){requests.delete(controller);reader.releaseLock();target.close();}else target.enqueue(part.value);}
+        catch(error){requests.delete(controller);reader.releaseLock();target.error(error);}},
+      async cancel(){try{await reader.cancel();}finally{requests.delete(controller);reader.releaseLock();}}
+    });
+    return new Response(stream,{status:response.status,headers:response.headers});
+  }catch(error){requests.delete(controller);throw error;}
+}
 function notify() {if(!quitting&&win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
 function localOrders(message='') {if(!quitting&&win&&!win.isDestroyed()){win.show();if(win.isMinimized())win.restore();win.focus();if(message)win.webContents.send('pos:notice',message);}}
 function writable() {if(store.get('authorization_blocked'))throw Error('ربط الجهاز متوقف من الإدارة. العمليات السابقة محفوظة؛ يلزم إعادة تفعيل الربط.');}
@@ -102,7 +120,7 @@ app.whenReady().then(async()=>{
   let localToken='';
   const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
-    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     if(await localRuntime.isPrepared()) {
       const local=await shutdown.run(()=>localRuntime.start());dashboardOrigin=local.origin;localToken=local.token;
       generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),

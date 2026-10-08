@@ -41,7 +41,7 @@ async function fixture(t) {
       throw Error('unexpected control');
     },
     async stage(snapshot, generation) { calls.push('stage'); const database = 'fasakhansta_dashboard_stage_' + generation;
-      assert.ok(!dbs.has(database)); dbs.set(database, []); return { database, sourceRevision: 'c'.repeat(40), receipt: { verified: true, snapshot_id: snapshot.snapshot_id } }; },
+      assert.ok(!dbs.has(database)); dbs.set(database, []); return { database, sourceRevision: 'c'.repeat(40), mediaVerified: true, receipt: { verified: true, snapshot_id: snapshot.snapshot_id } }; },
     async activate(next, commit) { calls.push('activate'); await commit(); }
   };
   const snapshot = { format: 1, kind: 'initial-dashboard-data', device_id: previous.deviceId, actor_id: previous.actorId,

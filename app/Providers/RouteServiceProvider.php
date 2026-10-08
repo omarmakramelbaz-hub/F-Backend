@@ -36,6 +36,9 @@ class RouteServiceProvider extends ServiceProvider
         RateLimiter::for('desktop-pos', function (Request $request) {
             return Limit::perMinute(300)->by(hash('sha256', $request->bearerToken() ?? $request->ip()));
         });
+        RateLimiter::for('desktop-dashboard-media', function (Request $request) {
+            return Limit::perMinute(300)->by(hash('sha256', $request->bearerToken() ?? $request->ip()));
+        });
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
