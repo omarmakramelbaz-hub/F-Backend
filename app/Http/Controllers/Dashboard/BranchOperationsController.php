@@ -17,7 +17,7 @@ class BranchOperationsController extends Controller
         foreach(['data','save'] as $name)$urls[$name]=route($module.'.'.$name);
         if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export'] as $name)$urls[$name]=route($module.'.'.$name);
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
-        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>now('Africa/Cairo')->toDateString(),'urls'=>$urls];
+        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
         return view('admin.branch_operations.index',compact('boot'));
     }
     public function data(Request $r){return response()->json($this->service($r)->listing($r->all(),$this->actor($r)));}
@@ -36,6 +36,6 @@ class BranchOperationsController extends Controller
     public function export(Request $r,BranchPayroll $s)
     {
         $data=$s->listing($r->all(),$this->actor($r),true);
-        return response()->streamDownload(function()use($data){$out=fopen('php://output','w');fwrite($out,"\xEF\xBB\xBF");fputcsv($out,['الفرع','الاسم','الوظيفة','الشهر','الراتب','المستحق من الراتب','المكافآت','الخصومات','السلف','الصافي','فودافون كاش','الحالة']);foreach($data['items'] as $e){$s=$e['statement'];$row=[$e['branch'],$e['name'],$e['job_title'],$s['month'],$s['salary'],$s['earned_salary'],$s['bonus'],$s['deduction'],$s['advance'],$s['net'],$e['wallet_phone']??'',$s['status']];fputcsv($out,array_map(fn($x)=>preg_match('/^[\s]*[=+@\-]/u',(string)$x)?"'".$x:$x,$row));}fclose($out);},'employee-payroll-'.$data['filters']['month'].'.csv',['Content-Type'=>'text/csv; charset=UTF-8','X-Content-Type-Options'=>'nosniff']);
+        return response()->streamDownload(function()use($data){$out=fopen('php://output','w');fwrite($out,"\xEF\xBB\xBF");fputcsv($out,['الفرع','الاسم','الوظيفة','الشهر','الراتب','المستحق من الراتب','عدد أيام الاستحقاق','محسوب حتى','المكافآت','الخصومات','السلف','الصافي','فودافون كاش','الحالة']);foreach($data['items'] as $e){$s=$e['statement'];$row=[$e['branch'],$e['name'],$e['job_title'],$s['month'],$s['salary'],$s['earned_salary'],$s['eligible_days'],$s['accrued_through']??'',$s['bonus'],$s['deduction'],$s['advance'],$s['net'],$e['wallet_phone']??'',$s['status']];fputcsv($out,array_map(fn($x)=>preg_match('/^[\s]*[=+@\-]/u',(string)$x)?"'".$x:$x,$row));}fclose($out);},'employee-payroll-'.$data['filters']['month'].'.csv',['Content-Type'=>'text/csv; charset=UTF-8','X-Content-Type-Options'=>'nosniff']);
     }
 }

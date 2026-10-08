@@ -133,7 +133,10 @@ class LocalRuntime {
       }
     }
     this.phpIni = path.join(this.profile, 'php-' + manifest.sourceRevision + '.ini');
-    await fs.writeFile(this.phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/') + '"\n', { mode: 0o600 });
+    // Match the original expense form's 5 MiB limit on every packaged PHP build.
+    // JSON reconciliation includes base64, and journaling needs room for encryption.
+    await fs.writeFile(this.phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/')
+      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\n', { mode: 0o600 });
     const config = path.join(this.profile, 'my.ini');
     const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
     await fs.writeFile(config, `[mysqld]\nbasedir=${iniPath(path.join(this.bundle, 'mariadb'))}\ndatadir=${iniPath(data)}\nbind-address=127.0.0.1\nport=${this.dbPort}\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nlocal-infile=0\nskip-name-resolve\nmax-allowed-packet=64M\ninnodb-flush-log-at-trx-commit=1\n`, { mode: 0o600 });

@@ -121,7 +121,7 @@ class DesktopPos
             elseif ($v['kind']==='save') { abort_unless($status!=='bill',409); }
             elseif ($v['kind']==='sale') {
                 $context=['channel'=>$data['channel'],'trusted_offline'=>true,'offline_operation'=>$v['id'],'saved_quote'=>$quote,
-                    'business_date'=>$when->copy()->setTimezone('Africa/Cairo')->toDateString(),'branch_snapshot'=>$snapshot['branch'],
+                    'business_date'=>OperatingDay::date($when),'branch_snapshot'=>$snapshot['branch'],
                     'snapshot'=>array_intersect_key($data,array_flip(['customer_name','customer_phone','address','table_name','notes']))+
                         ['desktop_device'=>$device->id,'local_order'=>$v['order_id'],'occurred_at'=>$when->toIso8601String(),'synced_at'=>now('UTC')->toIso8601String()]];
                 $payment=app(TakeawayService::class)->checkout(['branch'=>$device->branch,'idempotency_key'=>$v['id'],'quote_hash'=>$quote['quote_hash'],

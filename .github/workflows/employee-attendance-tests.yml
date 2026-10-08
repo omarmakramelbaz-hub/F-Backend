@@ -3,7 +3,7 @@ on:
   push:
     branches: ['codex/employee-attendance-rules-20261008']
   pull_request:
-    paths: ['app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+    paths: ['app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,7 @@ jobs:
         run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
       - name: Verify original payroll service and POS regressions
         run: |
+          php tests/desktop_pos_runtime/operating-day.php
           php tests/desktop_pos_runtime/attendance.php
           php tests/desktop_pos_runtime/run.php
       - name: Install browser test runtime
@@ -35,4 +36,6 @@ jobs:
       - name: Verify employee interaction on desktop and mobile
         env:
           DESKTOP_TEST_BROWSER_MODULE: ${{ runner.temp }}/attendance-browser/node_modules/playwright
-        run: node tests/browser/employee-attendance.cjs
+        run: |
+          node tests/browser/employee-attendance.cjs
+          node tests/browser/operating-day.cjs

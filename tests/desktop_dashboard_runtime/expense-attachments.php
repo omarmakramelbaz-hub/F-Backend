@@ -9,7 +9,7 @@ config(['database.connections.mysql.database'=>$phoneLocal,'desktop_dashboard.de
 $expenseActor=User::withoutGlobalScopes()->findOrFail(1);
 $attachmentBytes="%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
 $attachmentSource=$profile.'/private/attachment-fixture.pdf';file_put_contents($attachmentSource,$attachmentBytes);
-$expenseInput=['branch'=>'f:100','idempotency_key'=>(string)\Illuminate\Support\Str::uuid(),'occurred_on'=>now('Africa/Cairo')->toDateString(),
+$expenseInput=['branch'=>'f:100','idempotency_key'=>(string)\Illuminate\Support\Str::uuid(),'occurred_on'=>\App\Services\Dashboard\OperatingDay::date(),
     'category'=>'purchases','description'=>'مصروف ومرفق أثناء الانقطاع','amount'=>'9.00','payment_method'=>'cash','approve'=>true];
 $upload=new UploadedFile($attachmentSource,'فاتورة مشتريات.pdf','application/pdf',null,true);
 $attachments=app(DesktopDashboardExpenseAttachments::class);

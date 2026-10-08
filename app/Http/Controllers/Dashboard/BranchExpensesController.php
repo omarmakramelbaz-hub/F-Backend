@@ -13,7 +13,7 @@ class BranchExpensesController extends Controller
     {
         $actor=auth('admin')->user();$branches=$access->branches($actor);$selected=$request->input('branch',$branches[0]['value']);
         $data=$expenses->listing($request->all()+['branch'=>$selected],$actor);
-        $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>now('Africa/Cairo')->toDateString(),'urls'=>[]];
+        $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>[]];
         foreach(['data','save','recover','export','report','categorySave'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
         foreach(['show','review'] as $name)$boot['urls'][$name]=str_replace('991770','__EXPENSE__',route('branch-expenses.'.$name,['id'=>991770]));
         return view('admin.expenses.index',compact('boot'));

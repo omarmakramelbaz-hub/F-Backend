@@ -2,7 +2,7 @@
 // Actual multipart original controller + terminal remote outcomes on the existing private HTTP fixture.
 require __DIR__.'/multipart.php';
 $pdf="%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
-$expenseForm=$base+['idempotency_key'=>(string)Str::uuid(),'occurred_on'=>now('Africa/Cairo')->toDateString(),
+$expenseForm=$base+['idempotency_key'=>(string)Str::uuid(),'occurred_on'=>\App\Services\Dashboard\OperatingDay::date(),
     'category'=>'purchases','description'=>'مصروف مرفق نتيجة السيرفر','amount'=>'13.00','payment_method'=>'cash','approve'=>1];
 $uploadAttempt=$attempt('/admin/branch-expenses/save');[$uploadReserveStatus,$uploadProof]=$decide($uploadAttempt);
 verify($uploadReserveStatus===200&&$uploadProof['status']==='ready','native devices can reserve the original multipart expense action');

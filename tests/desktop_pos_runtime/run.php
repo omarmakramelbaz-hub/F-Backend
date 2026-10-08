@@ -77,5 +77,10 @@ $pay=$bill;$pay['id']=(string)Str::uuid();$pay['revision']=2;$pay['kind']='sale'
 $pay['data']=$bill['data'];$pay['snapshot_id']=$service->snapshot($device)['id'];denied(fn()=>$service->ingest($device,$pay),409,'order cannot swap catalog snapshots');
 $pay['snapshot_id']=$bill['snapshot_id'];$paid=$service->ingest($device,$pay);check($paid['status']==='paid','locked bill can settle original cash total');
 $outOfOrder=$event;$outOfOrder['id']=(string)Str::uuid();$outOfOrder['order_id']=(string)Str::uuid();$outOfOrder['revision']=2;denied(fn()=>$service->ingest($device,$outOfOrder),409,'out-of-order revision remains unacknowledged');
+\Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-08T12:00:00Z'));
+$nightSale=$event;$nightSale['id']=(string)Str::uuid();$nightSale['order_id']=(string)Str::uuid();$nightSale['occurred_at']='2026-10-08T02:59:59Z';$nightReceipt=$service->ingest($device,$nightSale)['receipt'];
+check($nightReceipt['business_date']==='2026-10-07','offline sale before six keeps the previous operating day when synced later');
+$sixSale=$nightSale;$sixSale['id']=(string)Str::uuid();$sixSale['order_id']=(string)Str::uuid();$sixSale['occurred_at']='2026-10-08T03:00:00Z';$sixReceipt=$service->ingest($device,$sixSale)['receipt'];
+check($sixReceipt['business_date']==='2026-10-08','offline sale at six starts the new operating day using occurrence time');
 DB::table('desktop_pos_devices')->where('id',$device->id)->update(['enabled'=>false]);denied(fn()=>$service->device($pair['token']),401,'revoked device cannot sync');
 echo $count.' checks passed against real POS/import/stock services'.PHP_EOL;

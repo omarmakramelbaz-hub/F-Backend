@@ -185,7 +185,7 @@ try{
         [$status,$body]=$http($path,$values,array_merge($proof($reserved),['Accept: application/json']));
         return [$status,$body,$binding,$reserved];
     };
-    $month=now('Africa/Cairo')->format('Y-m');$day=now('Africa/Cairo')->toDateString();
+    $day=\App\Services\Dashboard\OperatingDay::date();$month=substr($day,0,7);
     $base=['_token'=>$serverCsrf[1],'branch'=>'f:100'];
     $employeeForm=$base+['idempotency_key'=>(string)Str::uuid(),'name'=>'موظف نتيجة السيرفر','job_title'=>'اختبار','hired_on'=>$month.'-01','active'=>true,'salary'=>'3000.00','effective_month'=>$month];
     [$employeeStatus,$employeeBody]=$apply('/admin/employees/save',$employeeForm);$employee=json_decode($employeeBody,true)['employee']??null;
