@@ -71,9 +71,11 @@ class DesktopDashboardJournal
         });
     }
 
-    public function pending(string $device, int $limit=100): array
+    public function pending(string $device): array
     {
-        $rows=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('status','!=','acknowledged')->orderBy('sequence')->limit(min(100,max(1,$limit)))->get();
+        // Only the first command can be sent. Later encrypted attachments can be
+        // several MiB each and must stay in the database until their own turn.
+        $rows=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('status','!=','acknowledged')->orderBy('sequence')->limit(1)->get();
         $ready=[];
         foreach ($rows as $row) {
             // Stop at the first conflict or dependency: never move a later closing ahead of its receipts.

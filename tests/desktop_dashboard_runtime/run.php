@@ -314,5 +314,6 @@ try{
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 require __DIR__.'/phone.php';
 require __DIR__.'/expense-attachments.php';
+require __DIR__.'/outbox-attachments.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;
