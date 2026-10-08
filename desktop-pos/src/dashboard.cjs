@@ -1,17 +1,18 @@
 'use strict';
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const policy = require('./dashboard-policy.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, remoteState, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, remoteState, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false;
   const owned = new Set();
   const children = new Set();
-  const remoteWrites = new Set();
+  const remoteWrites = new Map();
   function remoteWrite(details) {
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
     const pathname = new URL(details.url).pathname;
@@ -94,9 +95,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
               if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
-              remoteWrites.add(details.id);
+              const attempt = crypto.randomUUID(); remoteWrites.set(details.id, attempt);
               // Persist uncertainty before a request can leave the machine.
-              accepted(() => remoteState?.begin(details.id)).then(() => callback({ requestHeaders: headers }), error => {
+              accepted(() => remoteState?.begin(attempt)).then(() => callback({ requestHeaders: headers }), error => {
                 remoteWrites.delete(details.id); callback({ cancel: true });
                 dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message });
               });
@@ -108,7 +109,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         });
         contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
           if (!remoteWrites.has(details.id)) return;
-          accepted(() => remoteState?.complete(details.id)).then(() => remoteWrites.delete(details.id)).catch(() => {});
+          accepted(() => remoteState?.complete(remoteWrites.get(details.id))).then(() => remoteWrites.delete(details.id)).catch(() => {});
         });
         contents.on('will-navigate', navigate);
         contents.on('will-redirect', navigate);
@@ -196,8 +197,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           .then(csrf => accepted(() => prepare(origin, csrf)))
           .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message }));
       } }] : []),
-      { label: 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => offline('') },
+      { label: archive ? 'سجل النسخة السابقة' : 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => archive ? archive() : offline('') },
       { label: 'اختيار الطابعة', click: () => {
+        if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message })); return; }
         offline('');
         offlineWindow().webContents.executeJavaScript('document.getElementById("settings").click()').catch(() => {});
       } },

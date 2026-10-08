@@ -76,6 +76,10 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
         } };
     });
     await page.addScriptTag({ url: input.origin + '/dashboard/js/desktop-client.js' });
+    // Original flash notices use SweetAlert's modal overlay; dismiss its actual button first.
+    const originalNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
+    if (await originalNotice.count()) await originalNotice.click();
+    await page.locator('.swal-overlay--show-modal').waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'تجهيز بدون إنترنت' }).click();
     assert.equal(await page.locator('dialog').isVisible(), true);
     await page.getByRole('button', { name: 'تجهيز الجهاز', exact: true }).click();

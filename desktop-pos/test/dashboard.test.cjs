@@ -50,12 +50,12 @@ test('a remote form is persisted before transmission and a main-frame failure ca
     offline:(_message,details)=>failures.push(details)});
   await f.dashboard.open();const w=f.windows[0];let decision;
   f.session.webRequest.headers({id:99,url:policy.DEFAULT_ORIGIN+'/admin/employees/save',method:'POST',webContentsId:w.webContents.id,requestHeaders:{}},value=>decision=value);
-  await Promise.resolve();assert.deepEqual(begun,[99]);assert.equal(decision,undefined);
+  await Promise.resolve();assert.equal(begun.length,1);assert.match(begun[0],/^[a-f0-9-]{36}$/);assert.equal(decision,undefined);
   w.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',w.url,true);
   assert.equal(failures.at(-1).method,'UNKNOWN');release();await new Promise(r=>setImmediate(r));assert.ok(decision.requestHeaders);
   f.session.webRequest.error({id:99,url:policy.DEFAULT_ORIGIN+'/admin/employees/save',method:'POST',error:'net::ERR_CONNECTION_RESET'});
   assert.equal(failures.at(-1).method,'UNKNOWN');assert.deepEqual(completed,[]);
-  f.session.webRequest.completed({id:99});await new Promise(r=>setImmediate(r));assert.deepEqual(completed,[99]);
+  f.session.webRequest.completed({id:99});await new Promise(r=>setImmediate(r));assert.deepEqual(completed,begun);
   w.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',w.url,true);
   assert.notEqual(failures.at(-1).method,'UNKNOWN');
 });

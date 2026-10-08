@@ -11,6 +11,7 @@ const LocalRuntime = require('../src/local-runtime.cjs');
 const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
 const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
 const DashboardMode = require('../src/dashboard-mode.cjs');
+const DashboardRemoteState = require('../src/dashboard-remote-state.cjs');
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
@@ -97,7 +98,8 @@ async function main() {
     const view = { current: () => ({ local }), switchTo: async (target, work = async () => {}) => {
       await work(); destinations.push(target.origin); local = Boolean(target.localToken);
     } };
-    const mode = new DashboardMode({ runtime, view, generations: coordinator(),
+    const remoteState = new DashboardRemoteState(runtime.metadata);
+    const mode = new DashboardMode({ runtime, view, generations: coordinator(), remoteState,
       probe: async () => ({ actor_id: snapshot.actor_id, device_id: snapshot.device_id }) });
     snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
     assert.equal(local, false); assert.ok(await runtime.metadata.read('return'));
@@ -105,6 +107,13 @@ async function main() {
     const heldWrite = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Inactive local write ran.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
       { device: snapshot.device_id, id: crypto.randomUUID(), actor: snapshot.actor_id });
     assert.equal(heldWrite.status, 409);
+    await remoteState.begin('native-http-operation');
+    await assert.rejects(mode.local({ method: 'GET' }));
+    await assert.rejects(new DashboardRemoteState(runtime.metadata).assertClean());
+    await remoteState.complete('native-http-operation');
+    await assert.rejects(mode.local({ method: 'GET' }));
+    snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
+    await remoteState.assertClean();
     await mode.local({ method: 'GET' }); assert.equal(local, true); assert.equal(await runtime.metadata.read('return'), null);
     assert.deepEqual(destinations, ['https://fixture.test', runtime.origin]);
     const intent = { format: 1, id: crypto.randomUUID(), token: 'd'.repeat(64), generation: 'e'.repeat(16), previous: next };

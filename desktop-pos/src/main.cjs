@@ -188,6 +188,15 @@ app.whenReady().then(async()=>{
   dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
     prepare:preparation?(serverOrigin,csrf)=>remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf)):undefined,status:dashboardState,remoteState,
     synchronize:async()=>{if(store.get('connection'))await sync.run();if(localSync){localSync.nextRefresh=0;await localSync.run();}return dashboardState();},
+    archive:localRuntime?()=>localOrders():undefined,
+    selectPrinter:async window=>{
+      const printers=await window.webContents.getPrintersAsync();
+      if(!printers.length)throw Error('لا توجد طابعة متاحة على الجهاز.');
+      const names=printers.map(value=>value.name),cancel=names.length;
+      const result=await dialog.showMessageBox(window,{type:'question',title:'فسخانستا — اختيار الطابعة',message:'اختر الطابعة المستخدمة للفواتير',
+        buttons:[...names,'إلغاء'],defaultId:Math.max(0,names.indexOf(store.get('printer'))),cancelId:cancel,noLink:true});
+      if(result.response<cancel)store.set('printer',names[result.response]);
+    },
     accepted:fn=>shutdown.run(fn),offline:dashboardOffline,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
   if(localRuntime&&await localRuntime.isPrepared()){
     connectDashboardSync();await shutdown.run(async()=>{await generations.recover();
