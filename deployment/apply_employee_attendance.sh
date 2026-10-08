@@ -13,7 +13,7 @@ git fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/hea
 test "$(git rev-parse FETCH_HEAD)" = "$release" || { echo 'Release changed; review its new SHA.'; exit 1; }
 previous="$(git rev-parse HEAD)"
 git merge-base --is-ancestor "$previous" "$release" || { echo 'Server version diverged; no code changed. Reconcile this release with the server branch first.'; exit 1; }
-test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
+test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
 while IFS= read -r -d '' file; do
     test ! -L "$file" || { echo "Source symlink requires review: $file"; exit 1; }
     if test -e "$file"; then
