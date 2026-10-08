@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('node:fs/promises');
+const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -9,7 +10,14 @@ const revision = value => /^[a-f0-9]{40}$/.test(value || '');
 class RuntimeArchive {
   constructor(profile, metadata) { this.root = path.join(profile, 'runtimes'); this.metadata = metadata; }
   async inventory(directory) {
-    const files = {}, cases = new Set(); let total = 0, count = 0;
+    const files = {}, cases = new Set(), pending = new Set(); let total = 0, count = 0, failure;
+    const inspect = async name => {
+      const file = path.join(directory, name), stat = await fs.stat(file), hash = crypto.createHash('sha256');
+      total += stat.size;if (total > 4 * 1024 ** 3) throw Error('حزمة التشغيل أكبر من الحد المسموح.');
+      let read = 0;for await (const bytes of createReadStream(file)) { read += bytes.length;hash.update(bytes); }
+      if (read !== stat.size) throw Error('ملف التشغيل تغير أثناء الفحص.');
+      files[name] = hash.digest('hex');
+    };
     const walk = async relative => {
       for (const entry of await fs.readdir(path.join(directory, relative), { withFileTypes: true })) {
         const name = relative ? relative + '/' + entry.name : entry.name;
@@ -17,13 +25,13 @@ class RuntimeArchive {
         cases.add(name.toLowerCase());
         if (entry.isDirectory()) await walk(name);
         else if (entry.isFile()) {
-          const bytes = await fs.readFile(path.join(directory, name)); total += bytes.length;
-          if (total > 4 * 1024 ** 3 || ++count > 50000) throw Error('حزمة التشغيل أكبر من الحد المسموح.');
-          files[name] = digest(bytes);
+          if (++count > 100000) throw Error('حزمة التشغيل أكبر من الحد المسموح.');
+          const task = inspect(name).catch(error => { failure ||= error; }).finally(() => pending.delete(task));pending.add(task);
+          if (pending.size >= 16) await Promise.race(pending);
         } else throw Error('حزمة التشغيل تحتوي ملفًا غير صالح.');
       }
     };
-    await walk(''); return files;
+    await walk('');await Promise.all(pending);if(failure)throw failure;return files;
   }
   async manifest(directory) {
     const value = JSON.parse(await fs.readFile(path.join(directory, 'manifest.json'), 'utf8'));
