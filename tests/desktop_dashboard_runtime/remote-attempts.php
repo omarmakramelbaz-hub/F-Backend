@@ -161,7 +161,7 @@ try{
     verify($http($neverCheckout['path'],$neverSale,array_merge($proof($neverCheckoutProof),['Accept: application/json']))[0]===409
         &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
         'a cancelled delayed cash checkout cannot change the drawer after recovery');
-    $unreviewed=$attempt('/admin/branch-expenses/save');
+    $unreviewed=$attempt('/admin/go-stores');
     verify($decide($unreviewed)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$unreviewed['id'])->exists(),
         'unreviewed server actions cannot acquire a reservation by resembling a reviewed POST');
     $apply=function(string $path,array $values)use($attempt,$decide,$http,$proof){
@@ -253,6 +253,7 @@ try{
     try{verify($apply('/admin/branch-expenses/categories',$categoryForm)[0]===403,
         'a stored shared expense category reply still requires the current original primary-owner authority');}
     finally{DB::table('users')->where('id',1)->update(['owner_resturant_id'=>$ownerScope]);}
+    require __DIR__.'/expense-attachments-http.php';
     $concurrent=$attempt();$decide($concurrent);$client=null;
     DB::beginTransaction();DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->lockForUpdate()->first();
     try{

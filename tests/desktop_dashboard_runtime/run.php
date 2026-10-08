@@ -313,5 +313,6 @@ try{
     check(gateway($origin.'/storage/private.php',$headers)[0]===404,'public storage PHP paths cannot execute through the dashboard router');
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 require __DIR__.'/phone.php';
+require __DIR__.'/expense-attachments.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;

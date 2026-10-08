@@ -90,10 +90,13 @@ class BranchExpenses
         if($amount<=0||$amount>100000000)throw ValidationException::withMessages(['amount'=>'القيمة أكبر من صفر وبحد أقصى مليون جنيه.']);
         $this->ready();$actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor);$permissions=$this->permissions($actor);abort_unless($permissions['can_create'],403);abort_if(($v['approve']??false)&&!$permissions['can_approve'],403);
         $path=null;$keepUpload=false;$attachment=[];
+        // A journal/reconciliation transaction can fail after this nested service returns.
+        // Immutable private bytes must survive that rollback so the same UUID can retry.
+        $enclosed=DB::transactionLevel()>0;
         if($file){Validator::make(['attachment'=>$file],['attachment'=>'required|file|mimes:jpg,jpeg,png,pdf|max:5120'])->validate();$attachment=['attachment_hash'=>hash_file('sha256',$file->getRealPath()),'attachment_name'=>mb_substr(preg_replace('/[\x00-\x1F\x7F\\\\\/]/u','_', $file->getClientOriginalName()),0,200),'attachment_mime'=>$file->getMimeType()];}
         $v['amount']=Money::decimal($amount);$hash=PosServiceTicket::fingerprint(['save',$v,$attachment]);
         try{
-            if($file){$path=$file->store('branch-expenses','local');abort_unless($path,503,'تعذّر حفظ المرفق.');$attachment['attachment_path']=$path;}
+            if($file){$path=$enclosed?app(DesktopDashboardExpenseAttachments::class)->store($file,$v,(int)$actor->id):$file->store('branch-expenses','local');abort_unless($path,503,'تعذّر حفظ المرفق.');$attachment['attachment_path']=$path;}
             $result=DB::transaction(function()use($v,$actor,$amount,$hash,$attachment,$permissions){
                 if(Schema::hasTable('branch_expense_category_settings'))DB::table('users')->where('id',1)->sharedLock()->first();
                 $this->access->branch($v['branch'],$actor,true);if($old=$this->replay($v,$actor,$hash))return $old;
@@ -109,7 +112,7 @@ class BranchExpenses
         }finally{
             // Keep only uploads actually referenced by a committed expense. Old
             // replaced files remain private for the immutable audit snapshots.
-            if($path&&!$keepUpload)Storage::disk('local')->delete($path);
+            if($path&&!$keepUpload&&!$enclosed)Storage::disk('local')->delete($path);
         }
     }
     public function review(int $id,array $values,$actor): array

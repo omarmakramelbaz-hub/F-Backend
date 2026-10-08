@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const crypto = require('node:crypto');
+const sourcePolicy = require('./runtime-source-policy.cjs');
 
 /** Package the original source from an explicit allowlist; never copy an environment or production storage. */
 async function build({ source, target, dependencyRoot, phpDirectory, mariaDirectory, revision }) {
@@ -27,12 +28,12 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
   const hashes = {};
   for (const file of files) {
     if (!roots.has(file.split('/')[0]) && file !== 'artisan') continue;
-    if (/^(?:bootstrap\/cache\/|public\/(?:storage|storage1)(?:\/|$))/.test(file)
-        || /(?:^|\/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$/.test(file)) continue;
+    if (sourcePolicy.excludedPath(file)) continue;
     const from = path.join(source, file);
     const stat = await fs.lstat(from);
     if (!stat.isFile()) continue; // Never follow storage links into server data or outside the source tree.
     const bytes = await fs.readFile(from);
+    if (sourcePolicy.credentialJson(file, bytes)) continue;
     const to = path.join(application, file);
     await fs.mkdir(path.dirname(to), { recursive: true });
     await fs.writeFile(to, bytes);
