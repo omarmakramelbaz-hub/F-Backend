@@ -195,7 +195,11 @@ class OrderBoardService
             elseif ($source === 'store' && $kind === 'gs') $query->where('store_id', (int) $id);
             else return null;
         }
-        if (!empty($filters['date'])) $query->whereDate('created_at', $filters['date']);
+        if (!empty($filters['date'])) {
+            $zone=config('app.timezone','Africa/Cairo');
+            $query->where('created_at','>=',OperatingDay::start($filters['date'])->setTimezone($zone)->toDateTimeString())
+                ->where('created_at','<',OperatingDay::end($filters['date'])->setTimezone($zone)->toDateTimeString());
+        }
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($source, $table, $search) {

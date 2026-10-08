@@ -34,24 +34,17 @@ class ReportController extends Controller
     public function getOrders()
     {
         $n_orders = Order::query();
-        if(! empty(request('q'))){
-            if(request('q') == 'daily'){
-                $n_orders = $n_orders->whereDay('updated_at', now()->day);
-            }
-            elseif(request('q') == 'weekly'){
-                $n_orders = $n_orders->whereBetween('updated_at', [Carbon::now()->startOfWeek(Carbon::SUNDAY), Carbon::now()->endOfWeek(Carbon::SATURDAY)]);
-
-            }
-            elseif(request('q') == 'monthly'){
-                $n_orders = $n_orders->whereMonth('updated_at', Carbon::now()->month);
-
-            }
-            elseif(request('q') == 'yearly'){
-                $n_orders = $n_orders->whereYear('updated_at', Carbon::now()->year);
-
-            }
+        $period=request('q');
+        if(in_array($period,['daily','weekly','monthly','yearly'],true)){
+            $day=\Carbon\Carbon::parse(\App\Services\Dashboard\OperatingDay::date(),'Africa/Cairo');
+            $from=$day->copy();$to=$day->copy();
+            if($period==='weekly'){$from->startOfWeek(Carbon::SUNDAY);$to->endOfWeek(Carbon::SATURDAY);}
+            elseif($period==='monthly'){$from->startOfMonth();$to->endOfMonth();}
+            elseif($period==='yearly'){$from->startOfYear();$to->endOfYear();}
+            $n_orders->where('updated_at','>=',\App\Services\Dashboard\OperatingDay::start($from->toDateString())->toDateTimeString())
+                ->where('updated_at','<',\App\Services\Dashboard\OperatingDay::end($to->toDateString())->toDateTimeString());
         }
-        
+
         if(! empty(request('status'))){
             $n_orders = $n_orders->where('status',request('status'));
         }

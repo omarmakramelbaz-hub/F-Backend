@@ -13,7 +13,7 @@ git fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/hea
 test "$(git rev-parse FETCH_HEAD)" = "$release" || { echo 'Release changed; review its new SHA.'; exit 1; }
 previous="$(git rev-parse HEAD)"
 git merge-base --is-ancestor "$previous" "$release" || { echo 'Server version diverged; no code changed. Reconcile this release with the server branch first.'; exit 1; }
-test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = 3d408369688b488c3b20497f2999c1b87032bdf8 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
+test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = 3d408369688b488c3b20497f2999c1b87032bdf8 || test "$previous" = 0e4135e671be7cc02eec9453d96ee0af4ca79ecb || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
 while IFS= read -r -d '' file; do
     test ! -L "$file" || { echo "Source symlink requires review: $file"; exit 1; }
     if test -e "$file"; then
@@ -36,12 +36,14 @@ git show "$release:database/migrations/$migration" > "$migration_directory/$migr
 php -l "$migration_directory/$migration"
 php artisan migrate --force --realpath --path="$migration_directory/$migration"
 git merge --ff-only "$release"
+php -l app/Services/Dashboard/OperatingDay.php
 php -l app/Services/Dashboard/BranchPayroll.php
 php -l app/Services/Dashboard/EmployeeAttendanceRules.php
 php -l app/Http/Controllers/Dashboard/BranchOperationsController.php
 php -l database/migrations/2026_10_08_190000_add_employee_attendance_rules.php
 php -l app/Services/Dashboard/EmployeeAttendanceDeductionCap.php
 php -l app/Console/Commands/CapEmployeeAttendanceDeductions.php
+php artisan tinker --execute='if (\App\Services\Dashboard\OperatingDay::START_HOUR !== 6) { throw new \RuntimeException("Operating day cutoff missing"); } echo "OPERATING DAY READY: ".\App\Services\Dashboard\OperatingDay::date()." (06:00 to 06:00 Cairo)".PHP_EOL;'
 php artisan employees:cap-attendance-deductions
 php artisan route:clear
 php artisan view:clear

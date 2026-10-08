@@ -67,10 +67,8 @@
     
     <!-- Right navbar links -->
     <ul class="navbar-nav align-items-center">
-          <li class="nav-item d-none d-sm-inline-block px-2">
-            @php $currentTime = \Carbon\Carbon::now()->format('g:i a'); 
-                 $todayDate = \Carbon\Carbon::now()->format('Y-m-d');@endphp
-            <span>{{$todayDate}} / {{$currentTime}}</span>
+          <li class="nav-item d-none d-sm-inline-block px-2" data-dashboard-clock data-clock-server="{{ now('UTC')->timestamp * 1000 }}" title="{{ app()->getLocale()==='ar'?'يوم التشغيل من 6 صباحًا إلى 6 صباحًا بتوقيت مصر':'Operating day: 06:00 to 06:00, Cairo time' }}">
+            <span>{{ app()->getLocale()==='ar'?'يوم التشغيل':'Operating day' }}: <bdi data-dashboard-operating-date>{{ \App\Services\Dashboard\OperatingDay::date() }}</bdi> / <bdi data-dashboard-local-time>{{ now('Africa/Cairo')->format('g:i a') }}</bdi></span>
         </li>
         {{--<li class="nav-item d-none d-sm-inline-block px-2">
             <select onchange="changeLanguage(this.value)" class="form-select">

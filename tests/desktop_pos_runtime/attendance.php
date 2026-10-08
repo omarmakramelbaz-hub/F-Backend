@@ -8,7 +8,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\{Facade,DB,Schema};
 use Carbon\Carbon;
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use App\Services\Dashboard\{BranchPayroll,EmployeeAttendanceRules,EmployeeAttendanceDeductionCap};
+use App\Services\Dashboard\{BranchPayroll,EmployeeAttendanceRules,EmployeeAttendanceDeductionCap,OperatingDay};
 function app($key=null){$c=Container::getInstance();return $key?$c->make($key):$c;}
 function now($zone=null){return Carbon::now($zone);}
 function config($key=null,$default=null){return app('config')->get($key,$default);}
@@ -89,8 +89,8 @@ $nightCap=EmployeeAttendanceRules::snapshot((object)['shift'=>'evening','revisio
 $nightDeductions=EmployeeAttendanceRules::deductions('evening',$nightCap,'2026-10-08 19:00:00','2026-10-08 23:00:00',310000,31);check($nightDeductions['late']['amount']===30000&&$nightDeductions['early']['amount']===0,'evening overnight shift shares the absence cap between both penalties');
 $split=EmployeeAttendanceRules::deductions('morning',$boundary,'2026-10-08 08:00:00','2026-10-08 13:00:00',310000,31);check($split['late']['amount']===20000&&$split['early']['amount']===10000,'two penalties each below absence still share the combined daily limit');
 $screenshotRules=array_replace($zeroCap,['morning_start'=>'10:00','morning_end'=>'19:00','morning_late'=>'50.00','morning_early'=>'50.00','absence'=>'300.00','expected_revision'=>4,'idempotency_key'=>attendanceKey()]);$s->saveAttendanceRules($screenshotRules,$owner);
-clock('2026-10-09 01:15:00');$earlyOnly=employee('Screenshot early checkout');mark($earlyOnly,'morning','check_in','2026-10-09');$earlyPunch=mark($earlyOnly,'morning','check_out','2026-10-09')['attendance'];
-check(total($earlyOnly)===30000&&$earlyPunch['check_in']==='01:15:00'&&$earlyPunch['check_out']==='01:15:00','same-minute early checkout shown in screenshot caps a 1750 deduction at 300');
+clock('2026-10-09 06:00:00');$earlyOnly=employee('Screenshot early checkout');mark($earlyOnly,'morning','check_in','2026-10-09');$earlyPunch=mark($earlyOnly,'morning','check_out','2026-10-09')['attendance'];
+check(total($earlyOnly)===30000&&$earlyPunch['check_in']==='06:00:00'&&$earlyPunch['check_out']==='06:00:00','early checkout remains capped at absence when a new operating day starts');
 $legacyEntry=DB::table('branch_employee_entries')->where('employee_id',$earlyOnly)->where('source_key','attendance.early')->first();
 DB::table('branch_employee_entries')->where('id',$legacyEntry->id)->update(['amount_cents'=>175000,'notes'=>'35 نصف ساعة مكتملة.']);
 $s->entry(['branch'=>'f:100','employee_id'=>$earlyOnly,'day'=>'2026-10-09','kind'=>'deduction','amount'=>'7.00','reason'=>'خصم يدوي','idempotency_key'=>attendanceKey()],$owner);
@@ -113,4 +113,12 @@ mark($earlyOnly,'morning','check_out','2026-10-09');check(total($earlyOnly)===30
 $zeroLegacy=employee('Zero cap legacy');mark($zeroLegacy,'morning','check_in','2026-10-09');mark($zeroLegacy,'morning','check_out','2026-10-09');
 $zeroDay=DB::table('branch_employee_days')->where('employee_id',$zeroLegacy)->first();$zeroSnapshot=json_decode($zeroDay->attendance_rule_snapshot,true);$zeroSnapshot['absence_cents']=0;DB::table('branch_employee_days')->where('id',$zeroDay->id)->update(['attendance_rule_snapshot'=>json_encode($zeroSnapshot)]);
 $caps->repair();check(total($zeroLegacy)===0&&!DB::table('branch_employee_entries')->where('employee_id',$zeroLegacy)->whereNull('voided_at')->exists(),'repair removes zero-cap automatic charges from the active deduction count');
+clock('2026-10-09 20:00:00');$operatingNight=employee('Operating night shift');mark($operatingNight,'evening','check_in','2026-10-09');
+clock('2026-10-10 05:59:59');$overnightOut=mark($operatingNight,'evening','check_out','2026-10-09')['attendance'];
+$beforeSix=$s->listing(['branch'=>'f:100'],$manager);check($beforeSix['filters']['day']==='2026-10-09'&&$overnightOut['check_out']==='05:59:59','overnight checkout and default attendance listing remain on the prior operating day before six');
+denied(fn()=>mark($operatingNight,'morning','check_in','2026-10-10'),422,'next calendar date cannot be used for attendance before six');
+denied(fn()=>$s->entry(['branch'=>'f:100','employee_id'=>$operatingNight,'day'=>'2026-10-10','kind'=>'deduction','amount'=>'1.00','reason'=>'خصم','idempotency_key'=>attendanceKey()],$owner),422,'manual payroll entries cannot use the next operating day before six');
+clock('2026-10-10 06:00:00');$afterSix=$s->listing(['branch'=>'f:100'],$manager);check($afterSix['filters']['day']==='2026-10-10'&&$afterSix['operating_day']['start_hour']===6,'default attendance switches at exactly six with the actual operating window');
+clock('2026-11-01 05:59:59');$monthBoundary=$s->listing(['branch'=>'f:100'],$manager);check($monthBoundary['filters']['day']==='2026-10-31'&&$monthBoundary['filters']['month']==='2026-10','payroll month stays October until six on the first calendar day of November');
+clock('2026-11-01 06:00:00');$newMonth=$s->listing(['branch'=>'f:100'],$manager);check($newMonth['filters']['day']==='2026-11-01'&&$newMonth['filters']['month']==='2026-11','new payroll month begins at six on its first day');
 Carbon::setTestNow();echo $count.' attendance checks passed against the original payroll service'.PHP_EOL;
