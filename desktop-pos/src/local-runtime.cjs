@@ -1,0 +1,181 @@
+'use strict';
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const net = require('node:net');
+const { spawn } = require('node:child_process');
+
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function freePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+function startChild(file, args, options) {
+  const child = spawn(file, args, { ...options, windowsHide: true, shell: false, stdio: ['pipe', 'ignore', 'pipe'] });
+  let tail = '';
+  child.stderr.on('data', bytes => { tail = (tail + bytes.toString()).slice(-8000); });
+  child.failure = new Promise(resolve => {
+    child.once('error', error => resolve(error));
+    child.once('exit', (code, signal) => resolve(Error(`Local service stopped (${code ?? signal}). ${tail}`)));
+  });
+  return child;
+}
+async function run(file, args, options, input = '', timeout = 90000) {
+  const child = startChild(file, args, options);
+  child.stdin.end(input);
+  let timer;
+  try {
+    const result = await Promise.race([
+      child.failure,
+      new Promise(resolve => { timer = setTimeout(() => { child.kill(); resolve(Error('Local service initialization timed out.')); }, timeout); })
+    ]);
+    if (child.exitCode !== 0) throw result;
+  } finally { clearTimeout(timer); }
+}
+async function stopChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill();
+  let timer;
+  await Promise.race([child.failure, new Promise(resolve => { timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 8000); })]);
+  clearTimeout(timer);
+}
+
+/** Manages private PHP/MariaDB processes. It never contacts the production database. */
+class LocalRuntime {
+  constructor({ bundle, profile, safeStorage, platform = process.platform, onFailure = () => {} }) {
+    this.bundle = bundle; this.profile = path.join(profile, 'dashboard');
+    this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
+    this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
+    this.controlToken = crypto.randomBytes(32).toString('hex');
+  }
+  async settings() {
+    await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
+    const file = path.join(this.profile, 'credentials.enc');
+    try { return JSON.parse(this.safeStorage.decryptString(await fs.readFile(file))); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw Error('تعذر فتح بيانات الداشبورد المحلية؛ احتفظ بملفات الجهاز لاسترجاعها.');
+      if (!this.safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية بيانات الداشبورد في حساب ويندوز الحالي.');
+      const value = { deviceId: crypto.randomUUID(), rootPassword: crypto.randomBytes(32).toString('hex'), appPassword: crypto.randomBytes(32).toString('hex'), appKey: 'base64:' + crypto.randomBytes(32).toString('base64') };
+      await fs.writeFile(file, this.safeStorage.encryptString(JSON.stringify(value)), { flag: 'wx', mode: 0o600 });
+      return value;
+    }
+  }
+  async isPrepared() {
+    try {
+      const prepared = JSON.parse(this.safeStorage.decryptString(await fs.readFile(path.join(this.profile, 'prepared.enc'))));
+      const settings = await this.settings();
+      return prepared.format === 1 && prepared.deviceId === settings.deviceId && Boolean(prepared.actorId) && Boolean(prepared.schemaHash)
+        && prepared.fullCoverage === true && /^[a-f0-9]{64}$/.test(prepared.token || '') && /^https:\/\//.test(prepared.serverOrigin || '');
+    } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  }
+  async connection() {
+    if (!(await this.isPrepared())) throw Error('بيانات الداشبورد المحلية لم تُجهّز بالكامل.');
+    return JSON.parse(this.safeStorage.decryptString(await fs.readFile(path.join(this.profile, 'prepared.enc'))));
+  }
+  async control(value) {
+    if (!this.origin || this.stopping) throw Error('خدمة الداشبورد المحلية غير متاحة.');
+    const response = await fetch(this.origin + '/_desktop/control', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Fasakhansta-Desktop': this.token, 'X-Fasakhansta-Control': this.controlToken },
+      body: JSON.stringify(value), redirect: 'error', signal: AbortSignal.timeout(25000) });
+    const data = await response.json();
+    if (!response.ok) { const error = Error(data.message || 'تعذر قراءة سجل المزامنة.'); error.status = response.status; throw error; }
+    return data;
+  }
+  async start() {
+    if (this.starting) return this.starting;
+    this.starting = this.boot().catch(async error => { await this.stop(); throw error; });
+    return this.starting;
+  }
+  async boot() {
+    if (this.platform !== 'win32') throw Error('حزمة التشغيل المحلية مخصصة لويندوز.');
+    const manifest = JSON.parse(await fs.readFile(path.join(this.bundle, 'manifest.json'), 'utf8'));
+    if (manifest.format !== 1 || manifest.platform !== 'win32-x64') throw Error('حزمة الداشبورد المحلية غير متوافقة.');
+    const php = path.join(this.bundle, 'php', 'php.exe');
+    const maria = path.join(this.bundle, 'mariadb', 'bin');
+    const application = path.join(this.bundle, 'application');
+    for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
+    const settings = await this.settings();
+    this.dbPort = await freePort(); this.httpPort = await freePort();
+    this.origin = `http://127.0.0.1:${this.httpPort}`;
+    const data = path.join(this.profile, 'database');
+    const storage = path.join(this.profile, 'storage');
+    for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private']) await fs.mkdir(path.join(storage, dir), { recursive: true, mode: 0o700 });
+    const config = path.join(this.profile, 'my.ini');
+    const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
+    await fs.writeFile(config, `[mysqld]\nbasedir=${iniPath(path.join(this.bundle, 'mariadb'))}\ndatadir=${iniPath(data)}\nbind-address=127.0.0.1\nport=${this.dbPort}\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nlocal-infile=0\nskip-name-resolve\nmax-allowed-packet=64M\ninnodb-flush-log-at-trx-commit=1\n`, { mode: 0o600 });
+    try { await fs.access(path.join(data, 'mysql')); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      // MariaDB's Windows initializer creates system tables; no Windows service or UAC is needed.
+      await run(path.join(maria, 'mariadb-install-db.exe'), [`--datadir=${data}`, `--password=${settings.rootPassword}`, `--port=${this.dbPort}`, `--config=${config}`], { cwd: this.bundle });
+    }
+    if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+    const database = startChild(path.join(maria, 'mariadbd.exe'), [`--defaults-file=${config}`, '--console'], { cwd: this.bundle });
+    database.stdin.end(); this.children.push(database);
+    // Database authentication and schema creation happen through PHP stdin, never shell interpolation.
+    const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+      /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA|HOMEDRIVE|HOMEPATH)$/i.test(name)));
+    const runtimeEnvironment = {
+      ...inherited, APP_ENV: 'desktop', APP_DEBUG: 'false', APP_URL: this.origin, ASSET_URL: this.origin,
+      APP_KEY: settings.appKey, DB_CONNECTION: 'mysql', DB_HOST: '127.0.0.1', DB_PORT: String(this.dbPort),
+      DB_DATABASE: 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
+      CACHE_DRIVER: 'file', SESSION_DRIVER: 'file', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
+      QUEUE_CONNECTION: 'database', MAIL_MAILER: 'log', BROADCAST_DRIVER: 'log',
+      DESKTOP_DASHBOARD_LOCAL: 'true', DESKTOP_DASHBOARD_STORAGE: storage,
+      DESKTOP_DASHBOARD_DEVICE_ID: settings.deviceId,
+      DESKTOP_DASHBOARD_ORIGIN: this.origin, DESKTOP_DASHBOARD_TOKEN: this.token,
+      DESKTOP_DASHBOARD_CONTROL_TOKEN: this.controlToken,
+      APP_CONFIG_CACHE: path.join(storage, 'bootstrap/cache/config.php'),
+      APP_ROUTES_CACHE: path.join(storage, 'bootstrap/cache/routes.php'),
+      APP_SERVICES_CACHE: path.join(storage, 'bootstrap/cache/services.php'),
+      APP_PACKAGES_CACHE: path.join(storage, 'bootstrap/cache/packages.php'),
+      PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
+    };
+    this.environment = runtimeEnvironment; this.php = php; this.application = application;
+    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
+    const deadline = Date.now() + 30000;
+    while (true) {
+      if (database.exitCode !== null || this.stopping) throw Error('تعذر تشغيل قاعدة الداشبورد المحلية.');
+      try {
+        await run(php, [...phpArgs, path.join(application, 'desktop', 'database.php')], { env: runtimeEnvironment, cwd: application }, JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }), 5000);
+        break;
+      } catch (error) { if (Date.now() > deadline) throw error; await pause(150); }
+    }
+    if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+    const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
+    web.stdin.end(); this.children.push(web);
+    const webDeadline = Date.now() + 20000;
+    while (true) {
+      if (web.exitCode !== null || this.stopping) throw Error('تعذر تشغيل الداشبورد المحلية.');
+      try {
+        const response = await fetch(this.origin + '/_desktop/health', { headers: { 'X-Fasakhansta-Desktop': this.token }, signal: AbortSignal.timeout(2000) });
+        if (response.ok) break;
+      } catch {}
+      if (Date.now() > webDeadline) throw Error('الداشبورد المحلية لم تبدأ في الوقت المحدد.');
+      await pause(100);
+    }
+    for (const child of this.children) child.failure.then(error => { if (!this.stopping) this.onFailure(error); });
+    return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
+  }
+  async stop() {
+    this.stopping = true;
+    if (this.stopped) return this.stopped;
+    this.stopped = (async () => {
+      // Stop PHP before shutting down InnoDB. Never delete or reinitialize a database on shutdown.
+      if (this.children[1] && this.origin) {
+        // The single PHP worker answers this only after its preceding accepted request completes.
+        try { await fetch(this.origin + '/_desktop/health', { headers: { 'X-Fasakhansta-Desktop': this.token }, signal: AbortSignal.timeout(25000) }); } catch {}
+      }
+      await stopChild(this.children[1]);
+      if (this.children[0] && this.php) {
+        try { await run(this.php, ['-c', path.join(this.bundle, 'php', 'php.ini'), path.join(this.application, 'desktop', 'database.php'), 'shutdown'], { env: this.environment, cwd: this.application }, JSON.stringify({ password: (await this.settings()).rootPassword }), 8000); } catch {}
+      }
+      await stopChild(this.children[0]);
+    })();
+    return this.stopped;
+  }
+}
+module.exports = LocalRuntime;

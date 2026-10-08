@@ -2,13 +2,15 @@ const {app,BrowserWindow,ipcMain,protocol,net,safeStorage,dialog}=require('elect
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require('./receipt.cjs');
 const Shutdown=require('./shutdown.cjs');
+const LocalRuntime=require('./local-runtime.cjs');
+const DashboardSync=require('./dashboard-sync.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,timer,retryMs=5000,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,timer,retryMs=5000,quitting=false;
 const requests=new Set();
-const shutdown=new Shutdown(app,()=>{quitting=true;clearTimeout(timer);sync?.stop();for(const controller of requests)controller.abort();},()=>store?.close());
+const shutdown=new Shutdown(app,()=>{quitting=true;clearTimeout(timer);sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -25,12 +27,25 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
 function state() {
   const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||''};
 }
+async function dashboardRequest(command) {
+  const credential=await localRuntime.connection();
+  const controller=new AbortController();requests.add(controller);
+  try{
+    const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/commands',{
+      method:'POST',headers:{Accept:'application/json','Content-Type':'application/json',Authorization:'Bearer '+credential.token},
+      body:JSON.stringify(command),redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25000)])});
+    const data=await response.json();
+    if(!response.ok){const error=Error(data.message||'العملية المحلية محفوظة ولم يؤكدها السيرفر بعد.');error.status=response.status;throw error;}
+    return data;
+  }finally{requests.delete(controller);}
+}
 function notify() {if(!quitting&&win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
 function localOrders(message='') {if(!quitting&&win&&!win.isDestroyed()){win.show();if(win.isMinimized())win.restore();win.focus();if(message)win.webContents.send('pos:notice',message);}}
 function writable() {if(store.get('authorization_blocked'))throw Error('ربط الجهاز متوقف من الإدارة. العمليات السابقة محفوظة؛ يلزم إعادة تفعيل الربط.');}
 async function tick() {
   if(!primaryInstance||quitting)return;
   try{await shutdown.run(async()=>{
+    if(localSync){const result=await localSync.run();retryMs=result.error?Math.min(retryMs*2,60000):5000;return;}
     if(store.get('connection')) {await sync.run();if(quitting)return;if(sync.online&&!sync.error){retryMs=5000;store.set('last_synced',new Date().toISOString());}else retryMs=Math.min(retryMs*2,60000);notify();}
   });}catch(error){if(!quitting){sync.error=error.message;notify();}}
   if(!quitting){clearTimeout(timer);timer=setTimeout(tick,retryMs);}
@@ -81,8 +96,18 @@ app.whenReady().then(async()=>{
   });
   await win.loadURL('fasakhansta://pos/index.html');
   if(quitting)return;
-  const dashboardOrigin=!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN);
-  dashboard=createDashboard({origin:dashboardOrigin,offline:localOrders,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
+  let dashboardOrigin=!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN);
+  let localToken='';
+  const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
+  if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
+    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+    if(await localRuntime.isPrepared()) {
+      const local=await shutdown.run(()=>localRuntime.start());dashboardOrigin=local.origin;localToken=local.token;
+      localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest});
+    }
+  }
+  if(quitting)return;
+  dashboard=createDashboard({origin:dashboardOrigin,localToken,accepted:fn=>shutdown.run(fn),offline:localOrders,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
   tick();await dashboard.open();
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج فسخانستا',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

@@ -4,11 +4,11 @@ const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const policy = require('./dashboard-policy.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
-module.exports = function dashboard({ origin, offline, offlineWindow, quitting, quit, printer }) {
+module.exports = function dashboard({ origin, offline, offlineWindow, quitting, quit, printer, localToken = '', accepted = fn => fn() }) {
   const home = origin + '/admin/dashboard';
   let window, loading = false;
   const owned = new Set();
-  ipcMain.handle('dashboard:print-receipt', async (event, value) => {
+  ipcMain.handle('dashboard:print-receipt', async (event, value) => { try { return await accepted(async () => {
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (!owned.has(event.sender.id) || !policy.sameOrigin(event.senderFrame.url, origin)
@@ -16,15 +16,17 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
       const url = new URL(value);
       if (!url.pathname.startsWith('/admin/')) throw Error('رابط الفاتورة غير صحيح.');
       url.searchParams.set('dashboard_print', '1');
-      const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html' }, redirect: 'error', signal: AbortSignal.timeout(25000) });
+      const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html', ...(localToken ? { 'X-Fasakhansta-Desktop': localToken } : {}) }, redirect: 'error', signal: AbortSignal.timeout(25000) });
       if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) throw Error('تعذر تحميل الفاتورة.');
       const html = await response.text();
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (html.length > 3 * 1024 * 1024 || !/\bdata-dashboard-receipt\s*=/.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
-      const protection = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src https: data:; style-src \'unsafe-inline\' https:; font-src https:; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
+      const localSource = localToken ? ' ' + origin : '';
+      const protection = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src https: data:' + localSource + '; style-src \'unsafe-inline\' https:' + localSource + '; font-src https:' + localSource + '; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
       if (!/<head\b/i.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
       const printWindow = new BrowserWindow({ show: false, width: 480, height: 800,
         webPreferences: { partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true, nodeIntegration: false } });
+      owned.add(printWindow.webContents.id);
       try {
         printWindow.webContents.on('will-navigate', event => event.preventDefault());
         printWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -36,9 +38,9 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
         await new Promise((resolve, reject) => printWindow.webContents.print({ silent: true, printBackground: true, deviceName,
           margins: { marginType: 'none' } }, (ok, error) => ok ? resolve() : reject(Error('فشلت الطباعة: ' + error))));
         return { ok: true, value: true };
-      } finally { printWindow.destroy(); }
+      } finally { owned.delete(printWindow.webContents.id); printWindow.destroy(); }
     } catch (error) { return { ok: false, error: error.message }; }
-  });
+  }); } catch (error) { return { ok: false, error: error.message }; } });
   function reveal() {
     if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
   }
@@ -55,6 +57,17 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
         window.maximize();
         const contents = window.webContents;
         owned.add(contents.id);
+        if (localToken) {
+          contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+            const headers = { ...details.requestHeaders };
+            const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
+            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control)$/i.test(name)) delete headers[name];
+            if (!policy.sameOrigin(details.url, origin)) { callback({ requestHeaders: headers }); return; }
+            const native = (details.webContentsId == null || details.webContentsId <= 0) && supplied === localToken;
+            if (quitting() || (!owned.has(details.webContentsId) && !native)) { callback({ cancel: true }); return; }
+            callback({ requestHeaders: { ...headers, 'X-Fasakhansta-Desktop': localToken } });
+          });
+        }
         contents.on('will-navigate', navigate);
         contents.on('will-redirect', navigate);
         contents.setWindowOpenHandler(({ url }) => {
@@ -81,11 +94,14 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
         });
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
-          if (mainFrame && policy.networkFailure(description)) offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+          if (mainFrame && policy.networkFailure(description)) {
+            if (localToken) dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
+            else offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+          }
         });
         // Fetch failures during SPA navigation do not trigger did-fail-load.
         contents.session.webRequest.onErrorOccurred({ urls: [origin + '/*'] }, details => {
-          if (policy.networkFailure(details.error)) offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+          if (!localToken && policy.networkFailure(details.error)) offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
         });
         const grants = new Set(['notifications']);
         contents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
@@ -108,7 +124,10 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
       reveal();
     } catch (error) {
       if (quitting()) return;
-      if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.');
+      if (localToken) {
+        reveal(); await dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
+      }
+      else if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.');
       else {
         // Server errors stay visible with their real status; they are not cached or called offline saves.
         reveal();

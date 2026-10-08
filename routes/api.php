@@ -1,4 +1,6 @@
 <?php
+\Illuminate\Support\Facades\Route::get('desktop-dashboard/bootstrap',[\App\Http\Controllers\Api\DesktopDashboardController::class,'bootstrap'])->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/commands',[\App\Http\Controllers\Api\DesktopDashboardController::class,'ingest'])->middleware('throttle:desktop-pos');
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 

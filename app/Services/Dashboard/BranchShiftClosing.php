@@ -48,6 +48,24 @@ class BranchShiftClosing
         $snapshot=$built['snapshot'];unset($snapshot['closed_at']);
         return hash_hmac('sha256',json_encode([$snapshot,$built['sources'],$built['till_balance']],JSON_UNESCAPED_UNICODE),(string)config('app.key'));
     }
+    /** Internal sync facts stay in the encrypted outbox, never the cashier's page response. */
+    public function desktopReview(array $values,$actor): array
+    {
+        $branch=$this->branch((string)($values['branch']??''),$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
+        $snapshot=$built['snapshot'];unset($snapshot['closed_at']);
+        return ['previous_closing_id'=>(int)($last->id??0),'snapshot'=>$snapshot,'sources'=>$built['sources'],'till_balance'=>$built['till_balance']];
+    }
+    public function reconcileDesktop(array $values,array $review,$actor): array
+    {
+        return DB::transaction(function()use($values,$review,$actor){
+            $branch=$this->branch((string)($values['branch']??''),$actor,true);
+            DB::table('takeaway_tills')->where('branch',$branch['value'])->lockForUpdate()->first();
+            $current=$this->desktopReview($values,$actor);
+            abort_unless(hash_equals(PosServiceTicket::fingerprint($current),PosServiceTicket::fingerprint($review)),409,'مصادر أو أرصدة الوردية على السيرفر مختلفة؛ التقفيل المحلي محفوظ للمراجعة.');
+            $last=$this->latest($branch['value']);$values['review_token']=$this->token($this->build($branch,$last));
+            return $this->close($values,$actor);
+        });
+    }
     private function appAmount(object $row): array
     {
         $lines=DB::table('carts')->where('order_id',$row->id)->get();$subtotal=0;

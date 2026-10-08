@@ -2,10 +2,10 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 const {EventEmitter}=require('node:events');
 const policy=require('../src/dashboard-policy.cjs');
 
-function fixture(t){
+function fixture(t, options = {}){
   let next=0,closing=false;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
   const session={fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
-    webRequest:{onErrorOccurred(_filter,handler){this.error=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
+    webRequest:{onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
@@ -16,7 +16,7 @@ function fixture(t){
   }
   const electron={BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},Menu:{buildFromTemplate:template=>template,setApplicationMenu:menu=>{electron.menu=menu;}},shell:{openExternal:url=>external.push(url)},dialog:{showMessageBox:async()=>({response:1})}};
   const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard.cjs'),'utf8'),{module,__dirname:path.join(__dirname,'../src'),require:name=>name==='electron'?electron:require(name==='./dashboard-policy.cjs'?'../src/dashboard-policy.cjs':name),URL,AbortSignal,Set,Error,Promise});
-  const dashboard=module.exports({origin:policy.DEFAULT_ORIGIN,offline:message=>notices.push(message),offlineWindow:()=>windows[0],quitting:()=>closing,quit:()=>{},printer:()=> 'BranchPrinter'});
+  const dashboard=module.exports({origin:policy.DEFAULT_ORIGIN,offline:message=>notices.push(message),offlineWindow:()=>windows[0],quitting:()=>closing,quit:()=>{},printer:()=> 'BranchPrinter',...options});
   return {dashboard,windows,handlers,external,notices,session,electron,html:value=>{pageHTML=value;},close:()=>{closing=true;}};
 }
 
@@ -68,4 +68,26 @@ test('quitting blocks late dashboard navigation and printing before local printe
   f.close();await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/employees');assert.equal(f.windows[0].url,policy.DEFAULT_ORIGIN+'/admin/dashboard');
   const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
   assert.equal(result.ok,false);assert.match(result.error,/يُغلق/);assert.equal(f.windows.length,1);
+});
+
+test('local dashboard credentials stay inside owned pages and native receipt requests',async t=>{
+  const origin='http://127.0.0.1:43123',token='browser-only';
+  const f=fixture(t,{origin,localToken:token});await f.dashboard.open();
+  const request=(url,webContentsId,requestHeaders={})=>{let response;f.session.webRequest.headers({url,webContentsId,requestHeaders},value=>{response=value;});return response;};
+  const owned=f.windows[0].webContents.id;
+  assert.equal(request(origin+'/admin/dashboard',owned).requestHeaders['X-Fasakhansta-Desktop'],token);
+  assert.equal(request(origin+'/admin/dashboard',987).cancel,true);
+  assert.equal(request(origin+'/admin/takeaway/1/print',undefined,{'x-fasakhansta-desktop':token}).requestHeaders['X-Fasakhansta-Desktop'],token);
+  assert.equal(request(origin+'/admin/takeaway/1/print',undefined).cancel,true);
+  const external=request('https://external.example/asset',owned,{'X-Fasakhansta-Desktop':token,'X-Fasakhansta-Control':'never-forward',Accept:'text/html'});
+  assert.deepEqual(Object.keys(external.requestHeaders),['Accept']);
+  f.windows[0].webContents.emit('did-fail-load',{},-102,'net::ERR_CONNECTION_REFUSED',origin+'/admin/dashboard',true);
+  assert.equal(f.notices.length,0);
+});
+
+test('a closing supervisor returns the normal native printer rejection',async t=>{
+  const f=fixture(t,{accepted:()=>Promise.reject(Error('closing'))});await f.dashboard.open();
+  const sender=f.windows[0].webContents;
+  const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
+  assert.equal(result.ok,false);assert.equal(result.error,'closing');assert.equal(f.windows.length,1);
 });
