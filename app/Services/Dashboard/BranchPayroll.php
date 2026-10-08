@@ -213,15 +213,17 @@ class BranchPayroll
         $closed=DB::table('branch_payrolls')->where('employee_id',$employee->id)->where('month',$month)->first();
         if($closed)return json_decode($closed->snapshot,true)+['payroll_id'=>(int)$closed->id,'status'=>$closed->status,'revision'=>(int)$closed->revision,'paid_at'=>$closed->paid_at,'payment_method'=>$closed->payment_method,'payment_reference'=>$closed->payment_reference];
         $start=Carbon::createFromFormat('!Y-m',$month,'Africa/Cairo')->startOfMonth();$end=$start->copy()->endOfMonth();$days=$start->daysInMonth;
-        $from=max($start->toDateString(),$employee->hired_on);$to=min($end->toDateString(),$employee->left_on??$end->toDateString());
+        $ledgerTo=min($end->toDateString(),OperatingDay::date());
+        $from=max($start->toDateString(),$employee->hired_on);$to=min($ledgerTo,$employee->left_on??$ledgerTo);
         $worked=$to<$from?0:Carbon::parse($from)->diffInDays(Carbon::parse($to))+1;
         $salary=DB::table('branch_employee_salaries')->where('employee_id',$employee->id)->where('effective_month','<=',$month)->orderByDesc('effective_month')->first();
         $base=$salary?(int)$salary->amount_cents:0;$earned=intdiv($base*$worked+intdiv($days,2),$days);
-        $entries=DB::table('branch_employee_entries')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$end->toDateString()])->orderBy('day')->orderBy('id')->get();$totals=['bonus'=>0,'deduction'=>0,'advance'=>0];
+        $entries=DB::table('branch_employee_entries')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$ledgerTo])->orderBy('day')->orderBy('id')->get();$totals=['bonus'=>0,'deduction'=>0,'advance'=>0];
         foreach($entries as $entry)if(!$entry->voided_at)$totals[$entry->kind]+=(int)$entry->amount_cents;
-        $attendance=DB::table('branch_employee_days')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$end->toDateString()])->orderBy('day')->get()->map(fn($r)=>(array)$r)->all();
+        $attendance=DB::table('branch_employee_days')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$ledgerTo])->orderBy('day')->get()->map(fn($r)=>(array)$r)->all();
         $net=$earned+$totals['bonus']-$totals['deduction']-$totals['advance'];
         $data=['employee'=>(array)$employee,'month'=>$month,'salary'=>Money::decimal($base),'salary_configured'=>(bool)$salary,'eligible_days'=>$worked,'month_days'=>$days,'earned_salary'=>Money::decimal($earned),'bonus'=>Money::decimal($totals['bonus']),'deduction'=>Money::decimal($totals['deduction']),'advance'=>Money::decimal($totals['advance']),'net'=>Money::decimal($net),'net_cents'=>$net,'attendance'=>$attendance,'entries'=>$entries->map(function($r){$a=(array)$r;$a['amount']=Money::decimal((int)$r->amount_cents);return $a;})->all()];
+        $data+=['as_of'=>$ledgerTo,'accrued_from'=>$worked?$from:null,'accrued_through'=>$worked?$to:null];
         $data['preview_hash']=PosServiceTicket::fingerprint($data);return $data+['status'=>'draft','revision'=>0,'payroll_id'=>null];
     }
     /** Capture the exact reviewed period, without database-local audit identifiers. */

@@ -109,7 +109,7 @@ $stalePayroll=$payroll;$stalePayroll['preview_hash']=str_repeat('0',64);
 denied(fn()=>app(BranchPayroll::class)->desktopReview($stalePayroll,$actor),409,'local payroll closure requires the exact approved original preview');
 $payrollFacts=app(BranchPayroll::class)->desktopReview($payroll,$actor);
 $closedPayroll=$journal->execute($device,$payrollId,1,'employees.close',['values'=>$payroll,'facts'=>['payroll'=>$payrollFacts]],[],fn()=>app(BranchPayroll::class)->close($payroll,$actor));
-check($closedPayroll['statement']['net_cents']===495000&&$closedPayroll['statement']['status']==='closed','original payroll closure saves the reviewed salary and advance locally');
+check($closedPayroll['statement']['net_cents']===124032&&$closedPayroll['statement']['status']==='closed','original payroll closure saves eight accrued days less the advance locally');
 $payrollRetry=$journal->execute($device,$payrollId,1,'employees.close',['values'=>$payroll,'facts'=>$journal->savedFacts($device,$payrollId,1,'employees.close')],[],function(){throw new RuntimeException('A saved payroll must not close again.');});
 check($payrollRetry===$closedPayroll&&DB::table('branch_payrolls')->count()===1,'a lost local payroll reply reuses mapped saved facts without closing the month twice');
 check($journal->savedFacts($device,$payrollId,10,'employees.close')===null,'saved payroll review facts are bound to their original actor and route');
@@ -260,6 +260,7 @@ $refresh->cancel($localDevice,$nextRefreshId,$refreshToken);
 $journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier));
 check(DB::table('branch_customers')->count()===2&&$journal->counts($localDevice)['pending']===1,'a failed or cancelled preparation restores original local writes and their durable journal');
 config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.device_id'=>$device,'desktop_dashboard.local'=>false]);DB::purge();
+\Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-12T12:00:00Z')); // Sync four days after the reviewed offline salary.
 foreach($envelopes as $envelope){
     if($envelope['route_name']==='employees.close'){
         $day=DB::table('branch_employee_days')->where('branch','f:100')->first();
@@ -273,13 +274,14 @@ foreach($envelopes as $envelope){
     $again=$reconciliation->ingest($remoteDevice,$envelope);
     check($reply===$again,'lost remote reply returns the identical committed '.$envelope['route_name'].' result');
 }
+check(app(BranchPayroll::class)->statement(['branch'=>'f:100','employee_id'=>DB::table('branch_employees')->where('branch','f:100')->value('id'),'month'=>'2026-10'],$actor)['statement']['accrued_through']==='2026-10-08','delayed offline reconciliation preserves the reviewed accrual day instead of paying later days');
 check(DB::table('takeaway_orders')->where('branch','f:100')->count()===1 && DB::table('branch_inventory_movements')->where('branch','f:100')->where('source_type','pos')->count()===1,'reconnecting creates one sale and one recipe deduction on the server');
 check(DB::table('takeaway_orders')->where('branch','f:100')->value('created_at')==='2026-10-08 12:00:00','server reconciliation preserves the original UTC sale hour rather than shifting it by Cairo time');
 $remoteEmployee=DB::table('branch_employees')->where('branch','f:100')->value('id');
 check((int)$remoteEmployee!== (int)$saved['employee']['id'] && (int)DB::table('branch_employee_days')->where('branch','f:100')->value('employee_id')===(int)$remoteEmployee,'attendance refers to the mapped server employee despite integer ID collision');
 check((int)DB::table('branch_employee_entries')->where('branch','f:100')->value('employee_id')===(int)$remoteEmployee,'a dependent payroll entry uses the server employee ID');
 $serverPayroll=DB::table('branch_payrolls')->where('branch','f:100')->first();
-check((int)$serverPayroll->id!==(int)$closedPayroll['statement']['payroll_id']&&(int)$serverPayroll->employee_id===(int)$remoteEmployee&&$serverPayroll->status==='paid'&&(int)$serverPayroll->net_cents===495000,'the mapped original payroll closes and pays once despite employee, entry, attendance and payroll ID collisions');
+check((int)$serverPayroll->id!==(int)$closedPayroll['statement']['payroll_id']&&(int)$serverPayroll->employee_id===(int)$remoteEmployee&&$serverPayroll->status==='paid'&&(int)$serverPayroll->net_cents===124032,'the mapped original payroll closes and pays once despite employee, entry, attendance and payroll ID collisions');
 check((int)DB::table('takeaway_tills')->value('balance_cents')===0 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'server cash and inventory match the local original operations after shift reconciliation');
 check(DB::table('branch_shift_closings')->count()===1 && DB::table('branch_shift_sources')->count()===2 && (int)DB::table('branch_shift_sources')->where('source','pos')->value('source_id')===2 && (int)DB::table('branch_shift_sources')->where('source','expense')->value('source_id')===2,'one synced closing maps and claims its single sale and expense sources despite ID collisions');
 $altered=$envelopes[0];$altered['payload']['values']['quantity']='9.000';denied(fn()=>$reconciliation->ingest($remoteDevice,$altered),409,'the server rejects altered content with an already committed operation UUID');
