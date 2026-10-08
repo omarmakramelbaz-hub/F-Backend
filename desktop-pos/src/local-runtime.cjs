@@ -231,7 +231,8 @@ class LocalRuntime {
     await run(this.php, [...phpArgs, path.join(this.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
     const receipt = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
-    const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping);
+    const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
+      path.join(this.storageFor(value), 'app'));
     if (archive) await run(this.php, [...phpArgs, path.join(this.application, 'desktop/archive.php')], options,
       JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token }), 90000);
     const checked = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));

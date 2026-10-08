@@ -77,3 +77,43 @@ test('closing during a streamed download cancels it and leaves the new generatio
   await assert.rejects(media.download(directory, [item()], async () => response(stream), () => stopped));
   assert.equal(cancelled, true); assert.deepEqual(await fs.readdir(path.join(directory, 'products/10')), []);
 });
+
+test('private expense PDFs and images download outside public storage and retain their area in the independent receipt', async t => {
+  const privateRoot = await root(t), publicRoot = path.join(privateRoot, 'public'); await fs.mkdir(publicRoot);
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+  const attachment = { ...item('branch-expenses/فاتورة.pdf'), ticket: 'private-pdf-ticket', area: 'private', mime: 'application/pdf', bytes: pdf.length,
+    sha256: crypto.createHash('sha256').update(pdf).digest('hex') };
+  const privateImage = { ...item('branch-expenses/same.png'), area: 'private' }, publicImage = item('branch-expenses/same.png');
+  const result = await media.download(publicRoot, [attachment, privateImage, publicImage], async ticket =>
+    ticket === attachment.ticket ? new Response(pdf, { headers: { 'content-type': attachment.mime } }) : response(), () => false, privateRoot);
+  assert.deepEqual(await fs.readFile(path.join(privateRoot, attachment.path)), pdf);
+  await assert.rejects(fs.access(path.join(publicRoot, attachment.path)));
+  assert.deepEqual(await fs.readFile(path.join(privateRoot, privateImage.path)), bytes);
+  assert.deepEqual(await fs.readFile(path.join(publicRoot, publicImage.path)), bytes);
+  assert.equal(result.files[0].area, 'private'); assert.equal('area' in result.files[2], false);
+  const checked = result.files.map(file => ({ ...file })); media.verifyReceipt(checked, result.files);
+  delete checked[0].area; assert.throws(() => media.verifyReceipt(checked, result.files));
+});
+
+test('private attachments cannot use public storage, another namespace, unsafe paths or an unprepared private root', async t => {
+  const privateRoot = await root(t), publicRoot = path.join(privateRoot, 'public'); await fs.mkdir(publicRoot);
+  const attachment = { ...item('branch-expenses/invoice.png'), area: 'private' }; let fetched = 0;
+  for (const changed of [{ area: 'unknown' }, { area: null }, { path: 'public/invoice.png' }, { path: 'branch-expenses/../invoice.png' },
+    { path: 'branch-expenses/invoice.html', mime: 'text/html' }])
+    await assert.rejects(media.download(publicRoot, [{ ...attachment, ...changed }], async () => { fetched++; return response(); }, () => false, privateRoot));
+  for (const unsafeRoot of [undefined, publicRoot, await root(t)])
+    await assert.rejects(media.download(publicRoot, [attachment], async () => { fetched++; return response(); }, () => false, unsafeRoot));
+  assert.throws(() => media.manifest([{ ...item('invoice.pdf'), mime: 'application/pdf' }]));
+  const outside = await root(t); await fs.symlink(outside, path.join(privateRoot, 'branch-expenses'), process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(media.download(publicRoot, [attachment], async () => { fetched++; return response(); }, () => false, privateRoot));
+  assert.equal(fetched, 0); assert.deepEqual(await fs.readdir(outside), []);
+});
+
+test('a damaged private PDF leaves no completed attachment and cannot return a verified receipt', async t => {
+  const privateRoot = await root(t), publicRoot = path.join(privateRoot, 'public'); await fs.mkdir(publicRoot);
+  const attachment = { ...item('branch-expenses/invoice.pdf'), area: 'private', mime: 'application/pdf' };
+  await assert.rejects(media.download(publicRoot, [attachment], async () => new Response(Buffer.alloc(bytes.length),
+    { headers: { 'content-type': attachment.mime } }), () => false, privateRoot));
+  assert.deepEqual(await fs.readdir(path.join(privateRoot, 'branch-expenses')), []);
+  await assert.rejects(fs.access(path.join(publicRoot, attachment.path)));
+});

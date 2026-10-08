@@ -91,6 +91,8 @@ try{
     for($n=0;$n<100;$n++){[$status]=$http('/_desktop/health');if($status===200)break;usleep(50000);}
     [$status,$page]=$http('/admin/login');
     verify($status===200&&str_contains($page,'dashboard-login-form')&&str_contains($page,'فسخانستا'),'the original branded login Blade page renders over the private local HTTP gateway');
+    verify($http('/admin/branch-expenses/'.$expenseAttachmentId.'/attachment')[0]===302,
+        'the private expense download retains the original signed-in dashboard requirement');
     preg_match('/name="_token" value="([^"]+)"/',$page,$token);verify(!empty($token[1]),'the original offline login retains Laravel CSRF protection');
     [$status,$page,$headers]=$http('/admin/signin',['_token'=>$token[1],'email'=>'branch@test.invalid','password'=>'Fixture123']);
     verify($status===302&&count(array_filter($headers,fn($header)=>str_contains($header,'/admin/applies-orders')))===1,'the imported enrolled account signs in through the unchanged original login controller');
@@ -102,6 +104,11 @@ try{
     verify($http('/dashboard/branding/dashboard-brand.css')[0]===200&&$http('/dashboard/js/dashboard-spa.js')[0]===200,'the original dashboard style and navigation scripts are served locally');
     [$imageStatus,$localImage]=$http('/storage/products/3/'.rawurlencode('رنجة.png'));
     verify($imageStatus===200&&$localImage===$imageBytes,'the protected original local HTTP gateway serves the downloaded Arabic product image');
+    [$attachmentStatus,$attachmentBody,$attachmentHeaders]=$http('/admin/branch-expenses/'.$expenseAttachmentId.'/attachment');
+    verify($attachmentStatus===200&&$attachmentBody===$expensePdfBytes&&in_array('Content-Type: application/pdf',$attachmentHeaders,true),
+        'the original signed-in expense controller reads the prepared PDF from its private local disk');
+    verify($http('/storage/'.$expenseAttachmentPath)[0]===404,
+        'the original public storage URL cannot expose the private expense PDF');
     verify(str_ends_with(\App\Models\Resturant::findOrFail(100)->getFirstMediaUrl('logo'),'/storage/resturants/1/logo.png'),
         'the original media library retains its model rows and generates the correct nested local disk URL');
     [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$csrf);

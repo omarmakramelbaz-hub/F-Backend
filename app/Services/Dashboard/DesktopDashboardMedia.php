@@ -4,10 +4,11 @@ namespace App\Services\Dashboard;
 use App\Models\User;
 use Illuminate\Support\Facades\{Crypt,DB};
 
-/** Explicit scoped image references. Never enumerate the shared public storage tree. */
+/** Explicit scoped images and private expense attachments. Never enumerate shared storage. */
 class DesktopDashboardMedia
 {
     public const MIMES=['png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','gif'=>'image/gif','webp'=>'image/webp','ico'=>'image/x-icon'];
+    public const PRIVATE_MIMES=['png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','pdf'=>'application/pdf'];
     public const MAX_FILE=16*1024*1024;
     public const MAX_TOTAL=1024*1024*1024;
     public const MAX_FILES=20000;
@@ -17,13 +18,14 @@ class DesktopDashboardMedia
     private const SETTINGS=['logo','favicon','advertise_image'];
     public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
-    public static function safePath($path): bool
+    public static function safePath($path,string $area='public'): bool
     {
         if(!is_string($path)||$path===''||strlen($path)>500||str_starts_with($path,'/')
             ||preg_match('/[\\\\\x00-\x1f\x7f:*?"<>|%]/u',$path)||str_ends_with($path,'/'))return false;
+        if(!in_array($area,['public','private'],true)||($area==='private'&&!str_starts_with($path,'branch-expenses/')))return false;
         foreach(explode('/',$path) as $part)if(strlen($part)>255||$part===''||$part==='.'||$part==='..'||str_ends_with($part,'.')||str_ends_with($part,' ')
             ||preg_match('/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i',$part))return false;
-        return isset(self::MIMES[strtolower(pathinfo($path,PATHINFO_EXTENSION))]);
+        return isset(($area==='private'?self::PRIVATE_MIMES:self::MIMES)[strtolower(pathinfo($path,PATHINFO_EXTENSION))]);
     }
     private static function inside(string $file,string $root): bool
     {
@@ -39,10 +41,16 @@ class DesktopDashboardMedia
         $prefix=trim(str_replace('\\','/',substr($root,strlen($base))),'/');
         return [$root,$prefix];
     }
-    private function file(string $path): string
+    private static function file(string $path,string $area='public'): string
     {
-        abort_unless(self::safePath($path),422);
-        $base=realpath(storage_path('app/public'));$file=realpath(storage_path('app/public').'/'.$path);
+        abort_unless(self::safePath($path,$area),422);
+        if($area==='private'){
+            $app=realpath(storage_path('app'));$disk=realpath((string)config('filesystems.disks.local.root'));
+            $base=realpath(storage_path('app/branch-expenses'));$public=realpath(storage_path('app/public'));
+            abort_unless(config('filesystems.disks.local.driver')==='local'&&$app&&$disk===$app&&$base&&self::inside($base,$app)
+                &&(!$public||($base!==$public&&!self::inside($base,$public))),409);
+            $file=realpath($base.'/'.substr($path,strlen('branch-expenses/')));
+        }else{$base=realpath(storage_path('app/public'));$file=realpath(storage_path('app/public').'/'.$path);}
         abort_unless($base&&$file&&is_file($file)&&self::inside($file,$base),409);
         return $file;
     }
@@ -78,19 +86,22 @@ class DesktopDashboardMedia
     {
         $queries=$this->data->queries($device,$actor,$this->branches($device,$actor));
         $files=[];$issues=[];$total=0;
-        $add=function(string $path,array $proof)use(&$files,&$issues,&$total,$device,$actor,$snapshot){
-            if(isset($files[$path]))return;
+        $add=function(string $path,array $proof,string $area='public',array $expected=[])use(&$files,&$issues,&$total,$device,$actor,$snapshot){
+            $key=$area."\0".$path;
             try{
-                $file=$this->file($path);$bytes=filesize($file);$extension=strtolower(pathinfo($path,PATHINFO_EXTENSION));
-                $mime=self::MIMES[$extension];$detected=(new \finfo(FILEINFO_MIME_TYPE))->file($file);
+                $file=self::file($path,$area);$bytes=filesize($file);$extension=strtolower(pathinfo($path,PATHINFO_EXTENSION));
+                $mime=($area==='private'?self::PRIVATE_MIMES:self::MIMES)[$extension];$detected=(new \finfo(FILEINFO_MIME_TYPE))->file($file);
                 abort_unless($bytes>0&&$bytes<=self::MAX_FILE&&($detected===$mime
                     ||($extension==='ico'&&in_array($detected,['image/vnd.microsoft.icon','image/x-icon'],true))),409);
+                $sha=hash_file('sha256',$file);abort_unless(is_string($sha),409);
+                if($area==='private')abort_unless(($expected['sha256']??null)===$sha&&($expected['mime']??null)===$mime,409);
+                if(isset($files[$key]))return;
                 abort_if(count($files)>=self::MAX_FILES||$total+$bytes>self::MAX_TOTAL,413);
-                $sha=hash_file('sha256',$file);abort_unless(is_string($sha),409);$total+=$bytes;
+                $total+=$bytes;$namespace=$area==='private'?['area'=>'private']:[];
                 $ticket=Crypt::encryptString(DesktopDashboardBootstrap::json(['format'=>1,'device_id'=>$device->id,'actor_id'=>(int)$actor->id,
-                    'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]));
-                $files[$path]=['path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'ticket'=>$ticket];
-            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,'reason'=>'unavailable-or-unsupported'];}
+                    'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]+$namespace));
+                $files[$key]=['path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'ticket'=>$ticket]+$namespace;
+            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,'reason'=>'unavailable-or-unsupported']+($area==='private'?['area'=>'private']:[]);}
         };
         foreach($dataset['media']??[] as $row){
             try{
@@ -117,6 +128,12 @@ class DesktopDashboardMedia
         foreach($dataset['go_store_products']??[] as $row){
             if(!empty($row['image_path']))$add($row['image_path'],['kind'=>'store-product','id'=>(int)$row['id']]);
         }
+        foreach($dataset['branch_expenses']??[] as $row){
+            if(empty($row['attachment_path']))continue;
+            abort_unless(isset($queries['branch_expenses'])&&(clone $queries['branch_expenses'])->where('id',$row['id'])->exists(),403);
+            $add($row['attachment_path'],['kind'=>'expense','id'=>(int)$row['id']],'private',
+                ['sha256'=>$row['attachment_hash']??null,'mime'=>$row['attachment_mime']??null]);
+        }
         foreach($dataset['settings']??[] as $row){
             if(($row['group']??'')!=='general'||!in_array($row['name'],self::SETTINGS,true))continue;
             try{$value=json_decode($row['payload'],true,512,JSON_THROW_ON_ERROR);}catch(\JsonException $error){$value=null;}
@@ -134,7 +151,8 @@ class DesktopDashboardMedia
         $actor=$this->devices->actor($device);$queries=$this->data->queries($device,$actor,$this->branches($device,$actor));
         abort_unless(($value['format']??null)===1&&($value['device_id']??null)===$device->id
             &&($value['actor_id']??null)===(int)$actor->id&&($value['expires_at']??0)>=time(),403);
-        $proof=$value['proof']??[];$path=$value['path']??'';
+        $proof=$value['proof']??[];$path=$value['path']??'';$area=$value['area']??'public';
+        abort_unless($area===(($proof['kind']??'')==='expense'?'private':'public'),403);
         switch($proof['kind']??''){
             case 'media':
                 $row=(array)DB::table('media')->where('id',$proof['id'])->first();abort_unless($row&&$this->owner($row,$queries),403);
@@ -150,10 +168,13 @@ class DesktopDashboardMedia
                 abort_unless(in_array($proof['name']??'',self::SETTINGS,true),403);
                 $row=DB::table('settings')->where('group','general')->where('name',$proof['name'])->first();
                 abort_unless($row&&json_decode($row->payload,true)===$path,403);break;
+            case 'expense':
+                $row=isset($queries['branch_expenses'])?(clone $queries['branch_expenses'])->where('id',$proof['id'])->first():null;
+                abort_unless($row&&$row->attachment_path===$path&&$row->attachment_hash===$value['sha256']&&$row->attachment_mime===$value['mime'],403);break;
             default:abort(403);
         }
         // Hash the exact bytes returned; changed/deleted files force a fresh coherent bootstrap.
-        $file=$this->file($path);$bytes=file_get_contents($file,false,null,0,self::MAX_FILE+1);
+        $file=self::file($path,$area);$bytes=file_get_contents($file,false,null,0,self::MAX_FILE+1);
         abort_unless(is_string($bytes)&&strlen($bytes)===$value['bytes']&&hash_equals($value['sha256'],hash('sha256',$bytes)),409);
         return ['bytes'=>$bytes,'mime'=>$value['mime'],'sha256'=>$value['sha256']];
     }
@@ -161,21 +182,22 @@ class DesktopDashboardMedia
     {
         abort_if(count($manifest)>self::MAX_FILES,413);$files=[];$total=0;$seen=[];
         foreach($manifest as $part){
-            abort_unless(is_array($part)&&self::safePath($part['path']??null)&&preg_match('/^[a-f0-9]{64}$/D',$part['sha256']??'')
+            abort_unless(is_array($part),422);$area=array_key_exists('area',$part)?$part['area']:'public';
+            abort_unless(is_string($area)&&self::safePath($part['path']??null,$area)&&preg_match('/^[a-f0-9]{64}$/D',$part['sha256']??'')
                 &&is_int($part['bytes']??null)&&$part['bytes']>0&&$part['bytes']<=self::MAX_FILE
-                &&($part['mime']??null)===self::MIMES[strtolower(pathinfo($part['path'],PATHINFO_EXTENSION))],422);
-            $fold=mb_strtolower($part['path']);abort_if(isset($seen[$fold]),422);$seen[$fold]=true;
+                &&($part['mime']??null)===($area==='private'?self::PRIVATE_MIMES:self::MIMES)[strtolower(pathinfo($part['path'],PATHINFO_EXTENSION))],422);
+            $fold=$area."\0".mb_strtolower($part['path']);abort_if(isset($seen[$fold]),422);$seen[$fold]=true;
             $total+=$part['bytes'];abort_if($total>self::MAX_TOTAL,413);
-            $files[]=['path'=>$part['path'],'sha256'=>$part['sha256'],'bytes'=>$part['bytes'],'mime'=>$part['mime']];
+            $files[]=['path'=>$part['path'],'sha256'=>$part['sha256'],'bytes'=>$part['bytes'],'mime'=>$part['mime']]+($area==='private'?['area'=>'private']:[]);
         }
         return $files;
     }
     public static function verifyFiles(array $files): void
     {
-        $files=self::receipt($files);$root=realpath(storage_path('app/public'));abort_unless($root,409);
+        $files=self::receipt($files);
         foreach($files as $part){
-            $file=realpath($root.'/'.$part['path']);abort_unless($file&&self::inside($file,$root)&&is_file($file)
-                &&filesize($file)===$part['bytes']&&hash_equals($part['sha256'],hash_file('sha256',$file)),409,'صور قاعدة التجهيز لم تكتمل.');
+            $file=self::file($part['path'],$part['area']??'public');abort_unless(filesize($file)===$part['bytes']
+                &&hash_equals($part['sha256'],hash_file('sha256',$file)),409,'مرفقات قاعدة التجهيز لم تكتمل.');
         }
     }
 }

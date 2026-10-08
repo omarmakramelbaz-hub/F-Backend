@@ -5,22 +5,25 @@ const crypto = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 
 const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon' };
+const PRIVATE_MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', pdf: 'application/pdf' };
 const MAX_FILE = 16 * 1024 * 1024, MAX_TOTAL = 1024 * 1024 * 1024, MAX_FILES = 20000;
-function safePath(value) {
+function safePath(value, area = 'public') {
   if (typeof value !== 'string' || !value || Buffer.byteLength(value) > 500 || /[\\\x00-\x1f\x7f:*?"<>|%]/u.test(value)) return false;
+  if (!['public', 'private'].includes(area) || (area === 'private' && !value.startsWith('branch-expenses/'))) return false;
   return value.split('/').every(part => part && part !== '.' && part !== '..' && Buffer.byteLength(part) <= 255
     && !/[. ]$/.test(part) && !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(part))
-    && Boolean(MIMES[path.posix.extname(value).slice(1).toLowerCase()]);
+    && Boolean((area === 'private' ? PRIVATE_MIMES : MIMES)[path.posix.extname(value).slice(1).toLowerCase()]);
 }
 function manifest(value) {
   if (!Array.isArray(value) || value.length > MAX_FILES) throw Error('قائمة الصور المحلية غير صالحة.');
   const seen = new Set(); let total = 0;
   for (const item of value) {
-    if (!safePath(item.path) || !/^[a-f0-9]{64}$/.test(item.sha256 || '') || !Number.isSafeInteger(item.bytes)
-        || item.bytes <= 0 || item.bytes > MAX_FILE || item.mime !== MIMES[path.posix.extname(item.path).slice(1).toLowerCase()]
+    const area = item?.area === undefined ? 'public' : item.area;
+    if (!item || !safePath(item.path, area) || !/^[a-f0-9]{64}$/.test(item.sha256 || '') || !Number.isSafeInteger(item.bytes)
+        || item.bytes <= 0 || item.bytes > MAX_FILE || item.mime !== (area === 'private' ? PRIVATE_MIMES : MIMES)[path.posix.extname(item.path).slice(1).toLowerCase()]
         || typeof item.ticket !== 'string' || !item.ticket || item.ticket.length > 8192)
       throw Error('بيانات صورة محلية غير صالحة.');
-    const folded = item.path.toLowerCase();
+    const folded = area + '\0' + item.path.toLowerCase();
     if (seen.has(folded)) throw Error('مساران للصور يتعارضان على ويندوز.');
     seen.add(folded); total += item.bytes;
     if (total > MAX_TOTAL) throw Error('صور الحساب تتجاوز حجم التجهيز المسموح.');
@@ -43,14 +46,21 @@ async function directory(root, relative) {
   }
   return path.join(root, ...relative.split('/'));
 }
-/** Write only verified images into the inactive generation; tickets never reach dashboard pages. */
-async function download(root, files, request, stopped = () => false) {
+/** Write verified files to their own inactive storage area; tickets never reach dashboard pages. */
+async function download(root, files, request, stopped = () => false, privateRoot) {
   manifest(files);
+  if (files.some(item => item.area === 'private')) {
+    // The private disk is the parent of the public disk, never the HTTP-served root.
+    if (typeof privateRoot !== 'string' || path.resolve(root) !== path.join(path.resolve(privateRoot), 'public'))
+      throw Error('مجلد المرفقات الخاصة لم يُجهّز بعد.');
+    const [privatePath, publicPath] = await Promise.all([fs.realpath(privateRoot), fs.realpath(root)]);
+    if (publicPath !== path.join(privatePath, 'public')) throw Error('مسار المرفقات الخاصة غير آمن.');
+  }
   if (files.length && typeof request !== 'function') throw Error('تنزيل صور الحساب لم يُجهّز بعد.');
   const receipt = [];
   for (const item of files) {
     if (stopped()) throw Error('البرنامج يُغلق الآن.');
-    const target = await directory(root, item.path);
+    const target = await directory(item.area === 'private' ? privateRoot : root, item.path);
     // A staging directory must be new; never silently replace an existing or linked image.
     try { await fs.lstat(target); throw Error('مسار صورة التجهيز موجود بالفعل.'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     const response = await request(item.ticket);
@@ -74,7 +84,7 @@ async function download(root, files, request, stopped = () => false) {
       if (bytes !== item.bytes || digest.digest('hex') !== item.sha256) throw Error('بصمة الصورة مختلفة؛ لم تُفعّل نسخة التجهيز.');
       await file.sync(); await file.close(); file = null;
       await fs.rename(temporary, target); complete = true;
-      receipt.push({ path: item.path, bytes, mime: item.mime, sha256: item.sha256 });
+      receipt.push({ path: item.path, bytes, mime: item.mime, sha256: item.sha256, ...(item.area === 'private' ? { area: 'private' } : {}) });
     } finally {
       if (!complete) await reader.cancel().catch(() => {});
       reader.releaseLock(); await file?.close();

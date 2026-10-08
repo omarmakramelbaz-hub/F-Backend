@@ -21,12 +21,18 @@ async function main() {
   const imagePath = 'products/42/رنجة.png', imageTicket = 'synthetic-media-capability';
   snapshot.media = [{ path: imagePath, sha256: crypto.createHash('sha256').update(imageBytes).digest('hex'),
     bytes: imageBytes.length, mime: 'image/png', ticket: imageTicket }];
+  const pdfBytes = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+  const pdfPath = 'branch-expenses/فاتورة.pdf', pdfTicket = 'synthetic-private-capability';
+  snapshot.media.push({ area: 'private', path: pdfPath, sha256: crypto.createHash('sha256').update(pdfBytes).digest('hex'),
+    bytes: pdfBytes.length, mime: 'application/pdf', ticket: pdfTicket });
   let imageRequests = 0;
   const mediaServer = http.createServer((request, response) => {
-    if (request.headers.authorization !== 'Bearer synthetic-device' || new URL(request.url, 'http://fixture').searchParams.get('ticket') !== imageTicket) {
+    const ticket = new URL(request.url, 'http://fixture').searchParams.get('ticket');
+    if (request.headers.authorization !== 'Bearer synthetic-device' || ![imageTicket, pdfTicket].includes(ticket)) {
       response.writeHead(403).end(); return;
     }
-    imageRequests++; response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': imageBytes.length }); response.end(imageBytes);
+    const bytes = ticket === pdfTicket ? pdfBytes : imageBytes;
+    imageRequests++; response.writeHead(200, { 'Content-Type': ticket === pdfTicket ? 'application/pdf' : 'image/png', 'Content-Length': bytes.length }); response.end(bytes);
   });
   await new Promise(resolve => mediaServer.listen(0, '127.0.0.1', resolve));
   const mediaOrigin = 'http://127.0.0.1:' + mediaServer.address().port;
@@ -62,6 +68,10 @@ async function main() {
     const initial = await runtime.connection();
     const localImage = await fetch(runtime.origin + '/storage/products/42/' + encodeURIComponent('رنجة.png'), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
     assert.equal(localImage.status, 200); assert.deepEqual(Buffer.from(await localImage.arrayBuffer()), imageBytes);
+    const privateFile = await php(bootstrap + "echo json_encode(['bytes'=>base64_encode(\\Illuminate\\Support\\Facades\\Storage::disk('local')->get($input['path']))]);", { path: pdfPath });
+    assert.deepEqual(Buffer.from(privateFile.bytes, 'base64'), pdfBytes);
+    const publicPdf = await fetch(runtime.origin + '/storage/' + encodeURI(pdfPath), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
+    assert.equal(publicPdf.status, 404);
     const loginSession = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session');
     await fs.writeFile(loginSession, 'synthetic preserved session');
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
@@ -83,8 +93,9 @@ async function main() {
     snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
     let next = await coordinator().run(); assert.notEqual(next.database, initial.database);
-    assert.equal(imageRequests, 2);
+    assert.equal(imageRequests, 4);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
+    assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app', pdfPath)), pdfBytes);
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session'), 'utf8'), 'synthetic preserved session');
     const archived = await php(bootstrap + "echo json_encode(['commands'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_commands')->where('status','acknowledged')->count(),'state'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('state')]);",
       {}, { ...runtime.environment, DB_DATABASE: initial.database });
@@ -135,8 +146,12 @@ async function main() {
     await assert.rejects(runtime.start());
     assert.equal((await runtime.connection()).database, next.database);
     await fs.writeFile(activeImage, imageBytes); runtime = create(); await runtime.start();
+    const activePdf = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app', pdfPath);
+    await runtime.stop(); await fs.unlink(activePdf); runtime = create();
+    await assert.rejects(runtime.start()); assert.equal((await runtime.connection()).database, next.database);
+    await fs.writeFile(activePdf, pdfBytes); runtime = create(); await runtime.start();
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
-    console.log('PASS real Windows supervisor prepares account data and Arabic images, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
+    console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
   } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
