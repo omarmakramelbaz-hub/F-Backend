@@ -80,6 +80,35 @@ try{
         'the actual original bulk server DELETE saves its transactional result');
     $bulkForm['ids']=implode(',',$bulkIds);
     verify($http($bulk['path'],$bulkForm,$proof($bulkProof),'DELETE')[0]===200,'a reordered bulk server retry acknowledges the same operation after its rows are gone');
+    $cart=['_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
+    [$quoteStatus,$quoteBody]=$http('/admin/takeaway/quote',$cart,['Accept: application/json']);$quote=json_decode($quoteBody,true);
+    verify($quoteStatus===200&&isset($quote['quote_hash'],$quote['total']),'the original server quote prepares a real cash checkout outcome test');
+    $checkout=$cart+['idempotency_key'=>(string)Str::uuid(),'quote_hash'=>$quote['quote_hash'],'cash_received'=>$quote['total'],'payment_confirmed'=>true];
+    $checkoutAttempt=$attempt('/admin/takeaway/checkout');[$status,$checkoutProof]=$decide($checkoutAttempt);
+    verify($status===200&&$checkoutProof['status']==='ready','a reviewed original cash checkout receives a native server reservation');
+    $balance=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');
+    [$saleStatus,$saleBody]=$http($checkoutAttempt['path'],$checkout,array_merge($proof($checkoutProof),['Accept: application/json']));$sale=json_decode($saleBody,true);
+    verify($saleStatus===200&&isset($sale['receipt'])&&DB::table('takeaway_orders')->where('request_key',$checkout['idempotency_key'])->count()===1,
+        'the original server cash checkout commits its actual financial rows and reserved outcome');
+    $paidBalance=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');
+    verify($paidBalance===$balance+\App\Services\GoServices\Money::minor($quote['total'])&&$decide($checkoutAttempt,'settle')[1]['status']==='committed',
+        'a lost cash checkout response resolves the actual single drawer movement');
+    $checkoutRetry=$attempt('/admin/takeaway/checkout');[, $checkoutRetryProof]=$decide($checkoutRetry);
+    verify($http($checkoutRetry['path'],$checkout,array_merge($proof($checkoutRetryProof),['Accept: application/json']))[1]===$saleBody
+        &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
+        'a later transmission of the same checkout returns the exact saved receipt without moving cash again');
+    $crossBranch=$attempt('/admin/customers/save');[, $crossBranchProof]=$decide($crossBranch);
+    $customer=['_token'=>$serverCsrf[1],'branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'name'=>'عميل نتيجة السيرفر','phone'=>'01012345678','address'=>'المنصورة'];
+    verify($http($crossBranch['path'],$customer,array_merge($proof($crossBranchProof),['Accept: application/json']))[0]===200
+        &&DB::table('branch_customers')->where('name',$customer['name'])->count()===1,'the original branch customer controller uses the same remote outcome protection');
+    $neverCheckout=$attempt('/admin/takeaway/checkout');[, $neverCheckoutProof]=$decide($neverCheckout);$neverSale=$checkout;$neverSale['idempotency_key']=(string)Str::uuid();
+    $decide($neverCheckout,'settle');
+    verify($http($neverCheckout['path'],$neverSale,array_merge($proof($neverCheckoutProof),['Accept: application/json']))[0]===409
+        &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
+        'a cancelled delayed cash checkout cannot change the drawer after recovery');
+    $unreviewed=$attempt('/admin/employees/save');
+    verify($decide($unreviewed)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$unreviewed['id'])->exists(),
+        'unreviewed server actions cannot acquire a reservation by resembling a reviewed POST');
     $concurrent=$attempt();$decide($concurrent);$client=null;
     DB::beginTransaction();DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->lockForUpdate()->first();
     try{

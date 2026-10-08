@@ -9,6 +9,12 @@ class DashboardRemoteAttempts {
   }
   supported(details) {
     const path = new URL(details.url).pathname, method = String(details.method).toUpperCase();
+    if(method==='POST'&&(/^\/admin\/takeaway\/(?:checkout|till\/(?:movements|settings))$/.test(path)
+      || /^\/admin\/(?:dining|phone-orders)\/tickets\/(?:save|[1-9][0-9]{0,18}\/(?:action|settle))$/.test(path)
+      || /^\/admin\/dining\/(?:tables|settings)$/.test(path)
+      || /^\/admin\/phone-orders\/(?:dispatch-company|finish-batch)$/.test(path)
+      || /^\/admin\/(?:customers|delivery-companies)\/save$/.test(path)
+      || path==='/admin/branch-shifts/close'))return true;
     return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
       && (/^\/admin\/(?:categorys|products)(?:\/[1-9][0-9]{0,18})?$/.test(path)
         || (method === 'DELETE' && /^\/admin\/(?:categorys|products)DeleteAll$/.test(path)));

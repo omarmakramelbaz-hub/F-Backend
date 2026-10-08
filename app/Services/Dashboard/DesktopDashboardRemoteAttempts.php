@@ -9,17 +9,35 @@ use Illuminate\Support\Facades\{DB,Schema,Validator,Crypt};
 /** A terminal server decision prevents a delayed original request from writing after recovery. */
 class DesktopDashboardRemoteAttempts
 {
+    // Reviewed original DB-only actions. Files, external messages and unreviewed admin actions stay excluded.
+    public const CORE=[
+        'takeaway.checkout'=>'can_checkout','takeaway.movements'=>'can_manage','takeaway.settings'=>'can_manage',
+        'dining.save'=>'can_checkout','dining.action'=>'can_checkout','dining.settle'=>'can_checkout','dining.table-save'=>'can_manage_tables','dining.settings'=>'can_manage',
+        'phone-orders.save'=>'can_checkout','phone-orders.action'=>'can_checkout','phone-orders.settle'=>'can_checkout',
+        'phone-orders.dispatch-company'=>'can_checkout','phone-orders.finish-batch'=>'can_checkout',
+        'customers.save'=>'can_checkout','delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
+    ];
     public function __construct(private DesktopDashboardDevices $devices) {}
     private function values(array $values): array
     {
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
         $single=preg_match('#^/admin/(?:categorys|products)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
         $bulk=preg_match('#^/admin/(?:categorys|products)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
-        abort_unless($single||$bulk,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        $core=false;
+        if($v['method']==='POST'&&str_starts_with($v['path'],'/admin/')){
+            try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
+            catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
+        }
+        abort_unless($single||$bulk||$core,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة السيرفر يحتاج جداول تدعم المعاملات.');
+        }
+        if($core){
+            $tables=DesktopDashboardSchema::TABLES;
+            $engines=DB::select('SELECT TABLE_NAME AS name,ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME IN ('.implode(',',array_fill(0,count($tables),'?')).')',array_merge([DB::connection()->getDatabaseName()],$tables));
+            foreach($engines as $engine)abort_unless(strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد العملية المالية يحتاج جداول تدعم المعاملات.');
         }
         return $v;
     }
@@ -60,22 +78,27 @@ class DesktopDashboardRemoteAttempts
     public function handle(Request $request,callable $next)
     {
         $this->devices->ready();
-        abort_unless(DesktopDashboardLegacy::handles($request->route()?->getName())&&!count($request->allFiles()),501);
+        $name=$request->route()?->getName();$catalog=DesktopDashboardLegacy::handles($name);
+        abort_unless(($catalog||isset(self::CORE[$name??'']))&&!count($request->allFiles()),501);
         $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
-        return DB::transaction(function()use($candidate,$request,$next,$v,$capability){
+        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$name){
             $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device);
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row&&(int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
                 &&hash_equals($this->capability($row),$capability),403);
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
-            app(DesktopDashboardLegacy::class)->authorize($actor);
+            if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
+            else{
+                $this->devices->branch($device,(string)$request->input('branch'),$actor);
+                abort_unless(app(TakeawayAccess::class)->permissions($actor)[self::CORE[$name]],403);
+            }
             // Even stored replies require the original CURRENT controller permissions, before model binding.
             $router=app('router');$middleware=array_map(fn($item)=>MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$request->route()->controllerMiddleware());
             (new Pipeline(app()))->send($request)->through($middleware)->then(fn()=>true);
             abort_if($row->status==='cancelled',409,'الطلب السابق أُلغي قبل تنفيذه؛ أعد المحاولة كعملية جديدة.');
-            $operation=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
+            $operation=(string)($catalog?($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command')):$request->input('idempotency_key'));
             Validator::make(['operation_id'=>$operation],['operation_id'=>'required|uuid'])->validate();
             $values=$request->except('_token','_method','_desktop_command');
             if(str_ends_with($v['path'],'DeleteAll')){
