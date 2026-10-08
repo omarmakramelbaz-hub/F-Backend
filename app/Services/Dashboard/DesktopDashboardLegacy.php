@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pipeline\Pipeline;
 use Illuminate\Routing\MiddlewareNameResolver;
 use Illuminate\Session\{Store,ArraySessionHandler};
-use Illuminate\Support\Facades\{DB,Facade,Crypt};
+use Illuminate\Support\Facades\{DB,Facade,Validator};
 
 /** Replay reviewed original controllers, including their FormRequests and permission middleware. */
 class DesktopDashboardLegacy
@@ -15,9 +15,11 @@ class DesktopDashboardLegacy
         'categorys.store'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'POST','action'=>'store','parameter'=>'category'],
         'categorys.update'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'PUT','action'=>'update','parameter'=>'category'],
         'categorys.destroy'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'DELETE','action'=>'destroy','parameter'=>'category'],
+        'categorys.destroy-all'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
         'products.store'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'POST','action'=>'store','parameter'=>'product'],
         'products.update'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'PUT','action'=>'update','parameter'=>'product'],
         'products.destroy'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'DELETE','action'=>'destroy','parameter'=>'product'],
+        'products.destroy-all'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
     ];
     private static bool $listening=false;
     private static ?array $capture=null;
@@ -33,6 +35,10 @@ class DesktopDashboardLegacy
         $name=$request->route()->getName();$definition=self::ROUTES[$name];
         abort_if(count($request->allFiles()),501,'نقل مرفقات هذا القسم لم يُجهّز بعد.');
         $values=$request->except('_token','_method','_desktop_command');
+        if($definition['action']==='deleteAll'){
+            abort_unless(is_string($values['ids']??null)&&preg_match('/^[1-9][0-9]{0,18}(?:,[1-9][0-9]{0,18}){0,199}$/D',$values['ids']),422);
+            $values['ids']=array_map('intval',explode(',',$values['ids']));sort($values['ids']);
+        }
         $this->validateValues($definition,$values);
         $parameters=[];
         foreach($request->route()->parameters() as $key=>$value){
@@ -40,8 +46,9 @@ class DesktopDashboardLegacy
             $parameters[$key]=is_scalar($id)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$id)?(int)$id:$id;
         }
         $savedFacts=app(DesktopDashboardJournal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)auth('admin')->id(),$name);
-        $facts=$savedFacts??
-            ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null];
+        $facts=$savedFacts??($definition['action']==='deleteAll'?
+            ['catalog_rows'=>array_map(fn($id)=>['id'=>$id,'state'=>$this->state($definition,$id)],$values['ids'])]:
+            ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null]);
         return ['values'=>array_merge($values,['idempotency_key'=>$command]),'parameters'=>$parameters,'files'=>[],'facts'=>$facts];
     }
     private function state(array $definition,int $id): array
@@ -52,6 +59,10 @@ class DesktopDashboardLegacy
     }
     private function validateValues(array $definition,array $values): void
     {
+        if($definition['action']==='deleteAll'){
+            abort_if(array_diff(array_keys($values),['ids']),422,'حقول عملية الحذف غير مقبولة.');
+            Validator::make($values,['ids'=>'required|array|min:1|max:200','ids.*'=>'required|integer|min:1|distinct'])->validate();return;
+        }
         if($definition['action']==='destroy'){
             abort_if(array_diff(array_keys($values),$definition['table']==='categories'?['parent']:[]),422,'حقول عملية الحذف غير مقبولة.');return;
         }
@@ -78,9 +89,9 @@ class DesktopDashboardLegacy
             $location=$response->headers->get('Location');
             if($location){$parts=parse_url($location);$location=($parts['path']??'/').(isset($parts['query'])?'?'.$parts['query']:'');abort_unless(str_starts_with($location,'/admin/'),409);}
             $created=self::$capture[$definition['model']]??[];
-            $id=$definition['action']==='store'?($created[0]??0):(int)request()->route($definition['parameter'])->getKey();
-            abort_unless($id>0&&($definition['action']!=='store'||count($created)===1),409,'نتيجة حفظ الكتالوج غير مكتملة.');
-            $references=$definition['action']==='destroy'?[]:[$definition['entity']=>$id];
+            $id=$definition['action']==='deleteAll'?null:($definition['action']==='store'?($created[0]??0):(int)request()->route($definition['parameter'])->getKey());
+            abort_unless($definition['action']==='deleteAll'||($id>0&&($definition['action']!=='store'||count($created)===1)),409,'نتيجة حفظ الكتالوج غير مكتملة.');
+            $references=in_array($definition['action'],['destroy','deleteAll'],true)?[]:[$definition['entity']=>$id];
             foreach(self::$capture[\App\Models\ProductFeature::class]??[] as $index=>$feature)$references['catalog_feature.'.$index]=$feature;
             abort_if(strlen($response->getContent())>1024*1024,413);
             return ['http'=>['status'=>$status,'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$location],'references'=>$references];
@@ -100,15 +111,21 @@ class DesktopDashboardLegacy
         $expected='App\\Http\\Controllers\\Dashboard\\'.($definition['table']==='categories'?'CategoryController':'ProductController').'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
-        if($definition['action']!=='store'){
+        $values=$payload['values'];unset($values['idempotency_key'],$values['_token'],$values['_method'],$values['_desktop_command']);
+        $this->validateValues($definition,$values);
+        if($definition['action']==='deleteAll'){
+            $rows=$payload['facts']['catalog_rows']??[];$ids=$values['ids'];
+            abort_unless(is_array($rows)&&count($rows)===count($ids),409);
+            foreach($rows as $index=>$row)abort_unless(is_array($row)&&is_array($row['state']??null)&&($row['id']??null)===($ids[$index]??null)
+                &&app(DesktopDashboardJournal::class)->fingerprint($row['state'])===app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,$ids[$index])),409,'أحد الأصناف أو الأقسام تغيّر على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
+        }elseif($definition['action']!=='store'){
             $before=$payload['facts']['catalog_before']??null;
             abort_unless(is_array($before)&&hash_equals(app(DesktopDashboardJournal::class)->fingerprint($before),app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,(int)($payload['parameters'][$definition['parameter']]??0)))),409,'الصنف أو القسم تغيّر على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
         }
         $uri='/'.$original->uri();
         foreach($payload['parameters']??[] as $key=>$value){abort_unless(is_scalar($value)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$value),422);$uri=str_replace('{'.$key.'}',(string)$value,$uri);}
         abort_if(str_contains($uri,'{'),422);
-        $values=$payload['values'];unset($values['idempotency_key'],$values['_token'],$values['_method'],$values['_desktop_command']);
-        $this->validateValues($definition,$values);
+        if($definition['action']==='deleteAll')$values['ids']=implode(',',$values['ids']);
         $request=Request::create(url($uri),$definition['method'],$values);$request->headers->set('Accept','text/html');
         $session=new Store('desktop-replay',new ArraySessionHandler(60));$session->start();$session->put(['id_user'=>(int)$actor->id,'guard'=>'admin','lang_code'=>app()->getLocale()]);$request->setLaravelSession($session);
         $oldRequest=$app['request'];$oldSession=$app['session'];$oldStore=$app['session.store'];$guard=auth('admin');$oldUser=$guard->getUser();$oldDefault=auth()->getDefaultDriver();
@@ -139,6 +156,14 @@ class DesktopDashboardLegacy
             data_set($payload,$path,$row);
         }
         $definition=self::ROUTES[$name];$parameter=$definition['parameter'];
+        if($definition['action']==='deleteAll'){
+            foreach($payload['values']['ids']??[] as $index=>$id)if(!is_array($id))$payload['values']['ids'][$index]=$reference($definition['entity'],$id);
+            foreach($payload['facts']['catalog_rows']??[] as $index=>$row){
+                if(!is_array($row['id']))$payload['facts']['catalog_rows'][$index]['id']=$reference($definition['entity'],$row['id']);
+                foreach($map as $field=>$entity)if(isset($row['state']['row'][$field])&&!is_array($row['state']['row'][$field]))
+                    $payload['facts']['catalog_rows'][$index]['state']['row'][$field]=$reference($entity,$row['state']['row'][$field]);
+            }
+        }
         if(isset($payload['parameters'][$parameter])&&!is_array($payload['parameters'][$parameter]))$payload['parameters'][$parameter]=$reference($definition['entity'],$payload['parameters'][$parameter]);
         return $payload;
     }

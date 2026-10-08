@@ -642,10 +642,12 @@ $(document).ready(function () {
                     });
 
 
+                  @unless(config('desktop_dashboard.local'))
                   $.each(allVals, function( index, value ) {
                       $('table tr').filter("[data-row-id='" + value + "']").remove();
                       
                   });
+                  @endunless
                 //   $('tbody').html(' <tr><td colspan="4"><h4>@lang('main.no data to show')</h4><td></tr>');
                 }  
             }  

@@ -65,6 +65,50 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     }));
     await page.goto(input.origin + '/admin/categorys');
     assert.equal(await page.evaluate(() => typeof window.jQuery.fn.DataTable), 'function');
+    const bulkNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
+    if (await bulkNotice.count()) await bulkNotice.click();
+    await page.locator('.swal-overlay--show-modal').waitFor({ state: 'hidden' });
+    // Exercise the unchanged bulk-delete button while simulating a lost network reply.
+    await page.evaluate(() => {
+      const first = document.querySelector('.sub_chk');
+      if (document.querySelectorAll('.sub_chk').length === 1) {
+        const row = first.closest('tr').cloneNode(true); row.querySelector('.sub_chk').dataset.id = '999999';
+        first.closest('tbody').append(row); // UI-only second selection; the mocked endpoint performs no business writes.
+      }
+      document.querySelectorAll('.sub_chk').forEach(input => { input.closest('tr').dataset.rowId = input.dataset.id; });
+    });
+    const bulkRequests = [];
+    await page.route('**/admin/categorysDeleteAll', async route => {
+      bulkRequests.push({ command: route.request().headers()['x-fasakhansta-command'], data: route.request().postData() });
+      if (bulkRequests.length === 1) return route.abort();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: 'Fixture UI acknowledgement' }) });
+    });
+    const selected = page.locator('.sub_chk');
+    assert.ok(await selected.count() >= 2);
+    const selectedIds = await selected.evaluateAll(inputs => inputs.slice(0, 2).map(input => input.dataset.id));
+    await page.evaluate(() => {
+      window.alert = () => {}; window.confirm = () => true;
+      window.DashboardSPA = { reload: () => {} };
+      window.desktopBulkCompletions = 0;
+      jQuery(document).ajaxComplete(() => window.desktopBulkCompletions++);
+      document.querySelectorAll('.sub_chk').forEach((input, index) => { input.checked = index < 2; });
+    });
+    await page.locator('.delete_all').click();
+    await page.waitForFunction(() => window.desktopBulkCompletions === 1);
+    assert.equal(await page.locator('.sub_chk:checked').count(), 2, 'A failed response must leave the selected rows visible.');
+    await page.locator('.sub_chk:checked').evaluateAll(inputs => {
+      const first = inputs[0].dataset.id; inputs[0].dataset.id = inputs[1].dataset.id; inputs[1].dataset.id = first;
+    });
+    await page.locator('.delete_all').click();
+    await page.waitForFunction(() => window.desktopBulkCompletions === 2);
+    assert.match(bulkRequests[0].command, /^[a-f0-9-]{36}$/i);
+    assert.equal(bulkRequests[1].command, bulkRequests[0].command, 'Reordering selected IDs after a lost reply must retain the operation UUID.');
+    assert.equal(await page.locator('.sub_chk:checked').count(), 0, 'Only an acknowledged delete removes selected rows.');
+    await page.evaluate(ids => jQuery.ajax({ url: '/admin/categorysDeleteAll', type: 'DELETE', data: { ids: ids.join(',') } }), selectedIds);
+    await page.waitForFunction(() => window.desktopBulkCompletions === 3);
+    assert.notEqual(bulkRequests[2].command, bulkRequests[0].command, 'An acknowledged request releases its UUID for a later operation.');
+    await page.unroute('**/admin/categorysDeleteAll');
+    process.stdout.write('PASS original bulk-delete button retains rows and its UUID after a lost reply, including reordered selections\n');
     // UI contract only: the real native preparation/supervisor is tested separately on Windows.
     assert.equal(await page.getByRole('button', { name: 'تجهيز بدون إنترنت' }).count(), 0);
     await page.evaluate(() => {

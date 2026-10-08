@@ -12,8 +12,24 @@
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);
     };
     const scan = () => document.querySelectorAll('form').forEach(prepare);
+    const ajax = () => {
+        if (!window.jQuery || window.jQuery.fasakhanstaCatalogJournal) return;
+        window.jQuery.fasakhanstaCatalogJournal = true;
+        window.jQuery.ajaxPrefilter((options, _original, request) => {
+            const url = new URL(options.url, location.href);
+            if (url.origin !== location.origin || String(options.type).toUpperCase() !== 'DELETE'
+                || !/^\/admin\/(?:categorys|products)DeleteAll$/.test(url.pathname)) return;
+            const values = new URLSearchParams(options.data || ''), ids = (values.get('ids') || '').split(',')
+                .sort((a, b) => a.length - b.length || a.localeCompare(b)).join(',');
+            const key = 'fasakhansta.catalog.' + document.body.dataset.dashboardActor + '.' + url.pathname + '.' + ids;
+            let command = sessionStorage.getItem(key);
+            if (!command) { command = crypto.randomUUID(); sessionStorage.setItem(key, command); }
+            request.setRequestHeader('X-Fasakhansta-Command', command);
+            request.done(value => { if (value && value.success) sessionStorage.removeItem(key); });
+        });
+    };
     document.addEventListener('submit', event => prepare(event.target), true);
-    document.addEventListener('DOMContentLoaded', scan);
+    document.addEventListener('DOMContentLoaded', () => { scan(); ajax(); });
     new MutationObserver(scan).observe(document.documentElement, {childList: true, subtree: true});
-    scan();
+    scan(); ajax();
 })();

@@ -139,7 +139,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('advertisings/del/image',[AdvertisingController::class,'delete_image']);
 
         Route::resource('/categorys', CategoryController::class);
-        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll']);
+        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll'])->name('categorys.destroy-all');
         Route::get('categorys/{id}/services/prices',[CategoryController::class,'edit_services_prices'])->name('categorys.services.prices');
         Route::put('categorys/{id}/update/services/prices',[CategoryController::class,'update_services_prices'])->name('categorys.services.prices.update');
         Route::post('post-sortable',[CategoryController::class,'updateColumns']);
@@ -156,7 +156,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
         Route::resource('/products', ProductController::class);
-        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll']);
+        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll'])->name('products.destroy-all');
         Route::post('/fetch-subcategory', [ProductController::class, 'fetchSubcategory']);
         Route::post('/fetch-product', [ProductController::class, 'fetchProduct']);
         Route::post('/fetch-feature', [ProductController::class, 'fetchFeature']);
