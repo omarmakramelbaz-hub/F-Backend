@@ -44,6 +44,7 @@ foreach([
     '2026_10_06_120000_create_branch_expenses_categories.php'=>'CreateBranchExpensesCategories',
     '2026_10_06_200000_manage_expense_categories.php'=>'ManageExpenseCategories',
     '2026_10_06_140000_add_employee_wallet_phone.php'=>'AddEmployeeWalletPhone',
+    '2026_10_08_190000_add_employee_attendance_rules.php'=>'AddEmployeeAttendanceRules',
     '2026_10_08_130000_create_desktop_dashboard_journal.php'=>'CreateDesktopDashboardJournal',
 ] as $file=>$class){require $application.'/database/migrations/'.$file;(new $class)->up();}
 DB::table('users')->insert([['id'=>1,'name'=>'الأونر','account_type'=>'admin'],['id'=>10,'name'=>'كاشير','account_type'=>'vendor'],['id'=>11,'name'=>'فرع آخر','account_type'=>'vendor']]);
@@ -87,9 +88,10 @@ denied(fn()=>$journal->execute($device,$deniedExpense['idempotency_key'],10,'bra
 check(DB::table('desktop_dashboard_commands')->count()===$before && DB::table('branch_expenses')->count()===1,'rejected permissions create neither expense nor queued success');
 $employeeId=(string)Str::uuid();$employee=['branch'=>'f:100','idempotency_key'=>$employeeId,'name'=>'موظف الاختبار','phone'=>'01012345678','job_title'=>'كاشير','shift'=>'صباحي','hired_on'=>'2026-10-01','effective_month'=>'2026-10','salary'=>'5000.00','active'=>true];
 $saved=$journal->execute($device,$employeeId,1,'employees.save',['values'=>$employee],[],fn()=>app(BranchPayroll::class)->employeeSave($employee,$actor));
-$attendanceId=(string)Str::uuid();$attendance=['branch'=>'f:100','idempotency_key'=>$attendanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','status'=>'present'];
+app(BranchPayroll::class)->saveAttendanceRules(['branch'=>'f:100','morning_start'=>'10:00','morning_end'=>'18:00','morning_late'=>'0.00','morning_early'=>'0.00','evening_start'=>'20:00','evening_end'=>'04:00','evening_late'=>'0.00','evening_early'=>'0.00','absence'=>'0.00','idempotency_key'=>(string)Str::uuid()],$actor);
+$attendanceId=(string)Str::uuid();$attendance=['branch'=>'f:100','idempotency_key'=>$attendanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','status'=>'morning','action'=>'check_in'];
 $journal->execute($device,$attendanceId,1,'employees.attendance',['values'=>$attendance],[$employeeId],fn()=>app(BranchPayroll::class)->attendance($attendance,$actor));
-check(DB::table('branch_employees')->count()===1 && DB::table('branch_employee_days')->value('status')==='present','the original employee and attendance services execute locally');
+check(DB::table('branch_employees')->count()===1 && DB::table('branch_employee_days')->value('status')==='morning','the original employee and attendance services execute locally');
 $advanceId=(string)Str::uuid();$advance=['branch'=>'f:100','idempotency_key'=>$advanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','kind'=>'advance','amount'=>'50.00','reason'=>'سلفة'];
 $journal->execute($device,$advanceId,1,'employees.entry',['values'=>$advance],[$employeeId],fn()=>app(BranchPayroll::class)->entry($advance,$actor));
 check((int)DB::table('branch_employee_entries')->value('amount_cents')===5000,'the original payroll ledger records its local advance');
@@ -139,7 +141,8 @@ config(['app.key'=>'base64:'.base64_encode(random_bytes(32))]);$app->forgetInsta
 DB::table('branch_employees')->insert(['branch'=>'f:101','name'=>'موظف السيرفر','job_title'=>'كاشير','hired_on'=>'2026-10-01','active'=>true,'revision'=>1,'actor_id'=>1]);
 // Other-branch operations also consume the receipt and expense IDs that the local device used.
 $serverActor=User::withoutGlobalScopes()->findOrFail(1);
-app(BranchPayroll::class)->attendance(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','status'=>'present','idempotency_key'=>(string)Str::uuid()],$serverActor);
+foreach(['f:100','f:101'] as $ruleBranch)app(BranchPayroll::class)->saveAttendanceRules(['branch'=>$ruleBranch,'morning_start'=>'10:00','morning_end'=>'18:00','morning_late'=>'0.00','morning_early'=>'0.00','evening_start'=>'20:00','evening_end'=>'04:00','evening_late'=>'0.00','evening_early'=>'0.00','absence'=>'0.00','idempotency_key'=>(string)Str::uuid()],$serverActor);
+app(BranchPayroll::class)->attendance(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','status'=>'morning','action'=>'check_in','idempotency_key'=>(string)Str::uuid()],$serverActor);
 app(BranchPayroll::class)->entry(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','kind'=>'advance','amount'=>'10.00','reason'=>'حركة فرع آخر','idempotency_key'=>(string)Str::uuid()],$serverActor);
 DB::table('branch_employee_salaries')->insert(['branch'=>'f:101','employee_id'=>1,'effective_month'=>'2026-10','amount_cents'=>100000,'actor_id'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $otherPeriod=app(BranchPayroll::class)->statement(['branch'=>'f:101','employee_id'=>1,'month'=>'2026-10'],$serverActor)['statement'];
@@ -263,7 +266,7 @@ foreach($envelopes as $envelope){
         DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'absent','revision'=>2]);
         denied(fn()=>$reconciliation->ingest($remoteDevice,$envelope),409,'a changed server attendance row retains the offline payroll closure as a conflict');
         check(DB::table('branch_payrolls')->where('branch','f:100')->count()===0,'rejected payroll review writes neither a server closing nor a payment');
-        DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'present','revision'=>1]);
+        DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'morning','revision'=>1]);
     }
     $reply=$reconciliation->ingest($remoteDevice,$envelope);
     check($reply['committed'] && $reply['command_id']===$envelope['command_id'],'remote original service confirms '.$envelope['route_name']);

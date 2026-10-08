@@ -16,6 +16,7 @@ class DesktopDashboardCommands
             'takeaway.checkout'=>[TakeawayService::class,'checkout'],
             'customers.save'=>[BranchCustomers::class,'save'],'delivery-companies.save'=>[DeliveryCompanies::class,'save'],
             'employees.save'=>[BranchPayroll::class,'employeeSave'],'employees.attendance'=>[BranchPayroll::class,'attendance'],
+            'employees.attendance-rules'=>[BranchPayroll::class,'saveAttendanceRules'],
             'employees.entry'=>[BranchPayroll::class,'entry'],'employees.wallet'=>[BranchPayroll::class,'wallet'],
             'employees.daily-notes'=>[BranchPayroll::class,'dailyNotes'],'employees.void-entry'=>[BranchPayroll::class,'voidEntry'],
             'employees.pay'=>[BranchPayroll::class,'pay'],

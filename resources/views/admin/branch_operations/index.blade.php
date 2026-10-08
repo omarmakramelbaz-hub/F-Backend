@@ -11,6 +11,9 @@
 @elseif($boot['module']==='customers')<label>المصدر<select data-op-filter="source"><option value="all">كل المصادر</option><option value="saved">دليل العملاء</option><option value="app">عملاء التطبيق</option><option value="history">طلبات الهاتف السابقة</option></select></label>@endif
 <button data-op-refresh>تحديث</button></section>
 @if($boot['module']==='employees')<section class="op-month-tools"><label>شهر المستحقات <input type="month" data-op-filter="month" value="{{ substr($boot['today'],0,7) }}"></label><button data-op-month class="op-month-button">تصفية حساب الشهر</button><button data-op-export>تصدير كشف الشهر Excel (CSV)</button><span>اضغط على إجمالي الخصومات أو المكافآت أو السلف لعرض التفاصيل.</span></section>@endif
+@if($boot['module']==='employees' && $boot['initial']['can_manage_attendance'])
+<section class="op-month-tools"><button data-op-attendance-rules class="op-primary">مواعيد الحضور والانصراف والخصومات</button><span>إعدادات مستقلة للصباح والمساء بكل فرع · الخصم لكل نصف ساعة مكتملة · الوقت بتوقيت مصر</span></section>
+@endif
 <section class="op-cards" data-op-cards></section><div class="op-table-wrap" data-op-table></div><nav class="op-pager"><button data-op-prev>السابق</button><span data-op-pages></span><button data-op-next>التالي</button></nav>
 <dialog data-op-dialog><header><h2 data-op-title></h2><button type="button" data-op-close aria-label="إغلاق">×</button></header><div data-op-body></div></dialog>
 </main></div>

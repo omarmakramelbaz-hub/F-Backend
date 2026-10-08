@@ -14,7 +14,7 @@ class DesktopDashboardBootstrap
         'branch_stock','branch_stock_movements','branch_inventory','branch_inventory_movements','branch_stock_recipes','branch_recipe_sales',
         'branch_expenses','branch_expense_commands',
         'branch_customers','branch_delivery_companies','branch_employees','branch_operation_commands',
-        'branch_employee_salaries','branch_employee_days','branch_employee_entries','branch_payrolls',
+        'branch_attendance_rules','branch_employee_salaries','branch_employee_days','branch_employee_entries','branch_payrolls',
         'branch_shift_closings','phone_delivery_dispatches','phone_delivery_batches',
     ];
     private const CHILD_TABLES=[
