@@ -125,7 +125,7 @@ try{
 config(['database.connections.mysql.database'=>$database]);DB::purge();
 $owner=User::withoutGlobalScopes()->findOrFail(1);
 $role=\Spatie\Permission\Models\Role::create(['name'=>'Super Admin','guard_name'=>'admin']);
-foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete','feature-list','feature-create','feature-edit','feature-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
@@ -198,6 +198,7 @@ verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($own
 require __DIR__.'/catalog-delete.php';
 require __DIR__.'/areas.php';
 require __DIR__.'/faq.php';
+require __DIR__.'/features.php';
 require __DIR__.'/contacts.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;

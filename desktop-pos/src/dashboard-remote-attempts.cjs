@@ -22,8 +22,8 @@ class DashboardRemoteAttempts {
     if((['POST','DELETE'].includes(method)&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(path))
         ||(method==='DELETE'&&path==='/admin/contactsDeleteAll'))return true;
     return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-      && (/^\/admin\/(?:areas|categorys|products|question_answers)(?:\/[1-9][0-9]{0,18})?$/.test(path)
-        || (method === 'DELETE' && /^\/admin\/(?:areas|categorys|products|question_answers)DeleteAll$/.test(path)));
+      && (/^\/admin\/(?:areas|categorys|products|question_answers|features)(?:\/[1-9][0-9]{0,18})?$/.test(path)
+        || (method === 'DELETE' && /^\/admin\/(?:areas|categorys|products|question_answers|features)DeleteAll$/.test(path)));
   }
   validate(receipt, record) {
     if (receipt?.format !== 1 || receipt.id !== record.id || receipt.device_id !== record.deviceId || receipt.actor_id !== record.actorId

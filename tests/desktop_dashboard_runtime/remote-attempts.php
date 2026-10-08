@@ -135,6 +135,39 @@ try{
     verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200&&DB::table('question_answers')->whereIn('id',$faqBulkIds)->count()===0,'the original FAQ bulk DELETE commits its protected reserved outcome');
     $faqBulkForm['ids']=implode(',',$faqBulkIds);
     verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200,'a reordered original FAQ bulk retry returns the saved result after deletion');
+    $siteFeatureForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'status'=>'show','title_ar'=>'ميزة نتيجة السيرفر','title_en'=>'Remote feature title','text_ar'=>'<p>وصف نتيجة السيرفر</p>','text_en'=>'<p>Remote feature description</p>'];
+    $siteFeatureImage=$attempt('/admin/features');[, $siteFeatureImageProof]=$decide($siteFeatureImage);
+    verify($featureUpload('/admin/features',$siteFeatureForm,$proof($siteFeatureImageProof))===501
+        &&DB::table('features')->where('title_ar',$siteFeatureForm['title_ar'])->count()===0
+        &&$decide($siteFeatureImage,'settle')[1]['status']==='cancelled','a real original server feature upload is excluded before either its text row or a committed outcome exists');
+    $siteFeatureAttempt=$attempt('/admin/features');[, $siteFeatureProof]=$decide($siteFeatureAttempt);
+    verify($http('/admin/features',$siteFeatureForm,$proof($siteFeatureProof))[0]===302&&DB::table('features')->where('title_ar',$siteFeatureForm['title_ar'])->count()===1
+        &&$decide($siteFeatureAttempt,'settle')[1]['status']==='committed','the actual site feature repository commits its validated HTML fields with a reserved server outcome');
+    $siteFeatureRetry=$attempt('/admin/features');[, $siteFeatureRetryProof]=$decide($siteFeatureRetry);
+    verify($http('/admin/features',$siteFeatureForm,$proof($siteFeatureRetryProof))[0]===302&&DB::table('features')->where('title_ar',$siteFeatureForm['title_ar'])->count()===1,'another native site feature transmission replays one original creation');
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('feature-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http('/admin/features',$siteFeatureForm,$proof($siteFeatureProof))[0]===403,'a stored site feature creation response still requires its current original permission');
+    $currentRole->givePermissionTo('feature-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    $remoteSiteFeatureId=(int)DB::table('features')->where('title_ar',$siteFeatureForm['title_ar'])->value('id');
+    $siteFeatureForm['_desktop_command']=(string)Str::uuid();$siteFeatureForm['_method']='PUT';$siteFeatureForm['text_ar']='<p>وصف نتيجة السيرفر معدلة</p>';$siteFeatureForm['status']='hide';
+    $siteFeatureUpdate=$attempt('/admin/features/'.$remoteSiteFeatureId);[, $siteFeatureUpdateProof]=$decide($siteFeatureUpdate);
+    verify($http($siteFeatureUpdate['path'],$siteFeatureForm,$proof($siteFeatureUpdateProof))[0]===302&&DB::table('features')->where('id',$remoteSiteFeatureId)->value('text_ar')===$siteFeatureForm['text_ar']
+        &&$http($siteFeatureUpdate['path'],$siteFeatureForm,$proof($siteFeatureUpdateProof))[0]===302,'the actual site feature update returns its saved response while preserving the exact HTML answer');
+    $siteFeatureRemove=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];$siteFeatureDelete=$attempt('/admin/features/'.$remoteSiteFeatureId);[, $siteFeatureDeleteProof]=$decide($siteFeatureDelete);
+    verify($http($siteFeatureDelete['path'],$siteFeatureRemove,$proof($siteFeatureDeleteProof))[0]===302&&!DB::table('features')->where('id',$remoteSiteFeatureId)->exists()
+        &&$http($siteFeatureDelete['path'],$siteFeatureRemove,$proof($siteFeatureDeleteProof))[0]===302,'a lost original site feature server deletion replays before binding its removed model');
+    $siteFeatureBulkIds=[];unset($siteFeatureForm['_desktop_command'],$siteFeatureForm['_method']);
+    foreach([1,2] as $index){$siteFeatureForm['title_ar']='ميزة حذف نتيجة السيرفر '.$index;
+        verify($http('/admin/features',$siteFeatureForm)[0]===302,'the normal original site feature request validates and persists without transport metadata');
+        $siteFeatureBulkIds[]=(int)DB::table('features')->where('title_ar',$siteFeatureForm['title_ar'])->value('id');}
+    $siteFeatureBulk=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/featuresDeleteAll'];[, $siteFeatureBulkProof]=$decide($siteFeatureBulk);
+    $siteFeatureBulkForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>implode(',',array_reverse($siteFeatureBulkIds))];
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('feature-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($siteFeatureBulk['path'],$siteFeatureBulkForm,$proof($siteFeatureBulkProof),'DELETE')[0]===403&&DB::table('features')->whereIn('id',$siteFeatureBulkIds)->count()===count($siteFeatureBulkIds),'the corrected original site feature bulk route checks its actual deletion permission before changing rows');
+    $currentRole->givePermissionTo('feature-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($siteFeatureBulk['path'],$siteFeatureBulkForm,$proof($siteFeatureBulkProof),'DELETE')[0]===200&&DB::table('features')->whereIn('id',$siteFeatureBulkIds)->count()===0,'the original site feature bulk DELETE commits its protected reserved outcome');
+    $siteFeatureBulkForm['ids']=implode(',',$siteFeatureBulkIds);
+    verify($http($siteFeatureBulk['path'],$siteFeatureBulkForm,$proof($siteFeatureBulkProof),'DELETE')[0]===200,'a reordered original site feature bulk retry returns the saved result after deletion');
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

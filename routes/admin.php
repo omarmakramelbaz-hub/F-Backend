@@ -194,7 +194,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('users/{id}/go_drive_activation',[UserController::class,'go_drive_activation']);
 
         Route::resource('/features', FeatureController::class);
-        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll']);
+        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll'])->name('features.destroy-all');
         Route::resource('/blogs', BlogController::class);
         Route::delete('blogsDeleteAll', [BlogController::class,'deleteAll']);
         Route::resource('/banners', BannerController::class);

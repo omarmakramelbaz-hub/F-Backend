@@ -1,7 +1,7 @@
 <?php
 namespace App\Services\Dashboard;
 
-use App\Models\{Area,Category,Contact,Product,QuestionAnswer,User};
+use App\Models\{Area,Category,Contact,Feature,Product,QuestionAnswer,User};
 use Illuminate\Http\Request;
 use Illuminate\Pipeline\Pipeline;
 use Illuminate\Routing\MiddlewareNameResolver;
@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\{DB,Facade,Validator};
 class DesktopDashboardLegacy
 {
     public const ROUTES=[
+        'features.store'=>['model'=>Feature::class,'entity'=>'site_feature','table'=>'features','method'=>'POST','action'=>'store','parameter'=>'feature'],
+        'features.update'=>['model'=>Feature::class,'entity'=>'site_feature','table'=>'features','method'=>'PUT','action'=>'update','parameter'=>'feature'],
+        'features.destroy'=>['model'=>Feature::class,'entity'=>'site_feature','table'=>'features','method'=>'DELETE','action'=>'destroy','parameter'=>'feature'],
+        'features.destroy-all'=>['model'=>Feature::class,'entity'=>'site_feature','table'=>'features','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
         'contacts.destroy'=>['model'=>Contact::class,'entity'=>'admin_contact','table'=>'contacts','method'=>'DELETE','action'=>'destroy','parameter'=>'contact'],
         'contacts.destroy-all'=>['model'=>Contact::class,'entity'=>'admin_contact','table'=>'contacts','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
         'question_answers.store'=>['model'=>QuestionAnswer::class,'entity'=>'catalog_faq','table'=>'question_answers','method'=>'POST','action'=>'store','parameter'=>'question_answer'],
@@ -78,6 +82,7 @@ class DesktopDashboardLegacy
             abort_if(array_diff(array_keys($values),$definition['table']==='categories'?['parent']:[]),422,'حقول عملية الحذف غير مقبولة.');return;
         }
         $allowed=match($definition['table']){
+            'features'=>['added_by','title_ar','title_en','text_ar','text_en','status'],
             'areas'=>['added_by','parent_id','title_ar','title_en'],
             'question_answers'=>['added_by','question_ar','question_en','answer_ar','answer_en'],
             'categories'=>['added_by','parent_id','parent','name_ar','name_en','status','order'],
@@ -89,7 +94,7 @@ class DesktopDashboardLegacy
     {
         $definition=self::ROUTES[$name];
         if(!self::$listening){
-            foreach([Area::class,Category::class,Product::class,QuestionAnswer::class,\App\Models\ProductFeature::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
+            foreach([Area::class,Category::class,Feature::class,Product::class,QuestionAnswer::class,\App\Models\ProductFeature::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
                 if(self::$capture!==null)self::$capture[get_class($row)][]=(int)$row->getKey();
             });
             self::$listening=true;
@@ -124,7 +129,7 @@ class DesktopDashboardLegacy
     {
         $this->authorize($actor);$definition=self::ROUTES[$name];$app=app();$router=$app['router'];
         $original=$router->getRoutes()->getByName($name);abort_unless($original,409);
-        $controller=match($definition['table']){'areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
+        $controller=match($definition['table']){'features'=>'FeatureController','areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
         $expected='App\\Http\\Controllers\\Dashboard\\'.$controller.'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
@@ -150,6 +155,7 @@ class DesktopDashboardLegacy
             $parent=$payload['facts']['catalog_before']['row']['parent_id']??null;
             $request->headers->set('Referer',url('/admin/areas').($parent?'?parent='.(int)$parent:''));
         }
+        if($definition['table']==='features'&&$definition['action']==='update')$request->headers->set('Referer',url($uri.'/edit'));
         $session=new Store('desktop-replay',new ArraySessionHandler(60));$session->start();$session->put(['id_user'=>(int)$actor->id,'guard'=>'admin','lang_code'=>app()->getLocale()]);$request->setLaravelSession($session);
         $oldRequest=$app['request'];$oldSession=$app['session'];$oldStore=$app['session.store'];$guard=auth('admin');$oldUser=$guard->getUser();$oldDefault=auth()->getDefaultDriver();
         try{
@@ -175,7 +181,7 @@ class DesktopDashboardLegacy
     {
         $definition=self::ROUTES[$name];
         $map=match($definition['table']){
-            'areas'=>['parent_id'=>'catalog_area'],'question_answers','contacts'=>[],
+            'areas'=>['parent_id'=>'catalog_area'],'question_answers','contacts','features'=>[],
             default=>['category_id'=>'catalog_category','subcategory_id'=>'catalog_category','parent_id'=>'catalog_category','product_id'=>'catalog_product'],
         };
         foreach(['values','facts.catalog_before.row'] as $path){$row=data_get($payload,$path);if(!is_array($row))continue;
