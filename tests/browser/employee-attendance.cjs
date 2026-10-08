@@ -10,19 +10,20 @@ const data={success:true,can_manage_attendance:true,attendance_rules:{'f:100':{m
   branches:[{value:'f:100',name:'فرع المنصورة'}],options:{job_title:['كاشير'],shift:['صباحي']},filters:{branch:'f:100',day:'2026-10-08',month:'2026-10'},pagination:{page:1,last_page:1,total:1},
   summary:{employees:1,present:0,absent:0,leave:0,deduction:'0.00',bonus:'0.00',advance:'0.00'},
   items:[{id:1,branch:'f:100',name:'موظف الاختبار',job_title:'كاشير',shift:'صباحي',revision:1,active:true,attendance:null,day_closed:false,
-    daily:{deduction:{count:0,amount:'0.00'},bonus:{count:0,amount:'0.00'},advance:{count:0,amount:'0.00'}},statement:{net:'3100.00',salary:'3100.00',status:'draft',month:'2026-10'}}]};
+    daily:{deduction:{count:0,amount:'0.00'},bonus:{count:0,amount:'0.00'},advance:{count:0,amount:'0.00'}},statement:{net:'800.00',earned_salary:'800.00',salary:'3100.00',status:'draft',month:'2026-10',eligible_days:8,month_days:31,accrued_from:'2026-10-01',accrued_through:'2026-10-08'}}]};
 const urls=Object.fromEntries(['data','save','attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','recover','orders'].map(k=>[k,'http://attendance.test/'+k]));
 function html(owner=true){const boot={module:'employees',branches:data.branches,selected_branch:'f:100',initial:data,today:'2026-10-08',actor_id:owner?1:10,urls};return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="csrf-token" content="test"><style>${fs.readFileSync(path.join(source,'public/dashboard/css/branch-operations.css'),'utf8')}</style></head><body><div class="content-wrapper"><main id="branch-operations" class="op-workspace op-employees"><header class="op-header"><div><small>إدارة الفروع</small><h1>متابعة الموظفين اليومية</h1><p>الحضور والخصومات والمكافآت والسلف لكل موظف، في اليوم المحدد.</p></div><div class="op-header-actions"><button data-op-add class="op-primary">إضافة موظف</button>${owner?'<button data-op-attendance-rules class="op-primary">مواعيد الحضور والانصراف والخصومات</button>':''}</div></header><div data-op-message class="op-message" hidden></div><button data-op-retry hidden></button><section class="op-filters"><label>الفرع<select data-op-filter="branch"><option value="f:100">فرع المنصورة</option></select></label><label>بحث<input data-op-filter="search"></label><label>الوردية<select data-op-filter="shift"></select></label><label>الوظيفة<select data-op-filter="job_title"></select></label><label>اليوم<input data-op-filter="day" type="date" value="2026-10-08"></label><button data-op-refresh>تحديث</button></section><section class="op-month-tools"><input data-op-filter="month" type="month" value="2026-10"><button data-op-month>تصفية حساب الشهر</button><button data-op-export>تصدير</button></section><section data-op-cards class="op-cards"></section><div data-op-table></div><nav class="op-pager"><button data-op-prev>السابق</button><span data-op-pages></span><button data-op-next>التالي</button></nav><dialog data-op-dialog><header><h2 data-op-title></h2><button data-op-close>×</button></header><div data-op-body></div></dialog></main></div><script id="branch-operations-bootstrap" type="application/json">${JSON.stringify(boot)}</script></body></html>`;}
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--no-sandbox'],executablePath:process.env.ATTENDANCE_BROWSER_EXECUTABLE||undefined});
  const page=await browser.newPage({viewport:{width:1440,height:950}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let rejectAttendance=false,uncertainAttendance=false,recovered=null;
- function updateTotals(amount){data.items[0].daily.deduction={count:amount==='0.00'?0:1,amount};data.summary.deduction=amount;data.items[0].statement.net=(3100-Number(amount)).toFixed(2);}
+ function updateTotals(amount){data.items[0].daily.deduction={count:amount==='0.00'?0:1,amount};data.summary.deduction=amount;data.items[0].statement.net=(800-Number(amount)).toFixed(2);}
  await page.route('http://attendance.test/**',async route=>{
   const request=route.request(),endpoint=new URL(request.url()).pathname.slice(1);
   if(endpoint==='')return route.fulfill({contentType:'text/html',body:html()});
   if(request.method()==='GET'){
    if(endpoint==='recover')return route.fulfill({json:recovered||{success:true,found:false}});
+   if(endpoint==='statement')return route.fulfill({json:{success:true,statement:{...data.items[0].statement,employee:data.items[0],bonus:'0.00',deduction:data.items[0].daily.deduction.amount,advance:'0.00',entries:[],attendance:data.items[0].attendance?[data.items[0].attendance]:[]}}});
    return route.fulfill({json:data});
   }
   const v=request.postDataJSON();posts.push({endpoint,v});let result={success:true};
@@ -63,6 +64,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
 
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
+  assert.ok((await page.locator('[data-op-net]').textContent()).includes('8 يوم'));assert.ok((await page.locator('[data-op-net]').getAttribute('title')).includes('2026-10-01 حتى 2026-10-08'));
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.deepEqual(await departure().locator('option').allTextContents(),['تسجيل الانصراف','انصراف صباحًا','انصراف مساءً']);
   assert.ok(await departure().isDisabled());assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
@@ -77,7 +79,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await enhanceAttendance();await refreshed(()=>choose(departure(),'morning'));await waitRecorded('[data-op-checkout]','17:00');
   assert.equal(posts.filter(p=>p.endpoint==='attendance').length,3);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts.at(-1).v.action,'check_out');assert.equal(posts.at(-1).v.expected_revision,2);assert.ok(!('check_out' in posts.at(-1).v));
   assert.ok(await departure().isDisabled());assert.equal(await selected(arrival()),'12:35');
-  await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('3040.00'));
+  await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('740.00'));
   await page.locator('[data-op-auto-notes]').fill('ملاحظة محفوظة لليوم');await refreshed(()=>page.locator('[data-op-auto-notes]').press('Tab'),1);
   await refreshed(()=>choose(arrival(),'unauthorized_absence'));await waitRecorded('[data-op-attendance]','غياب بدون إذن');
   assert.equal(posts.at(-1).v.action,'set_status');assert.equal(posts.at(-1).v.notes,'ملاحظة محفوظة لليوم');assert.equal(await selected(departure()),'تسجيل الانصراف');assert.ok(await departure().isDisabled());
@@ -117,6 +119,8 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
    const add=await page.locator('[data-op-add]').boundingBox(),settings=await page.locator('[data-op-attendance-rules]').boundingBox();assert.ok(Math.abs(add.y-settings.y)<2,'Header actions must share a row');
    if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT+'.six-'+size.width+'.png',fullPage:true});
   }
-  assert.deepEqual(errors,[]);console.log('Browser checks passed: real AdminLTE/Select2 dropdown clicks and native controls, Cairo clock requests, automatic totals, repeated punches, rejected saves, safe retry, closed months, owner configuration, mobile recording and six visible employee rows at three desktop sizes.');
+  await page.locator('[data-op-net]').first().click();await page.waitForFunction(()=>document.querySelector('.op-statement'));
+  assert.ok((await page.locator('.op-statement').textContent()).includes('800.00'));assert.ok((await page.locator('.op-statement').textContent()).includes('8 / 31 يوم'));assert.ok((await page.locator('.op-statement').textContent()).includes('من 2026-10-01 حتى 2026-10-08'));
+  assert.deepEqual(errors,[]);console.log('Browser checks passed: real AdminLTE/Select2 dropdown clicks and native controls, Cairo clock requests, automatic totals, repeated punches, rejected saves, safe retry, closed months, owner configuration, mobile recording, accrued salary days/dates and six visible employee rows at three desktop sizes.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

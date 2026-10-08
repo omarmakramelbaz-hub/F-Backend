@@ -13,7 +13,7 @@ git fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/hea
 test "$(git rev-parse FETCH_HEAD)" = "$release" || { echo 'Release changed; review its new SHA.'; exit 1; }
 previous="$(git rev-parse HEAD)"
 git merge-base --is-ancestor "$previous" "$release" || { echo 'Server version diverged; no code changed. Reconcile this release with the server branch first.'; exit 1; }
-test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = 3d408369688b488c3b20497f2999c1b87032bdf8 || test "$previous" = 0e4135e671be7cc02eec9453d96ee0af4ca79ecb || test "$previous" = 40a5558aca7462998d7986fb3fb45f1f5a722349 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
+test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = 3d408369688b488c3b20497f2999c1b87032bdf8 || test "$previous" = 0e4135e671be7cc02eec9453d96ee0af4ca79ecb || test "$previous" = 40a5558aca7462998d7986fb3fb45f1f5a722349 || test "$previous" = 89a256375646d9079a0518e02d6d090bb0fde4f5 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
 while IFS= read -r -d '' file; do
     test ! -L "$file" || { echo "Source symlink requires review: $file"; exit 1; }
     if test -e "$file"; then
