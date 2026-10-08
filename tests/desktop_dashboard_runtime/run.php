@@ -171,6 +171,8 @@ require dirname(__DIR__,2).'/deployment/desktop_dashboard_inspect.php';
 $inspection=FasakhanstaDesktopSchemaInspection::report($app);$encoded=json_encode($inspection,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
 check(isset($inspection['tables']['users'],$inspection['tables']['desktop_dashboard_commands']) && count($inspection['routes'])>=565,'read-only inspection describes actual schema, indexes and routes');
 check(!str_contains($encoded,$enrollment['token']) && !str_contains($encoded,config('app.key')) && !str_contains($encoded,'موظف السيرفر') && !str_contains($encoded,'COLUMN_DEFAULT'),'inspection exports no tokens, keys, business rows or column defaults');
+$compact=FasakhanstaDesktopSchemaInspection::compact($inspection);
+check($compact['tables']['users']['columns']['id']==='bigint(20) unsigned auto_increment' && $compact['route_count']>=565 && !isset($compact['routes']),'compact inspection retains actual legacy column types without dumping route bodies or business data');
 // Exercise the actual loopback HTTP gateway, not a mocked controller or JavaScript substitute.
 $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=(int)substr(strrchr(stream_socket_get_name($reservation,false),':'),1);fclose($reservation);
 $origin='http://127.0.0.1:'.$httpPort;$browserToken=bin2hex(random_bytes(32));$controlToken=bin2hex(random_bytes(32));

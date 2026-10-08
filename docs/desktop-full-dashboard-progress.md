@@ -16,7 +16,7 @@ The requested product is the complete original dashboard in an installed Windows
 
 ## Validation
 
-`tests/desktop_dashboard_runtime/native-run.py` starts and deletes a disposable loopback MariaDB instance and runs the complete original Laravel application. The current fixture passes **62 checks**, including actual scoped export/import, financial rollback, ID collisions, lost responses, different application keys, permissions, revocation and protected HTTP control. It does not connect to production.
+`tests/desktop_dashboard_runtime/native-run.py` starts and deletes a disposable loopback MariaDB instance and runs the complete original Laravel application. The current fixture passes **63 checks**, including actual scoped export/import, financial rollback, ID collisions, lost responses, different application keys, permissions, revocation and protected HTTP control. It does not connect to production.
 
 Electron's embedded Node test runner passes **37 tests**, including original limited-POS regressions, reconciliation ordering, lost acknowledgement retries, shutdown, printer response contracts and local header isolation. These are Node and mocked Electron contracts, not a physical Windows installation or printer test.
 

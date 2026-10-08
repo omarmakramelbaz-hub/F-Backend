@@ -2,6 +2,18 @@
 /** Read-only schema inspection. No business rows, column defaults, passwords, or configuration values. */
 final class FasakhanstaDesktopSchemaInspection
 {
+    public static function compact(array $report): array
+    {
+        $result=array_intersect_key($report,array_flip(['format','kind','generated_at','php_version','laravel_version','database_engine','extensions']));
+        $result['route_count']=count($report['routes']);$result['tables']=[];
+        foreach($report['tables'] as $name=>$table){
+            $columns=[];
+            foreach($table['columns']??[] as $column)$columns[$column['name']]=$column['type'].($column['nullable']?' nullable':'').($column['extra']?' '.$column['extra']:'');
+            $result['tables'][$name]=['columns'=>$columns];
+            if(!empty($table['references']))$result['tables'][$name]['references']=$table['references'];
+        }
+        return $result;
+    }
     public static function report($app): array
     {
         $connection=$app['db']->connection();
@@ -35,6 +47,8 @@ if(PHP_SAPI==='cli' && realpath($_SERVER['SCRIPT_FILENAME']??'')===__FILE__){
         require $project.'/vendor/autoload.php';
         $app=require $project.'/bootstrap/app.php';$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
         set_exception_handler(function(Throwable $error){fwrite(STDERR,"Desktop schema inspection failed.\n");exit(1);});
-        echo json_encode(FasakhanstaDesktopSchemaInspection::report($app),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
+        $report=FasakhanstaDesktopSchemaInspection::report($app);
+        if(($argv[2]??'')==='--compact')$report=FasakhanstaDesktopSchemaInspection::compact($report);
+        echo json_encode($report,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
     }catch(Throwable $error){fwrite(STDERR,"Desktop schema inspection failed.\n");exit(1);}
 }
