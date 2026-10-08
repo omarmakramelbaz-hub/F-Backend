@@ -77,7 +77,8 @@ $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=
 $origin='http://127.0.0.1:'.$httpPort;$browserToken=bin2hex(random_bytes(32));
 $env=getenv();$env['DB_DATABASE']=$stage;$env['APP_URL']=$origin;$env['DESKTOP_DASHBOARD_DEVICE_ID']=$id;
 $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browserToken;$env['DESKTOP_DASHBOARD_CONTROL_TOKEN']=bin2hex(random_bytes(32));
-$web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
+$web=proc_open([PHP_BINARY,'-d','upload_max_filesize=5M','-d','post_max_size=12M','-d','memory_limit=256M',
+    '-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];
 $http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies){
     $headers=['X-Fasakhansta-Desktop: '.$browserToken,...$extraHeaders];
@@ -119,6 +120,7 @@ try{
     verify($http('/admin/categorys',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'added_by'=>10,'name_ar'=>'قسم ممنوع','name_en'=>'Forbidden','status'=>'show'])[0]===403&&DB::table('desktop_dashboard_commands')->count()===0,'a branch account cannot acquire global catalog administration offline');
     $control=DB::table('resturants')->where('id',100)->value('control');
     verify($http('/admin/resturantControl')[0]===501&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'an original legacy GET mutation is blocked by a real read-only transaction');
+    require __DIR__.'/expense-local-http.php';
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 
 // Prepare an owner account from the same complete schema, then reconcile original catalog forms.

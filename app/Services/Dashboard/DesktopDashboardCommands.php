@@ -11,6 +11,7 @@ class DesktopDashboardCommands
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
         if(DesktopDashboardLegacy::handles($route))return app(DesktopDashboardLegacy::class)->execute($route,$payload,$actor);
         $v=$payload['values']??[];$p=$payload['parameters']??[];
+        abort_unless(empty($payload['files'])||$route==='branch-expenses.save',422,'مرفقات هذا القسم لم تُجهّز للمزامنة بعد.');
         if(str_starts_with($route,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
         $simple=[
             'takeaway.checkout'=>[TakeawayService::class,'checkout'],
@@ -35,11 +36,13 @@ class DesktopDashboardCommands
         if($route==='branch-expenses.save'){
             $file=null;$temporary=null;
             try{
-                if(isset($payload['files']['attachment'])){
-                    $attachment=$payload['files']['attachment'];$bytes=base64_decode($attachment['base64']??'',true);
-                    abort_unless($bytes!==false && strlen($bytes)<=5*1024*1024 && hash_equals($attachment['sha256']??'',hash('sha256',$bytes)),422,'المرفق غير مكتمل.');
+                if(!empty($payload['files'])){
+                    [$attachment,$bytes]=app(DesktopDashboardExpenseAttachments::class)->decoded($payload['files']);
                     if(!is_dir(storage_path('private')))mkdir(storage_path('private'),0700,true);
-                    $temporary=tempnam(storage_path('private'),'desktop-attachment-');file_put_contents($temporary,$bytes);$file=new UploadedFile($temporary,basename($attachment['name']??'attachment'),null,null,true);
+                    $temporary=tempnam(storage_path('private'),'desktop-attachment-');
+                    abort_unless($temporary&&file_put_contents($temporary,$bytes)===strlen($bytes),503,'تعذّر تجهيز المرفق.');
+                    $file=new UploadedFile($temporary,$attachment['name'],null,null,true);
+                    abort_unless($file->getMimeType()===$attachment['mime'],422,'نوع المرفق مختلف عن محتواه.');
                 }
                 return app(BranchExpenses::class)->save($v,$actor,$file);
             }finally{if($temporary&&is_file($temporary))unlink($temporary);}

@@ -67,7 +67,10 @@ async function phpIniFor(bundle,manifest,profile) {
       }
     }
     const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
-    await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/') + '"\n', { mode: 0o600 });
+    // Keep the original expense form's upload limit in both active and staged runtimes.
+    // Its encrypted base64 journal also requires room beyond PHP's build-host defaults.
+    await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/')
+      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\n', { mode: 0o600 });
     return phpIni;
 }
 
