@@ -5,12 +5,13 @@ const Shutdown=require('./shutdown.cjs');
 const LocalRuntime=require('./local-runtime.cjs');
 const DashboardSync=require('./dashboard-sync.cjs');
 const {DashboardGeneration}=require('./dashboard-generation.cjs');
+const {DashboardPreparation}=require('./dashboard-preparation.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,timer,retryMs=5000,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,timer,retryMs=5000,quitting=false;
 const requests=new Set();
 const shutdown=new Shutdown(app,()=>{quitting=true;clearTimeout(timer);sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
@@ -29,8 +30,8 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
 function state() {
   const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||''};
 }
-async function dashboardRequest(command, bootstrap=false) {
-  const credential=await localRuntime.connection();
+async function dashboardRequest(command, bootstrap=false, suppliedCredential) {
+  const credential=suppliedCredential||await localRuntime.connection();
   const controller=new AbortController();requests.add(controller);
   try{
     const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/'+(bootstrap?'bootstrap':'commands'),{
@@ -42,7 +43,7 @@ async function dashboardRequest(command, bootstrap=false) {
   }finally{requests.delete(controller);}
 }
 async function dashboardMediaRequest(ticket) {
-  const credential=await localRuntime.connection(),controller=new AbortController();requests.add(controller);
+  const credential=await preparation.credential(),controller=new AbortController();requests.add(controller);
   try{
     const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/media?ticket='+encodeURIComponent(ticket),{
       method:'GET',headers:{Accept:'image/*',Authorization:'Bearer '+credential.token},redirect:'error',
@@ -58,6 +59,29 @@ async function dashboardMediaRequest(ticket) {
     });
     return new Response(stream,{status:response.status,headers:response.headers});
   }catch(error){requests.delete(controller);throw error;}
+}
+async function dashboardEnrollment(serverOrigin, input, csrf) {
+  if(!dashboard?.session())throw Error('افتح حسابك على الداشبورد أولًا.');
+  const controller=new AbortController();requests.add(controller);
+  try {
+    const response=await dashboard.session().fetch(origin(serverOrigin)+'/admin/desktop-dashboard/enroll',{
+      method:'POST',credentials:'include',headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf},
+      body:JSON.stringify(input),redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25000)])});
+    const data=await response.json();
+    if(!response.ok){const error=Error(data.message||'تعذر ربط الجهاز بحساب الداشبورد.');error.status=response.status;throw error;}
+    return data;
+  } finally {requests.delete(controller);}
+}
+async function dashboardState() {
+  if(!preparation)return {available:false};
+  return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',...(localSync?.state||{})};
+}
+function connectDashboardSync() {
+  if(localSync)return;
+  generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),
+    transition:work=>dashboard.current().local?dashboard.refresh(work):work()});
+  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,refresh:()=>generations.run(),
+    onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
 }
 function notify() {if(!quitting&&win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
 function localOrders(message='') {if(!quitting&&win&&!win.isDestroyed()){win.show();if(win.isMinimized())win.restore();win.focus();if(message)win.webContents.send('pos:notice',message);}}
@@ -121,16 +145,18 @@ app.whenReady().then(async()=>{
   const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
     localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+    preparation=new DashboardPreparation({runtime:localRuntime,enroll:dashboardEnrollment,download:value=>dashboardRequest(null,true,value),
+      onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},onPrepared:async()=>{connectDashboardSync();}});
     if(await localRuntime.isPrepared()) {
       const local=await shutdown.run(()=>localRuntime.start());dashboardOrigin=local.origin;localToken=local.token;
-      generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),
-        transition:work=>dashboard.refresh(work)});
-      await shutdown.run(()=>generations.recover());
-      localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,refresh:()=>generations.run()});
     }
   }
   if(quitting)return;
-  dashboard=createDashboard({origin:dashboardOrigin,localToken,accepted:fn=>shutdown.run(fn),offline:localOrders,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
+  dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
+    prepare:preparation?(serverOrigin,csrf)=>preparation.prepare(serverOrigin,csrf):undefined,status:dashboardState,
+    synchronize:async()=>{if(localSync)await localSync.run();return dashboardState();},
+    accepted:fn=>shutdown.run(fn),offline:localOrders,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
+  if(localToken){connectDashboardSync();await shutdown.run(()=>generations.recover());}
   tick();await dashboard.open();
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج فسخانستا',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

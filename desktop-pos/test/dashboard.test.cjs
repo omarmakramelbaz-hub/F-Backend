@@ -9,7 +9,7 @@ function fixture(t, options = {}){
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
-      contents.stop=()=>{contents.stopped=true;};
+      contents.stop=()=>{contents.stopped=true;};contents.send=(name,value)=>{contents.lastMessage={name,value};};
       contents.getURL=()=>this.url;contents.getPrintersAsync=async()=>[{name:'BranchPrinter'}];
       contents.executeJavaScript=async()=>true;contents.print=(options,callback)=>{this.printOptions=options;callback?.(true);};windows.push(this);}
     maximize(){} async loadURL(url){this.url=url;if(this.failure)throw Error(this.failure);} show(){this.visible=true;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
@@ -58,11 +58,35 @@ test('native printing rejects foreign pages, unowned frames and non-receipts bef
   f.html('<html><head></head><body>login</body></html>');assert.equal((await handler(event,policy.DEFAULT_ORIGIN+'/admin/login')).ok,false);
   assert.equal(f.windows.length,1);
 });
-test('remote dashboard exposes only native receipt printing and never the offline store or device token',()=>{
+test('remote dashboard exposes bounded preparation, status and receipt actions without the offline store or device token',()=>{
   let api,name;vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard-preload.cjs'),'utf8'),{require:()=>({contextBridge:{exposeInMainWorld:(n,a)=>{name=n;api=a;}},ipcRenderer:{invoke:async()=>({ok:true,value:true})}})});
-  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt']);
+  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','status','prepare','synchronize','onState']);
   assert.ok(policy.sameOrigin('https://fasakhaninja.com/admin/customers'));assert.equal(policy.sameOrigin('https://fasakhaninja.com.evil.test/admin'),false);
   assert.equal(policy.sameOrigin('https://user:password@fasakhaninja.com/admin'),false);assert.equal(policy.externalURL('file:///x'),false);
+});
+
+test('preparation and status reject foreign frames and use only the original signed-in dashboard origin',async t=>{
+  let accepted;const f=fixture(t,{prepare:async(origin,csrf)=>{accepted={origin,csrf};return {prepared:true};},status:async()=>({available:true,prepared:false})});
+  await f.dashboard.open();const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}};
+  assert.equal((await f.handlers.get('dashboard:status')(event)).value.available,true);
+  assert.equal((await f.handlers.get('dashboard:prepare')({...event,senderFrame:{url:'https://foreign.test/admin/dashboard'}},{csrf:'token'})).ok,false);
+  assert.equal((await f.handlers.get('dashboard:prepare')(event,{csrf:'token',origin:'https://foreign.test'})).ok,true);
+  assert.deepEqual(accepted,{origin:policy.DEFAULT_ORIGIN,csrf:'token'});
+  f.dashboard.publish({pending:2});assert.equal(sender.lastMessage.name,'dashboard:state');
+});
+
+test('switching between original remote and local pages keeps one window and prevents stale forms or local header forwarding',async t=>{
+  const local='http://127.0.0.1:45123',f=fixture(t);await f.dashboard.open();const window=f.windows[0];
+  await f.dashboard.switchTo({origin:local,localToken:'private'});
+  assert.equal(window.url,local+'/admin/dashboard');
+  await f.dashboard.switchTo({origin:policy.DEFAULT_ORIGIN,localToken:''},async()=>{
+    let decision;f.session.webRequest.headers({url:local+'/admin/save',webContentsId:window.webContents.id,requestHeaders:{}},value=>{decision=value;});
+    assert.equal(decision.cancel,true);
+  });
+  assert.equal(window.url,policy.DEFAULT_ORIGIN+'/admin/dashboard');assert.equal(f.windows.length,1);
+  let decision;f.session.webRequest.headers({url:policy.DEFAULT_ORIGIN+'/admin/dashboard',webContentsId:window.webContents.id,requestHeaders:{'X-Fasakhansta-Desktop':'private'}},value=>{decision=value;});
+  assert.deepEqual(Object.keys(decision.requestHeaders),[]);
+  await assert.rejects(f.dashboard.switchTo({origin:'https://foreign.test',localToken:''}));
 });
 test('quitting blocks late dashboard navigation and printing before local printer settings are accessed',async t=>{
   const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;

@@ -4,11 +4,30 @@ const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const policy = require('./dashboard-policy.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
-module.exports = function dashboard({ origin, offline, offlineWindow, quitting, quit, printer, localToken = '', accepted = fn => fn() }) {
-  const home = origin + '/admin/dashboard';
+module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
+  prepare, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  let home = origin + '/admin/dashboard';
+  if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false;
   const owned = new Set();
   const children = new Set();
+  function trusted(event) {
+    return !quitting() && !refreshing && window && event.sender.id === window.webContents.id
+      && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
+  }
+  for (const [name, work] of Object.entries({
+    status: () => status(),
+    prepare: value => {
+      if (!prepare || localToken || !origin.startsWith('https://')) throw Error('تجهيز الجهاز يحتاج حساب السيرفر المتصل.');
+      return prepare(origin, typeof value?.csrf === 'string' ? value.csrf : '');
+    },
+    synchronize: () => synchronize()
+  })) ipcMain.handle('dashboard:' + name, async (event, value) => {
+    try {
+      if (!trusted(event)) throw Error('مصدر الداشبورد غير مسموح.');
+      return { ok: true, value: await accepted(() => work(value)) };
+    } catch (error) { return { ok: false, error: error.message }; }
+  });
   ipcMain.handle('dashboard:print-receipt', async (event, value) => { try { return await accepted(async () => {
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
@@ -59,17 +78,16 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
         window.maximize();
         const contents = window.webContents;
         owned.add(contents.id);
-        if (localToken) {
-          contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+        contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
             for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control)$/i.test(name)) delete headers[name];
             if (!policy.sameOrigin(details.url, origin)) { callback({ requestHeaders: headers }); return; }
+            if (!localToken) { callback(refreshing || quitting() ? { cancel: true } : { requestHeaders: headers }); return; }
             const native = (details.webContentsId == null || details.webContentsId <= 0) && supplied === localToken;
             if (quitting() || refreshing || (!owned.has(details.webContentsId) && !native)) { callback({ cancel: true }); return; }
             callback({ requestHeaders: { ...headers, 'X-Fasakhansta-Desktop': localToken } });
-          });
-        }
+        });
         contents.on('will-navigate', navigate);
         contents.on('will-redirect', navigate);
         contents.setWindowOpenHandler(({ url }) => {
@@ -104,8 +122,9 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
           }
         });
         // Fetch failures during SPA navigation do not trigger did-fail-load.
-        contents.session.webRequest.onErrorOccurred({ urls: [origin + '/*'] }, details => {
-          if (!localToken && policy.networkFailure(details.error)) offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+        contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
+          if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
+            offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
         });
         const grants = new Set(['notifications']);
         contents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
@@ -149,6 +168,12 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
+      ...(prepare ? [{ label: 'تجهيز للعمل بدون إنترنت', click: () => {
+        if (!window || localToken || quitting()) return;
+        window.webContents.executeJavaScript('document.querySelector(\'meta[name="csrf-token"]\')?.content || ""')
+          .then(csrf => accepted(() => prepare(origin, csrf)))
+          .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message }));
+      } }] : []),
       { label: 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => offline('') },
       { label: 'اختيار الطابعة', click: () => {
         offline('');
@@ -165,12 +190,25 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
   ]));
   async function refresh(work) {
     if (!localToken || refreshing || quitting()) throw Error('تعذر تحديث الداشبورد الحالية.');
+    return switchTo({ origin, localToken }, work);
+  }
+  async function switchTo(target, work = async () => {}) {
+    if (refreshing || quitting()) throw Error('الداشبورد تنتقل بين نسختي الجهاز والسيرفر.');
+    const destination = new URL(target.origin);
+    const local = destination.protocol === 'http:' && destination.hostname === '127.0.0.1' && destination.port && target.localToken;
+    const remote = destination.protocol === 'https:' && target.origin === serverOrigin && !target.localToken;
+    if ((!local && !remote) || destination.username || destination.password || destination.origin !== target.origin)
+      throw Error('وجهة الداشبورد غير مسموحة.');
     // Do not let an old form or child tab post into a newly activated generation.
     refreshing = true;
     window?.webContents.stop();
     for (const child of children) { owned.delete(child.webContents.id); child.destroy(); }
     children.clear();
-    try { return await work(); }
+    try {
+      const result = await work();
+      origin = target.origin; localToken = target.localToken || ''; home = origin + '/admin/dashboard';
+      return result;
+    }
     finally {
       // Navigate to a read page, never reload a previously submitted POST.
       if (window && !window.isDestroyed() && !quitting()) await window.loadURL('about:blank').catch(() => {});
@@ -178,5 +216,10 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
       if (window && !window.isDestroyed() && !quitting()) await open(home);
     }
   }
-  return { open, refresh, reveal, isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
+  function publish(value) {
+    if (window && !window.isDestroyed() && !quitting() && policy.sameOrigin(window.webContents.getURL(), origin))
+      window.webContents.send('dashboard:state', value);
+  }
+  return { open, refresh, switchTo, publish, reveal, session: () => window?.webContents.session,
+    current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };

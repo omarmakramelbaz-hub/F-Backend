@@ -11,6 +11,7 @@
     <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}" />
     <script src="{{ asset('dashboard/js/dashboard-spa.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-spa.js')) }}"></script>
+    <script src="{{ asset('dashboard/js/desktop-client.js') }}?v={{ filemtime(public_path('dashboard/js/desktop-client.js')) }}" defer></script>
     @if(config('desktop_dashboard.local'))
     <script src="{{ asset('dashboard/js/desktop-dashboard.js') }}" defer></script>
     @endif
