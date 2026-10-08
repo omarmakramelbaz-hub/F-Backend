@@ -7,7 +7,8 @@ cd "$(git rev-parse --show-toplevel)"
 test -f artisan
 test -f vendor/autoload.php
 test -f .env
-test -z "$(git status --porcelain --untracked-files=no)" || { echo 'Save local tracked changes before applying this update.'; exit 1; }
+source_status="$(git status --porcelain --untracked-files=no)"
+test -z "$source_status" || { echo 'Save local tracked changes before applying this update.'; exit 1; }
 git fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/heads/codex/employee-attendance-live-20261008
 test "$(git rev-parse FETCH_HEAD)" = "$release" || { echo 'Release changed; review its new SHA.'; exit 1; }
 previous="$(git rev-parse HEAD)"
@@ -24,7 +25,7 @@ while IFS= read -r -d '' file; do
     test -d "$parent" && test -w "$parent" || { echo "Source directory is not writable: $parent"; exit 1; }
 done < <(git diff --name-only -z "$previous" "$release")
 php artisan tinker --execute='foreach (["branch_employees", "branch_employee_days", "branch_employee_entries", "branch_employee_salaries", "branch_payrolls", "branch_operation_commands"] as $table) { if (!\Illuminate\Support\Facades\Schema::hasTable($table)) { throw new \RuntimeException("Existing payroll schema missing: ".$table); } }'
-backup="backup/before-attendance-$(date -u +%Y%m%dT%H%M%SZ)-${previous:0:8}"
+backup="backup/before-attendance-$(date -u +%Y%m%dT%H%M%S%NZ)-${previous:0:8}"
 git branch "$backup" "$previous"
 echo "Saved code checkpoint: $backup ($previous)"
 # Apply the additive migration while the original employee page is still deployed.

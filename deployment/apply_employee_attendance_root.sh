@@ -14,7 +14,8 @@ runuser -u "$owner" -- git -C "$project" fetch --no-tags --no-prune --no-recurse
 test "$(runuser -u "$owner" -- git -C "$project" rev-parse FETCH_HEAD)" = "$release"
 previous="$(runuser -u "$owner" -- git -C "$project" rev-parse HEAD)"
 test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no source changed.'; exit 1; }
-test -z "$(runuser -u "$owner" -- git -C "$project" status --porcelain --untracked-files=no)" || { echo 'Save local tracked changes first.'; exit 1; }
+source_status="$(runuser -u "$owner" -- git -C "$project" status --porcelain --untracked-files=no)"
+test -z "$source_status" || { echo 'Save local tracked changes first.'; exit 1; }
 # Validate all reviewed source paths before repairing ownership of source files only.
 paths=()
 while IFS= read -r -d '' relative; do
