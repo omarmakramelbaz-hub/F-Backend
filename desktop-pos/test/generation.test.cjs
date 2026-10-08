@@ -63,14 +63,21 @@ test('verified generations commit an encrypted pointer while retaining the old c
   assert.ok(!(await fs.readFile(path.join(f.profile, 'prepared.enc'))).includes(Buffer.from(f.previous.token)));
 });
 
-test('incomplete dashboard/media, another account and changed schemas cannot create or activate a generation', async t => {
+test('incomplete dashboard/media, another account and malformed schemas cannot create or activate a generation', async t => {
   const f = await fixture(t);
   for (const change of [{ coverage: { full_dashboard: false, media: false } }, { actor_id: 11 },
-    { schema_hash: 'd'.repeat(64) }, { media: [{ path: 'logo.png' }] }]) {
+    { schema_hash: 'invalid' }, { media: [{ path: 'logo.png' }] }]) {
     await assert.rejects(f.create({ download: async () => ({ ...f.snapshot, ...change }) }).run());
     assert.deepEqual(await f.metadata.read('prepared'), f.previous); assert.equal(f.held(), null);
   }
   assert.equal(f.calls.includes('stage'), false); assert.equal(f.dbs.size, 1);
+});
+test('a verified changed schema gets a new generation while its previous schema and journal stay fenced and archived',async t=>{
+  const f=await fixture(t),changed={...f.snapshot,schema_hash:'d'.repeat(64)};
+  const next=await f.create({download:async()=>changed}).run();
+  assert.equal(next.schemaHash,changed.schema_hash);assert.deepEqual(f.dbs.get('fasakhansta_dashboard'),f.oldLedger);
+  const archived=await f.metadata.read('generations/'+next.refreshId);
+  assert.equal(archived.previous.schemaHash,f.previous.schemaHash);assert.equal(archived.fence.schema_hash,f.previous.schemaHash);
 });
 
 test('retained conflicts block refresh before downloading; no empty outbox shortcut can erase them', async t => {

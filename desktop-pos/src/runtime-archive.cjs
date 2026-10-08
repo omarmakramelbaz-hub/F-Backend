@@ -8,6 +8,13 @@ const revision = value => /^[a-f0-9]{40}$/.test(value || '');
 /** Retain the exact application and native binaries required by an existing local journal. */
 class RuntimeArchive {
   constructor(profile, metadata) { this.root = path.join(profile, 'runtimes'); this.metadata = metadata; }
+  static databaseCompatible(current, candidate) {
+    const entries = receipt => Object.entries(receipt?.files || {}).filter(([name]) => name.startsWith('mariadb/')).sort(([a],[b])=>a.localeCompare(b));
+    const oldFiles=entries(current),newFiles=entries(candidate);
+    for(const name of ['mariadb/bin/mariadbd.exe','mariadb/bin/mariadb-install-db.exe'])
+      if(!oldFiles.some(([key,value])=>key===name&&/^[a-f0-9]{64}$/.test(value)))throw Error('نسخة قاعدة البيانات الحالية لم تتأكد؛ بيانات الجهاز محفوظة.');
+    if(JSON.stringify(oldFiles)!==JSON.stringify(newFiles))throw Error('ترقية ملفات قاعدة البيانات تحتاج تجهيزًا منفصلًا؛ النسخة الحالية وسجلاتها محفوظة.');
+  }
   async inventory(directory) {
     const files = {}, cases = new Set(), pending = new Set(); let total = 0, count = 0, failure;
     const inspect = async name => {

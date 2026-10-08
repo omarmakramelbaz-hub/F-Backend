@@ -173,6 +173,45 @@ async function main() {
     await assert.rejects(runtime.start()); assert.equal((await runtime.connection()).database, next.database);
     await fs.writeFile(activePdf, pdfBytes); runtime = create(); await runtime.start();
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
+    const beforeUpgrade=await runtime.connection(),beforeApplication=runtime.application;
+    const newInstall=path.join(profile,'synthetic-code-upgrade');await fs.cp(bundle,newInstall,{recursive:true});
+    const marker='app/Services/Dashboard/DesktopUpgradeFixture.php',markerBytes=Buffer.from('<?php\nnamespace App\\Services\\Dashboard;\nclass DesktopUpgradeFixture { public const VERSION=2; }\n');
+    await fs.writeFile(path.join(newInstall,'application',marker),markerBytes);
+    const newManifest={...installedManifest,sourceRevision:'b'.repeat(40),sourceHashes:{...installedManifest.sourceHashes,
+      [marker]:crypto.createHash('sha256').update(markerBytes).digest('hex')},sourceFingerprint:await sourceCode.fingerprint(path.join(newInstall,'application'))};
+    await fs.writeFile(path.join(newInstall,'manifest.json'),JSON.stringify(newManifest));
+    await runtime.stop();runtime=create(newInstall);await runtime.start();
+    assert.equal(runtime.application,beforeApplication);assert.equal(runtime.manifest.sourceRevision,beforeUpgrade.sourceRevision);
+    snapshot.snapshot_id=crypto.randomUUID();snapshot.source=newManifest.sourceFingerprint;
+    const changedTable=snapshot.tables.branch_customers;
+    assert.match(changedTable.ddl,/^CREATE TABLE `branch_customers` \(/);
+    changedTable.ddl=changedTable.ddl.replace(/^CREATE TABLE `branch_customers` \(/,'$&\n  `desktop_upgrade_fixture` varchar(40) DEFAULT NULL,');
+    changedTable.rows=changedTable.rows.map(row=>({...row,desktop_upgrade_fixture:null}));
+    changedTable.sha256=crypto.createHash('sha256').update(JSON.stringify(changedTable.rows)).digest('hex');
+    const changedSchema=Object.fromEntries(Object.keys(snapshot.tables).sort().map(name=>[name,crypto.createHash('sha256').update(snapshot.tables[name].ddl).digest('hex')]));
+    snapshot.schema_hash=crypto.createHash('sha256').update(JSON.stringify(changedSchema)).digest('hex');
+    const write=runtime.metadata.write.bind(runtime.metadata);
+    runtime.metadata.write=async(name,value)=>{if(name==='prepared'&&value.sourceRevision===newManifest.sourceRevision)throw Error('synthetic upgrade pointer failure');return write(name,value);};
+    await assert.rejects(coordinator().run(),/synthetic upgrade pointer failure/);runtime.metadata.write=write;
+    assert.deepEqual(await runtime.connection(),beforeUpgrade);assert.equal(runtime.application,beforeApplication);
+    assert.equal(await runtime.metadata.read('refresh'),null);assert.equal((await runtime.control({action:'pending'})).counts.pending,0);
+    const activate=runtime.activate.bind(runtime);
+    runtime.activate=async(...args)=>{await activate(...args);throw Error('synthetic lost upgrade reply');};
+    await assert.rejects(coordinator().run(),/synthetic lost upgrade reply/);runtime.activate=activate;
+    next=await runtime.connection();assert.notEqual(next.database,beforeUpgrade.database);
+    assert.equal(next.sourceRevision,newManifest.sourceRevision);assert.equal(next.schemaHash,snapshot.schema_hash);
+    assert.ok(sourceCode.same(next.sourceFingerprint,newManifest.sourceFingerprint));assert.equal(await runtime.metadata.read('refresh'),null);
+    const upgradedData=await php(bootstrap+"echo json_encode(['code'=>class_exists('App\\\\Services\\\\Dashboard\\\\DesktopUpgradeFixture'),'field'=>\\Illuminate\\Support\\Facades\\Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'archived'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_archived_commands')->count()]);");
+    assert.deepEqual(upgradedData,{code:true,field:true,archived:1});
+    assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'framework/sessions/supervisor-fixture-session'),'utf8'),'synthetic preserved session');
+    assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'app',pdfPath)),pdfBytes);
+    const previousData=await php(bootstrap+"echo json_encode(['field'=>\\Illuminate\\Support\\Facades\\Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'customers'=>\\Illuminate\\Support\\Facades\\DB::table('branch_customers')->count(),'state'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('state')]);",{}, {...runtime.environment,DB_DATABASE:beforeUpgrade.database});
+    assert.deepEqual(previousData,{field:false,customers:1,state:'held'});
+    await runtime.stop();await fs.rm(newInstall,{recursive:true});runtime=create();await runtime.start();
+    assert.equal(runtime.manifest.sourceRevision,next.sourceRevision);assert.equal((await runtime.connection()).database,next.database);
+    const upgradedReplay=await php(bootstrap+"try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Old work ran after code upgrade.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",{device:snapshot.device_id,id:pending.commands[0].command_id,actor:snapshot.actor_id});
+    assert.equal(upgradedReplay.status,409);assert.equal(failures.length,0);
+    console.log('PASS real Windows code/schema upgrade retains the matching installed application with unchanged database binaries, recovers a rejected pointer and lost reply, preserves the previous schema and journal, and restarts from its retained new runtime');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
   } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }

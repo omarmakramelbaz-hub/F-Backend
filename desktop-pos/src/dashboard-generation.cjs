@@ -10,7 +10,8 @@ const hash = value => /^[a-f0-9]{64}$/.test(value || '');
 const generation = value => /^[a-f0-9]{16}$/.test(value || '');
 const database = value => value === 'fasakhansta_dashboard' || /^fasakhansta_dashboard_stage_[a-f0-9]{16}$/.test(value || '');
 function identity(value) {
-  return JSON.stringify([value.deviceId, value.actorId, value.schemaHash, value.database || 'fasakhansta_dashboard', value.snapshotId || null, value.refreshId || null, value.serverOrigin, value.token]);
+  return JSON.stringify([value.deviceId, value.actorId, value.schemaHash, value.database || 'fasakhansta_dashboard', value.snapshotId || null, value.refreshId || null, value.serverOrigin, value.token,
+    value.sourceRevision || null,value.sourceFingerprint?.sha256 || null,value.sourceFingerprint?.framework || null,value.sourceFingerprint?.files || null]);
 }
 function prepared(value, deviceId) {
   let origin;
@@ -96,7 +97,7 @@ class DashboardGeneration {
       const snapshot = await this.download(previous);
       if (snapshot.format !== 1 || snapshot.kind !== 'initial-dashboard-data' || !uuid(snapshot.snapshot_id)
           || snapshot.device_id !== previous.deviceId || snapshot.actor_id !== previous.actorId
-          || snapshot.schema_hash !== previous.schemaHash || !Array.isArray(snapshot.branches) || !snapshot.branches.length)
+          || !hash(snapshot.schema_hash) || !Array.isArray(snapshot.branches) || !snapshot.branches.length)
         throw Error('نسخة السيرفر لا تطابق حساب الجهاز أو مخططه.');
       if (snapshot.coverage?.full_dashboard !== true || snapshot.coverage?.media !== true
           || !Array.isArray(snapshot.media))

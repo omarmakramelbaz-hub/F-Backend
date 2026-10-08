@@ -53,10 +53,28 @@ async function stopChild(child) {
   clearTimeout(timer);
 }
 
+async function phpIniFor(bundle,manifest,profile) {
+    // The installed directory can disappear after an update. Resolve PHP extensions inside
+    // the retained version, rather than any absolute paths copied from the build host.
+    const extensionDirectory = path.join(bundle, 'php', 'ext');
+    let phpConfiguration = await fs.readFile(path.join(bundle, 'php', 'php.ini'), 'utf8');
+    const extensionLines = [...phpConfiguration.matchAll(/^\s*(zend_extension|extension)\s*=\s*([^;\r\n]+).*$/gm)];
+    for (const match of extensionLines) {
+      const value = match[2].trim().replace(/^['"]|['"]$/g, '');
+      if (/^[a-z]:[\\/]|^[\\/]/i.test(value)) {
+        const basename = value.split(/[\\/]/).pop();await fs.access(path.join(extensionDirectory, basename));
+        phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + path.join(extensionDirectory, basename).replaceAll('\\', '/') + '"');
+      }
+    }
+    const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
+    await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/') + '"\n', { mode: 0o600 });
+    return phpIni;
+}
+
 /** Manages private PHP/MariaDB processes. It never contacts the production database. */
 class LocalRuntime {
   constructor({ bundle, profile, safeStorage, downloadMedia, platform = process.platform, onFailure = () => {} }) {
-    this.bundle = bundle; this.profile = path.join(profile, 'dashboard');
+    this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
     this.controlToken = crypto.randomBytes(32).toString('hex');
@@ -125,20 +143,7 @@ class LocalRuntime {
     const storage = this.storageFor(active);
     if (active?.format === 2) await fs.access(storage);
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private']) await fs.mkdir(path.join(storage, dir), { recursive: true, mode: 0o700 });
-    // The installed directory can disappear after an update. Resolve PHP extensions inside
-    // the retained version, rather than any absolute paths copied from the build host.
-    const extensionDirectory = path.join(this.bundle, 'php', 'ext');
-    let phpConfiguration = await fs.readFile(path.join(this.bundle, 'php', 'php.ini'), 'utf8');
-    const extensionLines = [...phpConfiguration.matchAll(/^\s*(zend_extension|extension)\s*=\s*([^;\r\n]+).*$/gm)];
-    for (const match of extensionLines) {
-      const value = match[2].trim().replace(/^['"]|['"]$/g, '');
-      if (/^[a-z]:[\\/]|^[\\/]/i.test(value)) {
-        const basename = value.split(/[\\/]/).pop();await fs.access(path.join(extensionDirectory, basename));
-        phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + path.join(extensionDirectory, basename).replaceAll('\\', '/') + '"');
-      }
-    }
-    this.phpIni = path.join(this.profile, 'php-' + manifest.sourceRevision + '.ini');
-    await fs.writeFile(this.phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/') + '"\n', { mode: 0o600 });
+    this.phpIni = await phpIniFor(this.bundle, manifest, this.profile);
     const config = path.join(this.profile, 'my.ini');
     const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
     await fs.writeFile(config, `[mysqld]\nbasedir=${iniPath(path.join(this.bundle, 'mariadb'))}\ndatadir=${iniPath(data)}\nbind-address=127.0.0.1\nport=${this.dbPort}\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nlocal-infile=0\nskip-name-resolve\nmax-allowed-packet=64M\ninnodb-flush-log-at-trx-commit=1\n`, { mode: 0o600 });
@@ -219,30 +224,47 @@ class LocalRuntime {
     }
     web.failure.then(error => { if (!this.stopping && this.children[1] === web) this.onFailure(error); });
   }
+  context() {
+    return { bundle:this.bundle, application:this.application, php:this.php, phpIni:this.phpIni,
+      manifest:this.manifest, sourceFingerprint:this.sourceFingerprint };
+  }
+  async candidate(snapshot) {
+    if(sourceCode.same(snapshot.source,this.sourceFingerprint))return this.context();
+    const mismatch=()=>Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
+    if(!this.manifest||!this.installedBundle)throw mismatch();
+    const archive=new RuntimeArchive(this.profile,this.metadata),bundle=await archive.retain(this.installedBundle);
+    const manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
+    const sourceFingerprint=await sourceCode.fingerprint(application);
+    if(!sourceCode.same(snapshot.source,sourceFingerprint)||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint))throw mismatch();
+    RuntimeArchive.databaseCompatible(await this.metadata.read('runtimes/'+this.manifest.sourceRevision),
+      await this.metadata.read('runtimes/'+manifest.sourceRevision));
+    const php=path.join(bundle,'php','php.exe');await fs.access(php);
+    return {bundle,application,php,phpIni:await phpIniFor(bundle,manifest,this.profile),manifest,sourceFingerprint};
+  }
   async stage(snapshot, id, archive) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
-    if (!sourceCode.same(snapshot.source, this.sourceFingerprint))
-      throw Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
+    const context = await this.candidate(snapshot);
     media.manifest(snapshot.media || []);
     const database = 'fasakhansta_dashboard_stage_' + id;
-    const value = { generation: id, database }, env = this.environmentFor(value);
+    const value = { generation: id, database }, env = { ...this.environmentFor(value), PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d') };
     const root = path.join(this.profile, 'generations', id);
     await fs.mkdir(path.dirname(root), { recursive: true, mode: 0o700 });
     await fs.mkdir(root, { mode: 0o700 }); // Never reuse a partial or previously active generation.
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private'])
       await fs.mkdir(path.join(this.storageFor(value), dir), { recursive: true, mode: 0o700 });
     const settings = await this.settings();
-    const phpArgs = ['-c', this.phpIni];
-    const options = { env, cwd: this.application };
+    const phpArgs = ['-c', context.phpIni];
+    const options = { env, cwd: context.application };
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
-    await run(this.php, [...phpArgs, path.join(this.application, 'desktop/database.php'), 'stage'], options,
+    await run(context.php, [...phpArgs, path.join(context.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
-    const receipt = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
+    const receipt = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
       path.join(this.storageFor(value), 'app'));
-    if (archive) await run(this.php, [...phpArgs, path.join(this.application, 'desktop/archive.php')], options,
-      JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token }), 90000);
-    const checked = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));
+    if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,
+      JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token,
+        source_identity: {snapshot_id:archive.previous.snapshotId,schema_hash:archive.previous.schemaHash} }), 90000);
+    const checked = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));
     if (checked.verified !== true || checked.snapshot_id !== snapshot.snapshot_id || checked.device_id !== settings.deviceId
         || checked.actor_id !== snapshot.actor_id || checked.schema_hash !== snapshot.schema_hash
         || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage))
@@ -250,7 +272,8 @@ class LocalRuntime {
     media.verifyReceipt(checked.media, images.files);
     if (!sourceCode.same(checked.source, snapshot.source)) throw Error('لم يتأكد مصدر برنامج التجهيز؛ بيانات الجهاز الحالية محفوظة.');
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
-    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision, sourceFingerprint: checked.source, mediaVerified: images.verified };
+    this.stagedContexts.set(id,context);
+    return { database, receipt: checked, sourceRevision: context.manifest.sourceRevision, sourceFingerprint: checked.source, mediaVerified: images.verified };
   }
   async drainWeb() {
     if (this.children[1] && this.origin) {
@@ -261,8 +284,9 @@ class LocalRuntime {
     await stopChild(web);
   }
   async activate(next, commitPointer) {
-    if (this.stopping || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== this.manifest.sourceRevision
-        || !sourceCode.same(next.sourceFingerprint, this.sourceFingerprint))
+    const context = this.stagedContexts.get(next.generation);
+    if (this.stopping || !context || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== context.manifest.sourceRevision
+        || !sourceCode.same(next.sourceFingerprint, context.sourceFingerprint))
       throw Error('نسخة التجهيز غير قابلة للتفعيل.');
     const oldEnvironment = this.environment;
     await this.drainWeb();
@@ -281,7 +305,9 @@ class LocalRuntime {
         throw error;
       }
     }
-    this.environment = this.environmentFor(next);
+    Object.assign(this,context);
+    this.environment = { ...this.environmentFor(next), PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d') };
+    this.stagedContexts.delete(next.generation);
     if (!this.stopping) await this.startWeb();
   }
   async stop() {

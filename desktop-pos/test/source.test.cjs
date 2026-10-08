@@ -29,5 +29,5 @@ test('a different server code is refused before creating a generation directory 
   const root=await fixture(t),journal=path.join(root,'retained-journal');await fs.writeFile(journal,'confirmed and pending work');
   const runtime=new LocalRuntime({bundle:root,profile:root,safeStorage:{}});runtime.environment={};runtime.sourceFingerprint=await source.fingerprint(root);
   await assert.rejects(runtime.stage({source:{...runtime.sourceFingerprint,sha256:'f'.repeat(64)},media:[]},'a'.repeat(16)));
-  assert.equal(await fs.readFile(journal,'utf8'),'confirmed and pending work');await assert.rejects(fs.access(path.join(root,'generations')));
+  assert.equal(await fs.readFile(journal,'utf8'),'confirmed and pending work');await assert.rejects(fs.access(path.join(runtime.profile,'generations')));
 });
