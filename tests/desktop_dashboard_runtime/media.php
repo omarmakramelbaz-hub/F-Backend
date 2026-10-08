@@ -8,7 +8,7 @@ $imageFiles=['resturants/1/logo.png','resturants/2/foreign.png','products/3/رن
 foreach($imageFiles as $file){$path=$profile.'/app/public/'.$file;if(!is_dir(dirname($path)))mkdir(dirname($path),0700,true);file_put_contents($path,$imageBytes);}
 $expensePdfBytes="%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
 $pdfSource=$profile.'/private/expense-source.pdf';file_put_contents($pdfSource,$expensePdfBytes);
-$expenseValues=['branch'=>'f:100','idempotency_key'=>(string)\Illuminate\Support\Str::uuid(),'occurred_on'=>now('Africa/Cairo')->toDateString(),
+$expenseValues=['branch'=>'f:100','idempotency_key'=>(string)\Illuminate\Support\Str::uuid(),'occurred_on'=>\App\Services\Dashboard\OperatingDay::date(),
     'category'=>'purchases','description'=>'مرفق اختبار النسخة المحلية','amount'=>'10.00','payment_method'=>'cash'];
 $expenseResult=app(\App\Services\Dashboard\BranchExpenses::class)->save($expenseValues,$actor,new \Illuminate\Http\UploadedFile($pdfSource,'فاتورة.pdf','application/pdf',null,true));
 $expenseAttachmentId=$expenseResult['expense']['id'];$expenseAttachmentPath=DB::table('branch_expenses')->where('id',$expenseAttachmentId)->value('attachment_path');
