@@ -32,12 +32,15 @@ class DesktopDashboardJournal
             'route'=>'required|string|max:150','dependencies'=>'array|max:1000','dependencies.*'=>'required|uuid|distinct',
         ])->validate();
         abort_if(in_array($command, $dependencies, true), 422, 'العملية لا يمكن أن تعتمد على نفسها.');
-        $prepared=$this->references->prepare($device,$route,$payload,$command);
-        $payload=$prepared['payload'];$dependencies=array_values(array_unique(array_merge($dependencies,$prepared['dependencies'])));
-        // References to an entity produced by an earlier replay of this same operation are not dependencies.
-        $dependencies=array_values(array_filter($dependencies,fn($id)=>$id!==$command));
-        $hash = $this->fingerprint([$actor, $route, $payload, $dependencies]);
-        return DB::transaction(function () use ($device,$command,$actor,$route,$payload,$dependencies,$work,$hash) {
+        return DB::transaction(function () use ($device,$command,$actor,$route,$payload,$dependencies,$work) {
+            // All business writes acquire this row before resolving IDs or taking business locks.
+            // A refresh uses the same lock, so it cannot race an already accepted operation.
+            app(DesktopDashboardRefresh::class)->writable($device,$actor);
+            $prepared=$this->references->prepare($device,$route,$payload,$command);
+            $payload=$prepared['payload'];$dependencies=array_values(array_unique(array_merge($dependencies,$prepared['dependencies'])));
+            // References produced by this operation's earlier reply are not dependencies.
+            $dependencies=array_values(array_filter($dependencies,fn($id)=>$id!==$command));
+            $hash=$this->fingerprint([$actor,$route,$payload,$dependencies]);
             $old = DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$command)->lockForUpdate()->first();
             if ($old) {
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');

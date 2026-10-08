@@ -60,6 +60,14 @@ class DesktopDashboardImport
         }finally{DB::statement('SET FOREIGN_KEY_CHECKS=1');}
         require_once database_path('migrations/2026_10_08_130000_create_desktop_dashboard_journal.php');
         (new \CreateDesktopDashboardJournal)->up();
+        require_once database_path('migrations/2026_10_08_160000_create_desktop_dashboard_local_state.php');
+        (new \CreateDesktopDashboardLocalState)->up();
+        DB::table('desktop_dashboard_local_state')->insert([
+            'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'snapshot_id'=>$snapshot['snapshot_id'],
+            'schema_hash'=>$snapshot['schema_hash'],'branches'=>DesktopDashboardBootstrap::json($snapshot['branches']),
+            'coverage'=>DesktopDashboardBootstrap::json($snapshot['coverage']),'state'=>'ready',
+            'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
+        ]);
         return ['format'=>1,'snapshot_id'=>$snapshot['snapshot_id'],'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],
             'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage']];
     }

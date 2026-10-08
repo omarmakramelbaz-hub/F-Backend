@@ -133,7 +133,7 @@ foreach(DB::table('desktop_dashboard_commands')->where('device_id',$device)->ord
         'payload'=>json_decode(\Illuminate\Support\Facades\Crypt::decryptString($row->command_cipher),true),
         'local_result'=>$savedCommand['result'],'local_references'=>$savedCommand['references'],'dependencies'=>json_decode($row->dependencies,true),'occurred_at'=>$row->created_at];
 }
-config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.enabled'=>true]);DB::purge();
+config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.enabled'=>true,'desktop_dashboard.local'=>false]);DB::purge();
 config(['app.key'=>'base64:'.base64_encode(random_bytes(32))]);$app->forgetInstance('encrypter');\Illuminate\Support\Facades\Facade::clearResolvedInstance('encrypter');
 // A server-side employee takes the local employee's integer ID before the offline device reconnects.
 DB::table('branch_employees')->insert(['branch'=>'f:101','name'=>'موظف السيرفر','job_title'=>'كاشير','hired_on'=>'2026-10-01','active'=>true,'revision'=>1,'actor_id'=>1]);
@@ -162,7 +162,7 @@ $ownerUsers=array_column($bootstrap['tables']['users']['rows'],null,'id');
 check(!password_verify('LocalTest123',$ownerUsers[10]['password']),'other cached branch accounts have unusable password hashes');
 $staging='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$staging.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$staging){$pdo->exec('DROP DATABASE IF EXISTS `'.$staging.'`');});
-config(['database.connections.mysql.database'=>$staging,'desktop_dashboard.device_id'=>$branchEnrollment['device_id']]);DB::purge();
+config(['database.connections.mysql.database'=>$staging,'desktop_dashboard.device_id'=>$branchEnrollment['device_id'],'desktop_dashboard.local'=>true]);DB::purge();
 $corrupt=$cashierBootstrap;$corrupt['tables']['users']['rows'][0]['name']='تعديل أثناء النقل';
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($corrupt),422,'a damaged initial dataset is rejected before any local schema is created');
 check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new staging database empty');
@@ -174,7 +174,55 @@ $localSummary=app(TakeawayService::class)->summary('f:100',$localCashier);
 check($localSummary['ready'] && !$localSummary['permissions']['can_manage'],'the original dashboard service reads imported branch data with original cashier rights');
 denied(fn()=>app(TakeawayService::class)->summary('f:101',$localCashier),404,'the imported original dashboard cannot switch to an unauthorized branch');
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap),409,'re-running setup cannot overwrite a populated local database');
-config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.device_id'=>$device]);DB::purge();
+// A refresh must fence writes BEFORE downloading or activating another dataset. Exercise
+// the real imported branch, original customer service and a second InnoDB connection.
+$refresh=app(\App\Services\Dashboard\DesktopDashboardRefresh::class);$localDevice=$branchEnrollment['device_id'];
+$refreshId=(string)Str::uuid();$refreshToken=bin2hex(random_bytes(32));
+$localState=DB::table('desktop_dashboard_local_state')->first();
+check($localState->snapshot_id===$cashierBootstrap['snapshot_id']&&(int)$localState->actor_id===10
+    &&json_decode($localState->branches,true)===['f:100'],'import durably binds refresh state to the verified snapshot, account and branches');
+$localCustomerId=(string)Str::uuid();$localCustomer=['branch'=>'f:100','idempotency_key'=>$localCustomerId,'name'=>'عميل محلي','phone'=>'01012345678','address'=>'المنصورة'];
+$customerWork=fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($localCustomer,$localCashier);
+$localCustomerResult=$journal->execute($localDevice,$localCustomerId,10,'customers.save',['values'=>$localCustomer],[],$customerWork);
+denied(fn()=>$refresh->begin($localDevice,$refreshId,$refreshToken),409,'a pending original customer operation prevents refresh before any data changes');
+$journal->failed($localDevice,$localCustomerId,'customer changed on the server',true);
+check($journal->pending($localDevice)===[],'a conflicted operation can leave no sendable commands');
+denied(fn()=>$refresh->begin($localDevice,$refreshId,$refreshToken),409,'an empty sendable outbox cannot bypass retained conflicts during refresh');
+$localReceipt=['device_id'=>$localDevice,'command_id'=>$localCustomerId,'committed'=>true,'result'=>$localCustomerResult];
+$journal->acknowledge($localDevice,$localCustomerId,$localReceipt);
+$held=$refresh->begin($localDevice,$refreshId,$refreshToken);
+check($held['held']&&$held['fenced_sequence']===1&&$held['coverage']['full_dashboard']===false,'a drained ledger acquires its durable fence without claiming complete dashboard coverage');
+check($refresh->begin($localDevice,$refreshId,$refreshToken)===$held,'a lost refresh-begin response resumes the same durable fence');
+check(DB::table('desktop_dashboard_local_state')->value('refresh_token_hash')===hash('sha256',$refreshToken),'only a hash of the native refresh capability is stored');
+denied(fn()=>$refresh->cancel($localDevice,$refreshId,str_repeat('0',64)),409,'a different native capability cannot release the active refresh fence');
+$blockedId=(string)Str::uuid();$blocked=$localCustomer;$blocked['idempotency_key']=$blockedId;$blocked['phone']='01012345679';
+denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier)),409,'the refresh fence blocks the original business write before it can create a customer');
+check(DB::table('branch_customers')->count()===1&&$journal->counts($localDevice)['acknowledged']===1,'refresh neither deletes the confirmed journal nor changes its local business ledger');
+DB::disconnect();DB::reconnect();
+denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),409,'the refresh fence survives a database reconnect instead of expiring silently');
+$released=$refresh->cancel($localDevice,$refreshId,$refreshToken);
+check(!$released['held']&&$refresh->cancel($localDevice,$refreshId,$refreshToken)===$released,'lost cancellation replies safely retain the same released fence identity');
+check(!$refresh->begin($localDevice,$refreshId,$refreshToken)['held'],'a delayed retry cannot reacquire an already cancelled fence');
+denied(fn()=>$journal->execute($localDevice,$blockedId,1,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'imported branch writes remain bound to their enrolled account');
+denied(fn()=>$journal->execute((string)Str::uuid(),$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'another device UUID cannot bypass the prepared local journal gate');
+DB::beginTransaction();
+try{
+    $refresh->writable($localDevice,10);
+    $probe=new PDO('mysql:host=127.0.0.1;port='.$port.';dbname='.$staging.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    $probe->exec('SET innodb_lock_wait_timeout=1');
+    try{$probe->query('SELECT device_id FROM desktop_dashboard_local_state FOR UPDATE');throw new RuntimeException('Concurrent refresh bypassed a business lock.');}
+    catch(PDOException $error){check((int)$error->errorInfo[1]===1205,'a second actual InnoDB connection cannot acquire a refresh fence during an accepted write');}
+}finally{DB::rollBack();}
+$nextRefreshId=(string)Str::uuid();
+check($refresh->begin($localDevice,$nextRefreshId,$refreshToken)['held'],'rolling back a business transaction releases its refresh lock');
+check($refresh->begin($localDevice,$refreshId,$refreshToken)===$released
+    &&$refresh->cancel($localDevice,$refreshId,$refreshToken)===$released,'old begin and cancellation retries cannot steal or reopen a newer refresh fence');
+check(DB::table('desktop_dashboard_local_state')->value('refresh_id')===$nextRefreshId
+    &&DB::table('desktop_dashboard_local_state')->value('state')==='held','historical refresh responses leave the current active fence unchanged');
+$refresh->cancel($localDevice,$nextRefreshId,$refreshToken);
+$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier));
+check(DB::table('branch_customers')->count()===2&&$journal->counts($localDevice)['pending']===1,'a failed or cancelled preparation restores original local writes and their durable journal');
+config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.device_id'=>$device,'desktop_dashboard.local'=>false]);DB::purge();
 foreach($envelopes as $envelope){
     if($envelope['route_name']==='employees.close'){
         $day=DB::table('branch_employee_days')->where('branch','f:100')->first();
