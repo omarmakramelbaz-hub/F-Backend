@@ -13,7 +13,7 @@ git fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/hea
 test "$(git rev-parse FETCH_HEAD)" = "$release" || { echo 'Release changed; review its new SHA.'; exit 1; }
 previous="$(git rev-parse HEAD)"
 git merge-base --is-ancestor "$previous" "$release" || { echo 'Server version diverged; no code changed. Reconcile this release with the server branch first.'; exit 1; }
-test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
+test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = 5dedd5b0eb8374f6b5f67d50e6d0a65a057220fe || test "$previous" = 3d408369688b488c3b20497f2999c1b87032bdf8 || test "$previous" = "$release" || { echo 'Server checkpoint changed; no code changed.'; exit 1; }
 while IFS= read -r -d '' file; do
     test ! -L "$file" || { echo "Source symlink requires review: $file"; exit 1; }
     if test -e "$file"; then
@@ -40,6 +40,9 @@ php -l app/Services/Dashboard/BranchPayroll.php
 php -l app/Services/Dashboard/EmployeeAttendanceRules.php
 php -l app/Http/Controllers/Dashboard/BranchOperationsController.php
 php -l database/migrations/2026_10_08_190000_add_employee_attendance_rules.php
+php -l app/Services/Dashboard/EmployeeAttendanceDeductionCap.php
+php -l app/Console/Commands/CapEmployeeAttendanceDeductions.php
+php artisan employees:cap-attendance-deductions
 php artisan route:clear
 php artisan view:clear
 php artisan tinker --execute='if (!\Illuminate\Support\Facades\Schema::hasTable("branch_attendance_rules") || !\Illuminate\Support\Facades\Schema::hasColumn("branch_employee_entries", "source_key") || !\Illuminate\Support\Facades\Schema::hasColumn("branch_employee_days", "checked_in_at") || !\Illuminate\Support\Facades\Schema::hasColumn("branch_employee_days", "checked_out_at") || !\Illuminate\Support\Facades\Schema::hasColumn("branch_employee_days", "attendance_rule_snapshot") || !\Illuminate\Support\Facades\Route::has("employees.attendance-rules")) { throw new \RuntimeException("Attendance schema or route missing"); } echo "EMPLOYEE ATTENDANCE READY".PHP_EOL;'
