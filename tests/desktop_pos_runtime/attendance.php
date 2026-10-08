@@ -1,13 +1,14 @@
 <?php
 // Disposable in-memory SQLite only; exercises the original payroll service and migrations.
 require __DIR__.'/vendor/autoload.php';
+date_default_timezone_set('Africa/Cairo');
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\{Facade,DB,Schema};
 use Carbon\Carbon;
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use App\Services\Dashboard\{BranchPayroll,EmployeeAttendanceRules,DesktopDashboardReferences};
+use App\Services\Dashboard\{BranchPayroll,EmployeeAttendanceRules,EmployeeAttendanceDeductionCap,DesktopDashboardReferences};
 function app($key=null){$c=Container::getInstance();return $key?$c->make($key):$c;}
 function now($zone=null){return Carbon::now($zone);}
 function config($key=null,$default=null){return app('config')->get($key,$default);}
@@ -76,15 +77,41 @@ $cappedEntry=DB::table('branch_employee_entries')->where('employee_id',$capped)-
 check($cappedAttendance['status']==='morning'&&$cappedAttendance['check_in']==='12:00:00'&&$cappedEntry->reason==='خصم تأخر عن العمل'&&str_contains($cappedEntry->notes,'الحد الأقصى'),'capped lateness preserves attendance time and explains the limit in deductions');
 $s->entry(['branch'=>'f:100','employee_id'=>$capped,'day'=>'2026-10-08','kind'=>'deduction','amount'=>'7.00','reason'=>'خصم يدوي','idempotency_key'=>attendanceKey()],$owner);
 clock('2026-10-08 12:30:00');mark($capped);check(total($capped)===30700&&DB::table('branch_employee_entries')->where('employee_id',$capped)->where('source_key','attendance.late')->whereNull('voided_at')->count()===1,'repeat capped check-in preserves manual deductions without duplicating the penalty');
-clock('2026-10-08 17:00:00');mark($capped,'morning','check_out');check(total($capped)===50500&&(int)DB::table('branch_employee_entries')->where('employee_id',$capped)->where('source_key','attendance.early')->value('amount_cents')===19800,'lateness cap leaves early departure deductions independent');
-$cappedStatement=$s->statement(['branch'=>'f:100','employee_id'=>$capped,'month'=>'2026-10'],$owner)['statement'];check($cappedStatement['deduction']==='505.00'&&$cappedStatement['net']==='2595.00','capped deduction and manual entries flow into net salary');
+clock('2026-10-08 17:00:00');mark($capped,'morning','check_out');check(total($capped)===30700&&!DB::table('branch_employee_entries')->where('employee_id',$capped)->where('source_key','attendance.early')->whereNull('voided_at')->exists(),'combined lateness and early departure share one daily absence cap');
+$cappedStatement=$s->statement(['branch'=>'f:100','employee_id'=>$capped,'month'=>'2026-10'],$owner)['statement'];check($cappedStatement['deduction']==='307.00'&&$cappedStatement['net']==='2793.00','capped deduction and manual entries flow into net salary');
 $lowerCap=array_replace($modified,['absence'=>'50.00','morning_late'=>'100.00','expected_revision'=>2,'idempotency_key'=>attendanceKey()]);$s->saveAttendanceRules($lowerCap,$owner);
-mark($capped);check(total($capped)===50500,'later Owner changes preserve the cap captured when attendance was recorded');
+mark($capped);check(total($capped)===30700,'later Owner changes preserve the cap captured when attendance was recorded');
 clock('2026-10-08 11:30:00');$newCap=employee('New absence cap');mark($newCap);check(total($newCap)===5000,'new attendance uses the updated Owner absence cap');
 $zeroCap=array_replace($lowerCap,['absence'=>'0.00','expected_revision'=>3,'idempotency_key'=>attendanceKey()]);$s->saveAttendanceRules($zeroCap,$owner);
 $freeCap=employee('Zero absence cap');$freeAttendance=mark($freeCap)['attendance'];check(total($freeCap)===0&&$freeAttendance['check_in']==='11:30:00','zero absence amount also caps lateness at zero while recording attendance');
 $boundary=EmployeeAttendanceRules::snapshot((object)['shift'=>'morning','revision'=>1,'starts_at'=>'10:00','ends_at'=>'18:00','late_half_hour_cents'=>10000,'early_half_hour_cents'=>9900,'absence_cents'=>30000],'2026-10-08');
 $equal=EmployeeAttendanceRules::deductions('morning',$boundary,'2026-10-08 08:30:00',null,310000,31);check($equal['late']['amount']===30000,'lateness equal to the absence amount stays exactly at the limit');
 $nightCap=EmployeeAttendanceRules::snapshot((object)['shift'=>'evening','revision'=>1,'starts_at'=>'20:00','ends_at'=>'04:00','late_half_hour_cents'=>10000,'early_half_hour_cents'=>9900,'absence_cents'=>30000],'2026-10-08');
-$nightDeductions=EmployeeAttendanceRules::deductions('evening',$nightCap,'2026-10-08 19:00:00','2026-10-08 23:00:00',310000,31);check($nightDeductions['late']['amount']===30000&&$nightDeductions['early']['amount']===39600,'evening overnight shift caps lateness without capping early departure');
+$nightDeductions=EmployeeAttendanceRules::deductions('evening',$nightCap,'2026-10-08 19:00:00','2026-10-08 23:00:00',310000,31);check($nightDeductions['late']['amount']===30000&&$nightDeductions['early']['amount']===0,'evening overnight shift shares the absence cap between both penalties');
+$split=EmployeeAttendanceRules::deductions('morning',$boundary,'2026-10-08 08:00:00','2026-10-08 13:00:00',310000,31);check($split['late']['amount']===20000&&$split['early']['amount']===10000,'two penalties each below absence still share the combined daily limit');
+$screenshotRules=array_replace($zeroCap,['morning_start'=>'10:00','morning_end'=>'19:00','morning_late'=>'50.00','morning_early'=>'50.00','absence'=>'300.00','expected_revision'=>4,'idempotency_key'=>attendanceKey()]);$s->saveAttendanceRules($screenshotRules,$owner);
+clock('2026-10-09 01:15:00');$earlyOnly=employee('Screenshot early checkout');mark($earlyOnly,'morning','check_in','2026-10-09');$earlyPunch=mark($earlyOnly,'morning','check_out','2026-10-09')['attendance'];
+check(total($earlyOnly)===30000&&$earlyPunch['check_in']==='01:15:00'&&$earlyPunch['check_out']==='01:15:00','same-minute early checkout shown in screenshot caps a 1750 deduction at 300');
+$legacyEntry=DB::table('branch_employee_entries')->where('employee_id',$earlyOnly)->where('source_key','attendance.early')->first();
+DB::table('branch_employee_entries')->where('id',$legacyEntry->id)->update(['amount_cents'=>175000,'notes'=>'35 نصف ساعة مكتملة.']);
+$s->entry(['branch'=>'f:100','employee_id'=>$earlyOnly,'day'=>'2026-10-09','kind'=>'deduction','amount'=>'7.00','reason'=>'خصم يدوي','idempotency_key'=>attendanceKey()],$owner);
+$legacyBefore=DB::table('branch_employee_days')->where('employee_id',$earlyOnly)->first();$preview=$s->statement(['branch'=>'f:100','employee_id'=>$earlyOnly,'month'=>'2026-10'],$owner)['statement'];
+$s->entry(['branch'=>'f:100','employee_id'=>$capped,'day'=>'2026-10-08','kind'=>'deduction','amount'=>'2.00','reason'=>'خصم يدوي آخر','idempotency_key'=>attendanceKey()],$owner);
+DB::table('branch_employee_entries')->insert(['branch'=>'f:100','employee_id'=>$capped,'day'=>'2026-10-08','kind'=>'deduction','amount_cents'=>19800,'source_key'=>'attendance.early','reason'=>'خصم انصراف مبكر','notes'=>'خصم قديم قبل السقف المشترك','revision'=>1,'actor_id'=>$manager->id,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+$closedCap=employee('Closed old attendance');mark($closedCap,'morning','check_in','2026-10-09');mark($closedCap,'morning','check_out','2026-10-09');
+DB::table('branch_employee_entries')->where('employee_id',$closedCap)->where('source_key','attendance.early')->update(['amount_cents'=>175000,'notes'=>'Closed legacy penalty']);
+$closedStatement=$s->statement(['branch'=>'f:100','employee_id'=>$closedCap,'month'=>'2026-10'],$owner)['statement'];$s->close(['branch'=>'f:100','employee_id'=>$closedCap,'month'=>'2026-10','preview_hash'=>$closedStatement['preview_hash'],'idempotency_key'=>attendanceKey()],$owner);
+$caps=app(EmployeeAttendanceDeductionCap::class);$dry=$caps->repair(true);check($dry['days']===2&&$dry['entries']===2&&total($earlyOnly)===175700,'cap repair preview identifies old penalties without changing ledger amounts');
+$fixed=$caps->repair();check($fixed['days']===2&&$fixed['entries']===2&&total($earlyOnly)===30700&&total($capped)===30900,'repair reduces old early and combined penalties while preserving manual deductions');
+check((array)DB::table('branch_employee_days')->where('employee_id',$earlyOnly)->first()===(array)$legacyBefore,'repair preserves recorded attendance time status notes and revision');
+$correctedEntry=DB::table('branch_employee_entries')->where('id',$legacyEntry->id)->first();check($correctedEntry->revision===$legacyEntry->revision+1&&$correctedEntry->reason==='خصم انصراف مبكر'&&str_contains($correctedEntry->notes,'الحد الأقصى'),'repair retains deduction reason and records its adjustment');
+check(total($closedCap)===175000&&$s->statement(['branch'=>'f:100','employee_id'=>$closedCap,'month'=>'2026-10'],$owner)['statement']['preview_hash']===$closedStatement['preview_hash'],'repair leaves closed payroll and its frozen statement unchanged');
+check(!DB::table('branch_employee_entries')->where('id',$halfEntry->id)->whereNull('voided_at')->exists(),'repair respects deductions explicitly cancelled by the Owner');
+$fixedStatement=$s->statement(['branch'=>'f:100','employee_id'=>$earlyOnly,'month'=>'2026-10'],$owner)['statement'];check($fixedStatement['deduction']==='307.00'&&$fixedStatement['net']==='2793.00','repair refreshes saved daily deductions and monthly net salary');
+denied(fn()=>$s->close(['branch'=>'f:100','employee_id'=>$earlyOnly,'month'=>'2026-10','preview_hash'=>$preview['preview_hash'],'idempotency_key'=>attendanceKey()],$owner),409,'old payroll preview cannot close the corrected statement');
+$repeatRepair=$caps->repair();check($repeatRepair['days']===0&&$repeatRepair['entries']===0&&DB::table('branch_employee_entries')->where('id',$legacyEntry->id)->value('revision')===$correctedEntry->revision,'repeated cap correction leaves ledger amounts revisions and counts unchanged');
+mark($earlyOnly,'morning','check_out','2026-10-09');check(total($earlyOnly)===30700,'repeated checkout cannot restore an oversized repaired penalty');
+$zeroLegacy=employee('Zero cap legacy');mark($zeroLegacy,'morning','check_in','2026-10-09');mark($zeroLegacy,'morning','check_out','2026-10-09');
+$zeroDay=DB::table('branch_employee_days')->where('employee_id',$zeroLegacy)->first();$zeroSnapshot=json_decode($zeroDay->attendance_rule_snapshot,true);$zeroSnapshot['absence_cents']=0;DB::table('branch_employee_days')->where('id',$zeroDay->id)->update(['attendance_rule_snapshot'=>json_encode($zeroSnapshot)]);
+$caps->repair();check(total($zeroLegacy)===0&&!DB::table('branch_employee_entries')->where('employee_id',$zeroLegacy)->whereNull('voided_at')->exists(),'repair removes zero-cap automatic charges from the active deduction count');
 Carbon::setTestNow();echo $count.' attendance checks passed against the original payroll service'.PHP_EOL;

@@ -29,13 +29,24 @@ class EmployeeAttendanceRules
             if(!$v[0])continue;
             $actual=Carbon::parse($v[0],'UTC')->getTimestamp();$scheduled=Carbon::parse($v[1],'UTC')->getTimestamp();
             $seconds=max(0,$kind==='late'?$actual-$scheduled:$scheduled-$actual);$halves=intdiv($seconds,1800);
-            $amount=$halves*$v[2];$notes=intdiv($seconds,60).' دقيقة · '.$halves.' نصف ساعة مكتملة.';
-            if($kind==='late'&&$amount>$snapshot['absence_cents']){
-                $amount=$snapshot['absence_cents'];
-                $notes.=' تم تطبيق الحد الأقصى للتأخير بقيمة خصم الغياب بدون إذن.';
-            }
-            $result[$kind]=['amount'=>$amount,'reason'=>$v[3],'notes'=>$notes];
+            $result[$kind]=['amount'=>$halves*$v[2],'reason'=>$v[3],'notes'=>intdiv($seconds,60).' دقيقة · '.$halves.' نصف ساعة مكتملة.'];
         }
-        return $result;
+        return self::capAttendanceDeductions($result,(int)$snapshot['absence_cents']);
+    }
+
+    /** One daily ceiling shared by late arrival and early departure, in that order. */
+    public static function capAttendanceDeductions(array $deductions,int $absenceCents): array
+    {
+        $remaining=max(0,$absenceCents);
+        $note='تم تطبيق الحد الأقصى لخصومات الحضور والانصراف بقيمة خصم الغياب بدون إذن.';
+        foreach(['late','early'] as $kind){
+            if(!isset($deductions[$kind]))continue;
+            $amount=min($deductions[$kind]['amount'],$remaining);$remaining-=$amount;
+            if($amount<$deductions[$kind]['amount']){
+                $deductions[$kind]['amount']=$amount;
+                if(!str_contains($deductions[$kind]['notes'],$note))$deductions[$kind]['notes'].=' '.$note;
+            }
+        }
+        return $deductions;
     }
 }
