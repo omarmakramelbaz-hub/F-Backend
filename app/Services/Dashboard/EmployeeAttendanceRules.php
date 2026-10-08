@@ -29,7 +29,12 @@ class EmployeeAttendanceRules
             if(!$v[0])continue;
             $actual=Carbon::parse($v[0],'UTC')->getTimestamp();$scheduled=Carbon::parse($v[1],'UTC')->getTimestamp();
             $seconds=max(0,$kind==='late'?$actual-$scheduled:$scheduled-$actual);$halves=intdiv($seconds,1800);
-            $result[$kind]=['amount'=>$halves*$v[2],'reason'=>$v[3],'notes'=>intdiv($seconds,60).' دقيقة · '.$halves.' نصف ساعة مكتملة.'];
+            $amount=$halves*$v[2];$notes=intdiv($seconds,60).' دقيقة · '.$halves.' نصف ساعة مكتملة.';
+            if($kind==='late'&&$amount>$snapshot['absence_cents']){
+                $amount=$snapshot['absence_cents'];
+                $notes.=' تم تطبيق الحد الأقصى للتأخير بقيمة خصم الغياب بدون إذن.';
+            }
+            $result[$kind]=['amount'=>$amount,'reason'=>$v[3],'notes'=>$notes];
         }
         return $result;
     }
