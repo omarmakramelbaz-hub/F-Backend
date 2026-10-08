@@ -13,13 +13,20 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
+  const readPosts = new Set(['/admin/takeaway/quote', '/admin/dining/quote', '/admin/phone-orders/quote', '/admin/phone-orders/delivery-quote',
+    '/admin/fetch-subcategory', '/admin/fetch-product', '/admin/fetch-feature']);
   function remoteWrite(details) {
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
     const pathname = new URL(details.url).pathname;
+    if (readPosts.has(pathname)) return false;
     return pathname.startsWith('/admin/') && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
-      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification)/i.test(pathname));
+      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname));
   }
-  function failure(details = {}) { return remoteWrites.size ? { ...details, method: 'UNKNOWN' } : details; }
+  function failure(details = {}) {
+    if (remoteWrites.size) return { ...details, method: 'UNKNOWN' };
+    if (details.url && policy.sameOrigin(details.url, origin) && readPosts.has(new URL(details.url).pathname)) return { ...details, method: 'GET' };
+    return details;
+  }
   function trusted(event) {
     return !quitting() && !refreshing && window && event.sender.id === window.webContents.id
       && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');

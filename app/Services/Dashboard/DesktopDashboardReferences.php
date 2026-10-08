@@ -25,13 +25,22 @@ class DesktopDashboardReferences
         'takeaway.checkout'=>['receipt'=>'receipt.id'],
         'branch-expenses.save'=>['expense'=>'expense.id'],
         'branch-shifts.close'=>['shift'=>'closing.id'],
-        'phone-orders.dispatch-company'=>['delivery_batch'=>'batch.id'],
+        'phone-orders.finish-batch'=>['delivery_batch'=>'batch.id'],
     ];
     public function outputs(string $route,array $result,array $values=[],int $actor=0): array
     {
         if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
         $outputs=[];
         foreach(self::RESULTS[$route]??[] as $entity=>$path){$id=data_get($result,$path);if(is_numeric($id)&&(int)$id>0)$outputs[$entity]=(int)$id;}
+        if($route==='phone-orders.finish-batch'){
+            $lines=collect($result['batch']['items']??[])->keyBy('ticket_id');
+            // Bind receipt slots to the submitted order, not database ID sorting: mapped IDs
+            // can reorder the same tickets on the server.
+            foreach($values['items']??[] as $index=>$item){
+                $id=$item['id']??null;if(is_array($id))$id=$id['$desktop_ref']['local_id']??null;
+                if(is_numeric($id)&&isset($lines[$id]['order_id']))$outputs['receipt.'.$index]=(int)$lines[$id]['order_id'];
+            }
+        }
         if($route==='employees.attendance'&&isset($result['attendance'])){
             $day=$result['attendance'];
             foreach(DB::table('branch_employee_entries')->where('employee_id',$day['employee_id'])->where('day',$day['day'])->whereNotNull('source_key')->get() as $entry){
@@ -58,12 +67,17 @@ class DesktopDashboardReferences
         $dependencies=[];
         $reference=function(string $entity,$id)use($device,$currentCommand,&$dependencies){
             if(!is_numeric($id)||(int)$id<1)return $id;
-            $row=DB::table('desktop_dashboard_entities')->where('device_id',$device)->where('entity',$entity)->where('local_id',(int)$id)->first();
+            $row=DB::table('desktop_dashboard_entities')->where('device_id',$device)
+                ->where(fn($q)=>$q->where('entity',$entity)->orWhere('entity','like',$entity.'.%'))
+                ->where('local_id',(int)$id)->first();
             if(!$row||$row->command_id===$currentCommand)return $id;
             $dependencies[$row->command_id]=true;
-            return ['$desktop_ref'=>['entity'=>$entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
+            return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
         if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if($route==='phone-orders.finish-batch')foreach($payload['values']['items']??[] as $index=>$item){
+            if(isset($item['id'])&&!is_array($item['id']))$payload['values']['items'][$index]['id']=$reference('ticket',$item['id']);
+        }
         foreach($payload['values']??[] as $field=>$value) {
             $entity=self::FIELDS[$field]??null;
             if($field==='entry_id'&&is_numeric($value)){

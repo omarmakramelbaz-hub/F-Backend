@@ -59,6 +59,16 @@ test('a remote form is persisted before transmission and a main-frame failure ca
   w.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',w.url,true);
   assert.notEqual(failures.at(-1).method,'UNKNOWN');
 });
+test('a lost original price calculation remains a read while an original GET mutation is retained as a write',async t=>{
+  const begun=[],failures=[];const f=fixture(t,{remoteState:{begin:async id=>begun.push(id)},offline:(_message,details)=>failures.push(details)});
+  await f.dashboard.open();const w=f.windows[0];
+  const quote={id:12,url:policy.DEFAULT_ORIGIN+'/admin/phone-orders/delivery-quote',method:'POST',webContentsId:w.webContents.id,requestHeaders:{}};
+  let decision;f.session.webRequest.headers(quote,value=>decision=value);assert.ok(decision.requestHeaders);assert.equal(begun.length,0);
+  f.session.webRequest.error({...quote,error:'net::ERR_CONNECTION_RESET'});assert.equal(failures.at(-1).method,'GET');
+  f.session.webRequest.headers({...quote,id:13,url:policy.DEFAULT_ORIGIN+'/admin/resturantControl',method:'GET'},()=>{});
+  await new Promise(r=>setImmediate(r));assert.equal(begun.length,1);
+  f.session.webRequest.error({...quote,error:'net::ERR_CONNECTION_RESET'});assert.equal(failures.at(-1).method,'UNKNOWN');
+});
 test('native receipt printing is silent, reuses dashboard authentication and runs receipt scripts under restrictive CSP',async t=>{
   const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
   const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
