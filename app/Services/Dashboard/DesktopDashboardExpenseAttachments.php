@@ -25,6 +25,7 @@ class DesktopDashboardExpenseAttachments
     {
         abort_unless(array_keys($files)===['attachment'],422,'المرفق غير صالح.');
         $a=$files['attachment'];
+        abort_unless(is_array($a),422,'المرفق غير صالح.');
         Validator::make($a,['name'=>'required|string|max:1000','mime'=>'required|string|max:100',
             'sha256'=>['required','regex:/^[a-f0-9]{64}$/D'],'base64'=>'required|string|max:6990508'])->validate();
         abort_if(array_diff(array_keys($a),['name','mime','sha256','base64']),422);

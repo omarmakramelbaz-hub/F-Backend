@@ -18,7 +18,7 @@ test('the actual source bundle excludes renamed production credentials and keeps
     'public/firebase_credentials_old.json': '{"private_key":"SYNTHETIC_KEY"}',
     'public/firebase_credentials_test_backup.json': '{"private_key":"SYNTHETIC_KEY"}',
     'public/old_firebase_credentials.json': '{"private_key":"SYNTHETIC_KEY"}',
-    'public/FIREBASE_CREDENTIALS.JSON': '{"private_key":"SYNTHETIC_KEY"}',
+    'public/FIREBASE_CREDENTIALS-UPPER.JSON': '{"private_key":"SYNTHETIC_KEY"}',
     'public/client-config.json': '{"arbitrary":{"client_secret":"SYNTHETIC_SECRET"}}',
     'public/account-backup.json': '{"nested":[{"type":"service_account"}]}',
     'public/signing.pem.backup': 'SYNTHETIC_SIGNING_KEY',

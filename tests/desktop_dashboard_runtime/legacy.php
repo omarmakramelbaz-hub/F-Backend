@@ -117,6 +117,7 @@ try{
     verify($http('/admin/categorys',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'added_by'=>10,'name_ar'=>'قسم ممنوع','name_en'=>'Forbidden','status'=>'show'])[0]===403&&DB::table('desktop_dashboard_commands')->count()===0,'a branch account cannot acquire global catalog administration offline');
     $control=DB::table('resturants')->where('id',100)->value('control');
     verify($http('/admin/resturantControl')[0]===501&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'an original legacy GET mutation is blocked by a real read-only transaction');
+    require __DIR__.'/expense-local-http.php';
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 
 // Prepare an owner account from the same complete schema, then reconcile original catalog forms.
