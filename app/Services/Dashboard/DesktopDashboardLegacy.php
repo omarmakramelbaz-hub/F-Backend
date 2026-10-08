@@ -1,7 +1,7 @@
 <?php
 namespace App\Services\Dashboard;
 
-use App\Models\{Area,Category,Product,User};
+use App\Models\{Area,Category,Product,QuestionAnswer,User};
 use Illuminate\Http\Request;
 use Illuminate\Pipeline\Pipeline;
 use Illuminate\Routing\MiddlewareNameResolver;
@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\{DB,Facade,Validator};
 class DesktopDashboardLegacy
 {
     public const ROUTES=[
+        'question_answers.store'=>['model'=>QuestionAnswer::class,'entity'=>'catalog_faq','table'=>'question_answers','method'=>'POST','action'=>'store','parameter'=>'question_answer'],
+        'question_answers.update'=>['model'=>QuestionAnswer::class,'entity'=>'catalog_faq','table'=>'question_answers','method'=>'PUT','action'=>'update','parameter'=>'question_answer'],
+        'question_answers.destroy'=>['model'=>QuestionAnswer::class,'entity'=>'catalog_faq','table'=>'question_answers','method'=>'DELETE','action'=>'destroy','parameter'=>'question_answer'],
+        'question_answers.destroy-all'=>['model'=>QuestionAnswer::class,'entity'=>'catalog_faq','table'=>'question_answers','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
         'areas.store'=>['model'=>Area::class,'entity'=>'catalog_area','table'=>'areas','method'=>'POST','action'=>'store','parameter'=>'area'],
         'areas.update'=>['model'=>Area::class,'entity'=>'catalog_area','table'=>'areas','method'=>'PUT','action'=>'update','parameter'=>'area'],
         'areas.destroy'=>['model'=>Area::class,'entity'=>'catalog_area','table'=>'areas','method'=>'DELETE','action'=>'destroy','parameter'=>'area'],
@@ -73,6 +77,7 @@ class DesktopDashboardLegacy
         }
         $allowed=match($definition['table']){
             'areas'=>['added_by','parent_id','title_ar','title_en'],
+            'question_answers'=>['added_by','question_ar','question_en','answer_ar','answer_en'],
             'categories'=>['added_by','parent_id','parent','name_ar','name_en','status','order'],
             'products'=>['added_by','category_id','subcategory_id','product_id','name_ar','name_en','status','has_clean','product_features','old_service'],
         };
@@ -82,7 +87,7 @@ class DesktopDashboardLegacy
     {
         $definition=self::ROUTES[$name];
         if(!self::$listening){
-            foreach([Area::class,Category::class,Product::class,\App\Models\ProductFeature::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
+            foreach([Area::class,Category::class,Product::class,QuestionAnswer::class,\App\Models\ProductFeature::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
                 if(self::$capture!==null)self::$capture[get_class($row)][]=(int)$row->getKey();
             });
             self::$listening=true;
@@ -117,7 +122,7 @@ class DesktopDashboardLegacy
     {
         $this->authorize($actor);$definition=self::ROUTES[$name];$app=app();$router=$app['router'];
         $original=$router->getRoutes()->getByName($name);abort_unless($original,409);
-        $controller=match($definition['table']){'areas'=>'AreaController','categories'=>'CategoryController','products'=>'ProductController'};
+        $controller=match($definition['table']){'areas'=>'AreaController','categories'=>'CategoryController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
         $expected='App\\Http\\Controllers\\Dashboard\\'.$controller.'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
@@ -167,8 +172,10 @@ class DesktopDashboardLegacy
     public function inputs(string $name,array $payload,callable $reference): array
     {
         $definition=self::ROUTES[$name];
-        $map=$definition['table']==='areas'?['parent_id'=>'catalog_area']:
-            ['category_id'=>'catalog_category','subcategory_id'=>'catalog_category','parent_id'=>'catalog_category','product_id'=>'catalog_product'];
+        $map=match($definition['table']){
+            'areas'=>['parent_id'=>'catalog_area'],'question_answers'=>[],
+            default=>['category_id'=>'catalog_category','subcategory_id'=>'catalog_category','parent_id'=>'catalog_category','product_id'=>'catalog_product'],
+        };
         foreach(['values','facts.catalog_before.row'] as $path){$row=data_get($payload,$path);if(!is_array($row))continue;
             foreach($map as $field=>$entity)if(isset($row[$field])&&!is_array($row[$field]))$row[$field]=$reference($entity,$row[$field]);
             data_set($payload,$path,$row);

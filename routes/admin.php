@@ -254,7 +254,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================question_answers=====================
         //=====================================================
         Route::resource('question_answers',QuestionAnswerController::class);
-        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'delete_all']);
+        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'deleteAll'])->name('question_answers.destroy-all');
 
     });
 });

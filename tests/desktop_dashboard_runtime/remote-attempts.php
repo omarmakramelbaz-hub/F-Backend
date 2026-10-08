@@ -106,6 +106,35 @@ try{
     verify($http($areaBulk['path'],$areaBulkForm,$proof($areaBulkProof),'DELETE')[0]===200&&DB::table('areas')->whereIn('id',$areaBulkIds)->count()===0,'the original area bulk DELETE commits its reserved result atomically');
     $areaBulkForm['ids']=implode(',',$areaBulkIds);
     verify($http($areaBulk['path'],$areaBulkForm,$proof($areaBulkProof),'DELETE')[0]===200,'a reordered original area bulk retry returns its receipt after deletion');
+    $faqForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'question_ar'=>'سؤال نتيجة السيرفر','question_en'=>'Remote outcome question','answer_ar'=>'<p>إجابة نتيجة السيرفر</p>','answer_en'=>'<p>Remote outcome answer</p>'];
+    $faqAttempt=$attempt('/admin/question_answers');[, $faqProof]=$decide($faqAttempt);
+    verify($http('/admin/question_answers',$faqForm,$proof($faqProof))[0]===302&&DB::table('question_answers')->where('question_ar',$faqForm['question_ar'])->count()===1
+        &&$decide($faqAttempt,'settle')[1]['status']==='committed','the actual FAQ repository commits its validated HTML fields with a reserved server outcome');
+    $faqRetry=$attempt('/admin/question_answers');[, $faqRetryProof]=$decide($faqRetry);
+    verify($http('/admin/question_answers',$faqForm,$proof($faqRetryProof))[0]===302&&DB::table('question_answers')->where('question_ar',$faqForm['question_ar'])->count()===1,'another native FAQ transmission replays one original creation');
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('question_answer-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http('/admin/question_answers',$faqForm,$proof($faqProof))[0]===403,'a stored FAQ creation response still requires its current original permission');
+    $currentRole->givePermissionTo('question_answer-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    $remoteFaqId=(int)DB::table('question_answers')->where('question_ar',$faqForm['question_ar'])->value('id');
+    $faqForm['_desktop_command']=(string)Str::uuid();$faqForm['_method']='PUT';$faqForm['answer_ar']='<p>إجابة نتيجة السيرفر معدلة</p>';
+    $faqUpdate=$attempt('/admin/question_answers/'.$remoteFaqId);[, $faqUpdateProof]=$decide($faqUpdate);
+    verify($http($faqUpdate['path'],$faqForm,$proof($faqUpdateProof))[0]===302&&DB::table('question_answers')->where('id',$remoteFaqId)->value('answer_ar')===$faqForm['answer_ar']
+        &&$http($faqUpdate['path'],$faqForm,$proof($faqUpdateProof))[0]===302,'the actual FAQ update returns its saved response while preserving the exact HTML answer');
+    $faqRemove=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];$faqDelete=$attempt('/admin/question_answers/'.$remoteFaqId);[, $faqDeleteProof]=$decide($faqDelete);
+    verify($http($faqDelete['path'],$faqRemove,$proof($faqDeleteProof))[0]===302&&!DB::table('question_answers')->where('id',$remoteFaqId)->exists()
+        &&$http($faqDelete['path'],$faqRemove,$proof($faqDeleteProof))[0]===302,'a lost original FAQ server deletion replays before binding its removed model');
+    $faqBulkIds=[];unset($faqForm['_desktop_command'],$faqForm['_method']);
+    foreach([1,2] as $index){$faqForm['question_ar']='سؤال حذف نتيجة السيرفر '.$index;
+        verify($http('/admin/question_answers',$faqForm)[0]===302,'the normal original FAQ request validates and persists without transport metadata');
+        $faqBulkIds[]=(int)DB::table('question_answers')->where('question_ar',$faqForm['question_ar'])->value('id');}
+    $faqBulk=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/question_answersDeleteAll'];[, $faqBulkProof]=$decide($faqBulk);
+    $faqBulkForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>implode(',',array_reverse($faqBulkIds))];
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('question_answer-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===403&&DB::table('question_answers')->whereIn('id',$faqBulkIds)->count()===count($faqBulkIds),'the corrected original FAQ bulk route checks its actual deletion permission before changing rows');
+    $currentRole->givePermissionTo('question_answer-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200&&DB::table('question_answers')->whereIn('id',$faqBulkIds)->count()===0,'the original FAQ bulk DELETE commits its protected reserved outcome');
+    $faqBulkForm['ids']=implode(',',$faqBulkIds);
+    verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200,'a reordered original FAQ bulk retry returns the saved result after deletion');
     $cart=['_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
     [$quoteStatus,$quoteBody]=$http('/admin/takeaway/quote',$cart,['Accept: application/json']);$quote=json_decode($quoteBody,true);
     verify($quoteStatus===200&&isset($quote['quote_hash'],$quote['total']),'the original server quote prepares a real cash checkout outcome test');
