@@ -41,7 +41,22 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
   await fs.cp(path.join(dependencyRoot, 'vendor'), path.join(application, 'vendor'), { recursive: true });
   for (const name of ['composer.json','composer.lock']) await fs.copyFile(path.join(dependencyRoot, name), path.join(application, name));
   await fs.mkdir(path.join(application, 'bootstrap/cache'), { recursive: true });
-  if (phpDirectory) await fs.cp(phpDirectory, path.join(target, 'php'), { recursive: true });
+  if (phpDirectory) {
+    const phpRoot = await fs.realpath(phpDirectory);
+    // CI setup directories also contain shell-tool aliases such as printf.exe. Package
+    // the actual PHP runtime and its extensions, never links into the build host.
+    const allowed = async file => {
+      const relative = path.relative(phpRoot, file);
+      if (!relative) return true;
+      const components = relative.split(path.sep), first = components[0].toLowerCase();
+      if (components.length === 1 && !['php.exe','php.ini','ext','extras'].includes(first)
+          && !/\.(?:dll|pem|crt|txt|md)$/i.test(first)) return false;
+      const resolved = await fs.realpath(file), within = path.relative(phpRoot, resolved);
+      if (within.startsWith('..' + path.sep) || path.isAbsolute(within)) throw Error('PHP runtime link points outside its source directory: ' + relative);
+      return true;
+    };
+    await fs.cp(phpRoot, path.join(target, 'php'), { recursive: true, dereference: true, filter: allowed });
+  }
   if (mariaDirectory) await fs.cp(mariaDirectory, path.join(target, 'mariadb'), { recursive: true });
   await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes }, null, 2)+'\n');
   return { application, files: Object.keys(hashes).length };

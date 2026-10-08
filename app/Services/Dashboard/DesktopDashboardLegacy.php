@@ -14,8 +14,10 @@ class DesktopDashboardLegacy
     public const ROUTES=[
         'categorys.store'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'POST','action'=>'store','parameter'=>'category'],
         'categorys.update'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'PUT','action'=>'update','parameter'=>'category'],
+        'categorys.destroy'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'DELETE','action'=>'destroy','parameter'=>'category'],
         'products.store'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'POST','action'=>'store','parameter'=>'product'],
         'products.update'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'PUT','action'=>'update','parameter'=>'product'],
+        'products.destroy'=>['model'=>Product::class,'entity'=>'catalog_product','table'=>'products','method'=>'DELETE','action'=>'destroy','parameter'=>'product'],
     ];
     private static bool $listening=false;
     private static ?array $capture=null;
@@ -33,10 +35,13 @@ class DesktopDashboardLegacy
         $values=$request->except('_token','_method','_desktop_command');
         $this->validateValues($definition,$values);
         $parameters=[];
-        foreach($request->route()->parameters() as $key=>$value)$parameters[$key]=$value instanceof \Illuminate\Database\Eloquent\Model?$value->getKey():$value;
-        $old=DB::table('desktop_dashboard_commands')->where('device_id',config('desktop_dashboard.device_id'))->where('command_id',$command)->where('route_name',$name)->where('actor_id',auth('admin')->id())->first();
-        $facts=$old?(json_decode(Crypt::decryptString($old->command_cipher),true,512,JSON_THROW_ON_ERROR)['facts']??[]):
-            ['catalog_before'=>$definition['action']==='update'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null];
+        foreach($request->route()->parameters() as $key=>$value){
+            $id=$value instanceof \Illuminate\Database\Eloquent\Model?$value->getKey():$value;
+            $parameters[$key]=is_scalar($id)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$id)?(int)$id:$id;
+        }
+        $savedFacts=app(DesktopDashboardJournal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)auth('admin')->id(),$name);
+        $facts=$savedFacts??
+            ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null];
         return ['values'=>array_merge($values,['idempotency_key'=>$command]),'parameters'=>$parameters,'files'=>[],'facts'=>$facts];
     }
     private function state(array $definition,int $id): array
@@ -47,6 +52,9 @@ class DesktopDashboardLegacy
     }
     private function validateValues(array $definition,array $values): void
     {
+        if($definition['action']==='destroy'){
+            abort_if(array_diff(array_keys($values),$definition['table']==='categories'?['parent']:[]),422,'حقول عملية الحذف غير مقبولة.');return;
+        }
         $allowed=$definition['table']==='categories'?['added_by','parent_id','parent','name_ar','name_en','status','order']:
             ['added_by','category_id','subcategory_id','product_id','name_ar','name_en','status','has_clean','product_features','old_service'];
         abort_if(array_diff(array_keys($values),$allowed),422,'حقول عملية الكتالوج غير مقبولة.');
@@ -72,7 +80,7 @@ class DesktopDashboardLegacy
             $created=self::$capture[$definition['model']]??[];
             $id=$definition['action']==='store'?($created[0]??0):(int)request()->route($definition['parameter'])->getKey();
             abort_unless($id>0&&($definition['action']!=='store'||count($created)===1),409,'نتيجة حفظ الكتالوج غير مكتملة.');
-            $references=[$definition['entity']=>$id];
+            $references=$definition['action']==='destroy'?[]:[$definition['entity']=>$id];
             foreach(self::$capture[\App\Models\ProductFeature::class]??[] as $index=>$feature)$references['catalog_feature.'.$index]=$feature;
             abort_if(strlen($response->getContent())>1024*1024,413);
             return ['http'=>['status'=>$status,'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$location],'references'=>$references];
@@ -92,7 +100,7 @@ class DesktopDashboardLegacy
         $expected='App\\Http\\Controllers\\Dashboard\\'.($definition['table']==='categories'?'CategoryController':'ProductController').'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
-        if($definition['action']==='update'){
+        if($definition['action']!=='store'){
             $before=$payload['facts']['catalog_before']??null;
             abort_unless(is_array($before)&&hash_equals(app(DesktopDashboardJournal::class)->fingerprint($before),app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,(int)($payload['parameters'][$definition['parameter']]??0)))),409,'الصنف أو القسم تغيّر على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
         }

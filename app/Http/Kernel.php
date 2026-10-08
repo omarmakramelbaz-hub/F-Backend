@@ -6,6 +6,12 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 
 class Kernel extends HttpKernel
 {
+    public function __construct(\Illuminate\Contracts\Foundation\Application $app,\Illuminate\Routing\Router $router)
+    {
+        parent::__construct($app,$router);
+        $index=array_search(\Illuminate\Routing\Middleware\SubstituteBindings::class,$this->middlewarePriority,true);
+        if($index!==false){array_splice($this->middlewarePriority,$index,0,[\App\Http\Middleware\DesktopDashboardJournal::class]);$this->syncMiddlewareToRouter();}
+    }
     /**
      * The application's global HTTP middleware stack.
      *
@@ -36,8 +42,8 @@ class Kernel extends HttpKernel
             // \Illuminate\Session\Middleware\AuthenticateSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\DesktopDashboardJournal::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
 
         'api' => [

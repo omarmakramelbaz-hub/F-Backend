@@ -3,7 +3,7 @@
     const eligible = form => {
         const url = new URL(form.action, location.href);
         const method = (form.querySelector('[name="_method"]')?.value || form.method).toUpperCase();
-        return url.origin === location.origin && ['POST', 'PUT', 'PATCH'].includes(method)
+        return url.origin === location.origin && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
             && /^\/admin\/(?:categorys|products)(?:\/\d+)?\/?$/.test(url.pathname);
     };
     const prepare = form => {
