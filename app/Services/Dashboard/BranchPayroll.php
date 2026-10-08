@@ -127,6 +127,37 @@ class BranchPayroll
         $data=['employee'=>(array)$employee,'month'=>$month,'salary'=>Money::decimal($base),'salary_configured'=>(bool)$salary,'eligible_days'=>$worked,'month_days'=>$days,'earned_salary'=>Money::decimal($earned),'bonus'=>Money::decimal($totals['bonus']),'deduction'=>Money::decimal($totals['deduction']),'advance'=>Money::decimal($totals['advance']),'net'=>Money::decimal($net),'net_cents'=>$net,'attendance'=>$attendance,'entries'=>$entries->map(function($r){$a=(array)$r;$a['amount']=Money::decimal((int)$r->amount_cents);return $a;})->all()];
         $data['preview_hash']=PosServiceTicket::fingerprint($data);return $data+['status'=>'draft','revision'=>0,'payroll_id'=>null];
     }
+    /** Capture the exact reviewed period, without database-local audit identifiers. */
+    public function desktopReview(array $values,$actor): array
+    {
+        $statement=$this->statement($values,$actor)['statement'];
+        abort_unless($statement['status']==='draft'&&$statement['salary_configured']
+            &&is_string($values['preview_hash']??null)&&hash_equals($statement['preview_hash'],$values['preview_hash']),409,'كشف المستحقات تغير؛ راجعه قبل الإقفال.');
+        return $this->desktopFacts($statement);
+    }
+    private function desktopFacts(array $statement): array
+    {
+        $employee=$statement['employee'];unset($employee['id'],$employee['actor_id'],$employee['created_at'],$employee['updated_at']);
+        $attendance=array_map(function($row){unset($row['id'],$row['employee_id'],$row['actor_id'],$row['created_at'],$row['updated_at']);return $row;},$statement['attendance']);
+        $entries=array_map(function($row){unset($row['employee_id'],$row['actor_id'],$row['created_at'],$row['updated_at']);return $row;},$statement['entries']);
+        return ['employee_id'=>(int)$statement['employee']['id'],'employee'=>$employee,
+            'period'=>array_intersect_key($statement,array_flip(['month','salary','salary_configured','eligible_days','month_days','earned_salary','bonus','deduction','advance','net','net_cents'])),
+            'attendance'=>$attendance,'entries'=>$entries];
+    }
+    /** Match mapped facts before issuing the original server's preview fingerprint. */
+    public function reconcileDesktop(array $values,array $review,$actor): array
+    {
+        return DB::transaction(function()use($values,$review,$actor){
+            Validator::make($values,['branch'=>'required|string|max:30','employee_id'=>'required|integer|min:1','month'=>'required|date_format:Y-m'])->validate();
+            $this->ops->branches($values['branch'],$actor);
+            $employee=$this->employee($values['employee_id'],$values['branch'],true);
+            $statement=$this->period($employee,$values['month']);
+            abort_unless($statement['status']==='draft'&&$statement['salary_configured']
+                &&hash_equals(PosServiceTicket::fingerprint($review),PosServiceTicket::fingerprint($this->desktopFacts($statement))),409,'كشف المرتب تغير على السيرفر؛ الإقفال المحلي محفوظ للمراجعة.');
+            $values['preview_hash']=$statement['preview_hash'];
+            return $this->close($values,$actor);
+        });
+    }
     public function close(array $values,$actor): array
     {
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','month'=>'required|date_format:Y-m','preview_hash'=>'required|string|size:64'])->validate();

@@ -71,6 +71,10 @@ class DesktopDashboardReferences
             $entity=['pos'=>'receipt','expense'=>'expense_command'][$source['source']]??null;
             if($entity)$payload['facts']['shift']['sources'][$i]['source_id']=$reference($entity,$source['source_id']);
         }
+        if(isset($payload['facts']['payroll']['employee_id']))$payload['facts']['payroll']['employee_id']=$reference('employee',$payload['facts']['payroll']['employee_id']);
+        foreach($payload['facts']['payroll']['entries']??[] as $i=>$entry){
+            if(isset($entry['id']))$payload['facts']['payroll']['entries'][$i]['id']=$reference('employee_entry',$entry['id']);
+        }
         if(isset($payload['facts']['shift']['previous_closing_id']))$payload['facts']['shift']['previous_closing_id']=$reference('shift',$payload['facts']['shift']['previous_closing_id']);
         return ['payload'=>$payload,'dependencies'=>array_keys($dependencies)];
     }

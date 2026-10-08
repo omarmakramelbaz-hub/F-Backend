@@ -18,11 +18,15 @@ class DesktopDashboardCommands
             'employees.save'=>[BranchPayroll::class,'employeeSave'],'employees.attendance'=>[BranchPayroll::class,'attendance'],
             'employees.entry'=>[BranchPayroll::class,'entry'],'employees.wallet'=>[BranchPayroll::class,'wallet'],
             'employees.daily-notes'=>[BranchPayroll::class,'dailyNotes'],'employees.void-entry'=>[BranchPayroll::class,'voidEntry'],
-            'employees.close'=>[BranchPayroll::class,'close'],'employees.pay'=>[BranchPayroll::class,'pay'],
+            'employees.pay'=>[BranchPayroll::class,'pay'],
             'branch-stock.recipe-save'=>[BranchInventory::class,'saveRecipe'],'branch-expenses.categorySave'=>[ExpenseCategories::class,'save'],
             'phone-orders.dispatch-company'=>[PhoneDeliveryBoard::class,'dispatch'],'phone-orders.finish-batch'=>[PhoneDeliveryBoard::class,'finish'],
         ];
         if(isset($simple[$route])){[$class,$method]=$simple[$route];return app($class)->$method($v,$actor);}
+        if($route==='employees.close'){
+            abort_unless(isset($payload['facts']['payroll'])&&is_array($payload['facts']['payroll']),409,'بيانات كشف المرتب المحلي غير مكتملة.');
+            return app(BranchPayroll::class)->reconcileDesktop($v,$payload['facts']['payroll'],$actor);
+        }
         if(in_array($route,['takeaway.movements','takeaway.settings'],true))return app(TakeawayService::class)->changeRegister($v,$actor,$route==='takeaway.settings');
         if(in_array($route,['dining.table-save','dining.settings'],true))return app(PosServiceTable::class)->configure($v,$actor,$route==='dining.settings');
         if($route==='branch-stock.receive')return app(BranchInventory::class)->installed()?app(BranchInventory::class)->receive($v,$actor):app(BranchStock::class)->receive($v,$actor);

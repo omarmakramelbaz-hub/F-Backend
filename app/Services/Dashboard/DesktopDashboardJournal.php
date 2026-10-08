@@ -10,6 +10,21 @@ use Illuminate\Support\Facades\Validator;
 class DesktopDashboardJournal
 {
     public function __construct(private DesktopDashboardReferences $references) {}
+    /** A lost local reply must reuse the approved facts, even after its operation changed the ledger. */
+    public function savedFacts(string $device,string $command,int $actor,string $route): ?array
+    {
+        $row=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$command)
+            ->where('actor_id',$actor)->where('route_name',$route)->first();
+        if(!$row)return null;
+        $payload=json_decode(Crypt::decryptString($row->command_cipher),true,512,JSON_THROW_ON_ERROR);
+        // prepare() will re-establish the same typed references and dependencies from their local IDs.
+        $local=function($value)use(&$local){
+            if(!is_array($value))return $value;
+            if(isset($value['$desktop_ref']))return (int)$value['$desktop_ref']['local_id'];
+            return array_map($local,$value);
+        };
+        return $local($payload['facts']??[]);
+    }
     public function execute(string $device, string $command, int $actor, string $route, array $payload, array $dependencies, callable $work): array
     {
         Validator::make(['device'=>$device,'command'=>$command,'actor'=>$actor,'route'=>$route,'dependencies'=>$dependencies], [
