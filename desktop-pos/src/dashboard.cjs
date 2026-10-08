@@ -6,7 +6,7 @@ const policy = require('./dashboard-policy.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, remoteState, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, remoteState, remoteAttempts, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false;
@@ -97,15 +97,15 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
-            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control)$/i.test(name)) delete headers[name];
+            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability)$/i.test(name)) delete headers[name];
             if (!policy.sameOrigin(details.url, origin)) { callback({ requestHeaders: headers }); return; }
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
               if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
               const attempt = crypto.randomUUID(); remoteWrites.set(details.id, attempt);
               // Persist uncertainty before a request can leave the machine.
-              accepted(() => remoteState?.begin(attempt)).then(() => callback({ requestHeaders: headers }), error => {
-                remoteWrites.delete(details.id); callback({ cancel: true });
+              accepted(() => remoteAttempts ? remoteAttempts.begin(attempt, details) : remoteState?.begin(attempt)).then(proof => callback({ requestHeaders: { ...headers, ...proof } }), error => {
+                if(remoteWrites.get(details.id)===attempt)remoteWrites.delete(details.id); callback({ cancel: true });
                 dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message });
               });
               return;
@@ -116,7 +116,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         });
         contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
           if (!remoteWrites.has(details.id)) return;
-          accepted(() => remoteState?.complete(remoteWrites.get(details.id))).then(() => remoteWrites.delete(details.id)).catch(() => {});
+          const attempt=remoteWrites.get(details.id);
+          const forget=()=>{if(remoteWrites.get(details.id)===attempt)remoteWrites.delete(details.id);};
+          accepted(() => remoteAttempts ? remoteAttempts.complete(attempt) : remoteState?.complete(attempt)).then(forget).catch(() => {})
+            .finally(() => { if (remoteAttempts) forget(); });
         });
         contents.on('will-navigate', navigate);
         contents.on('will-redirect', navigate);
@@ -153,6 +156,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         });
         // Fetch failures during SPA navigation do not trigger did-fail-load.
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
+          if(remoteAttempts&&remoteWrites.has(details.id)){remoteAttempts.failed(remoteWrites.get(details.id));remoteWrites.delete(details.id);}
           if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
             offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
         });

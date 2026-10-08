@@ -69,6 +69,28 @@ test('a lost original price calculation remains a read while an original GET mut
   await new Promise(r=>setImmediate(r));assert.equal(begun.length,1);
   f.session.webRequest.error({...quote,error:'net::ERR_CONNECTION_RESET'});assert.equal(failures.at(-1).method,'UNKNOWN');
 });
+test('native remote proofs wait for reservation and cannot leak through foreign requests or be forged by a page',async t=>{
+  let release;const finished=[],failed=[],f=fixture(t,{remoteAttempts:{begin:async id=>{await new Promise(r=>release=r);return {'X-Fasakhansta-Remote-Attempt':id,'X-Fasakhansta-Remote-Capability':'a'.repeat(64)};},
+    complete:async id=>finished.push(id),failed:id=>failed.push(id)}});
+  await f.dashboard.open();const request={id:10,url:policy.DEFAULT_ORIGIN+'/admin/products',method:'POST',webContentsId:f.windows[0].webContents.id,
+    requestHeaders:{'X-Fasakhansta-Remote-Attempt':'forged','X-Fasakhansta-Remote-Capability':'forged'}};let decision;
+  f.session.webRequest.headers(request,value=>decision=value);await Promise.resolve();assert.equal(decision,undefined);release();await new Promise(r=>setImmediate(r));
+  const id=decision.requestHeaders['X-Fasakhansta-Remote-Attempt'];assert.match(id,/^[a-f0-9-]{36}$/);assert.equal(decision.requestHeaders['X-Fasakhansta-Remote-Capability'],'a'.repeat(64));
+  f.session.webRequest.headers({...request,url:'https://foreign.test/api',requestHeaders:decision.requestHeaders},value=>decision=value);
+  assert.equal(Object.keys(decision.requestHeaders).some(key=>/^x-fasakhansta-remote-/i.test(key)),false);
+  f.session.webRequest.completed({id:10});await new Promise(r=>setImmediate(r));assert.deepEqual(finished,[id]);
+  f.session.webRequest.headers({...request,id:11},()=>{});await Promise.resolve();release();await new Promise(r=>setImmediate(r));
+  f.session.webRequest.error({...request,id:11,error:'net::ERR_CONNECTION_RESET'});assert.equal(failed.length,1);
+});
+test('a delayed remote settlement cannot discard a later write that reuses the network request ID',async t=>{
+  let release;const failures=[],begun=[],f=fixture(t,{remoteAttempts:{begin:async id=>{begun.push(id);return {};},
+    complete:async()=>new Promise(resolve=>release=resolve),failed:()=>{}},offline:(_message,details)=>failures.push(details)});
+  await f.dashboard.open();const request={id:17,url:policy.DEFAULT_ORIGIN+'/admin/products',method:'POST',webContentsId:f.windows[0].webContents.id,requestHeaders:{}};
+  f.session.webRequest.headers(request,()=>{});await new Promise(r=>setImmediate(r));f.session.webRequest.completed({id:17});await Promise.resolve();
+  f.session.webRequest.headers(request,()=>{});await new Promise(r=>setImmediate(r));assert.notEqual(begun[0],begun[1]);release();await new Promise(r=>setImmediate(r));
+  f.windows[0].webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',request.url,true);
+  assert.equal(failures.at(-1).method,'UNKNOWN');
+});
 test('native receipt printing is silent, reuses dashboard authentication and runs receipt scripts under restrictive CSP',async t=>{
   const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
   const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');

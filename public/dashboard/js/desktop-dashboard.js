@@ -1,5 +1,9 @@
 /* Original catalog forms keep their layout and controller, with a stable local operation UUID. */
-(() => {
+(async () => {
+    if (document.body?.dataset.dashboardLocal !== '1') {
+        if (!window.FasakhanstaDesktop || document.body?.dataset.dashboardRemoteAttempts !== '1') return;
+        try { if (!(await window.FasakhanstaDesktop.status()).prepared) return; } catch { return; }
+    }
     const eligible = form => {
         const url = new URL(form.action, location.href);
         const method = (form.querySelector('[name="_method"]')?.value || form.method).toUpperCase();

@@ -7,6 +7,12 @@ use Illuminate\Http\Request;
 
 class DesktopDashboardController extends Controller
 {
+    public function remoteAttempt(Request $request,DesktopDashboardDevices $devices,\App\Services\Dashboard\DesktopDashboardRemoteAttempts $attempts)
+    {
+        $device=$devices->device((string)$request->bearerToken());
+        $request->validate(['action'=>'required|in:reserve,settle']);
+        return response()->json($attempts->decide($device,$request->all(),$request->input('action')==='settle'))->header('Cache-Control','private, no-store');
+    }
     public function bootstrap(Request $request,DesktopDashboardDevices $devices,DesktopDashboardBootstrap $bootstrap)
     {
         $device=$devices->device((string)$request->bearerToken());

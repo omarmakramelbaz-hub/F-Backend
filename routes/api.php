@@ -1,6 +1,7 @@
 <?php
 \Illuminate\Support\Facades\Route::get('desktop-dashboard/bootstrap',[\App\Http\Controllers\Api\DesktopDashboardController::class,'bootstrap'])->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::post('desktop-dashboard/commands',[\App\Http\Controllers\Api\DesktopDashboardController::class,'ingest'])->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/remote-attempts',[\App\Http\Controllers\Api\DesktopDashboardController::class,'remoteAttempt'])->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::get('desktop-dashboard/media',[\App\Http\Controllers\Api\DesktopDashboardController::class,'media'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-dashboard-media');
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;

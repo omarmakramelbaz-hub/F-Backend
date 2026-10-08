@@ -77,11 +77,11 @@ $env=getenv();$env['DB_DATABASE']=$stage;$env['APP_URL']=$origin;$env['DESKTOP_D
 $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browserToken;$env['DESKTOP_DASHBOARD_CONTROL_TOKEN']=bin2hex(random_bytes(32));
 $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];
-$http=function(string $path,?array $form=null,array $extraHeaders=[])use($origin,$browserToken,&$cookies){
+$http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies){
     $headers=['X-Fasakhansta-Desktop: '.$browserToken,...$extraHeaders];
     if($cookies)$headers[]='Cookie: '.implode('; ',array_map(fn($k,$v)=>$k.'='.$v,array_keys($cookies),$cookies));
     if($form!==null)$headers[]='Content-Type: application/x-www-form-urlencoded';
-    $context=stream_context_create(['http'=>['method'=>$form===null?'GET':'POST','header'=>implode("\r\n",$headers),'content'=>$form===null?'':http_build_query($form),'ignore_errors'=>true,'timeout'=>15,'follow_location'=>0]]);
+    $context=stream_context_create(['http'=>['method'=>$method??($form===null?'GET':'POST'),'header'=>implode("\r\n",$headers),'content'=>$form===null?'':http_build_query($form),'ignore_errors'=>true,'timeout'=>15,'follow_location'=>0]]);
     $body=@file_get_contents($origin.$path,false,$context);$responseHeaders=$http_response_header??[];
     preg_match('/^HTTP\/\S+ (\d+)/',$responseHeaders[0]??'',$status);
     foreach($responseHeaders as $header)if(preg_match('/^Set-Cookie: ([^=]+)=([^;]*)/i',$header,$match))$cookies[$match[1]]=$match[2];
@@ -186,5 +186,6 @@ catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($erro
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
 verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($ownerDevice)[0]['command_id']===$conflicting['command_id'],'a rejected catalog update remains durably queued on the local device');
 require __DIR__.'/catalog-delete.php';
+require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

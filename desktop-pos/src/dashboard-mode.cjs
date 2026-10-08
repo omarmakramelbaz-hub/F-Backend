@@ -5,9 +5,10 @@ const uuid = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(valu
 
 /** Retain a durable inactive-local write fence while the original window uses the server. */
 class DashboardMode {
-  constructor({ runtime, generations, view, probe, remoteState, onState = () => {} }) {
+  constructor({ runtime, generations, view, probe, remoteState, remoteAttempts, onState = () => {} }) {
     this.runtime = runtime; this.metadata = runtime.metadata; this.generations = generations; this.view = view;
     this.probe = probe; this.remoteState = remoteState; this.onState = onState; this.tail = Promise.resolve(); this.accepted = new Map();
+    this.remoteAttempts = remoteAttempts;
   }
   serialize(name, work) {
     if (this.accepted.has(name)) return this.accepted.get(name);
@@ -54,6 +55,7 @@ class DashboardMode {
   refresh() {
     return this.serialize('refresh', async () => {
       try {
+        await this.remoteAttempts?.recover();
         await this.cancelHold();
         if (this.remoteState) await this.remoteState.snapshot(() => this.generations.run());
         else await this.generations.run();
