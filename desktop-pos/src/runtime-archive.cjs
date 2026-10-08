@@ -3,7 +3,6 @@ const fs = require('node:fs/promises');
 const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const revision = value => /^[a-f0-9]{40}$/.test(value || '');
 
 /** Retain the exact application and native binaries required by an existing local journal. */
@@ -21,7 +20,7 @@ class RuntimeArchive {
     const walk = async relative => {
       for (const entry of await fs.readdir(path.join(directory, relative), { withFileTypes: true })) {
         const name = relative ? relative + '/' + entry.name : entry.name;
-        if (entry.isSymbolicLink() || /[\x00-\x1f:]/.test(name) || cases.has(name.toLowerCase())) throw Error('حزمة التشغيل تحتوي مسارًا غير صالح.');
+        if (entry.isSymbolicLink() || /[\x00-\x1f:]/.test(name) || cases.has(name.toLowerCase())) throw Error('حزمة التشغيل تحتوي مسارًا غير صالح: ' + name);
         cases.add(name.toLowerCase());
         if (entry.isDirectory()) await walk(name);
         else if (entry.isFile()) {
