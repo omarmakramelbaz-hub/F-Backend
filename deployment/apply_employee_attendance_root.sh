@@ -13,7 +13,7 @@ id "$owner" >/dev/null
 runuser -u "$owner" -- git -C "$project" fetch --no-tags --no-prune --no-recurse-submodules --refmap= origin refs/heads/codex/employee-attendance-live-20261008
 test "$(runuser -u "$owner" -- git -C "$project" rev-parse FETCH_HEAD)" = "$release"
 previous="$(runuser -u "$owner" -- git -C "$project" rev-parse HEAD)"
-test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = "$release" || { echo 'Server checkpoint changed; no source changed.'; exit 1; }
+test "$previous" = cedd72355a853d99ea0152f0e4091e3b59716126 || test "$previous" = 845f3b73fd0263d7af034e764287fdb6e30f11da || test "$previous" = b878da3bf35b7abf8eb192152edcabcaf5ae91eb || test "$previous" = "$release" || { echo 'Server checkpoint changed; no source changed.'; exit 1; }
 source_status="$(runuser -u "$owner" -- git -C "$project" status --porcelain --untracked-files=no)"
 test -z "$source_status" || { echo 'Save local tracked changes first.'; exit 1; }
 # Validate all reviewed source paths before repairing ownership of source files only.

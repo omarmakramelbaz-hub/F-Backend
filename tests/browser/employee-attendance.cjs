@@ -12,7 +12,7 @@ const data={success:true,can_manage_attendance:true,attendance_rules:{'f:100':{m
   items:[{id:1,branch:'f:100',name:'موظف الاختبار',job_title:'كاشير',shift:'صباحي',revision:1,active:true,attendance:null,day_closed:false,
     daily:{deduction:{count:0,amount:'0.00'},bonus:{count:0,amount:'0.00'},advance:{count:0,amount:'0.00'}},statement:{net:'3100.00',salary:'3100.00',status:'draft',month:'2026-10'}}]};
 const urls=Object.fromEntries(['data','save','attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','recover','orders'].map(k=>[k,'http://attendance.test/'+k]));
-function html(owner=true){const boot={module:'employees',branches:data.branches,selected_branch:'f:100',initial:data,today:'2026-10-08',actor_id:owner?1:10,urls};return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="csrf-token" content="test"><style>${fs.readFileSync(path.join(source,'public/dashboard/css/branch-operations.css'),'utf8')}</style></head><body><main id="branch-operations" class="op-workspace op-employees"><header class="op-header"><h1>متابعة الموظفين اليومية</h1><button data-op-add>إضافة موظف</button></header><div data-op-message hidden></div><button data-op-retry hidden></button><section class="op-filters"><label>الفرع<select data-op-filter="branch"><option value="f:100">فرع المنصورة</option></select></label><label>بحث<input data-op-filter="search"></label><label>الوردية<select data-op-filter="shift"></select></label><label>الوظيفة<select data-op-filter="job_title"></select></label><label>اليوم<input data-op-filter="day" type="date" value="2026-10-08"></label><button data-op-refresh>تحديث</button></section><section class="op-month-tools"><input data-op-filter="month" type="month" value="2026-10"><button data-op-month>تصفية حساب الشهر</button><button data-op-export>تصدير</button>${owner?'<button data-op-attendance-rules>مواعيد الحضور والانصراف والخصومات</button>':''}</section><section data-op-cards class="op-cards"></section><div data-op-table></div><nav><button data-op-prev>السابق</button><span data-op-pages></span><button data-op-next>التالي</button></nav><dialog data-op-dialog><header><h2 data-op-title></h2><button data-op-close>×</button></header><div data-op-body></div></dialog></main><script id="branch-operations-bootstrap" type="application/json">${JSON.stringify(boot)}</script></body></html>`;}
+function html(owner=true){const boot={module:'employees',branches:data.branches,selected_branch:'f:100',initial:data,today:'2026-10-08',actor_id:owner?1:10,urls};return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="csrf-token" content="test"><style>${fs.readFileSync(path.join(source,'public/dashboard/css/branch-operations.css'),'utf8')}</style></head><body><div class="content-wrapper"><main id="branch-operations" class="op-workspace op-employees"><header class="op-header"><div><small>إدارة الفروع</small><h1>متابعة الموظفين اليومية</h1><p>الحضور والخصومات والمكافآت والسلف لكل موظف، في اليوم المحدد.</p></div><div class="op-header-actions"><button data-op-add class="op-primary">إضافة موظف</button>${owner?'<button data-op-attendance-rules class="op-primary">مواعيد الحضور والانصراف والخصومات</button>':''}</div></header><div data-op-message class="op-message" hidden></div><button data-op-retry hidden></button><section class="op-filters"><label>الفرع<select data-op-filter="branch"><option value="f:100">فرع المنصورة</option></select></label><label>بحث<input data-op-filter="search"></label><label>الوردية<select data-op-filter="shift"></select></label><label>الوظيفة<select data-op-filter="job_title"></select></label><label>اليوم<input data-op-filter="day" type="date" value="2026-10-08"></label><button data-op-refresh>تحديث</button></section><section class="op-month-tools"><input data-op-filter="month" type="month" value="2026-10"><button data-op-month>تصفية حساب الشهر</button><button data-op-export>تصدير</button></section><section data-op-cards class="op-cards"></section><div data-op-table></div><nav class="op-pager"><button data-op-prev>السابق</button><span data-op-pages></span><button data-op-next>التالي</button></nav><dialog data-op-dialog><header><h2 data-op-title></h2><button data-op-close>×</button></header><div data-op-body></div></dialog></main></div><script id="branch-operations-bootstrap" type="application/json">${JSON.stringify(boot)}</script></body></html>`;}
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--no-sandbox'],executablePath:process.env.ATTENDANCE_BROWSER_EXECUTABLE||undefined});
  const page=await browser.newPage({viewport:{width:1440,height:950}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -43,48 +43,80 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
  async function waitRecorded(selector,text){await page.waitForFunction(({selector,text})=>document.querySelector(selector).selectedOptions[0].textContent===text,{selector,text});}
  async function refreshed(action,renders=2){const before=await page.evaluate(()=>window.attendanceTableRenders);await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/data'),action()]);await page.waitForFunction(({before,renders})=>window.attendanceTableRenders>=before+renders,{before,renders});}
  async function refresh(){await refreshed(()=>page.locator('[data-op-refresh]').click(),1);}
+ async function choose(control,value){
+  if(await control.evaluate(el=>el.classList.contains('select2-hidden-accessible'))){
+   const text=await control.locator('option[value="'+value+'"]').textContent();
+   await control.locator('xpath=following-sibling::span[1]').locator('.select2-selection').click();
+   await page.getByRole('option',{name:text,exact:true}).click();
+  }else await control.selectOption(value);
+ }
+ async function enhanceAttendance(){await page.evaluate(()=>window.jQuery('[data-op-attendance],[data-op-checkout]').select2());}
+
  try{
-  await page.goto('http://attendance.test/');await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
+  await page.goto('http://attendance.test/');
+  await page.addStyleTag({path:path.join(source,'public/dashboard/dist/css/select2.min.css')});
+  await page.addScriptTag({path:path.join(source,'public/dashboard/plugins/jquery/jquery.min.js')});
+  await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/select2.min.js')});
+  await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
+  await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/adminlte.js')});
+  assert.ok(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')));
+
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.deepEqual(await departure().locator('option').allTextContents(),['تسجيل الانصراف','انصراف صباحًا','انصراف مساءً']);
   assert.ok(await departure().isDisabled());assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
-  await refreshed(()=>arrival().selectOption('morning'));await waitRecorded('[data-op-attendance]','12:35');
-  assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
+  await refreshed(()=>choose(arrival(),'morning'));await waitRecorded('[data-op-attendance]','12:35');
+  assert.equal(posts.length,1);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
   assert.equal(posts[0].v.expected_revision,null);assert.equal(await arrival().inputValue(),'');assert.ok(!(await departure().isDisabled()));
   assert.ok(await departure().locator('[value=evening]').evaluate(el=>el.disabled));assert.ok(!(await departure().locator('[value=morning]').evaluate(el=>el.disabled)));
   assert.ok(await page.locator('[data-op-total=deduction]').textContent().then(x=>x.includes('50.00')));
   assert.equal(await page.evaluate(()=>document.activeElement.matches('[data-op-attendance]')),false);
-  await refreshed(()=>arrival().selectOption('morning'));
+  await refreshed(()=>choose(arrival(),'morning'));
   assert.equal(await selected(arrival()),'12:35');assert.ok((await page.locator('[data-op-total=deduction]').textContent()).includes('50.00'));
-  await refreshed(()=>departure().selectOption('morning'));await waitRecorded('[data-op-checkout]','17:00');
-  assert.equal(posts.at(-1).v.action,'check_out');assert.equal(posts.at(-1).v.expected_revision,2);assert.ok(!('check_out' in posts.at(-1).v));
+  await enhanceAttendance();await refreshed(()=>choose(departure(),'morning'));await waitRecorded('[data-op-checkout]','17:00');
+  assert.equal(posts.filter(p=>p.endpoint==='attendance').length,3);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts.at(-1).v.action,'check_out');assert.equal(posts.at(-1).v.expected_revision,2);assert.ok(!('check_out' in posts.at(-1).v));
   assert.ok(await departure().isDisabled());assert.equal(await selected(arrival()),'12:35');
   await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('3040.00'));
   await page.locator('[data-op-auto-notes]').fill('ملاحظة محفوظة لليوم');await refreshed(()=>page.locator('[data-op-auto-notes]').press('Tab'),1);
-  await refreshed(()=>arrival().selectOption('unauthorized_absence'));await waitRecorded('[data-op-attendance]','غياب بدون إذن');
+  await refreshed(()=>choose(arrival(),'unauthorized_absence'));await waitRecorded('[data-op-attendance]','غياب بدون إذن');
   assert.equal(posts.at(-1).v.action,'set_status');assert.equal(posts.at(-1).v.notes,'ملاحظة محفوظة لليوم');assert.equal(await selected(departure()),'تسجيل الانصراف');assert.ok(await departure().isDisabled());
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('300.00'));
-  await refreshed(()=>arrival().selectOption('preapproved_leave'));await waitRecorded('[data-op-attendance]','إجازة مسبقة');
+  await refreshed(()=>choose(arrival(),'preapproved_leave'));await waitRecorded('[data-op-attendance]','إجازة مسبقة');
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('100.00'));
-  rejectAttendance=true;await arrival().selectOption('morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
-  assert.equal(await selected(arrival()),'إجازة مسبقة');assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().isDisabled());
-  uncertainAttendance=true;await arrival().selectOption('evening');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent.includes('غير مؤكدة'));
+  await enhanceAttendance();rejectAttendance=true;await choose(arrival(),'morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
+  assert.equal(await selected(arrival()),'إجازة مسبقة');assert.ok((await arrival().locator('xpath=following-sibling::span[1]').textContent()).includes('إجازة مسبقة'));assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().isDisabled());
+  uncertainAttendance=true;await choose(arrival(),'evening');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent.includes('غير مؤكدة'));
   const count=posts.length;assert.ok(await arrival().isDisabled());await refreshed(()=>page.locator('[data-op-retry]').click());await waitRecorded('[data-op-attendance]','12:35');
   assert.equal(posts.length,count);assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().locator('[value=morning]').evaluate(el=>el.disabled));
   data.items[0].day_closed=true;await refresh();assert.ok(await arrival().isDisabled());assert.ok(await departure().isDisabled());
   data.items[0].day_closed=false;await refresh();assert.ok(!(await arrival().isDisabled()));
   assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),0);
+  assert.equal(await page.locator('.op-header-actions [data-op-add]').count(),1);assert.equal(await page.locator('.op-header-actions [data-op-attendance-rules]').count(),1);
   await page.locator('[data-op-attendance-rules]').click();await page.waitForFunction(()=>document.querySelector('[name=morning_start]').value==='10:00');
   assert.equal(await page.locator('[name=evening_end]').inputValue(),'04:00');await page.fill('[name=absence]','450.00');await refreshed(()=>page.locator('[data-op-body] [type=submit]').click(),1);
   await page.waitForFunction(()=>!document.querySelector('[data-op-dialog]').open);assert.equal(posts.at(-1).endpoint,'attendance-rules');assert.equal(posts.at(-1).v.absence,'450.00');assert.equal(posts.at(-1).v.expected_revision,1);
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT+'.desktop.png',fullPage:true});
-  await page.setViewportSize({width:390,height:844});await arrival().scrollIntoViewIfNeeded();await refreshed(()=>arrival().selectOption('evening'));
-  await departure().scrollIntoViewIfNeeded();await refreshed(()=>departure().selectOption('evening'));await waitRecorded('[data-op-checkout]','17:00');
+  await page.setViewportSize({width:390,height:844});await arrival().scrollIntoViewIfNeeded();await refreshed(()=>choose(arrival(),'evening'));
+  await departure().scrollIntoViewIfNeeded();await refreshed(()=>choose(departure(),'evening'));await waitRecorded('[data-op-checkout]','17:00');
   assert.equal(await selected(arrival()),'12:35');assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),1);
   const bounds=await departure().boundingBox();assert.ok(bounds.width>50&&bounds.width<200&&bounds.x>=0&&bounds.x+bounds.width<=390,JSON.stringify(bounds));
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT,fullPage:true});
-  assert.deepEqual(errors,[]);console.log('Browser checks passed: two inline dropdowns, Cairo clock requests, automatic totals, repeated punches, rejected saves, safe retry, closed months, owner configuration and mobile recording.');
+  // Dense ledger uses the existing dashboard CSS and sidebar width, with every money control populated.
+  const template=JSON.parse(JSON.stringify(data.items[0]));data.items=Array.from({length:6},(_,i)=>({...JSON.parse(JSON.stringify(template)),id:i+1,name:'موظف الاختبار '+(i+1),daily:{deduction:{count:1,amount:'50.00'},bonus:{count:1,amount:'25.00'},advance:{count:1,amount:'50.00'}}}));data.summary.employees=6;data.pagination.total=6;
+  await page.addStyleTag({path:path.join(source,'public/dashboard/dist/css/adminrtl.css')});
+  await page.addStyleTag({path:path.join(source,'public/dashboard/branding/dashboard-brand.css')});
+  await page.addStyleTag({path:path.join(source,'public/dashboard/css/branch-operations.css')});
+  await page.addStyleTag({content:'body{margin:0}.content-wrapper{margin:56px 250px 0 0!important;min-height:0!important}'});
+  await page.evaluate(()=>{document.body.classList.add('dashboard-theme');document.querySelector('[data-op-message]').hidden=true;});
+  for(const size of [{width:1920,height:950},{width:1440,height:820},{width:1366,height:768}]){
+   await page.setViewportSize(size);await refresh();await enhanceAttendance();await page.evaluate(()=>window.scrollTo(0,0));
+   const rows=page.locator('[data-op-table] tbody tr');assert.equal(await rows.count(),6);
+   const sixth=await rows.nth(5).boundingBox();assert.ok(sixth.y+sixth.height<=size.height-12,'Sixth employee is outside the initial viewport: '+JSON.stringify({size,sixth}));
+   const clipped=await page.locator('.op-attendance-cell .select2-selection__rendered').first().evaluate(el=>el.scrollWidth>el.clientWidth);assert.equal(clipped,false,'Recorded attendance time must fit in the control');
+   const add=await page.locator('[data-op-add]').boundingBox(),settings=await page.locator('[data-op-attendance-rules]').boundingBox();assert.ok(Math.abs(add.y-settings.y)<2,'Header actions must share a row');
+   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT+'.six-'+size.width+'.png',fullPage:true});
+  }
+  assert.deepEqual(errors,[]);console.log('Browser checks passed: real AdminLTE/Select2 dropdown clicks and native controls, Cairo clock requests, automatic totals, repeated punches, rejected saves, safe retry, closed months, owner configuration, mobile recording and six visible employee rows at three desktop sizes.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});
