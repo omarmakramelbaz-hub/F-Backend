@@ -25,7 +25,7 @@ Section "Install"
   CreateShortcut "$SMPROGRAMS\Fasakhansta POS\Fasakhansta POS.lnk" "$INSTDIR\Fasakhansta POS.exe" "" "$INSTDIR\resources\app.ico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "DisplayName" "Fasakhansta POS"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "DisplayVersion" "0.2.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "DisplayVersion" "0.2.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "Publisher" "Fasakhansta"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaPOS" "NoRepair" 1

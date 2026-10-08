@@ -52,6 +52,6 @@ class Store {
   history() {return this.db.prepare('SELECT id,order_id,payload,acked,printed,last_error,result FROM outbox ORDER BY seq DESC LIMIT 100').all().map(r=>({...r,event:JSON.parse(r.payload),result:r.result?JSON.parse(r.result):null}));}
   event(id) {const r=this.db.prepare('SELECT payload FROM outbox WHERE id=?').get(id);if(!r)throw Error('العملية غير موجودة.');return JSON.parse(r.payload);}
   markPrinted(id) {this.db.prepare('UPDATE outbox SET printed=printed+1 WHERE id=?').run(id);}
-  close() {this.db.close();}
+  close() {if(this.db.isOpen)this.db.close();}
 }
 module.exports=Store;

@@ -3,7 +3,7 @@ const {EventEmitter}=require('node:events');
 const policy=require('../src/dashboard-policy.cjs');
 
 function fixture(t){
-  let next=0;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
+  let next=0,closing=false;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
   const session={fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
     webRequest:{onErrorOccurred(_filter,handler){this.error=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
@@ -16,8 +16,8 @@ function fixture(t){
   }
   const electron={BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},Menu:{buildFromTemplate:template=>template,setApplicationMenu:menu=>{electron.menu=menu;}},shell:{openExternal:url=>external.push(url)},dialog:{showMessageBox:async()=>({response:1})}};
   const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard.cjs'),'utf8'),{module,__dirname:path.join(__dirname,'../src'),require:name=>name==='electron'?electron:require(name==='./dashboard-policy.cjs'?'../src/dashboard-policy.cjs':name),URL,AbortSignal,Set,Error,Promise});
-  const dashboard=module.exports({origin:policy.DEFAULT_ORIGIN,offline:message=>notices.push(message),offlineWindow:()=>windows[0],quitting:()=>false,quit:()=>{},printer:()=> 'BranchPrinter'});
-  return {dashboard,windows,handlers,external,notices,session,electron,html:value=>{pageHTML=value;}};
+  const dashboard=module.exports({origin:policy.DEFAULT_ORIGIN,offline:message=>notices.push(message),offlineWindow:()=>windows[0],quitting:()=>closing,quit:()=>{},printer:()=> 'BranchPrinter'});
+  return {dashboard,windows,handlers,external,notices,session,electron,html:value=>{pageHTML=value;},close:()=>{closing=true;}};
 }
 
 test('installed app opens the original complete dashboard and keeps a persistent signed-in session',async t=>{
@@ -62,4 +62,10 @@ test('remote dashboard exposes only native receipt printing and never the offlin
   assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt']);
   assert.ok(policy.sameOrigin('https://fasakhaninja.com/admin/customers'));assert.equal(policy.sameOrigin('https://fasakhaninja.com.evil.test/admin'),false);
   assert.equal(policy.sameOrigin('https://user:password@fasakhaninja.com/admin'),false);assert.equal(policy.externalURL('file:///x'),false);
+});
+test('quitting blocks late dashboard navigation and printing before local printer settings are accessed',async t=>{
+  const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
+  f.close();await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/employees');assert.equal(f.windows[0].url,policy.DEFAULT_ORIGIN+'/admin/dashboard');
+  const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
+  assert.equal(result.ok,false);assert.match(result.error,/يُغلق/);assert.equal(f.windows.length,1);
 });

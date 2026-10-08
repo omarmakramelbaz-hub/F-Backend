@@ -10,6 +10,7 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
   const owned = new Set();
   ipcMain.handle('dashboard:print-receipt', async (event, value) => {
     try {
+      if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (!owned.has(event.sender.id) || !policy.sameOrigin(event.senderFrame.url, origin)
           || !policy.sameOrigin(value, origin)) throw Error('مصدر الطباعة غير مسموح.');
       const url = new URL(value);
@@ -18,6 +19,7 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
       const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html' }, redirect: 'error', signal: AbortSignal.timeout(25000) });
       if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) throw Error('تعذر تحميل الفاتورة.');
       const html = await response.text();
+      if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (html.length > 3 * 1024 * 1024 || !/\bdata-dashboard-receipt\s*=/.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
       const protection = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src https: data:; style-src \'unsafe-inline\' https:; font-src https:; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
       if (!/<head\b/i.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
@@ -41,7 +43,7 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
     if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
   }
   async function open(url = home) {
-    if (loading) return;
+    if (loading || quitting()) return;
     if (!policy.sameOrigin(url, origin)) throw Error('رابط الداشبورد غير صحيح.');
     loading = true;
     try {
@@ -102,8 +104,10 @@ module.exports = function dashboard({ origin, offline, offlineWindow, quitting, 
       // Keep the app and its local-order menu usable while a slow/offline server is being contacted.
       reveal();
       await window.loadURL(url);
+      if (quitting()) return;
       reveal();
     } catch (error) {
+      if (quitting()) return;
       if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.');
       else {
         // Server errors stay visible with their real status; they are not cached or called offline saves.

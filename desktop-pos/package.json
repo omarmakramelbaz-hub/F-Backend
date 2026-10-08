@@ -1,6 +1,6 @@
 {
   "name": "fasakhansta-desktop-pos",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Full Fasakhansta dashboard desktop app with durable offline branch orders",
   "main": "src/main.cjs",
   "author": "Fasakhansta",
