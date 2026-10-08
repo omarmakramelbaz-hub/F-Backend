@@ -12,6 +12,7 @@ const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
 const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
 const DashboardMode = require('../src/dashboard-mode.cjs');
 const DashboardRemoteState = require('../src/dashboard-remote-state.cjs');
+const sourceCode = require('../src/dashboard-source.cjs');
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
@@ -68,6 +69,8 @@ async function main() {
     assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
       { upload: '5M', post: '12M', memory: '256M' });
     const initial = await runtime.connection();
+    assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
+    assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));
     const localImage = await fetch(runtime.origin + '/storage/products/42/' + encodeURIComponent('رنجة.png'), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
     assert.equal(localImage.status, 200); assert.deepEqual(Buffer.from(await localImage.arrayBuffer()), imageBytes);
     const privateFile = await php(bootstrap + "echo json_encode(['bytes'=>base64_encode(\\Illuminate\\Support\\Facades\\Storage::disk('local')->get($input['path']))]);", { path: pdfPath });
@@ -94,6 +97,15 @@ async function main() {
     // The synthetic server fixture now reflects the confirmed customer, as a coherent bootstrap must.
     snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
+    const retainedPointer = await runtime.metadata.read('prepared');
+    const retainedFiles = await fs.readdir(path.join(runtime.profile, 'generations'));
+    await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata,
+      download: async () => ({ ...snapshot, source: { ...snapshot.source, sha256: '0'.repeat(64) } }) }).run(), /نسخة البرنامج/);
+    assert.deepEqual(await runtime.metadata.read('prepared'), retainedPointer);
+    assert.deepEqual(await fs.readdir(path.join(runtime.profile, 'generations')), retainedFiles);
+    assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
+    assert.equal((await runtime.control({ action: 'pending' })).counts.acknowledged, 1);
+    assert.equal(imageRequests, 2);
     let next = await coordinator().run(); assert.notEqual(next.database, initial.database);
     assert.equal(imageRequests, 4);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
@@ -143,6 +155,16 @@ async function main() {
     const status = await runtime.control({ action: 'refresh-status', refresh_id: intent.id, token: intent.token });
     assert.equal(status.held, false); assert.equal((await runtime.connection()).database, next.database);
     assert.equal(failures.length, 0);
+    await runtime.stop();
+    const currentPointer = await runtime.metadata.read('prepared');
+    const wrongSource = { ...currentPointer, sourceFingerprint: { ...currentPointer.sourceFingerprint, sha256: '0'.repeat(64) } };
+    await runtime.metadata.write('prepared', wrongSource); runtime = create();
+    await assert.rejects(runtime.start(), /مصدر البرنامج/);
+    assert.deepEqual(await runtime.metadata.read('prepared'), wrongSource);
+    assert.equal(runtime.children.length, 0);
+    await runtime.metadata.write('prepared', currentPointer); runtime = create(); await runtime.start();
+    assert.equal((await runtime.connection()).database, next.database);
+    console.log('PASS real Windows source binding refuses changed server code before staging and changed active code before starting native services, preserving the journal and prepared database');
     const activeImage = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath);
     await runtime.stop(); await fs.unlink(activeImage); runtime = create();
     await assert.rejects(runtime.start());

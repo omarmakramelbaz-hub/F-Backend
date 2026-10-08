@@ -29,8 +29,9 @@ class DesktopDashboardBootstrap
     {
         $this->devices->ready();
         abort_unless(DB::transactionLevel()===0,409,'تجهيز البيانات يحتاج معاملة مستقلة.');
+        $source=app(DesktopDashboardSource::class)->fingerprint();
         DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        return DB::transaction(function()use($device){
+        return DB::transaction(function()use($device,$source){
             $fresh=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($fresh&&$fresh->enabled,401);
             $actor=$this->devices->actor($fresh);$branches=[];
             foreach(json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR) as $branch){
@@ -71,8 +72,10 @@ class DesktopDashboardBootstrap
             }
             ksort($schema);
             $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
+            abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'generated_at'=>now('UTC')->toIso8601String(),
+                'source'=>$source,
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
                 'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>$media['complete']]];

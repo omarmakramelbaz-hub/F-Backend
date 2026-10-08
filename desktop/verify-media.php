@@ -6,6 +6,13 @@ try{
     $manifest=\Illuminate\Support\Facades\DB::table('desktop_dashboard_media_manifest')->where('device_id',$value['deviceId'])->first();
     if(!$state||!$manifest||$state->snapshot_id!==$value['snapshotId']||$manifest->snapshot_id!==$state->snapshot_id
         ||(int)$state->actor_id!==$value['actorId']||$state->schema_hash!==$value['schemaHash'])throw new RuntimeException('Snapshot binding changed.');
+    if(isset($value['sourceFingerprint'])){
+        $source=\Illuminate\Support\Facades\DB::table('desktop_dashboard_source_manifest')->where('device_id',$value['deviceId'])->first();
+        if(!$source||$source->snapshot_id!==$state->snapshot_id
+            ||!hash_equals($source->sha256,hash('sha256',\App\Services\Dashboard\DesktopDashboardBootstrap::json($value['sourceFingerprint'])))
+            ||json_decode($source->source,true)!==$value['sourceFingerprint']
+            ||!app(\App\Services\Dashboard\DesktopDashboardSource::class)->matches($value['sourceFingerprint']))throw new RuntimeException('Source binding changed.');
+    }
     $files=json_decode($manifest->files,true,128,JSON_THROW_ON_ERROR);
     if(!hash_equals($manifest->sha256,hash('sha256',\App\Services\Dashboard\DesktopDashboardBootstrap::json($files))))throw new RuntimeException('Manifest binding changed.');
     \App\Services\Dashboard\DesktopDashboardMedia::verifyFiles($files);

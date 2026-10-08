@@ -3,10 +3,11 @@ const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
 function fixture() {
   const saved = new Map(), deviceId = crypto.randomUUID(), states = [], calls = [];
   const snapshot = { format: 1, kind: 'initial-dashboard-data', snapshot_id: crypto.randomUUID(), device_id: deviceId, actor_id: 10,
+    source:{format:1,files:10,sha256:'d'.repeat(64),framework:'8.83.29'},
     schema_hash: 'a'.repeat(64), branches: ['f:100'], media: [], coverage: { full_dashboard: true, media: true } };
   const runtime = { metadata: { read: async name => saved.get(name) || null, write: async (name, value) => { saved.set(name, structuredClone(value)); } },
     settings: async () => ({ deviceId }), isPrepared: async () => saved.has('prepared'), connection: async () => saved.get('prepared'),
-    start: async () => { calls.push('start'); }, stage: async (_snapshot, id) => { calls.push('stage'); return { database: 'fasakhansta_dashboard_stage_' + id, mediaVerified: true, sourceRevision: 'b'.repeat(40), receipt: {} }; },
+    start: async () => { calls.push('start'); }, stage: async (_snapshot, id) => { calls.push('stage'); return { database: 'fasakhansta_dashboard_stage_' + id, mediaVerified: true, sourceRevision: 'b'.repeat(40), sourceFingerprint:structuredClone(_snapshot.source),receipt: {} }; },
     activate: async (_next, commit) => { calls.push('activate'); await commit(); } };
   const link = { protocol: 1, device_id: deviceId, actor_id: 10, token: 'c'.repeat(64), branches: ['f:100'] };
   const setup = new DashboardPreparation({ runtime, enroll: async () => link, download: async () => snapshot,
@@ -67,4 +68,13 @@ test('unconfirmed work from a previous version blocks initial preparation before
   const f = fixture(); f.setup.beforePrepare = async () => { throw Error('old pending sale'); };
   await assert.rejects(f.setup.prepare('https://fixture.test', 'csrf'));
   assert.equal(f.saved.has('enrollment'), false); assert.equal(f.saved.has('prepared'), false); assert.deepEqual(f.calls, []);
+});
+test('a missing server code binding or a different verified staging code cannot activate initial preparation', async () => {
+  const missing=fixture();delete missing.snapshot.source;
+  await assert.rejects(missing.setup.prepare('https://fixture.test','csrf'));assert.deepEqual(missing.calls,[]);
+  const changed=fixture(),stage=changed.runtime.stage;
+  changed.runtime.stage=async(...args)=>({...await stage(...args),sourceFingerprint:{...changed.snapshot.source,sha256:'e'.repeat(64)}});
+  await assert.rejects(changed.setup.prepare('https://fixture.test','csrf'));
+  assert.equal(changed.saved.has('prepared'),false);assert.equal(changed.calls.includes('activate'),false);
+  assert.equal(changed.saved.get('enrollment').enrolled,true);
 });

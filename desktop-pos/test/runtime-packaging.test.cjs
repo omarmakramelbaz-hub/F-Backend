@@ -30,7 +30,8 @@ test('the actual source bundle excludes renamed production credentials and keeps
   };
   for (const [file, bytes] of Object.entries(files)) await write(source, file, bytes);
   await write(dependencyRoot, 'vendor/autoload.php', '<?php');
-  await write(dependencyRoot, 'composer.json', '{}'); await write(dependencyRoot, 'composer.lock', '{}');
+  await write(dependencyRoot, 'composer.json', '{}');
+  await write(dependencyRoot, 'composer.lock', JSON.stringify({ packages: [{ name: 'laravel/framework', version: 'v8.83.29' }] }));
   const git = args => execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   git(['init']); git(['add', '.']); git(['-c','user.name=Fixture','-c','user.email=fixture@test.invalid','commit','-m','synthetic package fixture']);
   await build({ source, target, dependencyRoot, revision: git(['rev-parse', 'HEAD']).trim() });

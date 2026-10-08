@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
 const media = require('./dashboard-media.cjs');
 const RuntimeArchive = require('./runtime-archive.cjs');
+const sourceCode = require('./dashboard-source.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
@@ -113,6 +114,10 @@ class LocalRuntime {
     const application = path.join(this.bundle, 'application');
     for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
     if (active?.format === 2 && active.sourceRevision !== manifest.sourceRevision) throw Error('نسخة التشغيل تختلف عن نسخة بيانات الجهاز؛ يلزم استرجاع التحديث قبل العمل.');
+    this.sourceFingerprint = await sourceCode.fingerprint(application);
+    if ((manifest.sourceFingerprint && !sourceCode.same(manifest.sourceFingerprint, this.sourceFingerprint))
+        || (active?.sourceFingerprint && !sourceCode.same(active.sourceFingerprint, this.sourceFingerprint)))
+      throw Error('مصدر البرنامج لا يطابق بيانات الجهاز؛ النسخة السابقة وسجلاتها محفوظة.');
     this.manifest = manifest;
     this.dbPort = await freePort(); this.httpPort = await freePort();
     this.origin = `http://127.0.0.1:${this.httpPort}`;
@@ -219,6 +224,8 @@ class LocalRuntime {
   }
   async stage(snapshot, id, archive) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
+    if (!sourceCode.same(snapshot.source, this.sourceFingerprint))
+      throw Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
     media.manifest(snapshot.media || []);
     const database = 'fasakhansta_dashboard_stage_' + id;
     const value = { generation: id, database }, env = this.environmentFor(value);
@@ -244,8 +251,9 @@ class LocalRuntime {
         || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage))
       throw Error('تعذر التحقق من اكتمال قاعدة التجهيز.');
     media.verifyReceipt(checked.media, images.files);
+    if (!sourceCode.same(checked.source, snapshot.source)) throw Error('لم يتأكد مصدر برنامج التجهيز؛ بيانات الجهاز الحالية محفوظة.');
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
-    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision, mediaVerified: images.verified };
+    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision, sourceFingerprint: checked.source, mediaVerified: images.verified };
   }
   async drainWeb() {
     if (this.children[1] && this.origin) {
@@ -256,7 +264,8 @@ class LocalRuntime {
     await stopChild(web);
   }
   async activate(next, commitPointer) {
-    if (this.stopping || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== this.manifest.sourceRevision)
+    if (this.stopping || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== this.manifest.sourceRevision
+        || !sourceCode.same(next.sourceFingerprint, this.sourceFingerprint))
       throw Error('نسخة التجهيز غير قابلة للتفعيل.');
     const oldEnvironment = this.environment;
     await this.drainWeb();
