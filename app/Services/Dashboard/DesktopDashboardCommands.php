@@ -9,6 +9,7 @@ class DesktopDashboardCommands
     public function execute(string $route,array $payload,$actor): array
     {
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
+        if(DesktopDashboardLegacy::handles($route))return app(DesktopDashboardLegacy::class)->execute($route,$payload,$actor);
         $v=$payload['values']??[];$p=$payload['parameters']??[];
         if(str_starts_with($route,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
         $simple=[

@@ -16,9 +16,7 @@ class DesktopDashboardImport
             'coverage'=>'required|array'])->validate();
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
-        $allowed=array_merge(DesktopDashboardBootstrap::GLOBAL_TABLES,DesktopDashboardBootstrap::BRANCH_TABLES,
-            ['takeaway_order_items','branch_shift_sources','phone_delivery_batch_items','users','resturants','resturant_products',
-                'go_stores','go_store_products','model_has_roles','model_has_permissions','branch_expense_category_commands']);
+        $allowed=DesktopDashboardSchema::TABLES;
         $schema=[];$rowCount=0;
         foreach($snapshot['tables'] as $table=>$part){
             abort_unless(in_array($table,$allowed,true)&&is_array($part)&&isset($part['ddl'],$part['rows'],$part['sha256'])&&is_array($part['rows']),422);

@@ -29,6 +29,7 @@ class DesktopDashboardReferences
     ];
     public function outputs(string $route,array $result,array $values=[],int $actor=0): array
     {
+        if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
         $outputs=[];
         foreach(self::RESULTS[$route]??[] as $entity=>$path){$id=data_get($result,$path);if(is_numeric($id)&&(int)$id>0)$outputs[$entity]=(int)$id;}
         if(in_array($route,['branch-expenses.save','branch-expenses.review'],true) && $actor && isset($values['branch'],$values['idempotency_key'])) {
@@ -55,6 +56,7 @@ class DesktopDashboardReferences
             $dependencies[$row->command_id]=true;
             return ['$desktop_ref'=>['entity'=>$entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
+        if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
         foreach($payload['values']??[] as $field=>$value) {
             $entity=self::FIELDS[$field]??null;
             if($field==='id'&&$route==='dining.table-save')$entity='table';

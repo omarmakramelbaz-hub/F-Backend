@@ -45,10 +45,12 @@ try:
                 time.sleep(.05)
         else:
             raise RuntimeError("Disposable test database did not become ready.")
-        result = subprocess.run([str(php), str(Path(__file__).with_name("run.php")),
-                                 str(application), str(port)])
-        if result.returncode:
-            raise SystemExit(result.returncode)
+        for fixture in ["run.php", "legacy.php"]:
+            if not Path(__file__).with_name(fixture).exists():
+                continue
+            result = subprocess.run([str(php), str(Path(__file__).with_name(fixture)), str(application), str(port)])
+            if result.returncode:
+                raise SystemExit(result.returncode)
 finally:
     if server is not None:
         server.terminate()

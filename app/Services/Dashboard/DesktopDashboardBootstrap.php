@@ -22,8 +22,8 @@ class DesktopDashboardBootstrap
         'branch_shift_sources'=>['closing_id','branch_shift_closings','id'],
         'phone_delivery_batch_items'=>['batch_id','phone_delivery_batches','id'],
     ];
-    private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|fcm_id|verification_code|activation_code)(?:$|_)/i';
-    public function __construct(private DesktopDashboardDevices $devices) {}
+    private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
+    public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
     public function export(object $device): array
     {
@@ -37,29 +37,8 @@ class DesktopDashboardBootstrap
                 $this->devices->branch($fresh,$branch,$actor);$branches[]=$branch;
             }
             abort_unless(count($branches),403);
-            $restaurantIds=[];$storeIds=[];
-            foreach($branches as $branch){[$kind,$id]=explode(':',$branch);if($kind==='f')$restaurantIds[]=(int)$id;else $storeIds[]=(int)$id;}
-            $queries=[];
-            foreach(self::GLOBAL_TABLES as $table)if(Schema::hasTable($table))$queries[$table]=DB::table($table);
-            foreach(self::BRANCH_TABLES as $table)if(Schema::hasTable($table)){
-                // A similarly named table without a branch key must never become a full-table export.
-                abort_unless(Schema::hasColumn($table,'branch'),409,'مخطط بيانات الفرع يحتاج مراجعة قبل تجهيز الجهاز.');
-                $queries[$table]=DB::table($table)->whereIn('branch',$branches);
-            }
-            foreach(self::CHILD_TABLES as $table=>[$column,$parent,$key])if(Schema::hasTable($table)&&isset($queries[$parent])){
-                $queries[$table]=DB::table($table)->whereIn($column,(clone $queries[$parent])->select($key));
-            }
-            if(Schema::hasTable('resturants'))$queries['resturants']=DB::table('resturants')->whereIn('id',$restaurantIds);
-            if(Schema::hasTable('resturant_products'))$queries['resturant_products']=DB::table('resturant_products')->whereIn('resturant_id',$restaurantIds);
-            if(Schema::hasTable('go_stores'))$queries['go_stores']=DB::table('go_stores')->whereIn('user_id',$storeIds);
-            if(Schema::hasTable('go_store_products'))$queries['go_store_products']=DB::table('go_store_products')->whereIn('user_id',$storeIds);
-            $users=[(int)$actor->id,...$storeIds];
-            if(isset($queries['resturants']))$users=array_merge($users,(clone $queries['resturants'])->pluck('user_id')->map(fn($id)=>(int)$id)->all());
-            $queries['users']=DB::table('users')->whereIn('id',array_unique($users));
-            foreach(['model_has_roles','model_has_permissions'] as $table)if(Schema::hasTable($table)){
-                $queries[$table]=DB::table($table)->where('model_type',\App\Models\User::class)->where('model_id',$actor->id);
-            }
-            if(Schema::hasTable('branch_expense_category_commands'))$queries['branch_expense_category_commands']=DB::table('branch_expense_category_commands')->where('actor_id',$actor->id);
+            $queries=$this->data->queries($fresh,$actor,$branches);
+            $dataset=$this->data->rows($queries);
             $tables=[];$schema=[];$rows=0;$bytes=0;
             foreach($queries as $table=>$query){
                 abort_unless(preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$table),409);
@@ -69,19 +48,22 @@ class DesktopDashboardBootstrap
                 $structure=(array)DB::selectOne('SHOW CREATE TABLE `'.$table.'`');$ddl=(string)array_values($structure)[1];
                 // Column defaults can contain credentials in legacy installations. Do not export such DDL.
                 $columns=[];
-                foreach(DB::select('SELECT COLUMN_NAME AS name,COLUMN_DEFAULT AS value,IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]) as $column){
+                foreach(DB::select('SELECT COLUMN_NAME AS name,COLUMN_DEFAULT AS value,IS_NULLABLE AS nullable,DATA_TYPE AS type FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]) as $column){
                     $columns[$column->name]=$column;
-                    abort_if(preg_match(self::PRIVATE_COLUMN,$column->name)&&$column->value!==null&& !in_array($column->value,["''",'NULL','null',''],true),409,'مخطط بيانات الاعتماد يحتاج تنقية قبل تجهيز الجهاز.');
+                    $safeDefault=in_array($column->value,["''",'NULL','null',''],true)||(in_array($column->type,['tinyint','smallint','int','bigint'],true)&&in_array($column->value,['0','1'],true));
+                    abort_if(preg_match(self::PRIVATE_COLUMN,$column->name)&&$column->value!==null&&!$safeDefault,409,'مخطط بيانات الاعتماد يحتاج تنقية قبل تجهيز الجهاز.');
                 }
                 $data=[];
-                foreach($query->get() as $record){
-                    $row=(array)$record;
+                foreach($dataset[$table] as $record){
+                    $row=$record;
+                    if($table==='settings'&&($row['name']??'')==='app_balance'&&(int)$actor->id!==1)$row['payload']=self::json('0');
                     foreach($row as $column=>$value)if(preg_match(self::PRIVATE_COLUMN,$column)){
                         // Cache only this account's password hash for the original offline login form.
                         if($table==='users'&&$column==='password'&&(int)$row['id']===(int)$actor->id)continue;
-                        $row[$column]=$columns[$column]->nullable==='YES'?null:'';
+                        $row[$column]=$columns[$column]->nullable==='YES'?null:(in_array($columns[$column]->type,['tinyint','smallint','int','bigint'],true)?0:'');
                         if($table==='users'&&$column==='password')$row[$column]='!desktop-disabled-'.Str::random(64);
                     }
+                    foreach($row as $column=>$value)if(is_string($value)&&in_array($column,['payload','snapshot','data','metadata','custom_properties','responsive_images','context_snapshot'],true))$row[$column]=$this->redactJson($value);
                     $data[]=$row;$rows++;abort_if($rows>500000,413,'البيانات تحتاج تجهيزًا على دفعات.');
                 }
                 $encoded=self::json($data);$bytes+=strlen($encoded);abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
@@ -92,8 +74,18 @@ class DesktopDashboardBootstrap
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'generated_at'=>now('UTC')->toIso8601String(),
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
-                'coverage'=>['write_routes'=>DesktopDashboardRoutes::WRITES,'full_dashboard'=>false,'media'=>false]];
+                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>false]];
         });
+    }
+    private function redactJson(string $value): string
+    {
+        try{$decoded=json_decode($value,false,512,JSON_THROW_ON_ERROR);}catch(\JsonException $error){return $value;}
+        $changed=false;$clean=function($item)use(&$clean,&$changed){
+            if(is_object($item))foreach($item as $key=>$v){if(preg_match(self::PRIVATE_COLUMN,$key)){$item->$key=null;$changed=true;}else $item->$key=$clean($v);}
+            elseif(is_array($item))$item=array_map($clean,$item);
+            return $item;
+        };$decoded=$clean($decoded);
+        return $changed?self::json($decoded):$value;
     }
     public static function json($value): string {return json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);}
 }

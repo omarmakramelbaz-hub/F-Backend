@@ -71,6 +71,7 @@ $sale['quote_hash']=app(TakeawayService::class)->quote($sale,$actor)['quote_hash
 $sold=$journal->execute($device,$saleId,1,'takeaway.checkout',['values'=>$sale],[$receiveId],fn()=>app(TakeawayService::class)->checkout($sale,$actor));
 check((int)DB::table('takeaway_tills')->value('balance_cents')===102850 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'original sale changes cash, stock and its outbox atomically');
 check(count($journal->pending($device))===1 && $journal->pending($device)[0]['command_id']===$receiveId,'the outbox yields the earlier stock receipt before its dependent sale');
+check($journal->pending($device)[0]['occurred_at']==='2026-10-08T12:00:00+00:00','the durable outbox sends an explicit UTC timestamp despite the original Cairo UI timezone');
 $receipt=['device_id'=>$device,'command_id'=>$receiveId,'committed'=>true,'result'=>$received];$journal->acknowledge($device,$receiveId,$receipt);$journal->acknowledge($device,$receiveId,$receipt);
 check($journal->counts($device)['acknowledged']===1 && $journal->pending($device)[0]['command_id']===$saleId,'duplicate acknowledgements are harmless and unlock the dependent sale');
 denied(fn()=>$journal->acknowledge($device,$saleId,['device_id'=>$device,'command_id'=>$receiveId,'committed'=>true]),422,'an unrelated response cannot remove a pending operation');
@@ -160,6 +161,7 @@ foreach($envelopes as $envelope){
     check($reply===$again,'lost remote reply returns the identical committed '.$envelope['route_name'].' result');
 }
 check(DB::table('takeaway_orders')->where('branch','f:100')->count()===1 && DB::table('branch_inventory_movements')->where('branch','f:100')->where('source_type','pos')->count()===1,'reconnecting creates one sale and one recipe deduction on the server');
+check(DB::table('takeaway_orders')->where('branch','f:100')->value('created_at')==='2026-10-08 12:00:00','server reconciliation preserves the original UTC sale hour rather than shifting it by Cairo time');
 $remoteEmployee=DB::table('branch_employees')->where('branch','f:100')->value('id');
 check((int)$remoteEmployee!== (int)$saved['employee']['id'] && (int)DB::table('branch_employee_days')->value('employee_id')===(int)$remoteEmployee,'attendance refers to the mapped server employee despite integer ID collision');
 check((int)DB::table('branch_employee_entries')->value('employee_id')===(int)$remoteEmployee,'a dependent payroll entry uses the server employee ID');

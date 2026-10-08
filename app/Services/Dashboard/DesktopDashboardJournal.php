@@ -60,7 +60,7 @@ class DesktopDashboardJournal
             $ready[]=['sequence'=>(int)$row->sequence,'command_id'=>$row->command_id,'actor_id'=>(int)$row->actor_id,'route_name'=>$row->route_name,
                 'payload'=>json_decode(Crypt::decryptString($row->command_cipher),true,512,JSON_THROW_ON_ERROR),
                 'local_result'=>$saved['result'],'local_references'=>$saved['references'],
-                'dependencies'=>$dependencies,'occurred_at'=>$row->created_at];
+                'dependencies'=>$dependencies,'occurred_at'=>\Carbon\Carbon::parse($row->created_at,'UTC')->toIso8601String()];
             // Apply and confirm one command at a time. The next query sees acknowledged dependencies.
             break;
         }
