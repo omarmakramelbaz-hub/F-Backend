@@ -5,12 +5,20 @@ const policy = require('./dashboard-policy.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, remoteState, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false;
   const owned = new Set();
   const children = new Set();
+  const remoteWrites = new Set();
+  function remoteWrite(details) {
+    if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
+    const pathname = new URL(details.url).pathname;
+    return pathname.startsWith('/admin/') && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
+      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification)/i.test(pathname));
+  }
+  function failure(details = {}) { return remoteWrites.size ? { ...details, method: 'UNKNOWN' } : details; }
   function trusted(event) {
     return !quitting() && !refreshing && window && event.sender.id === window.webContents.id
       && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
@@ -83,10 +91,24 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
             for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control)$/i.test(name)) delete headers[name];
             if (!policy.sameOrigin(details.url, origin)) { callback({ requestHeaders: headers }); return; }
-            if (!localToken) { callback(refreshing || quitting() ? { cancel: true } : { requestHeaders: headers }); return; }
+            if (!localToken) {
+              if (refreshing || quitting()) { callback({ cancel: true }); return; }
+              if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
+              remoteWrites.add(details.id);
+              // Persist uncertainty before a request can leave the machine.
+              accepted(() => remoteState?.begin(details.id)).then(() => callback({ requestHeaders: headers }), error => {
+                remoteWrites.delete(details.id); callback({ cancel: true });
+                dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message });
+              });
+              return;
+            }
             const native = (details.webContentsId == null || details.webContentsId <= 0) && supplied === localToken;
             if (quitting() || refreshing || (!owned.has(details.webContentsId) && !native)) { callback({ cancel: true }); return; }
             callback({ requestHeaders: { ...headers, 'X-Fasakhansta-Desktop': localToken } });
+        });
+        contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
+          if (!remoteWrites.has(details.id)) return;
+          accepted(() => remoteState?.complete(details.id)).then(() => remoteWrites.delete(details.id)).catch(() => {});
         });
         contents.on('will-navigate', navigate);
         contents.on('will-redirect', navigate);
@@ -118,13 +140,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
             if (localToken) dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
-            else offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+            else offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure());
           }
         });
         // Fetch failures during SPA navigation do not trigger did-fail-load.
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
           if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
-            offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.');
+            offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
         });
         const grants = new Set(['notifications']);
         contents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
@@ -150,7 +172,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (localToken) {
         reveal(); await dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
       }
-      else if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.');
+      else if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.', failure());
       else {
         // Server errors stay visible with their real status; they are not cached or called offline saves.
         reveal();

@@ -48,6 +48,37 @@ try{
     if($status!==200)fwrite(STDERR,file_get_contents($profile.'/media-api.log'));
     verify($status===200&&$body===$imageBytes&&in_array('Content-Type: image/png',$headers,true),'the actual Laravel media API serves verified binary image bytes with the enrolled device credential');
     verify($imageApi('')[0]===401,'the actual binary media API rejects a missing device credential');
+    $serverCookies=[];
+    $serverHttp=function($path,$values=null,$bearer=null,$csrf=null,$json=false)use($apiPort,&$serverCookies){
+        $headers=['Accept: application/json'];
+        if($serverCookies)$headers[]='Cookie: '.implode('; ',$serverCookies);
+        if($bearer!==null)$headers[]='Authorization: Bearer '.$bearer;
+        if($csrf!==null)$headers[]='X-CSRF-TOKEN: '.$csrf;
+        if($values!==null)$headers[]='Content-Type: '.($json?'application/json':'application/x-www-form-urlencoded');
+        $context=stream_context_create(['http'=>['method'=>$values===null?'GET':'POST','header'=>implode("\r\n",$headers),
+            'content'=>$values===null?'':($json?json_encode($values):http_build_query($values)),'ignore_errors'=>true,'timeout'=>10,'follow_location'=>0]]);
+        $body=@file_get_contents('http://127.0.0.1:'.$apiPort.$path,false,$context);$reply=$http_response_header??[];
+        foreach($reply as $line)if(preg_match('/^Set-Cookie:\s*([^=]+)=([^;]*)/i',$line,$cookie))$serverCookies[$cookie[1]]=$cookie[1].'='.$cookie[2];
+        preg_match('/^HTTP\/\S+ (\d+)/',$reply[0]??'',$status);return [(int)($status[1]??0),$body];
+    };
+    verify($serverHttp('/admin/desktop-dashboard/session',null,$link['token'])[0]===302,'a device token alone cannot claim a signed-in original dashboard session');
+    [$loginStatus,$login]=$serverHttp('/admin/login');preg_match('/name="_token" value="([^"]+)"/',$login,$loginCsrf);
+    verify($loginStatus===200&&isset($loginCsrf[1]),'the original server login exposes its own session CSRF token');
+    verify($serverHttp('/admin/signin',['_token'=>$loginCsrf[1],'email'=>'branch@test.invalid','password'=>'Fixture123'])[0]===302,'the original server session authenticates the enrolled account');
+    [$sessionStatus,$session]=$serverHttp('/admin/desktop-dashboard/session',null,$link['token']);
+    verify($sessionStatus===200&&json_decode($session,true)===['device_id'=>$device->id,'actor_id'=>10],
+        'server return verifies the current browser account and device without exposing its bearer credential');
+    verify($serverHttp('/admin/desktop-dashboard/session',null,$other['token'])[0]===403,'another device account cannot authorize switching the signed-in browser');
+    verify($serverHttp('/admin/desktop-dashboard/session')[0]===401,'the signed-in browser alone cannot authorize a desktop server return');
+    [$pageStatus,$page]=$serverHttp('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$pageCsrf);
+    verify($pageStatus===200&&isset($pageCsrf[1]),'native preparation uses the current original dashboard CSRF token');
+    $enrollment=['device_id'=>(string)\Illuminate\Support\Str::uuid(),'name'=>'native enrollment HTTP fixture','nonce'=>bin2hex(random_bytes(32))];
+    verify($serverHttp('/admin/desktop-dashboard/enroll',$enrollment,null,'invalid-CSRF',true)[0]===419
+        &&!DB::table('desktop_dashboard_devices')->where('id',$enrollment['device_id'])->exists(),'invalid CSRF cannot enroll a native device');
+    [$enrollStatus,$enrollBody]=$serverHttp('/admin/desktop-dashboard/enroll',$enrollment,null,$pageCsrf[1],true);
+    [$retryStatus,$retryBody]=$serverHttp('/admin/desktop-dashboard/enroll',$enrollment,null,$pageCsrf[1],true);
+    verify($enrollStatus===200&&$retryStatus===200&&$enrollBody===$retryBody&&json_decode($enrollBody,true)['actor_id']===10,
+        'the actual original browser session enrolls idempotently using a persisted native nonce');
     DB::table('desktop_dashboard_devices')->where('id',$device->id)->update(['enabled'=>false]);
     verify($imageApi($link['token'])[0]===401,'revoking a device immediately blocks an already issued image capability');
     DB::table('desktop_dashboard_devices')->where('id',$device->id)->update(['enabled'=>true]);

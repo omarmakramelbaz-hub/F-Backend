@@ -63,3 +63,8 @@ test('overlapping preparation clicks share one accepted enrollment and activatio
   assert.equal(first, second); await new Promise(resolve => setImmediate(resolve)); release(); await first;
   assert.equal(requests, 1); assert.equal(f.calls.filter(value => value === 'activate').length, 1);
 });
+test('unconfirmed work from a previous version blocks initial preparation before enrolling or downloading', async () => {
+  const f = fixture(); f.setup.beforePrepare = async () => { throw Error('old pending sale'); };
+  await assert.rejects(f.setup.prepare('https://fixture.test', 'csrf'));
+  assert.equal(f.saved.has('enrollment'), false); assert.equal(f.saved.has('prepared'), false); assert.deepEqual(f.calls, []);
+});

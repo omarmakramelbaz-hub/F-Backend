@@ -19,9 +19,10 @@ function enrollment(value, deviceId) {
 
 /** The original signed-in dashboard starts preparation. Credentials remain in native encrypted metadata. */
 class DashboardPreparation {
-  constructor({ runtime, enroll, download, onState = () => {}, onPrepared = async () => {} }) {
+  constructor({ runtime, enroll, download, beforePrepare = async () => {}, onState = () => {}, onPrepared = async () => {} }) {
     this.runtime = runtime; this.metadata = runtime.metadata; this.enroll = enroll; this.download = download;
     this.onState = onState; this.onPrepared = onPrepared; this.state = { phase: 'idle', progress: 0, error: '' };
+    this.beforePrepare = beforePrepare;
   }
   report(value) { Object.assign(this.state, value); this.onState({ ...this.state }); }
   async credential() {
@@ -48,6 +49,7 @@ class DashboardPreparation {
       return this.status();
     }
     try {
+      await this.beforePrepare();
       const device = await this.runtime.settings();
       let value = await this.metadata.read('enrollment');
       if (value && (!enrollment(value, device.deviceId) || value.serverOrigin !== origin))

@@ -9,6 +9,8 @@ const { spawn } = require('node:child_process');
 const http = require('node:http');
 const LocalRuntime = require('../src/local-runtime.cjs');
 const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
+const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
+const DashboardMode = require('../src/dashboard-mode.cjs');
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
@@ -52,12 +54,11 @@ async function main() {
   try {
     const settings = await runtime.settings(); settings.deviceId = snapshot.device_id;
     await runtime.metadata.write('credentials', settings);
-    await runtime.start();
-    const id = crypto.randomBytes(8).toString('hex'), candidate = await runtime.stage(snapshot, id);
-    const initial = { format: 2, deviceId: snapshot.device_id, actorId: snapshot.actor_id, schemaHash: snapshot.schema_hash,
-      token: 'a'.repeat(64), serverOrigin: 'https://fixture.test', fullCoverage: true, mediaVerified: true,
-      generation: id, database: candidate.database, snapshotId: snapshot.snapshot_id, refreshId: crypto.randomUUID(), sourceRevision: candidate.sourceRevision };
-    await runtime.activate(initial, () => runtime.metadata.write('prepared', initial));
+    const preparation = new DashboardPreparation({ runtime,
+      enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
+      download: async () => snapshot });
+    await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    const initial = await runtime.connection();
     const localImage = await fetch(runtime.origin + '/storage/products/42/' + encodeURIComponent('رنجة.png'), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
     assert.equal(localImage.status, 200); assert.deepEqual(Buffer.from(await localImage.arrayBuffer()), imageBytes);
     const loginSession = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session');
@@ -80,7 +81,7 @@ async function main() {
     // The synthetic server fixture now reflects the confirmed customer, as a coherent bootstrap must.
     snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
-    const next = await coordinator().run(); assert.notEqual(next.database, initial.database);
+    let next = await coordinator().run(); assert.notEqual(next.database, initial.database);
     assert.equal(imageRequests, 2);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session'), 'utf8'), 'synthetic preserved session');
@@ -91,6 +92,21 @@ async function main() {
     const replay = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Archived work ran again.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
       { device: snapshot.device_id, id: pending.commands[0].command_id, actor: snapshot.actor_id });
     assert.equal(replay.status, 409);
+    // Synthetic server-session response; fences, processes, DBs and restart recovery are real.
+    let local = true; const destinations = [];
+    const view = { current: () => ({ local }), switchTo: async (target, work = async () => {}) => {
+      await work(); destinations.push(target.origin); local = Boolean(target.localToken);
+    } };
+    const mode = new DashboardMode({ runtime, view, generations: coordinator(),
+      probe: async () => ({ actor_id: snapshot.actor_id, device_id: snapshot.device_id }) });
+    snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
+    assert.equal(local, false); assert.ok(await runtime.metadata.read('return'));
+    await assert.rejects(mode.local({ method: 'POST' }));
+    const heldWrite = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Inactive local write ran.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
+      { device: snapshot.device_id, id: crypto.randomUUID(), actor: snapshot.actor_id });
+    assert.equal(heldWrite.status, 409);
+    await mode.local({ method: 'GET' }); assert.equal(local, true); assert.equal(await runtime.metadata.read('return'), null);
+    assert.deepEqual(destinations, ['https://fixture.test', runtime.origin]);
     const intent = { format: 1, id: crypto.randomUUID(), token: 'd'.repeat(64), generation: 'e'.repeat(16), previous: next };
     await runtime.metadata.write('refresh', intent);
     await runtime.control({ action: 'refresh-begin', refresh_id: intent.id, token: intent.token });
@@ -105,7 +121,7 @@ async function main() {
     assert.equal((await runtime.connection()).database, next.database);
     await fs.writeFile(activeImage, imageBytes); runtime = create(); await runtime.start();
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
-    console.log('PASS real Windows supervisor stages, verifies and activates coherent data and downloaded Arabic images, preserves the old journal and sessions, and recovers a held fence after restart');
+    console.log('PASS real Windows supervisor prepares account data and Arabic images, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
   } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

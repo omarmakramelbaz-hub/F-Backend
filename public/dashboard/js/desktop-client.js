@@ -6,7 +6,7 @@
     const labels = { idle: 'الجهاز يحتاج تجهيزًا للعمل بدون إنترنت', enrolling: 'ربط الجهاز بحسابك', downloading: 'تنزيل بيانات الحساب',
         starting: 'تجهيز التشغيل على الجهاز', verifying: 'تنزيل الصور وفحص البيانات', activating: 'حفظ النسخة المحلية',
         ready: 'الجهاز مجهّز للعمل بدون إنترنت', failed: 'تعذر إكمال تجهيز الجهاز' };
-    let state = {}, button, panel, description, progress, error, action, timer;
+    let state = {}, button, panel, description, progress, error, action, timer, unsubscribe;
     function render(value) {
         state = value;
         if (!button) return;
@@ -44,8 +44,8 @@
                 render(state.prepared ? await native.synchronize() : await native.prepare(document.querySelector('meta[name="csrf-token"]')?.content || ''));
             } catch (failure) { error.textContent = failure.message; action.disabled = false; }
         });
-        native.onState(render); update(); timer = setInterval(update, 5000);
+        unsubscribe = native.onState(render); update(); timer = setInterval(update, 5000);
     }
     document.addEventListener('DOMContentLoaded', mount); mount();
-    window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
+    window.addEventListener('pagehide', () => { clearInterval(timer); unsubscribe?.(); }, { once: true });
 })();

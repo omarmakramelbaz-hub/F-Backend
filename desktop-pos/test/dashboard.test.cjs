@@ -5,7 +5,7 @@ const policy=require('../src/dashboard-policy.cjs');
 function fixture(t, options = {}){
   let next=0,closing=false;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
   const session={fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
-    webRequest:{onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
+    webRequest:{onCompleted(_filter,handler){this.completed=handler;},onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
@@ -43,6 +43,21 @@ test('network failures reveal local orders while server/auth failures retain rea
   f.session.webRequest.error({error:'net::ERR_CONNECTION_RESET'});assert.equal(f.notices.length,2);
   f.session.webRequest.error({error:'HTTP 500'});assert.equal(f.notices.length,2);
   w.failure='net::ERR_NAME_NOT_RESOLVED';await f.dashboard.open();assert.equal(f.notices.length,3);
+});
+test('a remote form is persisted before transmission and a main-frame failure cannot hide its unknown result',async t=>{
+  let release;const begun=[],completed=[],failures=[];
+  const f=fixture(t,{remoteState:{begin:async id=>{begun.push(id);await new Promise(r=>release=r);},complete:async id=>completed.push(id)},
+    offline:(_message,details)=>failures.push(details)});
+  await f.dashboard.open();const w=f.windows[0];let decision;
+  f.session.webRequest.headers({id:99,url:policy.DEFAULT_ORIGIN+'/admin/employees/save',method:'POST',webContentsId:w.webContents.id,requestHeaders:{}},value=>decision=value);
+  await Promise.resolve();assert.deepEqual(begun,[99]);assert.equal(decision,undefined);
+  w.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',w.url,true);
+  assert.equal(failures.at(-1).method,'UNKNOWN');release();await new Promise(r=>setImmediate(r));assert.ok(decision.requestHeaders);
+  f.session.webRequest.error({id:99,url:policy.DEFAULT_ORIGIN+'/admin/employees/save',method:'POST',error:'net::ERR_CONNECTION_RESET'});
+  assert.equal(failures.at(-1).method,'UNKNOWN');assert.deepEqual(completed,[]);
+  f.session.webRequest.completed({id:99});await new Promise(r=>setImmediate(r));assert.deepEqual(completed,[99]);
+  w.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',w.url,true);
+  assert.notEqual(failures.at(-1).method,'UNKNOWN');
 });
 test('native receipt printing is silent, reuses dashboard authentication and runs receipt scripts under restrictive CSP',async t=>{
   const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
