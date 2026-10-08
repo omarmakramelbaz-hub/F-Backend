@@ -50,10 +50,19 @@ test('an unprepared device retains the old guard, while a credential read failur
   const broken=new RemoteAttempts({...f.options,credential:async()=>{throw Error('encrypted credential failed');}});
   await assert.rejects(broken.begin(crypto.randomUUID(),details));assert.equal(f.calls.length,0);
 });
-test('reviewed cash and phone writes can reserve while calculations, print claims and unreviewed employee writes keep their existing guard',()=>{
+test('reviewed cash and phone writes can reserve while calculations, print claims and unreviewed attachment uploads keep their existing guard',()=>{
   const f=fixture();
   for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
-  for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim','/admin/employees/save'])
+  for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim','/admin/branch-expenses/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
+});
+test('reviewed employee and inventory POST paths reserve without accepting read reports, global expense categories or attachment writes',()=>{
+  const f=fixture();
+  for(const path of ['/admin/employees/save','/admin/employees/attendance','/admin/employees/void-entry','/admin/employees/close','/admin/employees/pay',
+    '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-expenses/12/review'])
+    assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
+  for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/save','/admin/branch-expenses/categories'])
+    assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/employees/attendance',method:'GET'}),false);
 });

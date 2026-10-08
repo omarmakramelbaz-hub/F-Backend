@@ -106,9 +106,88 @@ try{
     verify($http($neverCheckout['path'],$neverSale,array_merge($proof($neverCheckoutProof),['Accept: application/json']))[0]===409
         &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
         'a cancelled delayed cash checkout cannot change the drawer after recovery');
-    $unreviewed=$attempt('/admin/employees/save');
+    $unreviewed=$attempt('/admin/branch-expenses/save');
     verify($decide($unreviewed)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$unreviewed['id'])->exists(),
         'unreviewed server actions cannot acquire a reservation by resembling a reviewed POST');
+    $apply=function(string $path,array $values)use($attempt,$decide,$http,$proof){
+        $binding=$attempt($path);[$reservedStatus,$reserved]=$decide($binding);if($reservedStatus!==200)throw new RuntimeException('Original operation did not reserve: '.$path);
+        [$status,$body]=$http($path,$values,array_merge($proof($reserved),['Accept: application/json']));
+        return [$status,$body,$binding,$reserved];
+    };
+    $month=now('Africa/Cairo')->format('Y-m');$day=now('Africa/Cairo')->toDateString();
+    $base=['_token'=>$serverCsrf[1],'branch'=>'f:100'];
+    $employeeForm=$base+['idempotency_key'=>(string)Str::uuid(),'name'=>'موظف نتيجة السيرفر','job_title'=>'اختبار','hired_on'=>$month.'-01','active'=>true,'salary'=>'3000.00','effective_month'=>$month];
+    [$employeeStatus,$employeeBody]=$apply('/admin/employees/save',$employeeForm);$employee=json_decode($employeeBody,true)['employee']??null;
+    verify($employeeStatus===200&&$employee&&DB::table('branch_employees')->where('name',$employeeForm['name'])->count()===1,
+        'the original employee controller commits through a durable server outcome');
+    $advanceForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$employee['id'],'day'=>$day,'kind'=>'advance','amount'=>'10.00','reason'=>'اختبار نتيجة السلفة'];
+    [$advanceStatus,$advanceBody,$advanceAttempt]=$apply('/admin/employees/entry',$advanceForm);$advance=json_decode($advanceBody,true)['entry']??null;
+    verify($advanceStatus===200&&$advance&&$decide($advanceAttempt,'settle')[1]['status']==='committed',
+        'a lost original employee advance reply resolves to its committed entry');
+    verify($apply('/admin/employees/entry',$advanceForm)[1]===$advanceBody&&DB::table('branch_employee_entries')->where('employee_id',$employee['id'])->where('kind','advance')->count()===1,
+        'another transmission returns the exact employee advance receipt without duplicating the debt');
+    // Install the actual later attendance migration, rather than pretending the inspected old report contains it.
+    require $application.'/database/migrations/2026_10_08_190000_add_employee_attendance_rules.php';(new AddEmployeeAttendanceRules)->up();
+    $rulesForm=$base+['idempotency_key'=>(string)Str::uuid(),'morning_start'=>'09:00','morning_end'=>'17:00','morning_late'=>'0.00','morning_early'=>'0.00',
+        'evening_start'=>'17:00','evening_end'=>'01:00','evening_late'=>'0.00','evening_early'=>'0.00','absence'=>'0.00'];
+    [$rulesStatus,$rulesBody]=$apply('/admin/employees/attendance-rules',$rulesForm);
+    verify($rulesStatus===200&&$apply('/admin/employees/attendance-rules',$rulesForm)[1]===$rulesBody
+        &&DB::table('branch_attendance_rules')->where('branch','f:100')->count()===2,
+        'the original owner attendance settings return the exact saved revision on another transmission');
+    $attendanceForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$employee['id'],'day'=>$day,'status'=>'morning','action'=>'check_in'];
+    [$attendanceStatus,$attendanceBody]=$apply('/admin/employees/attendance',$attendanceForm);
+    verify($attendanceStatus===200&&$apply('/admin/employees/attendance',$attendanceForm)[1]===$attendanceBody
+        &&DB::table('branch_employee_days')->where('employee_id',$employee['id'])->where('day',$day)->count()===1,
+        'the original employee check-in retains its recorded clock rather than executing another check-in');
+    $walletForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$employee['id'],'expected_revision'=>$employee['revision'],'wallet_phone'=>'01012345678'];
+    [$walletStatus,$walletBody]=$apply('/admin/employees/wallet',$walletForm);
+    verify($walletStatus===200&&$apply('/admin/employees/wallet',$walletForm)[1]===$walletBody,
+        'the original employee wallet update replays before its employee revision has advanced');
+    $notesForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$employee['id'],'day'=>$day,
+        'expected_revision'=>DB::table('branch_employee_days')->where('employee_id',$employee['id'])->where('day',$day)->value('revision'),'notes'=>'اختبار الملاحظات'];
+    [$notesStatus,$notesBody]=$apply('/admin/employees/daily-notes',$notesForm);
+    verify($notesStatus===200&&$apply('/admin/employees/daily-notes',$notesForm)[1]===$notesBody,
+        'the original daily employee notes return the saved response before the day revision changes');
+    $voidForm=$base+['idempotency_key'=>(string)Str::uuid(),'entry_id'=>$advance['id'],'expected_revision'=>1,'reason'=>'إلغاء حركة الاختبار'];
+    [$voidStatus,$voidBody]=$apply('/admin/employees/void-entry',$voidForm);
+    verify($voidStatus===200&&DB::table('branch_employee_entries')->where('id',$advance['id'])->value('voided_at'),
+        'the original owner-only entry cancellation commits its server outcome');
+    $ownerScope=DB::table('users')->where('id',1)->value('owner_resturant_id');DB::table('users')->where('id',1)->update(['owner_resturant_id'=>100]);
+    try{verify($apply('/admin/employees/void-entry',$voidForm)[0]===403,
+        'a saved owner-only employee reply still rejects an account that loses primary-owner authority');}
+    finally{DB::table('users')->where('id',1)->update(['owner_resturant_id'=>$ownerScope]);}
+    [$statementStatus,$statementBody]=$http('/admin/employees/statement?'.http_build_query(['branch'=>'f:100','employee_id'=>$employee['id'],'month'=>$month]),null,['Accept: application/json']);
+    $statement=json_decode($statementBody,true)['statement']??null;
+    $closeForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$employee['id'],'month'=>$month,'preview_hash'=>$statement['preview_hash']??''];
+    [$closeStatus,$closeBody]=$apply('/admin/employees/close',$closeForm);$closed=json_decode($closeBody,true)['statement']??null;
+    verify($statementStatus===200&&$closeStatus===200&&$closed&&DB::table('branch_payrolls')->where('employee_id',$employee['id'])->count()===1,
+        'the original reviewed payroll closing shares the durable server outcome');
+    $payForm=$base+['idempotency_key'=>(string)Str::uuid(),'payroll_id'=>$closed['payroll_id'],'expected_revision'=>$closed['revision'],'payment_method'=>'cash','payment_confirmed'=>true];
+    [$payStatus,$payBody,$payAttempt]=$apply('/admin/employees/pay',$payForm);
+    verify($payStatus===200&&$decide($payAttempt,'settle')[1]['status']==='committed'
+        &&$apply('/admin/employees/pay',$payForm)[1]===$payBody&&DB::table('branch_payrolls')->where('id',$closed['payroll_id'])->value('status')==='paid'
+        &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
+        'a lost payroll payment reply and another transmission preserve the exact accounting confirmation');
+    DB::table('stock_ingredients')->insert(['id'=>88001,'name'=>'بضاعة اختبار النتيجة','unit'=>'kg','position'=>1]);
+    $stockForm=$base+['idempotency_key'=>(string)Str::uuid(),'ingredient_id'=>88001,'unit'=>'kg','quantity'=>'2.000'];
+    [$stockStatus,$stockBody,$stockAttempt]=$apply('/admin/branch-stock/receive',$stockForm);
+    verify($stockStatus===200&&$decide($stockAttempt,'settle')[1]['status']==='committed'&&$apply('/admin/branch-stock/receive',$stockForm)[1]===$stockBody
+        &&(int)DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',88001)->value('quantity_units')===2000000
+        &&DB::table('branch_inventory_movements')->where('branch','f:100')->where('ingredient_id',88001)->count()===1,
+        'a lost original goods receipt and another transmission add inventory once');
+    $recipeForm=$base+['idempotency_key'=>(string)Str::uuid(),'product_id'=>1,'feature_id'=>0,'unit'=>'kg',
+        'components'=>[['ingredient_id'=>88001,'measure'=>'kg','quantity'=>'1.000']]];
+    [$recipeStatus,$recipeBody]=$apply('/admin/branch-stock/recipes',$recipeForm);
+    verify($recipeStatus===200&&$apply('/admin/branch-stock/recipes',$recipeForm)[1]===$recipeBody
+        &&DB::table('branch_stock_recipes')->where('branch','f:100')->where('product_id',1)->count()===1,
+        'the original inventory recipe returns the saved receipt before its recipe revision changes');
+    $reviewForm=$base+['idempotency_key'=>(string)Str::uuid(),'expected_revision'=>1,'action'=>'approve'];
+    $beforeExpense=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');
+    [$reviewStatus,$reviewBody,$reviewAttempt]=$apply('/admin/branch-expenses/'.$expenseAttachmentId.'/review',$reviewForm);
+    verify($reviewStatus===200&&$decide($reviewAttempt,'settle')[1]['status']==='committed'
+        &&$apply('/admin/branch-expenses/'.$expenseAttachmentId.'/review',$reviewForm)[1]===$reviewBody
+        &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$beforeExpense-1000,
+        'a lost original expense approval reply deducts cash once and replays the exact signed-in result');
     $concurrent=$attempt();$decide($concurrent);$client=null;
     DB::beginTransaction();DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->lockForUpdate()->first();
     try{

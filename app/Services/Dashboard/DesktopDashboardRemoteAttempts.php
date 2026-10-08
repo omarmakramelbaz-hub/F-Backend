@@ -16,6 +16,11 @@ class DesktopDashboardRemoteAttempts
         'phone-orders.save'=>'can_checkout','phone-orders.action'=>'can_checkout','phone-orders.settle'=>'can_checkout',
         'phone-orders.dispatch-company'=>'can_checkout','phone-orders.finish-batch'=>'can_checkout',
         'customers.save'=>'can_checkout','delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
+        'branch-stock.receive'=>'can_checkout','branch-stock.recipe-save'=>'can_manage_inventory',
+        'branch-expenses.review'=>'can_approve_expense',
+        'employees.save'=>'can_checkout','employees.attendance'=>'can_checkout','employees.entry'=>'can_checkout',
+        'employees.wallet'=>'can_checkout','employees.daily-notes'=>'can_checkout','employees.close'=>'can_checkout','employees.pay'=>'can_checkout',
+        'employees.attendance-rules'=>'can_payroll_owner','employees.void-entry'=>'can_payroll_owner',
     ];
     public function __construct(private DesktopDashboardDevices $devices) {}
     private function values(array $values): array
@@ -92,7 +97,15 @@ class DesktopDashboardRemoteAttempts
             if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
             else{
                 $this->devices->branch($device,(string)$request->input('branch'),$actor);
-                abort_unless(app(TakeawayAccess::class)->permissions($actor)[self::CORE[$name]],403);
+                if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
+                $permissions=app(TakeawayAccess::class)->permissions($actor);
+                $allowed=match(self::CORE[$name]){
+                    'can_manage_inventory'=>$permissions['can_checkout']&&app(BranchInventory::class)->canManage($actor),
+                    'can_approve_expense'=>app(BranchExpenses::class)->permissions($actor)['can_approve'],
+                    'can_payroll_owner'=>$permissions['can_checkout']&&app(BranchPayroll::class)->canManageAttendance($actor),
+                    default=>$permissions[self::CORE[$name]],
+                };
+                abort_unless($allowed,403);
             }
             // Even stored replies require the original CURRENT controller permissions, before model binding.
             $router=app('router');$middleware=array_map(fn($item)=>MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$request->route()->controllerMiddleware());
