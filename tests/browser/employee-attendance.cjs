@@ -41,16 +41,16 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
  const arrival=()=>page.locator('[data-op-table] select[data-op-attendance]'),departure=()=>page.locator('[data-op-table] select[data-op-checkout]');
  const selected=control=>control.evaluate(el=>el.selectedOptions[0].textContent);
  async function waitRecorded(selector,text){await page.waitForFunction(({selector,text})=>document.querySelector(selector).selectedOptions[0].textContent===text,{selector,text});}
- async function refreshed(action){await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/data'),action()]);}
- async function refresh(){await refreshed(()=>page.locator('[data-op-refresh]').click());}
+ async function refreshed(action,renders=2){const before=await page.evaluate(()=>window.attendanceTableRenders);await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/data'),action()]);await page.waitForFunction(({before,renders})=>window.attendanceTableRenders>=before+renders,{before,renders});}
+ async function refresh(){await refreshed(()=>page.locator('[data-op-refresh]').click(),1);}
  try{
   await page.goto('http://attendance.test/');await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
-  await page.evaluate(()=>{window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
+  await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.deepEqual(await departure().locator('option').allTextContents(),['تسجيل الانصراف','انصراف صباحًا','انصراف مساءً']);
   assert.ok(await departure().isDisabled());assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
-  await arrival().selectOption('morning');await waitRecorded('[data-op-attendance]','12:35');
+  await refreshed(()=>arrival().selectOption('morning'));await waitRecorded('[data-op-attendance]','12:35');
   assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
   assert.equal(posts[0].v.expected_revision,null);assert.equal(await arrival().inputValue(),'');assert.ok(!(await departure().isDisabled()));
   assert.ok(await departure().locator('[value=evening]').evaluate(el=>el.disabled));assert.ok(!(await departure().locator('[value=morning]').evaluate(el=>el.disabled)));
@@ -58,30 +58,30 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   assert.equal(await page.evaluate(()=>document.activeElement.matches('[data-op-attendance]')),false);
   await refreshed(()=>arrival().selectOption('morning'));
   assert.equal(await selected(arrival()),'12:35');assert.ok((await page.locator('[data-op-total=deduction]').textContent()).includes('50.00'));
-  await departure().selectOption('morning');await waitRecorded('[data-op-checkout]','17:00');
+  await refreshed(()=>departure().selectOption('morning'));await waitRecorded('[data-op-checkout]','17:00');
   assert.equal(posts.at(-1).v.action,'check_out');assert.equal(posts.at(-1).v.expected_revision,2);assert.ok(!('check_out' in posts.at(-1).v));
   assert.ok(await departure().isDisabled());assert.equal(await selected(arrival()),'12:35');
   await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('3040.00'));
-  await page.locator('[data-op-auto-notes]').fill('ملاحظة محفوظة لليوم');await refreshed(()=>page.locator('[data-op-auto-notes]').press('Tab'));
-  await arrival().selectOption('unauthorized_absence');await waitRecorded('[data-op-attendance]','غياب بدون إذن');
+  await page.locator('[data-op-auto-notes]').fill('ملاحظة محفوظة لليوم');await refreshed(()=>page.locator('[data-op-auto-notes]').press('Tab'),1);
+  await refreshed(()=>arrival().selectOption('unauthorized_absence'));await waitRecorded('[data-op-attendance]','غياب بدون إذن');
   assert.equal(posts.at(-1).v.action,'set_status');assert.equal(posts.at(-1).v.notes,'ملاحظة محفوظة لليوم');assert.equal(await selected(departure()),'تسجيل الانصراف');assert.ok(await departure().isDisabled());
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('300.00'));
-  await arrival().selectOption('preapproved_leave');await waitRecorded('[data-op-attendance]','إجازة مسبقة');
+  await refreshed(()=>arrival().selectOption('preapproved_leave'));await waitRecorded('[data-op-attendance]','إجازة مسبقة');
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('100.00'));
   rejectAttendance=true;await arrival().selectOption('morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
   assert.equal(await selected(arrival()),'إجازة مسبقة');assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().isDisabled());
   uncertainAttendance=true;await arrival().selectOption('evening');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent.includes('غير مؤكدة'));
-  const count=posts.length;assert.ok(await arrival().isDisabled());await page.locator('[data-op-retry]').click();await waitRecorded('[data-op-attendance]','12:35');
+  const count=posts.length;assert.ok(await arrival().isDisabled());await refreshed(()=>page.locator('[data-op-retry]').click());await waitRecorded('[data-op-attendance]','12:35');
   assert.equal(posts.length,count);assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().locator('[value=morning]').evaluate(el=>el.disabled));
   data.items[0].day_closed=true;await refresh();assert.ok(await arrival().isDisabled());assert.ok(await departure().isDisabled());
   data.items[0].day_closed=false;await refresh();assert.ok(!(await arrival().isDisabled()));
   assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),0);
   await page.locator('[data-op-attendance-rules]').click();await page.waitForFunction(()=>document.querySelector('[name=morning_start]').value==='10:00');
-  assert.equal(await page.locator('[name=evening_end]').inputValue(),'04:00');await page.fill('[name=absence]','450.00');await page.locator('[data-op-body] [type=submit]').click();
+  assert.equal(await page.locator('[name=evening_end]').inputValue(),'04:00');await page.fill('[name=absence]','450.00');await refreshed(()=>page.locator('[data-op-body] [type=submit]').click(),1);
   await page.waitForFunction(()=>!document.querySelector('[data-op-dialog]').open);assert.equal(posts.at(-1).endpoint,'attendance-rules');assert.equal(posts.at(-1).v.absence,'450.00');assert.equal(posts.at(-1).v.expected_revision,1);
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT+'.desktop.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});await arrival().scrollIntoViewIfNeeded();await refreshed(()=>arrival().selectOption('evening'));
-  await departure().scrollIntoViewIfNeeded();await departure().selectOption('evening');await waitRecorded('[data-op-checkout]','17:00');
+  await departure().scrollIntoViewIfNeeded();await refreshed(()=>departure().selectOption('evening'));await waitRecorded('[data-op-checkout]','17:00');
   assert.equal(await selected(arrival()),'12:35');assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),1);
   const bounds=await departure().boundingBox();assert.ok(bounds.width>50&&bounds.width<200&&bounds.x>=0&&bounds.x+bounds.width<=390,JSON.stringify(bounds));
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT,fullPage:true});
