@@ -59,6 +59,10 @@ test('reviewed cash and phone writes can reserve while calculations, print claim
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'DELETE'}),true);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/question_answersDeleteAll',method:'DELETE'}),true);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts/12',method:'POST'}),true);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contactsDeleteAll',method:'DELETE'}),true);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts',method:'POST'}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts/12',method:'PUT'}),false);
 });
 test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or attachment writes',()=>{
   const f=fixture();

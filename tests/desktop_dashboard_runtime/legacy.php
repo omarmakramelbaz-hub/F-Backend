@@ -33,6 +33,7 @@ DB::table('users')->insert([
 ]);
 DB::table('users')->update(['added_by'=>1]);
 DB::table('users')->where('id',10)->update(['partner_auth_email'=>'hidden-account@test.invalid']);
+foreach([85001,85002,85003] as $contactId)DB::table('contacts')->insert(['id'=>$contactId,'user_id'=>20,'name'=>'رسالة اختبار المزامنة '.$contactId,'email'=>'contact@test.invalid','message'=>'محتوى رسالة التواصل '.$contactId]);
 DB::table('resturants')->insert([['id'=>100,'added_by'=>1,'user_id'=>10,'name'=>'الفرع الأول','status'=>'opened','address'=>'المنصورة'],['id'=>101,'added_by'=>1,'user_id'=>11,'name'=>'الفرع الثاني','status'=>'opened','address'=>'المحلة']]);
 DB::table('categories')->insert(['id'=>1,'added_by'=>1,'name_ar'=>'رنجة','name_en'=>'Herring','status'=>'show','order'=>1]);
 DB::table('products')->insert(['id'=>1,'added_by'=>1,'category_id'=>1,'name_ar'=>'رنجة سمينة','name_en'=>'Herring','status'=>'show']);
@@ -58,6 +59,7 @@ $snapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevi
 verify(count($snapshot['tables'])===106,'all 106 inspected schemas are available for original dashboard queries');
 $userIds=array_column($snapshot['tables']['users']['rows'],'id');sort($userIds);
 verify($userIds===[1,10,20],'foreign-key closure adds the branch customer and creator without unrelated customer accounts');
+verify($snapshot['tables']['contacts']['rows']===[],'private global contact messages stay outside a branch account snapshot');
 verify(count($snapshot['tables']['orders']['rows'])===1&&count($snapshot['tables']['carts']['rows'])===1,'legacy app orders and cart rows stay inside the account branch');
 verify(count($snapshot['tables']['order_board_clocks']['rows'])===1 && $snapshot['tables']['order_board_clocks']['rows'][0]['source']==='legacy','colliding application order IDs cannot leak another source clock');
 verify($snapshot['tables']['social_accounts']['rows']===[]&&$snapshot['tables']['user_tokens']['rows']===[],'OAuth and application session rows are never exported');
@@ -123,10 +125,11 @@ try{
 config(['database.connections.mysql.database'=>$database]);DB::purge();
 $owner=User::withoutGlobalScopes()->findOrFail(1);
 $role=\Spatie\Permission\Models\Role::create(['name'=>'Super Admin','guard_name'=>'admin']);
-foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
+verify(count($ownerSnapshot['tables']['contacts']['rows'])===3,'the primary administrator preparation imports its original global contact messages');
 $ownerStage='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$ownerStage.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(fn()=>$pdo->exec('DROP DATABASE IF EXISTS `'.$ownerStage.'`'));
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.device_id'=>$ownerDevice]);DB::purge();app(DesktopDashboardImport::class)->import($ownerSnapshot);
@@ -195,6 +198,7 @@ verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($own
 require __DIR__.'/catalog-delete.php';
 require __DIR__.'/areas.php';
 require __DIR__.'/faq.php';
+require __DIR__.'/contacts.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

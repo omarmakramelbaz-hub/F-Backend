@@ -135,6 +135,22 @@ try{
     verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200&&DB::table('question_answers')->whereIn('id',$faqBulkIds)->count()===0,'the original FAQ bulk DELETE commits its protected reserved outcome');
     $faqBulkForm['ids']=implode(',',$faqBulkIds);
     verify($http($faqBulk['path'],$faqBulkForm,$proof($faqBulkProof),'DELETE')[0]===200,'a reordered original FAQ bulk retry returns the saved result after deletion');
+    foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
+    $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
+    $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);
+    verify($http($contactAttempt['path'],$contactForm,$proof($contactProof))[0]===302&&!DB::table('contacts')->where('id',86001)->exists()
+        &&$decide($contactAttempt,'settle')[1]['status']==='committed'&&$http($contactAttempt['path'],$contactForm,$proof($contactProof))[0]===302,'the original server contact deletion and lost reply retain one terminal outcome before removed-model binding');
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('contact-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contactAttempt['path'],$contactForm,$proof($contactProof))[0]===403,'a stored original contact deletion response still requires its current permission');
+    $currentRole->givePermissionTo('contact-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    $contactBulk=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/contactsDeleteAll'];[, $contactBulkProof]=$decide($contactBulk);
+    $contactBulkForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>'86003,86002'];
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('contact-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contactBulk['path'],$contactBulkForm,$proof($contactBulkProof),'DELETE')[0]===403&&DB::table('contacts')->whereIn('id',[86002,86003])->count()===2,'the actual original contact bulk controller checks the deletion permission before changing either message');
+    $currentRole->givePermissionTo('contact-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contactBulk['path'],$contactBulkForm,$proof($contactBulkProof),'DELETE')[0]===200&&DB::table('contacts')->whereIn('id',[86002,86003])->count()===0&&$decide($contactBulk,'settle')[1]['status']==='committed','the protected original contact bulk deletion stores its complete terminal result');
+    $contactBulkForm['ids']='86002,86003';verify($http($contactBulk['path'],$contactBulkForm,$proof($contactBulkProof),'DELETE')[0]===200,'a reordered original contact bulk retry returns its stored result after all messages disappear');
+    verify($decide($attempt('/admin/contacts'))[0]===422,'a contact listing path cannot reserve an unimplemented contact creation');
     $cart=['_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
     [$quoteStatus,$quoteBody]=$http('/admin/takeaway/quote',$cart,['Accept: application/json']);$quote=json_decode($quoteBody,true);
     verify($quoteStatus===200&&isset($quote['quote_hash'],$quote['total']),'the original server quote prepares a real cash checkout outcome test');
