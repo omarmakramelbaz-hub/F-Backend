@@ -55,7 +55,8 @@ try{
     verify($imageApi($link['token'])[0]===403,'disabling the enrolled account immediately blocks its cached media capability');
     DB::table('users')->where('id',10)->update(['status'=>'accepted']);
     DB::table('resturants')->where('id',100)->update(['user_id'=>11]);
-    verify($imageApi($link['token'])[0]===403,'removing the account branch immediately blocks its cached media capability');
+    $removedBranch=$imageApi($link['token']);
+    verify($removedBranch[0]===404&&$removedBranch[1]!==$imageBytes,'removing the account branch blocks media using the original hidden-branch response (HTTP '.$removedBranch[0].')');
     DB::table('resturants')->where('id',100)->update(['user_id'=>10]);
 }finally{fclose($apiPipes[0]);proc_terminate($api);proc_close($api);}
 unlink($profile.'/app/public/branding/logo.png');
