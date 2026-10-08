@@ -8,8 +8,8 @@ class EmployeeAttendanceRules
 {
     public static function snapshot(object $rule,string $day): array
     {
-        $start=Carbon::createFromFormat('!Y-m-d H:i',$day.' '.substr($rule->starts_at,0,5),'Africa/Cairo');
-        $end=Carbon::createFromFormat('!Y-m-d H:i',$day.' '.substr($rule->ends_at,0,5),'Africa/Cairo');
+        $start=OperatingDay::at($day,$rule->starts_at);
+        $end=OperatingDay::at($day,$rule->ends_at);
         if($end->lessThanOrEqualTo($start))$end->addDay();
         return ['shift'=>$rule->shift,'rule_revision'=>(int)$rule->revision,
             'scheduled_start'=>$start->utc()->toDateTimeString(),'scheduled_end'=>$end->utc()->toDateTimeString(),

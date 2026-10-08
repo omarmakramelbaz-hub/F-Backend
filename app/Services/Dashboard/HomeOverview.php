@@ -21,11 +21,11 @@ class HomeOverview
     {
         $v = Validator::make($values, ['branch'=>'nullable|string|max:40', 'period'=>'nullable|in:today,week,month,custom',
             'from'=>'required_if:period,custom|nullable|date_format:Y-m-d', 'to'=>'required_if:period,custom|nullable|date_format:Y-m-d|after_or_equal:from'])->validate();
-        $period = $v['period'] ?? 'today'; $end = now('Africa/Cairo')->startOfDay(); $start = $end->copy();
+        $period = $v['period'] ?? 'today'; $end = Carbon::parse(OperatingDay::date(),'Africa/Cairo'); $start = $end->copy();
         if ($period === 'week') $start->subDays(6);
         elseif ($period === 'month') $start->startOfMonth();
         elseif ($period === 'custom') { $start = Carbon::parse($v['from'], 'Africa/Cairo'); $end = Carbon::parse($v['to'], 'Africa/Cairo'); }
-        abort_if($start->diffInDays($end) > 365 || $end->gt(now('Africa/Cairo')->startOfDay()), 422, __('home_overview.invalid_range'));
+        abort_if($start->diffInDays($end) > 365 || $end->toDateString()>OperatingDay::date(), 422, __('home_overview.invalid_range'));
         return ['branch'=>$v['branch'] ?? '', 'period'=>$period, 'from'=>$start->toDateString(), 'to'=>$end->toDateString()];
     }
     private function emptySales(): array
@@ -47,7 +47,7 @@ class HomeOverview
         $finance = $centralAccount ? $owner : $this->access->permissions($actor)['can_manage'];
         $central = $centralAccount && $filters['branch'] === '';
         $keys = array_column($selected, 'value'); $ids = array_column($selected, 'id');
-        $from = Carbon::parse($filters['from'], 'Africa/Cairo'); $until = Carbon::parse($filters['to'], 'Africa/Cairo')->addDay();
+        $from = OperatingDay::start($filters['from']); $until = OperatingDay::end($filters['to']);
         $previousFrom = $from->copy()->subDays($from->diffInDays($until));
         $modules = ['app'=>$this->has('orders', ['resturant_id','type','status','created_at','updated_at']),
             'pos'=>$this->has('takeaway_orders', ['branch','business_date','channel','total_cents','delivery_cents','created_at']),
@@ -64,9 +64,10 @@ class HomeOverview
             DB::table('takeaway_orders')->whereIn('branch', $keys)->where('business_date', '>=', $previousFrom->toDateString())
                 ->where('business_date', '<', $until->toDateString())->orderBy('id')->chunkById(500, function($rows) use (&$sales,&$previous,&$branches,&$trend,$from,$until) {
                     foreach ($rows as $r) {
-                        $when = Carbon::parse($r->created_at, 'UTC')->setTimezone('Africa/Cairo');
+                        $context=json_decode($r->context_snapshot??'{}',true);
+                        $when = Carbon::parse($context['occurred_at']??$r->created_at, 'UTC')->setTimezone('Africa/Cairo');
                         // business_date is the POS accounting date; the hour comes from the frozen receipt timestamp.
-                        $when->setDateFrom(Carbon::parse($r->business_date, 'Africa/Cairo'));
+                        $when=OperatingDay::at($r->business_date,$when->format('H:i'))->setSecond($when->second);
                         $channel = in_array($r->channel, ['phone','dine'], true) ? $r->channel : 'takeaway';
                         if ($r->business_date < $from->toDateString()) $this->add($previous, $channel, (int)$r->total_cents, (int)$r->delivery_cents);
                         else { $this->add($sales, $channel, (int)$r->total_cents, (int)$r->delivery_cents); $this->add($branches[$r->branch]['sales'], $channel, (int)$r->total_cents, (int)$r->delivery_cents); $this->point($trend,$when,(int)$r->total_cents); }
@@ -146,7 +147,7 @@ class HomeOverview
             $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances($keys,$actor):[];
             $drawer['owner_drawer']=['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts];
         }
-        return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
+        return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'operating_day'=>OperatingDay::metadata(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'branch_home'=>!$centralAccount,'today_expenses'=>!$centralAccount?$this->todayExpenses($keys,$modules['expenses']):null,
             'modules'=>$modules,'sales'=>$finance?$sales:null,'previous'=>$finance?$previous:null,'completed'=>$completed,'cancelled'=>$cancelled,
             'active'=>$active,'app_orders'=>$appOrders,'customers'=>$customers,'open_branches'=>count(array_filter($branches,fn($b)=>$b['open']===true)),
@@ -155,7 +156,7 @@ class HomeOverview
     }
     private function todayExpenses(array $keys,bool $ready): array
     {
-        $today=now('Africa/Cairo')->toDateString();$items=[];$total=0;
+        $today=OperatingDay::date();$items=[];$total=0;
         if($ready){
             $names=app(ExpenseCategories::class)->options();
             foreach(DB::table('branch_expenses')->whereIn('branch',$keys)->where('occurred_on',$today)->where('status','approved')->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderBy('category')->get() as $row){
@@ -201,7 +202,7 @@ class HomeOverview
     }
     private function point(array &$trend,Carbon $when,int $gross): void
     {
-        $key=$when->format($trend['mode']==='hour'?'Y-m-d H':($trend['mode']==='month'?'Y-m':'Y-m-d'));if(isset($trend['points'][$key])){$trend['points'][$key]['count']++;$trend['points'][$key]['amount_cents']+=$gross;}
+        $key=$trend['mode']==='hour'?$when->format('Y-m-d H'):substr(OperatingDay::date($when),0,$trend['mode']==='month'?7:10);if(isset($trend['points'][$key])){$trend['points'][$key]['count']++;$trend['points'][$key]['amount_cents']+=$gross;}
     }
     private function inventory(array $keys,bool $ready,bool $byBranch=false): array
     {

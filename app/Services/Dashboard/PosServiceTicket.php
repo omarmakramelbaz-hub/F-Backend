@@ -23,7 +23,7 @@ class PosServiceTicket
         $this->channel($channel);$data=$this->sales->summary($branch,$actor);$data['ready']=$data['ready']&&$this->tables->ready();
         $policy=$this->tables->ready()?$this->tables->policy($branch):['service_rate'=>'0.00','settings_revision'=>1];
         $data['policy']=array_merge($data['policy']??[],['service_rate'=>$channel==='dine'?$policy['service_rate']:'0.00','settings_revision'=>$policy['settings_revision'],'channel'=>$channel]);
-        if($data['ready']){$paid=DB::table('takeaway_orders')->where('branch',$branch)->where('channel',$channel)->where('business_date',now(config('app.timezone'))->toDateString());
+        if($data['ready']){$paid=DB::table('takeaway_orders')->where('branch',$branch)->where('channel',$channel)->where('business_date',OperatingDay::date());
             $data['today']['count']=(clone $paid)->count();$data['today']['total']=Money::decimal((int)(clone $paid)->sum('total_cents'));}
         return $data;
     }
@@ -104,7 +104,7 @@ class PosServiceTicket
                 'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>$when];
             if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
-            else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>$when->copy()->setTimezone(config('app.timezone'))->toDateString(),'created_at'=>$when]);}
+            else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
             if($table)DB::table('pos_service_tables')->where('id',$table->id)->update(['active_ticket_id'=>$id,'revision'=>(int)$table->revision+1,'updated_at'=>$when]);
             if($channel==='phone'&&($v['send_to_kitchen']??false))$this->queueKitchen($id,$v['branch'],$actor->id,$data['revision'],$when);
             $op=$this->record($v,$actor,$hash,'save',$id,$data['revision']);return $this->result($op,$actor,false);

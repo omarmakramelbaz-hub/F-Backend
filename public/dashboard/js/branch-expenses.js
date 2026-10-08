@@ -90,6 +90,7 @@
         on(categoriesDialog,'cancel',function(event){if(locked())event.preventDefault();});
     }
     function render(data) {
+        if(data.operating_day)boot.today=data.operating_day.date;
         current = data; if(data.categories)categoryOptions(data); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
@@ -118,7 +119,7 @@
         catch (error) { if (!disposed && error.name !== 'AbortError') notice(error.message); }
     }
     function reset() {
-        editing = null; categoryOptions(current); form.reset(); form.elements.occurred_on.value = boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
+        editing = null; categoryOptions(current); form.reset(); boot.today=window.DashboardOperatingDay?window.DashboardOperatingDay.current():boot.today;form.elements.occurred_on.value = boot.today;form.elements.occurred_on.max=boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
         var recovery=form.querySelector('[data-expense-recovery-file]');if(recovery)recovery.remove();root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
     }
     async function print(address) { if (locked()) return; try { await window.DashboardPrint.print(url(address)); } catch (error) { notice(error.message || t('error')); } }
