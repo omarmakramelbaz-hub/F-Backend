@@ -48,17 +48,12 @@ class DesktopDashboardJournal
         }
         // Existing forms already supply an immutable UUID. Do not generate another after losing a reply.
         $command=(string)$request->input('idempotency_key');
-        $payload=['parameters'=>$request->route()->parameters(),'values'=>$request->except('_token'),'files'=>[]];
+        $payload=['parameters'=>$request->route()->parameters(),'values'=>$request->except('_token','attachment'),'files'=>app(\App\Services\Dashboard\DesktopDashboardExpenseAttachments::class)->files($request,$route)];
         if(in_array($route,['branch-shifts.close','employees.close'],true)){
             $facts=app(Journal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route);
             if($facts!==null)$payload['facts']=$facts;
             elseif($route==='branch-shifts.close')$payload['facts']['shift']=app(\App\Services\Dashboard\BranchShiftClosing::class)->desktopReview($request->all(),$actor);
             else $payload['facts']['payroll']=app(\App\Services\Dashboard\BranchPayroll::class)->desktopReview($request->all(),$actor);
-        }
-        foreach($request->allFiles() as $name=>$file) {
-            abort_unless($file instanceof \Illuminate\Http\UploadedFile && $file->isValid(),422,'المرفق غير صالح.');
-            abort_if($file->getSize()>10*1024*1024,422,'المرفق أكبر من الحد المسموح.');
-            $payload['files'][$name]=['name'=>$file->getClientOriginalName(),'mime'=>$file->getMimeType(),'sha256'=>hash_file('sha256',$file->getRealPath()),'base64'=>base64_encode(file_get_contents($file->getRealPath()))];
         }
         $status=200;
         $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],function()use($next,$request,&$status){

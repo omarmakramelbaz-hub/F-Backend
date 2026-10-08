@@ -66,6 +66,8 @@ async function main() {
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
       download: async () => snapshot });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
+      { upload: '5M', post: '12M', memory: '256M' });
     const initial = await runtime.connection();
     assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
     assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));
