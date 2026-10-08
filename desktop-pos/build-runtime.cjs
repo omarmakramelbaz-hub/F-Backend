@@ -9,6 +9,14 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
   if (!/^[a-f0-9]{40}$/.test(revision)) throw Error('A pinned source revision is required.');
   if (execFileSync('git', ['rev-parse','HEAD'], { cwd: source, encoding:'utf8' }).trim() !== revision) throw Error('Source revision does not match the checkout.');
   execFileSync('git', ['diff-index','--quiet','HEAD','--'], { cwd: source });
+  const layoutRoot = path.join(source, 'public/dashboard/vendor/desktop-external');
+  const layout = JSON.parse(await fs.readFile(path.join(layoutRoot, 'manifest.json'), 'utf8'));
+  if (layout.format !== 1 || layout.complete !== true || !layout.assets || !layout.licenses || !layout.distributions) throw Error('The original offline layout assets are incomplete.');
+  for (const item of [...Object.values(layout.assets), ...Object.values(layout.licenses)]) {
+    if (!/^[a-zA-Z0-9_./@-]+$/.test(item.path || '') || /(?:^|\/)\.{1,2}(?:\/|$)/.test(item.path)) throw Error('Unsafe layout asset path.');
+    const bytes = await fs.readFile(path.join(layoutRoot, item.path));
+    if (crypto.createHash('sha256').update(bytes).digest('hex') !== item.sha256 || (item.bytes !== undefined && item.bytes !== bytes.length)) throw Error('A bundled original layout asset failed verification.');
+  }
   // Refuse an existing destination: old caches, secrets or files must not survive a rebuilt bundle.
   try { await fs.lstat(target); throw Error('Runtime destination must be a new directory.'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }

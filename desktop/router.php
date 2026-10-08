@@ -30,6 +30,10 @@ if (str_starts_with($pathname, '/storage/')) {
 $file = $root ? realpath($root.$relative) : false;
 $extensions = ['js'=>'application/javascript','css'=>'text/css','png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','gif'=>'image/gif','webp'=>'image/webp','svg'=>'image/svg+xml','ico'=>'image/x-icon','woff'=>'font/woff','woff2'=>'font/woff2','ttf'=>'font/ttf','eot'=>'application/vnd.ms-fontobject','mp3'=>'audio/mpeg','wav'=>'audio/wav','json'=>'application/json'];
 $extension = strtolower(pathinfo($file ?: '', PATHINFO_EXTENSION));
+// CKEditor's bundled dialogs use static HTML; do not extend this allowance to uploaded files.
+if ($extension === 'html' && str_starts_with($pathname, '/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/')) {
+    $extensions['html'] = 'text/html; charset=utf-8';
+}
 if ($file && is_file($file) && str_starts_with($file, $root.DIRECTORY_SEPARATOR) && isset($extensions[$extension])) {
     header('Content-Type: '.$extensions[$extension]);
     readfile($file); exit;

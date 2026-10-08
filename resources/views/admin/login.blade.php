@@ -8,9 +8,11 @@
     <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}">
     <link rel="stylesheet" href="{{ url('dashboard') }}/plugins/fontawesome-free/css/all.min.css">
     <link rel="stylesheet" href="{{ url('dashboard') }}/dist/css/adminlte.min.css">
+    @if(!config('desktop_dashboard.local'))
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap" rel="stylesheet">
+    @endif
+    <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003-navigation-4">
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp

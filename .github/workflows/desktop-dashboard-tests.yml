@@ -12,7 +12,9 @@ on:
       - 'desktop-pos/**'
       - 'tests/desktop_dashboard_runtime/**'
       - 'public/dashboard/js/desktop-dashboard.js'
-      - 'resources/views/admin/layouts/header.blade.php'
+      - 'public/dashboard/vendor/desktop-external/**'
+      - 'resources/views/admin/**'
+      - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
 
 permissions:

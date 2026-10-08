@@ -74,7 +74,7 @@
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
 <script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
-<script src="//cdn.ckeditor.com/4.14.0/standard/ckeditor.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>
 
 
@@ -188,7 +188,7 @@ $(document).ready(function() {
 <script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
 </div>
-  <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+  <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://js.pusher.com/8.2.0/pusher.min.js') }}"></script>
 
 <!-- AdminLTE App -->
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
@@ -201,11 +201,11 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
 <!-- AdminLTE for demo purposes -->
 <script src="{{ url('/dashboard') }}/dist/js/demo.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js') }}"></script>
 <!-- Latest compiled and minified JavaScript -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
 <script>
 console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
@@ -436,7 +436,7 @@ window.changeLanguage = function(lang) {
 });
 </script>
 
-<script src="https://unpkg.com/sweetalert/dist/sweetalert.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://unpkg.com/sweetalert/dist/sweetalert.min.js') }}"></script>
 <script>
     // Show SweetAlert "Enable notification sound" only once per browser using localStorage
     document.addEventListener('DOMContentLoaded', function() {

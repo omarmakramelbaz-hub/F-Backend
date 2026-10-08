@@ -249,7 +249,7 @@
 
 
 @push('custom-js')
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js') }}"></script>
 <script>
        $(document).on('click', '.openModalCart', function () {
           var idproduct = $(this).attr('data-id');
