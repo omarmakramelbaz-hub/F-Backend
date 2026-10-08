@@ -2,7 +2,9 @@
     'use strict';
     if(window.DashboardOperatingDay)return;
     var clock=document.querySelector('[data-dashboard-clock]'),previous;
-    var server=clock&&Number(clock.dataset.clockServer),offset=server?server-Date.now():0;
+    // A local desktop page may have been archived days before it is opened.
+    var local=document.body&&document.body.dataset.dashboardLocal==='1';
+    var server=clock&&Number(clock.dataset.clockServer),offset=!local&&server?server-Date.now():0;
     var calendar=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'});
     var time=new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Cairo',hour:'numeric',minute:'2-digit',hour12:true});
     function date(at){

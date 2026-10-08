@@ -27,6 +27,13 @@ const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE||'playwright');
         DashboardOperatingDay.date(new Date('2026-04-24T03:00:00Z')),
     ]);
     assert.deepEqual(boundaries,['2026-10-31','2026-11-01','2026-12-31','2026-04-23','2026-04-24']);
+    const offline=await browser.newPage({timezoneId:'America/Los_Angeles'});
+    offline.on('pageerror',e=>errors.push(e.message));
+    await offline.clock.install({time:new Date('2026-11-10T12:00:00Z')});
+    await offline.setContent(`<body data-dashboard-local="1"><div data-dashboard-clock data-clock-server="${before.getTime()}"><bdi data-dashboard-operating-date></bdi><bdi data-dashboard-local-time></bdi></div></body>`);
+    await offline.addScriptTag({content:script});
+    assert.equal(await offline.evaluate(()=>DashboardOperatingDay.current()),'2026-11-10');
+    assert.equal(await offline.locator('[data-dashboard-local-time]').textContent(),'2:00 pm');
     assert.deepEqual(errors,[]);await browser.close();
-    process.stdout.write('Browser operating-day checks passed: Cairo time across six, month/year changes, daylight saving, rollover event and one persistent clock.\n');
+    process.stdout.write('Browser operating-day checks passed: Cairo time across six, month/year changes, daylight saving, rollover event, one persistent clock and archived offline pages.\n');
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exit(1);});
