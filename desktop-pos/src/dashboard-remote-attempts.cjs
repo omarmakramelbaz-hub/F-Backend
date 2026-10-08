@@ -20,8 +20,8 @@ class DashboardRemoteAttempts {
       || path==='/admin/branch-expenses/categories'
       || path==='/admin/branch-shifts/close'))return true;
     return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-      && (/^\/admin\/(?:categorys|products)(?:\/[1-9][0-9]{0,18})?$/.test(path)
-        || (method === 'DELETE' && /^\/admin\/(?:categorys|products)DeleteAll$/.test(path)));
+      && (/^\/admin\/(?:areas|categorys|products)(?:\/[1-9][0-9]{0,18})?$/.test(path)
+        || (method === 'DELETE' && /^\/admin\/(?:areas|categorys|products)DeleteAll$/.test(path)));
   }
   validate(receipt, record) {
     if (receipt?.format !== 1 || receipt.id !== record.id || receipt.device_id !== record.deviceId || receipt.actor_id !== record.actorId

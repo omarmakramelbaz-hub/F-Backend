@@ -80,6 +80,32 @@ try{
         'the actual original bulk server DELETE saves its transactional result');
     $bulkForm['ids']=implode(',',$bulkIds);
     verify($http($bulk['path'],$bulkForm,$proof($bulkProof),'DELETE')[0]===200,'a reordered bulk server retry acknowledges the same operation after its rows are gone');
+    $areaForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'parent_id'=>null,'title_ar'=>'منطقة نتيجة السيرفر','title_en'=>'Remote area'];
+    $areaAttempt=$attempt('/admin/areas');[, $areaProof]=$decide($areaAttempt);
+    verify($http('/admin/areas',$areaForm,$proof($areaProof))[0]===302&&DB::table('areas')->where('title_ar',$areaForm['title_ar'])->count()===1
+        &&$decide($areaAttempt,'settle')[1]['status']==='committed','the original area creation commits its reserved server outcome without transport columns');
+    $areaRetry=$attempt('/admin/areas');[, $areaRetryProof]=$decide($areaRetry);
+    verify($http('/admin/areas',$areaForm,$proof($areaRetryProof))[0]===302&&DB::table('areas')->where('title_ar',$areaForm['title_ar'])->count()===1,'a later original area transmission returns its stored creation without duplication');
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('areas-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http('/admin/areas',$areaForm,$proof($areaProof))[0]===403,'a committed original area response still requires its current creation permission');
+    $currentRole->givePermissionTo('areas-create');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    $remoteAreaId=(int)DB::table('areas')->where('title_ar',$areaForm['title_ar'])->value('id');
+    $areaForm['_desktop_command']=(string)Str::uuid();$areaForm['_method']='PUT';$areaForm['title_ar']='منطقة نتيجة السيرفر معدلة';
+    $areaUpdate=$attempt('/admin/areas/'.$remoteAreaId);[, $areaUpdateProof]=$decide($areaUpdate);
+    verify($http($areaUpdate['path'],$areaForm,$proof($areaUpdateProof))[0]===302&&DB::table('areas')->where('id',$remoteAreaId)->value('title_ar')===$areaForm['title_ar']
+        &&$http($areaUpdate['path'],$areaForm,$proof($areaUpdateProof))[0]===302,'the original area update preserves its reserved response and scalar route parameter');
+    $areaRemove=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];$areaDelete=$attempt('/admin/areas/'.$remoteAreaId);[, $areaDeleteProof]=$decide($areaDelete);
+    verify($http($areaDelete['path'],$areaRemove,$proof($areaDeleteProof))[0]===302&&!DB::table('areas')->where('id',$remoteAreaId)->exists()
+        &&$http($areaDelete['path'],$areaRemove,$proof($areaDeleteProof))[0]===302,'a lost original server area deletion replays before its removed model is bound');
+    $areaBulkIds=[];unset($areaForm['_desktop_command'],$areaForm['_method']);
+    foreach([1,2] as $index){$areaForm['title_ar']='منطقة حذف نتيجة السيرفر '.$index;
+        verify($http('/admin/areas',$areaForm)[0]===302,'the normal original area controller accepts its CSRF-protected form');
+        $areaBulkIds[]=(int)DB::table('areas')->where('title_ar',$areaForm['title_ar'])->value('id');}
+    $areaBulk=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/areasDeleteAll'];[, $areaBulkProof]=$decide($areaBulk);
+    $areaBulkForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>implode(',',array_reverse($areaBulkIds))];
+    verify($http($areaBulk['path'],$areaBulkForm,$proof($areaBulkProof),'DELETE')[0]===200&&DB::table('areas')->whereIn('id',$areaBulkIds)->count()===0,'the original area bulk DELETE commits its reserved result atomically');
+    $areaBulkForm['ids']=implode(',',$areaBulkIds);
+    verify($http($areaBulk['path'],$areaBulkForm,$proof($areaBulkProof),'DELETE')[0]===200,'a reordered original area bulk retry returns its receipt after deletion');
     $cart=['_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
     [$quoteStatus,$quoteBody]=$http('/admin/takeaway/quote',$cart,['Accept: application/json']);$quote=json_decode($quoteBody,true);
     verify($quoteStatus===200&&isset($quote['quote_hash'],$quote['total']),'the original server quote prepares a real cash checkout outcome test');

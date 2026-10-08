@@ -27,8 +27,8 @@ class DesktopDashboardRemoteAttempts
     private function values(array $values): array
     {
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
-        $single=preg_match('#^/admin/(?:categorys|products)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
-        $bulk=preg_match('#^/admin/(?:categorys|products)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
+        $single=preg_match('#^/admin/(?:areas|categorys|products)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
+        $bulk=preg_match('#^/admin/(?:areas|categorys|products)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
         $core=false;
         if($v['method']==='POST'&&str_starts_with($v['path'],'/admin/')){
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
@@ -39,6 +39,10 @@ class DesktopDashboardRemoteAttempts
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة السيرفر يحتاج جداول تدعم المعاملات.');
+        }
+        if(str_starts_with($v['path'],'/admin/areas')){
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),'areas']);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة المنطقة يحتاج جدولاً يدعم المعاملات.');
         }
         if($core){
             $tables=DesktopDashboardSchema::TABLES;

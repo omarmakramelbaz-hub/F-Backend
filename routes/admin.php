@@ -240,7 +240,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================areas=====================
         //=====================================================
         Route::resource('areas',AreaController::class);
-        Route::delete('areasDeleteAll',[AreaController::class,'delete_all']);
+        Route::delete('areasDeleteAll',[AreaController::class,'delete_all'])->name('areas.destroy-all');
         
         
          //====================================================

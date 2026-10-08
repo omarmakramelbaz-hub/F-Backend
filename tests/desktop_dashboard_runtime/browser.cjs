@@ -34,14 +34,14 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;
-    for (const module of ['categorys', 'products']) {
+    for (const module of ['areas', 'categorys', 'products']) {
       await page.goto(input.origin + '/admin/' + module + '/create');
       const field = page.locator('form input[name="_desktop_command"]');
       await field.waitFor({ state: 'attached' });
       const uuid = await field.inputValue();
       assert.match(uuid, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i);
       assert.notEqual(uuid, previous);
-      await page.locator('[name="name_ar"]').fill('اختبار النموذج الأصلي');
+      await page.locator(module === 'areas' ? '[name="title_ar"]' : '[name="name_ar"]').fill('اختبار النموذج الأصلي');
       await page.evaluate(() => {
         const form = document.querySelector('form input[name="_desktop_command"]').form;
         form.append(document.createElement('span'));

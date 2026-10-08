@@ -52,10 +52,12 @@ test('an unprepared device retains the old guard, while a credential read failur
 });
 test('reviewed cash and phone writes can reserve while calculations, print claims and unreviewed attachment uploads keep their existing guard',()=>{
   const f=fixture();
-  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close'])
+  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close','/admin/areas','/admin/areas/12'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
   for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim','/admin/branch-expenses/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'DELETE'}),true);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'POST'}),false);
 });
 test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or attachment writes',()=>{
   const f=fixture();

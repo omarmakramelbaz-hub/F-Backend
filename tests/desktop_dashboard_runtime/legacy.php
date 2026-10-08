@@ -123,7 +123,7 @@ try{
 config(['database.connections.mysql.database'=>$database]);DB::purge();
 $owner=User::withoutGlobalScopes()->findOrFail(1);
 $role=\Spatie\Permission\Models\Role::create(['name'=>'Super Admin','guard_name'=>'admin']);
-foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
@@ -193,6 +193,7 @@ catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($erro
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
 verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($ownerDevice)[0]['command_id']===$conflicting['command_id'],'a rejected catalog update remains durably queued on the local device');
 require __DIR__.'/catalog-delete.php';
+require __DIR__.'/areas.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;
