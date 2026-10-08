@@ -188,6 +188,16 @@ try{
         &&$apply('/admin/branch-expenses/'.$expenseAttachmentId.'/review',$reviewForm)[1]===$reviewBody
         &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$beforeExpense-1000,
         'a lost original expense approval reply deducts cash once and replays the exact signed-in result');
+    $categoryForm=['_token'=>$serverCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'create','name'=>'تصنيف اختبار نتيجة السيرفر'];
+    [$categoryStatus,$categoryBody,$categoryAttempt]=$apply('/admin/branch-expenses/categories',$categoryForm);
+    verify($categoryStatus===200&&$decide($categoryAttempt,'settle')[1]['status']==='committed'
+        &&$apply('/admin/branch-expenses/categories',$categoryForm)[1]===$categoryBody
+        &&DB::table('branch_expense_categories')->where('name',$categoryForm['name'])->count()===1,
+        'the original shared expense category commits and retries without requiring a fictitious branch');
+    $ownerScope=DB::table('users')->where('id',1)->value('owner_resturant_id');DB::table('users')->where('id',1)->update(['owner_resturant_id'=>100]);
+    try{verify($apply('/admin/branch-expenses/categories',$categoryForm)[0]===403,
+        'a stored shared expense category reply still requires the current original primary-owner authority');}
+    finally{DB::table('users')->where('id',1)->update(['owner_resturant_id'=>$ownerScope]);}
     $concurrent=$attempt();$decide($concurrent);$client=null;
     DB::beginTransaction();DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->lockForUpdate()->first();
     try{

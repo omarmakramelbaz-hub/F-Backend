@@ -57,12 +57,12 @@ test('reviewed cash and phone writes can reserve while calculations, print claim
   for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim','/admin/branch-expenses/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
 });
-test('reviewed employee and inventory POST paths reserve without accepting read reports, global expense categories or attachment writes',()=>{
+test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or attachment writes',()=>{
   const f=fixture();
   for(const path of ['/admin/employees/save','/admin/employees/attendance','/admin/employees/void-entry','/admin/employees/close','/admin/employees/pay',
-    '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-expenses/12/review'])
+    '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-expenses/12/review','/admin/branch-expenses/categories'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
-  for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/save','/admin/branch-expenses/categories'])
+  for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/save','/admin/branch-expenses/categories/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/employees/attendance',method:'GET'}),false);
 });

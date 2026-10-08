@@ -18,6 +18,7 @@ class DesktopDashboardRemoteAttempts
         'customers.save'=>'can_checkout','delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
         'branch-stock.receive'=>'can_checkout','branch-stock.recipe-save'=>'can_manage_inventory',
         'branch-expenses.review'=>'can_approve_expense',
+        'branch-expenses.categorySave'=>'can_manage_expense_categories',
         'employees.save'=>'can_checkout','employees.attendance'=>'can_checkout','employees.entry'=>'can_checkout',
         'employees.wallet'=>'can_checkout','employees.daily-notes'=>'can_checkout','employees.close'=>'can_checkout','employees.pay'=>'can_checkout',
         'employees.attendance-rules'=>'can_payroll_owner','employees.void-entry'=>'can_payroll_owner',
@@ -96,12 +97,14 @@ class DesktopDashboardRemoteAttempts
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
             if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
             else{
-                $this->devices->branch($device,(string)$request->input('branch'),$actor);
+                // Expense categories are the original shared vocabulary and have no branch input.
+                if(self::CORE[$name]!=='can_manage_expense_categories')$this->devices->branch($device,(string)$request->input('branch'),$actor);
                 if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
                 $permissions=app(TakeawayAccess::class)->permissions($actor);
                 $allowed=match(self::CORE[$name]){
                     'can_manage_inventory'=>$permissions['can_checkout']&&app(BranchInventory::class)->canManage($actor),
                     'can_approve_expense'=>app(BranchExpenses::class)->permissions($actor)['can_approve'],
+                    'can_manage_expense_categories'=>app(ExpenseCategories::class)->canCreate($actor),
                     'can_payroll_owner'=>$permissions['can_checkout']&&app(BranchPayroll::class)->canManageAttendance($actor),
                     default=>$permissions[self::CORE[$name]],
                 };
