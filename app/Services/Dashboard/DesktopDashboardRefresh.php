@@ -71,6 +71,19 @@ class DesktopDashboardRefresh
         });
     }
 
+    public function inspect(string $device,string $id,string $token): array
+    {
+        $this->validate($device,$id,$token);
+        return DB::transaction(function()use($device,$id,$token){
+            $row=$this->lock($device);abort_unless($row,403);
+            $attempt=DB::table('desktop_dashboard_refreshes')->where('refresh_id',$id)->first();
+            if(!$attempt){abort_unless($row->state==='ready',409);return ['exists'=>false,'held'=>false];}
+            $this->owner($attempt,$device,$token);
+            abort_if($attempt->state==='held'&&($row->state!=='held'||$row->refresh_id!==$id),409);
+            return ['exists'=>true]+json_decode($attempt->result,true,512,JSON_THROW_ON_ERROR);
+        });
+    }
+
     private function validate(string $device,string $id,string $token): void
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'

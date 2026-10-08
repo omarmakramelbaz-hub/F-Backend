@@ -154,6 +154,12 @@ $bootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export
 check($bootstrap['device_id']===$device && $bootstrap['actor_id']===1 && !$bootstrap['coverage']['full_dashboard'],'initial data is bound to the enrolled account and reports incomplete coverage');
 $branchEnrollment=app(DesktopDashboardDevices::class)->enroll(['device_id'=>(string)Str::uuid(),'name'=>'جهاز الكاشير','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(10));
 $cashierBootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($branchEnrollment['token']));
+// Synthetic, disposable source for the separate Windows supervisor test. These flags
+// exercise activation machinery; the actual server export remains explicitly incomplete.
+if($nativeSnapshot=getenv('DESKTOP_TEST_SNAPSHOT_FILE')){
+    $synthetic=$cashierBootstrap;$synthetic['coverage']['full_dashboard']=true;$synthetic['coverage']['media']=true;$synthetic['media']=[];
+    file_put_contents($nativeSnapshot,\App\Services\Dashboard\DesktopDashboardBootstrap::json($synthetic));
+}
 check($cashierBootstrap['branches']===['f:100'] && count($cashierBootstrap['tables']['resturants']['rows'])===1 && count($cashierBootstrap['tables']['users']['rows'])===1,'a cashier initial dataset contains only the enrolled branch and account');
 check(count($cashierBootstrap['tables']['takeaway_orders']['rows'])===0 && count($cashierBootstrap['tables']['branch_employees']['rows'])===0,'other-branch sales and employees cannot leak into the local dataset');
 check(!isset($cashierBootstrap['tables']['desktop_dashboard_devices'],$cashierBootstrap['tables']['desktop_dashboard_commands']),'initial data never includes pairing tokens or another device journal');
@@ -169,6 +175,17 @@ check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new
 $imported=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap);
 check($imported['schema_hash']===$cashierBootstrap['schema_hash'] && DB::table('resturants')->count()===1 && DB::table('users')->count()===1,'the account dataset imports into a separate real local MariaDB schema');
 check(Schema::hasTable('desktop_dashboard_commands') && DB::table('desktop_dashboard_commands')->count()===0,'an imported local database receives its own empty encrypted command journal');
+$verified=app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported);
+check($verified['verified']&&$verified['branches']===['f:100'],'a reopened staging database verifies its actual table counts, actor and snapshot binding');
+$wrongReceipt=$imported;$wrongReceipt['table_rows']['users']++;
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'a changed table count cannot pass independent staging verification');
+$wrongReceipt=$imported;$wrongReceipt['actor_id']=11;
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'another account cannot pass independent staging verification');
+$nativeEnv=getenv();$nativeEnv['DB_DATABASE']=$staging;$nativeEnv['DESKTOP_DASHBOARD_DEVICE_ID']=$branchEnrollment['device_id'];
+$verifyProcess=proc_open([PHP_BINARY,$application.'/desktop/verify.php'],[['pipe','r'],['pipe','w'],['file',$profile.'/verify.log','a']],$verifyPipes,$application,$nativeEnv);
+fwrite($verifyPipes[0],json_encode($imported,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));fclose($verifyPipes[0]);
+$nativeVerified=json_decode(stream_get_contents($verifyPipes[1]),true);fclose($verifyPipes[1]);$verifyExit=proc_close($verifyProcess);
+check($verifyExit===0&&($nativeVerified['verified']??false)&&$nativeVerified['snapshot_id']===$cashierBootstrap['snapshot_id'],'an independent actual PHP process verifies the imported MariaDB generation');
 $localCashier=User::withoutGlobalScopes()->findOrFail(10);
 $localSummary=app(TakeawayService::class)->summary('f:100',$localCashier);
 check($localSummary['ready'] && !$localSummary['permissions']['can_manage'],'the original dashboard service reads imported branch data with original cashier rights');
@@ -179,6 +196,7 @@ denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import(
 $refresh=app(\App\Services\Dashboard\DesktopDashboardRefresh::class);$localDevice=$branchEnrollment['device_id'];
 $refreshId=(string)Str::uuid();$refreshToken=bin2hex(random_bytes(32));
 $localState=DB::table('desktop_dashboard_local_state')->first();
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>false,'held'=>false],'restart before acquiring a fence can inspect an absent attempt without changing the database');
 check($localState->snapshot_id===$cashierBootstrap['snapshot_id']&&(int)$localState->actor_id===10
     &&json_decode($localState->branches,true)===['f:100'],'import durably binds refresh state to the verified snapshot, account and branches');
 $localCustomerId=(string)Str::uuid();$localCustomer=['branch'=>'f:100','idempotency_key'=>$localCustomerId,'name'=>'عميل محلي','phone'=>'01012345678','address'=>'المنصورة'];
@@ -193,7 +211,22 @@ $journal->acknowledge($localDevice,$localCustomerId,$localReceipt);
 $held=$refresh->begin($localDevice,$refreshId,$refreshToken);
 check($held['held']&&$held['fenced_sequence']===1&&$held['coverage']['full_dashboard']===false,'a drained ledger acquires its durable fence without claiming complete dashboard coverage');
 check($refresh->begin($localDevice,$refreshId,$refreshToken)===$held,'a lost refresh-begin response resumes the same durable fence');
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>true]+$held,'restart inspection identifies the persisted fence without reacquiring it');
+denied(fn()=>$refresh->inspect($localDevice,$refreshId,str_repeat('0',64)),409,'restart inspection requires the original native capability');
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported),409,'a fenced used generation cannot masquerade as unused verified staging data');
 check(DB::table('desktop_dashboard_local_state')->value('refresh_token_hash')===hash('sha256',$refreshToken),'only a hash of the native refresh capability is stored');
+$replacement='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$replacement.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+register_shutdown_function(function()use($pdo,$replacement){$pdo->exec('DROP DATABASE IF EXISTS `'.$replacement.'`');});
+config(['database.connections.mysql.database'=>$replacement]);DB::purge();
+$refreshedSnapshot=$cashierBootstrap;$refreshedSnapshot['snapshot_id']=(string)Str::uuid();
+$replacementReceipt=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($refreshedSnapshot);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,str_repeat('0',64)),409,'a staged database cannot copy journal protection without the original fence capability');
+$archive=app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,$refreshToken);
+check($archive['archived_commands']===1&&app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($replacementReceipt)['verified'],'verified refreshed data retains UUID protection from its confirmed previous journal');
+denied(fn()=>$journal->execute($localDevice,$localCustomerId,10,'customers.save',['values'=>$localCustomer],[],fn()=>throw new RuntimeException('Archived customer work ran again.')),409,'an old confirmed operation cannot execute again in a different database generation');
+check(DB::table('branch_customers')->count()===0&&DB::table('desktop_dashboard_commands')->count()===0,'rejecting an archived replay changes neither refreshed business data nor its journal');
+config(['database.connections.mysql.database'=>$staging]);DB::purge();
+check(DB::table('desktop_dashboard_commands')->count()===1&&DB::table('branch_customers')->count()===1,'copying replay protection leaves original encrypted receipts and business rows intact');
 denied(fn()=>$refresh->cancel($localDevice,$refreshId,str_repeat('0',64)),409,'a different native capability cannot release the active refresh fence');
 $blockedId=(string)Str::uuid();$blocked=$localCustomer;$blocked['idempotency_key']=$blockedId;$blocked['phone']='01012345679';
 denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier)),409,'the refresh fence blocks the original business write before it can create a customer');
@@ -202,6 +235,7 @@ DB::disconnect();DB::reconnect();
 denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),409,'the refresh fence survives a database reconnect instead of expiring silently');
 $released=$refresh->cancel($localDevice,$refreshId,$refreshToken);
 check(!$released['held']&&$refresh->cancel($localDevice,$refreshId,$refreshToken)===$released,'lost cancellation replies safely retain the same released fence identity');
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>true]+$released,'restart inspection distinguishes a lost cancellation response from a still-held fence');
 check(!$refresh->begin($localDevice,$refreshId,$refreshToken)['held'],'a delayed retry cannot reacquire an already cancelled fence');
 denied(fn()=>$journal->execute($localDevice,$blockedId,1,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'imported branch writes remain bound to their enrolled account');
 denied(fn()=>$journal->execute((string)Str::uuid(),$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'another device UUID cannot bypass the prepared local journal gate');

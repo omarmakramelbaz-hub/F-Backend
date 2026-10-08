@@ -4,11 +4,13 @@ const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require(
 const Shutdown=require('./shutdown.cjs');
 const LocalRuntime=require('./local-runtime.cjs');
 const DashboardSync=require('./dashboard-sync.cjs');
+const {DashboardGeneration}=require('./dashboard-generation.cjs');
+const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,timer,retryMs=5000,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,timer,retryMs=5000,quitting=false;
 const requests=new Set();
 const shutdown=new Shutdown(app,()=>{quitting=true;clearTimeout(timer);sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
@@ -27,14 +29,14 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
 function state() {
   const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||''};
 }
-async function dashboardRequest(command) {
+async function dashboardRequest(command, bootstrap=false) {
   const credential=await localRuntime.connection();
   const controller=new AbortController();requests.add(controller);
   try{
-    const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/commands',{
-      method:'POST',headers:{Accept:'application/json','Content-Type':'application/json',Authorization:'Bearer '+credential.token},
-      body:JSON.stringify(command),redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(25000)])});
-    const data=await response.json();
+    const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/'+(bootstrap?'bootstrap':'commands'),{
+      method:bootstrap?'GET':'POST',headers:{Accept:'application/json','Content-Type':'application/json',Authorization:'Bearer '+credential.token},
+      body:bootstrap?undefined:JSON.stringify(command),redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(bootstrap?120000:25000)])});
+    const data=bootstrap?await readSnapshot(response):await response.json();
     if(!response.ok){const error=Error(data.message||'العملية المحلية محفوظة ولم يؤكدها السيرفر بعد.');error.status=response.status;throw error;}
     return data;
   }finally{requests.delete(controller);}
@@ -103,7 +105,10 @@ app.whenReady().then(async()=>{
     localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     if(await localRuntime.isPrepared()) {
       const local=await shutdown.run(()=>localRuntime.start());dashboardOrigin=local.origin;localToken=local.token;
-      localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest});
+      generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),
+        transition:work=>dashboard.refresh(work)});
+      await shutdown.run(()=>generations.recover());
+      localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,refresh:()=>generations.run()});
     }
   }
   if(quitting)return;

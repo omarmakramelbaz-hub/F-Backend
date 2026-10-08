@@ -9,6 +9,7 @@ function fixture(t, options = {}){
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
+      contents.stop=()=>{contents.stopped=true;};
       contents.getURL=()=>this.url;contents.getPrintersAsync=async()=>[{name:'BranchPrinter'}];
       contents.executeJavaScript=async()=>true;contents.print=(options,callback)=>{this.printOptions=options;callback?.(true);};windows.push(this);}
     maximize(){} async loadURL(url){this.url=url;if(this.failure)throw Error(this.failure);} show(){this.visible=true;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
@@ -90,4 +91,18 @@ test('a closing supervisor returns the normal native printer rejection',async t=
   const sender=f.windows[0].webContents;
   const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
   assert.equal(result.ok,false);assert.equal(result.error,'closing');assert.equal(f.windows.length,1);
+});
+
+test('generation activation blocks old form requests, closes old popups and reopens the original dashboard window',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
+  const window=f.windows[0],child=new window.constructor(window.options);
+  window.webContents.emit('did-create-window',child);
+  await f.dashboard.refresh(async()=>{
+    let decision;f.session.webRequest.headers({url:origin+'/admin/save',webContentsId:window.webContents.id,requestHeaders:{}},value=>{decision=value;});
+    assert.equal(decision.cancel,true);assert.ok(child.destroyed);assert.ok(window.webContents.stopped);
+    assert.equal(window.webContents.popup({url:origin+'/admin/dashboard'}).action,'deny');
+  });
+  assert.equal(window.url,origin+'/admin/dashboard');assert.equal(f.windows.filter(value=>!value.destroyed).length,1);
+  let decision;f.session.webRequest.headers({url:origin+'/admin/dashboard',webContentsId:window.webContents.id,requestHeaders:{}},value=>{decision=value;});
+  assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private');
 });

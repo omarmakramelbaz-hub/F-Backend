@@ -36,6 +36,9 @@ class DesktopDashboardJournal
             // All business writes acquire this row before resolving IDs or taking business locks.
             // A refresh uses the same lock, so it cannot race an already accepted operation.
             app(DesktopDashboardRefresh::class)->writable($device,$actor);
+            abort_if(config('desktop_dashboard.local')&&\Illuminate\Support\Facades\Schema::hasTable('desktop_dashboard_archived_commands')
+                &&DB::table('desktop_dashboard_archived_commands')->where('device_id',$device)->where('command_id',$command)->exists(),
+                409,'هذه العملية مؤكدة في سجل الجهاز السابق؛ حدّث الصفحة لعرض البيانات الحالية.');
             $prepared=$this->references->prepare($device,$route,$payload,$command);
             $payload=$prepared['payload'];$dependencies=array_values(array_unique(array_merge($dependencies,$prepared['dependencies'])));
             // References produced by this operation's earlier reply are not dependencies.

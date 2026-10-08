@@ -62,6 +62,8 @@ class DesktopDashboardImport
         (new \CreateDesktopDashboardJournal)->up();
         require_once database_path('migrations/2026_10_08_160000_create_desktop_dashboard_local_state.php');
         (new \CreateDesktopDashboardLocalState)->up();
+        require_once database_path('migrations/2026_10_08_210000_create_desktop_dashboard_archived_commands.php');
+        (new \CreateDesktopDashboardArchivedCommands)->up();
         DB::table('desktop_dashboard_local_state')->insert([
             'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'snapshot_id'=>$snapshot['snapshot_id'],
             'schema_hash'=>$snapshot['schema_hash'],'branches'=>DesktopDashboardBootstrap::json($snapshot['branches']),
@@ -69,6 +71,38 @@ class DesktopDashboardImport
             'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
         ]);
         return ['format'=>1,'snapshot_id'=>$snapshot['snapshot_id'],'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],
-            'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage']];
+            'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage'],
+            'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables'])];
+    }
+
+    /** Reopen and inspect the staging database in an independent native PHP process. */
+    public function verify(array $receipt): array
+    {
+        abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
+            &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
+        Validator::make($receipt,['format'=>'required|in:1','snapshot_id'=>'required|uuid','device_id'=>'required|uuid',
+            'actor_id'=>'required|integer|min:1','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D',
+            'branches'=>'required|array|min:1','coverage'=>'required|array','table_rows'=>'required|array|min:1',
+            'tables'=>'required|integer|min:1','rows'=>'required|integer|min:0'])->validate();
+        abort_unless($receipt['device_id']===(string)config('desktop_dashboard.device_id'),403);
+        return DB::transaction(function()use($receipt){
+            $state=DB::table('desktop_dashboard_local_state')->where('device_id',$receipt['device_id'])->lockForUpdate()->first();
+            abort_unless($state&&$state->state==='ready'&&$state->snapshot_id===$receipt['snapshot_id']
+                &&(int)$state->actor_id===(int)$receipt['actor_id']&&$state->schema_hash===$receipt['schema_hash']
+                &&json_decode($state->branches,true)===$receipt['branches']
+                &&json_decode($state->coverage,true)===$receipt['coverage'],409,'قاعدة التجهيز لا تطابق النسخة المعتمدة.');
+            abort_unless(DB::table('desktop_dashboard_commands')->count()===0
+                &&DB::table('users')->where('id',$receipt['actor_id'])->exists()
+                &&!DB::table('desktop_dashboard_archived_commands')->where(function($q)use($receipt){
+                    $q->where('device_id','<>',$receipt['device_id'])->orWhere('actor_id','<>',$receipt['actor_id']);
+                })->exists(),409);
+            $rows=0;
+            foreach($receipt['table_rows'] as $table=>$count){
+                abort_unless(in_array($table,DesktopDashboardSchema::TABLES,true)&&is_int($count)&&$count>=0,422);
+                abort_unless(DB::table($table)->count()===$count,409,'عدد سجلات التجهيز غير متطابق.');$rows+=$count;
+            }
+            abort_unless(count($receipt['table_rows'])===$receipt['tables']&&$rows===$receipt['rows'],409);
+            return array_merge($receipt,['verified'=>true]);
+        });
     }
 }

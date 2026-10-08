@@ -56,6 +56,7 @@ jobs:
           $maria = Split-Path $bin
           $phpRoot = Split-Path (Get-Command php).Source
           $bundle = "$env:RUNNER_TEMP/dashboard-bundle"
+          $env:DESKTOP_TEST_SNAPSHOT_FILE = "$env:RUNNER_TEMP/dashboard-synthetic-snapshot.json"
           node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
@@ -86,6 +87,8 @@ jobs:
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+          node desktop-pos/test/generation-native.cjs $bundle $env:DESKTOP_TEST_SNAPSHOT_FILE
+          if ($LASTEXITCODE -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
         run: node --test test/*.test.cjs

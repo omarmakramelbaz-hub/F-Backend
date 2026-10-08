@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
@@ -13,26 +14,32 @@ async function freePort() {
   await new Promise(resolve => server.close(resolve));
   return port;
 }
-function startChild(file, args, options) {
-  const child = spawn(file, args, { ...options, windowsHide: true, shell: false, stdio: ['pipe', 'ignore', 'pipe'] });
+function startChild(file, args, options, capture = false) {
+  const child = spawn(file, args, { ...options, windowsHide: true, shell: false, stdio: ['pipe', capture ? 'pipe' : 'ignore', 'pipe'] });
   let tail = '';
   child.stderr.on('data', bytes => { tail = (tail + bytes.toString()).slice(-8000); });
   child.failure = new Promise(resolve => {
     child.once('error', error => resolve(error));
     child.once('exit', (code, signal) => resolve(Error(`Local service stopped (${code ?? signal}). ${tail}`)));
   });
+  child.completed = new Promise(resolve => { child.once('error', resolve); child.once('close', resolve); });
   return child;
 }
 async function run(file, args, options, input = '', timeout = 90000) {
-  const child = startChild(file, args, options);
+  const child = startChild(file, args, options, true);
+  let output = ''; let overflow = false;
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', bytes => { output += bytes.toString(); if (Buffer.byteLength(output) > 1024 * 1024) { overflow = true; child.kill(); } });
+  child.stdin.on('error', () => {});
   child.stdin.end(input);
   let timer;
   try {
     const result = await Promise.race([
-      child.failure,
+      child.completed,
       new Promise(resolve => { timer = setTimeout(() => { child.kill(); resolve(Error('Local service initialization timed out.')); }, timeout); })
     ]);
-    if (child.exitCode !== 0) throw result;
+    if (child.exitCode !== 0 || overflow) { await stopChild(child); throw Error('تعذر تنفيذ خطوة تجهيز الخدمة المحلية؛ بيانات الجهاز محفوظة.'); }
+    return output;
   } finally { clearTimeout(timer); }
 }
 async function stopChild(child) {
@@ -50,6 +57,7 @@ class LocalRuntime {
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
     this.controlToken = crypto.randomBytes(32).toString('hex');
+    this.metadata = new GenerationStore(this.profile, safeStorage);
   }
   async settings() {
     await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
@@ -65,15 +73,15 @@ class LocalRuntime {
   }
   async isPrepared() {
     try {
-      const prepared = JSON.parse(this.safeStorage.decryptString(await fs.readFile(path.join(this.profile, 'prepared.enc'))));
+      const value = await this.metadata.read('prepared');
+      if (!value) return false;
       const settings = await this.settings();
-      return prepared.format === 1 && prepared.deviceId === settings.deviceId && Boolean(prepared.actorId) && Boolean(prepared.schemaHash)
-        && prepared.fullCoverage === true && /^[a-f0-9]{64}$/.test(prepared.token || '') && /^https:\/\//.test(prepared.serverOrigin || '');
+      return prepared(value, settings.deviceId);
     } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
   }
   async connection() {
     if (!(await this.isPrepared())) throw Error('بيانات الداشبورد المحلية لم تُجهّز بالكامل.');
-    return JSON.parse(this.safeStorage.decryptString(await fs.readFile(path.join(this.profile, 'prepared.enc'))));
+    return this.metadata.read('prepared');
   }
   async control(value) {
     if (!this.origin || this.stopping) throw Error('خدمة الداشبورد المحلية غير متاحة.');
@@ -98,10 +106,15 @@ class LocalRuntime {
     const application = path.join(this.bundle, 'application');
     for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
     const settings = await this.settings();
+    const active = await this.metadata.read('prepared');
+    if (active && !prepared(active, settings.deviceId)) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
+    if (active?.format === 2 && active.sourceRevision !== manifest.sourceRevision) throw Error('نسخة التشغيل تختلف عن نسخة بيانات الجهاز؛ يلزم استرجاع التحديث قبل العمل.');
+    this.manifest = manifest;
     this.dbPort = await freePort(); this.httpPort = await freePort();
     this.origin = `http://127.0.0.1:${this.httpPort}`;
     const data = path.join(this.profile, 'database');
-    const storage = path.join(this.profile, 'storage');
+    const storage = this.storageFor(active);
+    if (active?.format === 2) await fs.access(storage);
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private']) await fs.mkdir(path.join(storage, dir), { recursive: true, mode: 0o700 });
     const config = path.join(this.profile, 'my.ini');
     const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
@@ -109,6 +122,7 @@ class LocalRuntime {
     try { await fs.access(path.join(data, 'mysql')); }
     catch (error) {
       if (error.code !== 'ENOENT') throw error;
+      if (active) throw Error('قاعدة بيانات الجهاز المجهّز غير موجودة؛ يلزم استرجاعها قبل التشغيل.');
       // MariaDB's Windows initializer creates system tables; no Windows service or UAC is needed.
       await run(path.join(maria, 'mariadb-install-db.exe'), [`--datadir=${data}`, `--password=${settings.rootPassword}`, `--port=${this.dbPort}`, `--config=${config}`], { cwd: this.bundle });
     }
@@ -121,7 +135,7 @@ class LocalRuntime {
     const runtimeEnvironment = {
       ...inherited, APP_ENV: 'desktop', APP_DEBUG: 'false', APP_URL: this.origin, ASSET_URL: this.origin,
       APP_KEY: settings.appKey, DB_CONNECTION: 'mysql', DB_HOST: '127.0.0.1', DB_PORT: String(this.dbPort),
-      DB_DATABASE: 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
+      DB_DATABASE: active?.database || 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
       CACHE_DRIVER: 'file', SESSION_DRIVER: 'file', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
       QUEUE_CONNECTION: 'database', MAIL_MAILER: 'log', BROADCAST_DRIVER: 'log',
       DESKTOP_DASHBOARD_LOCAL: 'true', DESKTOP_DASHBOARD_STORAGE: storage,
@@ -144,9 +158,27 @@ class LocalRuntime {
         break;
       } catch (error) { if (Date.now() > deadline) throw error; await pause(150); }
     }
+    await this.startWeb();
+    database.failure.then(error => { if (!this.stopping) this.onFailure(error); });
+    return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
+  }
+  storageFor(value) {
+    if (!value?.generation) return path.join(this.profile, 'storage');
+    if (!generation(value.generation)) throw Error('مسار بيانات الجهاز غير صحيح.');
+    return path.join(this.profile, 'generations', value.generation, 'storage');
+  }
+  environmentFor(value) {
+    const storage = this.storageFor(value);
+    return { ...this.environment, DB_DATABASE: value.database, DESKTOP_DASHBOARD_STORAGE: storage,
+      APP_CONFIG_CACHE: path.join(storage, 'bootstrap/cache/config.php'), APP_ROUTES_CACHE: path.join(storage, 'bootstrap/cache/routes.php'),
+      APP_SERVICES_CACHE: path.join(storage, 'bootstrap/cache/services.php'), APP_PACKAGES_CACHE: path.join(storage, 'bootstrap/cache/packages.php') };
+  }
+  async startWeb() {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+    const php = this.php, application = this.application, runtimeEnvironment = this.environment;
+    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
     const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
-    web.stdin.end(); this.children.push(web);
+    web.stdin.end(); this.children[1] = web;
     const webDeadline = Date.now() + 20000;
     while (true) {
       if (web.exitCode !== null || this.stopping) throw Error('تعذر تشغيل الداشبورد المحلية.');
@@ -157,8 +189,64 @@ class LocalRuntime {
       if (Date.now() > webDeadline) throw Error('الداشبورد المحلية لم تبدأ في الوقت المحدد.');
       await pause(100);
     }
-    for (const child of this.children) child.failure.then(error => { if (!this.stopping) this.onFailure(error); });
-    return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
+    web.failure.then(error => { if (!this.stopping && this.children[1] === web) this.onFailure(error); });
+  }
+  async stage(snapshot, id, archive) {
+    if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
+    const database = 'fasakhansta_dashboard_stage_' + id;
+    const value = { generation: id, database }, env = this.environmentFor(value);
+    const root = path.join(this.profile, 'generations', id);
+    await fs.mkdir(path.dirname(root), { recursive: true, mode: 0o700 });
+    await fs.mkdir(root, { mode: 0o700 }); // Never reuse a partial or previously active generation.
+    for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private'])
+      await fs.mkdir(path.join(this.storageFor(value), dir), { recursive: true, mode: 0o700 });
+    const settings = await this.settings();
+    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
+    const options = { env, cwd: this.application };
+    if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+    await run(this.php, [...phpArgs, path.join(this.application, 'desktop/database.php'), 'stage'], options,
+      JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
+    const receipt = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
+    if (archive) await run(this.php, [...phpArgs, path.join(this.application, 'desktop/archive.php')], options,
+      JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token }), 90000);
+    const checked = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));
+    if (checked.verified !== true || checked.snapshot_id !== snapshot.snapshot_id || checked.device_id !== settings.deviceId
+        || checked.actor_id !== snapshot.actor_id || checked.schema_hash !== snapshot.schema_hash
+        || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage))
+      throw Error('تعذر التحقق من اكتمال قاعدة التجهيز.');
+    if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+    return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision };
+  }
+  async drainWeb() {
+    if (this.children[1] && this.origin) {
+      const response = await fetch(this.origin + '/_desktop/health', { headers: { 'X-Fasakhansta-Desktop': this.token }, signal: AbortSignal.timeout(25000) });
+      if (!response.ok) throw Error('تعذر إكمال طلبات الداشبورد الحالية.');
+    }
+    const web = this.children[1]; this.children[1] = null;
+    await stopChild(web);
+  }
+  async activate(next, commitPointer) {
+    if (this.stopping || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== this.manifest.sourceRevision)
+      throw Error('نسخة التجهيز غير قابلة للتفعيل.');
+    const oldEnvironment = this.environment;
+    await this.drainWeb();
+    try {
+      // Only original login sessions survive. Application caches, media and journals stay per generation.
+      await fs.cp(path.join(oldEnvironment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions'),
+        path.join(this.storageFor(next), 'framework/sessions'), { recursive: true });
+      if (this.stopping) throw Error('البرنامج يُغلق الآن.');
+      await commitPointer();
+    } catch (error) {
+      // A flushed pointer may have committed before a reported filesystem failure.
+      const active = await this.metadata.read('prepared');
+      if (active?.refreshId !== next.refreshId) {
+        this.environment = oldEnvironment;
+        if (!this.stopping) await this.startWeb();
+        throw error;
+      }
+    }
+    this.environment = this.environmentFor(next);
+    if (!this.stopping) await this.startWeb();
   }
   async stop() {
     this.stopping = true;
