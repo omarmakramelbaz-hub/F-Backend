@@ -221,9 +221,9 @@ class LocalRuntime {
     const checked = JSON.parse(await run(this.php, [...phpArgs, path.join(this.application, 'desktop/verify.php')], options, JSON.stringify(receipt), 90000));
     if (checked.verified !== true || checked.snapshot_id !== snapshot.snapshot_id || checked.device_id !== settings.deviceId
         || checked.actor_id !== snapshot.actor_id || checked.schema_hash !== snapshot.schema_hash
-        || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage)
-        || JSON.stringify(checked.media) !== JSON.stringify(images.files))
+        || JSON.stringify(checked.branches) !== JSON.stringify(snapshot.branches) || JSON.stringify(checked.coverage) !== JSON.stringify(snapshot.coverage))
       throw Error('تعذر التحقق من اكتمال قاعدة التجهيز.');
+    media.verifyReceipt(checked.media, images.files);
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     return { database, receipt: checked, sourceRevision: this.manifest.sourceRevision, mediaVerified: images.verified };
   }

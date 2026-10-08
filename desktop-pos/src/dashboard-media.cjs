@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 
 const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon' };
 const MAX_FILE = 16 * 1024 * 1024, MAX_TOTAL = 1024 * 1024 * 1024, MAX_FILES = 20000;
@@ -25,6 +26,12 @@ function manifest(value) {
     if (total > MAX_TOTAL) throw Error('صور الحساب تتجاوز حجم التجهيز المسموح.');
   }
   return value;
+}
+function verifyReceipt(checked, downloaded) {
+  // PHP and JavaScript may emit object fields in different orders. Array order,
+  // field names, types and every value must still match the verified download.
+  if (!Array.isArray(checked) || !isDeepStrictEqual(checked, downloaded))
+    throw Error('قائمة الصور التي تم التحقق منها تختلف عن ملفات التجهيز.');
 }
 async function directory(root, relative) {
   const stat = await fs.lstat(root); if (!stat.isDirectory() || stat.isSymbolicLink()) throw Error('مجلد الصور غير آمن.');
@@ -76,4 +83,4 @@ async function download(root, files, request, stopped = () => false) {
   }
   return { verified: true, files: receipt };
 }
-module.exports = { download, manifest, safePath, MAX_FILE, MAX_TOTAL };
+module.exports = { download, manifest, safePath, verifyReceipt, MAX_FILE, MAX_TOTAL };

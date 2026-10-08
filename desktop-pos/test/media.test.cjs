@@ -26,6 +26,19 @@ test('verified chunked images retain their original nested and Arabic names with
   assert.equal(result.verified, true); assert.equal('ticket' in result.files[0], false);
 });
 
+test('the independent PHP receipt matches actual downloaded images regardless of field order and rejects changed metadata', async t => {
+  const directory = await root(t), image = item();
+  const downloaded = await media.download(directory, [image], async () => response());
+  // DesktopDashboardMedia::receipt emits this order, independently of the native downloader.
+  const checked = [{ path: image.path, sha256: image.sha256, bytes: image.bytes, mime: image.mime }];
+  assert.doesNotThrow(() => media.verifyReceipt(checked, downloaded.files));
+  for (const changed of [{ path: 'another.png' }, { sha256: '0'.repeat(64) }, { bytes: image.bytes + 1 },
+    { bytes: String(image.bytes) }, { mime: 'image/jpeg' }, { ticket: image.ticket }])
+    assert.throws(() => media.verifyReceipt([{ ...checked[0], ...changed }], downloaded.files));
+  assert.throws(() => media.verifyReceipt([], downloaded.files));
+  assert.throws(() => media.verifyReceipt(null, downloaded.files));
+});
+
 test('native manifests reject traversal, Windows device names, executable types, case collisions and oversize data before fetching', async t => {
   const directory = await root(t); let fetched = 0;
   for (const value of ['../private.png', '/absolute.png', 'x\\photo.png', 'folder/NUL.png', 'C:/x.png', 'x.php', 'x.png.', 'x%2fpng.png'])
