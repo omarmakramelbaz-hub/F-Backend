@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const crypto = require('node:crypto');
+const sourceCode = require('./src/dashboard-source.cjs');
 
 /** Package the original source from an explicit allowlist; never copy an environment or production storage. */
 async function build({ source, target, dependencyRoot, phpDirectory, mariaDirectory, revision }) {
@@ -58,7 +59,8 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
     await fs.cp(phpRoot, path.join(target, 'php'), { recursive: true, dereference: true, filter: allowed });
   }
   if (mariaDirectory) await fs.cp(mariaDirectory, path.join(target, 'mariadb'), { recursive: true });
-  await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes }, null, 2)+'\n');
+  const sourceFingerprint = await sourceCode.fingerprint(application);
+  await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes, sourceFingerprint }, null, 2)+'\n');
   return { application, files: Object.keys(hashes).length };
 }
 module.exports = build;

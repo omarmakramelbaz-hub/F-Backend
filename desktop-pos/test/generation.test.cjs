@@ -41,10 +41,11 @@ async function fixture(t) {
       throw Error('unexpected control');
     },
     async stage(snapshot, generation) { calls.push('stage'); const database = 'fasakhansta_dashboard_stage_' + generation;
-      assert.ok(!dbs.has(database)); dbs.set(database, []); return { database, sourceRevision: 'c'.repeat(40), mediaVerified: true, receipt: { verified: true, snapshot_id: snapshot.snapshot_id } }; },
+      assert.ok(!dbs.has(database)); dbs.set(database, []); return { database, sourceRevision: 'c'.repeat(40), sourceFingerprint:structuredClone(snapshot.source),mediaVerified: true, receipt: { verified: true, snapshot_id: snapshot.snapshot_id } }; },
     async activate(next, commit) { calls.push('activate'); await commit(); }
   };
   const snapshot = { format: 1, kind: 'initial-dashboard-data', device_id: previous.deviceId, actor_id: previous.actorId,
+    source:{format:1,files:10,sha256:'e'.repeat(64),framework:'8.83.29'},
     snapshot_id: crypto.randomUUID(), schema_hash: previous.schemaHash, branches: ['f:100'],
     coverage: { full_dashboard: true, media: true }, media: [] };
   const create = (options = {}) => new DashboardGeneration({ runtime, metadata, download: async () => snapshot, ...options });
@@ -76,6 +77,12 @@ test('retained conflicts block refresh before downloading; no empty outbox short
   const f = await fixture(t); f.oldLedger[0].status = 'conflict'; let downloads = 0;
   await assert.rejects(f.create({ download: async () => { downloads++; return f.snapshot; } }).run(), /pending/);
   assert.equal(downloads, 0); assert.equal(f.dbs.size, 1); assert.equal(await f.metadata.read('refresh'), null);
+});
+test('different verified staging code cancels refresh without replacing the old journal or pointer',async t=>{
+  const f=await fixture(t),stage=f.runtime.stage;
+  f.runtime.stage=async(...args)=>({...await stage(...args),sourceFingerprint:{...f.snapshot.source,sha256:'f'.repeat(64)}});
+  await assert.rejects(f.create().run());assert.deepEqual(await f.metadata.read('prepared'),f.previous);
+  assert.equal(f.held(),null);assert.equal(f.calls.includes('activate'),false);assert.equal(f.oldLedger.length,1);
 });
 
 test('failed download, failed staging and rejected pointer writes resume the existing data and retain partial databases', async t => {

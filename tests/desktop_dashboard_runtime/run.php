@@ -172,6 +172,17 @@ check(!password_verify('LocalTest123',$ownerUsers[10]['password']),'other cached
 $staging='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$staging.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$staging){$pdo->exec('DROP DATABASE IF EXISTS `'.$staging.'`');});
 config(['database.connections.mysql.database'=>$staging,'desktop_dashboard.device_id'=>$branchEnrollment['device_id'],'desktop_dashboard.local'=>true]);DB::purge();
+$sourceNode=proc_open(['node','-e','require(process.argv[1]).fingerprint(process.argv[2]).then(value=>process.stdout.write(JSON.stringify(value))).catch(error=>{process.stderr.write(error.message);process.exitCode=1;});',
+    __DIR__.'/../../desktop-pos/src/dashboard-source.cjs',$application],[['pipe','r'],['pipe','w'],['file',$profile.'/source-node.log','a']],$sourcePipes,$application);
+fclose($sourcePipes[0]);$nodeSource=json_decode(stream_get_contents($sourcePipes[1]),true);fclose($sourcePipes[1]);$sourceExit=proc_close($sourceNode);
+check($sourceExit===0&&$nodeSource===$cashierBootstrap['source'],'independent native Node and original PHP compute the same application-code binding');
+foreach(['sha256'=>str_repeat('0',64),'framework'=>'different-framework','files'=>$cashierBootstrap['source']['files']+1] as $field=>$value){
+    $wrongSource=$cashierBootstrap;$wrongSource['source'][$field]=$value;
+    denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($wrongSource),409,'different server application code is rejected before staging DDL: '.$field);
+}
+$missingSource=$cashierBootstrap;unset($missingSource['source']);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($missingSource),409,'an older unbound server snapshot cannot create a newly verified generation');
+check(DB::select('SHOW TABLES')===[],'failed code compatibility checks preserve the untouched empty staging schema');
 $corrupt=$cashierBootstrap;$corrupt['tables']['users']['rows'][0]['name']='تعديل أثناء النقل';
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($corrupt),422,'a damaged initial dataset is rejected before any local schema is created');
 check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new staging database empty');
@@ -180,6 +191,11 @@ check($imported['schema_hash']===$cashierBootstrap['schema_hash'] && DB::table('
 check(Schema::hasTable('desktop_dashboard_commands') && DB::table('desktop_dashboard_commands')->count()===0,'an imported local database receives its own empty encrypted command journal');
 $verified=app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported);
 check($verified['verified']&&$verified['branches']===['f:100'],'a reopened staging database verifies its actual table counts, actor and snapshot binding');
+check($verified['source']===$cashierBootstrap['source'],'independent staging verification retains its bound source and framework identity');
+$sourceRecord=DB::table('desktop_dashboard_source_manifest')->first();
+DB::table('desktop_dashboard_source_manifest')->where('device_id',$sourceRecord->device_id)->update(['sha256'=>str_repeat('0',64)]);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported),409,'a damaged persisted code manifest cannot pass staging verification');
+DB::table('desktop_dashboard_source_manifest')->where('device_id',$sourceRecord->device_id)->update(['sha256'=>$sourceRecord->sha256]);
 $wrongReceipt=$imported;$wrongReceipt['table_rows']['users']++;
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'a changed table count cannot pass independent staging verification');
 $wrongReceipt=$imported;$wrongReceipt['actor_id']=11;

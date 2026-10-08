@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const { prepared } = require('./dashboard-generation.cjs');
 const media = require('./dashboard-media.cjs');
+const sourceCode = require('./dashboard-source.cjs');
 
 const uuid = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value || '');
 const hash = value => /^[a-f0-9]{64}$/.test(value || '');
@@ -77,15 +78,18 @@ class DashboardPreparation {
       if (snapshot.coverage?.full_dashboard !== true || snapshot.coverage?.media !== true || !Array.isArray(snapshot.media))
         throw Error('تجهيز كل أقسام الداشبورد لم يكتمل بعد؛ يمكنك الاستمرار على السيرفر.');
       media.manifest(snapshot.media);
+      if (!sourceCode.valid(snapshot.source)) throw Error('مصدر نسخة السيرفر لم يتأكد بعد؛ بيانات الجهاز محفوظة.');
       const id = crypto.randomBytes(8).toString('hex'), refreshId = crypto.randomUUID();
       await this.metadata.write('preparation', { format: 1, generation: id, refreshId, deviceId: value.deviceId, actorId: value.actorId, snapshotId: snapshot.snapshot_id });
       this.report({ phase: 'starting', progress: 30 });
       await this.runtime.start();
       this.report({ phase: 'verifying', progress: 45 });
       const candidate = await this.runtime.stage(snapshot, id);
+      if (!sourceCode.same(snapshot.source, candidate.sourceFingerprint)) throw Error('مصدر برنامج التجهيز لا يطابق نسخة السيرفر.');
       const next = { format: 2, deviceId: value.deviceId, actorId: value.actorId, token: value.token, serverOrigin: origin,
         schemaHash: snapshot.schema_hash, branches: snapshot.branches, generation: id, database: candidate.database,
         snapshotId: snapshot.snapshot_id, refreshId, sourceRevision: candidate.sourceRevision,
+        sourceFingerprint: candidate.sourceFingerprint,
         fullCoverage: true, mediaVerified: candidate.mediaVerified };
       if (!prepared(next, value.deviceId)) throw Error('بيانات التجهيز المحلية لم تكتمل.');
       await this.metadata.write('generations/' + refreshId, { format: 1, initial: true, next, receipt: candidate.receipt });
