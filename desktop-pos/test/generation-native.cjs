@@ -38,12 +38,12 @@ async function main() {
       return Buffer.concat([iv, cipher.update(value), cipher.final(), cipher.getAuthTag()]); },
     decryptString(value) { const cipher = crypto.createDecipheriv('aes-256-gcm', key, value.subarray(0, 12));
       cipher.setAuthTag(value.subarray(-16)); return Buffer.concat([cipher.update(value.subarray(12, -16)), cipher.final()]).toString(); } };
-  const create = () => new LocalRuntime({ bundle, profile, safeStorage,
+  const create = (installed = bundle) => new LocalRuntime({ bundle: installed, profile, safeStorage,
     downloadMedia: ticket => fetch(mediaOrigin + '/image?ticket=' + encodeURIComponent(ticket), { headers: { Authorization: 'Bearer synthetic-device' }, redirect: 'error' }),
     onFailure: error => failures.push(error) });
   let runtime = create();
   const php = async (code, input = {}, env = runtime.environment) => {
-    const child = spawn(runtime.php, ['-c', path.join(bundle, 'php/php.ini'), '-r', code], { cwd: runtime.application,
+    const child = spawn(runtime.php, ['-c', runtime.phpIni, '-r', code], { cwd: runtime.application,
       env: { ...env, DESKTOP_TEST_APPLICATION: runtime.application }, windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', error = ''; child.stdout.setEncoding('utf8'); child.stdout.on('data', bytes => { output += bytes; });
     child.stderr.setEncoding('utf8'); child.stderr.on('data', bytes => { error += bytes; });
@@ -119,7 +119,13 @@ async function main() {
     const intent = { format: 1, id: crypto.randomUUID(), token: 'd'.repeat(64), generation: 'e'.repeat(16), previous: next };
     await runtime.metadata.write('refresh', intent);
     await runtime.control({ action: 'refresh-begin', refresh_id: intent.id, token: intent.token });
-    await runtime.stop(); runtime = create(); await runtime.start();
+    await runtime.stop();
+    const upgraded = path.join(profile, 'synthetic-new-install');await fs.mkdir(upgraded);
+    const installedManifest = JSON.parse(await fs.readFile(path.join(bundle, 'manifest.json'), 'utf8'));
+    await fs.writeFile(path.join(upgraded, 'manifest.json'), JSON.stringify({ ...installedManifest, sourceRevision: 'f'.repeat(40) }));
+    runtime = create(upgraded); await runtime.start();
+    assert.equal(runtime.manifest.sourceRevision, next.sourceRevision);
+    assert.notEqual(runtime.bundle, upgraded);
     await coordinator().recover(); assert.equal(await runtime.metadata.read('refresh'), null);
     const status = await runtime.control({ action: 'refresh-status', refresh_id: intent.id, token: intent.token });
     assert.equal(status.held, false); assert.equal((await runtime.connection()).database, next.database);

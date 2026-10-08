@@ -6,6 +6,7 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
 const media = require('./dashboard-media.cjs');
+const RuntimeArchive = require('./runtime-archive.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
@@ -101,15 +102,16 @@ class LocalRuntime {
   }
   async boot() {
     if (this.platform !== 'win32') throw Error('حزمة التشغيل المحلية مخصصة لويندوز.');
+    const settings = await this.settings();
+    const active = await this.metadata.read('prepared');
+    if (active && !prepared(active, settings.deviceId)) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
+    this.bundle = await new RuntimeArchive(this.profile, this.metadata).select(this.bundle, active);
     const manifest = JSON.parse(await fs.readFile(path.join(this.bundle, 'manifest.json'), 'utf8'));
     if (manifest.format !== 1 || manifest.platform !== 'win32-x64') throw Error('حزمة الداشبورد المحلية غير متوافقة.');
     const php = path.join(this.bundle, 'php', 'php.exe');
     const maria = path.join(this.bundle, 'mariadb', 'bin');
     const application = path.join(this.bundle, 'application');
     for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
-    const settings = await this.settings();
-    const active = await this.metadata.read('prepared');
-    if (active && !prepared(active, settings.deviceId)) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
     if (active?.format === 2 && active.sourceRevision !== manifest.sourceRevision) throw Error('نسخة التشغيل تختلف عن نسخة بيانات الجهاز؛ يلزم استرجاع التحديث قبل العمل.');
     this.manifest = manifest;
     this.dbPort = await freePort(); this.httpPort = await freePort();
@@ -118,6 +120,20 @@ class LocalRuntime {
     const storage = this.storageFor(active);
     if (active?.format === 2) await fs.access(storage);
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private']) await fs.mkdir(path.join(storage, dir), { recursive: true, mode: 0o700 });
+    // The installed directory can disappear after an update. Resolve PHP extensions inside
+    // the retained version, rather than any absolute paths copied from the build host.
+    const extensionDirectory = path.join(this.bundle, 'php', 'ext');
+    let phpConfiguration = await fs.readFile(path.join(this.bundle, 'php', 'php.ini'), 'utf8');
+    const extensionLines = [...phpConfiguration.matchAll(/^\s*(zend_extension|extension)\s*=\s*([^;\r\n]+).*$/gm)];
+    for (const match of extensionLines) {
+      const value = match[2].trim().replace(/^['"]|['"]$/g, '');
+      if (/^[a-z]:[\\/]|^[\\/]/i.test(value)) {
+        const basename = value.split(/[\\/]/).pop();await fs.access(path.join(extensionDirectory, basename));
+        phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + path.join(extensionDirectory, basename).replaceAll('\\', '/') + '"');
+      }
+    }
+    this.phpIni = path.join(this.profile, 'php-' + manifest.sourceRevision + '.ini');
+    await fs.writeFile(this.phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/') + '"\n', { mode: 0o600 });
     const config = path.join(this.profile, 'my.ini');
     const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
     await fs.writeFile(config, `[mysqld]\nbasedir=${iniPath(path.join(this.bundle, 'mariadb'))}\ndatadir=${iniPath(data)}\nbind-address=127.0.0.1\nport=${this.dbPort}\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nlocal-infile=0\nskip-name-resolve\nmax-allowed-packet=64M\ninnodb-flush-log-at-trx-commit=1\n`, { mode: 0o600 });
@@ -151,7 +167,7 @@ class LocalRuntime {
       PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
     };
     this.environment = runtimeEnvironment; this.php = php; this.application = application;
-    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
+    const phpArgs = ['-c', this.phpIni];
     const deadline = Date.now() + 30000;
     while (true) {
       if (database.exitCode !== null || this.stopping) throw Error('تعذر تشغيل قاعدة الداشبورد المحلية.');
@@ -183,7 +199,7 @@ class LocalRuntime {
   async startWeb() {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     const php = this.php, application = this.application, runtimeEnvironment = this.environment;
-    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
+    const phpArgs = ['-c', this.phpIni];
     const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
     web.stdin.end(); this.children[1] = web;
     const webDeadline = Date.now() + 20000;
@@ -209,7 +225,7 @@ class LocalRuntime {
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private'])
       await fs.mkdir(path.join(this.storageFor(value), dir), { recursive: true, mode: 0o700 });
     const settings = await this.settings();
-    const phpArgs = ['-c', path.join(this.bundle, 'php', 'php.ini')];
+    const phpArgs = ['-c', this.phpIni];
     const options = { env, cwd: this.application };
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     await run(this.php, [...phpArgs, path.join(this.application, 'desktop/database.php'), 'stage'], options,
@@ -269,7 +285,7 @@ class LocalRuntime {
       }
       await stopChild(this.children[1]);
       if (this.children[0] && this.php) {
-        try { await run(this.php, ['-c', path.join(this.bundle, 'php', 'php.ini'), path.join(this.application, 'desktop', 'database.php'), 'shutdown'], { env: this.environment, cwd: this.application }, JSON.stringify({ password: (await this.settings()).rootPassword }), 8000); } catch {}
+        try { await run(this.php, ['-c', this.phpIni, path.join(this.application, 'desktop', 'database.php'), 'shutdown'], { env: this.environment, cwd: this.application }, JSON.stringify({ password: (await this.settings()).rootPassword }), 8000); } catch {}
       }
       await stopChild(this.children[0]);
     })();
