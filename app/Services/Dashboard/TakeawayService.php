@@ -105,7 +105,7 @@ class TakeawayService
                 $change=$payment['cash_received_cents']-$delta;
             } else { $change=0; $payment['cash_received_cents']=0; }
             $when = now('UTC');
-            $businessDate = $this->businessDate($when);
+            $businessDate = !empty($context['trusted_offline']) ? $context['business_date'] : $this->businessDate($when);
             $orderValues = [
                 'till_id'=>$till->id, 'branch'=>$branch['value'], 'actor_id'=>$actor->id,
                 'request_key'=>$payment['idempotency_key'], 'request_hash'=>$requestHash, 'quote_hash'=>$quote['quote_hash'],
@@ -312,10 +312,11 @@ class TakeawayService
             'service_rate'=>Money::decimal($serviceBps),'service'=>Money::decimal($service),'delivery'=>Money::decimal($delivery), 'total'=>Money::decimal($total)];
     }
 
-    /** Only a locked, persisted service ticket supplies this context; public takeaway routes never do. */
+    /** Only locked persisted service tickets or the authenticated offline importer supply this context. */
     private function savedPrice(array $cart,array $context): array
     {
-        abort_unless(in_array($context['channel']??'',['dine','phone'],true)&&!empty($context['ticket_id']),422);
+        $offline = !empty($context['trusted_offline']) && !empty($context['offline_operation']);
+        abort_unless($offline || (in_array($context['channel']??'',['dine','phone'],true)&&!empty($context['ticket_id'])),422);
         $q=$context['saved_quote'];$wanted=[];$actual=[];$subtotal=0;
         foreach($cart['items'] as $item)$wanted[]=$this->hash([$item['product_id'],$item['option_id'],$item['quantity_mode'],$item['quantity_millis']]);
         foreach($q['items']??[] as $line){

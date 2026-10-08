@@ -11,11 +11,14 @@
     <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}" />
     <script src="{{ asset('dashboard/js/dashboard-spa.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-spa.js')) }}"></script>
+    @if(config('desktop_dashboard.local'))
+    <script src="{{ asset('dashboard/js/desktop-dashboard.js') }}" defer></script>
+    @endif
   <meta name="description" content="لوحة التحكم في تطبيق "فسخانجي" مصممة لتلبية احتياجات أصحاب المطاعم والمناديب بفعالية. توفر النظام واجهة متقدمة لإدارة الطلبات حيث يمكن للمطاعم تلقي وتنظيم الطلبات من المستخدمين وتحديث حالتها بسهولة. يمكن لأصحاب المطاعم تتبع الطلبات المرسلة للطيارين، مع إمكانية إرسال إشعارات فورية للعملاء حول حالة الطلبات. كما تتيح لوحة التحكم تحليل أداء الطلبات وتنظيم وجبات الطيارين، مما يسهم في تحسين جودة الخدمة وتسهيل التواصل بين جميع الأطراف المشاركة في عملية الطلب والتوصيل.">
 
     <link rel="stylesheet" href="{{ url('/dashboard') }}/plugins/fontawesome-free/css/all.min.css">
     <!-- Ionicons -->
-    <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
+    <link rel="stylesheet" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css') }}">
        <!-- Bootstrap 4 RTL -->
     <!--<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">-->
     @if (App::getLocale() == 'ar')
@@ -25,10 +28,10 @@
     <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/bootstrap.min.css">
     @endif
     <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/selectize.bootstrap5.css">
-    <link href="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js"></script>
+    <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css') }}" rel="stylesheet">
+    <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/flatpickr.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    <link rel="stylesheet" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css') }}"
         integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
         crossorigin="anonymous" referrerpolicy="no-referrer" />
     
@@ -54,12 +57,14 @@
     <!-- dashboard-page-css:start -->
     @stack('custom-css')
     <!-- dashboard-page-css:end -->
+    @if(!config('desktop_dashboard.local'))
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css">
+    @endif
+    <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css') }}">
      <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/select2.min.css"> 
-       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css" />
+       <link rel="stylesheet" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css') }}" />
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
         <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-spa.css') }}?v=20261003-pos-service-1">
         <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-brand.css')) }}">
@@ -156,9 +161,9 @@
 }
 
     </style>
-     <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js"></script>
-     <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js"></script>
+     <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js') }}"></script>
+     <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js') }}"></script>
+    <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js') }}"></script>
 
     <script >
 const firebaseConfig = {
@@ -185,7 +190,7 @@ firebase.initializeApp(firebaseConfig);
 
     </script>
  
-<script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js') }}"></script>
 </head>
 
 <body data-dashboard-actor="{{ auth('admin')->id() }}:{{ auth('admin')->user()->account_type }}" class="hold-transition sidebar-mini layout-fixed dashboard-theme{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}{{ request()->is('admin/takeaway*') ? ' dashboard-takeaway-page' : '' }}{{ request()->is('admin/dining*') ? ' dashboard-dining-page' : '' }}{{ request()->is('admin/phone-orders*') ? ' dashboard-phone-orders-page' : '' }}">

@@ -1,0 +1,91 @@
+name: Original local dashboard on Windows
+
+on:
+  push:
+    branches: ['codex/desktop-offline-pos-20261007']
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/DesktopDashboard*.php'
+      - 'app/Http/Middleware/DesktopDashboardJournal.php'
+      - 'app/Exceptions/Handler.php'
+      - 'desktop/**'
+      - 'desktop-pos/**'
+      - 'tests/desktop_dashboard_runtime/**'
+      - 'public/dashboard/js/desktop-dashboard.js'
+      - 'public/dashboard/vendor/desktop-external/**'
+      - 'resources/views/admin/**'
+      - '.gitattributes'
+      - '.github/workflows/desktop-dashboard-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  original-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          tools: composer:v2
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned test application dependencies
+        # Test-only advisory override for the unchanged legacy stack. This job produces no installer.
+        run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist --no-security-blocking
+      - name: Install pinned browser test dependency
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/browser-tests" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          if ($LASTEXITCODE -ne 0) { throw 'Browser test dependencies failed.' }
+          "DESKTOP_TEST_BROWSER_MODULE=$env:RUNNER_TEMP/browser-tests/node_modules/playwright" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run the original Laravel dashboard with private disposable MariaDB
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/mariadb.zip"
+          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2') { throw 'MariaDB archive hash differs.' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/mariadb"
+          $server = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
+          $bin = Split-Path $server
+          $maria = Split-Path $bin
+          $phpRoot = Split-Path (Get-Command php).Source
+          $bundle = "$env:RUNNER_TEMP/dashboard-bundle"
+          node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
+          $data = "$env:RUNNER_TEMP/desktop-fixture-database"
+          & "$bin/mariadb-install-db.exe" "--datadir=$data"
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable database initialization failed.' }
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $process = Start-Process $server -ArgumentList @('--no-defaults', "--datadir=`"$data`"", '--bind-address=127.0.0.1', "--port=$port", '--console') -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/maria-out.log" -RedirectStandardError "$env:RUNNER_TEMP/maria-error.log"
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 120; $attempt++) {
+              if ($process.HasExited) { Get-Content "$env:RUNNER_TEMP/maria-error.log"; throw 'Disposable database stopped.' }
+              $client = [System.Net.Sockets.TcpClient]::new()
+              try { if ($client.ConnectAsync('127.0.0.1', $port).Wait(250)) { $ready = $true; break } } catch {} finally { $client.Dispose() }
+              Start-Sleep -Milliseconds 250
+            }
+            if (!$ready) { throw 'Disposable database readiness timed out.' }
+            foreach ($fixture in @('run.php', 'legacy.php')) {
+              $fixtureOutput = & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1
+              $fixtureExit = $LASTEXITCODE
+              $fixtureOutput | Write-Output
+              $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
+              if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
+              if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
+            }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Check desktop reconciliation and existing POS regressions
+        working-directory: desktop-pos
+        run: node --test test/*.test.cjs
