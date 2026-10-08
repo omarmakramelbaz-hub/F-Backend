@@ -209,7 +209,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/contacts', [ContactController::class,'index'])->name('contacts.index');
         Route::get('/contacts/{id}', [ContactController::class,'show'])->name('contacts.show');
         Route::delete('/contacts/{contact}', [ContactController::class,'destroy'])->name('contacts.destroy');
-        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll']);
+        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll'])->name('contacts.destroy-all');
 
 
         Route::resource('/subscribers', SubscriberController::class);
