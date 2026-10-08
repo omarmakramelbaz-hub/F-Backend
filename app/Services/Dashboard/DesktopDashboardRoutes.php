@@ -18,7 +18,7 @@ class DesktopDashboardRoutes
         'branch-stock.receive','branch-stock.recipe-save',
         'branch-expenses.save','branch-expenses.review','branch-expenses.categorySave',
         'customers.save','delivery-companies.save','employees.save','employees.attendance','employees.entry',
-        'employees.wallet','employees.daily-notes','employees.void-entry','employees.close','employees.pay',
+        'employees.attendance-rules','employees.wallet','employees.daily-notes','employees.void-entry','employees.close','employees.pay',
         'branch-shifts.close',
     ];
     public static function journaled(?string $route): bool {return in_array($route,self::WRITES,true)||DesktopDashboardLegacy::handles($route);}

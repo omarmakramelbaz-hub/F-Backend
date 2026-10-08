@@ -32,6 +32,13 @@ class DesktopDashboardReferences
         if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
         $outputs=[];
         foreach(self::RESULTS[$route]??[] as $entity=>$path){$id=data_get($result,$path);if(is_numeric($id)&&(int)$id>0)$outputs[$entity]=(int)$id;}
+        if($route==='employees.attendance'&&isset($result['attendance'])){
+            $day=$result['attendance'];
+            foreach(DB::table('branch_employee_entries')->where('employee_id',$day['employee_id'])->where('day',$day['day'])->whereNotNull('source_key')->get() as $entry){
+                $kind=substr($entry->source_key,strlen('attendance.'));
+                if(in_array($kind,['late','early','absence','leave'],true))$outputs['employee_entry_'.$kind]=(int)$entry->id;
+            }
+        }
         if(in_array($route,['branch-expenses.save','branch-expenses.review'],true) && $actor && isset($values['branch'],$values['idempotency_key'])) {
             $id=DB::table('branch_expense_commands')->where('branch',$values['branch'])->where('actor_id',$actor)->where('request_key',$values['idempotency_key'])->value('id');
             if($id)$outputs['expense_command']=(int)$id;
@@ -59,6 +66,10 @@ class DesktopDashboardReferences
         if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
         foreach($payload['values']??[] as $field=>$value) {
             $entity=self::FIELDS[$field]??null;
+            if($field==='entry_id'&&is_numeric($value)){
+                $source=DB::table('branch_employee_entries')->where('id',$value)->value('source_key');
+                if($source&&str_starts_with($source,'attendance.'))$entity='employee_entry_'.substr($source,strlen('attendance.'));
+            }
             if($field==='id'&&$route==='dining.table-save')$entity='table';
             if($field==='batch_id'&&$route==='phone-orders.finish-batch')$entity='delivery_batch';
             if($entity && !is_array($value))$payload['values'][$field]=$reference($entity,$value);
@@ -73,7 +84,8 @@ class DesktopDashboardReferences
         }
         if(isset($payload['facts']['payroll']['employee_id']))$payload['facts']['payroll']['employee_id']=$reference('employee',$payload['facts']['payroll']['employee_id']);
         foreach($payload['facts']['payroll']['entries']??[] as $i=>$entry){
-            if(isset($entry['id']))$payload['facts']['payroll']['entries'][$i]['id']=$reference('employee_entry',$entry['id']);
+            $source=$entry['source_key']??null;$entity=$source&&str_starts_with($source,'attendance.')?'employee_entry_'.substr($source,strlen('attendance.')):'employee_entry';
+            if(isset($entry['id']))$payload['facts']['payroll']['entries'][$i]['id']=$reference($entity,$entry['id']);
         }
         if(isset($payload['facts']['shift']['previous_closing_id']))$payload['facts']['shift']['previous_closing_id']=$reference('shift',$payload['facts']['shift']['previous_closing_id']);
         return ['payload'=>$payload,'dependencies'=>array_keys($dependencies)];

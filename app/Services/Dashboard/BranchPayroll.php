@@ -5,6 +5,7 @@ use Carbon\Carbon;
 use App\Services\GoServices\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 
 /** Employee accounting is a period ledger; it does not transfer money or alter the POS cash drawer. */
 class BranchPayroll
@@ -63,14 +64,108 @@ class BranchPayroll
             return ['employee'=>(array)$this->employee($id,$v['branch'])];
         });
     }
+    public function canManageAttendance($actor): bool {return $this->canVoidEntries($actor);}
+    private function attendanceReady(): void {abort_unless(Schema::hasTable('branch_attendance_rules'),503,'يجب تثبيت تحديث الحضور أولًا.');}
+    private function ruleData(object $r): array
+    {
+        return ['starts_at'=>substr($r->starts_at,0,5),'ends_at'=>substr($r->ends_at,0,5),
+            'late_half_hour'=>Money::decimal((int)$r->late_half_hour_cents),'early_half_hour'=>Money::decimal((int)$r->early_half_hour_cents),
+            'absence'=>Money::decimal((int)$r->absence_cents),'revision'=>(int)$r->revision];
+    }
+    public function saveAttendanceRules(array $values,$actor): array
+    {
+        abort_unless($this->canManageAttendance($actor),403,'إعداد مواعيد الحضور والخصومات متاح للأونر فقط.');$this->attendanceReady();
+        $rules=$this->ops->rules()+['absence'=>'required|string|max:14'];
+        foreach(['morning','evening'] as $shift){
+            $rules[$shift.'_start']='required|date_format:H:i';$rules[$shift.'_end']='required|date_format:H:i';
+            $rules[$shift.'_late']='required|string|max:14';$rules[$shift.'_early']='required|string|max:14';
+        }
+        $v=Validator::make($values,$rules)->validate();$amounts=['absence'=>$this->ops->money($v['absence'])];
+        foreach(['morning','evening'] as $shift){
+            abort_if($v[$shift.'_start']===$v[$shift.'_end'],422,'وقت الانصراف يجب أن يختلف عن وقت الحضور.');
+            foreach(['late','early'] as $kind)$amounts[$shift.'_'.$kind]=$this->ops->money($v[$shift.'_'.$kind]);
+        }
+        return $this->ops->write('employee.attendance_rules',$v,$actor,function($branch,$actor)use($v,$amounts){
+            $old=DB::table('branch_attendance_rules')->where('branch',$v['branch'])->where('shift','morning')->first();
+            if($old)$this->ops->revision($old,$v);
+            $revision=$old?(int)$old->revision+1:1;
+            foreach(['morning','evening'] as $shift){
+                $q=DB::table('branch_attendance_rules')->where('branch',$v['branch'])->where('shift',$shift);
+                $data=['starts_at'=>$v[$shift.'_start'],'ends_at'=>$v[$shift.'_end'],
+                    'late_half_hour_cents'=>$amounts[$shift.'_late'],'early_half_hour_cents'=>$amounts[$shift.'_early'],
+                    'absence_cents'=>$amounts['absence'],'revision'=>$revision,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+                if($q->exists())$q->update($data);else $q->insert($data+['branch'=>$v['branch'],'shift'=>$shift,'created_at'=>now('UTC')]);
+            }
+            return ['revision'=>$revision];
+        });
+    }
+    private function synchronizeDeductions(object $employee,string $day,array $wanted,$actor): void
+    {
+        foreach(['late','early','absence','leave'] as $kind){
+            $source='attendance.'.$kind;$q=DB::table('branch_employee_entries')->where('employee_id',$employee->id)->where('day',$day)->where('source_key',$source);
+            $old=$q->first();$deduction=$wanted[$kind]??null;
+            if(!$deduction||$deduction['amount']<=0){
+                if($old&&!$old->voided_at)$q->update(['voided_at'=>now('UTC'),'voided_by'=>$actor->id,'void_reason'=>'تغيرت حالة الحضور؛ لم يعد هذا الخصم مستحقًا.','revision'=>(int)$old->revision+1,'updated_at'=>now('UTC')]);
+                continue;
+            }
+            // An explicit Owner cancellation remains cancelled when a punch is repeated.
+            if($old&&$old->voided_at&&$old->void_reason!=='تغيرت حالة الحضور؛ لم يعد هذا الخصم مستحقًا.')continue;
+            if($old&&!$old->voided_at&&(int)$old->amount_cents===$deduction['amount']&&$old->notes===$deduction['notes'])continue;
+            $data=['amount_cents'=>$deduction['amount'],'reason'=>$deduction['reason'],'notes'=>$deduction['notes'],
+                'voided_at'=>null,'voided_by'=>null,'void_reason'=>null,'revision'=>$old?(int)$old->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            if($old)$q->update($data);else $q->insert($data+['branch'=>$employee->branch,'employee_id'=>$employee->id,'day'=>$day,'kind'=>'deduction','source_key'=>$source,'created_at'=>now('UTC')]);
+        }
+    }
     public function attendance(array $values,$actor): array
     {
-        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d|before_or_equal:today','status'=>'required|in:present,absent,paid_leave,unpaid_leave,off','check_in'=>'nullable|date_format:H:i','check_out'=>'nullable|date_format:H:i','notes'=>'nullable|string|max:1000'])->validate();
+        $this->attendanceReady();
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d',
+            'status'=>'required|in:morning,evening,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
+            'check_in'=>'prohibited','check_out'=>'prohibited','checked_in_at'=>'prohibited','checked_out_at'=>'prohibited','notes'=>'nullable|string|max:1000'])->validate();
+        abort_if($v['day']>now('Africa/Cairo')->toDateString(),422,'لا يمكن تسجيل الحضور ليوم مستقبلي.');
         return $this->ops->write('employee.attendance',$v,$actor,function($branch,$actor)use($v){
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first();if($old)$this->ops->revision($old,$v);
-            $data=['branch'=>$v['branch'],'status'=>$v['status'],'check_in'=>$v['status']==='present'?(($v['check_in']??null)?:null):null,'check_out'=>$v['status']==='present'?(($v['check_out']??null)?:null):null,'notes'=>trim($v['notes']??''),'revision'=>$old?(int)$old->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
-            if($old)DB::table('branch_employee_days')->where('id',$old->id)->update($data);else DB::table('branch_employee_days')->insert($data+['employee_id'=>$employee->id,'day'=>$v['day'],'created_at'=>now('UTC')]);
+            $status=$v['status'];$present=in_array($status,['morning','evening'],true);$clock=now('Africa/Cairo');
+            $snapshot=$old&&$old->status===$status?json_decode($old->attendance_rule_snapshot??'',true):null;
+            if(!$snapshot){
+                $shift=$present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning');
+                $rule=DB::table('branch_attendance_rules')->where('branch',$v['branch'])->where('shift',$shift)->first();
+                abort_unless($rule||$status==='preapproved_leave',422,'يجب أن يحدد الأونر مواعيد وخصومات هذا الفرع أولًا.');
+                $snapshot=$rule?EmployeeAttendanceRules::snapshot($rule,$v['day']):[];
+            }
+            $in=null;$out=null;
+            if($present){
+                abort_unless(in_array($v['action'],['check_in','check_out'],true),422,'اختر تسجيل الحضور أو الانصراف.');
+                $wasPresent=$old&&in_array($old->status,['morning','evening'],true);
+                $in=$wasPresent?$old->checked_in_at:null;$out=$wasPresent?$old->checked_out_at:null;
+                if($v['action']==='check_in'){
+                    abort_unless($v['day']===$clock->toDateString(),422,'تسجيل الحضور يتم لليوم الحالي بتوقيت مصر.');
+                    abort_if($out&&$old->status!==$status,409,'لا يمكن تغيير الوردية بعد تسجيل الانصراف.');
+                    $in=$in?:$clock->copy()->utc()->toDateTimeString();
+                }else{
+                    abort_unless($wasPresent&&$old->status===$status&&$in,422,'سجّل حضور الموظف أولًا.');
+                    $endDay=Carbon::parse($snapshot['scheduled_end'],'UTC')->setTimezone('Africa/Cairo')->toDateString();
+                    abort_unless(in_array($clock->toDateString(),[$v['day'],$endDay],true),422,'تسجيل الانصراف متاح خلال يوم الوردية فقط.');
+                    $out=$out?:$clock->copy()->utc()->toDateTimeString();
+                    abort_if($out<$in,422,'وقت الانصراف يسبق الحضور.');
+                }
+            }else abort_unless($v['action']==='set_status',422,'اختر حالة الإجازة أو الغياب.');
+            $salary=DB::table('branch_employee_salaries')->where('employee_id',$employee->id)->where('effective_month','<=',substr($v['day'],0,7))->orderByDesc('effective_month')->first();
+            abort_if($status==='preapproved_leave'&&!$salary,422,'سجّل راتب الموظف لحساب قيمة يوم الإجازة.');
+            if($status==='preapproved_leave'&&!isset($snapshot['leave_salary_cents'])){
+                $snapshot['leave_salary_cents']=(int)$salary->amount_cents;$snapshot['leave_month_days']=Carbon::parse($v['day'],'Africa/Cairo')->daysInMonth;
+            }
+            $wanted=EmployeeAttendanceRules::deductions($status,$snapshot,$in,$out,$snapshot['leave_salary_cents']??0,$snapshot['leave_month_days']??30);
+            $data=['branch'=>$v['branch'],'status'=>$status,'checked_in_at'=>$in,'checked_out_at'=>$out,
+                'check_in'=>$in?Carbon::parse($in,'UTC')->setTimezone('Africa/Cairo')->format('H:i:s'):null,
+                'check_out'=>$out?Carbon::parse($out,'UTC')->setTimezone('Africa/Cairo')->format('H:i:s'):null,
+                'attendance_rule_snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),
+                'notes'=>array_key_exists('notes',$v)?trim($v['notes']):($old->notes??''),
+                'revision'=>$old?(int)$old->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            if($old)DB::table('branch_employee_days')->where('id',$old->id)->update($data);
+            else DB::table('branch_employee_days')->insert($data+['employee_id'=>$employee->id,'day'=>$v['day'],'created_at'=>now('UTC')]);
+            $this->synchronizeDeductions($employee,$v['day'],$wanted,$actor);
             return ['attendance'=>(array)DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first()];
         });
     }
@@ -193,6 +288,7 @@ class BranchPayroll
         $items=[];foreach($employees as $employee){$statement=$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
         $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
         $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
-        return ['success'=>true,'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0),'absent'=>(int)($today['absent']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
+        $attendanceRules=[];if(Schema::hasTable('branch_attendance_rules'))foreach(DB::table('branch_attendance_rules')->whereIn('branch',array_column($branches,'value'))->get() as $rule)$attendanceRules[$rule->branch][$rule->shift]=$this->ruleData($rule);
+        return ['success'=>true,'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
     }
 }

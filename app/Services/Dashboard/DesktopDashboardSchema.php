@@ -6,7 +6,7 @@ class DesktopDashboardSchema
 {
     public const TABLES=[
         'advertisings','areas','banners','branch_customers','branch_delivery_companies',
-        'branch_employees','branch_employee_days','branch_employee_entries','branch_employee_salaries','branch_expenses',
+        'branch_attendance_rules','branch_employees','branch_employee_days','branch_employee_entries','branch_employee_salaries','branch_expenses',
         'branch_expense_categories','branch_expense_category_commands','branch_expense_category_settings','branch_expense_commands','branch_inventory',
         'branch_inventory_movements','branch_operation_commands','branch_payrolls','branch_recipe_sales','branch_shift_closings',
         'branch_shift_sources','branch_stock','branch_stock_movements','branch_stock_recipes','carts',
