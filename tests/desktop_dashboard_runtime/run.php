@@ -15,6 +15,7 @@ $database='desktop_dashboard_test_'.bin2hex(random_bytes(8));
 $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$database){$pdo->exec('DROP DATABASE IF EXISTS `'.$database.'`');});
+$fixtureCompleted=false;register_shutdown_function(function()use(&$fixtureCompleted){if(!$fixtureCompleted){fwrite(STDERR,'Original runtime fixture did not complete.'.PHP_EOL);exit(1);}});
 foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile,'APP_ENV'=>'desktop','APP_DEBUG'=>'false','APP_URL'=>'http://127.0.0.1:33408',
     'APP_KEY'=>'base64:'.base64_encode(random_bytes(32)),'DB_CONNECTION'=>'mysql','DB_HOST'=>'127.0.0.1','DB_PORT'=>(string)$port,'DB_DATABASE'=>$database,'DB_USERNAME'=>'root','DB_PASSWORD'=>'',
     'CACHE_DRIVER'=>'file','SESSION_DRIVER'=>'file','APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php',
@@ -198,3 +199,4 @@ try{
     check(gateway($origin.'/storage/private.php',$headers)[0]===404,'public storage PHP paths cannot execute through the dashboard router');
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
+$fixtureCompleted=true;

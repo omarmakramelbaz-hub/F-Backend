@@ -74,8 +74,12 @@ jobs:
             }
             if (!$ready) { throw 'Disposable database readiness timed out.' }
             foreach ($fixture in @('run.php', 'legacy.php')) {
-              php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port
-              if ($LASTEXITCODE -ne 0) { throw "Original application fixture failed: $fixture" }
+              $fixtureOutput = & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1
+              $fixtureExit = $LASTEXITCODE
+              $fixtureOutput | Write-Output
+              $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
+              if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
+              if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
             }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }

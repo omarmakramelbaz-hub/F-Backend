@@ -22,7 +22,7 @@ class DesktopDashboardBootstrap
         'branch_shift_sources'=>['closing_id','branch_shift_closings','id'],
         'phone_delivery_batch_items'=>['batch_id','phone_delivery_batches','id'],
     ];
-    private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
+    private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|partner_auth_email|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
     public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
     public function export(object $device): array

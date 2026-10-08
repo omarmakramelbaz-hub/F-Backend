@@ -10,6 +10,7 @@ $database='desktop_legacy_test_'.bin2hex(random_bytes(8));$stage='fasakhansta_da
 $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 foreach([$database,$stage] as $name)$pdo->exec('CREATE DATABASE `'.$name.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$database,$stage){foreach([$database,$stage] as $name)$pdo->exec('DROP DATABASE IF EXISTS `'.$name.'`');});
+$fixtureCompleted=false;register_shutdown_function(function()use(&$fixtureCompleted){if(!$fixtureCompleted){fwrite(STDERR,'Original legacy fixture did not complete.'.PHP_EOL);exit(1);}});
 $key='base64:'.base64_encode(random_bytes(32));
 foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile,'APP_ENV'=>'desktop','APP_DEBUG'=>'false','APP_URL'=>'http://127.0.0.1:43144',
     'APP_KEY'=>$key,'DB_CONNECTION'=>'mysql','DB_HOST'=>'127.0.0.1','DB_PORT'=>(string)$port,'DB_DATABASE'=>$database,'DB_USERNAME'=>'root','DB_PASSWORD'=>'',
@@ -31,6 +32,7 @@ DB::table('users')->insert([
     ['id'=>21,'name'=>'عميل غير مرتبط','email'=>'foreign@test.invalid','mobile'=>'1199999999','password'=>password_hash('Foreign123',PASSWORD_BCRYPT),'account_type'=>'user','status'=>'accepted','app_scope'=>'fasakhansta','balance'=>100],
 ]);
 DB::table('users')->update(['added_by'=>1]);
+DB::table('users')->where('id',10)->update(['partner_auth_email'=>'hidden-account@test.invalid']);
 DB::table('resturants')->insert([['id'=>100,'added_by'=>1,'user_id'=>10,'name'=>'الفرع الأول','status'=>'opened','address'=>'المنصورة'],['id'=>101,'added_by'=>1,'user_id'=>11,'name'=>'الفرع الثاني','status'=>'opened','address'=>'المحلة']]);
 DB::table('categories')->insert(['id'=>1,'added_by'=>1,'name_ar'=>'رنجة','name_en'=>'Herring','status'=>'show','order'=>1]);
 DB::table('products')->insert(['id'=>1,'added_by'=>1,'category_id'=>1,'name_ar'=>'رنجة سمينة','name_en'=>'Herring','status'=>'show']);
@@ -58,6 +60,7 @@ verify($userIds===[1,10,20],'foreign-key closure adds the branch customer and cr
 verify(count($snapshot['tables']['orders']['rows'])===1&&count($snapshot['tables']['carts']['rows'])===1,'legacy app orders and cart rows stay inside the account branch');
 verify(count($snapshot['tables']['order_board_clocks']['rows'])===1 && $snapshot['tables']['order_board_clocks']['rows'][0]['source']==='legacy','colliding application order IDs cannot leak another source clock');
 verify($snapshot['tables']['social_accounts']['rows']===[]&&$snapshot['tables']['user_tokens']['rows']===[],'OAuth and application session rows are never exported');
+verify(!str_contains(DesktopDashboardBootstrap::json($snapshot),'hidden-account@test.invalid'),'hidden partner login aliases are excluded even for the enrolled account');
 verify(!str_contains(DesktopDashboardBootstrap::json($snapshot),'never-export')&&count($snapshot['tables']['settings']['rows'])===count((new ReflectionClass(\App\Models\GeneralSettings::class))->getProperties(ReflectionProperty::IS_PUBLIC)),'private settings and payment checkout secrets are excluded');
 verify(collect($snapshot['tables']['settings']['rows'])->firstWhere('name','app_balance')['payload']==='"0"','a branch dataset excludes the platform owner balance');
 config(['database.connections.mysql.database'=>$stage,'desktop_dashboard.device_id'=>$id]);DB::purge();
@@ -175,3 +178,4 @@ catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($erro
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
 verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($ownerDevice)[0]['command_id']===$conflicting['command_id'],'a rejected catalog update remains durably queued on the local device');
 echo $count.' legacy schema checks passed'.PHP_EOL;
+$fixtureCompleted=true;
