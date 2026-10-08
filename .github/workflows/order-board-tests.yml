@@ -2,7 +2,7 @@ name: Application order board checks
 
 on:
   push:
-    branches: ['codex/unified-app-orders-20261003']
+    branches: ['codex/unified-app-orders-20261003','codex/employee-attendance-live-20261008']
   pull_request:
     paths:
       - 'app/Services/Dashboard/**'

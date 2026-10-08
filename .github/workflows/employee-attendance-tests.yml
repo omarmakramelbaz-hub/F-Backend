@@ -1,0 +1,38 @@
+name: Employee attendance and deductions
+on:
+  push:
+    branches: ['codex/employee-attendance-rules-20261008','codex/employee-attendance-live-20261008']
+  pull_request:
+    paths: ['app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  attendance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring
+          tools: composer:v2
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated service dependencies
+        run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
+      - name: Verify original payroll service and POS regressions
+        run: |
+          php tests/desktop_pos_runtime/attendance.php
+          php tests/desktop_pos_runtime/run.php
+      - name: Install browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/attendance-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          node "$RUNNER_TEMP/attendance-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify employee interaction on desktop and mobile
+        env:
+          DESKTOP_TEST_BROWSER_MODULE: ${{ runner.temp }}/attendance-browser/node_modules/playwright
+        run: node tests/browser/employee-attendance.cjs
