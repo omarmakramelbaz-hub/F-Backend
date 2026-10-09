@@ -17,7 +17,16 @@
     const paths = node => Array.from(node.querySelectorAll('a[href]')).filter(link => !link.getAttribute('href').startsWith('#')).map(link => {
         try { return new URL(link.href, location.href).pathname; } catch (error) { return ''; }
     });
-    const priority = node => paths(node).some(path => /\/admin\/(dashboard|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
+    // Move only links rendered by the server's existing access checks.
+    function placeShortcut(route, afterRoute) {
+        const find = value => rootNodes.find(node => paths(node).some(path => path.replace(/\/$/, '') === '/admin/' + value));
+        const shortcut = find(route);
+        const anchor = find(afterRoute);
+        if (shortcut && anchor) anchor.after(shortcut);
+    }
+    placeShortcut('whatsapp', 'dashboard');
+    placeShortcut('desktop-pos', 'go-stores');
     function section(node) {
         const routes = paths(node).join(' ');
         if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';
@@ -194,8 +203,22 @@
     function fitNavigation() {
         removeScrollbar();
         if (navigation.children.length > 14) groupNavigation();
-        const navBox = navigation.getBoundingClientRect();
+        let navBox = navigation.getBoundingClientRect();
         if (navBox.height && navBox.bottom > innerHeight - 12 && navigation.dataset.grouped !== 'true') groupNavigation();
+        const count = navigation.children.length;
+        if (count && sidebar.getBoundingClientRect().width) {
+            const viewportBottom = Math.min(innerHeight, sidebar.getBoundingClientRect().bottom);
+            sidebar.classList.remove('dashboard-sidebar-compact');
+            navBox = navigation.getBoundingClientRect();
+            if ((viewportBottom - navBox.top - 10) / count < 34) {
+                sidebar.classList.add('dashboard-sidebar-compact');
+                navBox = navigation.getBoundingClientRect();
+            }
+            const available = Math.max(0, viewportBottom - navBox.top - 10);
+            const rowHeight = Math.min(40, Math.floor(available / count));
+            sidebar.style.setProperty('--dashboard-nav-row-height', rowHeight + 'px');
+            sidebar.style.setProperty('--dashboard-nav-font-size', rowHeight < 28 ? '12px' : '13px');
+        }
         prepareLinks();
         document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
             toggle.setAttribute('aria-controls', sidebar.id);
@@ -206,6 +229,7 @@
     }
     fitNavigation();
     window.addEventListener('load', fitNavigation);
+    if (document.fonts?.ready) document.fonts.ready.then(fitNavigation);
     document.addEventListener('dashboard:before-unload', () => closePopup(false));
     document.addEventListener('dashboard:page-loaded', () => {
         navigation.querySelectorAll('.dashboard-navigation-group').forEach(group => {

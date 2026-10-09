@@ -170,8 +170,24 @@
     overflow: visible !important;
     padding-bottom: 12px;
 }
-.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link { min-height: 36px; padding: 6px 10px; }
-.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link p { font-size: 13px; line-height: 1.55; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item { margin: 0 0 2px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    height: calc(var(--dashboard-nav-row-height, 40px) - 2px);
+    min-height: 0;
+    margin: 0;
+    padding: 0 10px;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link p {
+    flex: 1;
+    margin: 0;
+    font-size: var(--dashboard-nav-font-size, 13px);
+    line-height: 1.35;
+    white-space: nowrap;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link .nav-icon { padding: 0; line-height: 1; }
 .dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-treeview { display: none !important; }
 .dashboard-theme.sidebar-collapse .main-sidebar,
 html[dir="rtl"] .dashboard-theme.sidebar-collapse .main-sidebar {
@@ -222,17 +238,13 @@ html[dir="rtl"] .dashboard-theme.sidebar-collapse .main-sidebar { transform: tra
 .dashboard-popup-content .nav-link p { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin: 0; min-width: 0; flex: 1; font-size: inherit; font-weight: 400; line-height: inherit; }
 .dashboard-popup-content .nav-link .left { position: static; font-size: 12px; }
 .dashboard-navigation-popup button:focus-visible, .dashboard-navigation-popup a:focus-visible { outline: 2px solid #ffab65; outline-offset: 1px; }
-@media (max-height: 520px) {
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .dashboard-brand { min-height: 88px; padding-block: 4px; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .dashboard-brand-logo { width: 80px; height: 80px; flex-basis: 80px; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .user-panel { margin-block: 0 !important; padding-block: 0; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .welcome { line-height: 18px !important; white-space: nowrap; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item { margin-bottom: 2px; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link { min-height: 30px; margin-block: 0; padding-block: 4px; font-size: 13px; line-height: 1.3; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-sidebar > .nav-item > .nav-link p { line-height: 1.4; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .nav-icon { padding: 0; line-height: 1; }
-    .dashboard-theme.dashboard-navigation-ready .main-sidebar .sidebar { padding-bottom: 4px; }
-}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand { min-height: 80px; padding-block: 4px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo { width: 72px; height: 72px; flex-basis: 72px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact hr { margin-block: 5px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .user-panel { margin-block: 0 !important; padding-block: 0; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .welcome { line-height: 20px !important; white-space: nowrap; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact nav { margin-top: 5px !important; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .sidebar { padding-bottom: 4px; }
 .dashboard-theme .content-wrapper:not(.order-board-wrapper) {
     background: var(--dashboard-navy);
     color: var(--dashboard-text);
