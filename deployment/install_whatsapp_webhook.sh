@@ -57,9 +57,23 @@ for file in "${files[@]}"; do
     fi
 done
 php "$backup/staged/tests/whatsapp_webhook_protocol_test.php"
-printf '\nPaste Meta App Secret (App settings > Basic > Show). Input is hidden.\n' > /dev/tty
-IFS= read -r -s -p 'App Secret: ' whatsapp_setup_secret < /dev/tty
-printf '\n' > /dev/tty
+if [[ "${3:-}" == '--secret-stdin' ]]; then
+    # The root wrapper reads silently before su creates a session without /dev/tty.
+    IFS= read -r whatsapp_setup_secret
+elif [[ -z "${3:-}" ]]; then
+    if ! { exec 3<>/dev/tty; } 2>/dev/null; then
+        echo 'No controlling terminal. Run the root wrapper to provide the secret securely.' >&2
+        exit 1
+    fi
+    printf '\nPaste Meta App Secret (App settings > Basic > Show). Input is hidden.\n' >&3
+    IFS= read -r -s -p 'App Secret: ' whatsapp_setup_secret <&3
+    printf '\n' >&3
+    exec 3>&-
+else
+    echo 'Unknown installer input mode.' >&2
+    exit 1
+fi
+[[ -z "$whatsapp_setup_secret" || "$whatsapp_setup_secret" =~ ^[a-fA-F0-9]{32}$ ]] || { echo 'Expected the 32-character Meta App Secret.' >&2; exit 1; }
 
 # Preserve simultaneous edits made after staging; never replace the server checkout.
 cmp -s .env "$backup/env.before" && cmp -s routes/api.php "$backup/api.before.php" || { echo 'Environment/routes changed during preparation; rerun.' >&2; exit 1; }

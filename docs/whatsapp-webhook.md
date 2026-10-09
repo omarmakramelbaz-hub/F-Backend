@@ -10,6 +10,8 @@ The server checkout is ahead of/different from GitHub main. Do not replace it wi
 
 The hidden prompt accepts **Meta App Secret**, found in the app's **App settings > Basic > App secret > Show**. This is different from both the generated access token and the verification token. Credentials must remain in the server environment, outside Git and chat. Access tokens are unnecessary for receiving webhooks; sending messages later needs a separate server-side token.
 
+From a root terminal, run `deployment/whatsapp_install_root_wrapper.sh` from the pinned commit. It reads the secret silently in the original terminal before invoking `su`; the application-owner installer receives it through stdin with `--secret-stdin`. No secret is put in command arguments, environment variables, or a temporary file. The temporary installer script is removed on exit. Directly piping the original installer through `su -c` can lose `/dev/tty` and must be replaced by this wrapper.
+
 The installer generates `WHATSAPP_VERIFY_TOKEN` and sets `WHATSAPP_ALLOWED_ACCOUNT_IDS=1636131124838697` only if unset. This ID is the observed Meta **test** WABA, not proof that the real business number is onboarded. Add/replace the real WABA ID after confirming production setup. `WHATSAPP_APP_SECRET` is saved from the hidden prompt; `APP_URL` must already be the correct public HTTPS URL.
 
 Success prints `INSTALLATION_OK`, `CALLBACK_URL` and `VERIFY_TOKEN`. Copy the latter two directly to Meta's Configure Webhooks form, press Verify and save, then subscribe to the `messages` field. Do not share the verification token in screenshots. For production, follow the app publication requirement shown in Meta and confirm registration/coexistence for the existing business number before changing it.
@@ -17,3 +19,5 @@ Success prints `INSTALLATION_OK`, `CALLBACK_URL` and `VERIFY_TOKEN`. Copy the la
 ## Validation
 
 CI runs PHP 8.2 syntax checks, shell syntax checks, and standalone protocol checks for the challenge, exact-body signature, malformed input, payload size, Arabic text, JSON object preservation and WABA isolation. The server installer additionally exercises the actual Laravel HTTP kernel for a valid handshake, a wrong token, and an unsigned POST, and checks that the event table exists. These checks do not send WhatsApp messages or create fake events/orders/customers. Verify an actual signed test delivery from Meta after installing; inspect event counts and keep message contents/keys private.
+
+The terminal regression uses a synthetic secret and a real pseudo-terminal plus `su -c` to verify hidden input and handoff to a non-root session lacking `/dev/tty`, invalid-input rejection, and temporary-script cleanup.

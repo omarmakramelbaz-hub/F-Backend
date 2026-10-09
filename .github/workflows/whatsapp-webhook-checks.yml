@@ -10,7 +10,7 @@ on:
       - 'config/whatsapp.php'
       - 'routes/whatsapp.php'
       - 'database/migrations/*whatsapp_webhook*'
-      - 'deployment/*whatsapp_webhook*'
+      - 'deployment/*whatsapp*'
       - 'tests/whatsapp_webhook*'
       - '.github/workflows/whatsapp-webhook-checks.yml'
 
@@ -36,6 +36,17 @@ jobs:
           php -l deployment/whatsapp_webhook_setup.php
           php -l tests/whatsapp_webhook_protocol_test.php
       - name: Check installer syntax
-        run: bash -n deployment/install_whatsapp_webhook.sh
+        run: |
+          bash -n deployment/install_whatsapp_webhook.sh
+          bash -n deployment/whatsapp_install_root_wrapper.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
+
+  terminal-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reproduce hidden secret handoff across su
+        run: sudo python3 tests/whatsapp_webhook_terminal_test.py
