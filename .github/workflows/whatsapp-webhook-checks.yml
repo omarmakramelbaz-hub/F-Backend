@@ -92,8 +92,11 @@ jobs:
       - name: Install isolated SQLite regression dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev composer git unzip
+          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev curl git unzip
           docker-php-ext-install pdo_sqlite mbstring
+          curl -fsS https://getcomposer.org/download/2.8.12/composer.phar -o /usr/local/bin/composer
+          echo 'f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2  /usr/local/bin/composer' | sha256sum -c -
+          chmod 0755 /usr/local/bin/composer
           mkdir -p /tmp/whatsapp-inbox-test
           composer require --working-dir=/tmp/whatsapp-inbox-test --no-interaction --no-progress illuminate/database:8.83.27 illuminate/events:8.83.27 illuminate/encryption:8.83.27 illuminate/config:8.83.27
       - name: Verify real SQL persistence and rollback
