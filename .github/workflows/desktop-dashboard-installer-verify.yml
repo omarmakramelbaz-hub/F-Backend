@@ -127,8 +127,18 @@ jobs:
             process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
           };
           '@ | Set-Content desktop-pos/runtime-copy-hook.cjs -Encoding utf8
-          npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
-          if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
+          # NSIS input files have a MAX_PATH limit. Use a short alias without
+          # dropping any runtime file or changing the independently checked source.
+          subst R: $PWD.Path
+          if ($LASTEXITCODE -ne 0) { throw 'Short Windows build path could not be created.' }
+          try {
+            Push-Location R:\
+            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
+            if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
+          } finally {
+            Pop-Location
+            subst R: /D
+          }
       - name: Verify actual installed dashboard recovery and retained unsynced data
         working-directory: b
         run: node desktop-pos/test/installer-native.cjs
