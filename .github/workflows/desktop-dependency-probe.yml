@@ -31,6 +31,9 @@ jobs:
       - name: Resolve candidate dependencies without installation or lock changes
         shell: pwsh
         run: |
+          Remove-Item Env:COMPOSER_NO_AUDIT -ErrorAction SilentlyContinue
+          if (Test-Path Env:COMPOSER_NO_AUDIT) { throw 'Inherited Composer audit suppression is still present.' }
+          Write-Host 'Inherited COMPOSER_NO_AUDIT removed before Composer resolution.'
           $lockPath = 'desktop-pos/runtime/composer.lock'
           $before = (Get-FileHash $lockPath -Algorithm SHA256).Hash
           composer update --dry-run --no-install --no-scripts -W --no-interaction --working-dir=desktop-pos/runtime

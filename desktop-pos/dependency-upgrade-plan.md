@@ -31,7 +31,7 @@ Related constraints were checked against published Composer metadata:
 
 ## Current resolver evidence
 
-The strict local command was:
+The local command was:
 
 ```text
 composer update --dry-run --no-install --no-scripts -W --no-interaction --working-dir=desktop-pos/runtime
@@ -40,9 +40,39 @@ composer update --dry-run --no-install --no-scripts -W --no-interaction --workin
 It exited 2 because the Linux PHP wrapper did not load GD or EXIF. Loading the
 already present EXIF module normally removed that problem; the second run
 still exited 2 solely because Simple QRCode 4.2.0 requires GD and no local GD
-module was available. This is a real probe-platform block, not evidence of a
-solved graph or of an application package conflict. No ignore-platform or
-security-blocking override was used.
+module was available. This was a local probe-platform block, not an
+application package conflict. No ignore-platform or security-blocking override
+was used.
+
+The published candidate at 842bd0d558b9223ee068f3fba2007fbc8b2fc821 resolved
+successfully on real Windows PHP 8.2.34 with all eleven extensions and Composer
+2.10.3. Run [38002142197](https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/38002142197),
+job 114062487100, completed the resolver at 2026-10-09 23:00:18 UTC. It proposed
+21 package additions, 52 updates, and 18 removals. The unchanged-lock and
+absent-vendor assertions both passed. Its selected versions included:
+
+| Package | Selected version |
+| --- | --- |
+| laravel/framework | 12.69.3 |
+| spatie/laravel-medialibrary | 11.23.9 |
+| league/flysystem / league/flysystem-local | 3.36.0 / 3.35.3 |
+| guzzlehttp/guzzle / guzzlehttp/promises | 7.15.5 / 2.5.3 |
+| google/protobuf / google/gax / google/grpc-gcp | 4.33.6 / 1.51.0 / 0.4.2 |
+| kreait/firebase-php / kreait/laravel-firebase | 7.24.1 / 6.2.0 |
+| tymon/jwt-auth / lcobucci/jwt | 2.3.0 / 5.6.0 |
+| nesbot/carbon / monolog/monolog | 3.14.2 / 3.12.1 |
+| spatie/image / maennchen/zipstream-php | 3.9.7 / 3.1.2 |
+| symfony/http-kernel / symfony/mailer | 7.4.20 / 7.4.19 |
+
+The setup action unexpectedly inherited COMPOSER_NO_AUDIT=1 into this first
+Windows run. This suppressed the post-update audit; the run is evidence of
+dependency resolution, not a zero-advisory audit. The workflow now explicitly
+removes that inherited environment variable and verifies its absence before
+Composer starts. The corrected workflow still needs a separate successful run.
+No application has been installed or migrated, no new lock has been written,
+and no zero-advisory or release-acceptance result has been obtained. An audit
+of the unchanged baseline lock would still describe the old dependencies and
+cannot validate this candidate graph.
 
 The separate Windows-only probe workflow uses real PHP 8.2.34 and the original
 eleven extensions. The manifest retains its conservative platform.php 8.2.33.
