@@ -58,6 +58,7 @@ return [
     'printer_offline'=>'Branch printer connection unavailable — retrying',
     'printer_attention'=>'A print needs review. Open its order and reprint if needed.',
     'incoming'=>'New branch order received',
+    'enable_sound'=>'Enable delivery order sound',
     'callcenter_print'=>'Printed by the receiving branch device',
     'printer_setup'=>'Start direct printing',
     'details' => 'Invoice details',
