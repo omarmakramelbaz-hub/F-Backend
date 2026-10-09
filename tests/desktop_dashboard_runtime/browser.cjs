@@ -79,6 +79,13 @@ const watchdog = setTimeout(() => {
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
+    const soundPrompt=page.locator('.swal-overlay--show-modal');
+    await soundPrompt.waitFor({state:'visible'});
+    assert.equal(await soundPrompt.locator('.swal-title').textContent(),'تفعيل الصوت');
+    await soundPrompt.getByRole('button',{name:'تم',exact:true}).click();
+    await soundPrompt.waitFor({state:'hidden'});
+    await page.waitForFunction(()=>localStorage.getItem('notificationSoundAlertShown')==='true');
+    process.stdout.write('PASS original notification sound prompt acknowledges through its real button before dashboard form interactions\n');
     assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.summernote), 'function', 'The original editor must load after jQuery and Bootstrap.');
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;

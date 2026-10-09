@@ -4,6 +4,21 @@ const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:
 const {execFileSync}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
 const packaging=require('../installer-runtime.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function residualPaths(directory){
+  const found=[],pending=[directory];let scanned=0;
+  while(pending.length&&found.length<12&&scanned<256){
+    const current=pending.shift();let entries;
+    try{entries=await fs.readdir(current,{withFileTypes:true});}
+    catch(error){if(error.code==='ENOENT')continue;return {paths:found,error:error.code||error.message};}
+    for(const entry of entries){
+      if(++scanned>256)break;
+      const file=path.join(current,entry.name);
+      if(entry.isDirectory())pending.push(file);else found.push(path.relative(directory,file));
+      if(found.length===12)break;
+    }
+  }
+  return {paths:found,directories:pending.slice(0,8).map(file=>path.relative(directory,file)),scanned};
+}
 (async()=>{
   assert.equal(process.platform,'win32','Actual installer checks require Windows.');
   const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/Fasakhansta-Dashboard-Preview-Setup.exe'));
@@ -49,16 +64,26 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     const saved=JSON.parse(execFileSync(executable,[probe,installed,profile],{encoding:'utf8',windowsHide:true,timeout:30000,
       env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}}).trim());
     process.stdout.write('PASS installed Electron loads its actual ASAR ledger code and preserves one paid unsynced sale across SQLite reopen\n');
+    // NSIS launches a self-copying worker. The launcher's exit and the early
+    // executable deletion do not mean its ~52,000 exact removals have finished.
+    const removalStarted=performance.now(),removalDeadline=removalStarted+600000;
     execFileSync(path.join(installed,'Uninstall.exe'),['/S'],{windowsHide:true,timeout:120000});
-    for(let n=0;n<1200;n++) {
-      try {await fs.access(executable);}
-      catch(error){if(error.code==='ENOENT')break;throw error;}
-      if(n===1199)throw Error('The actual uninstaller did not complete.');await pause(100);
-    }
-    for(let n=0;n<1200;n++) {
-      try {await fs.access(path.join(installed,'resources'));}
-      catch(error){if(error.code==='ENOENT')break;throw error;}
-      if(n===1199)throw Error('The actual uninstaller left packaged resources.');await pause(100);
+    let nextReport=removalStarted+30000;
+    for(;;){
+      const remaining=[];
+      for(const file of [executable,path.join(installed,'resources')]){
+        try{await fs.access(file);remaining.push(path.relative(installed,file));}
+        catch(error){if(error.code!=='ENOENT')throw error;}
+      }
+      if(!remaining.length)break;
+      const now=performance.now();
+      if(now>=nextReport||now>=removalDeadline){
+        const detail=await residualPaths(path.join(installed,'resources'));
+        process.stdout.write('Windows uninstall remaining paths '+JSON.stringify({elapsedSeconds:Math.round((now-removalStarted)/1000),remaining,...detail})+'\n');
+        nextReport=now+30000;
+      }
+      if(now>=removalDeadline)throw Error('The actual uninstaller did not remove its executable and packaged resources within ten minutes.');
+      await pause(250);
     }
     assert.equal(await fs.readFile(path.join(installed,'KEEP-MY-FILE.txt'),'utf8'),'unrelated existing file');
     const db=new DatabaseSync(path.join(profile,'unsynced-orders.sqlite'),{readOnly:true});
