@@ -24,7 +24,7 @@ test -z "$(runuser -u "$owner" -- git -C "$project" status --porcelain --untrack
 paths=()
 while IFS= read -r -d '' relative; do
     case "$relative" in
-        public/dashboard/js/branch-operations.js|resources/views/admin/branch_operations/index.blade.php|tests/browser/employee-attendance-rollover.cjs|tests/desktop_pos_runtime/attendance.php|deployment/apply_attendance_rollover_root.sh) ;;
+        app/Services/Dashboard/BranchPayroll.php|public/dashboard/js/branch-operations.js|public/dashboard/css/branch-operations.css|public/dashboard/dist/js/adminlte.js|resources/views/admin/layouts/footer.blade.php|resources/views/admin/branch_operations/index.blade.php|tests/browser/employee-attendance.cjs|tests/browser/employee-attendance-rollover.cjs|tests/desktop_pos_runtime/attendance.php|deployment/apply_attendance_rollover_root.sh) ;;
         *) echo "Server is behind the reviewed rollover baseline: $relative. No source changed."; exit 1 ;;
     esac
     target="$project/$relative"
@@ -61,6 +61,7 @@ runuser -u "$owner" -- bash -s -- "$project" "$release" <<'APP_OWNER'
 set -euo pipefail
 cd "$1"
 git merge --ff-only "$2"
+php -l app/Services/Dashboard/BranchPayroll.php
 php artisan view:clear
 php artisan tinker --execute='if (\App\Services\Dashboard\OperatingDay::START_HOUR !== 6) { throw new \RuntimeException("Operating day cutoff missing"); } echo "ATTENDANCE ROLLOVER READY: ".\App\Services\Dashboard\OperatingDay::date()." (06:00 to 06:00 Cairo)".PHP_EOL;'
 APP_OWNER
