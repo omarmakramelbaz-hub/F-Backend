@@ -17,11 +17,15 @@
             if (url.origin !== location.origin || !((method==='PUT'&&/^\/admin\/read\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(url.pathname))
                 ||(method==='POST'&&url.pathname==='/admin/read/all/notification'))) return;
             if (form.querySelector('[name="_desktop_command"]')) return;
+            const generation = form.dataset.notificationGeneration;
+            if (document.body.dataset.dashboardLocal === '1'
+                ? !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(generation || '')
+                : generation !== 'server') return;
             let ids;
             try { ids = JSON.parse(form.dataset.notificationIds); } catch { return; }
             if (!Array.isArray(ids) || ids.length>50000 || ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id))) return;
             ids.sort();
-            const key='fasakhansta.notification-history.'+document.body.dataset.dashboardActor+'.'+url.pathname+'.'+ids.join(',');
+            const key='fasakhansta.notification-history.'+document.body.dataset.dashboardActor+'.'+generation+'.'+url.pathname+'.'+ids.join(',');
             let command;
             try { command=sessionStorage.getItem(key);if(!command){command=crypto.randomUUID();sessionStorage.setItem(key,command);} }
             catch { return; }

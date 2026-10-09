@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const source=fs.readFileSync(path.join(__dirname,'../../public/dashboard/js/desktop-dashboard.js'),'utf8');
-function history(storage,ids,{actor='1:admin',origin='https://dashboard.test',single=false}={}){
+function history(storage,ids,{actor='1:admin',origin='https://dashboard.test',single=false,generation='00000000-0000-4000-8000-000000000001'}={}){
   class Form{
-    constructor(){this.action=origin+(single?'/admin/read/'+ids[0]:'/admin/read/all/notification');this.method='post';this.fields=[];this.dataset={notificationIds:JSON.stringify(ids)};}
+    constructor(){this.action=origin+(single?'/admin/read/'+ids[0]:'/admin/read/all/notification');this.method='post';this.fields=[];this.dataset={notificationIds:JSON.stringify(ids),notificationGeneration:generation};}
     hasAttribute(name){return name==='data-desktop-notification-read';}
     querySelector(selector){if(selector==='[name="_method"]')return single?{value:'PUT'}:null;return this.fields.find(field=>selector==='[name="'+field.name+'"]')||null;}
     append(field){this.fields.push(field);}
@@ -29,4 +29,11 @@ test('single notification forms persist their UUID and unreviewed/foreign histor
   assert.equal(history(storage,ids,{single:true}).value('_desktop_command'),history(storage,ids,{single:true}).value('_desktop_command'));
   assert.equal(history(storage,ids,{origin:'https://foreign.test'}).form.fields.length,0);
   assert.equal(history(storage,['malformed']).form.fields.length,0);
+});
+test('refreshing a dataset does not reuse an archived read UUID even for the same empty snapshot',()=>{
+  const storage=new Map(),before=history(storage,[]),command=before.value('_desktop_command');
+  assert.equal(history(storage,[]).value('_desktop_command'),command);
+  assert.notEqual(history(storage,[],{generation:crypto.randomUUID()}).value('_desktop_command'),command);
+  assert.equal(history(storage,[],{generation:''}).form.fields.length,0);
+  assert.equal(history(storage,[],{generation:'server'}).form.fields.length,0);
 });

@@ -79,6 +79,7 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     const historyUuid = await historyField.inputValue();
     const historyIds = await page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="desktop_notification_ids"]').inputValue();
     assert.match(historyUuid, /^[a-f0-9-]{36}$/i);
+    assert.match(await historyField.evaluate(field=>field.form.dataset.notificationGeneration), /^[a-f0-9-]{36}$/i);
     assert.ok(JSON.parse(historyIds).length > 0);
     await page.reload();
     await historyField.waitFor({ state: 'attached' });

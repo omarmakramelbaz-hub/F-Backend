@@ -3,13 +3,22 @@ namespace App\Services\Dashboard;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\{Facade,Validator};
+use Illuminate\Support\Facades\{DB,Facade,Schema,Validator};
 
 /** Original history forms replay only their immutable account-scoped notification snapshot. */
 class DesktopDashboardNotificationReads
 {
     public const ROUTES=['read_notify'=>'read','mark_all_as_read'=>'mark_all_as_read'];
     public static function handles(?string $route): bool {return isset(self::ROUTES[$route??'']);}
+
+    /** Keep retries in this snapshot; a refreshed dataset must not reuse an archived UUID. */
+    public function generation(User $actor): string
+    {
+        if(!config('desktop_dashboard.local'))return 'server';
+        if(!Schema::hasTable('desktop_dashboard_local_state'))return '';
+        $state=DB::table('desktop_dashboard_local_state')->where('device_id',(string)config('desktop_dashboard.device_id'))->first();
+        return $state&&(int)$state->actor_id===(int)$actor->id?(string)$state->snapshot_id:'';
+    }
 
     public function payload(Request $request,string $command,User $actor): array
     {

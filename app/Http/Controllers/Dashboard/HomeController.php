@@ -160,8 +160,8 @@ class HomeController extends Controller
   }  
     public function notifications(){
         $data = Auth::guard('admin')->user()->notifications()->select('type','id','data','created_at','read_at')->orderBy('created_at','DESC')->get();
-
-        return view('admin.notifications', compact('data'));
+        $desktopNotificationGeneration = app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(Auth::guard('admin')->user());
+        return view('admin.notifications', compact('data','desktopNotificationGeneration'));
     }
 
 

@@ -13,7 +13,8 @@ $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/publi
 try{
     for($n=0;$n<100;$n++){[$status]=$http('/_desktop/health');if($status===200)break;usleep(50000);}
     [$status,$page]=$http('/admin/notifications');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$historyCsrf);
-    verify($status===200&&str_contains($page,'data-desktop-notification-read')&&str_contains($page,'data-notification-ids'),'the original notification history preserves its forms and renders immutable read snapshots');
+    verify($status===200&&str_contains($page,'data-desktop-notification-read')&&str_contains($page,'data-notification-ids')
+        &&str_contains($page,'data-notification-generation="'.$ownerSnapshot['snapshot_id'].'"'),'the original notification history preserves its forms and binds immutable read snapshots to the imported dataset');
     $historySingle=['_token'=>$historyCsrf[1],'_method'=>'PUT','_desktop_command'=>(string)Str::uuid(),'desktop_notification_ids'=>json_encode([$historyIds[0]])];
     $path='/admin/read/'.$historyIds[0];$before=DB::table('desktop_dashboard_commands')->count();
     [$status,,$headers]=$http($path,$historySingle);
