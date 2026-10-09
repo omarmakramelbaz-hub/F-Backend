@@ -44,6 +44,27 @@
         window.jQuery.fasakhanstaCatalogJournal = true;
         window.jQuery.ajaxPrefilter((options, _original, request) => {
             const url = new URL(options.url, location.href);
+            if (url.origin===location.origin && String(options.type).toUpperCase()==='POST' && url.pathname==='/admin/post-sortable') {
+                const generation=document.querySelector('[data-desktop-category-generation]')?.dataset.desktopCategoryGeneration;
+                if (document.body.dataset.dashboardLocal==='1'
+                    ? !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(generation||'') : generation!=='server') { request.abort();return; }
+                const entries=new URLSearchParams(options.data||''), rows=new Map();
+                for (const [name,value] of entries) {
+                    const match=/^order\[(\d+)\]\[(id|position)\]$/.exec(name);
+                    if(match){const row=rows.get(match[1])||{};row[match[2]]=value;rows.set(match[1],row);}
+                }
+                const order=[...rows.values()];
+                if (!order.length || order.length>200 || order.some(row=>!/^[1-9][0-9]{0,18}$/.test(row.id||'')||!/^[1-9][0-9]{0,6}$/.test(row.position||''))) { request.abort();return; }
+                order.sort((a,b)=>a.id.length-b.id.length||a.id.localeCompare(b.id));
+                const key='fasakhansta.category-order.'+document.body.dataset.dashboardActor+'.'+generation+'.'+JSON.stringify(order);
+                try {
+                    let command=sessionStorage.getItem(key);
+                    if(!command){command=crypto.randomUUID();sessionStorage.setItem(key,command);}
+                    request.setRequestHeader('X-Fasakhansta-Command',command);
+                    request.done(value=>{if(value?.status==='success')sessionStorage.removeItem(key);});
+                } catch { request.abort(); }
+                return;
+            }
             if (url.origin !== location.origin || String(options.type).toUpperCase() !== 'DELETE'
                 || !/^\/admin\/(?:areas|categorys|products|question_answers|features|contacts)DeleteAll$/.test(url.pathname)) return;
             const values = new URLSearchParams(options.data || ''), ids = (values.get('ids') || '').split(',')

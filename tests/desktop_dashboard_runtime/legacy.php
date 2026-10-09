@@ -118,6 +118,7 @@ try{
     [$status,$quote]=$http('/admin/takeaway/quote',['_token'=>$csrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'],['Accept: application/json']);
     verify($status===200&&isset(json_decode($quote,true)['quote_hash']),'original POST price calculation works locally without creating an outbox entry');
     verify($http('/admin/categorys',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'added_by'=>10,'name_ar'=>'قسم ممنوع','name_en'=>'Forbidden','status'=>'show'])[0]===403&&DB::table('desktop_dashboard_commands')->count()===0,'a branch account cannot acquire global catalog administration offline');
+    verify($http('/admin/post-sortable',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'order'=>[['id'=>1,'position'=>2]]])[0]===403&&DB::table('categories')->where('id',1)->value('order')===1,'an ordinary branch account cannot reorder shared categories offline');
     $control=DB::table('resturants')->where('id',100)->value('control');
     verify($http('/admin/resturantControl')[0]===501&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'an original legacy GET mutation is blocked by a real read-only transaction');
     require __DIR__.'/expense-local-http.php';
@@ -216,6 +217,7 @@ require __DIR__.'/faq.php';
 require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
 require __DIR__.'/contacts.php';
+require __DIR__.'/category-order.php';
 require __DIR__.'/shared-actions.php';
 require __DIR__.'/notification-history.php';
 require __DIR__.'/remote-attempts.php';

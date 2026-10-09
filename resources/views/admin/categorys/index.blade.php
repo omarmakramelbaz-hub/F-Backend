@@ -69,7 +69,7 @@
                                         <th>@lang('main.actions')</th>
     
                                     </thead>
-                                   <tbody id="tablecontents">
+                                   <tbody id="tablecontents" data-desktop-category-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
                                         @forelse ($categorys as $category)
                                             <tr class="row1" data-id="{{ $category->id }}">
                                                 <td><input type="checkbox" class="sub_chk" data-id="{{ $category->id }}">

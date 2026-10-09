@@ -13,6 +13,11 @@ function fixture(){
   const options={state,metadata,credential:async()=>credential,request};return {records,decisions,calls,state,options,attempts:new RemoteAttempts(options)};
 }
 const details={url:credential.serverOrigin+'/admin/products',method:'POST'};
+test('original category ordering reserves only its reviewed POST endpoint',()=>{
+  const f=fixture(),url=credential.serverOrigin+'/admin/post-sortable';
+  assert.equal(f.attempts.supported({url,method:'POST'}),true);
+  for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
+});
 test('reviewed own-notification menu and history reads reserve, while external sends keep their guard',()=>{
   const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';
   assert.equal(f.attempts.supported({url,method:'POST'}),true);

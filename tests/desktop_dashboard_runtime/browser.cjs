@@ -94,6 +94,34 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     const bulkNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
     if (await bulkNotice.count()) await bulkNotice.click();
     await page.locator('.swal-overlay--show-modal').waitFor({ state: 'hidden' });
+    const orderRequests=[];
+    await page.route('**/admin/post-sortable',async route=>{
+      orderRequests.push({command:route.request().headers()['x-fasakhansta-command'],data:route.request().postData()});
+      if(orderRequests.length===1)return route.abort();
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'success'})});
+    });
+    const originalOrder=async()=>page.evaluate(()=>{
+      const table=document.querySelector('#tablecontents');
+      if(table.querySelectorAll('tr.row1').length===1){
+        const row=table.querySelector('tr.row1').cloneNode(true);row.dataset.id='999999';row.querySelector('.sub_chk').dataset.id='999999';table.append(row);
+      }
+      window.desktopOrderCompletions=0;
+      jQuery(document).ajaxComplete((_event,_xhr,options)=>{if(new URL(options.url,location.href).pathname==='/admin/post-sortable')window.desktopOrderCompletions++;});
+      const assertGeneration=table.dataset.desktopCategoryGeneration;
+      if(!/^[a-f0-9-]{36}$/i.test(assertGeneration))throw Error('The original drag table is not bound to its imported generation.');
+      const update=jQuery(table).sortable('option','update');
+      if(typeof update!=='function')throw Error('The original sortable widget did not initialize.');
+      update.call(table);
+    });
+    await originalOrder();await page.waitForFunction(()=>window.desktopOrderCompletions===1);
+    assert.match(orderRequests[0].command,/^[a-f0-9-]{36}$/i);
+    await page.reload();await originalOrder();await page.waitForFunction(()=>window.desktopOrderCompletions===1);
+    assert.equal(orderRequests[1].command,orderRequests[0].command,'A reloaded original drag table retries the same operation after a lost reply.');
+    await page.evaluate(()=>jQuery('#tablecontents').sortable('option','update').call(document.querySelector('#tablecontents')));
+    await page.waitForFunction(()=>window.desktopOrderCompletions===2);
+    assert.notEqual(orderRequests[2].command,orderRequests[0].command,'The parsed JSON acknowledgement releases the original drag operation.');
+    await page.unroute('**/admin/post-sortable');
+    process.stdout.write('PASS original category sortable widget retains its UUID after a lost reply and reload, and accepts its JSON acknowledgement\n');
     // Exercise the unchanged bulk-delete button while simulating a lost network reply.
     await page.evaluate(() => {
       const first = document.querySelector('.sub_chk');

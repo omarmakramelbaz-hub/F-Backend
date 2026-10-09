@@ -6,6 +6,9 @@ on:
   pull_request:
     paths:
       - 'app/Services/Dashboard/DesktopDashboard*.php'
+      - 'app/Services/Dashboard/CategoryOrdering.php'
+      - 'app/Http/Controllers/Dashboard/CategoryController.php'
+      - 'routes/admin.php'
       - 'app/Http/Middleware/DesktopDashboardJournal.php'
       - 'app/Exceptions/Handler.php'
       - 'desktop/**'

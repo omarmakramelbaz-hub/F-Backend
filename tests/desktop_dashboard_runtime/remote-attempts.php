@@ -19,6 +19,7 @@ try{
     preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&isset($serverCsrf[1]),'the real original server session prepares catalog outcome tests');
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
+    require __DIR__.'/category-order-remote.php';
     $ownRemoteNote=(string)Str::uuid();$foreignRemoteNote=(string)Str::uuid();
     foreach([$ownRemoteNote=>1,$foreignRemoteNote=>20] as $note=>$actor)DB::table('notifications')->insert(['id'=>$note,'type'=>'FixtureNotification','notifiable_type'=>\App\Models\User::class,
         'notifiable_id'=>$actor,'data'=>json_encode(['title'=>'إشعار نتيجة السيرفر','text'=>'نص الإشعار الأصلي']),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);

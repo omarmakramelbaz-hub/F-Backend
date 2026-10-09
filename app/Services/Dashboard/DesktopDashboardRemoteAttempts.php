@@ -32,6 +32,7 @@ class DesktopDashboardRemoteAttempts
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
         $single=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features|contracts)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
         $bulk=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
+        $ordering=$v['path']==='/admin/post-sortable'&&$v['method']==='POST';
         $contact=(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/contacts/[1-9][0-9]{0,18}$#D',$v['path']))
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
         $history=in_array($v['method'],['POST','PUT'],true)&&preg_match('#^/admin/read/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$#iD',$v['path']);
@@ -40,7 +41,7 @@ class DesktopDashboardRemoteAttempts
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$bulk||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($single||$bulk||$ordering||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
@@ -132,6 +133,7 @@ class DesktopDashboardRemoteAttempts
             Validator::make(['operation_id'=>$operation],['operation_id'=>'required|uuid'])->validate();
             if($history)app(DesktopDashboardNotificationReads::class)->payload($request,$operation,$actor);
             $values=$request->except('_token','_method','_desktop_command','attachment');
+            if($name==='categorys.reorder')$values=app(CategoryOrdering::class)->values($values);
             if(str_ends_with($v['path'],'DeleteAll')){
                 abort_unless(is_string($values['ids']??null)&&preg_match('/^[1-9][0-9]{0,18}(?:,[1-9][0-9]{0,18}){0,199}$/D',$values['ids']),422);
                 $values['ids']=array_map('intval',explode(',',$values['ids']));sort($values['ids']);

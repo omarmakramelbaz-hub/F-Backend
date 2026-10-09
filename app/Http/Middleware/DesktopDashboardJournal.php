@@ -47,12 +47,17 @@ class DesktopDashboardJournal
         if(\App\Services\Dashboard\DesktopDashboardLegacy::handles($route)){
             $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);$legacy->authorize($actor);
             $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
-            $payload=$legacy->payload($request,$command);
-            // Journal metadata must never reach the original mass-assignment repositories.
-            $request->request->remove('_desktop_command');$response=null;
-            $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
-                function()use($legacy,$route,$next,$request,&$response){return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});});
-            return $response??$legacy->response($result);
+            return DB::transaction(function()use($legacy,$route,$command,$actor,$request,$next){
+                // Capture selected-row facts only after the common write/refresh fence.
+                // Concurrent drag requests then observe the preceding committed order.
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                $payload=$legacy->payload($request,$command);
+                // Journal metadata must never reach the original mass-assignment repositories.
+                $request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                    function()use($legacy,$route,$next,$request,&$response){return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});});
+                return $response??$legacy->response($result);
+            });
         }
         // Existing forms already supply an immutable UUID. Do not generate another after losing a reply.
         $command=(string)$request->input('idempotency_key');
