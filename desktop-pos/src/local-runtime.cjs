@@ -70,17 +70,28 @@ async function stopChild(child) {
   clearTimeout(timer);
 }
 
+function phpRelativePath(application, file) {
+  const relative = path.relative(application, file);
+  // PHP parses startup options before converting Windows argv to UTF-8, and
+  // its native extension loader calls LoadLibraryA. Keep those paths ASCII;
+  // Windows resolves them against the exact retained application's cwd.
+  if (!relative || path.isAbsolute(relative) || /[^\x20-\x7e]/.test(relative))
+    throw Error('مسار إعدادات التشغيل المحلية غير متوافق؛ بيانات الجهاز محفوظة.');
+  return relative.replaceAll('\\', '/');
+}
+
 async function phpIniFor(bundle,manifest,profile) {
     // The installed directory can disappear after an update. Resolve PHP extensions inside
     // the retained version, rather than any absolute paths copied from the build host.
+    const application = path.join(bundle, 'application');
     const extensionDirectory = path.join(bundle, 'php', 'ext');
     let phpConfiguration = await fs.readFile(path.join(bundle, 'php', 'php.ini'), 'utf8');
     const extensionLines = [...phpConfiguration.matchAll(/^\s*(zend_extension|extension)\s*=\s*([^;\r\n]+).*$/gm)];
     for (const match of extensionLines) {
       const value = match[2].trim().replace(/^['"]|['"]$/g, '');
-      if (/^[a-z]:[\\/]|^[\\/]/i.test(value)) {
+      if (/[\\/]/.test(value)) {
         const basename = value.split(/[\\/]/).pop();await fs.access(path.join(extensionDirectory, basename));
-        phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + path.join(extensionDirectory, basename).replaceAll('\\', '/') + '"');
+        phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + phpRelativePath(application, path.join(extensionDirectory, basename)) + '"');
       }
     }
     const caFile = path.join(bundle, 'php', 'ssl', 'cacert.pem');
@@ -89,7 +100,7 @@ async function phpIniFor(bundle,manifest,profile) {
     const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
     // Keep the original expense form's upload limit in both active and staged runtimes.
     // Its encrypted base64 journal also requires room beyond PHP's build-host defaults.
-    await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/')
+    await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + phpRelativePath(application, extensionDirectory)
       // Do not inherit the builder's 256 MiB JIT buffer and native compilation
       // settings in a retained Windows runtime; validate ordinary PHP execution.
       + '"\ncurl.cainfo="' + caPath + '"\nopenssl.cafile="' + caPath
@@ -99,6 +110,9 @@ async function phpIniFor(bundle,manifest,profile) {
 
 /** Manages private PHP/MariaDB processes. It never contacts the production database. */
 class LocalRuntime {
+  static phpArguments(context) {
+    return ['-c', phpRelativePath(context.application, context.phpIni)];
+  }
   constructor({ bundle, profile, safeStorage, downloadMedia, platform = process.platform, onFailure = () => {} }) {
     this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
@@ -203,7 +217,7 @@ class LocalRuntime {
       PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
     };
     this.environment = runtimeEnvironment; this.php = php; this.application = application;
-    const phpArgs = ['-c', this.phpIni];
+    const phpArgs = LocalRuntime.phpArguments(this);
     const deadline = Date.now() + 30000;
     while (true) {
       if (database.exitCode !== null || this.stopping) throw Error('تعذر تشغيل قاعدة الداشبورد المحلية.');
@@ -235,7 +249,7 @@ class LocalRuntime {
   async startWeb() {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     const php = this.php, application = this.application, runtimeEnvironment = this.environment;
-    const phpArgs = ['-c', this.phpIni];
+    const phpArgs = LocalRuntime.phpArguments(this);
     const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
     web.stdin.end(); this.children[1] = web;
     const webDeadline = Date.now() + 20000;
@@ -279,7 +293,7 @@ class LocalRuntime {
     for (const dir of ['app/public', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs', 'bootstrap/cache', 'private'])
       await fs.mkdir(path.join(this.storageFor(value), dir), { recursive: true, mode: 0o700 });
     const settings = await this.settings();
-    const phpArgs = ['-c', context.phpIni];
+    const phpArgs = LocalRuntime.phpArguments(context);
     const options = { env, cwd: context.application };
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     await run(context.php, [...phpArgs, path.join(context.application, 'desktop/database.php'), 'stage'], options,
@@ -347,7 +361,7 @@ class LocalRuntime {
       }
       await stopChild(this.children[1]);
       if (this.children[0] && this.php) {
-        try { await run(this.php, ['-c', this.phpIni, path.join(this.application, 'desktop', 'database.php'), 'shutdown'], { env: this.environment, cwd: this.application }, JSON.stringify({ password: (await this.settings()).rootPassword }), 8000); } catch {}
+        try { await run(this.php, [...LocalRuntime.phpArguments(this), path.join(this.application, 'desktop', 'database.php'), 'shutdown'], { env: this.environment, cwd: this.application }, JSON.stringify({ password: (await this.settings()).rootPassword }), 8000); } catch {}
       }
       await stopChild(this.children[0]);
     })();

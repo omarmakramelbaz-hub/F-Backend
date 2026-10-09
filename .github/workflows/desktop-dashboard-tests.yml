@@ -23,6 +23,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   original-runtime:
     runs-on: windows-latest
