@@ -73,6 +73,7 @@
 <!--<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>-->
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js') }}"></script>
 <script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>

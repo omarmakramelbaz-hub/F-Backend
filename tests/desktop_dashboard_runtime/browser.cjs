@@ -21,8 +21,13 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     });
     const page = await context.newPage();
     const pageErrors = [];
+    const scriptLoads = [];
+    page.on('requestfailed', request => {
+      if (request.resourceType() === 'script') scriptLoads.push({path:new URL(request.url()).pathname,error:request.failure()?.errorText});
+    });
     page.on('pageerror', error => { pageErrors.push(error.message); process.stderr.write('BROWSER_SCRIPT_ERROR '+error.stack+'\n'); });
     page.on('response', response => {
+      if (response.request().resourceType() === 'script') scriptLoads.push({path:new URL(response.url()).pathname,status:response.status(),type:response.headers()['content-type']});
       if (new URL(response.url()).origin === input.origin && response.url().includes('/js/desktop-') && response.status() !== 200)
         process.stderr.write('BROWSER_JOURNAL_SCRIPT_RESPONSE '+JSON.stringify({path:new URL(response.url()).pathname,status:response.status()})+'\n');
     });
@@ -42,7 +47,7 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
             journaled:Boolean(form.querySelector('[name="_desktop_command"]'))})),
           text:document.body?.innerText.slice(-1500)
         }));
-        process.stderr.write('JOURNAL_FORM_DIAGNOSTIC '+JSON.stringify({label,status:response?.status(),...state,pageErrors})+'\n');
+        process.stderr.write('JOURNAL_FORM_DIAGNOSTIC '+JSON.stringify({label,status:response?.status(),...state,pageErrors,scriptLoads})+'\n');
         throw error;
       }
     };
