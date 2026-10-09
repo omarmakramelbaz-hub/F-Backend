@@ -20,11 +20,15 @@ const assert = require('node:assert/strict');
     const quoted = '"' + extensions.replaceAll('\\', '/') + '"';
     const ini = path.join(root, 'quoted-extensions.ini');
     await fs.writeFile(ini, 'extension_dir=' + quoted + '\n' + modules.map(name=>'extension=' + name).join('\n') + '\n');
+    const application = path.join(path.dirname(phpRoot),'application');
+    await fs.mkdir(application);
+    await fs.writeFile(path.join(phpRoot,'relative-probe.ini'), 'extension_dir="../php/ext"\n' + modules.map(name=>'extension=' + name).join('\n') + '\n');
     const variants = [
       ['unquoted-command-line', ['-n','-d','extension_dir=' + extensions, ...modules.flatMap(name=>['-d','extension=' + name])]],
       ['quoted-command-line', ['-n','-d','extension_dir=' + quoted, ...modules.flatMap(name=>['-d','extension=' + name])]],
       ['quoted-configuration-file', ['-c', ini]],
       ['relative-extension-directory', ['-n','-d','extension_dir=ext', ...modules.flatMap(name=>['-d','extension=' + name])], phpRoot],
+      ['relative-configuration-file', ['-c','../php/relative-probe.ini'], application],
       ['verified-source-control', ['-n','-d','extension_dir="' + path.join(source,'ext').replaceAll('\\','/') + '"', ...modules.flatMap(name=>['-d','extension=' + name])]],
     ];
     const results = variants.map(([name,args,cwd]) => {
@@ -35,5 +39,6 @@ const assert = require('node:assert/strict');
     process.stdout.write(JSON.stringify({modules,results},null,2) + '\n');
     assert.equal(results.find(result=>result.name==='verified-source-control').allModules, true, 'Every extension must load from the independently verified source.');
     assert.equal(results.find(result=>result.name==='relative-extension-directory').allModules, true, 'Every bundled extension must load from the actual Arabic PHP directory.');
+    assert.equal(results.find(result=>result.name==='relative-configuration-file').allModules, true, 'The supervisor configuration must load every extension with an Arabic working directory.');
   } finally { await fs.rm(root,{recursive:true,force:true}); }
 })().catch(error=>{process.stderr.write(error.stack + '\n');process.exitCode=1;});
