@@ -6,7 +6,7 @@ const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE||'playwright');
 const source=path.resolve(__dirname,'../..');
 const posts=[];
 const rule={starts_at:'10:00',ends_at:'18:00',late_half_hour:'10.00',early_half_hour:'5.00',absence:'300.00',revision:1};
-const data={success:true,can_manage_attendance:true,attendance_rules:{'f:100':{morning:rule,evening:{...rule,starts_at:'20:00',ends_at:'04:00'}}},
+const data={success:true,can_manage_attendance:true,can_add_bonus:true,attendance_rules:{'f:100':{morning:rule,evening:{...rule,starts_at:'20:00',ends_at:'04:00'}}},
   branches:[{value:'f:100',name:'فرع المنصورة'}],options:{job_title:['كاشير'],shift:['صباحي']},filters:{branch:'f:100',day:'2026-10-08',month:'2026-10'},pagination:{page:1,last_page:1,total:1},
   summary:{employees:1,present:0,absent:0,leave:0,deduction:'0.00',bonus:'0.00',advance:'0.00'},
   items:[{id:1,branch:'f:100',name:'موظف الاختبار',job_title:'كاشير',shift:'صباحي',revision:1,active:true,attendance:null,day_closed:false,
@@ -60,7 +60,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/select2.min.js')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/adminlte.js')});
-  assert.ok(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')));
+  assert.equal(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')),false,'attendance stays a native select after AdminLTE loads');
 
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
@@ -68,8 +68,8 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.deepEqual(await departure().locator('option').allTextContents(),['تسجيل الانصراف','انصراف صباحًا','انصراف مساءً']);
   assert.ok(await departure().isDisabled());assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
-  await refreshed(()=>choose(arrival(),'morning'));await waitRecorded('[data-op-attendance]','12:35');
-  assert.equal(posts.length,1);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
+  await refreshed(async()=>{await arrival().click();await arrival().press('ArrowDown');await arrival().press('Enter');});await waitRecorded('[data-op-attendance]','12:35');
+  assert.equal(posts.length,1);assert.equal(await page.locator('[data-op-entry=bonus]').count(),1);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
   assert.equal(posts[0].v.expected_revision,null);assert.equal(await arrival().inputValue(),'');assert.ok(!(await departure().isDisabled()));
   assert.ok(await departure().locator('[value=evening]').evaluate(el=>el.disabled));assert.ok(!(await departure().locator('[value=morning]').evaluate(el=>el.disabled)));
   assert.ok(await page.locator('[data-op-total=deduction]').textContent().then(x=>x.includes('50.00')));
@@ -92,7 +92,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await fresh();
   await refreshed(()=>choose(arrival(),'preapproved_leave'));await waitRecorded('[data-op-attendance]','إجازة مسبقة');
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('100.00'));
-  assert.ok(await arrival().isDisabled());await fresh();rejectAttendance=true;await choose(arrival(),'morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
+  assert.ok(await arrival().isDisabled());assert.ok((await page.locator('.op-attendance-fixed').textContent()).includes('إجازة مسبقة'));await fresh();rejectAttendance=true;await choose(arrival(),'morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
   assert.equal(await selected(arrival()),'تسجيل الحضور');assert.ok((await arrival().locator('xpath=following-sibling::span[1]').textContent()).includes('تسجيل الحضور'));assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().isDisabled());
   uncertainAttendance=true;await choose(arrival(),'evening');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent.includes('غير مؤكدة'));
   const count=posts.length;assert.ok(await arrival().isDisabled());await refreshed(()=>page.locator('[data-op-retry]').click());await waitRecorded('[data-op-attendance]','12:35');
@@ -127,6 +127,11 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   }
   await page.locator('[data-op-net]').first().click();await page.waitForFunction(()=>document.querySelector('.op-statement'));
   assert.ok((await page.locator('.op-statement').textContent()).includes('800.00'));assert.ok((await page.locator('.op-statement').textContent()).includes('8 / 31 يوم'));assert.ok((await page.locator('.op-statement').textContent()).includes('من 2026-10-01 حتى 2026-10-08'));
+  await page.locator('[data-op-close]').click();
+  data.can_add_bonus=false;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),0);
+  assert.equal(await page.locator('[data-op-total=bonus]').count(),6,'existing rewards stay visible to branch and admin accounts');
+  assert.equal(await page.locator('[data-op-entry=advance]').count(),6);assert.equal(await page.locator('[data-op-entry=deduction]').count(),6);
+  data.can_add_bonus=true;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),6);
   assert.deepEqual(errors,[]);console.log('Browser checks passed: real AdminLTE/Select2 dropdown clicks and native controls, Cairo clock requests, automatic totals, fixed attendance/departure choices, rejected saves, safe retry, closed months, owner configuration, mobile recording, accrued salary days/dates and six visible employee rows at three desktop sizes.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

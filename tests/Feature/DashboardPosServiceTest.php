@@ -441,7 +441,7 @@ class DashboardPosServiceTest extends TestCase
         $s=app(\App\Services\Dashboard\BranchPayroll::class);$a=$s->employeeSave($this->employeePayload(900),$this->actor())['employee'];
         $b=$s->employeeSave(array_replace($this->employeePayload(901),['name'=>'محمود','job_title'=>'شيف','shift'=>'مسائي']),$this->actor())['employee'];
         $base=['branch'=>'f:100','employee_id'=>$a['id'],'day'=>'2026-09-12'];
-        foreach([['deduction','50.00'],['deduction','100.00'],['bonus','200.00'],['advance','500.00']] as $i=>$row)$s->entry($base+['kind'=>$row[0],'amount'=>$row[1],'reason'=>'تأخير','notes'=>'ملاحظة مسجلة','idempotency_key'=>$this->key(902+$i)],$this->actor());
+        foreach([['deduction','50.00'],['deduction','100.00'],['bonus','200.00'],['advance','500.00']] as $i=>$row)$s->entry($base+['kind'=>$row[0],'amount'=>$row[1],'reason'=>'تأخير','notes'=>'ملاحظة مسجلة','idempotency_key'=>$this->key(902+$i)],$this->actor($row[0]==='bonus'?1:10));
         $void=$s->entry($base+['kind'=>'deduction','amount'=>'800.00','reason'=>'خطأ','idempotency_key'=>$this->key(906)],$this->actor())['entry'];
         $s->voidEntry(['branch'=>'f:100','entry_id'=>$void['id'],'expected_revision'=>1,'reason'=>'تصحيح','idempotency_key'=>$this->key(907)],$this->actor(1));
         $s->entry(array_replace($base,['day'=>'2026-09-11'])+['kind'=>'deduction','amount'=>'25.00','reason'=>'سابق','idempotency_key'=>$this->key(908)],$this->actor());
@@ -548,7 +548,7 @@ class DashboardPosServiceTest extends TestCase
         $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(),$this->actor())['employee'];$id=$employee['id'];
         $this->assertTrue($s->employeeSave($this->employeePayload(),$this->actor())['replayed']);
         $attendance=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','status'=>'unauthorized_absence','action'=>'set_status','idempotency_key'=>$this->key(830)];$s->attendance($attendance,$this->actor());$this->assertTrue($s->attendance($attendance,$this->actor())['replayed']);
-        foreach([['bonus','500.00'],['deduction','100.00'],['advance','700.00']] as $n=>$entry){$v=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','kind'=>$entry[0],'amount'=>$entry[1],'reason'=>'Approved','idempotency_key'=>$this->key(831+$n)];$s->entry($v,$this->actor());$this->assertTrue($s->entry($v,$this->actor())['replayed']);}
+        foreach([['bonus','500.00'],['deduction','100.00'],['advance','700.00']] as $n=>$entry){$v=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','kind'=>$entry[0],'amount'=>$entry[1],'reason'=>'Approved','idempotency_key'=>$this->key(831+$n)];$entryActor=$this->actor($entry[0]==='bonus'?1:10);$s->entry($v,$entryActor);$this->assertTrue($s->entry($v,$entryActor)['replayed']);}
         $q=['branch'=>'f:100','employee_id'=>$id,'month'=>'2026-09'];$statement=$s->statement($q,$this->actor())['statement'];$this->assertSame('2700.00',$statement['net']);$this->assertSame('3000.00',$statement['earned_salary']);$this->assertCount(1,$statement['attendance']);
         $close=$q+['idempotency_key'=>$this->key(840),'preview_hash'=>$statement['preview_hash']];$closed=$s->close($close,$this->actor())['statement'];$this->assertSame('closed',$closed['status']);$this->assertTrue($s->close($close,$this->actor())['replayed']);
         $this->denied(fn()=>$s->attendance(array_replace($attendance,['idempotency_key'=>$this->key(841),'expected_revision'=>1]),$this->actor()),409);

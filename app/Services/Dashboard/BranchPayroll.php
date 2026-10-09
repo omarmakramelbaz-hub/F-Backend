@@ -66,6 +66,7 @@ class BranchPayroll
         });
     }
     public function canManageAttendance($actor): bool {return $this->canVoidEntries($actor);}
+    public function canAddBonus($actor): bool {return $this->canVoidEntries($actor);}
     private function attendanceReady(): void {abort_unless(Schema::hasTable('branch_attendance_rules'),503,'يجب تثبيت تحديث الحضور أولًا.');}
     private function ruleData(object $r): array
     {
@@ -181,6 +182,7 @@ class BranchPayroll
     {
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d|before_or_equal:today','kind'=>'required|in:bonus,deduction,advance','amount'=>'required|string|max:14','reason'=>'required|string|max:500','notes'=>'nullable|string|max:1000'])->validate();$amount=$this->ops->money($v['amount'],false);abort_if(trim($v['reason'])==='',422,'اكتب سبب الحركة.');
         abort_if($v['day']>OperatingDay::date(),422,'لا يمكن التسجيل ليوم تشغيل مستقبلي.');
+        abort_unless($v['kind']!=='bonus'||$this->canAddBonus($actor),403,'إضافة المكافآت متاحة للأونر فقط.');
         return $this->ops->write('employee.entry',$v,$actor,function($branch,$actor)use($v,$amount){
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $id=DB::table('branch_employee_entries')->insertGetId(['branch'=>$v['branch'],'employee_id'=>$employee->id,'day'=>$v['day'],'kind'=>$v['kind'],'amount_cents'=>$amount,'reason'=>trim($v['reason']),'notes'=>trim($v['notes']??''),'actor_id'=>$actor->id,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -299,6 +301,6 @@ class BranchPayroll
         $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
         $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
         $attendanceRules=[];if(Schema::hasTable('branch_attendance_rules'))foreach(DB::table('branch_attendance_rules')->whereIn('branch',array_column($branches,'value'))->get() as $rule)$attendanceRules[$rule->branch][$rule->shift]=$this->ruleData($rule);
-        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
+        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'can_add_bonus'=>$this->canAddBonus($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
     }
 }

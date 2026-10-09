@@ -124,6 +124,8 @@ class DesktopDashboardRemoteAttempts
                     default=>$permissions[self::CORE[$name]],
                 };
                 abort_unless($allowed,403);
+                if($name==='employees.entry'&&$request->input('kind')==='bonus')
+                    abort_unless(app(BranchPayroll::class)->canAddBonus($actor),403,'إضافة المكافآت متاحة للأونر فقط.');
             }
             // Even stored replies require the original CURRENT controller permissions, before model binding.
             $router=app('router');$middleware=array_map(fn($item)=>MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$request->route()->controllerMiddleware());
