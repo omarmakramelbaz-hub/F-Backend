@@ -53,7 +53,7 @@ async function main() {
     onFailure: error => failures.push(error) });
   let runtime = create();
   const php = async (code, input = {}, env = runtime.environment) => {
-    const child = spawn(runtime.php, ['-c', runtime.phpIni, '-r', code], { cwd: runtime.application,
+    const child = spawn(runtime.php, [...LocalRuntime.phpArguments(runtime), '-r', code], { cwd: runtime.application,
       env: { ...env, DESKTOP_TEST_APPLICATION: runtime.application }, windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', error = ''; child.stdout.setEncoding('utf8'); child.stdout.on('data', bytes => { output += bytes; });
     child.stderr.setEncoding('utf8'); child.stderr.on('data', bytes => { error += bytes; });
@@ -65,8 +65,8 @@ async function main() {
   try {
     // A tiny malformed input must reach JSON validation under the installed memory
     // limit, rather than allocating the complete 256 MiB permitted input ceiling.
-    const inputProbe = spawn(path.join(bundle, 'php/php.exe'), ['-c', path.join(bundle, 'php/php.ini'), '-d', 'memory_limit=256M',
-      path.join(bundle, 'application/desktop/import.php')], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    const inputProbe = spawn(path.join(bundle, 'php/php.exe'), [...LocalRuntime.phpArguments({ application: path.join(bundle,'application'), phpIni: path.join(bundle,'php/php.ini') }), '-d', 'memory_limit=256M',
+      path.join(bundle, 'application/desktop/import.php')], { cwd: path.join(bundle,'application'), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let probeError = ''; inputProbe.stderr.setEncoding('utf8'); inputProbe.stderr.on('data', bytes => { probeError += bytes; });
     inputProbe.stdin.on('error', () => {}); inputProbe.stdin.end('{"synthetic":');
     const probeExit = await new Promise((resolve, reject) => { inputProbe.once('error', reject); inputProbe.once('close', resolve); });
@@ -83,8 +83,12 @@ async function main() {
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
       download: async () => snapshot });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
-    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit'),'jit'=>ini_get('opcache.jit'),'jitBuffer'=>ini_get('opcache.jit_buffer_size')]);"),
-      { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0' });
+    // PHP resolves Windows 8.3 aliases; compare the same actual retained files.
+    const extensionDirectory = (await fs.realpath(path.join(runtime.bundle,'php/ext'))).replaceAll('\\','/');
+    const certificateFile = (await fs.realpath(path.join(runtime.bundle,'php/ssl/cacert.pem'))).replaceAll('\\','/');
+    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit'),'jit'=>ini_get('opcache.jit'),'jitBuffer'=>ini_get('opcache.jit_buffer_size'),'extensions'=>str_replace(chr(92),'/',realpath(ini_get('extension_dir'))),'curlCA'=>str_replace(chr(92),'/',realpath(ini_get('curl.cainfo'))),'opensslCA'=>str_replace(chr(92),'/',realpath(ini_get('openssl.cafile')))]);"),
+      { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0',
+        extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
     assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
     assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));

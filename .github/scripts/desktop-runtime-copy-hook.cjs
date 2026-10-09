@@ -36,8 +36,16 @@ module.exports=async context=>{
   if(!windowsNsis.includes('SetCompressor /SOLID lzma'))throw Error('The reviewed preview compression directive is missing.');
   // Use fast lossless preview compression within the pinned builder's compile timeout.
   const previewNsis=windowsNsis.replace('SetCompressor /SOLID lzma','SetCompressor /SOLID zlib');
+  const extractionRoot='SetOutPath "$INSTDIR"';
+  if(previewNsis.split(extractionRoot).length!==2)throw Error('The reviewed installation output root is missing or ambiguous.');
+  // The Unicode NSIS runtime accepts the extended-length prefix without a
+  // machine-wide long-path policy. Keep $INSTDIR normal for shortcuts/registry.
+  const extendedNsis=previewNsis.replace(extractionRoot,'SetOutPath "\\\\?\\$INSTDIR"');
+  const uninstallList=path.join(project,'dist/uninstall-files.nsh');
+  const removal=await fs.readFile(uninstallList,'utf8');
+  await fs.writeFile(uninstallList,removal.replaceAll('"$INSTDIR\\','"\\\\?\\$INSTDIR\\'));
   const fileDirective='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
-  if(!previewNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
+  if(!extendedNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
   // makensis cannot open some original vendor files via the runner's long path.
   // Map only the already verified output to a free drive; preserve every byte.
   const drive='R:';
@@ -45,7 +53,7 @@ module.exports=async context=>{
   catch(error){if(error.code!=='ENOENT')throw error;}
   execFileSync('subst.exe',[drive,context.appOutDir],{windowsHide:true});
   await fs.writeFile(path.join(project,'dist/nsis-build-drive.json'),JSON.stringify({drive,directory:context.appOutDir})+'\n');
-  await fs.writeFile(path.join(project,'installer-windows.nsi'),previewNsis.replace(fileDirective,'File /r "'+drive+'\\*"'));
+  await fs.writeFile(path.join(project,'installer-windows.nsi'),extendedNsis.replace(fileDirective,'File /r "'+drive+'\\*"'));
   await fs.access(path.join(project,'dist/installer-version.nsh'));
   process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
 };

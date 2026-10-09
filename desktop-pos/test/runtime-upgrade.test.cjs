@@ -3,15 +3,19 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const LocalRuntime=require('../src/local-runtime.cjs'),RuntimeArchive=require('../src/runtime-archive.cjs'),source=require('../src/dashboard-source.cjs');
 async function fixture(t){
-  const root=await fs.mkdtemp(path.join(os.tmpdir(),'dashboard-upgrade-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'dashboard-upgrade-'));t.after(()=>fs.rm(temporary,{recursive:true,force:true}));
+  const root=path.join(temporary,'بيانات المستخدم~1');await fs.mkdir(root);
   const records=new Map(),metadata={read:async key=>records.get(key)||null,write:async(key,value)=>records.set(key,structuredClone(value))};
   const make=async(revision,rule,database='same database bytes')=>{
     const bundle=path.join(root,revision),application=path.join(bundle,'application');
-    for(const folder of ['application/app','php/ext','mariadb/bin'])await fs.mkdir(path.join(bundle,folder),{recursive:true});
+    for(const folder of ['application/app','php/ext','php/ssl','mariadb/bin'])await fs.mkdir(path.join(bundle,folder),{recursive:true});
     await fs.writeFile(path.join(application,'app/rule.php'),rule);
     await fs.writeFile(path.join(application,'composer.lock'),JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]}));
-    await fs.writeFile(path.join(bundle,'php/php.exe'),'synthetic PHP executable');await fs.writeFile(path.join(bundle,'php/php.ini'),'extension=fixture.dll\n');
+    await fs.writeFile(path.join(bundle,'php/php.exe'),'synthetic PHP executable');
+    await fs.writeFile(path.join(bundle,'php/php.ini'),'extension=C:/build/php/ext/fixture.dll\nzend_extension=C:/build/php/ext/fixture-zend.dll\n');
     await fs.writeFile(path.join(bundle,'php/ext/fixture.dll'),'synthetic PHP extension');
+    await fs.writeFile(path.join(bundle,'php/ext/fixture-zend.dll'),'synthetic Zend extension');
+    await fs.copyFile(path.join(__dirname,'fixtures/synthetic-ca.pem'),path.join(bundle,'php/ssl/cacert.pem'));
     for(const file of ['mariadbd.exe','mariadb-install-db.exe','runtime.dll'])await fs.writeFile(path.join(bundle,'mariadb/bin',file),database);
     const manifest={format:1,platform:'win32-x64',sourceRevision:revision,sourceHashes:{'app/rule.php':crypto.createHash('sha256').update(rule).digest('hex')},sourceFingerprint:await source.fingerprint(application)};
     await fs.writeFile(path.join(bundle,'manifest.json'),JSON.stringify(manifest));return {bundle,manifest};
@@ -30,7 +34,19 @@ test('a matching installed code upgrade is retained and verified without changin
   assert.notEqual(context.bundle,f.next.bundle);assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
   assert.equal(f.records.get('prepared').database,'retained business database');
   const ini=await fs.readFile(context.phpIni,'utf8');
-  assert.ok(ini.includes(path.join(context.bundle,'php/ext').replaceAll('\\','/')));
+  const settings=Object.fromEntries([...ini.matchAll(/^([a-z_.]+)\s*=\s*"?([^"\r\n]+)"?\s*$/gm)].map(match=>[match[1],match[2]]));
+  for(const [name,file]of [['extension_dir','php/ext'],['extension','php/ext/fixture.dll'],['zend_extension','php/ext/fixture-zend.dll']]){
+    assert.ok(!path.isAbsolute(settings[name]));assert.doesNotMatch(settings[name],/[^\x20-\x7e]/);
+    assert.equal(await fs.realpath(path.resolve(context.application,settings[name])),await fs.realpath(path.join(context.bundle,file)));
+  }
+  for(const name of ['curl.cainfo','openssl.cafile']){
+    assert.ok(path.isAbsolute(settings[name]));
+    assert.equal(await fs.realpath(settings[name]),await fs.realpath(path.join(context.bundle,'php/ssl/cacert.pem')));
+  }
+  const args=LocalRuntime.phpArguments(context);assert.equal(args[0],'-c');
+  assert.ok(!path.isAbsolute(args[1]));assert.doesNotMatch(args[1],/[^\x20-\x7e]/);
+  assert.equal(await fs.readFile(path.resolve(context.application,args[1]),'utf8'),ini);
+  assert.deepEqual(await fs.readFile(path.join(context.bundle,'php/ssl/cacert.pem')),await fs.readFile(path.join(__dirname,'fixtures/synthetic-ca.pem')));
   for(const setting of ['upload_max_filesize=5M','post_max_size=12M','memory_limit=256M'])assert.ok(ini.includes(setting));
 });
 test('changed MariaDB executables or DLLs cannot stage installed code against the retained database directory',async t=>{

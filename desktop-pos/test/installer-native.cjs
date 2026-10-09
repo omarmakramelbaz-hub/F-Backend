@@ -22,9 +22,11 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     const php=path.join(native,'php/php.exe');
     assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
     const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
-    const phpArgs=['-n','-d','extension_dir='+path.join(native,'php/ext'),...extensions.flatMap(name=>['-d','extension='+name]),'-r',
+    // PHP loads DLLs through the Windows ANSI loader during startup. Keep the
+    // directory argument ASCII while exercising the real Arabic installation.
+    const phpArgs=['-n','-d','extension_dir=ext',...extensions.flatMap(name=>['-d','extension='+name]),'-r',
       'foreach('+JSON.stringify(extensions).replace('[','array(').replace(']',')')+' as $module) { if (!extension_loaded($module)) {fwrite(STDERR,$module); exit(1);} } echo "installed extensions ready";'];
-    assert.equal(execFileSync(php,phpArgs,{encoding:'utf8',windowsHide:true}),'installed extensions ready');
+    assert.equal(execFileSync(php,phpArgs,{encoding:'utf8',windowsHide:true,cwd:path.join(native,'php')}),'installed extensions ready');
     assert.match(execFileSync(path.join(native,'mariadb/bin/mariadbd.exe'),['--no-defaults','--version'],{encoding:'utf8',windowsHide:true}),/11\.4\.13/);
     process.stdout.write('PASS installed Windows PHP and MariaDB executables start from their packaged paths\n');
     const probe=path.join(root,'packaged-ledger-probe.cjs');

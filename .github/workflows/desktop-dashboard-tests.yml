@@ -23,6 +23,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   original-runtime:
     runs-on: windows-latest
@@ -171,6 +175,8 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          node .github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
           try {
             npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
@@ -184,6 +190,9 @@ jobs:
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual Windows installation and retained unsynced data
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: node desktop-pos/test/installer-native.cjs
       - name: Retain the installer preview and exact verification receipts
         uses: actions/upload-artifact@v4

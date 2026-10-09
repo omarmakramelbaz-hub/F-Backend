@@ -24,6 +24,7 @@ async function fixture(t){
   const lock=JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]});
   await write(prefix+'application/composer.lock',lock);await write(prefix+'application/composer.json','{}');await write(prefix+'application/vendor/autoload.php','<?php');
   await write(prefix+'php/php.ini','extension=php_pdo_mysql.dll\n');
+  await write(prefix+'php/ssl/cacert.pem',await fs.readFile(path.join(__dirname,'fixtures/synthetic-ca.pem')));
   // Synthetic PE headers test the package validator, not executable process behavior.
   const exe=Buffer.alloc(128);exe.write('MZ');exe.writeUInt32LE(64,60);exe.write('PE\0\0',64);exe.writeUInt16LE(0x8664,68);exe.writeUInt16LE(0x20b,88);
   for(const name of ['php/php.exe','mariadb/bin/mariadbd.exe','mariadb/bin/mariadb-install-db.exe'])await write(prefix+name,exe);
