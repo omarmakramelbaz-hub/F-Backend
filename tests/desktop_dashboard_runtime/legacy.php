@@ -136,7 +136,7 @@ try{
 config(['database.connections.mysql.database'=>$database]);DB::purge();
 $owner=User::withoutGlobalScopes()->findOrFail(1);
 $role=\Spatie\Permission\Models\Role::create(['name'=>'Super Admin','guard_name'=>'admin']);
-foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete','feature-list','feature-create','feature-edit','feature-delete','contract-list','contract-edit','contract-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete','feature-list','feature-create','feature-edit','feature-delete','contract-list','contract-edit','contract-delete','role-list','role-create','role-edit','role-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
 DB::table('contracts')->insert([['id'=>87001,'added_by'=>1,'type'=>'vendor','template'=>'قالب مورّد مشترك'],['id'=>87002,'added_by'=>1,'type'=>'delegate','template'=>'قالب مندوب مشترك']]);
 $contractManager=User::withoutGlobalScopes()->create(['id'=>30,'added_by'=>1,'name'=>'مدير القوالب','email'=>'template-manager@test.invalid','mobile'=>'1200000030','password'=>password_hash('Fixture123',PASSWORD_BCRYPT),'account_type'=>'admin','status'=>'accepted','app_scope'=>'fasakhansta']);
 $contractRole=\Spatie\Permission\Models\Role::create(['name'=>'Template Manager','guard_name'=>'admin']);$contractRole->givePermissionTo('contract-edit');$contractManager->assignRole($contractRole);
@@ -240,6 +240,7 @@ require __DIR__.'/areas.php';
 require __DIR__.'/faq.php';
 require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
+require __DIR__.'/roles.php';
 require __DIR__.'/contacts.php';
 require __DIR__.'/category-order.php';
 require __DIR__.'/shared-actions.php';

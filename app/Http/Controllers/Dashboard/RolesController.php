@@ -71,6 +71,7 @@ class RolesController extends Controller
 // dd($request->all());
         $role = Role::create(['name' => $request->input('name')]);
         $role->syncPermissions($request->input('permission'));
+        $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.AddSuccessfully'));
@@ -127,6 +128,7 @@ class RolesController extends Controller
         $role->save();
 
         $role->syncPermissions($request->input('permission'));
+        $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.UpdateSuccessfully'));
@@ -140,10 +142,20 @@ class RolesController extends Controller
     public function destroy($id)
     {
         DB::table("roles")->where('id',$id)->delete();
+        // This original query bypasses Role's automatic cache invalidation.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->invalidateCommittedPermissions();
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.DeleteSuccessfully'));
     }
     
+    private function invalidateCommittedPermissions(): void
+    {
+        // A concurrent request may cache the previous committed grants after the
+        // immediate Spatie flush but before an outer desktop transaction commits.
+        DB::afterCommit(fn()=>app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions());
+    }
+
      public function deleteAll(Request $request)
     {
         $ids = $request->ids;

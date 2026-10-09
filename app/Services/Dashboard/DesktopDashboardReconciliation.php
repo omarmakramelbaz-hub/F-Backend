@@ -25,6 +25,7 @@ class DesktopDashboardReconciliation
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
+            if(DesktopDashboardRoleFacts::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorizeRoleRoute($v['route_name'],$actor);
             $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor){
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);

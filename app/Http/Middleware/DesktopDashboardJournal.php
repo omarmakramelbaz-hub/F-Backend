@@ -46,6 +46,7 @@ class DesktopDashboardJournal
         }
         if(\App\Services\Dashboard\DesktopDashboardLegacy::handles($route)){
             $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);$legacy->authorize($actor);
+            if(\App\Services\Dashboard\DesktopDashboardRoleFacts::handles($route))$legacy->authorizeRoleRoute($route,$actor);
             $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
             return DB::transaction(function()use($legacy,$route,$command,$actor,$request,$next){
                 // Capture selected-row facts only after the common write/refresh fence.

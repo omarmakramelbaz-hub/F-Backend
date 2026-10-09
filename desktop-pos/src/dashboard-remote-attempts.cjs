@@ -26,6 +26,8 @@ class DashboardRemoteAttempts {
       || path==='/admin/branch-shifts/close'))return true;
     if((['POST','DELETE'].includes(method)&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(path))
         ||(method==='DELETE'&&path==='/admin/contactsDeleteAll'))return true;
+    if(method==='POST'&&path==='/admin/roles')return true;
+    if(['POST','PUT','PATCH','DELETE'].includes(method)&&/^\/admin\/roles\/[1-9][0-9]{0,18}$/.test(path))return true;
     return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
       && (/^\/admin\/(?:areas|categorys|products|question_answers|features|contracts)(?:\/[1-9][0-9]{0,18})?$/.test(path)
         || (method === 'DELETE' && /^\/admin\/(?:areas|categorys|products|question_answers|features)DeleteAll$/.test(path)));

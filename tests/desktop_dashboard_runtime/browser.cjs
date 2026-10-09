@@ -82,16 +82,24 @@ const watchdog = setTimeout(() => {
     assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.summernote), 'function', 'The original editor must load after jQuery and Bootstrap.');
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;
-    for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products']) {
+    for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products', 'roles']) {
       await page.goto(input.origin + '/admin/' + module + '/create');
       const field = page.locator('form input[name="_desktop_command"]');
       await journalField(field, module+' create form');
       const uuid = await field.inputValue();
       assert.match(uuid, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i);
       assert.notEqual(uuid, previous);
-      const name = ['areas','features'].includes(module) ? 'title_ar' : module === 'question_answers' ? 'question_ar' : 'name_ar';
+      const name = ['areas','features'].includes(module) ? 'title_ar' : module === 'question_answers' ? 'question_ar' : module === 'roles' ? 'name' : 'name_ar';
       if(module==='contracts')await page.locator('select[name="type"]').selectOption('delegate');
       else await page.locator('[name="' + name + '"]').fill('اختبار النموذج الأصلي');
+      if(module==='roles'){
+        const permission=page.locator('input[name="permission[]"]').first();
+        const header=permission.locator('xpath=ancestor::div[contains(@class,"accordion-item")][1]').locator('button[data-bs-toggle="collapse"]');
+        if(await header.getAttribute('aria-expanded')!=='true')await header.click();
+        await permission.waitFor({state:'visible'});
+        await permission.check();assert.equal(await permission.isChecked(),true);
+        assert.match(await permission.inputValue(),/^[1-9][0-9]*$/);
+      }
       await page.evaluate(() => {
         const form = document.querySelector('form input[name="_desktop_command"]').form;
         form.append(document.createElement('span'));
@@ -100,6 +108,20 @@ const watchdog = setTimeout(() => {
       process.stdout.write('PASS original ' + module + ' form keeps its operation UUID while inputs and DOM change\n');
       previous = uuid;
     }
+    await page.goto(input.origin+'/admin/roles/1/edit');
+    const roleUpdate=page.locator('form input[name="_desktop_command"]');await journalField(roleUpdate,'original role update form');
+    const roleUpdateUUID=await roleUpdate.inputValue();await page.locator('form input[name="name"]').fill('تعديل نموذج الدور الأصلي');
+    const rolePermission=page.locator('input[name="permission[]"]').first();
+    const roleHeader=rolePermission.locator('xpath=ancestor::div[contains(@class,"accordion-item")][1]').locator('button[data-bs-toggle="collapse"]');
+    if(await roleHeader.getAttribute('aria-expanded')!=='true')await roleHeader.click();
+    await rolePermission.waitFor({state:'visible'});await rolePermission.uncheck();await rolePermission.check();
+    assert.equal(await roleUpdate.inputValue(),roleUpdateUUID);assert.equal(await page.locator('form input[name="_method"]').inputValue(),'PUT');
+    await page.goto(input.origin+'/admin/roles');
+    const roleDeleteForm=page.locator('form').filter({has:page.locator('input[name="_method"][value="DELETE"]')}).first();
+    const roleDelete=roleDeleteForm.locator('input[name="_desktop_command"]');await journalField(roleDelete,'original role delete form');
+    const roleDeleteUUID=await roleDelete.inputValue();assert.notEqual(roleDeleteUUID,roleUpdateUUID);
+    await roleDeleteForm.evaluate(form=>form.append(document.createElement('span')));assert.equal(await roleDelete.inputValue(),roleDeleteUUID);
+    process.stdout.write('PASS original role create/update/delete forms retain their permission controls and immutable operation UUIDs\n');
     assert.ok(await page.evaluate(async () => {
       const icons = await document.fonts.load('900 16px "Font Awesome 6 Free"', '\uf007');
       return icons.length > 0 && icons.every(face => face.status === 'loaded');
