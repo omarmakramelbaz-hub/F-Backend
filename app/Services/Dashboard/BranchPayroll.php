@@ -128,6 +128,13 @@ class BranchPayroll
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first();if($old)$this->ops->revision($old,$v);
             $status=$v['status'];$present=in_array($status,['morning','evening'],true);$clock=now('Africa/Cairo');
+            if($old&&$old->status!=='unrecorded'){
+                abort_unless($old->status===$status,409,'تم تثبيت حالة الحضور لهذا اليوم؛ لا يمكن تغييرها بعد التسجيل.');
+                // A retry returns the original punch/status without changing its time, ledger or notes.
+                if(($v['action']==='check_in'&&$present&&$old->checked_in_at)
+                    ||($v['action']==='check_out'&&$present&&$old->checked_out_at)
+                    ||($v['action']==='set_status'&&!$present))return ['attendance'=>(array)$old];
+            }
             $snapshot=$old&&$old->status===$status?json_decode($old->attendance_rule_snapshot??'',true):null;
             if(!$snapshot){
                 $shift=$present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning');
@@ -142,7 +149,6 @@ class BranchPayroll
                 $in=$wasPresent?$old->checked_in_at:null;$out=$wasPresent?$old->checked_out_at:null;
                 if($v['action']==='check_in'){
                     abort_unless($v['day']===OperatingDay::date($clock),422,'تسجيل الحضور يتم ليوم التشغيل الحالي من 6 صباحًا إلى 6 صباحًا بتوقيت مصر.');
-                    abort_if($out&&$old->status!==$status,409,'لا يمكن تغيير الوردية بعد تسجيل الانصراف.');
                     $in=$in?:$clock->copy()->utc()->toDateTimeString();
                 }else{
                     abort_unless($wasPresent&&$old->status===$status&&$in,422,'سجّل حضور الموظف أولًا.');
