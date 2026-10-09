@@ -254,7 +254,7 @@ try{
     verify($decide($unreviewed)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$unreviewed['id'])->exists(),
         'unreviewed server actions cannot acquire a reservation by resembling a reviewed POST');
     $apply=function(string $path,array $values)use($attempt,$decide,$http,$proof){
-        $binding=$attempt($path);[$reservedStatus,$reserved]=$decide($binding);if($reservedStatus!==200)throw new RuntimeException('Original operation did not reserve: '.$path);
+        $binding=$attempt($path);[$reservedStatus,$reserved]=$decide($binding);if($reservedStatus!==200)throw new RuntimeException('Original operation did not reserve: '.$path.' (HTTP '.$reservedStatus.')');
         [$status,$body]=$http($path,$values,array_merge($proof($reserved),['Accept: application/json']));
         return [$status,$body,$binding,$reserved];
     };

@@ -80,13 +80,21 @@ $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browse
 $web=proc_open([PHP_BINARY,'-d','upload_max_filesize=5M','-d','post_max_size=12M','-d','memory_limit=256M',
     '-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];
-$http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies){
+$http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies,&$web,$profile){
     $headers=['X-Fasakhansta-Desktop: '.$browserToken,...$extraHeaders];
     if($cookies)$headers[]='Cookie: '.implode('; ',array_map(fn($k,$v)=>$k.'='.$v,array_keys($cookies),$cookies));
     if($form!==null)$headers[]='Content-Type: application/x-www-form-urlencoded';
     $context=stream_context_create(['http'=>['method'=>$method??($form===null?'GET':'POST'),'header'=>implode("\r\n",$headers),'content'=>$form===null?'':http_build_query($form),'ignore_errors'=>true,'timeout'=>15,'follow_location'=>0]]);
     $body=@file_get_contents($origin.$path,false,$context);$responseHeaders=$http_response_header??[];
     preg_match('/^HTTP\/\S+ (\d+)/',$responseHeaders[0]??'',$status);
+    if(empty($status[1])){
+        $webStatus=is_resource($web)?proc_get_status($web):[];
+        fwrite(STDERR,'DESKTOP_HTTP_FAILURE '.json_encode(['path'=>$path,'running'=>$webStatus['running']??null,
+            'exitcode'=>$webStatus['exitcode']??null,'transactionLevel'=>DB::transactionLevel()]).PHP_EOL);
+        foreach(['web.log','remote-attempts.log','logs/laravel.log'] as $logName){
+            if(is_file($profile.'/'.$logName))fwrite(STDERR,'DESKTOP_HTTP_LOG '.$logName.PHP_EOL.substr(file_get_contents($profile.'/'.$logName),-8000).PHP_EOL);
+        }
+    }
     foreach($responseHeaders as $header)if(preg_match('/^Set-Cookie: ([^=]+)=([^;]*)/i',$header,$match))$cookies[$match[1]]=$match[2];
     return [(int)($status[1]??0),$body,$responseHeaders];
 };

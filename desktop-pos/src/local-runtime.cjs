@@ -87,7 +87,9 @@ async function phpIniFor(bundle,manifest,profile) {
     // Keep the original expense form's upload limit in both active and staged runtimes.
     // Its encrypted base64 journal also requires room beyond PHP's build-host defaults.
     await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/')
-      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\n', { mode: 0o600 });
+      // Do not inherit the builder's 256 MiB JIT buffer and native compilation
+      // settings in a retained Windows runtime; validate ordinary PHP execution.
+      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.jit=0\nopcache.jit_buffer_size=0\n', { mode: 0o600 });
     return phpIni;
 }
 

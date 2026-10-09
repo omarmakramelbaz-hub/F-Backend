@@ -33,6 +33,7 @@ jobs:
         with:
           php-version: '8.2.34'
           extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
           tools: composer:v2
           coverage: none
       - uses: actions/setup-node@v4
