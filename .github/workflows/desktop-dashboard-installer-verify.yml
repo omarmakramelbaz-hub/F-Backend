@@ -103,6 +103,9 @@ jobs:
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual installed dashboard recovery and retained unsynced data
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         working-directory: b
         run: node desktop-pos/test/installer-native.cjs
       - name: Retain only the verified installer and receipts

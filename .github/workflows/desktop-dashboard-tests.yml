@@ -186,6 +186,9 @@ jobs:
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual Windows installation and retained unsynced data
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: node desktop-pos/test/installer-native.cjs
       - name: Retain the installer preview and exact verification receipts
         uses: actions/upload-artifact@v4
