@@ -45,10 +45,10 @@ class Element {
     contains(element) { return true; }
 }
 
-function fixture() {
+function fixture(withUnread = false) {
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert',
-        'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back'].forEach(name => {
+        'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back', 'unread-total'].forEach(name => {
         elements['[data-wa-' + name + ']'] = new Element();
     });
     const panel = new Element();
@@ -63,15 +63,24 @@ function fixture() {
     const config = {available: true,
         conversations_url: 'https://example.test/admin/whatsapp/conversations',
         messages_base_url: 'https://example.test/admin/whatsapp/conversations', labels};
+    if (withUnread) Object.assign(config, {unread_url: 'https://example.test/admin/whatsapp/unread',
+        read_base_url: 'https://example.test/admin/whatsapp/conversations', unread_label: 'Unread', csrf: 'fixture-csrf'});
     bootstrap.textContent = JSON.stringify(config);
     panel.querySelector = selector => elements[selector];
     document.getElementById = id => id === 'whatsapp-inbox' ? panel
         : id === 'whatsapp-inbox-bootstrap' ? bootstrap : null;
-    document.createElement = tag => new Element(tag);
+    document.createElement = tag => {
+        const element = new Element(tag);
+        if (withUnread) element.getBoundingClientRect = () => element.dataset.waMessageId === '3'
+            ? {top: 200, bottom: 250, left: 0, right: 500} : {top: 20, bottom: 50, left: 0, right: 500};
+        return element;
+    };
+    if (withUnread) elements['[data-wa-scroll]'].getBoundingClientRect = () => ({top: 0, bottom: 100, left: 0, right: 500});
     document.createDocumentFragment = () => new Element('fragment');
     document.documentElement = {lang: 'en'};
     document.hidden = false;
     window.location = {href: 'https://example.test/admin/whatsapp'};
+    window.innerHeight = 100; window.innerWidth = 500;
     window.DashboardSPA = {isCurrentPage: () => true, onCleanup: callback => { state.cleanup = callback; }};
     let timerId = 0;
     const thread = {id: 1, name: 'Fixture Customer', phone: '+201000000001',
@@ -81,15 +90,29 @@ function fixture() {
         state.calls.push({url, options});
         assert.strictEqual(options.cache, 'no-store');
         assert.strictEqual(options.credentials, 'same-origin');
-        assert.strictEqual(options.method, undefined, 'The inbox must not send mutations');
+        if (!withUnread || !new URL(url).pathname.endsWith('/read')) {
+            assert.strictEqual(options.method, undefined, 'Ordinary inbox reads must not send mutations');
+        } else {
+            assert.strictEqual(options.method, 'POST');
+            assert.strictEqual(options.headers['X-CSRF-TOKEN'], 'fixture-csrf');
+        }
         const parsed = new URL(url);
         const isMessages = parsed.pathname.endsWith('/messages');
         const isNewer = parsed.searchParams.has('after_id');
+        if (parsed.pathname.endsWith('/read')) {
+            assert.deepStrictEqual(JSON.parse(options.body), {seen_message_id: 1}, 'Only the inbound message in the visible viewport may be acknowledged');
+            return {ok: true, status: 200, redirected: false, headers: {get: () => 'application/json'}, json: async () => ({success: true})};
+        }
+        if (parsed.pathname.endsWith('/unread')) return {ok: true, status: 200, redirected: false,
+            headers: {get: () => 'application/json'}, json: async () => ({success: true, total_unread: 3,
+                conversations: [{id: 1, unread_count: 3, latest_inbound_id: 3}]})};
+        const visibleRows = [{id: 1, direction: 'inbound', type: 'text', text: '<img src=x onerror=alert(1)>', sent_at: thread.last_message_at}];
+        if (withUnread) visibleRows.push({id: 2, direction: 'outbound', type: 'text', text: 'Outbound', sent_at: thread.last_message_at},
+            {id: 3, direction: 'inbound', type: 'text', text: 'Outside viewport', sent_at: thread.last_message_at});
         return {ok: state.status === 200, status: state.status, redirected: state.redirected,
             headers: {get: () => state.redirected ? 'text/html' : 'application/json'},
             json: async () => isMessages ? {success: true, conversation: thread,
-                messages: isNewer && state.emptyNewer ? [] : [{id: 1, direction: 'inbound', type: 'text',
-                    text: '<img src=x onerror=alert(1)>', sent_at: thread.last_message_at}],
+                messages: isNewer && state.emptyNewer ? [] : visibleRows,
                 last_id: 1, has_more: false, next_before_id: null}
                 : {success: true, conversations: [thread], total: 1, next_cursor: null}};
     }
@@ -154,14 +177,14 @@ async function initialAndSafeRendering() {
     assert.strictEqual(test.window.listeners.online.length, 0);
 }
 
-async function expiredAccessClears(redirected) {
+async function expiredAccessClears(redirected, status = 403) {
     const test = fixture();
     await settle();
     click(test, 'data-wa-thread', 1);
     await settle();
     assert(test.elements['[data-wa-messages]'].textContent.includes('onerror'));
     test.state.redirected = redirected;
-    if (!redirected) test.state.status = 403;
+    if (!redirected) test.state.status = status;
     click(test, 'data-wa-refresh');
     await settle();
     assert.strictEqual(test.elements['[data-wa-messages]'].textContent, '');
@@ -192,11 +215,35 @@ async function visibilityAndOffline() {
     test.state.cleanup();
 }
 
+async function unreadVisibility() {
+    const test = fixture(true); await settle();
+    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 3');
+    assert(test.elements['[data-wa-thread-list]'].textContent.includes('3'), 'Thread badges include unread counts');
+    assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'Opening the thread list does not mark messages read');
+    click(test, 'data-wa-thread', 1); await settle();
+    assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 1);
+    test.document.hidden = true;
+    const writes = test.state.calls.filter(call => call.url.endsWith('/read')).length;
+    click(test, 'data-wa-thread', 2); await settle();
+    assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, writes, 'Hidden pages do not acknowledge displayed messages');
+    test.state.cleanup();
+    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, '');
+    assert.strictEqual(test.elements['[data-wa-scroll]'].listeners.scroll.length, 0);
+
+    const offscreen = fixture(true); await settle();
+    offscreen.elements['[data-wa-scroll]'].getBoundingClientRect = () => ({top: 200, bottom: 400, left: 0, right: 500});
+    click(offscreen, 'data-wa-thread', 1); await settle();
+    assert.strictEqual(offscreen.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'A chat panel outside the browser viewport cannot mark messages read');
+    offscreen.state.cleanup();
+}
+
 (async () => {
     await initialAndSafeRendering();
     await expiredAccessClears(true);
     await expiredAccessClears(false);
+    await expiredAccessClears(false, 419);
     await visibilityAndOffline();
+    await unreadVisibility();
     console.log('WHATSAPP_INBOX_UI_PASS initial reads, escaped chat text, mobile reopen, empty poll, redirect/403 privacy, cleanup, offline');
 })().catch(error => {
     console.error(error.stack);

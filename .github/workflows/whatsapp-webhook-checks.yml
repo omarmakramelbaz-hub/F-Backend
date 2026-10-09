@@ -22,6 +22,29 @@ on:
       - 'public/css/dashboard-whatsapp-inbox.css'
       - 'tests/whatsapp_webhook*'
       - 'tests/whatsapp_inbox*'
+      - 'app/Support/WhatsAppOrderExtraction.php'
+      - 'app/Services/Dashboard/WhatsAppOrder*'
+      - 'app/Http/Controllers/Dashboard/WhatsAppOrderController.php'
+      - 'app/Console/Commands/ProcessWhatsAppOrders.php'
+      - 'config/whatsapp_orders.php'
+      - 'routes/whatsapp_orders.php'
+      - 'database/migrations/*whatsapp_order*'
+      - 'public/js/dashboard-whatsapp-orders.js'
+      - 'public/css/dashboard-whatsapp-orders.css'
+      - 'tests/whatsapp_order*'
+      - 'app/Services/Dashboard/WhatsAppReplyService.php'
+      - 'app/Services/Dashboard/WhatsAppVoiceMedia.php'
+      - 'app/Services/Dashboard/WhatsAppInboxReadState.php'
+      - 'app/Http/Controllers/Dashboard/WhatsAppReplyController.php'
+      - 'app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php'
+      - 'config/whatsapp_replies.php'
+      - 'routes/whatsapp_replies.php'
+      - 'routes/whatsapp_reads.php'
+      - 'database/migrations/*whatsapp_reply*'
+      - 'public/js/dashboard-whatsapp-replies.js'
+      - 'public/css/dashboard-whatsapp-replies.css'
+      - 'tests/whatsapp_repl*'
+      - 'tests/whatsapp_voice*'
       - '.github/workflows/whatsapp-webhook-checks.yml'
 
 permissions:
@@ -48,6 +71,12 @@ jobs:
           for file in app/Support/WhatsAppInboxProtocol.php app/Services/Dashboard/WhatsAppInbox*.php app/Console/Commands/ConsumeWhatsAppInbox.php app/Http/Controllers/Dashboard/WhatsAppInboxController.php routes/whatsapp_inbox.php database/migrations/*whatsapp_inbox* deployment/whatsapp_inbox*.php tests/whatsapp_inbox*.php; do
             php -l "$file"
           done
+          for file in app/Support/WhatsAppOrderExtraction.php app/Services/Dashboard/WhatsAppOrder*.php app/Console/Commands/ProcessWhatsAppOrders.php app/Http/Controllers/Dashboard/WhatsAppOrderController.php config/whatsapp_orders.php routes/whatsapp_orders.php database/migrations/*whatsapp_order* tests/whatsapp_order*.php; do
+            php -l "$file"
+          done
+          for file in app/Services/Dashboard/WhatsAppReplyService.php app/Services/Dashboard/WhatsAppVoiceMedia.php app/Services/Dashboard/WhatsAppInboxReadState.php app/Http/Controllers/Dashboard/WhatsAppReplyController.php app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php config/whatsapp_replies.php routes/whatsapp_replies.php routes/whatsapp_reads.php database/migrations/*whatsapp_reply* tests/whatsapp_reply*.php tests/whatsapp_voice*.php; do
+            php -l "$file"
+          done
       - name: Check installer syntax
         run: |
           bash -n deployment/install_whatsapp_webhook.sh
@@ -59,6 +88,8 @@ jobs:
           php tests/whatsapp_inbox_protocol_test.php
           php tests/whatsapp_inbox_consumer_test.php
           php tests/whatsapp_inbox_access_test.php
+      - name: Verify grounded order extraction and API isolation
+        run: php tests/whatsapp_order_extraction_test.php
 
   terminal-handoff:
     runs-on: ubuntu-latest
@@ -77,10 +108,18 @@ jobs:
         run: python3 tests/whatsapp_allowlist_update_test.py
       - name: Verify additive inbox installation and rollback
         run: python3 tests/whatsapp_inbox_install_test.py
+      - name: Verify additive order installation and rollback
+        run: python3 tests/whatsapp_orders_install_test.py
+      - name: Verify hidden independent API credential configuration
+        run: python3 tests/whatsapp_orders_config_test.py
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
           node tests/whatsapp_inbox_ui_test.js
+          node --check public/js/dashboard-whatsapp-orders.js
+          node tests/whatsapp_orders_ui_test.js
+          node --check public/js/dashboard-whatsapp-replies.js
+          node tests/whatsapp_replies_ui_test.js
 
   inbox-database:
     runs-on: ubuntu-latest
@@ -92,16 +131,20 @@ jobs:
       - name: Install isolated SQLite regression dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev curl git unzip
+          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev curl git unzip ffmpeg
           docker-php-ext-install pdo_sqlite mbstring
           curl -fsS https://getcomposer.org/download/2.8.12/composer.phar -o /usr/local/bin/composer
           echo 'f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2  /usr/local/bin/composer' | sha256sum -c -
           chmod 0755 /usr/local/bin/composer
           mkdir -p /tmp/whatsapp-inbox-test
-          composer require --working-dir=/tmp/whatsapp-inbox-test --no-interaction --no-progress illuminate/database:8.83.27 illuminate/events:8.83.27 illuminate/encryption:8.83.27 illuminate/config:8.83.27
+          composer require --working-dir=/tmp/whatsapp-inbox-test --no-interaction --no-progress illuminate/database:8.83.27 illuminate/events:8.83.27 illuminate/encryption:8.83.27 illuminate/config:8.83.27 illuminate/validation:8.83.27 symfony/http-foundation:^5.4 symfony/http-kernel:^5.4
       - name: Verify real SQL persistence and rollback
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-inbox-test/vendor/autoload.php
         run: |
           php tests/whatsapp_inbox_database_test.php
           php tests/whatsapp_inbox_diagnostic_test.php
+          php tests/whatsapp_order_workflow_test.php
+          php tests/whatsapp_inbox_reads_test.php
+          php tests/whatsapp_reply_service_test.php
+          php tests/whatsapp_voice_media_test.php
