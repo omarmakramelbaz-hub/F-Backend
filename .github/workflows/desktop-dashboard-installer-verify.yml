@@ -68,7 +68,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The tested revision cannot be independently checked.' }
           $changed = @(& git diff --name-only $sourceRevision HEAD -- app bootstrap config database desktop public resources routes artisan composer.json composer.lock .gitattributes desktop-pos)
           if ($LASTEXITCODE -ne 0) { throw 'The tested source comparison failed.' }
-          if ($changed.Count) { throw 'Current application, package or installed-recovery test code differs from the cached runtime; run the full original dashboard checks first.' }
+          # The non-shipped installer fixture runs from the current checkout.
+          # All application, packaging and original-supervisor test code must
+          # still match the independently tested runtime revision exactly.
+          $productChanges = @($changed | Where-Object { $_ -ne 'desktop-pos/test/installer-native.cjs' })
+          if ($productChanges.Count) { throw 'Current application, package or original-supervisor test code differs from the cached runtime; run the full original dashboard checks first.' }
+          $fixtureRevision = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'The current installed fixture revision cannot be verified.' }
+          "DESKTOP_INSTALLER_FIXTURE_REVISION=$fixtureRevision" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "revision=$sourceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/checkout@v4
         with:
@@ -81,6 +88,9 @@ jobs:
           New-Item -ItemType Directory -Path b/desktop-pos/dist -Force | Out-Null
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/runtime-audit.json" b/desktop-pos/dist/runtime-audit.json
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/dashboard-synthetic-snapshot.json" b/desktop-pos/dist/dashboard-synthetic-snapshot.json
+          # Keep the pinned checkout clean and run every installed assertion
+          # from the current CI fixture; this sidecar is never packaged.
+          Copy-Item current-source/desktop-pos/test/installer-native.cjs b/desktop-pos/test/installer-native-current.cjs
       - name: Build the installer with exact source and dependency verification
         working-directory: b
         shell: pwsh
@@ -204,7 +214,7 @@ jobs:
           }
       - name: Verify actual installed dashboard recovery and retained unsynced data
         working-directory: b
-        run: node desktop-pos/test/installer-native.cjs
+        run: node desktop-pos/test/installer-native-current.cjs
       - name: Retain only the verified installer and receipts
         uses: actions/upload-artifact@v4
         with:

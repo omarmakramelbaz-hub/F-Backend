@@ -22,7 +22,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     const php=path.join(native,'php/php.exe');
     assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
     const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
-    const phpArgs=['-n','-d','extension_dir='+path.join(native,'php/ext'),...extensions.flatMap(name=>['-d','extension='+name]),'-r',
+    const phpArgs=['-n','-d','extension_dir="'+path.join(native,'php/ext').replaceAll('\\','/')+'"',...extensions.flatMap(name=>['-d','extension='+name]),'-r',
       'foreach('+JSON.stringify(extensions).replace('[','array(').replace(']',')')+' as $module) { if (!extension_loaded($module)) {fwrite(STDERR,$module); exit(1);} } echo "installed extensions ready";'];
     assert.equal(execFileSync(php,phpArgs,{encoding:'utf8',windowsHide:true}),'installed extensions ready');
     assert.match(execFileSync(path.join(native,'mariadb/bin/mariadbd.exe'),['--no-defaults','--version'],{encoding:'utf8',windowsHide:true}),/11\.4\.13/);
@@ -64,6 +64,8 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');}finally{db.close();}
     process.stdout.write('PASS actual Windows uninstallation removes only packaged files and retains unrelated files plus the paid unsynced order\n');
     await fs.writeFile(path.join(project,'dist/installer-checks.json'),JSON.stringify({format:1,sourceRevision:receipt.sourceRevision,version:receipt.version,
+      fixtureSourceRevision:process.env.DESKTOP_INSTALLER_FIXTURE_REVISION||process.env.GITHUB_SHA,
+      fixtureSha256:require('node:crypto').createHash('sha256').update(await fs.readFile(__filename)).digest('hex'),
       channel:receipt.channel,fullDashboard:false,installation:true,installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
   } finally {await fs.rm(root,{recursive:true,force:true});}
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});
