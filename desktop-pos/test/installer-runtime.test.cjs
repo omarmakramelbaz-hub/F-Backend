@@ -10,11 +10,17 @@ async function fixture(t){
   const project=path.join(root,'desktop-pos'),bundle=path.join(project,'runtime-bundle'),out=path.join(root,'installed');
   const write=async(name,value)=>{const file=path.join(root,name);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,value);};
   await write('desktop-pos/package.json',JSON.stringify({name:'fixture',version:'0.3.0-preview.1'}));
-  execFileSync('git',['init'],{cwd:root,stdio:'ignore'});execFileSync('git',['add','.'],{cwd:root});
-  execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@test.invalid','commit','-m','synthetic installer fixture'],{cwd:root,stdio:'ignore'});
-  const revision=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),prefix='desktop-pos/runtime-bundle/';
+  await write('.gitignore','desktop-pos/runtime-bundle/\ndesktop-pos/dist/\ninstalled/\n');
+  const prefix='desktop-pos/runtime-bundle/';
   const original={'artisan':'<?php /* original application */','desktop/router.php':'<?php /* private router */','desktop/verify.php':'<?php /* verify */','app/Business.php':'<?php /* business service */'};
-  for(const [name,bytes]of Object.entries(original))await write(prefix+'application/'+name,bytes);
+  for(const [name,bytes]of Object.entries(original)){await write(name,bytes);await write(prefix+'application/'+name,bytes);}
+  execFileSync('git',['init'],{cwd:root,stdio:'ignore'});
+  const commit=()=>{
+    execFileSync('git',['add','.'],{cwd:root});
+    execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@test.invalid','commit','-m','synthetic installer fixture'],{cwd:root,stdio:'ignore'});
+    return execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  };
+  const revision=commit();
   const lock=JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]});
   await write(prefix+'application/composer.lock',lock);await write(prefix+'application/composer.json','{}');await write(prefix+'application/vendor/autoload.php','<?php');
   await write(prefix+'php/php.ini','extension=php_pdo_mysql.dll\n');
@@ -26,7 +32,7 @@ async function fixture(t){
   await write(prefix+'manifest.json',JSON.stringify(manifest));
   const audit={format:1,lockSha256:sha(lock),result:{advisories:{'laravel/framework':[{advisoryId:'synthetic-test-advisory'}]}}};
   await write('desktop-pos/dist/runtime-audit.json',JSON.stringify(audit));
-  return {root,project,bundle,out,manifest,audit,write,context:{electronPlatformName:'win32',arch:1,packager:{projectDir:project,appInfo:{productName:'Fasakhansta Dashboard Preview'}},appOutDir:out}};
+  return {root,project,bundle,out,manifest,audit,write,commit,context:{electronPlatformName:'win32',arch:1,packager:{projectDir:project,appInfo:{productName:'Fasakhansta Dashboard Preview'}},appOutDir:out}};
 }
 test('the preview installer retains every verified runtime file and records its incomplete release status',async t=>{
   const f=await fixture(t);await packaging(f.context);
@@ -56,6 +62,7 @@ test('a dependency audit for another lock cannot authorize packaging',async t=>{
 });
 test('changing a preview version into a release cannot waive incomplete checks or known advisories',async t=>{
   const f=await fixture(t);await f.write('desktop-pos/package.json',JSON.stringify({version:'0.3.0'}));
+  f.manifest.sourceRevision=f.commit();await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
   const review={sourceRevision:f.manifest.sourceRevision,sourceFingerprint:f.manifest.sourceFingerprint,lockSha256:f.audit.lockSha256,
     fullDashboard:true,dependencies:true,pdf:true,installation:true,updates:true,conflicts:true};
   await f.write('desktop-pos/dist/release-review.json',JSON.stringify(review));
@@ -63,4 +70,12 @@ test('changing a preview version into a release cannot waive incomplete checks o
   await f.write('desktop-pos/dist/runtime-audit.json',JSON.stringify({...f.audit,result:{advisories:{}}}));
   await f.write('desktop-pos/dist/release-review.json',JSON.stringify({...review,fullDashboard:false}));
   await assert.rejects(packaging(f.context),/not passed its release checks/);
+});
+test('rewriting the bundle and its manifest cannot impersonate the independently verified Git source',async t=>{
+  const f=await fixture(t),changed='<?php /* altered behavior with a forged matching manifest */';
+  await f.write('desktop-pos/runtime-bundle/application/app/Business.php',changed);
+  f.manifest.sourceHashes['app/Business.php']=sha(changed);
+  f.manifest.sourceFingerprint=await source.fingerprint(path.join(f.bundle,'application'));
+  await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
+  await assert.rejects(packaging(f.context),/independently verified Git checkout/);
 });

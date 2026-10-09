@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install pinned test application dependencies
-        # Test-only advisory override for the unchanged legacy stack. This job produces no installer.
+        # Legacy preview only: preserve audit findings; a normal release requires a clean reviewed audit.
         run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist --no-security-blocking
       - name: Install pinned browser test dependency
         shell: pwsh
@@ -109,6 +109,36 @@ jobs:
           if ($auditExitCode -notin @(0, 1, 2, 3)) { throw 'Runtime advisory review could not complete.' }
           $audit = @{ format = 1; exitCode = $auditExitCode; lockSha256 = (Get-FileHash desktop-pos/runtime/composer.lock -Algorithm SHA256).Hash.ToLowerInvariant(); result = ($auditJson | ConvertFrom-Json) }
           $audit | ConvertTo-Json -Depth 64 | Set-Content desktop-pos/dist/runtime-audit.json -Encoding utf8
+          # Audit findings are retained above and checked by the release gate. GitHub's
+          # PowerShell wrapper must not treat the handled advisory exit as a script failure.
+          $global:LASTEXITCODE = 0
+      - name: Retain the tested runtime for the installer job
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-dashboard-runtime
+          path: |
+            desktop-pos/runtime-bundle
+            desktop-pos/dist/runtime-audit.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+  windows-installer:
+    needs: original-runtime
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Restore the exact runtime tested by the original application job
+        uses: actions/download-artifact@v4
+        with:
+          name: tested-dashboard-runtime
+          path: desktop-pos
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |

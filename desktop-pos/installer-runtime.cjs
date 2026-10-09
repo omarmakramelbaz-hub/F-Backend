@@ -3,6 +3,7 @@ const fs = require('node:fs/promises'), path = require('node:path'), crypto = re
 const { execFileSync } = require('node:child_process');
 const RuntimeArchive = require('./src/runtime-archive.cjs');
 const sourceCode = require('./src/dashboard-source.cjs');
+const sourcePolicy = require('./runtime-source-policy.cjs');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const required = ['application/artisan','application/desktop/router.php','application/desktop/verify.php',
   'application/vendor/autoload.php','application/composer.json','application/composer.lock','php/php.ini'];
@@ -29,8 +30,21 @@ async function beforePack(context) {
   const project = context.packager.projectDir, bundle = path.join(project,'runtime-bundle');
   const packageInfo = JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8'));
   const verified = await verifyBundle(bundle);
-  const revision = execFileSync('git',['rev-parse','HEAD'],{cwd:path.dirname(project),encoding:'utf8'}).trim();
+  const checkout = path.dirname(project);
+  const revision = execFileSync('git',['rev-parse','HEAD'],{cwd:checkout,encoding:'utf8'}).trim();
+  execFileSync('git',['diff-index','--quiet','HEAD','--'],{cwd:checkout});
   if(verified.manifest.sourceRevision!==revision) throw Error('The installer runtime was built from a different source revision.');
+  const roots = new Set(['app','bootstrap','config','database','desktop','public','resources','routes']), expected = {};
+  const tracked = execFileSync('git',['ls-files','-z'],{cwd:checkout,encoding:'utf8'}).split('\0').filter(Boolean);
+  for (const name of tracked) {
+    if ((!roots.has(name.split('/')[0]) && name!=='artisan') || sourcePolicy.excludedPath(name)) continue;
+    if (!(await fs.lstat(path.join(checkout,name))).isFile()) continue;
+    const bytes = await fs.readFile(path.join(checkout,name));
+    if (!sourcePolicy.credentialJson(name,bytes)) expected[name]=hash(bytes);
+  }
+  if (JSON.stringify(Object.keys(expected).sort())!==JSON.stringify(Object.keys(verified.manifest.sourceHashes).sort())
+      ||Object.keys(expected).some(name=>expected[name]!==verified.manifest.sourceHashes[name]))
+    throw Error('The original runtime does not match the independently verified Git checkout.');
   const audit = JSON.parse(await fs.readFile(path.join(project,'dist/runtime-audit.json'),'utf8'));
   if(audit.format!==1||audit.lockSha256!==verified.lockSha256||!audit.result||typeof audit.result.advisories!=='object')
     throw Error('The runtime dependency audit is missing or belongs to a different lock file.');
