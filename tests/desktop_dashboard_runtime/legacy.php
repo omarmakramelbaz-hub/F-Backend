@@ -157,14 +157,20 @@ try{
     $http('/admin/signin',['_token'=>$csrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123']);
     foreach(['/admin/categorys','/admin/products'] as $path){[$status,$page]=$http($path);verify($status===200&&str_contains($page,'desktop-dashboard.js'),'the original owner catalog page retains its interface: '.$path);}
     if(getenv('DESKTOP_TEST_BROWSER_MODULE')){
-        // Drain stdout normally, but never leave a second pipe blocked by verbose
-        // browser diagnostics while this process waits for stdout's EOF on Windows.
+        // Files cannot leave PHP blocked on EOF when an orphaned Windows browser
+        // still holds a pipe. Keep both streams and bound the child wait as well.
+        $browserOutput=$profile.'/browser-output.log';
         $browserErrors=$profile.'/browser-errors.log';
-        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['pipe','w'],['file',$browserErrors,'w']],$browserPipes,__DIR__);
+        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['file',$browserOutput,'w'],['file',$browserErrors,'w']],$browserPipes,__DIR__);
         fwrite($browserPipes[0],json_encode(['origin'=>$origin,'token'=>$browserToken]));fclose($browserPipes[0]);
-        echo stream_get_contents($browserPipes[1]);fclose($browserPipes[1]);
-        $browserExit=proc_close($browser);fwrite(STDERR,file_get_contents($browserErrors));
-        verify($browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
+        $browserDeadline=microtime(true)+300;
+        do{$browserStatus=proc_get_status($browser);if(!$browserStatus['running'])break;usleep(250000);}while(microtime(true)<$browserDeadline);
+        $browserTimedOut=$browserStatus['running'];
+        if($browserTimedOut){fwrite(STDERR,'BROWSER_COLLECTOR_TIMEOUT after 300 seconds'.PHP_EOL);proc_terminate($browser);}
+        $browserExit=proc_close($browser);
+        if($browserExit<0&&!$browserTimedOut)$browserExit=$browserStatus['exitcode'];
+        echo file_get_contents($browserOutput);fwrite(STDERR,file_get_contents($browserErrors));
+        verify(!$browserTimedOut&&$browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
     }
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
     [$status]=$http('/admin/categorys',$category);

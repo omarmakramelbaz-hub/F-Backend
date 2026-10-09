@@ -51,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $archive = "$env:RUNNER_TEMP/mariadb.zip"
-          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive
+          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive -TimeoutSec 300
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2') { throw 'MariaDB archive hash differs.' }
           Expand-Archive $archive "$env:RUNNER_TEMP/mariadb"
           $server = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
@@ -90,7 +90,11 @@ jobs:
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
-          node desktop-pos/test/generation-native.cjs $bundle $env:DESKTOP_TEST_SNAPSHOT_FILE
+      - name: Verify native dashboard preparation and restart recovery
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard-bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE
           if ($LASTEXITCODE -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
