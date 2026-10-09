@@ -31,6 +31,8 @@ class DesktopDashboardReferences
     {
         if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
         $outputs=[];
+        if($route==='branch-expenses.categorySave'&&preg_match('/^custom_([1-9][0-9]*)$/D',$result['category']['key']??'',$category))
+            $outputs['expense_category']=(int)$category[1];
         foreach(self::RESULTS[$route]??[] as $entity=>$path){$id=data_get($result,$path);if(is_numeric($id)&&(int)$id>0)$outputs[$entity]=(int)$id;}
         if($route==='phone-orders.finish-batch'){
             $lines=collect($result['batch']['items']??[])->keyBy('ticket_id');
@@ -88,6 +90,12 @@ class DesktopDashboardReferences
             if($field==='batch_id'&&$route==='phone-orders.finish-batch')$entity='delivery_batch';
             if($entity && !is_array($value))$payload['values'][$field]=$reference($entity,$value);
         }
+        $categoryField=$route==='branch-expenses.categorySave'?'key':($route==='branch-expenses.save'?'category':null);
+        if($categoryField&&is_string($payload['values'][$categoryField]??null)
+            &&preg_match('/^custom_([1-9][0-9]*)$/D',$payload['values'][$categoryField],$category)){
+            $mapped=$reference('expense_category',(int)$category[1]);
+            if(is_array($mapped))$payload['values'][$categoryField]=['$desktop_category_key'=>$mapped];
+        }
         if(isset($payload['parameters']['id'])&&!is_array($payload['parameters']['id'])) {
             $entity=str_starts_with($route,'branch-expenses.')?'expense':((str_starts_with($route,'dining.')||str_starts_with($route,'phone-orders.'))?'ticket':null);
             if($entity)$payload['parameters']['id']=$reference($entity,$payload['parameters']['id']);
@@ -108,6 +116,12 @@ class DesktopDashboardReferences
     {
         $walk=function($value)use(&$walk,$device){
             if(!is_array($value))return $value;
+            if(array_key_exists('$desktop_category_key',$value)){
+                abort_unless(count($value)===1&&is_array($value['$desktop_category_key'])
+                    &&($value['$desktop_category_key']['$desktop_ref']['entity']??null)==='expense_category',422,'مرجع تصنيف المصروف غير صالح.');
+                $id=$walk($value['$desktop_category_key']);abort_unless(is_int($id)&&$id>0,422);
+                return 'custom_'.$id;
+            }
             if(array_key_exists('$desktop_ref',$value)){
                 abort_unless(count($value)===1 && is_array($value['$desktop_ref']),422,'مرجع محلي غير صالح.');$ref=$value['$desktop_ref'];
                 $row=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$ref['command_id']??'')->where('status','acknowledged')->first();

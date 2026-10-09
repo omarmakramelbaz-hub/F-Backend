@@ -19,6 +19,20 @@ try{
     preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&isset($serverCsrf[1]),'the real original server session prepares catalog outcome tests');
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
+    $ownRemoteNote=(string)Str::uuid();$foreignRemoteNote=(string)Str::uuid();
+    foreach([$ownRemoteNote=>1,$foreignRemoteNote=>20] as $note=>$actor)DB::table('notifications')->insert(['id'=>$note,'type'=>'FixtureNotification','notifiable_type'=>\App\Models\User::class,
+        'notifiable_id'=>$actor,'data'=>json_encode(['title'=>'إشعار نتيجة السيرفر','text'=>'نص الإشعار الأصلي']),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    $noteForm=['_token'=>$serverCsrf[1],'idempotency_key'=>(string)Str::uuid(),'ids'=>[$ownRemoteNote,$foreignRemoteNote]];
+    $noteAttempt=$attempt('/admin/dashboard-inbox/notifications/read');[, $noteProof]=$decide($noteAttempt);
+    [$noteStatus,$noteBody]=$http($noteAttempt['path'],$noteForm,[...$proof($noteProof),'Accept: application/json']);
+    verify($noteStatus===200&&json_decode($noteBody,true)['marked']===1&&DB::table('notifications')->where('id',$foreignRemoteNote)->value('read_at')===null
+        &&$decide($noteAttempt,'settle')[1]['status']==='committed','the original own-notification read commits its scoped reserved outcome without a branch');
+    verify($http($noteAttempt['path'],$noteForm,[...$proof($noteProof),'Accept: application/json'])[1]===$noteBody,'a lost notification reply returns its exact original count and marked total');
+    $noteRetry=$attempt($noteAttempt['path']);[, $noteRetryProof]=$decide($noteRetry);
+    verify($http($noteRetry['path'],$noteForm,[...$proof($noteRetryProof),'Accept: application/json'])[1]===$noteBody,'another notification transmission reuses the same original operation result');
+    DB::table('users')->where('id',1)->update(['status'=>'disabled']);
+    verify($http($noteAttempt['path'],$noteForm,[...$proof($noteProof),'Accept: application/json'])[0]===403,'disabling the enrolled account also rejects its stored notification reply');
+    DB::table('users')->where('id',1)->update(['status'=>'accepted']);
     [$status,$page]=$http('/admin/products/create');preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     $form=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'category_id'=>1,'name_ar'=>'صنف نتيجة السيرفر','status'=>'show'];
     $first=$attempt();[$status,$reserved]=$decide($first);

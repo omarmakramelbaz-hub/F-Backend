@@ -29,7 +29,8 @@ class DesktopDashboardReconciliation
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor);
-                else $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);
+                elseif(!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                    $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();
                 if($v['route_name']==='employees.attendance'){

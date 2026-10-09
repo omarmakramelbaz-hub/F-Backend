@@ -12,6 +12,7 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'dashboard-inbox.notifications.read',
         'takeaway.checkout','takeaway.movements','takeaway.settings',
         'dining.save','dining.action','dining.settle','dining.table-save','dining.settings',
         'phone-orders.save','phone-orders.action','phone-orders.settle','phone-orders.dispatch-company','phone-orders.finish-batch',

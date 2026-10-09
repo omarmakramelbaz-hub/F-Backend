@@ -11,6 +11,7 @@ class DesktopDashboardRemoteAttempts
 {
     // Reviewed original DB-only actions. Files, external messages and unreviewed admin actions stay excluded.
     public const CORE=[
+        'dashboard-inbox.notifications.read'=>'can_read_own_notifications',
         'takeaway.checkout'=>'can_checkout','takeaway.movements'=>'can_manage','takeaway.settings'=>'can_manage',
         'dining.save'=>'can_checkout','dining.action'=>'can_checkout','dining.settle'=>'can_checkout','dining.table-save'=>'can_manage_tables','dining.settings'=>'can_manage',
         'phone-orders.save'=>'can_checkout','phone-orders.action'=>'can_checkout','phone-orders.settle'=>'can_checkout',
@@ -105,10 +106,11 @@ class DesktopDashboardRemoteAttempts
             if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
             else{
                 // Expense categories are the original shared vocabulary and have no branch input.
-                if(self::CORE[$name]!=='can_manage_expense_categories')$this->devices->branch($device,(string)$request->input('branch'),$actor);
+                if(!in_array(self::CORE[$name],['can_manage_expense_categories','can_read_own_notifications'],true))$this->devices->branch($device,(string)$request->input('branch'),$actor);
                 if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
                 $permissions=app(TakeawayAccess::class)->permissions($actor);
                 $allowed=match(self::CORE[$name]){
+                    'can_read_own_notifications'=>true,
                     'can_manage_inventory'=>$permissions['can_checkout']&&app(BranchInventory::class)->canManage($actor),
                     'can_approve_expense'=>app(BranchExpenses::class)->permissions($actor)['can_approve'],
                     'can_manage_expense_categories'=>app(ExpenseCategories::class)->canCreate($actor),

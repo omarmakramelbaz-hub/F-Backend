@@ -59,7 +59,19 @@
         noteGeneration++;
         var error = shell.querySelector('[data-inbox-read-error]');
         if (error) error.hidden = true;
-        request(shell.dataset.notificationsReadUrl, {ids: ids}).then(function (result) {
+        var data = {ids: ids}, operationKey = null;
+        if (window.FasakhanstaDesktop || document.body.dataset.dashboardLocal === '1') {
+            operationKey = 'fasakhansta.notifications.' + document.body.dataset.dashboardActor + '.' + ids.slice().sort().join(',');
+            try {
+                data.idempotency_key = sessionStorage.getItem(operationKey) || crypto.randomUUID();
+                sessionStorage.setItem(operationKey, data.idempotency_key);
+            } catch (failure) {
+                if (error) { error.textContent = shell.dataset.inboxReadFailed; error.hidden = false; }
+                pendingRead = false; return;
+            }
+        }
+        request(shell.dataset.notificationsReadUrl, data).then(function (result) {
+            if (operationKey) sessionStorage.removeItem(operationKey);
             var read = new Set(ids);
             shell.querySelectorAll('[data-notification-id]').forEach(function (item) { if (read.has(item.dataset.notificationId)) item.remove(); });
             notificationCount(result.count);
