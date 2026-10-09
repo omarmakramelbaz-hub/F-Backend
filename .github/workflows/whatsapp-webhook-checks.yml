@@ -45,7 +45,7 @@ jobs:
           php -l database/migrations/2026_10_09_200000_create_whatsapp_webhook_events_table.php
           php -l deployment/whatsapp_webhook_setup.php
           php -l tests/whatsapp_webhook_protocol_test.php
-          for file in app/Support/WhatsAppInboxProtocol.php app/Services/Dashboard/WhatsAppInbox*.php app/Console/Commands/ConsumeWhatsAppInbox.php app/Http/Controllers/Dashboard/WhatsAppInboxController.php routes/whatsapp_inbox.php database/migrations/*whatsapp_inbox* tests/whatsapp_inbox*.php; do
+          for file in app/Support/WhatsAppInboxProtocol.php app/Services/Dashboard/WhatsAppInbox*.php app/Console/Commands/ConsumeWhatsAppInbox.php app/Http/Controllers/Dashboard/WhatsAppInboxController.php routes/whatsapp_inbox.php database/migrations/*whatsapp_inbox* deployment/whatsapp_inbox*.php tests/whatsapp_inbox*.php; do
             php -l "$file"
           done
       - name: Check installer syntax
