@@ -26,7 +26,7 @@ permissions:
 jobs:
   original-runtime:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -95,3 +95,37 @@ jobs:
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
         run: node --test test/*.test.cjs
+      - name: Assemble and audit the installer runtime
+        shell: pwsh
+        run: |
+          $installerPhpRoot = Split-Path (Get-Command php).Source
+          $installerMariaExecutable = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
+          $installerMariaRoot = Split-Path (Split-Path $installerMariaExecutable)
+          node desktop-pos/build-runtime.cjs . desktop-pos/runtime-bundle desktop-pos/runtime $installerPhpRoot $installerMariaRoot $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Installer source packaging failed.' }
+          New-Item -ItemType Directory -Path desktop-pos/dist -Force | Out-Null
+          $auditJson = composer audit --locked --no-dev --format=json --working-dir=desktop-pos/runtime | Out-String
+          $auditExitCode = $LASTEXITCODE
+          if ($auditExitCode -notin @(0, 1, 2, 3)) { throw 'Runtime advisory review could not complete.' }
+          $audit = @{ format = 1; exitCode = $auditExitCode; lockSha256 = (Get-FileHash desktop-pos/runtime/composer.lock -Algorithm SHA256).Hash.ToLowerInvariant(); result = ($auditJson | ConvertFrom-Json) }
+          $audit | ConvertTo-Json -Depth 64 | Set-Content desktop-pos/dist/runtime-audit.json -Encoding utf8
+      - name: Build the reviewed Windows installer preview
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          npm run build:win --prefix desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
+      - name: Verify actual Windows installation and retained unsynced data
+        run: node desktop-pos/test/installer-native.cjs
+      - name: Retain the installer preview and exact verification receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasakhansta-dashboard-installer-preview
+          path: |
+            desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+            desktop-pos/dist/installer-checks.json
+            desktop-pos/dist/runtime-package.json
+            desktop-pos/dist/runtime-audit.json
+          if-no-files-found: error
+          retention-days: 30

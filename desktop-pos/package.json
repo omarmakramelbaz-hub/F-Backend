@@ -1,6 +1,6 @@
 {
   "name": "fasakhansta-desktop-pos",
-  "version": "0.2.1",
+  "version": "0.3.0-preview.1",
   "description": "Full Fasakhansta dashboard desktop app with durable offline branch orders",
   "main": "src/main.cjs",
   "author": "Fasakhansta",
@@ -8,10 +8,11 @@
   "scripts": {"start": "electron .", "test": "node --test test/*.test.cjs", "build:win": "electron-builder --win nsis --x64 --publish never"},
   "devDependencies": {"electron": "44.6.0", "electron-builder": "26.15.3"},
   "build": {
-    "appId": "com.fasakhansta.branchpos", "productName": "Fasakhansta POS",
+    "appId": "com.fasakhansta.dashboard.preview", "productName": "Fasakhansta Dashboard Preview",
+    "beforePack": "./installer-runtime.cjs",
     "afterPack": "./build-uninstaller.cjs",
-    "directories": {"output": "dist"}, "files": ["src/**/*", "package.json"], "extraResources": [{"from":"src/assets/app.ico","to":"app.ico"}],
+    "directories": {"output": "dist"}, "files": ["src/**/*", "package.json"], "extraResources": [{"from":"src/assets/app.ico","to":"app.ico"},{"from":"runtime-bundle","to":"dashboard-runtime","filter":["**/*"]}],
     "win": {"target": "nsis", "signAndEditExecutable": false},
-    "nsis": {"script": "installer.nsi", "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "artifactName": "Fasakhansta-POS-Setup.exe", "deleteAppDataOnUninstall": false}
+    "nsis": {"script": "installer.nsi", "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "artifactName": "Fasakhansta-Dashboard-Preview-Setup.exe", "deleteAppDataOnUninstall": false}
   }
 }

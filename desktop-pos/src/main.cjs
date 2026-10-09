@@ -12,6 +12,8 @@ const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
+if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
+  app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
 let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,timer,retryMs=5000,quitting=false;
