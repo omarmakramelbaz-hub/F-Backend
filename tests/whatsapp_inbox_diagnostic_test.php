@@ -263,6 +263,65 @@ try {
         && !$result['probe']['range_complete'] && $result['probe']['inbound_matches'] > 0 && $result['probe']['outbound_matches'] > 0
         && $result['probe']['same_conversation'] === 'PARTIAL', 'bounded_scan_never_false_yes');
     $tests++;
+
+    // Isolate the two observed production shapes from the earlier bounded scan
+    // and its four quarantine rows. This is the disposable CI database only.
+    $case = 'MIXED_TYPES_AND_MEDIA';
+    DB::transaction(function () {
+        foreach (['whatsapp_inbox_ingestion_failures', 'whatsapp_inbox_messages',
+            'whatsapp_inbox_conversations', 'whatsapp_webhook_events'] as $table) {
+            DB::table($table)->delete();
+        }
+    });
+    $unsupported = diagnosticMessage('wamid.private.unsupported_replay', 'PRIVATE_UNUSED_BODY');
+    unset($unsupported['text']);
+    $unsupported['type'] = 'unsupported';
+    $unsupported['errors'] = [['code' => 131051, 'title' => 'PRIVATE_UNSUPPORTED_ERROR', 'details' => 'PRIVATE_ERROR_DETAILS']];
+    $image = diagnosticMessage('wamid.private.image_replay', 'PRIVATE_UNUSED_CAPTION');
+    unset($image['text']);
+    $image['type'] = 'image';
+    $image['image'] = ['id' => 'PRIVATE_OLD_MEDIA_ID', 'sha256' => 'PRIVATE_MEDIA_SHA256',
+        'mime_type' => 'image/jpeg', 'caption' => 'PRIVATE_IMAGE_CAPTION'];
+    diagnosticEvent(diagnosticPayload([$unsupported]));
+    diagnosticEvent(diagnosticPayload([$image]));
+    $metrics = $consumer->consume();
+    diagnosticCheck($metrics['messages_inserted'] === 2 && $metrics['errors'] === 0, 'actual_unsupported_and_media_baseline');
+
+    $laterText = diagnosticMessage('wamid.private.unsupported_replay', 'PRIVATE_LATER_TEXT');
+    $laterText['timestamp'] = '1691583260';
+    $laterImage = $image;
+    $laterImage['timestamp'] = '1691583260';
+    $laterImage['image']['id'] = 'PRIVATE_NEW_MEDIA_ID';
+    diagnosticEvent(diagnosticPayload([$laterText]));
+    diagnosticEvent(diagnosticPayload([$laterImage]));
+    $metrics = $consumer->consume();
+    diagnosticCheck($metrics['quarantined_events'] === 2 && $metrics['errors'] === 0, 'actual_mixed_type_and_media_conflicts');
+    [$result, $exit] = diagnosticRun($repo, $configuration, $settings);
+    diagnosticCheck($exit === 0 && $result['status'] === 'READY' && $result['messages'] === 2
+        && count($result['failures']) === 2 && !$result['quarantine_rows_truncated'], 'mixed_types_diagnostic_complete');
+    $crossType = $result['failures'][0]['comparisons'][0];
+    diagnosticCheck($result['failures'][0]['status'] === 'READY' && $crossType['status'] === 'READY'
+        && $crossType['type'] === 'text' && $crossType['saved_type'] === 'unsupported'
+        && !$crossType['type_match'] && $crossType['scope_identity_or_columns_conflict']
+        && $crossType['dto_conflict'] && $crossType['body_conflict']
+        && $crossType['dto_diff_fields'] === ['type', 'text', 'sent_at']
+        && $crossType['content_diff_fields'] === ['text', 'errors']
+        && $crossType['incoming_sent_at_order'] === 'NEWER'
+        && $crossType['text_comparison'] === null && $crossType['media_comparison'] === null,
+        'unsupported_to_text_fixed_summary');
+    $media = $result['failures'][1]['comparisons'][0];
+    diagnosticCheck($result['failures'][1]['status'] === 'READY' && $media['status'] === 'READY'
+        && $media['saved_type'] === 'image' && $media['type_match']
+        && $media['dto_diff_fields'] === ['sent_at'] && $media['content_diff_fields'] === ['image']
+        && $media['incoming_sent_at_order'] === 'NEWER' && $media['text_comparison'] === null,
+        'image_replay_fixed_summary');
+    diagnosticCheck(array_keys($media['media_comparison']) === ['id', 'sha256', 'mime_type', 'caption', 'filename']
+        && $media['media_comparison']['id']['old_present'] && $media['media_comparison']['id']['new_present']
+        && !$media['media_comparison']['id']['match'] && $media['media_comparison']['sha256']['match']
+        && $media['media_comparison']['mime_type']['match'] && $media['media_comparison']['caption']['match']
+        && !$media['media_comparison']['filename']['old_present'] && !$media['media_comparison']['filename']['new_present']
+        && $media['media_comparison']['filename']['match'], 'private_media_field_flags_only');
+    $tests++;
     echo 'WHATSAPP_INBOX_DIAGNOSTIC_TESTS=' . $tests . "\n";
 } catch (Throwable $error) {
     $label = $error instanceof DiagnosticFixtureAssertion ? $error->fixedLabel : 'UNEXPECTED_RUNTIME';

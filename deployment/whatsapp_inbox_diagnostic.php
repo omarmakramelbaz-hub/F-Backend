@@ -37,6 +37,7 @@ final class WhatsAppInboxReadOnlyDiagnostic
         'STORED_CONTENT_DECRYPT', 'STORED_CONTENT_SIZE', 'STORED_CONTENT_JSON',
         'STORED_CONTENT_ARRAY', 'STORED_DTO_VALIDATE', 'COMPARISON_DTO_FIELDS',
         'COMPARISON_CONTENT_FIELDS', 'COMPARISON_IDENTITY', 'COMPARISON_TEXT',
+        'COMPARISON_MEDIA',
         'CUSTOMER_CONTENT_INPUT', 'CUSTOMER_CONTENT_DECRYPT',
         'CUSTOMER_CONTENT_SIZE', 'CUSTOMER_CONTENT_JSON', 'CUSTOMER_CONTENT_ARRAY',
         'COMPARISON_CUSTOMER_IDENTITY', 'PROBE_CEILING', 'PROBE_COUNT',
@@ -55,6 +56,13 @@ final class WhatsAppInboxReadOnlyDiagnostic
         'errors', 'text', 'image', 'video', 'document', 'audio', 'sticker',
         'location', 'contacts', 'interactive', 'button', 'reaction', 'order', 'system',
     ];
+    private const MESSAGE_TYPES = [
+        'text', 'image', 'video', 'document', 'audio', 'sticker', 'location',
+        'contacts', 'interactive', 'button', 'reaction', 'order', 'system',
+        'referral', 'edit', 'revoke', 'unsupported', 'unknown',
+    ];
+    private const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'];
+    private const MEDIA_FIELDS = ['id', 'sha256', 'mime_type', 'caption', 'filename'];
 
     public static function stage(string $stage): void
     {
@@ -237,7 +245,9 @@ final class WhatsAppInboxReadOnlyDiagnostic
         $out += [
             'direction' => $message['direction'],
             'source' => $message['source'],
-            'type' => in_array($message['type'], self::BODY_FIELDS, true) ? $message['type'] : 'OTHER',
+            'type' => in_array($message['type'], self::MESSAGE_TYPES, true) ? $message['type'] : 'OTHER',
+            'saved_type' => null,
+            'incoming_sent_at_order' => null,
             'existing_message' => null,
             'linked_conversation' => null,
             'peer_conversation' => null,
@@ -254,6 +264,7 @@ final class WhatsAppInboxReadOnlyDiagnostic
             'customer_identity_diff_fields' => [],
             'identity_comparison' => null,
             'text_comparison' => null,
+            'media_comparison' => null,
         ];
         self::stage('COMPARISON_MESSAGE_FETCH');
         $existing = $db::table('whatsapp_inbox_messages')->where('message_key', self::messageKey($message))->first();
@@ -280,6 +291,10 @@ final class WhatsAppInboxReadOnlyDiagnostic
             $saved = self::decode($existing->content, 'STORED_CONTENT');
             self::assertDto($saved, 'STORED_DTO_VALIDATE');
             self::stage('COMPARISON_DTO_FIELDS');
+            $out['saved_type'] = in_array($saved['type'], self::MESSAGE_TYPES, true) ? $saved['type'] : 'OTHER';
+            // Both validated dates use the same fixed UTC format. Emit order only.
+            $out['incoming_sent_at_order'] = $message['sent_at'] === $saved['sent_at'] ? 'EQUAL'
+                : ($message['sent_at'] < $saved['sent_at'] ? 'OLDER' : 'NEWER');
             foreach (['message_id', 'peer_identity', 'direction', 'type', 'text', 'sent_at'] as $field) {
                 if ($saved[$field] !== $message[$field]) $out['dto_diff_fields'][] = $field;
             }
@@ -305,7 +320,7 @@ final class WhatsAppInboxReadOnlyDiagnostic
                 'old_namespace' => $saved['peer_user_id'] !== null ? 'USER' : 'PHONE',
                 'new_namespace' => $message['peer_user_id'] !== null ? 'USER' : 'PHONE',
             ];
-            if ($message['type'] === 'text') {
+            if ($message['type'] === 'text' && $saved['type'] === 'text') {
                 self::stage('COMPARISON_TEXT');
                 $oldText = $saved['content']['message']['text'] ?? null;
                 $newText = $message['content']['message']['text'] ?? null;
@@ -316,6 +331,23 @@ final class WhatsAppInboxReadOnlyDiagnostic
                     'new_preview_url_present' => array_key_exists('preview_url', $newText),
                     'preview_url_match' => self::canonical($oldText['preview_url'] ?? null) === self::canonical($newText['preview_url'] ?? null),
                 ];
+            }
+            if ($message['type'] === $saved['type'] && in_array($message['type'], self::MEDIA_TYPES, true)) {
+                self::stage('COMPARISON_MEDIA');
+                $oldMedia = $saved['content']['message'][$saved['type']] ?? null;
+                $newMedia = $message['content']['message'][$message['type']] ?? null;
+                if (!is_array($oldMedia) || !is_array($newMedia)) throw new WhatsAppInboxDiagnosticValidationException();
+                $out['media_comparison'] = [];
+                foreach (self::MEDIA_FIELDS as $field) {
+                    $oldPresent = array_key_exists($field, $oldMedia);
+                    $newPresent = array_key_exists($field, $newMedia);
+                    $out['media_comparison'][$field] = [
+                        'old_present' => $oldPresent,
+                        'new_present' => $newPresent,
+                        'match' => $oldPresent === $newPresent
+                            && self::canonical($oldMedia[$field] ?? null) === self::canonical($newMedia[$field] ?? null),
+                    ];
+                }
             }
         }
         // This guard runs only for a new message; compare the candidate thread even
