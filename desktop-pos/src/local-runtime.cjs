@@ -83,12 +83,16 @@ async function phpIniFor(bundle,manifest,profile) {
         phpConfiguration = phpConfiguration.replace(match[0], match[1] + '="' + path.join(extensionDirectory, basename).replaceAll('\\', '/') + '"');
       }
     }
+    const caFile = path.join(bundle, 'php', 'ssl', 'cacert.pem');
+    await fs.access(caFile);
+    const caPath = caFile.replaceAll('\\', '/');
     const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
     // Keep the original expense form's upload limit in both active and staged runtimes.
     // Its encrypted base64 journal also requires room beyond PHP's build-host defaults.
     await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + extensionDirectory.replaceAll('\\', '/')
       // Do not inherit the builder's 256 MiB JIT buffer and native compilation
       // settings in a retained Windows runtime; validate ordinary PHP execution.
+      + '"\ncurl.cainfo="' + caPath + '"\nopenssl.cafile="' + caPath
       + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.jit=0\nopcache.jit_buffer_size=0\n', { mode: 0o600 });
     return phpIni;
 }

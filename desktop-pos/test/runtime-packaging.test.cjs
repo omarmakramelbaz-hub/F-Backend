@@ -34,7 +34,14 @@ test('the actual source bundle excludes renamed production credentials and keeps
   await write(dependencyRoot, 'composer.lock', JSON.stringify({ packages: [{ name: 'laravel/framework', version: 'v8.83.29' }] }));
   const git = args => execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   git(['init']); git(['add', '.']); git(['-c','user.name=Fixture','-c','user.email=fixture@test.invalid','commit','-m','synthetic package fixture']);
-  await build({ source, target, dependencyRoot, revision: git(['rev-parse', 'HEAD']).trim() });
+  const phpDirectory=path.join(root,'php');
+  const ca=await fs.readFile(path.join(__dirname,'fixtures/synthetic-ca.pem'));
+  await write(phpDirectory,'ssl/cacert.pem',ca);
+  await write(phpDirectory,'ssl/unrelated-private.pem','SYNTHETIC PRIVATE KEY');
+  await write(phpDirectory,'php.ini','curl.cainfo=C:\\tools\\php\\ssl\\cacert.pem\n');
+  await build({ source, target, dependencyRoot, phpDirectory, revision: git(['rev-parse', 'HEAD']).trim() });
+  assert.deepEqual(await fs.readFile(path.join(target,'php/ssl/cacert.pem')),ca);
+  await assert.rejects(fs.access(path.join(target,'php/ssl/unrelated-private.pem')),{code:'ENOENT'});
   const manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8'));
   for (const file of ['artisan','app/Controllers.php','config/firebase.php','public/firebase-messaging-sw.js','public/catalog.json']) {
     assert.ok(manifest.sourceHashes[file]); assert.equal(await fs.readFile(path.join(target, 'application', file), 'utf8'), files[file]);

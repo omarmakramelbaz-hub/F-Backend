@@ -45,13 +45,18 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
   await fs.mkdir(path.join(application, 'bootstrap/cache'), { recursive: true });
   if (phpDirectory) {
     const phpRoot = await fs.realpath(phpDirectory);
+    const certificates = await fs.readFile(path.join(phpRoot, 'ssl', 'cacert.pem'), 'utf8');
+    const pemCertificates = certificates.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) || [];
+    if (!pemCertificates.length || /PRIVATE KEY/.test(certificates)) throw Error('The PHP public CA bundle is missing or contains private key material.');
+    for (const pem of pemCertificates) new crypto.X509Certificate(pem);
     // CI setup directories also contain shell-tool aliases such as printf.exe. Package
     // the actual PHP runtime and its extensions, never links into the build host.
     const allowed = async file => {
       const relative = path.relative(phpRoot, file);
       if (!relative) return true;
       const components = relative.split(path.sep), first = components[0].toLowerCase();
-      if (components.length === 1 && !['php.exe','php.ini','ext','extras'].includes(first)
+      if (first === 'ssl' && components.length > 1 && relative.replaceAll(path.sep, '/') !== 'ssl/cacert.pem') return false;
+      if (components.length === 1 && !['php.exe','php.ini','ext','extras','ssl'].includes(first)
           && !/\.(?:dll|pem|crt|txt|md)$/i.test(first)) return false;
       const resolved = await fs.realpath(file), within = path.relative(phpRoot, resolved);
       if (within.startsWith('..' + path.sep) || path.isAbsolute(within)) throw Error('PHP runtime link points outside its source directory: ' + relative);

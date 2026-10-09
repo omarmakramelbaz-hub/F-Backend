@@ -6,7 +6,7 @@ const sourceCode = require('./src/dashboard-source.cjs');
 const sourcePolicy = require('./runtime-source-policy.cjs');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const required = ['application/artisan','application/desktop/router.php','application/desktop/verify.php',
-  'application/vendor/autoload.php','application/composer.json','application/composer.lock','php/php.ini'];
+  'application/vendor/autoload.php','application/composer.json','application/composer.lock','php/php.ini','php/ssl/cacert.pem'];
 const executables = ['php/php.exe','mariadb/bin/mariadbd.exe','mariadb/bin/mariadb-install-db.exe'];
 const extensions = ['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
 async function verifyBundle(bundle) {
