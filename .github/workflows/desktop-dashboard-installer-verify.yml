@@ -19,7 +19,7 @@ permissions:
 jobs:
   windows-installer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '37984610396' }}
     steps:
@@ -134,6 +134,34 @@ jobs:
             await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis);
             await fs.access(path.join(project,'dist/installer-version.nsh'));
             process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
+            // The pinned builder uses a hardcoded four-minute stdin compiler
+            // deadline. Extend only makensis, retaining its output validation.
+            const executor=require('builder-util/out/util.js'),normal=executor.spawnAndWriteWithOutput;
+            executor.spawnAndWriteWithOutput=(command,args,data,options)=>{
+              if(path.basename(command).toLowerCase()!=='makensis.exe')return normal(command,args,data,options);
+              process.stdout.write('Compiling the complete runtime with a bounded 15-minute NSIS deadline.\n');
+              return new Promise((resolve,reject)=>{
+                const child=require('node:child_process').spawn(command,args,{...options,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
+                let stdout='',stderr='',timedOut=false,logExceeded=false;
+                const timer=setTimeout(()=>{timedOut=true;child.kill();},15*60*1000);
+                child.once('error',error=>{clearTimeout(timer);reject(error);});
+                const collect=(bytes,isError)=>{
+                  if(logExceeded)return;
+                  if(isError)stderr+=bytes.toString();else stdout+=bytes.toString();
+                  if(stdout.length+stderr.length>32*1024*1024){logExceeded=true;child.kill();}
+                };
+                child.stdout.on('data',bytes=>collect(bytes,false));child.stderr.on('data',bytes=>collect(bytes,true));
+                child.stdin.on('error',()=>{});
+                child.once('close',code=>{
+                  clearTimeout(timer);
+                  if(timedOut)reject(Error('NSIS compilation exceeded its 15-minute limit.'));
+                  else if(logExceeded)reject(Error('NSIS compilation output exceeded its 32 MiB limit.'));
+                  else if(code!==0)reject(Error('NSIS compilation failed ('+code+'): '+stdout+'\n'+stderr));
+                  else resolve({stdout,stderr});
+                });
+                child.stdin.end(data);
+              });
+            };
           };
           '@ | Set-Content desktop-pos/runtime-copy-hook.cjs -Encoding utf8
           # NSIS input files have a MAX_PATH limit. Use a short alias without
