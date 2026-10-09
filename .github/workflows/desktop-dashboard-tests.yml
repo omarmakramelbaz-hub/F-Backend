@@ -103,6 +103,7 @@ jobs:
           node desktop-pos/build-runtime.cjs . desktop-pos/runtime-bundle desktop-pos/runtime $installerPhpRoot $installerMariaRoot $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Installer source packaging failed.' }
           New-Item -ItemType Directory -Path desktop-pos/dist -Force | Out-Null
+          Copy-Item $env:DESKTOP_TEST_SNAPSHOT_FILE desktop-pos/dist/dashboard-synthetic-snapshot.json
           $auditJson = composer audit --locked --no-dev --format=json --working-dir=desktop-pos/runtime | Out-String
           $auditExitCode = $LASTEXITCODE
           if ($auditExitCode -notin @(0, 1, 2, 3)) { throw 'Runtime advisory review could not complete.' }
@@ -118,6 +119,7 @@ jobs:
           path: |
             desktop-pos/runtime-bundle
             desktop-pos/dist/runtime-audit.json
+            desktop-pos/dist/dashboard-synthetic-snapshot.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 3

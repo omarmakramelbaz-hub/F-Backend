@@ -7,12 +7,15 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
-const LocalRuntime = require('../src/local-runtime.cjs');
-const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
-const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
-const DashboardMode = require('../src/dashboard-mode.cjs');
-const DashboardRemoteState = require('../src/dashboard-remote-state.cjs');
-const sourceCode = require('../src/dashboard-source.cjs');
+// The installer job supplies the installed ASAR code directory and runs this
+// fixture with the installed Electron executable, so both layers are exercised.
+const codeRoot = process.argv[4] || path.join(__dirname, '../src');
+const LocalRuntime = require(path.join(codeRoot, 'local-runtime.cjs'));
+const { DashboardGeneration } = require(path.join(codeRoot, 'dashboard-generation.cjs'));
+const { DashboardPreparation } = require(path.join(codeRoot, 'dashboard-preparation.cjs'));
+const DashboardMode = require(path.join(codeRoot, 'dashboard-mode.cjs'));
+const DashboardRemoteState = require(path.join(codeRoot, 'dashboard-remote-state.cjs'));
+const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');

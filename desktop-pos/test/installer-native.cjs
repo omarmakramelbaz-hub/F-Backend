@@ -38,6 +38,12 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(store.pending().length,1);assert.equal(store.pending()[0].id,sale.id);assert.equal(store.order(order.id).status,'paid');store.close();
       process.stdout.write(JSON.stringify({event:sale.id,order:order.id,total:sale.data.total_cents})+'\\n');`);
     const executable=path.join(installed,'Fasakhansta Dashboard Preview.exe');
+    const nativeOutput=execFileSync(executable,[path.join(__dirname,'generation-native.cjs'),native,
+      path.join(project,'dist/dashboard-synthetic-snapshot.json'),path.join(installed,'resources/app.asar/src')],
+      {encoding:'utf8',windowsHide:true,timeout:600000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
+    assert.match(nativeOutput,/PASS real Windows supervisor prepares account data/);
+    process.stdout.write(nativeOutput);
+    process.stdout.write('PASS the actually installed ASAR supervisor runs the original local Laravel dashboard and preserves its data across restart and code upgrade\n');
     const saved=JSON.parse(execFileSync(executable,[probe,installed,profile],{encoding:'utf8',windowsHide:true,timeout:30000,
       env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}}).trim());
     process.stdout.write('PASS installed Electron loads its actual ASAR ledger code and preserves one paid unsynced sale across SQLite reopen\n');
@@ -58,6 +64,6 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');}finally{db.close();}
     process.stdout.write('PASS actual Windows uninstallation removes only packaged files and retains unrelated files plus the paid unsynced order\n');
     await fs.writeFile(path.join(project,'dist/installer-checks.json'),JSON.stringify({format:1,sourceRevision:receipt.sourceRevision,version:receipt.version,
-      channel:receipt.channel,fullDashboard:false,installation:true,installedNativeExecutables:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
+      channel:receipt.channel,fullDashboard:false,installation:true,installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
   } finally {await fs.rm(root,{recursive:true,force:true});}
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});
