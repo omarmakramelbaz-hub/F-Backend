@@ -1,6 +1,7 @@
 'use strict';
 // Copy into desktop-pos before packaging; preserve the complete verified runtime.
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 module.exports=async context=>{
   const project=context.packager.projectDir;
@@ -32,7 +33,16 @@ module.exports=async context=>{
     +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
   const nsis=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
   const windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));
-  await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis);
+  const fileDirective='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
+  if(!windowsNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
+  // makensis cannot open some original vendor files via the runner's long path.
+  // Map only the already verified output to a free drive; preserve every byte.
+  const drive='R:';
+  try{await fs.access(drive+'\\');throw Error('The compiler input drive is already occupied.');}
+  catch(error){if(error.code!=='ENOENT')throw error;}
+  execFileSync('subst.exe',[drive,context.appOutDir],{windowsHide:true});
+  await fs.writeFile(path.join(project,'dist/nsis-build-drive.json'),JSON.stringify({drive,directory:context.appOutDir})+'\n');
+  await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis.replace(fileDirective,'File /r "'+drive+'\\*"'));
   await fs.access(path.join(project,'dist/installer-version.nsh'));
   process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
 };
