@@ -133,6 +133,9 @@ jobs:
     needs: original-runtime
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,10 +144,27 @@ jobs:
         with:
           node-version: '24'
       - name: Restore the exact runtime tested by the original application job
-        uses: actions/download-artifact@v4
+        # Download bytes first: v4's streamed extraction repeatedly failed with
+        # the 48,821-file runtime under the runner's forced Node 24 environment.
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: tested-dashboard-runtime
-          path: desktop-pos
+          path: ${{ runner.temp }}/installer-runtime-download
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Extract the verified runtime archive using Windows
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem "$env:RUNNER_TEMP/installer-runtime-download" -File)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one verified runtime archive.' }
+          $runtimeZip = "$env:RUNNER_TEMP/tested-runtime.zip"
+          Move-Item -LiteralPath $archives[0].FullName -Destination $runtimeZip
+          Expand-Archive -LiteralPath $runtimeZip -DestinationPath desktop-pos -Force
+          Remove-Item -LiteralPath $runtimeZip
+          if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
+          if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
+          if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |
