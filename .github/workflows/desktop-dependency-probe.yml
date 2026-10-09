@@ -1,0 +1,43 @@
+name: Probe candidate desktop dependency resolution
+
+on:
+  push:
+    branches: ['codex/dependency-upgrade-planning-20261009']
+    paths:
+      - '.github/workflows/desktop-dependency-probe.yml'
+      - 'desktop-pos/runtime/composer.json'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-resolution:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          tools: composer:v2
+          coverage: none
+      - name: Require the real Windows PHP version and all runtime extensions
+        shell: pwsh
+        run: |
+          php -r 'if (PHP_VERSION !== "8.2.34") { fwrite(STDERR, "Unexpected PHP version" . PHP_EOL); exit(1); } $required = ["pdo_mysql", "pdo_sqlite", "sqlite3", "mbstring", "exif", "gd", "fileinfo", "intl", "curl", "openssl", "sodium"]; $missing = array_values(array_filter($required, fn($extension) => !extension_loaded($extension))); if ($missing) { fwrite(STDERR, "Missing runtime extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); } echo "Real Windows PHP " . PHP_VERSION . " has every required runtime extension" . PHP_EOL;'
+          if ($LASTEXITCODE -ne 0) { throw 'The actual probe platform is incomplete.' }
+      - name: Resolve candidate dependencies without installation or lock changes
+        shell: pwsh
+        run: |
+          $lockPath = 'desktop-pos/runtime/composer.lock'
+          $before = (Get-FileHash $lockPath -Algorithm SHA256).Hash
+          composer update --dry-run --no-install --no-scripts -W --no-interaction --working-dir=desktop-pos/runtime
+          $probeExitCode = $LASTEXITCODE
+          $after = (Get-FileHash $lockPath -Algorithm SHA256).Hash
+          if ($before -ne $after) { throw 'The dependency probe changed the existing lock.' }
+          $lockChanges = @(& git status --porcelain -- $lockPath)
+          if ($LASTEXITCODE -ne 0 -or $lockChanges.Count) { throw 'The existing lock is no longer clean.' }
+          if (Test-Path 'desktop-pos/runtime/vendor') { throw 'The dependency probe unexpectedly installed packages.' }
+          if ($probeExitCode -ne 0) { throw "The candidate dependency graph was rejected (Composer exit $probeExitCode); inspect the resolver output above." }
