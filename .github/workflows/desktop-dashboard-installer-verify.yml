@@ -110,6 +110,16 @@ jobs:
             }
             process.stdout.write('Restored '+restored+' exact runtime files before complete installed-byte verification.\n');
             await require('./build-uninstaller.cjs')(context);
+            // Recreate the generated NSIS header after the output directory has
+            // been prepared. Values must agree with the verified build receipt.
+            const info=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8'));
+            const product=context.packager.appInfo.productName;
+            if(info.version!==receipt.version||receipt.channel!=='preview'
+                ||!/^[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$/.test(info.version)
+                ||!/^[A-Za-z0-9 ._-]{1,80}$/.test(product))throw Error('Invalid verified installer metadata.');
+            await fs.writeFile(path.join(project,'dist/installer-version.nsh'),
+              '!define FASAKHANSTA_VERSION "'+info.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
+              +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
           };
           '@ | Set-Content desktop-pos/runtime-copy-hook.cjs -Encoding utf8
           npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs
