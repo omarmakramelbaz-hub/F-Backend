@@ -31,7 +31,16 @@ module.exports=async context=>{
     '!define FASAKHANSTA_VERSION "'+info.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
     +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
   const nsis=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
-  const windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));
+  let windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));
+  const originalFile='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
+  if(windowsNsis.split(originalFile).length!==2)throw Error('Unexpected original NSIS file command.');
+  for(const name of Object.keys(receipt.files))if(('S:\\resources\\dashboard-runtime\\'+name).length>=260)
+    throw Error('Runtime source path still exceeds the native compiler limit: '+name);
+  try{await fs.access('S:\\');throw Error('The installer source drive is already in use.');}
+  catch(error){if(error.code!=='ENOENT')throw error;}
+  require('node:child_process').execFileSync('subst',['S:',path.resolve(context.appOutDir)],{windowsHide:true});
+  await fs.writeFile(path.join(project,'dist/nsis-source-drive.txt'),'S:\n');
+  windowsNsis=windowsNsis.replace(originalFile,'File /r "S:\\*"');
   await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis);
   await fs.access(path.join(project,'dist/installer-version.nsh'));
   process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');

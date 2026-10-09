@@ -181,6 +181,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
           } finally {
             Pop-Location
+            if (Test-Path desktop-pos/dist/nsis-source-drive.txt) {
+              subst S: /D
+              Remove-Item desktop-pos/dist/nsis-source-drive.txt
+            }
             subst R: /D
           }
       - name: Verify actual Windows installation and retained unsynced data
