@@ -21,7 +21,31 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     });
     const page = await context.newPage();
     const pageErrors = [];
-    page.on('pageerror', error => pageErrors.push(error.message));
+    page.on('pageerror', error => { pageErrors.push(error.message); process.stderr.write('BROWSER_SCRIPT_ERROR '+error.stack+'\n'); });
+    page.on('response', response => {
+      if (new URL(response.url()).origin === input.origin && response.url().includes('/js/desktop-') && response.status() !== 200)
+        process.stderr.write('BROWSER_JOURNAL_SCRIPT_RESPONSE '+JSON.stringify({path:new URL(response.url()).pathname,status:response.status()})+'\n');
+    });
+    const journalField = async (field, label, response) => {
+      try {
+        if(response) assert.equal(response.status(), 200, label+' must render successfully.');
+        await field.waitFor({ state: 'attached' });
+      } catch (error) {
+        // Synthetic CI pages only. Capture state, never input values or credentials.
+        const state = await page.evaluate(() => ({
+          path: location.pathname, ready:document.readyState, local:document.body?.dataset.dashboardLocal,
+          journalAjax:Boolean(window.jQuery?.fasakhanstaCatalogJournal),
+          journalScripts:[...document.scripts].filter(script=>script.src.includes('desktop-dashboard.js')).map(script=>({path:new URL(script.src).pathname,defer:script.defer,type:script.type})),
+          forms:[...document.forms].map(form=>({path:new URL(form.action).pathname,
+            method:form.querySelector('[name="_method"]')?.value||form.method,
+            generation:form.dataset.notificationGeneration,notificationRead:form.hasAttribute('data-desktop-notification-read'),
+            journaled:Boolean(form.querySelector('[name="_desktop_command"]'))})),
+          text:document.body?.innerText.slice(-1500)
+        }));
+        process.stderr.write('JOURNAL_FORM_DIAGNOSTIC '+JSON.stringify({label,status:response?.status(),...state,pageErrors})+'\n');
+        throw error;
+      }
+    };
     page.on('response', response => {
       if (response.url().includes('/dashboard/vendor/desktop-external/') && response.status() !== 200) missingAssets.add(response.url());
     });
@@ -39,7 +63,7 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products']) {
       await page.goto(input.origin + '/admin/' + module + '/create');
       const field = page.locator('form input[name="_desktop_command"]');
-      await field.waitFor({ state: 'attached' });
+      await journalField(field, module+' create form');
       const uuid = await field.inputValue();
       assert.match(uuid, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i);
       assert.notEqual(uuid, previous);
@@ -69,36 +93,22 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     }));
     const contactResponse = await page.goto(input.origin + '/admin/contacts');
     const contactCommand = page.locator('form input[name="_desktop_command"]').first();
-    try {
-      assert.equal(contactResponse.status(), 200, 'The original contact index must render successfully.');
-      await contactCommand.waitFor({ state: 'attached' });
-    } catch (error) {
-      // Synthetic CI pages only. Capture state, never form values or session credentials.
-      const state = await page.evaluate(() => ({
-        path: location.pathname, local: document.body?.dataset.dashboardLocal,
-        forms: [...document.forms].map(form => ({ path: new URL(form.action).pathname,
-          method: form.querySelector('[name="_method"]')?.value || form.method,
-          journaled: Boolean(form.querySelector('[name="_desktop_command"]')) })),
-        text: document.body?.innerText.slice(-1500)
-      }));
-      process.stderr.write('CONTACT_FORM_DIAGNOSTIC '+JSON.stringify({status:contactResponse.status(),...state,pageErrors})+'\n');
-      throw error;
-    }
+    await journalField(contactCommand, 'original contact index', contactResponse);
     const contactUuid = await contactCommand.inputValue();
     assert.match(contactUuid, /^[a-f0-9-]{36}$/i);
     await page.evaluate(() => document.querySelector('form input[name="_desktop_command"]').form.append(document.createElement('span')));
     assert.equal(await contactCommand.inputValue(), contactUuid);
     process.stdout.write('PASS original contact deletion form retains its operation UUID while the DOM changes\n');
-    await page.goto(input.origin + '/admin/notifications');
+    const historyResponse=await page.goto(input.origin + '/admin/notifications');
     const historyField = page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="_desktop_command"]');
-    await historyField.waitFor({ state: 'attached' });
+    await journalField(historyField,'original notification history',historyResponse);
     const historyUuid = await historyField.inputValue();
     const historyIds = await page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="desktop_notification_ids"]').inputValue();
     assert.match(historyUuid, /^[a-f0-9-]{36}$/i);
     assert.match(await historyField.evaluate(field=>field.form.dataset.notificationGeneration), /^[a-f0-9-]{36}$/i);
     assert.ok(JSON.parse(historyIds).length > 0);
     await page.reload();
-    await historyField.waitFor({ state: 'attached' });
+    await journalField(historyField,'reloaded original notification history');
     assert.equal(await historyField.inputValue(), historyUuid);
     assert.equal(await page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="desktop_notification_ids"]').inputValue(), historyIds);
     const singleHistoryField = page.locator('form[data-desktop-notification-read] input[name="_method"][value="PUT"]').first();
