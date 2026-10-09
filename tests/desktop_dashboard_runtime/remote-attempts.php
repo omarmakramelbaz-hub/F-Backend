@@ -33,6 +33,7 @@ try{
     DB::table('users')->where('id',1)->update(['status'=>'disabled']);
     verify($http($noteAttempt['path'],$noteForm,[...$proof($noteProof),'Accept: application/json'])[0]===403,'disabling the enrolled account also rejects its stored notification reply');
     DB::table('users')->where('id',1)->update(['status'=>'accepted']);
+    require __DIR__.'/notification-history-remote.php';
     [$status,$page]=$http('/admin/products/create');preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     $form=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'category_id'=>1,'name_ar'=>'صنف نتيجة السيرفر','status'=>'show'];
     $first=$attempt();[$status,$reserved]=$decide($first);

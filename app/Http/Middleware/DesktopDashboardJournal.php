@@ -36,6 +36,14 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardNotificationReads::handles($route)){
+            $reads=app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class);
+            $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
+            $payload=$reads->payload($request,$command,$actor);$response=null;
+            $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                function()use($reads,$next,$request,&$response){return $reads->capture(function()use($next,$request,&$response){return $response=$next($request);});});
+            return $response??$reads->response($result);
+        }
         if(\App\Services\Dashboard\DesktopDashboardLegacy::handles($route)){
             $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);$legacy->authorize($actor);
             $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));

@@ -139,6 +139,9 @@ verify($contractQueries['contracts']->count()===0,'revoking the original contrac
 $branchQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],User::withoutGlobalScopes()->findOrFail(10),['f:100']);
 verify($branchQueries['contracts']->count()===0,'shared contract templates remain outside an ordinary branch account snapshot');
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+$browserNotificationId=(string)\Illuminate\Support\Str::uuid();DB::table('notifications')->insert(['id'=>$browserNotificationId,'type'=>'FixtureNotification',
+    'notifiable_type'=>User::class,'notifiable_id'=>1,'data'=>json_encode(['title'=>'إشعار اختبار المتصفح','text'=>'نص سجل الإشعارات']),
+    'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
 verify(count($ownerSnapshot['tables']['contacts']['rows'])===3,'the primary administrator preparation imports its original global contact messages');
@@ -214,6 +217,7 @@ require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
 require __DIR__.'/contacts.php';
 require __DIR__.'/shared-actions.php';
+require __DIR__.'/notification-history.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

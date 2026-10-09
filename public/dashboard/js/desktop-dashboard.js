@@ -12,6 +12,24 @@
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
     const prepare = form => {
+        if (form instanceof HTMLFormElement && form.hasAttribute('data-desktop-notification-read')) {
+            const url = new URL(form.action, location.href), method = (form.querySelector('[name="_method"]')?.value || form.method).toUpperCase();
+            if (url.origin !== location.origin || !((method==='PUT'&&/^\/admin\/read\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(url.pathname))
+                ||(method==='POST'&&url.pathname==='/admin/read/all/notification'))) return;
+            if (form.querySelector('[name="_desktop_command"]')) return;
+            let ids;
+            try { ids = JSON.parse(form.dataset.notificationIds); } catch { return; }
+            if (!Array.isArray(ids) || ids.length>50000 || ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id))) return;
+            ids.sort();
+            const key='fasakhansta.notification-history.'+document.body.dataset.dashboardActor+'.'+url.pathname+'.'+ids.join(',');
+            let command;
+            try { command=sessionStorage.getItem(key);if(!command){command=crypto.randomUUID();sessionStorage.setItem(key,command);} }
+            catch { return; }
+            for (const [name,value] of [['_desktop_command',command],['desktop_notification_ids',JSON.stringify(ids)]]) {
+                const field=document.createElement('input');field.type='hidden';field.name=name;field.value=value;form.append(field);
+            }
+            return;
+        }
         if (!(form instanceof HTMLFormElement) || !eligible(form) || form.querySelector('[name="_desktop_command"]')) return;
         const field = document.createElement('input');
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);

@@ -11,6 +11,7 @@ class DesktopDashboardRemoteAttempts
 {
     // Reviewed original actions; expense attachments use durable immutable private files.
     public const CORE=[
+        'read_notify'=>'can_read_own_notifications','mark_all_as_read'=>'can_read_own_notifications',
         'dashboard-inbox.notifications.read'=>'can_read_own_notifications',
         'takeaway.checkout'=>'can_checkout','takeaway.movements'=>'can_manage','takeaway.settings'=>'can_manage',
         'dining.save'=>'can_checkout','dining.action'=>'can_checkout','dining.settle'=>'can_checkout','dining.table-save'=>'can_manage_tables','dining.settings'=>'can_manage',
@@ -33,18 +34,19 @@ class DesktopDashboardRemoteAttempts
         $bulk=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
         $contact=(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/contacts/[1-9][0-9]{0,18}$#D',$v['path']))
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
+        $history=in_array($v['method'],['POST','PUT'],true)&&preg_match('#^/admin/read/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$#iD',$v['path']);
         $core=false;
         if($v['method']==='POST'&&str_starts_with($v['path'],'/admin/')){
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$bulk||$contact||$core,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($single||$bulk||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة السيرفر يحتاج جداول تدعم المعاملات.');
         }
-        $table=match(true){str_starts_with($v['path'],'/admin/contracts')=>'contracts',str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
+        $table=match(true){$history||$v['path']==='/admin/read/all/notification'=>'notifications',str_starts_with($v['path'],'/admin/contracts')=>'contracts',str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
         if($table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة هذا القسم يحتاج جدولاً يدعم المعاملات.');
@@ -94,12 +96,13 @@ class DesktopDashboardRemoteAttempts
     {
         $this->devices->ready();
         $name=$request->route()?->getName();$catalog=DesktopDashboardLegacy::handles($name);
+        $history=DesktopDashboardNotificationReads::handles($name);
         abort_unless($catalog||isset(self::CORE[$name??'']),501);
         $files=app(DesktopDashboardExpenseAttachments::class)->files($request,$name);
         $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
-        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$name,$files){
+        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$name,$files){
             $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device);
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row&&(int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
@@ -125,8 +128,9 @@ class DesktopDashboardRemoteAttempts
             $router=app('router');$middleware=array_map(fn($item)=>MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$request->route()->controllerMiddleware());
             (new Pipeline(app()))->send($request)->through($middleware)->then(fn()=>true);
             abort_if($row->status==='cancelled',409,'الطلب السابق أُلغي قبل تنفيذه؛ أعد المحاولة كعملية جديدة.');
-            $operation=(string)($catalog?($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command')):$request->input('idempotency_key'));
+            $operation=(string)(($catalog||$history)?($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command')):$request->input('idempotency_key'));
             Validator::make(['operation_id'=>$operation],['operation_id'=>'required|uuid'])->validate();
+            if($history)app(DesktopDashboardNotificationReads::class)->payload($request,$operation,$actor);
             $values=$request->except('_token','_method','_desktop_command','attachment');
             if(str_ends_with($v['path'],'DeleteAll')){
                 abort_unless(is_string($values['ids']??null)&&preg_match('/^[1-9][0-9]{0,18}(?:,[1-9][0-9]{0,18}){0,199}$/D',$values['ids']),422);

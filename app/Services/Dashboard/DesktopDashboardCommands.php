@@ -9,6 +9,7 @@ class DesktopDashboardCommands
     public function execute(string $route,array $payload,$actor): array
     {
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
+        if(DesktopDashboardNotificationReads::handles($route))return app(DesktopDashboardNotificationReads::class)->execute($route,$payload,$actor);
         if(DesktopDashboardLegacy::handles($route))return app(DesktopDashboardLegacy::class)->execute($route,$payload,$actor);
         $v=$payload['values']??[];$p=$payload['parameters']??[];
         if($route==='dashboard-inbox.notifications.read'){

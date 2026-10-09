@@ -13,11 +13,16 @@ function fixture(){
   const options={state,metadata,credential:async()=>credential,request};return {records,decisions,calls,state,options,attempts:new RemoteAttempts(options)};
 }
 const details={url:credential.serverOrigin+'/admin/products',method:'POST'};
-test('only the reviewed own-notification read POST reserves, while external notification sends keep their guard',()=>{
+test('reviewed own-notification menu and history reads reserve, while external sends keep their guard',()=>{
   const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';
   assert.equal(f.attempts.supported({url,method:'POST'}),true);
   assert.equal(f.attempts.supported({url,method:'GET'}),false);
-  for(const path of ['/admin/for-send-notify','/admin/read/all/notification','/admin/dashboard-inbox/support/12/messages'])
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/read/all/notification',method:'POST'}),true);
+  const history=credential.serverOrigin+'/admin/read/'+crypto.randomUUID();
+  for(const method of ['POST','PUT'])assert.equal(f.attempts.supported({url:history,method}),true);
+  for(const method of ['GET','DELETE'])assert.equal(f.attempts.supported({url:history,method}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/read/123',method:'PUT'}),false);
+  for(const path of ['/admin/for-send-notify','/admin/dashboard-inbox/support/12/messages'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
 });
 test('an original remote request cannot leave before its durable reservation and exact server capability',async()=>{

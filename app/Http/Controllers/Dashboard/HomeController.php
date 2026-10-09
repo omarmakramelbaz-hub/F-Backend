@@ -197,9 +197,7 @@ class HomeController extends Controller
 
     public function read($id){
         $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
-        $data->update([
-            'read_at' => now(),
-        ]);
+        if(!request()->attributes->has('_desktop_notification_ids')||$data->read_at===null)$data->update(['read_at'=>now()]);
         
     //   if(isset($data->data['data']['order_id'])){
     //       return redirect()->route('orders.show',$data->data['data']['order_id']);
@@ -208,7 +206,9 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
+       $query=auth('admin')->user()->unreadNotifications();
+       if(request()->attributes->has('_desktop_notification_ids'))$query->whereIn('id',request()->attributes->get('_desktop_notification_ids'));
+       $query->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 
