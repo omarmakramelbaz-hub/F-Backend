@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.DESKTOP_TEST_BROWSER_MODULE);
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+let stage = 'launch';
+const watchdog = setTimeout(() => {
+  process.stderr.write('BROWSER_TEST_TIMEOUT '+JSON.stringify({stage})+'\n');
+  process.exit(1);
+}, 240000);
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
@@ -32,12 +37,13 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
         process.stderr.write('BROWSER_JOURNAL_SCRIPT_RESPONSE '+JSON.stringify({path:new URL(response.url()).pathname,status:response.status()})+'\n');
     });
     const journalField = async (field, label, response) => {
+      stage = label;
       try {
         if(response) assert.equal(response.status(), 200, label+' must render successfully.');
         await field.waitFor({ state: 'attached' });
       } catch (error) {
         // Synthetic CI pages only. Capture state, never input values or credentials.
-        const state = await page.evaluate(() => ({
+        const state = await Promise.race([page.evaluate(() => ({
           path: location.pathname, ready:document.readyState, local:document.body?.dataset.dashboardLocal,
           journalAjax:Boolean(window.jQuery?.fasakhanstaCatalogJournal),
           journalScripts:[...document.scripts].filter(script=>script.src.includes('desktop-dashboard.js')).map(script=>({path:new URL(script.src).pathname,defer:script.defer,type:script.type})),
@@ -46,7 +52,7 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
             generation:form.dataset.notificationGeneration,notificationRead:form.hasAttribute('data-desktop-notification-read'),
             journaled:Boolean(form.querySelector('[name="_desktop_command"]'))})),
           text:document.body?.innerText.slice(-1500)
-        }));
+        })), new Promise(resolve => setTimeout(() => resolve({diagnosticError:'The renderer did not answer within five seconds.'}), 5000))]);
         process.stderr.write('JOURNAL_FORM_DIAGNOSTIC '+JSON.stringify({label,status:response?.status(),...state,pageErrors,scriptLoads})+'\n');
         throw error;
       }
@@ -63,6 +69,7 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
+    assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.summernote), 'function', 'The original editor must load after jQuery and Bootstrap.');
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;
     for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products']) {
@@ -221,4 +228,5 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     assert.deepEqual([...missingAssets], [], 'Bundled layout dependencies must load through the private HTTP gateway.');
     process.stdout.write('PASS original Arabic font, layout dependencies and Arabic editor load locally with external requests blocked\n');
   } finally { await browser.close(); }
-})().catch(error => { process.stderr.write(error.stack + '\n'); process.exitCode = 1; });
+  clearTimeout(watchdog);
+})().catch(error => { clearTimeout(watchdog); process.stderr.write(error.stack + '\n'); process.exitCode = 1; });
