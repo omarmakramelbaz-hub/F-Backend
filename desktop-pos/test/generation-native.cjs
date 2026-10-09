@@ -60,6 +60,20 @@ async function main() {
   };
   const bootstrap = "$input=json_decode(stream_get_contents(STDIN),true);$app=require getenv('DESKTOP_TEST_APPLICATION').'/desktop/bootstrap.php';";
   try {
+    // A tiny malformed input must reach JSON validation under the installed memory
+    // limit, rather than allocating the complete 256 MiB permitted input ceiling.
+    const inputProbe = spawn(path.join(bundle, 'php/php.exe'), ['-c', path.join(bundle, 'php/php.ini'), '-d', 'memory_limit=256M',
+      path.join(bundle, 'application/desktop/import.php')], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    let probeError = ''; inputProbe.stderr.setEncoding('utf8'); inputProbe.stderr.on('data', bytes => { probeError += bytes; });
+    inputProbe.stdin.on('error', () => {}); inputProbe.stdin.end('{"synthetic":');
+    const probeExit = await new Promise((resolve, reject) => { inputProbe.once('error', reject); inputProbe.once('close', resolve); });
+    assert.equal(probeExit, 1);
+    const report = probeError.split(/\r?\n/).find(line => line.startsWith('DESKTOP_IMPORT_DIAGNOSTIC '));
+    assert.ok(report, probeError);
+    const diagnostic = JSON.parse(report.slice('DESKTOP_IMPORT_DIAGNOSTIC '.length));
+    assert.equal(diagnostic.phase, 'json'); assert.equal(diagnostic.type, 'JsonException');
+    assert.ok(!probeError.includes('synthetic'));
+    console.log('PASS Windows snapshot input reaches redacted JSON validation within the installed 256 MiB memory limit');
     const settings = await runtime.settings(); settings.deviceId = snapshot.device_id;
     await runtime.metadata.write('credentials', settings);
     const preparation = new DashboardPreparation({ runtime,

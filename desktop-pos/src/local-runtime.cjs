@@ -21,6 +21,7 @@ function startChild(file, args, options, capture = false) {
   const child = spawn(file, args, { ...options, windowsHide: true, shell: false, stdio: ['pipe', capture ? 'pipe' : 'ignore', 'pipe'] });
   let tail = '';
   child.stderr.on('data', bytes => { tail = (tail + bytes.toString()).slice(-8000); });
+  child.stderrTail = () => tail;
   child.failure = new Promise(resolve => {
     child.once('error', error => resolve(error));
     child.once('exit', (code, signal) => resolve(Error(`Local service stopped (${code ?? signal}). ${tail}`)));
@@ -41,7 +42,23 @@ async function run(file, args, options, input = '', timeout = 90000) {
       child.completed,
       new Promise(resolve => { timer = setTimeout(() => { child.kill(); resolve(Error('Local service initialization timed out.')); }, timeout); })
     ]);
-    if (child.exitCode !== 0 || overflow) { await stopChild(child); throw Error('تعذر تنفيذ خطوة تجهيز الخدمة المحلية؛ بيانات الجهاز محفوظة.'); }
+    if (child.exitCode !== 0 || overflow) {
+      await stopChild(child);
+      const cause = { exitCode: child.exitCode, overflow, timedOut: result instanceof Error && /timed out/.test(result.message) };
+      const report = child.stderrTail().split(/\r?\n/).find(line => line.startsWith('DESKTOP_IMPORT_DIAGNOSTIC '));
+      if (report) {
+        try {
+          const value = JSON.parse(report.slice('DESKTOP_IMPORT_DIAGNOSTIC '.length));
+          if (['input', 'json', 'bootstrap', 'import'].includes(value.phase)
+              && /^[a-zA-Z0-9_\\\\]{1,160}$/.test(value.type) && /^[a-zA-Z0-9_.-]{1,120}$/.test(value.file)
+              && Number.isSafeInteger(value.line) && value.line > 0
+              && (value.status === null || Number.isInteger(value.status) && value.status >= 400 && value.status <= 599)) {
+            cause.import = { phase: value.phase, type: value.type, file: value.file, line: value.line, status: value.status };
+          }
+        } catch {}
+      }
+      throw Error('تعذر تنفيذ خطوة تجهيز الخدمة المحلية؛ بيانات الجهاز محفوظة.', { cause });
+    }
     return output;
   } finally { clearTimeout(timer); }
 }
