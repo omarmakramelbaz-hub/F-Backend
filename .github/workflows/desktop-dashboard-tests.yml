@@ -170,7 +170,8 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
-          npm run build:win --prefix desktop-pos
+          Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
+          npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
           if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual Windows installation and retained unsynced data
         run: node desktop-pos/test/installer-native.cjs
