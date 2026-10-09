@@ -83,11 +83,12 @@ async function main() {
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
       download: async () => snapshot });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    // PHP resolves Windows 8.3 aliases; compare the same actual retained files.
+    const extensionDirectory = (await fs.realpath(path.join(runtime.bundle,'php/ext'))).replaceAll('\\','/');
+    const certificateFile = (await fs.realpath(path.join(runtime.bundle,'php/ssl/cacert.pem'))).replaceAll('\\','/');
     assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit'),'jit'=>ini_get('opcache.jit'),'jitBuffer'=>ini_get('opcache.jit_buffer_size'),'extensions'=>str_replace(chr(92),'/',realpath(ini_get('extension_dir'))),'curlCA'=>str_replace(chr(92),'/',realpath(ini_get('curl.cainfo'))),'opensslCA'=>str_replace(chr(92),'/',realpath(ini_get('openssl.cafile')))]);"),
       { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0',
-        extensions: path.join(runtime.bundle,'php/ext').replaceAll('\\','/'),
-        curlCA: path.join(runtime.bundle,'php/ssl/cacert.pem').replaceAll('\\','/'),
-        opensslCA: path.join(runtime.bundle,'php/ssl/cacert.pem').replaceAll('\\','/') });
+        extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
     assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
     assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));
