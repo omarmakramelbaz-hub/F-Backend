@@ -102,4 +102,6 @@ jobs:
       - name: Verify real SQL persistence and rollback
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-inbox-test/vendor/autoload.php
-        run: php tests/whatsapp_inbox_database_test.php
+        run: |
+          php tests/whatsapp_inbox_database_test.php
+          php tests/whatsapp_inbox_diagnostic_test.php
