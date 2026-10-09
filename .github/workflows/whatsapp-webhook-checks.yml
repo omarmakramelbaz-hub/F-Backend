@@ -44,9 +44,14 @@ jobs:
 
   terminal-handoff:
     runs-on: ubuntu-latest
+    container: php:8.2-cli
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install terminal regression dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git python3 util-linux
       - name: Reproduce hidden secret handoff across su
-        run: sudo python3 tests/whatsapp_webhook_terminal_test.py
+        run: python3 tests/whatsapp_webhook_terminal_test.py
