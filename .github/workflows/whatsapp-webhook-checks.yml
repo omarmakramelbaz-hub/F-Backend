@@ -55,3 +55,5 @@ jobs:
           apt-get install -y --no-install-recommends git python3 util-linux
       - name: Reproduce hidden secret handoff across su
         run: python3 tests/whatsapp_webhook_terminal_test.py
+      - name: Verify additive account configuration and rollback
+        run: python3 tests/whatsapp_allowlist_update_test.py
