@@ -8,7 +8,7 @@ async function verifyPhpExtensions(native,root) {
   const php=path.join(native,'php/php.exe');
   assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
   const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
-  const directory=path.join(native,'php/ext').replaceAll('\\','/'),ini=path.join(root,'installed-php-probe.ini');
+  const workingDirectory=path.join(native,'php'),directory='ext',ini=path.join(root,'installed-php-probe.ini');
   for(const name of extensions)await fs.access(path.join(native,'php/ext/php_'+name+'.dll'));
   // Retain the packaged charset and module settings, as the real supervisor
   // does, while binding extension lookup to the actual copied directory.
@@ -18,13 +18,15 @@ async function verifyPhpExtensions(native,root) {
     +'$missing=array_values(array_filter($wanted,fn($name)=>!extension_loaded($name)));'
     +'echo "INSTALLED_PHP_PROBE ".json_encode(["directory"=>ini_get("extension_dir"),"loaded"=>get_loaded_extensions(),"missing"=>$missing]).PHP_EOL;'
     +'exit(count($missing)?1:0);';
-  const result=spawnSync(php,['-c',ini,'-r',code],{encoding:'utf8',windowsHide:true,timeout:30000,
+  const result=spawnSync(php,['-c',ini,'-r',code],{encoding:'utf8',windowsHide:true,timeout:30000,cwd:workingDirectory,
     env:{...process.env,PHP_INI_SCAN_DIR:''}});
   if(result.error||result.status!==0)throw Error('Installed PHP extension loading failed ('+result.status+'): '
     +(result.error?.message||'')+'\n'+(result.stdout||'').slice(-65536)+'\n'+(result.stderr||'').slice(-65536));
   const line=result.stdout.split(/\r?\n/).find(value=>value.startsWith('INSTALLED_PHP_PROBE '));
   assert.ok(line,result.stdout+'\n'+result.stderr);const report=JSON.parse(line.slice('INSTALLED_PHP_PROBE '.length));
-  assert.equal(report.directory,directory);assert.deepEqual(report.missing,[]);
+  assert.equal(report.directory,directory);
+  assert.equal(await fs.realpath(path.resolve(workingDirectory,report.directory)),await fs.realpath(path.join(native,'php/ext')));
+  assert.deepEqual(report.missing,[]);
   process.stdout.write('PASS every required packaged PHP extension loads through an explicit INI file from its Arabic path\n');
 }
 (async()=>{
