@@ -14,9 +14,6 @@ jobs:
   php-path-probe:
     runs-on: windows-latest
     timeout-minutes: 10
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,4 +37,7 @@ jobs:
           Move-Item -LiteralPath $archives[0].FullName -Destination $zip
           Expand-Archive -LiteralPath $zip -DestinationPath "$env:RUNNER_TEMP/php-probe" -Force
       - name: Probe the packaged PHP before rebuilding an installer
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: node .github/scripts/desktop-php-path-probe.cjs "${{ runner.temp }}/php-probe/runtime-bundle/php"
