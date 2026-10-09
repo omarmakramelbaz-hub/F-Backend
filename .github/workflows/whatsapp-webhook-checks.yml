@@ -108,10 +108,14 @@ jobs:
         run: python3 tests/whatsapp_allowlist_update_test.py
       - name: Verify additive inbox installation and rollback
         run: python3 tests/whatsapp_inbox_install_test.py
+      - name: Stage helpers under the test runner's ownership
+        run: |
+          mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
+          cp -R deployment tests /tmp/whatsapp-terminal-fixtures/
       - name: Verify additive order installation and rollback
-        run: python3 tests/whatsapp_orders_install_test.py
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_orders_install_test.py
       - name: Verify hidden independent API credential configuration
-        run: python3 tests/whatsapp_orders_config_test.py
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_orders_config_test.py
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
