@@ -177,7 +177,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Short Windows build path could not be created.' }
           try {
             Push-Location R:\
-            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi --config.nsis.packElevateHelper=false
+            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi --config.nsis.packElevateHelper=false --config.nsis.preCompressedFileExtensions=null
             if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
           } finally {
             Pop-Location
