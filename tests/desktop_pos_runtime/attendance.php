@@ -175,4 +175,14 @@ $notesOnly=employee('Notes before attendance');$s->dailyNotes(['branch'=>'f:100'
 $fromNotes=mark($notesOnly,'evening','check_in','2026-10-12')['attendance'];check($fromNotes['status']==='evening'&&$fromNotes['notes']==='ملاحظة قبل الحضور','notes-only unrecorded rows permit the first attendance selection');
 $s->dailyNotes(['branch'=>'f:100','employee_id'=>$notesOnly,'day'=>'2026-10-12','notes'=>'ملاحظة بعد الحضور','expected_revision'=>$fromNotes['revision'],'idempotency_key'=>attendanceKey()],$manager);$afterNotes=DB::table('branch_employee_days')->where('employee_id',$notesOnly)->first();check($afterNotes->notes==='ملاحظة بعد الحضور'&&$afterNotes->checked_in_at===$fromNotes['checked_in_at'],'daily notes remain editable without changing recorded attendance');
 clock('2026-10-13 20:00:00');$nextDay=mark($lockedArrival,'evening','check_in','2026-10-13')['attendance'];check($nextDay['status']==='evening'&&$nextDay['day']==='2026-10-13','a new operating day permits a new independent attendance selection');
+clock('2026-10-14 10:00:00');$rolloverEmployee=employee('Independent daily punches');mark($rolloverEmployee,'morning','check_in','2026-10-14');
+clock('2026-10-14 18:00:00');$previousDailyRow=mark($rolloverEmployee,'morning','check_out','2026-10-14')['attendance'];
+clock('2026-10-15 05:59:59');$priorDayListing=$s->listing(['branch'=>'f:100','search'=>'Independent daily punches'],$manager);
+check($priorDayListing['filters']['day']==='2026-10-14'&&$priorDayListing['items'][0]['attendance']['checked_out_at']===$previousDailyRow['checked_out_at'],'completed attendance remains visible until the last second before six');
+clock('2026-10-15 06:00:00');$newDayListing=$s->listing(['branch'=>'f:100','search'=>'Independent daily punches'],$manager);
+check($newDayListing['filters']['day']==='2026-10-15'&&$newDayListing['items'][0]['attendance']===null,'at six the same employee has no prior-day punch on the new daily row');
+$newDailyRow=mark($rolloverEmployee,'evening','check_in','2026-10-15')['attendance'];check($newDailyRow['status']==='evening'&&$newDailyRow['check_in']==='06:00:00','new day permits a different shift and a fresh arrival');
+clock('2026-10-15 18:00:00');mark($rolloverEmployee,'evening','check_out','2026-10-15');
+check((array)DB::table('branch_employee_days')->where('employee_id',$rolloverEmployee)->where('day','2026-10-14')->first()===$previousDailyRow,'new arrival and departure leave the previous daily record unchanged');
+$historyDaily=$s->listing(['branch'=>'f:100','search'=>'Independent daily punches','day'=>'2026-10-14'],$manager);check($historyDaily['items'][0]['attendance']['checked_out_at']===$previousDailyRow['checked_out_at'],'the previous attendance remains available through the date filter');
 Carbon::setTestNow();echo $count.' attendance checks passed against the original payroll service'.PHP_EOL;
