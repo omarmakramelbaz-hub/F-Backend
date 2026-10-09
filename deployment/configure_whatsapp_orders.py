@@ -215,7 +215,9 @@ def prompt_configuration(current, opener=open, hidden=getpass.getpass):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('error', getpass.GetPassWarning)
-            with opener('/dev/tty', 'r+', encoding='utf-8') as tty:
+            # A tty is nonseekable: text-mode r+ would construct BufferedRandom
+            # and fail before prompting. Separate handles work on real terminals.
+            with opener('/dev/tty', 'r', encoding='utf-8') as reader, opener('/dev/tty', 'w', encoding='utf-8') as tty:
                 key = hidden('OpenAI API key (hidden; Enter preserves existing key): ', stream=tty).strip()
                 if not key:
                     key = current.get('api_key')
@@ -232,7 +234,7 @@ def prompt_configuration(current, opener=open, hidden=getpass.getpass):
                 def ask(label):
                     tty.write(label)
                     tty.flush()
-                    answer = tty.readline(513)
+                    answer = reader.readline(513)
                     if not answer or len(answer) > 512 or not answer.endswith('\n'):
                         raise SafeError('SECURE_TERMINAL_INPUT_UNAVAILABLE')
                     return answer.strip()

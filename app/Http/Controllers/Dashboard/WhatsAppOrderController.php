@@ -90,7 +90,7 @@ class WhatsAppOrderController extends Controller
         });
     }
 
-    public function dispatch(Request $request, string $draft, WhatsAppInboxAccess $access)
+    public function submitOrder(Request $request, string $draft, WhatsAppInboxAccess $access)
     {
         return $this->respond($access, true, function ($actor) use ($request, $draft) {
             abort_unless($this->available(), 503);

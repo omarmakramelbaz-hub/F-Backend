@@ -12,5 +12,5 @@ Route::group(['prefix' => 'admin/whatsapp', 'middleware' => ['lang', 'IsAdmin']]
     Route::post('/conversations/{conversation}/orders/analyze', [WhatsAppOrderController::class, 'analyze'])
         ->whereNumber('conversation')->name('whatsapp-orders.analyze');
     Route::post('/orders/{draft}/quote', [WhatsAppOrderController::class, 'quote'])->whereNumber('draft')->name('whatsapp-orders.quote');
-    Route::post('/orders/{draft}/dispatch', [WhatsAppOrderController::class, 'dispatch'])->whereNumber('draft')->name('whatsapp-orders.dispatch');
+    Route::post('/orders/{draft}/dispatch', [WhatsAppOrderController::class, 'submitOrder'])->whereNumber('draft')->name('whatsapp-orders.dispatch');
 });

@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Exercise secret input, actual Linux publication, rollback, and cache isolation."""
 import contextlib
+import errno
 import importlib.util
 import io
 import json
 import os
 import pathlib
+import pty
+import select
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -143,9 +147,56 @@ class ConfigurationTests(unittest.TestCase):
             return WA_TOKEN if 'WhatsApp access token' in prompt else KEY
 
         configured = helper.prompt_configuration({'enabled': False, 'message_ceiling': 95, 'event_ceiling': 201}, opener, hidden)
-        self.assertEqual(observed, [('/dev/tty', 'r+')])
+        self.assertEqual(observed, [('/dev/tty', 'r'), ('/dev/tty', 'w')])
         self.assertEqual(configured, feature())
         self.assertNotIn(KEY, ''.join(tty.prompts))
+
+    def test_real_nonseekable_controlling_tty_hides_both_credentials(self):
+        child, descriptor = pty.fork()
+        if child == 0:
+            try:
+                configuration = helper.prompt_configuration({'enabled': False, 'message_ceiling': 95,
+                    'event_ceiling': 201, 'api_key': None, 'access_token': None})
+                print('REAL_TTY_PASS' if configuration == feature() else 'REAL_TTY_FAIL', flush=True)
+                os._exit(0)
+            except BaseException:
+                print('REAL_TTY_FAIL', flush=True)
+                os._exit(1)
+        output, sent, finished = b'', set(), False
+        deadline = time.monotonic() + 10
+        replies = [(b'OpenAI API key (hidden; Enter preserves existing key): ', KEY + '\n'),
+                   (b'WhatsApp access token (hidden; Enter preserves existing token): ', WA_TOKEN + '\n'),
+                   (b'Model [gpt-5.6-terra]: ', '\n'),
+                   (b'Automation actor ID (optional for human review; Enter leaves unset): ', '\n')]
+        try:
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([descriptor], [], [], 0.1)
+                if ready:
+                    try:
+                        chunk = os.read(descriptor, 4096)
+                    except OSError as error:
+                        if error.errno == errno.EIO:
+                            finished = True
+                            break
+                        raise
+                    if not chunk:
+                        finished = True
+                        break
+                    output += chunk
+                for index, (prompt, reply) in enumerate(replies):
+                    if index not in sent and prompt in output:
+                        os.write(descriptor, reply.encode())
+                        sent.add(index)
+            if not finished:
+                os.kill(child, 9)
+            _, status = os.waitpid(child, 0)
+        finally:
+            os.close(descriptor)
+        self.assertTrue(finished and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0,
+                        'Real controlling tty prompt failed')
+        self.assertIn(b'REAL_TTY_PASS', output)
+        self.assertNotIn(KEY.encode(), output)
+        self.assertNotIn(WA_TOKEN.encode(), output)
 
     def test_key_preserved_without_printing_and_cutover_preserved(self):
         tty = FakeTty(['\n', '23\n', '7, 8,7\n'])
