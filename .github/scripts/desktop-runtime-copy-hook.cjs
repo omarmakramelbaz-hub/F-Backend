@@ -33,8 +33,11 @@ module.exports=async context=>{
     +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
   const nsis=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
   const windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));
+  if(!windowsNsis.includes('SetCompressor /SOLID lzma'))throw Error('The reviewed preview compression directive is missing.');
+  // Use fast lossless preview compression within the pinned builder's compile timeout.
+  const previewNsis=windowsNsis.replace('SetCompressor /SOLID lzma','SetCompressor /SOLID zlib');
   const fileDirective='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
-  if(!windowsNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
+  if(!previewNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
   // makensis cannot open some original vendor files via the runner's long path.
   // Map only the already verified output to a free drive; preserve every byte.
   const drive='R:';
@@ -42,7 +45,7 @@ module.exports=async context=>{
   catch(error){if(error.code!=='ENOENT')throw error;}
   execFileSync('subst.exe',[drive,context.appOutDir],{windowsHide:true});
   await fs.writeFile(path.join(project,'dist/nsis-build-drive.json'),JSON.stringify({drive,directory:context.appOutDir})+'\n');
-  await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis.replace(fileDirective,'File /r "'+drive+'\\*"'));
+  await fs.writeFile(path.join(project,'installer-windows.nsi'),previewNsis.replace(fileDirective,'File /r "'+drive+'\\*"'));
   await fs.access(path.join(project,'dist/installer-version.nsh'));
   process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
 };
