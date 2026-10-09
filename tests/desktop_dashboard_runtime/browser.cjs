@@ -20,6 +20,8 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
       return route.continue({ headers: { ...route.request().headers(), 'X-Fasakhansta-Desktop': input.token } });
     });
     const page = await context.newPage();
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
     page.on('response', response => {
       if (response.url().includes('/dashboard/vendor/desktop-external/') && response.status() !== 200) missingAssets.add(response.url());
     });
@@ -65,9 +67,23 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
       const editor = CKEDITOR.replace(field, { language: 'ar' });
       editor.on('instanceReady', () => { clearTimeout(timeout); editor.destroy(); field.remove(); resolve(); });
     }));
-    await page.goto(input.origin + '/admin/contacts');
+    const contactResponse = await page.goto(input.origin + '/admin/contacts');
     const contactCommand = page.locator('form input[name="_desktop_command"]').first();
-    await contactCommand.waitFor({ state: 'attached' });
+    try {
+      assert.equal(contactResponse.status(), 200, 'The original contact index must render successfully.');
+      await contactCommand.waitFor({ state: 'attached' });
+    } catch (error) {
+      // Synthetic CI pages only. Capture state, never form values or session credentials.
+      const state = await page.evaluate(() => ({
+        path: location.pathname, local: document.body?.dataset.dashboardLocal,
+        forms: [...document.forms].map(form => ({ path: new URL(form.action).pathname,
+          method: form.querySelector('[name="_method"]')?.value || form.method,
+          journaled: Boolean(form.querySelector('[name="_desktop_command"]')) })),
+        text: document.body?.innerText.slice(-1500)
+      }));
+      process.stderr.write('CONTACT_FORM_DIAGNOSTIC '+JSON.stringify({status:contactResponse.status(),...state,pageErrors})+'\n');
+      throw error;
+    }
     const contactUuid = await contactCommand.inputValue();
     assert.match(contactUuid, /^[a-f0-9-]{36}$/i);
     await page.evaluate(() => document.querySelector('form input[name="_desktop_command"]').form.append(document.createElement('span')));
