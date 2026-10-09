@@ -9,8 +9,11 @@ async function verifyPhpExtensions(native,root) {
   assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
   const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
   const directory=path.join(native,'php/ext').replaceAll('\\','/'),ini=path.join(root,'installed-php-probe.ini');
-  await fs.writeFile(ini,'extension_dir="'+directory+'"\ndisplay_startup_errors=1\ndisplay_errors=1\nlog_errors=0\n'
-    +extensions.map(name=>'extension='+name+'\n').join(''));
+  for(const name of extensions)await fs.access(path.join(native,'php/ext/php_'+name+'.dll'));
+  // Retain the packaged charset and module settings, as the real supervisor
+  // does, while binding extension lookup to the actual copied directory.
+  const base=await fs.readFile(path.join(native,'php/php.ini'),'utf8');
+  await fs.writeFile(ini,base+'\nextension_dir="'+directory+'"\ndisplay_startup_errors=1\ndisplay_errors=1\nlog_errors=0\n');
   const code='$wanted=json_decode('+JSON.stringify(JSON.stringify(extensions))+',true);'
     +'$missing=array_values(array_filter($wanted,fn($name)=>!extension_loaded($name)));'
     +'echo "INSTALLED_PHP_PROBE ".json_encode(["directory"=>ini_get("extension_dir"),"loaded"=>get_loaded_extensions(),"missing"=>$missing]).PHP_EOL;'
