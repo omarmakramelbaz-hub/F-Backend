@@ -87,6 +87,8 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          node ../current-source/.github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           # The preview preserves long installation paths and every verified runtime byte.
           Copy-Item ../current-source/.github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
           try {

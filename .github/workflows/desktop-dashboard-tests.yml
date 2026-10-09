@@ -171,6 +171,8 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          node .github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
           try {
             npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
