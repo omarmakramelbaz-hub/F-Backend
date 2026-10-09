@@ -170,6 +170,12 @@ try{
         $browserExit=proc_close($browser);
         if($browserExit<0&&!$browserTimedOut)$browserExit=$browserStatus['exitcode'];
         echo file_get_contents($browserOutput);fwrite(STDERR,file_get_contents($browserErrors));
+        if($browserTimedOut||$browserExit!==0){
+            $webStatus=proc_get_status($web);
+            fwrite(STDERR,'BROWSER_WEB_PROCESS '.json_encode(array_intersect_key($webStatus,array_flip(['running','exitcode','signaled','termsig']))).PHP_EOL);
+            $webLog=file_get_contents($profile.'/web.log');
+            fwrite(STDERR,'BROWSER_WEB_LOG_TAIL'.PHP_EOL.substr($webLog,-16000).PHP_EOL);
+        }
         verify(!$browserTimedOut&&$browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
     }
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
