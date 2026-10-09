@@ -27,12 +27,22 @@ const watchdog = setTimeout(() => {
     const page = await context.newPage();
     const pageErrors = [];
     const scriptLoads = [];
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) process.stderr.write('BROWSER_NAVIGATION '+JSON.stringify({stage,path:new URL(frame.url()).pathname})+'\n');
+    });
     page.on('requestfailed', request => {
-      if (request.resourceType() === 'script') scriptLoads.push({path:new URL(request.url()).pathname,error:request.failure()?.errorText});
+      if (request.resourceType() === 'script') {
+        const failure={stage,path:new URL(request.url()).pathname,error:request.failure()?.errorText};
+        scriptLoads.push(failure);process.stderr.write('BROWSER_SCRIPT_REQUEST_FAILED '+JSON.stringify(failure)+'\n');
+      }
     });
     page.on('pageerror', error => { pageErrors.push(error.message); process.stderr.write('BROWSER_SCRIPT_ERROR '+error.stack+'\n'); });
     page.on('response', response => {
-      if (response.request().resourceType() === 'script') scriptLoads.push({path:new URL(response.url()).pathname,status:response.status(),type:response.headers()['content-type']});
+      if (response.request().resourceType() === 'script') {
+        const loaded={stage,path:new URL(response.url()).pathname,status:response.status(),type:response.headers()['content-type']};
+        scriptLoads.push(loaded);
+        if(response.status()!==200)process.stderr.write('BROWSER_SCRIPT_RESPONSE '+JSON.stringify(loaded)+'\n');
+      }
       if (new URL(response.url()).origin === input.origin && response.url().includes('/js/desktop-') && response.status() !== 200)
         process.stderr.write('BROWSER_JOURNAL_SCRIPT_RESPONSE '+JSON.stringify({path:new URL(response.url()).pathname,status:response.status()})+'\n');
     });
@@ -127,6 +137,7 @@ const watchdog = setTimeout(() => {
     await singleHistoryField.waitFor({ state: 'attached' });
     assert.match(await singleHistoryField.evaluate(field => field.form.querySelector('[name="_desktop_command"]').value), /^[a-f0-9-]{36}$/i);
     process.stdout.write('PASS original notification history forms retain their read snapshots and operation UUID through page reload\n');
+    stage='category index';
     await page.goto(input.origin + '/admin/categorys');
     assert.equal(await page.evaluate(() => typeof window.jQuery.fn.DataTable), 'function');
     const bulkNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
