@@ -2,14 +2,14 @@ name: Verify installer from tested dashboard runtime
 
 on:
   push:
-    branches: ['codex/php-jit-verification-20261009']
+    branches: ['codex/runtime-ca-portability-20261009']
     paths: ['.github/workflows/desktop-dashboard-installer-verify.yml']
   workflow_dispatch:
     inputs:
       runtime_run_id:
         description: 'Run whose original-runtime job passed and retained the exact runtime'
         required: true
-        default: '37989342736'
+        default: '37991914018'
         type: string
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '37989342736' }}
+      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '37991914018' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +87,7 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          # The preview uses fast lossless compression; all runtime bytes stay verified.
           Copy-Item ../current-source/.github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
           try {
             npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
