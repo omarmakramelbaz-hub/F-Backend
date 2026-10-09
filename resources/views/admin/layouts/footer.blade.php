@@ -194,7 +194,7 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
-<script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
+<script src="{{ url('/dashboard') }}/dist/js/adminlte.js?v={{ filemtime(public_path('dashboard/dist/js/adminlte.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-operating-day.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-operating-day.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-expense-badge.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-expense-badge.js')) }}"></script>

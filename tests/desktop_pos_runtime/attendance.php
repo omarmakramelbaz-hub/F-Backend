@@ -185,4 +185,15 @@ $newDailyRow=mark($rolloverEmployee,'evening','check_in','2026-10-15')['attendan
 clock('2026-10-15 18:00:00');mark($rolloverEmployee,'evening','check_out','2026-10-15');
 check((array)DB::table('branch_employee_days')->where('employee_id',$rolloverEmployee)->where('day','2026-10-14')->first()===$previousDailyRow,'new arrival and departure leave the previous daily record unchanged');
 $historyDaily=$s->listing(['branch'=>'f:100','search'=>'Independent daily punches','day'=>'2026-10-14'],$manager);check($historyDaily['items'][0]['attendance']['checked_out_at']===$previousDailyRow['checked_out_at'],'the previous attendance remains available through the date filter');
+$rewardPayload=['branch'=>'f:100','employee_id'=>$rolloverEmployee,'day'=>'2026-10-15','kind'=>'bonus','amount'=>'75.00','reason'=>'مكافأة أداء','idempotency_key'=>attendanceKey()];
+$rewardCount=DB::table('branch_employee_entries')->count();$commandCount=DB::table('branch_operation_commands')->count();
+denied(fn()=>$s->entry($rewardPayload,$manager),403,'branch manager cannot add a reward through a direct request');
+denied(fn()=>$s->entry($rewardPayload,AttendanceTestUser::find(2)),403,'administrative admin cannot add a reward through a direct request');
+check(DB::table('branch_employee_entries')->count()===$rewardCount&&DB::table('branch_operation_commands')->count()===$commandCount,'rejected rewards leave both the ledger and command history untouched');
+$ownerReward=$s->entry($rewardPayload,$owner);$s->entry($rewardPayload,$owner);
+check(DB::table('branch_employee_entries')->where('employee_id',$rolloverEmployee)->where('kind','bonus')->count()===1&&$ownerReward['entry']['amount_cents']===7500,'Owner can add one reward with safe replay');
+denied(fn()=>$s->entry($rewardPayload,$manager),403,'an Owner reward cannot be replayed by a branch manager');
+foreach(['deduction','advance'] as $kind)$s->entry(array_replace($rewardPayload,['kind'=>$kind,'amount'=>'1.00','idempotency_key'=>attendanceKey()]),$manager);
+check(DB::table('branch_employee_entries')->where('employee_id',$rolloverEmployee)->where('source_key',null)->whereIn('kind',['deduction','advance'])->count()===2,'branch deduction and advance permissions remain available');
+foreach([$owner,$manager,AttendanceTestUser::find(2)] as $actor){$rewardListing=$s->listing(['branch'=>'f:100','search'=>'Independent daily punches'],$actor);check($rewardListing['can_add_bonus']===($actor->id===1)&&$rewardListing['items'][0]['daily']['bonus']['amount']==='75.00','reward controls follow Owner permission while existing amounts remain visible to actor '.$actor->id);}
 Carbon::setTestNow();echo $count.' attendance checks passed against the original payroll service'.PHP_EOL;
