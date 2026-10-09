@@ -1,11 +1,36 @@
 'use strict';
 // Real NSIS installation in a disposable Windows directory; no production account or database.
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
-const {execFileSync}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
+const {execFileSync,spawnSync}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
 const packaging=require('../installer-runtime.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function verifyPhpExtensions(native,root) {
+  const php=path.join(native,'php/php.exe');
+  assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
+  const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
+  const directory=path.join(native,'php/ext').replaceAll('\\','/'),ini=path.join(root,'installed-php-probe.ini');
+  await fs.writeFile(ini,'extension_dir="'+directory+'"\ndisplay_startup_errors=1\ndisplay_errors=1\nlog_errors=0\n'
+    +extensions.map(name=>'extension='+name+'\n').join(''));
+  const code='$wanted=json_decode('+JSON.stringify(JSON.stringify(extensions))+',true);'
+    +'$missing=array_values(array_filter($wanted,fn($name)=>!extension_loaded($name)));'
+    +'echo "INSTALLED_PHP_PROBE ".json_encode(["directory"=>ini_get("extension_dir"),"loaded"=>get_loaded_extensions(),"missing"=>$missing]).PHP_EOL;'
+    +'exit(count($missing)?1:0);';
+  const result=spawnSync(php,['-c',ini,'-r',code],{encoding:'utf8',windowsHide:true,timeout:30000,
+    env:{...process.env,PHP_INI_SCAN_DIR:''}});
+  if(result.error||result.status!==0)throw Error('Installed PHP extension loading failed ('+result.status+'): '
+    +(result.error?.message||'')+'\n'+(result.stdout||'').slice(-65536)+'\n'+(result.stderr||'').slice(-65536));
+  const line=result.stdout.split(/\r?\n/).find(value=>value.startsWith('INSTALLED_PHP_PROBE '));
+  assert.ok(line,result.stdout+'\n'+result.stderr);const report=JSON.parse(line.slice('INSTALLED_PHP_PROBE '.length));
+  assert.equal(report.directory,directory);assert.deepEqual(report.missing,[]);
+  process.stdout.write('PASS every required packaged PHP extension loads through an explicit INI file from its Arabic path\n');
+}
 (async()=>{
   assert.equal(process.platform,'win32','Actual installer checks require Windows.');
+  if(process.argv[2]==='--php-path-preflight') {
+    const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-php-preflight-')),native=path.join(root,'تجربة مكتبات PHP');
+    try {await fs.cp(path.join(path.resolve(process.argv[3]),'php'),path.join(native,'php'),{recursive:true});await verifyPhpExtensions(native,root);}
+    finally {await fs.rm(root,{recursive:true,force:true});}return;
+  }
   const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/Fasakhansta-Dashboard-Preview-Setup.exe'));
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-installer-')),installed=path.join(root,'تجربة البرنامج'),profile=path.join(root,'retained-user-data');
   try {
@@ -19,12 +44,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     for(const [name,value]of Object.entries(receipt.files))assert.equal(runtime.files[name],value,name+' changed during actual installation');
     process.stdout.write('PASS real Windows NSIS installation retains every original application, PHP and MariaDB byte in an Arabic custom path\n');
     const native=path.join(installed,'resources/dashboard-runtime');
-    const php=path.join(native,'php/php.exe');
-    assert.match(execFileSync(php,['-n','-v'],{encoding:'utf8',windowsHide:true}),/PHP 8\.2\./);
-    const extensions=['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'];
-    const phpArgs=['-n','-d','extension_dir="'+path.join(native,'php/ext').replaceAll('\\','/')+'"',...extensions.flatMap(name=>['-d','extension='+name]),'-r',
-      'foreach('+JSON.stringify(extensions).replace('[','array(').replace(']',')')+' as $module) { if (!extension_loaded($module)) {fwrite(STDERR,$module); exit(1);} } echo "installed extensions ready";'];
-    assert.equal(execFileSync(php,phpArgs,{encoding:'utf8',windowsHide:true}),'installed extensions ready');
+    await verifyPhpExtensions(native,root);
     assert.match(execFileSync(path.join(native,'mariadb/bin/mariadbd.exe'),['--no-defaults','--version'],{encoding:'utf8',windowsHide:true}),/11\.4\.13/);
     process.stdout.write('PASS installed Windows PHP and MariaDB executables start from their packaged paths\n');
     const probe=path.join(root,'packaged-ledger-probe.cjs');

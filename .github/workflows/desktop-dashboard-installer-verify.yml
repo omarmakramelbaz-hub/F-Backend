@@ -91,6 +91,9 @@ jobs:
           # Keep the pinned checkout clean and run every installed assertion
           # from the current CI fixture; this sidecar is never packaged.
           Copy-Item current-source/desktop-pos/test/installer-native.cjs b/desktop-pos/test/installer-native-current.cjs
+      - name: Check packaged PHP modules in an Arabic path before construction
+        working-directory: b
+        run: node desktop-pos/test/installer-native-current.cjs --php-path-preflight desktop-pos/runtime-bundle
       - name: Build the installer with exact source and dependency verification
         working-directory: b
         shell: pwsh

@@ -165,6 +165,8 @@ jobs:
           if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
           if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
           if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
+      - name: Check packaged PHP modules in an Arabic path before construction
+        run: node desktop-pos/test/installer-native.cjs --php-path-preflight desktop-pos/runtime-bundle
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |
