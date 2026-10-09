@@ -8,7 +8,7 @@
         const url = new URL(form.action, location.href);
         const method = (form.querySelector('[name="_method"]')?.value || form.method).toUpperCase();
         return url.origin === location.origin && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-            && (/^\/admin\/(?:areas|categorys|products|question_answers|features)(?:\/\d+)?\/?$/.test(url.pathname)
+            && (/^\/admin\/(?:areas|categorys|products|question_answers|features|contracts)(?:\/\d+)?\/?$/.test(url.pathname)
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
     const prepare = form => {
