@@ -1,0 +1,41 @@
+name: WhatsApp webhook checks
+
+on:
+  push:
+    branches: [codex/whatsapp-webhook-20261009]
+  pull_request:
+    paths:
+      - 'app/Support/WhatsAppWebhookProtocol.php'
+      - 'app/Http/Controllers/Api/V1/WhatsAppWebhookController.php'
+      - 'config/whatsapp.php'
+      - 'routes/whatsapp.php'
+      - 'database/migrations/*whatsapp_webhook*'
+      - 'deployment/*whatsapp_webhook*'
+      - 'tests/whatsapp_webhook*'
+      - '.github/workflows/whatsapp-webhook-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    container: php:8.2-cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check PHP syntax
+        run: |
+          php -l app/Support/WhatsAppWebhookProtocol.php
+          php -l app/Http/Controllers/Api/V1/WhatsAppWebhookController.php
+          php -l config/whatsapp.php
+          php -l routes/whatsapp.php
+          php -l routes/api.php
+          php -l database/migrations/2026_10_09_200000_create_whatsapp_webhook_events_table.php
+          php -l deployment/whatsapp_webhook_setup.php
+          php -l tests/whatsapp_webhook_protocol_test.php
+      - name: Check installer syntax
+        run: bash -n deployment/install_whatsapp_webhook.sh
+      - name: Exercise Meta protocol and account isolation
+        run: php tests/whatsapp_webhook_protocol_test.php
