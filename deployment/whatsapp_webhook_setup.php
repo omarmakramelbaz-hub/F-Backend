@@ -30,7 +30,8 @@ try {
     if ($mode === 'configure') {
         $path = $root.'/.env';
         $content = file_get_contents($path);
-        $values = \Dotenv\Dotenv::parse($content);
+        // createMutable/load is supported by the older dotenv versions used with Laravel 8.
+        $values = \Dotenv\Dotenv::createMutable($root)->load();
         $secret = trim(stream_get_contents(STDIN));
         if ($secret !== '' && preg_match('/\A[a-fA-F0-9]{32}\z/', $secret) !== 1) {
             throw new RuntimeException('Expected the 32-character Meta App Secret');

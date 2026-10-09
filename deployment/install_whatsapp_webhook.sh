@@ -10,7 +10,7 @@ cd "$app_root"
 app_root=$(pwd -P)
 [[ -f vendor/autoload.php && -f bootstrap/app.php && -f routes/api.php && -f .env ]] || { echo 'Incomplete Laravel application.' >&2; exit 1; }
 [[ -O .env && -O routes/api.php ]] || { echo 'The current user must own .env and routes/api.php.' >&2; exit 1; }
-git cat-file -e "${release_commit}^{commit}"
+git -c safe.directory="$app_root" cat-file -e "${release_commit}^{commit}"
 
 files=(
     app/Support/WhatsAppWebhookProtocol.php
@@ -49,7 +49,7 @@ trap rollback EXIT
 
 for file in "${files[@]}"; do
     mkdir -p "$backup/staged/$(dirname "$file")"
-    git show "${release_commit}:${file}" > "$backup/staged/$file"
+    git -c safe.directory="$app_root" show "${release_commit}:${file}" > "$backup/staged/$file"
     php -l "$backup/staged/$file" >/dev/null
     if [[ -L "$file" ]] || { [[ -e "$file" ]] && ! cmp -s "$file" "$backup/staged/$file"; }; then
         echo "Existing file differs; stopped for review: $file" >&2
