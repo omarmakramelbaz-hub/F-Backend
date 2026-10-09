@@ -87,7 +87,32 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
-          npm run build:win --prefix desktop-pos
+          # Electron's default file exclusions must not remove reviewed runtime
+          # files. Restore exact receipt bytes, then run the original strict hook.
+          @'
+          const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+          const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+          module.exports=async context=>{
+            const project=context.packager.projectDir;
+            const receipt=JSON.parse(await fs.readFile(path.join(project,'dist/runtime-package.json'),'utf8'));
+            const source=path.join(project,'runtime-bundle'),target=path.join(context.appOutDir,'resources/dashboard-runtime');
+            const verified=await require('./installer-runtime.cjs').verifyBundle(source);
+            if(JSON.stringify(Object.keys(verified.files).sort())!==JSON.stringify(Object.keys(receipt.files).sort())
+                ||Object.keys(receipt.files).some(name=>verified.files[name]!==receipt.files[name]))throw Error('Runtime changed after its source review.');
+            let restored=0;
+            for(const [name,expected]of Object.entries(receipt.files)){
+              const output=path.join(target,name);let current;
+              try{current=hash(await fs.readFile(output));}catch(error){if(error.code!=='ENOENT')throw error;}
+              if(current===expected)continue;
+              const input=path.join(source,name),bytes=await fs.readFile(input);
+              if(hash(bytes)!==expected)throw Error('Runtime receipt mismatch: '+name);
+              await fs.mkdir(path.dirname(output),{recursive:true});await fs.copyFile(input,output);restored++;
+            }
+            process.stdout.write('Restored '+restored+' exact runtime files before complete installed-byte verification.\n');
+            await require('./build-uninstaller.cjs')(context);
+          };
+          '@ | Set-Content desktop-pos/runtime-copy-hook.cjs -Encoding utf8
+          npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual installed dashboard recovery and retained unsynced data
         working-directory: b
