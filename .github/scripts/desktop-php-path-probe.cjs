@@ -24,13 +24,16 @@ const assert = require('node:assert/strict');
       ['unquoted-command-line', ['-n','-d','extension_dir=' + extensions, ...modules.flatMap(name=>['-d','extension=' + name])]],
       ['quoted-command-line', ['-n','-d','extension_dir=' + quoted, ...modules.flatMap(name=>['-d','extension=' + name])]],
       ['quoted-configuration-file', ['-c', ini]],
+      ['relative-extension-directory', ['-n','-d','extension_dir=ext', ...modules.flatMap(name=>['-d','extension=' + name])], phpRoot],
+      ['verified-source-control', ['-n','-d','extension_dir="' + path.join(source,'ext').replaceAll('\\','/') + '"', ...modules.flatMap(name=>['-d','extension=' + name])]],
     ];
-    const results = variants.map(([name,args]) => {
-      const result = spawnSync(executable, [...args,'-r',code], {encoding:'utf8',windowsHide:true,timeout:30000});
+    const results = variants.map(([name,args,cwd]) => {
+      const result = spawnSync(executable, [...args,'-r',code], {encoding:'utf8',windowsHide:true,timeout:30000,cwd});
       let settings; try { settings = JSON.parse(result.stdout.slice(result.stdout.lastIndexOf('{'))); } catch {}
       return {name,status:result.status,settings,allModules:settings?.modules?.length === modules.length && settings.modules.every(Boolean),stdout:result.stdout,stderr:result.stderr,error:result.error?.message};
     });
     process.stdout.write(JSON.stringify({modules,results},null,2) + '\n');
-    assert.equal(results.find(result=>result.name==='quoted-configuration-file').allModules, true, 'The quoted configuration used by the application must load every bundled extension from an Arabic path.');
+    assert.equal(results.find(result=>result.name==='verified-source-control').allModules, true, 'Every extension must load from the independently verified source.');
+    assert.equal(results.find(result=>result.name==='relative-extension-directory').allModules, true, 'Every bundled extension must load from the actual Arabic PHP directory.');
   } finally { await fs.rm(root,{recursive:true,force:true}); }
 })().catch(error=>{process.stderr.write(error.stack + '\n');process.exitCode=1;});
