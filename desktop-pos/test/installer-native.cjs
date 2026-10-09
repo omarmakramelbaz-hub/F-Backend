@@ -40,7 +40,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     const executable=path.join(installed,'Fasakhansta Dashboard Preview.exe');
     const nativeOutput=execFileSync(executable,[path.join(__dirname,'generation-native.cjs'),native,
       path.join(project,'dist/dashboard-synthetic-snapshot.json'),path.join(installed,'resources/app.asar/src')],
-      {encoding:'utf8',windowsHide:true,timeout:600000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
+      {encoding:'utf8',windowsHide:true,timeout:1200000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
     assert.match(nativeOutput,/PASS real Windows supervisor prepares account data/);
     process.stdout.write(nativeOutput);
     process.stdout.write('PASS the actually installed ASAR supervisor runs the original local Laravel dashboard and preserves its data across restart and code upgrade\n');

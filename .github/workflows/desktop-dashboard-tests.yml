@@ -60,6 +60,7 @@ jobs:
           $phpRoot = Split-Path (Get-Command php).Source
           $bundle = "$env:RUNNER_TEMP/dashboard-bundle"
           $env:DESKTOP_TEST_SNAPSHOT_FILE = "$env:RUNNER_TEMP/dashboard-synthetic-snapshot.json"
+          "DESKTOP_TEST_SNAPSHOT_FILE=$env:DESKTOP_TEST_SNAPSHOT_FILE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
