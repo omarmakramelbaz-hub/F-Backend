@@ -24,7 +24,13 @@ class PosBranchPrinting
         $pending=(clone $jobs)->where('p.status','pending')->orderBy('p.id')->limit(10)->get(['p.id','p.ticket_id'])->map(fn($r)=>['id'=>(int)$r->id,'ticket_id'=>(int)$r->ticket_id])->all();
         $attention=(clone $jobs)->where(function($q){$q->where('p.status','failed')->orWhere(function($q){$q->where('p.status','claimed')->where('p.claimed_at','<',now('UTC')->subMinutes(2));});})->count();
         $latest=DB::table('pos_service_tickets')->where('branch',$v['branch'])->where('channel','phone')->max('id');
-        return ['success'=>true,'branch'=>$v['branch'],'jobs'=>$pending,'attention'=>$attention,'latest_ticket_id'=>(int)$latest];
+        // Alert the receiving branch for active call-center orders, independently of printing.
+        $incoming=DB::table('pos_service_tickets as t')->join('users as u','u.id','=','t.actor_id')
+            ->where('t.branch',$v['branch'])->where('t.channel','phone')->where('t.payment_status','unpaid')
+            ->whereIn('t.status',['new','preparing'])->where('u.account_type','admin')
+            ->where(function($q){$q->whereNull('u.owner_resturant_id')->orWhere('u.owner_resturant_id',0);})
+            ->orderByDesc('t.id')->limit(100)->pluck('t.id')->map(fn($id)=>(int)$id)->all();
+        return ['success'=>true,'branch'=>$v['branch'],'jobs'=>$pending,'attention'=>$attention,'latest_ticket_id'=>(int)$latest,'incoming_ticket_ids'=>$incoming];
     }
     public function claim(array $values,$actor): array
     {
