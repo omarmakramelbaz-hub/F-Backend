@@ -12,6 +12,7 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'read_notify','mark_all_as_read',
         'dashboard-inbox.notifications.read',
         'takeaway.checkout','takeaway.movements','takeaway.settings',
         'dining.save','dining.action','dining.settle','dining.table-save','dining.settings',

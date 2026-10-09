@@ -160,8 +160,8 @@ class HomeController extends Controller
   }  
     public function notifications(){
         $data = Auth::guard('admin')->user()->notifications()->select('type','id','data','created_at','read_at')->orderBy('created_at','DESC')->get();
-
-        return view('admin.notifications', compact('data'));
+        $desktopNotificationGeneration = app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(Auth::guard('admin')->user());
+        return view('admin.notifications', compact('data','desktopNotificationGeneration'));
     }
 
 
@@ -197,9 +197,7 @@ class HomeController extends Controller
 
     public function read($id){
         $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
-        $data->update([
-            'read_at' => now(),
-        ]);
+        if(!request()->attributes->has('_desktop_notification_ids')||$data->read_at===null)$data->update(['read_at'=>now()]);
         
     //   if(isset($data->data['data']['order_id'])){
     //       return redirect()->route('orders.show',$data->data['data']['order_id']);
@@ -208,7 +206,9 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
+       $query=auth('admin')->user()->unreadNotifications();
+       if(request()->attributes->has('_desktop_notification_ids'))$query->whereIn('id',request()->attributes->get('_desktop_notification_ids'));
+       $query->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 

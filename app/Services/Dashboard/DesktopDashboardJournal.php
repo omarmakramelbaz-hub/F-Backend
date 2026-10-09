@@ -47,7 +47,9 @@ class DesktopDashboardJournal
             $old = DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$command)->lockForUpdate()->first();
             if ($old) {
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');
-                return $this->saved($old->local_result_cipher)['result'];
+                $result=$this->saved($old->local_result_cipher)['result'];
+                if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+                return $result;
             }
             foreach ($dependencies as $dependency) {
                 abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$dependency)->exists(),409,'العملية السابقة لم تُحفظ؛ لا يمكن حفظ عملية تابعة لها.');
@@ -56,6 +58,7 @@ class DesktopDashboardJournal
             if (!is_array($result)) throw new \LogicException('A journaled business operation must return its persisted result.');
             // Collections and date objects must have the same JSON representation on first reply and replay.
             $result=json_decode($this->json($result),true,512,JSON_THROW_ON_ERROR);
+            if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
             $references=$this->references->capture($device,$command,$route,$result,$payload,$actor);
             $now = now('UTC');
             DB::table('desktop_dashboard_commands')->insert([
@@ -68,9 +71,11 @@ class DesktopDashboardJournal
         });
     }
 
-    public function pending(string $device, int $limit=100): array
+    public function pending(string $device): array
     {
-        $rows=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('status','!=','acknowledged')->orderBy('sequence')->limit(min(100,max(1,$limit)))->get();
+        // Only the first command can be sent. Later encrypted attachments can be
+        // several MiB each and must stay in the database until their own turn.
+        $rows=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('status','!=','acknowledged')->orderBy('sequence')->limit(1)->get();
         $ready=[];
         foreach ($rows as $row) {
             // Stop at the first conflict or dependency: never move a later closing ahead of its receipts.

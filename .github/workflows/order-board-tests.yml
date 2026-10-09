@@ -207,7 +207,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8.0
+        # Same Docker Official Image digest that passed run 37990014994.
+        # ECR Public avoids Docker Hub's shared unauthenticated pull quota.
+        image: public.ecr.aws/docker/library/mysql@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
         env:
           MYSQL_ROOT_PASSWORD: test_password
           MYSQL_DATABASE: takeaway_test
@@ -241,4 +243,5 @@ jobs:
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
         run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
+
 

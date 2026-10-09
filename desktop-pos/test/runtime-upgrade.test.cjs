@@ -29,7 +29,9 @@ test('a matching installed code upgrade is retained and verified without changin
   assert.equal(context.manifest.sourceRevision,f.next.manifest.sourceRevision);assert.ok(source.same(context.sourceFingerprint,f.next.manifest.sourceFingerprint));
   assert.notEqual(context.bundle,f.next.bundle);assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
   assert.equal(f.records.get('prepared').database,'retained business database');
-  assert.ok((await fs.readFile(context.phpIni,'utf8')).includes(path.join(context.bundle,'php/ext').replaceAll('\\','/')));
+  const ini=await fs.readFile(context.phpIni,'utf8');
+  assert.ok(ini.includes(path.join(context.bundle,'php/ext').replaceAll('\\','/')));
+  for(const setting of ['upload_max_filesize=5M','post_max_size=12M','memory_limit=256M'])assert.ok(ini.includes(setting));
 });
 test('changed MariaDB executables or DLLs cannot stage installed code against the retained database directory',async t=>{
   const f=await fixture(t),different=await f.make('c'.repeat(40),'new business rule','changed database binary');f.runtime.installedBundle=different.bundle;

@@ -6,6 +6,9 @@ on:
   pull_request:
     paths:
       - 'app/Services/Dashboard/DesktopDashboard*.php'
+      - 'app/Services/Dashboard/CategoryOrdering.php'
+      - 'app/Http/Controllers/Dashboard/CategoryController.php'
+      - 'routes/admin.php'
       - 'app/Http/Middleware/DesktopDashboardJournal.php'
       - 'app/Exceptions/Handler.php'
       - 'desktop/**'
@@ -16,6 +19,7 @@ on:
       - 'resources/views/admin/**'
       - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
+      - '.github/scripts/desktop-runtime-copy-hook.cjs'
 
 permissions:
   contents: read
@@ -23,7 +27,7 @@ permissions:
 jobs:
   original-runtime:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -36,7 +40,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install pinned test application dependencies
-        # Test-only advisory override for the unchanged legacy stack. This job produces no installer.
+        # Legacy preview only: preserve audit findings; a normal release requires a clean reviewed audit.
         run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist --no-security-blocking
       - name: Install pinned browser test dependency
         shell: pwsh
@@ -48,7 +52,7 @@ jobs:
         shell: pwsh
         run: |
           $archive = "$env:RUNNER_TEMP/mariadb.zip"
-          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive
+          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive -TimeoutSec 300
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2') { throw 'MariaDB archive hash differs.' }
           Expand-Archive $archive "$env:RUNNER_TEMP/mariadb"
           $server = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
@@ -57,6 +61,7 @@ jobs:
           $phpRoot = Split-Path (Get-Command php).Source
           $bundle = "$env:RUNNER_TEMP/dashboard-bundle"
           $env:DESKTOP_TEST_SNAPSHOT_FILE = "$env:RUNNER_TEMP/dashboard-synthetic-snapshot.json"
+          "DESKTOP_TEST_SNAPSHOT_FILE=$env:DESKTOP_TEST_SNAPSHOT_FILE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
@@ -77,9 +82,8 @@ jobs:
             }
             if (!$ready) { throw 'Disposable database readiness timed out.' }
             foreach ($fixture in @('run.php', 'legacy.php')) {
-              $fixtureOutput = & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1
+              & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
               $fixtureExit = $LASTEXITCODE
-              $fixtureOutput | Write-Output
               $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
@@ -87,8 +91,112 @@ jobs:
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
-          node desktop-pos/test/generation-native.cjs $bundle $env:DESKTOP_TEST_SNAPSHOT_FILE
+      - name: Verify native dashboard preparation and restart recovery
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard-bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE
           if ($LASTEXITCODE -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
         run: node --test test/*.test.cjs
+      - name: Assemble and audit the installer runtime
+        shell: pwsh
+        run: |
+          $installerPhpRoot = Split-Path (Get-Command php).Source
+          $installerMariaExecutable = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
+          $installerMariaRoot = Split-Path (Split-Path $installerMariaExecutable)
+          node desktop-pos/build-runtime.cjs . desktop-pos/runtime-bundle desktop-pos/runtime $installerPhpRoot $installerMariaRoot $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Installer source packaging failed.' }
+          New-Item -ItemType Directory -Path desktop-pos/dist -Force | Out-Null
+          Copy-Item $env:DESKTOP_TEST_SNAPSHOT_FILE desktop-pos/dist/dashboard-synthetic-snapshot.json
+          $auditJson = composer audit --locked --no-dev --format=json --working-dir=desktop-pos/runtime | Out-String
+          $auditExitCode = $LASTEXITCODE
+          if ($auditExitCode -notin @(0, 1, 2, 3)) { throw 'Runtime advisory review could not complete.' }
+          $audit = @{ format = 1; exitCode = $auditExitCode; lockSha256 = (Get-FileHash desktop-pos/runtime/composer.lock -Algorithm SHA256).Hash.ToLowerInvariant(); result = ($auditJson | ConvertFrom-Json) }
+          $audit | ConvertTo-Json -Depth 64 | Set-Content desktop-pos/dist/runtime-audit.json -Encoding utf8
+          # Audit findings are retained above and checked by the release gate. GitHub's
+          # PowerShell wrapper must not treat the handled advisory exit as a script failure.
+          $global:LASTEXITCODE = 0
+      - name: Retain the tested runtime for the installer job
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-dashboard-runtime
+          path: |
+            desktop-pos/runtime-bundle
+            desktop-pos/dist/runtime-audit.json
+            desktop-pos/dist/dashboard-synthetic-snapshot.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+  windows-installer:
+    needs: original-runtime
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Restore the exact runtime tested by the original application job
+        # Download bytes first: v4's streamed extraction repeatedly failed with
+        # the 48,821-file runtime under the runner's forced Node 24 environment.
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: tested-dashboard-runtime
+          path: ${{ runner.temp }}/installer-runtime-download
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Extract the verified runtime archive using Windows
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem "$env:RUNNER_TEMP/installer-runtime-download" -File)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one verified runtime archive.' }
+          $runtimeZip = "$env:RUNNER_TEMP/tested-runtime.zip"
+          Move-Item -LiteralPath $archives[0].FullName -Destination $runtimeZip
+          Expand-Archive -LiteralPath $runtimeZip -DestinationPath desktop-pos -Force
+          Remove-Item -LiteralPath $runtimeZip
+          if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
+          if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
+          if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
+      - name: Check packaged PHP modules in an Arabic path before construction
+        run: node desktop-pos/test/installer-native.cjs --php-path-preflight desktop-pos/runtime-bundle
+      - name: Build the reviewed Windows installer preview
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
+          # NSIS input files have a MAX_PATH limit. Use a short alias without
+          # dropping any runtime file or changing the independently checked source.
+          subst R: $PWD.Path
+          if ($LASTEXITCODE -ne 0) { throw 'Short Windows build path could not be created.' }
+          try {
+            Push-Location R:\
+            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi --config.nsis.packElevateHelper=false --config.nsis.preCompressedFileExtensions=null
+            if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
+          } finally {
+            Pop-Location
+            subst R: /D
+          }
+      - name: Verify actual Windows installation and retained unsynced data
+        run: node desktop-pos/test/installer-native.cjs
+      - name: Retain the installer preview and exact verification receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasakhansta-dashboard-installer-preview
+          path: |
+            desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+            desktop-pos/dist/installer-checks.json
+            desktop-pos/dist/runtime-package.json
+            desktop-pos/dist/runtime-audit.json
+            desktop-pos/dist/installer-tools.json
+          if-no-files-found: error
+          retention-days: 30

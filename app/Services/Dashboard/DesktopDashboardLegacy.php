@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\{DB,Facade,Validator};
 class DesktopDashboardLegacy
 {
     public const ROUTES=[
+        'categorys.reorder'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'POST','action'=>'updateColumns','parameter'=>null],
         'contracts.store'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'POST','action'=>'store','parameter'=>'contract'],
         'contracts.update'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'PUT','action'=>'update','parameter'=>'contract'],
         'contracts.destroy'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'DELETE','action'=>'destroy','parameter'=>'contract'],
@@ -43,6 +44,8 @@ class DesktopDashboardLegacy
 
     public static function handles(?string $route): bool {return isset(self::ROUTES[$route??'']);}
     private function isBulk(array $definition): bool {return in_array($definition['action'],['deleteAll','delete_all'],true);}
+    private function isSelection(array $definition): bool {return $this->isBulk($definition)||$definition['action']==='updateColumns';}
+    private function selected(array $definition,array $values): array {return $this->isBulk($definition)?$values['ids']:array_column($values['order'],'id');}
     public function authorize(User $actor): void
     {
         // These original administration actions change shared reference data.
@@ -53,6 +56,7 @@ class DesktopDashboardLegacy
         $name=$request->route()->getName();$definition=self::ROUTES[$name];
         abort_if(count($request->allFiles()),501,'نقل مرفقات هذا القسم لم يُجهّز بعد.');
         $values=$request->except('_token','_method','_desktop_command');
+        if($definition['action']==='updateColumns')$values=app(CategoryOrdering::class)->values($values);
         if($this->isBulk($definition)){
             abort_unless(is_string($values['ids']??null)&&preg_match('/^[1-9][0-9]{0,18}(?:,[1-9][0-9]{0,18}){0,199}$/D',$values['ids']),422);
             $values['ids']=array_map('intval',explode(',',$values['ids']));sort($values['ids']);
@@ -64,8 +68,8 @@ class DesktopDashboardLegacy
             $parameters[$key]=is_scalar($id)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$id)?(int)$id:$id;
         }
         $savedFacts=app(DesktopDashboardJournal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)auth('admin')->id(),$name);
-        $facts=$savedFacts??($this->isBulk($definition)?
-            ['catalog_rows'=>array_map(fn($id)=>['id'=>$id,'state'=>$this->state($definition,$id)],$values['ids'])]:
+        $facts=$savedFacts??($this->isSelection($definition)?
+            ['catalog_rows'=>array_map(fn($id)=>['id'=>$id,'state'=>$this->state($definition,$id)],$this->selected($definition,$values))]:
             ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null]);
         return ['values'=>array_merge($values,['idempotency_key'=>$command]),'parameters'=>$parameters,'files'=>[],'facts'=>$facts];
     }
@@ -77,6 +81,7 @@ class DesktopDashboardLegacy
     }
     private function validateValues(array $definition,array $values): void
     {
+        if($definition['action']==='updateColumns'){app(CategoryOrdering::class)->values($values);return;}
         if($this->isBulk($definition)){
             abort_if(array_diff(array_keys($values),['ids']),422,'حقول عملية الحذف غير مقبولة.');
             Validator::make($values,['ids'=>'required|array|min:1|max:200','ids.*'=>'required|integer|min:1|distinct'])->validate();return;
@@ -114,9 +119,9 @@ class DesktopDashboardLegacy
             if($location){$parts=parse_url($location);$location=($parts['path']??'/').(isset($parts['query'])?'?'.$parts['query']:'');abort_unless(str_starts_with($location,'/admin/'),409);}
             $created=self::$capture[$definition['model']]??[];
             $parameter=$definition['parameter']?request()->route($definition['parameter']):null;
-            $id=$this->isBulk($definition)?null:($definition['action']==='store'?($created[0]??0):($parameter instanceof \Illuminate\Database\Eloquent\Model?(int)$parameter->getKey():(int)$parameter));
-            abort_unless($this->isBulk($definition)||($id>0&&($definition['action']!=='store'||count($created)===1)),409,'نتيجة حفظ الكتالوج غير مكتملة.');
-            $references=$definition['action']==='destroy'||$this->isBulk($definition)?[]:[$definition['entity']=>$id];
+            $id=$this->isSelection($definition)?null:($definition['action']==='store'?($created[0]??0):($parameter instanceof \Illuminate\Database\Eloquent\Model?(int)$parameter->getKey():(int)$parameter));
+            abort_unless($this->isSelection($definition)||($id>0&&($definition['action']!=='store'||count($created)===1)),409,'نتيجة حفظ الكتالوج غير مكتملة.');
+            $references=$definition['action']==='destroy'||$this->isSelection($definition)?[]:[$definition['entity']=>$id];
             foreach(self::$capture[\App\Models\ProductFeature::class]??[] as $index=>$feature)$references['catalog_feature.'.$index]=$feature;
             abort_if(strlen($response->getContent())>1024*1024,413);
             return ['http'=>['status'=>$status,'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$location],'references'=>$references];
@@ -139,8 +144,8 @@ class DesktopDashboardLegacy
         abort_if(!empty($payload['files']),501);
         $values=$payload['values'];unset($values['idempotency_key'],$values['_token'],$values['_method'],$values['_desktop_command']);
         $this->validateValues($definition,$values);
-        if($this->isBulk($definition)){
-            $rows=$payload['facts']['catalog_rows']??[];$ids=$values['ids'];
+        if($this->isSelection($definition)){
+            $rows=$payload['facts']['catalog_rows']??[];$ids=$this->selected($definition,$values);
             abort_unless(is_array($rows)&&count($rows)===count($ids),409);
             foreach($rows as $index=>$row)abort_unless(is_array($row)&&is_array($row['state']??null)&&($row['id']??null)===($ids[$index]??null)
                 &&app(DesktopDashboardJournal::class)->fingerprint($row['state'])===app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,$ids[$index])),409,'أحد الأصناف أو الأقسام تغيّر على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
@@ -193,8 +198,9 @@ class DesktopDashboardLegacy
             data_set($payload,$path,$row);
         }
         $parameter=$definition['parameter'];
-        if($this->isBulk($definition)){
+        if($this->isSelection($definition)){
             foreach($payload['values']['ids']??[] as $index=>$id)if(!is_array($id))$payload['values']['ids'][$index]=$reference($definition['entity'],$id);
+            foreach($payload['values']['order']??[] as $index=>$row)if(!is_array($row['id']))$payload['values']['order'][$index]['id']=$reference($definition['entity'],$row['id']);
             foreach($payload['facts']['catalog_rows']??[] as $index=>$row){
                 if(!is_array($row['id']))$payload['facts']['catalog_rows'][$index]['id']=$reference($definition['entity'],$row['id']);
                 foreach($map as $field=>$entity)if(isset($row['state']['row'][$field])&&!is_array($row['state']['row'][$field]))

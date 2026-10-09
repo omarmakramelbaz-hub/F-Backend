@@ -33,7 +33,11 @@ try{
     verify($http('/admin/branch-expenses/categories',$update,['Accept: application/json'])[0]===200,'the original category update retains a typed dependency on its creation');$sharedCommands[]=$update['idempotency_key'];
     $expense=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'branch'=>'f:100','occurred_on'=>OperatingDay::date(),'category'=>'custom_'.$localCategory,
         'description'=>'مصروف مرتبط بتصنيف محلي','amount'=>'2.00','payment_method'=>'cash','approve'=>'0'];
-    verify($http('/admin/branch-expenses/save',$expense,['Accept: application/json'])[0]===200,'the original expense form retains its custom classification dependency');$sharedCommands[]=$expense['idempotency_key'];
+    [$sharedExpenseStatus,$sharedExpenseBody]=$multipart($expense,['X-Fasakhansta-Desktop: '.$browserToken],$expensePdfBytes);
+    verify($sharedExpenseStatus===200,'the original multipart expense form retains its custom classification dependency');$sharedCommands[]=$expense['idempotency_key'];
+    verify($multipart($expense,['X-Fasakhansta-Desktop: '.$browserToken],$expensePdfBytes)[1]===$sharedExpenseBody
+        &&DB::table('branch_expenses')->where('description',$expense['description'])->count()===1,
+        'a lost custom-classification expense upload returns its exact original receipt without duplicating its row');
     $delete=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'delete','key'=>'custom_'.$localCategory,'expected_revision'=>1];
     [$status,$deletedBody]=$http('/admin/branch-expenses/categories',$delete,['Accept: application/json']);
     verify($status===200&&!json_decode($deletedBody,true)['category']['active'],'the original category deletion keeps the historical expense classification');$sharedCommands[]=$delete['idempotency_key'];
@@ -71,6 +75,10 @@ foreach($sharedCommands as $id){
 config(['database.connections.mysql.database'=>$database,'desktop_dashboard.local'=>false]);DB::purge();
 verify(DB::table('branch_expense_categories')->where('id',$localCategory)->value('name')==='تصنيف مستقل على السيرفر'
     &&DB::table('branch_expenses')->where('description',$expense['description'])->value('category')==='custom_'.$mapped,'mapped category reconciliation preserves the independent classification and assigns the expense to the actual created category');
+$sharedExpensePath=DB::table('branch_expenses')->where('description',$expense['description'])->value('attachment_path');
+verify(is_string($sharedExpensePath)&&\Illuminate\Support\Facades\Storage::disk('local')->get($sharedExpensePath)===$expensePdfBytes
+    &&!\Illuminate\Support\Facades\Storage::disk('public')->exists($sharedExpensePath),
+    'custom classification mapping and repeated reconciliation preserve the original private PDF without a public copy');
 verify(!DB::table('branch_expense_category_settings')->where('category_key','custom_'.$mapped)->value('active'),'mapped original category deletion retains the historical category while removing its active choice');
 verify(DB::table('notifications')->where('id',$ownNote)->value('read_at')!==null&&DB::table('notifications')->where('id',$foreignNote)->value('read_at')===null
     &&DB::table('notifications')->where('id',$laterNote)->value('read_at')===null,'reconciled notification reads retain account scope and unseen IDs');

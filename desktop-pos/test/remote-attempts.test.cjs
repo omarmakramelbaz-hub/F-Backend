@@ -13,11 +13,21 @@ function fixture(){
   const options={state,metadata,credential:async()=>credential,request};return {records,decisions,calls,state,options,attempts:new RemoteAttempts(options)};
 }
 const details={url:credential.serverOrigin+'/admin/products',method:'POST'};
-test('only the reviewed own-notification read POST reserves, while external notification sends keep their guard',()=>{
+test('original category ordering reserves only its reviewed POST endpoint',()=>{
+  const f=fixture(),url=credential.serverOrigin+'/admin/post-sortable';
+  assert.equal(f.attempts.supported({url,method:'POST'}),true);
+  for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
+});
+test('reviewed own-notification menu and history reads reserve, while external sends keep their guard',()=>{
   const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';
   assert.equal(f.attempts.supported({url,method:'POST'}),true);
   assert.equal(f.attempts.supported({url,method:'GET'}),false);
-  for(const path of ['/admin/for-send-notify','/admin/read/all/notification','/admin/dashboard-inbox/support/12/messages'])
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/read/all/notification',method:'POST'}),true);
+  const history=credential.serverOrigin+'/admin/read/'+crypto.randomUUID();
+  for(const method of ['POST','PUT'])assert.equal(f.attempts.supported({url:history,method}),true);
+  for(const method of ['GET','DELETE'])assert.equal(f.attempts.supported({url:history,method}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/read/123',method:'PUT'}),false);
+  for(const path of ['/admin/for-send-notify','/admin/dashboard-inbox/support/12/messages'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
 });
 test('an original remote request cannot leave before its durable reservation and exact server capability',async()=>{
@@ -57,11 +67,11 @@ test('an unprepared device retains the old guard, while a credential read failur
   const broken=new RemoteAttempts({...f.options,credential:async()=>{throw Error('encrypted credential failed');}});
   await assert.rejects(broken.begin(crypto.randomUUID(),details));assert.equal(f.calls.length,0);
 });
-test('reviewed cash and phone writes can reserve while calculations, print claims and unreviewed attachment uploads keep their existing guard',()=>{
+test('reviewed cash, phone and expense writes reserve while calculations and print claims keep their existing guard',()=>{
   const f=fixture();
-  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close','/admin/areas','/admin/areas/12','/admin/question_answers','/admin/question_answers/12','/admin/features','/admin/features/12','/admin/contracts','/admin/contracts/12'])
+  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close','/admin/areas','/admin/areas/12','/admin/branch-expenses/save','/admin/question_answers','/admin/question_answers/12','/admin/features','/admin/features/12','/admin/contracts','/admin/contracts/12'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
-  for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim','/admin/branch-expenses/save'])
+  for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'DELETE'}),true);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'POST'}),false);
@@ -73,12 +83,12 @@ test('reviewed cash and phone writes can reserve while calculations, print claim
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts',method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts/12',method:'PUT'}),false);
 });
-test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or attachment writes',()=>{
+test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or unreviewed writes',()=>{
   const f=fixture();
   for(const path of ['/admin/employees/save','/admin/employees/attendance','/admin/employees/void-entry','/admin/employees/close','/admin/employees/pay',
     '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-expenses/12/review','/admin/branch-expenses/categories'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
-  for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/save','/admin/branch-expenses/categories/save'])
+  for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/categories/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/employees/attendance',method:'GET'}),false);
 });

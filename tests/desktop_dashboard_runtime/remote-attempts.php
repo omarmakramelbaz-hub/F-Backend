@@ -19,6 +19,7 @@ try{
     preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&isset($serverCsrf[1]),'the real original server session prepares catalog outcome tests');
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
+    require __DIR__.'/category-order-remote.php';
     $ownRemoteNote=(string)Str::uuid();$foreignRemoteNote=(string)Str::uuid();
     foreach([$ownRemoteNote=>1,$foreignRemoteNote=>20] as $note=>$actor)DB::table('notifications')->insert(['id'=>$note,'type'=>'FixtureNotification','notifiable_type'=>\App\Models\User::class,
         'notifiable_id'=>$actor,'data'=>json_encode(['title'=>'إشعار نتيجة السيرفر','text'=>'نص الإشعار الأصلي']),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -33,6 +34,7 @@ try{
     DB::table('users')->where('id',1)->update(['status'=>'disabled']);
     verify($http($noteAttempt['path'],$noteForm,[...$proof($noteProof),'Accept: application/json'])[0]===403,'disabling the enrolled account also rejects its stored notification reply');
     DB::table('users')->where('id',1)->update(['status'=>'accepted']);
+    require __DIR__.'/notification-history-remote.php';
     [$status,$page]=$http('/admin/products/create');preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     $form=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'category_id'=>1,'name_ar'=>'صنف نتيجة السيرفر','status'=>'show'];
     $first=$attempt();[$status,$reserved]=$decide($first);
@@ -248,7 +250,7 @@ try{
     verify($http($neverCheckout['path'],$neverSale,array_merge($proof($neverCheckoutProof),['Accept: application/json']))[0]===409
         &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$paidBalance,
         'a cancelled delayed cash checkout cannot change the drawer after recovery');
-    $unreviewed=$attempt('/admin/branch-expenses/save');
+    $unreviewed=$attempt('/admin/go-stores');
     verify($decide($unreviewed)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$unreviewed['id'])->exists(),
         'unreviewed server actions cannot acquire a reservation by resembling a reviewed POST');
     $apply=function(string $path,array $values)use($attempt,$decide,$http,$proof){
@@ -340,6 +342,23 @@ try{
     try{verify($apply('/admin/branch-expenses/categories',$categoryForm)[0]===403,
         'a stored shared expense category reply still requires the current original primary-owner authority');}
     finally{DB::table('users')->where('id',1)->update(['owner_resturant_id'=>$ownerScope]);}
+    require __DIR__.'/expense-attachments-http.php';
+    $bonusEmployee=app(\App\Services\Dashboard\BranchPayroll::class)->employeeSave($base+['idempotency_key'=>(string)Str::uuid(),
+        'name'=>'موظف اختبار صلاحية المكافأة','job_title'=>'اختبار','hired_on'=>'2026-09-01','active'=>true,'salary'=>'1000.00','effective_month'=>'2026-09'],
+        \App\Models\User::withoutGlobalScopes()->findOrFail(1))['employee'];
+    $bonusForm=$base+['idempotency_key'=>(string)Str::uuid(),'employee_id'=>$bonusEmployee['id'],'day'=>'2026-09-12','kind'=>'bonus','amount'=>'100.00','reason'=>'مكافأة الأونر'];
+    [$bonusStatus,$bonusBody,$bonusAttempt]=$apply('/admin/employees/entry',$bonusForm);
+    verify($bonusStatus===200&&DB::table('branch_employee_entries')->where('employee_id',$bonusEmployee['id'])->where('kind','bonus')->count()===1,
+        'the retained primary Owner rule permits one bonus through its reserved original HTTP action');
+    $ownerScope=DB::table('users')->where('id',1)->value('owner_resturant_id');DB::table('users')->where('id',1)->update(['owner_resturant_id'=>100]);
+    try{verify($apply('/admin/employees/entry',$bonusForm)[0]===403&&DB::table('branch_employee_entries')->where('employee_id',$bonusEmployee['id'])->count()===1,
+        'an already stored bonus response still requires current primary-Owner authority');}
+    finally{DB::table('users')->where('id',1)->update(['owner_resturant_id'=>$ownerScope]);}
+    verify($apply('/admin/employees/entry',$bonusForm)[1]===$bonusBody&&DB::table('branch_employee_entries')->where('employee_id',$bonusEmployee['id'])->count()===1,
+        'restoring the Owner retains the original bonus response without granting another bonus');
+    try{app(\App\Services\Dashboard\BranchPayroll::class)->entry(array_replace($bonusForm,['idempotency_key'=>(string)Str::uuid()]),\App\Models\User::withoutGlobalScopes()->findOrFail(10));throw new RuntimeException('A branch awarded a bonus.');}
+    catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===403&&DB::table('branch_employee_entries')->where('employee_id',$bonusEmployee['id'])->count()===1,
+        'an ordinary branch cannot award a bonus in the merged original payroll service');}
     $concurrent=$attempt();$decide($concurrent);$client=null;
     DB::beginTransaction();DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->lockForUpdate()->first();
     try{

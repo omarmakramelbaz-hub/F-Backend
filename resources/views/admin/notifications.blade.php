@@ -65,7 +65,9 @@
           </div><!-- /.col -->
           <div class="col-sm-6">
             <ol class="breadcrumb float-sm-right">
-                <form action="{{route('mark_all_as_read')}}" method="post">@csrf
+                <form action="{{route('mark_all_as_read')}}" method="post" data-desktop-notification-read
+                      data-notification-generation="{{ $desktopNotificationGeneration }}"
+                      data-notification-ids="{{ json_encode($data->whereNull('read_at')->pluck('id')->values()->all()) }}">@csrf
                   <button type="submit" class="btn btn-primary">@lang('main.mark all notification as read')</button>
                 </form>
             </ol>
@@ -124,7 +126,7 @@
                 </div>
               
               @if($note->read_at == null)
-              <form action="{{route('read_notify',$note->id)}}" class="" method="post">
+              <form action="{{route('read_notify',$note->id)}}" class="" method="post" data-desktop-notification-read data-notification-generation="{{ $desktopNotificationGeneration }}" data-notification-ids="{{ json_encode([$note->id]) }}">
                 @method('PUT') @csrf
                 <button type="submit" class="btn btn-info unseen"><i class="fa fa-eye p-0"></i></button>
               </form>

@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.DESKTOP_TEST_BROWSER_MODULE);
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+let stage = 'launch';
+const watchdog = setTimeout(() => {
+  process.stderr.write('BROWSER_TEST_TIMEOUT '+JSON.stringify({stage})+'\n');
+  process.exit(1);
+}, 240000);
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
@@ -20,6 +25,48 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
       return route.continue({ headers: { ...route.request().headers(), 'X-Fasakhansta-Desktop': input.token } });
     });
     const page = await context.newPage();
+    const pageErrors = [];
+    const scriptLoads = [];
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) process.stderr.write('BROWSER_NAVIGATION '+JSON.stringify({stage,path:new URL(frame.url()).pathname})+'\n');
+    });
+    page.on('requestfailed', request => {
+      if (request.resourceType() === 'script') {
+        const failure={stage,path:new URL(request.url()).pathname,error:request.failure()?.errorText};
+        scriptLoads.push(failure);process.stderr.write('BROWSER_SCRIPT_REQUEST_FAILED '+JSON.stringify(failure)+'\n');
+      }
+    });
+    page.on('pageerror', error => { pageErrors.push(error.message); process.stderr.write('BROWSER_SCRIPT_ERROR '+error.stack+'\n'); });
+    page.on('response', response => {
+      if (response.request().resourceType() === 'script') {
+        const loaded={stage,path:new URL(response.url()).pathname,status:response.status(),type:response.headers()['content-type']};
+        scriptLoads.push(loaded);
+        if(response.status()!==200)process.stderr.write('BROWSER_SCRIPT_RESPONSE '+JSON.stringify(loaded)+'\n');
+      }
+      if (new URL(response.url()).origin === input.origin && response.url().includes('/js/desktop-') && response.status() !== 200)
+        process.stderr.write('BROWSER_JOURNAL_SCRIPT_RESPONSE '+JSON.stringify({path:new URL(response.url()).pathname,status:response.status()})+'\n');
+    });
+    const journalField = async (field, label, response) => {
+      stage = label;
+      try {
+        if(response) assert.equal(response.status(), 200, label+' must render successfully.');
+        await field.waitFor({ state: 'attached' });
+      } catch (error) {
+        // Synthetic CI pages only. Capture state, never input values or credentials.
+        const state = await Promise.race([page.evaluate(() => ({
+          path: location.pathname, ready:document.readyState, local:document.body?.dataset.dashboardLocal,
+          journalAjax:Boolean(window.jQuery?.fasakhanstaCatalogJournal),
+          journalScripts:[...document.scripts].filter(script=>script.src.includes('desktop-dashboard.js')).map(script=>({path:new URL(script.src).pathname,defer:script.defer,type:script.type})),
+          forms:[...document.forms].map(form=>({path:new URL(form.action).pathname,
+            method:form.querySelector('[name="_method"]')?.value||form.method,
+            generation:form.dataset.notificationGeneration,notificationRead:form.hasAttribute('data-desktop-notification-read'),
+            journaled:Boolean(form.querySelector('[name="_desktop_command"]'))})),
+          text:document.body?.innerText.slice(-1500)
+        })), new Promise(resolve => setTimeout(() => resolve({diagnosticError:'The renderer did not answer within five seconds.'}), 5000))]);
+        process.stderr.write('JOURNAL_FORM_DIAGNOSTIC '+JSON.stringify({label,status:response?.status(),...state,pageErrors,scriptLoads})+'\n');
+        throw error;
+      }
+    };
     page.on('response', response => {
       if (response.url().includes('/dashboard/vendor/desktop-external/') && response.status() !== 200) missingAssets.add(response.url());
     });
@@ -32,12 +79,13 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
+    assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.summernote), 'function', 'The original editor must load after jQuery and Bootstrap.');
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;
     for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products']) {
       await page.goto(input.origin + '/admin/' + module + '/create');
       const field = page.locator('form input[name="_desktop_command"]');
-      await field.waitFor({ state: 'attached' });
+      await journalField(field, module+' create form');
       const uuid = await field.inputValue();
       assert.match(uuid, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i);
       assert.notEqual(uuid, previous);
@@ -65,19 +113,64 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
       const editor = CKEDITOR.replace(field, { language: 'ar' });
       editor.on('instanceReady', () => { clearTimeout(timeout); editor.destroy(); field.remove(); resolve(); });
     }));
-    await page.goto(input.origin + '/admin/contacts');
+    const contactResponse = await page.goto(input.origin + '/admin/contacts');
     const contactCommand = page.locator('form input[name="_desktop_command"]').first();
-    await contactCommand.waitFor({ state: 'attached' });
+    await journalField(contactCommand, 'original contact index', contactResponse);
     const contactUuid = await contactCommand.inputValue();
     assert.match(contactUuid, /^[a-f0-9-]{36}$/i);
     await page.evaluate(() => document.querySelector('form input[name="_desktop_command"]').form.append(document.createElement('span')));
     assert.equal(await contactCommand.inputValue(), contactUuid);
     process.stdout.write('PASS original contact deletion form retains its operation UUID while the DOM changes\n');
+    const historyResponse=await page.goto(input.origin + '/admin/notifications');
+    const historyField = page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="_desktop_command"]');
+    await journalField(historyField,'original notification history',historyResponse);
+    const historyUuid = await historyField.inputValue();
+    const historyIds = await page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="desktop_notification_ids"]').inputValue();
+    assert.match(historyUuid, /^[a-f0-9-]{36}$/i);
+    assert.match(await historyField.evaluate(field=>field.form.dataset.notificationGeneration), /^[a-f0-9-]{36}$/i);
+    assert.ok(JSON.parse(historyIds).length > 0);
+    await page.reload();
+    await journalField(historyField,'reloaded original notification history');
+    assert.equal(await historyField.inputValue(), historyUuid);
+    assert.equal(await page.locator('form[data-desktop-notification-read][action$="/read/all/notification"] input[name="desktop_notification_ids"]').inputValue(), historyIds);
+    const singleHistoryField = page.locator('form[data-desktop-notification-read] input[name="_method"][value="PUT"]').first();
+    await singleHistoryField.waitFor({ state: 'attached' });
+    assert.match(await singleHistoryField.evaluate(field => field.form.querySelector('[name="_desktop_command"]').value), /^[a-f0-9-]{36}$/i);
+    process.stdout.write('PASS original notification history forms retain their read snapshots and operation UUID through page reload\n');
+    stage='category index';
     await page.goto(input.origin + '/admin/categorys');
     assert.equal(await page.evaluate(() => typeof window.jQuery.fn.DataTable), 'function');
     const bulkNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
     if (await bulkNotice.count()) await bulkNotice.click();
     await page.locator('.swal-overlay--show-modal').waitFor({ state: 'hidden' });
+    const orderRequests=[];
+    await page.route('**/admin/post-sortable',async route=>{
+      orderRequests.push({command:route.request().headers()['x-fasakhansta-command'],data:route.request().postData()});
+      if(orderRequests.length===1)return route.abort();
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'success'})});
+    });
+    const originalOrder=async()=>page.evaluate(()=>{
+      const table=document.querySelector('#tablecontents');
+      if(table.querySelectorAll('tr.row1').length===1){
+        const row=table.querySelector('tr.row1').cloneNode(true);row.dataset.id='999999';row.querySelector('.sub_chk').dataset.id='999999';table.append(row);
+      }
+      window.desktopOrderCompletions=0;
+      jQuery(document).ajaxComplete((_event,_xhr,options)=>{if(new URL(options.url,location.href).pathname==='/admin/post-sortable')window.desktopOrderCompletions++;});
+      const assertGeneration=table.dataset.desktopCategoryGeneration;
+      if(!/^[a-f0-9-]{36}$/i.test(assertGeneration))throw Error('The original drag table is not bound to its imported generation.');
+      const update=jQuery(table).sortable('option','update');
+      if(typeof update!=='function')throw Error('The original sortable widget did not initialize.');
+      update.call(table);
+    });
+    await originalOrder();await page.waitForFunction(()=>window.desktopOrderCompletions===1);
+    assert.match(orderRequests[0].command,/^[a-f0-9-]{36}$/i);
+    await page.reload();await originalOrder();await page.waitForFunction(()=>window.desktopOrderCompletions===1);
+    assert.equal(orderRequests[1].command,orderRequests[0].command,'A reloaded original drag table retries the same operation after a lost reply.');
+    await page.evaluate(()=>jQuery('#tablecontents').sortable('option','update').call(document.querySelector('#tablecontents')));
+    await page.waitForFunction(()=>window.desktopOrderCompletions===2);
+    assert.notEqual(orderRequests[2].command,orderRequests[0].command,'The parsed JSON acknowledgement releases the original drag operation.');
+    await page.unroute('**/admin/post-sortable');
+    process.stdout.write('PASS original category sortable widget retains its UUID after a lost reply and reload, and accepts its JSON acknowledgement\n');
     // Exercise the unchanged bulk-delete button while simulating a lost network reply.
     await page.evaluate(() => {
       const first = document.querySelector('.sub_chk');
@@ -146,4 +239,5 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
     assert.deepEqual([...missingAssets], [], 'Bundled layout dependencies must load through the private HTTP gateway.');
     process.stdout.write('PASS original Arabic font, layout dependencies and Arabic editor load locally with external requests blocked\n');
   } finally { await browser.close(); }
-})().catch(error => { process.stderr.write(error.stack + '\n'); process.exitCode = 1; });
+  clearTimeout(watchdog);
+})().catch(error => { clearTimeout(watchdog); process.stderr.write(error.stack + '\n'); process.exitCode = 1; });

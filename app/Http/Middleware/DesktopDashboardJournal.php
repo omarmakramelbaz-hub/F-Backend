@@ -36,29 +36,37 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardNotificationReads::handles($route)){
+            $reads=app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class);
+            $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
+            $payload=$reads->payload($request,$command,$actor);$response=null;
+            $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                function()use($reads,$next,$request,&$response){return $reads->capture(function()use($next,$request,&$response){return $response=$next($request);});});
+            return $response??$reads->response($result);
+        }
         if(\App\Services\Dashboard\DesktopDashboardLegacy::handles($route)){
             $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);$legacy->authorize($actor);
             $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
-            $payload=$legacy->payload($request,$command);
-            // Journal metadata must never reach the original mass-assignment repositories.
-            $request->request->remove('_desktop_command');$response=null;
-            $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
-                function()use($legacy,$route,$next,$request,&$response){return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});});
-            return $response??$legacy->response($result);
+            return DB::transaction(function()use($legacy,$route,$command,$actor,$request,$next){
+                // Capture selected-row facts only after the common write/refresh fence.
+                // Concurrent drag requests then observe the preceding committed order.
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                $payload=$legacy->payload($request,$command);
+                // Journal metadata must never reach the original mass-assignment repositories.
+                $request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                    function()use($legacy,$route,$next,$request,&$response){return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});});
+                return $response??$legacy->response($result);
+            });
         }
         // Existing forms already supply an immutable UUID. Do not generate another after losing a reply.
         $command=(string)$request->input('idempotency_key');
-        $payload=['parameters'=>$request->route()->parameters(),'values'=>$request->except('_token'),'files'=>[]];
+        $payload=['parameters'=>$request->route()->parameters(),'values'=>$request->except('_token','attachment'),'files'=>app(\App\Services\Dashboard\DesktopDashboardExpenseAttachments::class)->files($request,$route)];
         if(in_array($route,['branch-shifts.close','employees.close'],true)){
             $facts=app(Journal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route);
             if($facts!==null)$payload['facts']=$facts;
             elseif($route==='branch-shifts.close')$payload['facts']['shift']=app(\App\Services\Dashboard\BranchShiftClosing::class)->desktopReview($request->all(),$actor);
             else $payload['facts']['payroll']=app(\App\Services\Dashboard\BranchPayroll::class)->desktopReview($request->all(),$actor);
-        }
-        foreach($request->allFiles() as $name=>$file) {
-            abort_unless($file instanceof \Illuminate\Http\UploadedFile && $file->isValid(),422,'المرفق غير صالح.');
-            abort_if($file->getSize()>10*1024*1024,422,'المرفق أكبر من الحد المسموح.');
-            $payload['files'][$name]=['name'=>$file->getClientOriginalName(),'mime'=>$file->getMimeType(),'sha256'=>hash_file('sha256',$file->getRealPath()),'base64'=>base64_encode(file_get_contents($file->getRealPath()))];
         }
         $status=200;
         $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],function()use($next,$request,&$status){

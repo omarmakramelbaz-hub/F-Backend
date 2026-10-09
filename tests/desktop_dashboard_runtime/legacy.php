@@ -77,7 +77,8 @@ $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=
 $origin='http://127.0.0.1:'.$httpPort;$browserToken=bin2hex(random_bytes(32));
 $env=getenv();$env['DB_DATABASE']=$stage;$env['APP_URL']=$origin;$env['DESKTOP_DASHBOARD_DEVICE_ID']=$id;
 $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browserToken;$env['DESKTOP_DASHBOARD_CONTROL_TOKEN']=bin2hex(random_bytes(32));
-$web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
+$web=proc_open([PHP_BINARY,'-d','upload_max_filesize=5M','-d','post_max_size=12M','-d','memory_limit=256M',
+    '-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];
 $http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies){
     $headers=['X-Fasakhansta-Desktop: '.$browserToken,...$extraHeaders];
@@ -117,8 +118,10 @@ try{
     [$status,$quote]=$http('/admin/takeaway/quote',['_token'=>$csrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'],['Accept: application/json']);
     verify($status===200&&isset(json_decode($quote,true)['quote_hash']),'original POST price calculation works locally without creating an outbox entry');
     verify($http('/admin/categorys',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'added_by'=>10,'name_ar'=>'قسم ممنوع','name_en'=>'Forbidden','status'=>'show'])[0]===403&&DB::table('desktop_dashboard_commands')->count()===0,'a branch account cannot acquire global catalog administration offline');
+    verify($http('/admin/post-sortable',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'order'=>[['id'=>1,'position'=>2]]])[0]===403&&DB::table('categories')->where('id',1)->value('order')===1,'an ordinary branch account cannot reorder shared categories offline');
     $control=DB::table('resturants')->where('id',100)->value('control');
     verify($http('/admin/resturantControl')[0]===501&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'an original legacy GET mutation is blocked by a real read-only transaction');
+    require __DIR__.'/expense-local-http.php';
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 
 // Prepare an owner account from the same complete schema, then reconcile original catalog forms.
@@ -137,6 +140,9 @@ verify($contractQueries['contracts']->count()===0,'revoking the original contrac
 $branchQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],User::withoutGlobalScopes()->findOrFail(10),['f:100']);
 verify($branchQueries['contracts']->count()===0,'shared contract templates remain outside an ordinary branch account snapshot');
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+$browserNotificationId=(string)\Illuminate\Support\Str::uuid();DB::table('notifications')->insert(['id'=>$browserNotificationId,'type'=>'FixtureNotification',
+    'notifiable_type'=>User::class,'notifiable_id'=>1,'data'=>json_encode(['title'=>'إشعار اختبار المتصفح','text'=>'نص سجل الإشعارات']),
+    'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
 verify(count($ownerSnapshot['tables']['contacts']['rows'])===3,'the primary administrator preparation imports its original global contact messages');
@@ -151,10 +157,26 @@ try{
     $http('/admin/signin',['_token'=>$csrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123']);
     foreach(['/admin/categorys','/admin/products'] as $path){[$status,$page]=$http($path);verify($status===200&&str_contains($page,'desktop-dashboard.js'),'the original owner catalog page retains its interface: '.$path);}
     if(getenv('DESKTOP_TEST_BROWSER_MODULE')){
-        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['pipe','w'],['pipe','w']],$browserPipes,__DIR__);
+        // Files cannot leave PHP blocked on EOF when an orphaned Windows browser
+        // still holds a pipe. Keep both streams and bound the child wait as well.
+        $browserOutput=$profile.'/browser-output.log';
+        $browserErrors=$profile.'/browser-errors.log';
+        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['file',$browserOutput,'w'],['file',$browserErrors,'w']],$browserPipes,__DIR__);
         fwrite($browserPipes[0],json_encode(['origin'=>$origin,'token'=>$browserToken]));fclose($browserPipes[0]);
-        echo stream_get_contents($browserPipes[1]);fwrite(STDERR,stream_get_contents($browserPipes[2]));fclose($browserPipes[1]);fclose($browserPipes[2]);
-        verify(proc_close($browser)===0,'the real offline browser preserves original catalog forms and stable UUIDs');
+        $browserDeadline=microtime(true)+300;
+        do{$browserStatus=proc_get_status($browser);if(!$browserStatus['running'])break;usleep(250000);}while(microtime(true)<$browserDeadline);
+        $browserTimedOut=$browserStatus['running'];
+        if($browserTimedOut){fwrite(STDERR,'BROWSER_COLLECTOR_TIMEOUT after 300 seconds'.PHP_EOL);proc_terminate($browser);}
+        $browserExit=proc_close($browser);
+        if($browserExit<0&&!$browserTimedOut)$browserExit=$browserStatus['exitcode'];
+        echo file_get_contents($browserOutput);fwrite(STDERR,file_get_contents($browserErrors));
+        if($browserTimedOut||$browserExit!==0){
+            $webStatus=proc_get_status($web);
+            fwrite(STDERR,'BROWSER_WEB_PROCESS '.json_encode(array_intersect_key($webStatus,array_flip(['running','exitcode','signaled','termsig']))).PHP_EOL);
+            $webLog=file_get_contents($profile.'/web.log');
+            fwrite(STDERR,'BROWSER_WEB_LOG_TAIL'.PHP_EOL.substr($webLog,-16000).PHP_EOL);
+        }
+        verify(!$browserTimedOut&&$browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
     }
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
     [$status]=$http('/admin/categorys',$category);
@@ -211,7 +233,9 @@ require __DIR__.'/faq.php';
 require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
 require __DIR__.'/contacts.php';
+require __DIR__.'/category-order.php';
 require __DIR__.'/shared-actions.php';
+require __DIR__.'/notification-history.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

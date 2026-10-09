@@ -17,24 +17,15 @@ class CategoryController extends Controller
     {
         $this->middleware('permission:category-list', ['only' => ['index','show']]);
         $this->middleware('permission:category-create', ['only' => ['create','store']]);
-        $this->middleware('permission:category-edit', ['only' => ['update','edit']]);
+        $this->middleware('permission:category-edit', ['only' => ['update','edit','updateColumns']]);
         $this->middleware('permission:category-delete', ['only' => ['destroy','delete_all','deleteAll']]);
         $this->categoryRepository = $categoryRepository;
     }
 
     public function updateColumns(Request $request)
     {
-        $categorys = Category::all();
-
-        foreach ($categorys as $category) {
-            foreach ($request->order as $order) {
-                if ($order['id'] == $category->id) {
-                    $category->update(['order' => $order['position']]);
-                }
-            }
-        }
-        
-        return response('Update Successfully.', 200);
+        app(\App\Services\Dashboard\CategoryOrdering::class)->apply($request->only('order'));
+        return response()->json(['status'=>'success']);
     }
 
     /**

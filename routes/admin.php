@@ -142,7 +142,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll'])->name('categorys.destroy-all');
         Route::get('categorys/{id}/services/prices',[CategoryController::class,'edit_services_prices'])->name('categorys.services.prices');
         Route::put('categorys/{id}/update/services/prices',[CategoryController::class,'update_services_prices'])->name('categorys.services.prices.update');
-        Route::post('post-sortable',[CategoryController::class,'updateColumns']);
+        Route::post('post-sortable',[CategoryController::class,'updateColumns'])->name('categorys.reorder');
 
         Route::resource('/contracts', ContractController::class);
         Route::get('pdfview-contract', [ContractController::class,'pdfviewContract']);

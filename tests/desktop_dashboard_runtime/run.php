@@ -201,6 +201,14 @@ denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify(
 $wrongReceipt=$imported;$wrongReceipt['actor_id']=11;
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'another account cannot pass independent staging verification');
 $nativeEnv=getenv();$nativeEnv['DB_DATABASE']=$staging;$nativeEnv['DESKTOP_DASHBOARD_DEVICE_ID']=$branchEnrollment['device_id'];
+$cliStaging='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$cliStaging.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+register_shutdown_function(function()use($pdo,$cliStaging){$pdo->exec('DROP DATABASE IF EXISTS `'.$cliStaging.'`');});
+$importEnv=$nativeEnv;$importEnv['DB_DATABASE']=$cliStaging;
+$importProcess=proc_open([PHP_BINARY,'-d','memory_limit=256M',$application.'/desktop/import.php'],[['pipe','r'],['pipe','w'],['file',$profile.'/import.log','a']],$importPipes,$application,$importEnv);
+fwrite($importPipes[0],\App\Services\Dashboard\DesktopDashboardBootstrap::json($cashierBootstrap));fclose($importPipes[0]);
+$cliImported=json_decode(stream_get_contents($importPipes[1]),true);fclose($importPipes[1]);$importExit=proc_close($importProcess);
+check($importExit===0&&($cliImported['snapshot_id']??null)===$cashierBootstrap['snapshot_id']&&($cliImported['table_rows']??null)===$imported['table_rows'],
+    'an independent PHP importer reads the account snapshot within the installed 256 MiB memory limit');
 $verifyProcess=proc_open([PHP_BINARY,$application.'/desktop/verify.php'],[['pipe','r'],['pipe','w'],['file',$profile.'/verify.log','a']],$verifyPipes,$application,$nativeEnv);
 fwrite($verifyPipes[0],json_encode($imported,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));fclose($verifyPipes[0]);
 $nativeVerified=json_decode(stream_get_contents($verifyPipes[1]),true);fclose($verifyPipes[1]);$verifyExit=proc_close($verifyProcess);
@@ -341,5 +349,7 @@ try{
     check(gateway($origin.'/storage/private.php',$headers)[0]===404,'public storage PHP paths cannot execute through the dashboard router');
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 require __DIR__.'/phone.php';
+require __DIR__.'/expense-attachments.php';
+require __DIR__.'/outbox-attachments.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;

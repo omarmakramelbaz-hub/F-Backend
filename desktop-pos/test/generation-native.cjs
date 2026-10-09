@@ -7,12 +7,15 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
-const LocalRuntime = require('../src/local-runtime.cjs');
-const { DashboardGeneration } = require('../src/dashboard-generation.cjs');
-const { DashboardPreparation } = require('../src/dashboard-preparation.cjs');
-const DashboardMode = require('../src/dashboard-mode.cjs');
-const DashboardRemoteState = require('../src/dashboard-remote-state.cjs');
-const sourceCode = require('../src/dashboard-source.cjs');
+// The installer job supplies the installed ASAR code directory and runs this
+// fixture with the installed Electron executable, so both layers are exercised.
+const codeRoot = process.argv[4] || path.join(__dirname, '../src');
+const LocalRuntime = require(path.join(codeRoot, 'local-runtime.cjs'));
+const { DashboardGeneration } = require(path.join(codeRoot, 'dashboard-generation.cjs'));
+const { DashboardPreparation } = require(path.join(codeRoot, 'dashboard-preparation.cjs'));
+const DashboardMode = require(path.join(codeRoot, 'dashboard-mode.cjs'));
+const DashboardRemoteState = require(path.join(codeRoot, 'dashboard-remote-state.cjs'));
+const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
@@ -60,12 +63,28 @@ async function main() {
   };
   const bootstrap = "$input=json_decode(stream_get_contents(STDIN),true);$app=require getenv('DESKTOP_TEST_APPLICATION').'/desktop/bootstrap.php';";
   try {
+    // A tiny malformed input must reach JSON validation under the installed memory
+    // limit, rather than allocating the complete 256 MiB permitted input ceiling.
+    const inputProbe = spawn(path.join(bundle, 'php/php.exe'), ['-c', path.join(bundle, 'php/php.ini'), '-d', 'memory_limit=256M',
+      path.join(bundle, 'application/desktop/import.php')], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    let probeError = ''; inputProbe.stderr.setEncoding('utf8'); inputProbe.stderr.on('data', bytes => { probeError += bytes; });
+    inputProbe.stdin.on('error', () => {}); inputProbe.stdin.end('{"synthetic":');
+    const probeExit = await new Promise((resolve, reject) => { inputProbe.once('error', reject); inputProbe.once('close', resolve); });
+    assert.equal(probeExit, 1);
+    const report = probeError.split(/\r?\n/).find(line => line.startsWith('DESKTOP_IMPORT_DIAGNOSTIC '));
+    assert.ok(report, probeError);
+    const diagnostic = JSON.parse(report.slice('DESKTOP_IMPORT_DIAGNOSTIC '.length));
+    assert.equal(diagnostic.phase, 'json'); assert.equal(diagnostic.type, 'JsonException');
+    assert.ok(!probeError.includes('synthetic'));
+    console.log('PASS Windows snapshot input reaches redacted JSON validation within the installed 256 MiB memory limit');
     const settings = await runtime.settings(); settings.deviceId = snapshot.device_id;
     await runtime.metadata.write('credentials', settings);
     const preparation = new DashboardPreparation({ runtime,
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
       download: async () => snapshot });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
+      { upload: '5M', post: '12M', memory: '256M' });
     const initial = await runtime.connection();
     assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
     assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));
@@ -203,12 +222,16 @@ async function main() {
     assert.ok(sourceCode.same(next.sourceFingerprint,newManifest.sourceFingerprint));assert.equal(await runtime.metadata.read('refresh'),null);
     const upgradedData=await php(bootstrap+"echo json_encode(['code'=>class_exists('App\\\\Services\\\\Dashboard\\\\DesktopUpgradeFixture'),'field'=>\\Illuminate\\Support\\Facades\\Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'archived'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_archived_commands')->count()]);");
     assert.deepEqual(upgradedData,{code:true,field:true,archived:1});
+    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
+      {upload:'5M',post:'12M',memory:'256M'});
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'framework/sessions/supervisor-fixture-session'),'utf8'),'synthetic preserved session');
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'app',pdfPath)),pdfBytes);
     const previousData=await php(bootstrap+"echo json_encode(['field'=>\\Illuminate\\Support\\Facades\\Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'customers'=>\\Illuminate\\Support\\Facades\\DB::table('branch_customers')->count(),'state'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('state')]);",{}, {...runtime.environment,DB_DATABASE:beforeUpgrade.database});
     assert.deepEqual(previousData,{field:false,customers:1,state:'held'});
     await runtime.stop();await fs.rm(newInstall,{recursive:true});runtime=create();await runtime.start();
     assert.equal(runtime.manifest.sourceRevision,next.sourceRevision);assert.equal((await runtime.connection()).database,next.database);
+    assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
+      {upload:'5M',post:'12M',memory:'256M'});
     const upgradedReplay=await php(bootstrap+"try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Old work ran after code upgrade.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",{device:snapshot.device_id,id:pending.commands[0].command_id,actor:snapshot.actor_id});
     assert.equal(upgradedReplay.status,409);assert.equal(failures.length,0);
     console.log('PASS real Windows code/schema upgrade retains the matching installed application with unchanged database binaries, recovers a rejected pointer and lost reply, preserves the previous schema and journal, and restarts from its retained new runtime');
