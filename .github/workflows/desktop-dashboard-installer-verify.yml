@@ -1,0 +1,105 @@
+name: Verify installer from tested dashboard runtime
+
+on:
+  push:
+    branches: ['codex/desktop-resume-20261009']
+    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml']
+  workflow_dispatch:
+    inputs:
+      runtime_run_id:
+        description: 'Run whose original-runtime job passed and retained the exact runtime'
+        required: true
+        default: '37984610396'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '37984610396' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: current-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Require the original runtime checks to have passed
+        shell: pwsh
+        env:
+          DESKTOP_ARTIFACT_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:DESKTOP_TESTED_RUN -notmatch '^[1-9][0-9]+$') { throw 'Invalid source run.' }
+          $headers = @{ Authorization = "Bearer $env:DESKTOP_ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
+          $jobs = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN/jobs?per_page=100"
+          if (!($jobs.jobs | Where-Object { $_.name -eq 'original-runtime' -and $_.conclusion -eq 'success' })) { throw 'The source runtime has not passed its original application checks.' }
+      - name: Restore the exact tested runtime
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tested-dashboard-runtime
+          path: ${{ runner.temp }}/runtime-download
+          run-id: ${{ env.DESKTOP_TESTED_RUN }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Extract the verified archive with Windows
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem "$env:RUNNER_TEMP/runtime-download" -File)
+          if ($archives.Count -ne 1) { throw 'Expected one verified runtime archive.' }
+          $runtimeZip = "$env:RUNNER_TEMP/tested-runtime.zip"
+          Move-Item -LiteralPath $archives[0].FullName -Destination $runtimeZip
+          Expand-Archive -LiteralPath $runtimeZip -DestinationPath "$env:RUNNER_TEMP/tested-runtime" -Force
+          Remove-Item -LiteralPath $runtimeZip
+      - name: Require identical current product code
+        id: source
+        working-directory: current-source
+        shell: pwsh
+        run: |
+          $manifest = Get-Content "$env:RUNNER_TEMP/tested-runtime/runtime-bundle/manifest.json" -Raw | ConvertFrom-Json
+          $sourceRevision = $manifest.sourceRevision
+          if ($sourceRevision -notmatch '^[a-f0-9]{40}$') { throw 'Invalid tested source revision.' }
+          git fetch --depth=1 origin $sourceRevision
+          if ($LASTEXITCODE -ne 0) { throw 'The tested revision cannot be independently checked.' }
+          $changed = @(& git diff --name-only $sourceRevision HEAD -- app bootstrap config database desktop public resources routes artisan composer.json composer.lock .gitattributes desktop-pos)
+          if ($LASTEXITCODE -ne 0) { throw 'The tested source comparison failed.' }
+          if ($changed.Count) { throw 'Current application, package or installed-recovery test code differs from the cached runtime; run the full original dashboard checks first.' }
+          "revision=$sourceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          path: b
+      - name: Restore verified inputs into their tested checkout
+        shell: pwsh
+        run: |
+          Move-Item "$env:RUNNER_TEMP/tested-runtime/runtime-bundle" b/desktop-pos/runtime-bundle
+          New-Item -ItemType Directory -Path b/desktop-pos/dist -Force | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/runtime-audit.json" b/desktop-pos/dist/runtime-audit.json
+          Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/dashboard-synthetic-snapshot.json" b/desktop-pos/dist/dashboard-synthetic-snapshot.json
+      - name: Build the installer with exact source and dependency verification
+        working-directory: b
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          npm run build:win --prefix desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
+      - name: Verify actual installed dashboard recovery and retained unsynced data
+        working-directory: b
+        run: node desktop-pos/test/installer-native.cjs
+      - name: Retain only the verified installer and receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasakhansta-dashboard-installer-preview
+          path: |
+            b/desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+            b/desktop-pos/dist/installer-checks.json
+            b/desktop-pos/dist/runtime-package.json
+            b/desktop-pos/dist/runtime-audit.json
+          if-no-files-found: error
+          retention-days: 30
