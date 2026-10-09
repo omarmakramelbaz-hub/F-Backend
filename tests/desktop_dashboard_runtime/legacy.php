@@ -213,6 +213,7 @@ require __DIR__.'/faq.php';
 require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
 require __DIR__.'/contacts.php';
+require __DIR__.'/shared-actions.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

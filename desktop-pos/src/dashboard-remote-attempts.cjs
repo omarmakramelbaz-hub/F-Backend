@@ -9,7 +9,8 @@ class DashboardRemoteAttempts {
   }
   supported(details) {
     const path = new URL(details.url).pathname, method = String(details.method).toUpperCase();
-    if(method==='POST'&&(/^\/admin\/takeaway\/(?:checkout|till\/(?:movements|settings))$/.test(path)
+    if(method==='POST'&&(path==='/admin/dashboard-inbox/notifications/read'
+      || /^\/admin\/takeaway\/(?:checkout|till\/(?:movements|settings))$/.test(path)
       || /^\/admin\/(?:dining|phone-orders)\/tickets\/(?:save|[1-9][0-9]{0,18}\/(?:action|settle))$/.test(path)
       || /^\/admin\/dining\/(?:tables|settings)$/.test(path)
       || /^\/admin\/phone-orders\/(?:dispatch-company|finish-batch)$/.test(path)

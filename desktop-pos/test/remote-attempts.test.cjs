@@ -13,6 +13,13 @@ function fixture(){
   const options={state,metadata,credential:async()=>credential,request};return {records,decisions,calls,state,options,attempts:new RemoteAttempts(options)};
 }
 const details={url:credential.serverOrigin+'/admin/products',method:'POST'};
+test('only the reviewed own-notification read POST reserves, while external notification sends keep their guard',()=>{
+  const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';
+  assert.equal(f.attempts.supported({url,method:'POST'}),true);
+  assert.equal(f.attempts.supported({url,method:'GET'}),false);
+  for(const path of ['/admin/for-send-notify','/admin/read/all/notification','/admin/dashboard-inbox/support/12/messages'])
+    assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
+});
 test('an original remote request cannot leave before its durable reservation and exact server capability',async()=>{
   const f=fixture(),id=crypto.randomUUID();
   const proof=await f.attempts.begin(id,details);
