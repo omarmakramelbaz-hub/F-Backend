@@ -177,14 +177,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Short Windows build path could not be created.' }
           try {
             Push-Location R:\
-            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
+            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi --config.nsis.packElevateHelper=false
             if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
           } finally {
             Pop-Location
-            if (Test-Path desktop-pos/dist/nsis-source-drive.txt) {
-              subst S: /D
-              Remove-Item desktop-pos/dist/nsis-source-drive.txt
-            }
             subst R: /D
           }
       - name: Verify actual Windows installation and retained unsynced data
@@ -198,5 +194,6 @@ jobs:
             desktop-pos/dist/installer-checks.json
             desktop-pos/dist/runtime-package.json
             desktop-pos/dist/runtime-audit.json
+            desktop-pos/dist/installer-tools.json
           if-no-files-found: error
           retention-days: 30

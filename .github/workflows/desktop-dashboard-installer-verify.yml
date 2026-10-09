@@ -109,7 +109,25 @@ jobs:
               await fs.mkdir(path.dirname(output),{recursive:true});await fs.copyFile(input,output);restored++;
             }
             process.stdout.write('Restored '+restored+' exact runtime files before complete installed-byte verification.\n');
+            if(process.env.ELECTRON_BUILDER_7ZIP_PATH)throw Error('An unverified extraction-tool override is not allowed.');
+            const sevenZip=await require('app-builder-lib/out/toolsets/7zip.js').getPath7za();
+            await fs.copyFile(sevenZip,path.join(project,'dist/installer-7za.exe'));
+            await fs.mkdir(path.join(context.appOutDir,'resources/third-party'),{recursive:true});
+            await fs.writeFile(path.join(context.appOutDir,'resources/third-party/7zip-notice.txt'),
+              'This installer uses the 7-Zip standalone program for archive extraction.\n'
+              +'7-Zip is licensed under the GNU LGPL. Source code and license information: https://www.7-zip.org/\n');
+            await fs.writeFile(path.join(project,'dist/installer-tools.json'),JSON.stringify({format:1,
+              provider:'electron-builder@26.15.3',toolsetArchiveSha256:'be071f15bd6da2f78fe81c6ddef2009b0c4d8a51f36b780cb806c7e6df95e1b3',
+              extractionExecutableSha256:hash(await fs.readFile(sevenZip))},null,2)+'\n');
             await require('./build-uninstaller.cjs')(context);
+            // Call Unicode filesystem APIs directly for each exact packaged path;
+            // legacy NSIS path handling can shorten long destination filenames.
+            const uninstallFile=path.join(project,'dist/uninstall-files.nsh');
+            const deletion=(await fs.readFile(uninstallFile,'utf8')).replace(/^(Delete|RMDir) "(\$INSTDIR\\[^"\r\n]+)"$/gm,
+              (_,command,target)=>"System::Call 'kernel32::"+(command==='Delete'?'DeleteFileW':'RemoveDirectoryW')
+                +'(w "\\\\?\\'+target+'") i .r0\'');
+            if(/^(Delete|RMDir) /m.test(deletion))throw Error('An unreviewed uninstaller path remains.');
+            await fs.writeFile(uninstallFile,deletion);
             // Recreate the generated NSIS header after the output directory has
             // been prepared. Values must agree with the verified build receipt.
             const info=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8'));
@@ -124,13 +142,21 @@ jobs:
             let windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));
             const originalFile='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
             if(windowsNsis.split(originalFile).length!==2)throw Error('Unexpected original NSIS file command.');
-            for(const name of Object.keys(receipt.files))if(('S:\\resources\\dashboard-runtime\\'+name).length>=260)
-              throw Error('Runtime source path still exceeds the native compiler limit: '+name);
-            try{await fs.access('S:\\');throw Error('The installer source drive is already in use.');}
-            catch(error){if(error.code!=='ENOENT')throw error;}
-            require('node:child_process').execFileSync('subst',['S:',path.resolve(context.appOutDir)],{windowsHide:true});
-            await fs.writeFile(path.join(project,'dist/nsis-source-drive.txt'),'S:\n');
-            windowsNsis=windowsNsis.replace(originalFile,'File /r "S:\\*"');
+            const extraction=[
+              'InitPluginsDir',
+              'SetOutPath "$PLUGINSDIR"',
+              'File /oname=dashboard.7z "${APP_64}"',
+              'File /oname=7za.exe "${PROJECT_DIR}\\dist\\installer-7za.exe"',
+              'nsExec::ExecToLog /TIMEOUT=900000 \'"$PLUGINSDIR\\7za.exe" x "$PLUGINSDIR\\dashboard.7z" "-o$INSTDIR" -y -bd\'',
+              'Pop $0',
+              'StrCmp $0 "0" dashboardExtracted',
+              'SetErrorLevel 1',
+              'MessageBox MB_OK|MB_ICONSTOP "تعذّر تثبيت ملفات البرنامج. أعد المحاولة." /SD IDOK',
+              'Quit',
+              'dashboardExtracted:',
+              'SetOutPath "$INSTDIR"'
+            ].join('\n  ');
+            windowsNsis=windowsNsis.replace(originalFile,extraction).replace('SetCompressor /SOLID lzma','SetCompressor /FINAL zlib');
             await fs.writeFile(path.join(project,'installer-windows.nsi'),windowsNsis);
             await fs.access(path.join(project,'dist/installer-version.nsh'));
             process.stdout.write('Verified NSIS metadata and Windows path separators in '+project+'\n');
@@ -170,14 +196,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Short Windows build path could not be created.' }
           try {
             Push-Location R:\
-            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
+            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi --config.nsis.packElevateHelper=false
             if ($LASTEXITCODE -ne 0) { throw 'Windows installer preview failed.' }
           } finally {
             Pop-Location
-            if (Test-Path desktop-pos/dist/nsis-source-drive.txt) {
-              subst S: /D
-              Remove-Item desktop-pos/dist/nsis-source-drive.txt
-            }
             subst R: /D
           }
       - name: Verify actual installed dashboard recovery and retained unsynced data
@@ -192,5 +214,6 @@ jobs:
             b/desktop-pos/dist/installer-checks.json
             b/desktop-pos/dist/runtime-package.json
             b/desktop-pos/dist/runtime-audit.json
+            b/desktop-pos/dist/installer-tools.json
           if-no-files-found: error
           retention-days: 30
