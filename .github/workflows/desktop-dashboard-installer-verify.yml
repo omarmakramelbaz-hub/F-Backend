@@ -3,7 +3,7 @@ name: Verify installer from tested dashboard runtime
 on:
   push:
     branches: ['codex/desktop-resume-20261009']
-    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml']
+    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml', 'desktop-pos/test/installer-native.cjs']
   workflow_dispatch:
     inputs:
       runtime_run_id:

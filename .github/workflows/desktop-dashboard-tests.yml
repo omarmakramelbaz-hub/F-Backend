@@ -19,6 +19,7 @@ on:
       - 'resources/views/admin/**'
       - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
+      - '.github/scripts/desktop-runtime-copy-hook.cjs'
 
 permissions:
   contents: read
