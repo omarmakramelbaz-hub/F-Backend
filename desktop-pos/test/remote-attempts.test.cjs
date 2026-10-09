@@ -18,6 +18,14 @@ test('original category ordering reserves only its reviewed POST endpoint',()=>{
   assert.equal(f.attempts.supported({url,method:'POST'}),true);
   for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
 });
+test('original single role writes reserve without claiming bulk roles or permission administration',()=>{
+  const f=fixture(),origin=credential.serverOrigin;
+  assert.equal(f.attempts.supported({url:origin+'/admin/roles',method:'POST'}),true);
+  for(const method of ['POST','PUT','PATCH','DELETE'])assert.equal(f.attempts.supported({url:origin+'/admin/roles/12',method}),true);
+  for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url:origin+'/admin/roles',method}),false);
+  for(const path of ['/admin/rolesDeleteAll','/admin/permissions','/admin/roles/12/edit'])
+    assert.equal(f.attempts.supported({url:origin+path,method:'DELETE'}),false);
+});
 test('reviewed own-notification menu and history reads reserve, while external sends keep their guard',()=>{
   const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';
   assert.equal(f.attempts.supported({url,method:'POST'}),true);

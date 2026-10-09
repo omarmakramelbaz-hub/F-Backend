@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\{DB,Facade,Validator};
 class DesktopDashboardLegacy
 {
     public const ROUTES=[
+        'roles.store'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'POST','action'=>'store','parameter'=>'role'],
+        'roles.update'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'PUT','action'=>'update','parameter'=>'role'],
+        'roles.destroy'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'DELETE','action'=>'destroy','parameter'=>'role'],
         'categorys.reorder'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'POST','action'=>'updateColumns','parameter'=>null],
         'contracts.store'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'POST','action'=>'store','parameter'=>'contract'],
         'contracts.update'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'PUT','action'=>'update','parameter'=>'contract'],
@@ -51,6 +54,23 @@ class DesktopDashboardLegacy
         // These original administration actions change shared reference data.
         abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
     }
+    /** Role replies also require current original authority before journal deduplication. */
+    public function authorizeRoleRoute(string $name,User $actor): void
+    {
+        abort_unless(DesktopDashboardRoleFacts::handles($name),422);$this->authorize($actor);
+        $definition=self::ROUTES[$name];$router=app('router');$original=$router->getRoutes()->getByName($name);
+        abort_unless($original&&$original->getActionName()==='App\\Http\\Controllers\\Dashboard\\RolesController@'.$definition['action'],409);
+        $request=Request::create(url('/admin/roles'),$definition['method']);$route=clone $original;$route->flushController();
+        $request->setRouteResolver(fn()=>$route);$guard=auth('admin');$previous=$guard->getUser();$previousDefault=auth()->getDefaultDriver();
+        try{
+            $guard->setUser($actor);auth()->shouldUse('admin');$request->setUserResolver(fn($name=null)=>auth($name??'admin')->user());
+            $middleware=array_map(fn($item)=>MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$route->controllerMiddleware());
+            (new Pipeline(app()))->send($request)->through($middleware)->then(fn()=>true);
+        }finally{
+            if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);
+            auth()->shouldUse($previousDefault);
+        }
+    }
     public function payload(Request $request,string $command): array
     {
         $name=$request->route()->getName();$definition=self::ROUTES[$name];
@@ -71,13 +91,20 @@ class DesktopDashboardLegacy
         $facts=$savedFacts??($this->isSelection($definition)?
             ['catalog_rows'=>array_map(fn($id)=>['id'=>$id,'state'=>$this->state($definition,$id)],$this->selected($definition,$values))]:
             ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null]);
+        if($savedFacts===null&&$definition['table']==='roles'&&$definition['action']!=='destroy')
+            $facts['role_permissions']=app(DesktopDashboardRoleFacts::class)->selected($values,$facts['catalog_before']);
         return ['values'=>array_merge($values,['idempotency_key'=>$command]),'parameters'=>$parameters,'files'=>[],'facts'=>$facts];
     }
     private function state(array $definition,int $id): array
     {
         $row=DB::table($definition['table'])->where('id',$id)->lockForUpdate()->first();abort_unless($row,404);
         $row=(array)$row;unset($row['id'],$row['created_at'],$row['updated_at']);
-        return ['row'=>$row,'features'=>$definition['table']==='products'?DB::table('product_features')->where('product_id',$id)->orderBy('id')->pluck('name')->all():[]];
+        $state=['row'=>$row,'features'=>$definition['table']==='products'?DB::table('product_features')->where('product_id',$id)->orderBy('id')->pluck('name')->all():[]];
+        if($definition['table']==='roles'){
+            $state['permissions']=app(DesktopDashboardRoleFacts::class)->state($id);
+            $state['membership_sha256']=app(DesktopDashboardRoleFacts::class)->beforeMembership($id);
+        }
+        return $state;
     }
     private function validateValues(array $definition,array $values): void
     {
@@ -90,6 +117,7 @@ class DesktopDashboardLegacy
             abort_if(array_diff(array_keys($values),$definition['table']==='categories'?['parent']:[]),422,'حقول عملية الحذف غير مقبولة.');return;
         }
         $allowed=match($definition['table']){
+            'roles'=>['name','permission','permi'],
             'contracts'=>['added_by','template','type'],
             'features'=>['added_by','title_ar','title_en','text_ar','text_en','status'],
             'areas'=>['added_by','parent_id','title_ar','title_en'],
@@ -98,12 +126,13 @@ class DesktopDashboardLegacy
             'products'=>['added_by','category_id','subcategory_id','product_id','name_ar','name_en','status','has_clean','product_features','old_service'],
         };
         abort_if(array_diff(array_keys($values),$allowed),422,'حقول عملية الكتالوج غير مقبولة.');
+        if($definition['table']==='roles')Validator::make($values,['permi'=>'nullable|string|max:200'])->validate();
     }
     public function capture(string $name,callable $work): array
     {
         $definition=self::ROUTES[$name];
         if(!self::$listening){
-            foreach([Area::class,Category::class,Contract::class,Feature::class,Product::class,QuestionAnswer::class,\App\Models\ProductFeature::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
+            foreach([Area::class,Category::class,Contract::class,Feature::class,Product::class,QuestionAnswer::class,\App\Models\ProductFeature::class,\Spatie\Permission\Models\Role::class] as $model)app('events')->listen('eloquent.created: '.$model,function($row){
                 if(self::$capture!==null)self::$capture[get_class($row)][]=(int)$row->getKey();
             });
             self::$listening=true;
@@ -138,7 +167,7 @@ class DesktopDashboardLegacy
     {
         $this->authorize($actor);$definition=self::ROUTES[$name];$app=app();$router=$app['router'];
         $original=$router->getRoutes()->getByName($name);abort_unless($original,409);
-        $controller=match($definition['table']){'contracts'=>'ContractController','features'=>'FeatureController','areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
+        $controller=match($definition['table']){'roles'=>'RolesController','contracts'=>'ContractController','features'=>'FeatureController','areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
         $expected='App\\Http\\Controllers\\Dashboard\\'.$controller.'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
@@ -153,6 +182,8 @@ class DesktopDashboardLegacy
             $before=$payload['facts']['catalog_before']??null;
             abort_unless(is_array($before)&&hash_equals(app(DesktopDashboardJournal::class)->fingerprint($before),app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,(int)($payload['parameters'][$definition['parameter']]??0)))),409,'الصنف أو القسم تغيّر على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
         }
+        if($definition['table']==='roles'&&$definition['action']!=='destroy')
+            $values=app(DesktopDashboardRoleFacts::class)->resolve($values,$payload['facts']['role_permissions']??[],$payload['facts']['catalog_before']??null,(int)($payload['parameters']['role']??0));
         $uri='/'.$original->uri();
         foreach($payload['parameters']??[] as $key=>$value){abort_unless(is_scalar($value)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$value),422);$uri=str_replace('{'.$key.'}',(string)$value,$uri);}
         abort_if(str_contains($uri,'{'),422);
@@ -190,7 +221,7 @@ class DesktopDashboardLegacy
     {
         $definition=self::ROUTES[$name];
         $map=match($definition['table']){
-            'areas'=>['parent_id'=>'catalog_area'],'question_answers','contacts','features','contracts'=>[],
+            'areas'=>['parent_id'=>'catalog_area'],'question_answers','contacts','features','contracts','roles'=>[],
             default=>['category_id'=>'catalog_category','subcategory_id'=>'catalog_category','parent_id'=>'catalog_category','product_id'=>'catalog_product'],
         };
         foreach(['values','facts.catalog_before.row'] as $path){$row=data_get($payload,$path);if(!is_array($row))continue;

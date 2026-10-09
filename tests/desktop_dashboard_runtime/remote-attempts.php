@@ -208,6 +208,7 @@ try{
     verify($http($contractDelete['path'],$contractRemove,$proof($contractDeleteProof))[0]===403,'a stored contract deletion reply requires its current original permission');
     $currentRole->givePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     verify($decide(['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/contractsDeleteAll'])[0]===422,'the nonexistent contract bulk endpoint cannot reserve an original operation');
+    require __DIR__.'/roles-remote.php';
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

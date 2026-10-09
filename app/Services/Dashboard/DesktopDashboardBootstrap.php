@@ -78,7 +78,8 @@ class DesktopDashboardBootstrap
                 'source'=>$source,
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
-                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>$media['complete']]];
+                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
+                    'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'media'=>$media['complete']]];
         });
     }
     private function redactJson(string $value): string

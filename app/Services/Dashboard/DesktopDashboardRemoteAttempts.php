@@ -31,6 +31,8 @@ class DesktopDashboardRemoteAttempts
     {
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
         $single=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features|contracts)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
+        $roles=($v['method']==='POST'&&$v['path']==='/admin/roles')
+            ||(in_array($v['method'],['POST','PUT','PATCH','DELETE'],true)&&preg_match('#^/admin/roles/[1-9][0-9]{0,18}$#D',$v['path']));
         $bulk=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
         $ordering=$v['path']==='/admin/post-sortable'&&$v['method']==='POST';
         $contact=(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/contacts/[1-9][0-9]{0,18}$#D',$v['path']))
@@ -41,13 +43,17 @@ class DesktopDashboardRemoteAttempts
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$bulk||$ordering||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($single||$roles||$bulk||$ordering||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة السيرفر يحتاج جداول تدعم المعاملات.');
         }
-        $table=match(true){$history||$v['path']==='/admin/read/all/notification'=>'notifications',str_starts_with($v['path'],'/admin/contracts')=>'contracts',str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
+        $table=match(true){$roles=>'roles',$history||$v['path']==='/admin/read/all/notification'=>'notifications',str_starts_with($v['path'],'/admin/contracts')=>'contracts',str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
+        if($roles)foreach(['permissions','role_has_permissions','model_has_roles'] as $roleTable){
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$roleTable]);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد الدور يحتاج جداول تدعم المعاملات.');
+        }
         if($table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة هذا القسم يحتاج جدولاً يدعم المعاملات.');
