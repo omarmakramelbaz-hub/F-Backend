@@ -168,6 +168,30 @@ try{
     verify($http($siteFeatureBulk['path'],$siteFeatureBulkForm,$proof($siteFeatureBulkProof),'DELETE')[0]===200&&DB::table('features')->whereIn('id',$siteFeatureBulkIds)->count()===0,'the original site feature bulk DELETE commits its protected reserved outcome');
     $siteFeatureBulkForm['ids']=implode(',',$siteFeatureBulkIds);
     verify($http($siteFeatureBulk['path'],$siteFeatureBulkForm,$proof($siteFeatureBulkProof),'DELETE')[0]===200,'a reordered original site feature bulk retry returns the saved result after deletion');
+    $contractForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'added_by'=>1,'type'=>'vendor','template'=>'<p>قالب نتيجة السيرفر · [vendorName]</p>'];
+    $contractAttempt=$attempt('/admin/contracts');[, $contractProof]=$decide($contractAttempt);
+    verify($http('/admin/contracts',$contractForm,$proof($contractProof))[0]===302&&DB::table('contracts')->where('template',$contractForm['template'])->count()===1
+        &&$decide($contractAttempt,'settle')[1]['status']==='committed','the original server contract creation stores its exact terminal template outcome');
+    $currentRole=\Spatie\Permission\Models\Role::findOrFail($role->id);$currentRole->revokePermissionTo('contract-edit');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http('/admin/contracts',$contractForm,$proof($contractProof))[0]===403,'a stored contract creation reply requires its current original editing permission');
+    $currentRole->givePermissionTo('contract-edit');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    $retryContract=$attempt('/admin/contracts');[, $retryContractProof]=$decide($retryContract);
+    verify($http('/admin/contracts',$contractForm,$proof($retryContractProof))[0]===302&&DB::table('contracts')->where('template',$contractForm['template'])->count()===1,'a later contract transmission returns its stored original creation without another template');
+    $remoteContract=(int)DB::table('contracts')->where('template',$contractForm['template'])->value('id');
+    $contractForm['_method']='PUT';$contractForm['_desktop_command']=(string)Str::uuid();$contractForm['template']='<p>قالب نتيجة السيرفر معدل · [vendorMobile]</p>';
+    $contractUpdate=$attempt('/admin/contracts/'.$remoteContract);[, $contractUpdateProof]=$decide($contractUpdate);
+    verify($http($contractUpdate['path'],$contractForm,$proof($contractUpdateProof))[0]===302&&DB::table('contracts')->where('id',$remoteContract)->value('template')===$contractForm['template']
+        &&$http($contractUpdate['path'],$contractForm,$proof($contractUpdateProof))[0]===302,'the original contract update saves its placeholder HTML and replays its reserved response');
+    $contractRemove=['_token'=>$serverCsrf[1],'_method'=>'DELETE','_desktop_command'=>(string)Str::uuid()];$contractDelete=$attempt('/admin/contracts/'.$remoteContract);[, $contractDeleteProof]=$decide($contractDelete);
+    $currentRole->revokePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contractDelete['path'],$contractRemove,$proof($contractDeleteProof))[0]===403&&DB::table('contracts')->where('id',$remoteContract)->exists(),'the original contract deletion enforces its UI permission before removing a template');
+    $currentRole->givePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contractDelete['path'],$contractRemove,$proof($contractDeleteProof))[0]===302&&!DB::table('contracts')->where('id',$remoteContract)->exists()
+        &&$http($contractDelete['path'],$contractRemove,$proof($contractDeleteProof))[0]===302,'a lost original contract deletion returns its committed outcome before removed-model binding');
+    $currentRole->revokePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($http($contractDelete['path'],$contractRemove,$proof($contractDeleteProof))[0]===403,'a stored contract deletion reply requires its current original permission');
+    $currentRole->givePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    verify($decide(['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/contractsDeleteAll'])[0]===422,'the nonexistent contract bulk endpoint cannot reserve an original operation');
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

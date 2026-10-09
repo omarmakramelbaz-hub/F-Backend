@@ -52,12 +52,13 @@ test('an unprepared device retains the old guard, while a credential read failur
 });
 test('reviewed cash, phone and expense writes reserve while calculations and print claims keep their existing guard',()=>{
   const f=fixture();
-  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close','/admin/areas','/admin/areas/12','/admin/branch-expenses/save','/admin/question_answers','/admin/question_answers/12','/admin/features','/admin/features/12'])
+  for(const path of ['/admin/takeaway/checkout','/admin/phone-orders/tickets/12/settle','/admin/phone-orders/finish-batch','/admin/dining/tables','/admin/customers/save','/admin/branch-shifts/close','/admin/areas','/admin/areas/12','/admin/branch-expenses/save','/admin/question_answers','/admin/question_answers/12','/admin/features','/admin/features/12','/admin/contracts','/admin/contracts/12'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
   for(const path of ['/admin/takeaway/quote','/admin/phone-orders/print-jobs/claim'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'DELETE'}),true);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/areasDeleteAll',method:'POST'}),false);
+  assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contractsDeleteAll',method:'DELETE'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/featuresDeleteAll',method:'DELETE'}),true);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/question_answersDeleteAll',method:'DELETE'}),true);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/contacts/12',method:'POST'}),true);

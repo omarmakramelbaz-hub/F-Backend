@@ -28,7 +28,7 @@ class DesktopDashboardRemoteAttempts
     private function values(array $values): array
     {
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
-        $single=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
+        $single=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features|contracts)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
         $bulk=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
         $contact=(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/contacts/[1-9][0-9]{0,18}$#D',$v['path']))
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
@@ -43,7 +43,7 @@ class DesktopDashboardRemoteAttempts
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة السيرفر يحتاج جداول تدعم المعاملات.');
         }
-        $table=match(true){str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
+        $table=match(true){str_starts_with($v['path'],'/admin/contracts')=>'contracts',str_starts_with($v['path'],'/admin/features')=>'features',str_starts_with($v['path'],'/admin/areas')=>'areas',str_starts_with($v['path'],'/admin/question_answers')=>'question_answers',$contact=>'contacts',default=>null};
         if($table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد نتيجة هذا القسم يحتاج جدولاً يدعم المعاملات.');
