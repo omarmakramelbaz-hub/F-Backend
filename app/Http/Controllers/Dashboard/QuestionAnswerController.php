@@ -18,7 +18,7 @@ class QuestionAnswerController extends Controller
         $this->middleware('permission:question_answer-list', ['only' => ['index','show']]);
         $this->middleware('permission:question_answer-create', ['only' => ['create','store']]);
         $this->middleware('permission:question_answer-edit', ['only' => ['update','edit']]);
-        $this->middleware('permission:question_answer-delete', ['only' => ['destroy','delete_all']]);
+        $this->middleware('permission:question_answer-delete', ['only' => ['destroy','delete_all','deleteAll']]);
         $this->question_answerRepository = $question_answerRepository;
     }
 
@@ -53,7 +53,7 @@ class QuestionAnswerController extends Controller
      */
     public function store(StoreQuestionAnswerRequest $request)
     {
-        $question_answerDetails = $request->except('_token');
+        $question_answerDetails = $request->except('_token','_method','_desktop_command','idempotency_key');
 
         $question_answer = $this->question_answerRepository->createQuestionAnswer($question_answerDetails);
         
@@ -91,7 +91,7 @@ class QuestionAnswerController extends Controller
      */
     public function update(StoreQuestionAnswerRequest $request, QuestionAnswer $question_answer)
     {
-        $question_answerDetails = $request->except('_token','_method');
+        $question_answerDetails = $request->except('_token','_method','_desktop_command','idempotency_key');
         $this->question_answerRepository->updateQuestionAnswer($question_answer->id, $question_answerDetails);
     
         return redirect('admin/question_answers')->with('success',trans('messages.UpdateSuccessfully'));

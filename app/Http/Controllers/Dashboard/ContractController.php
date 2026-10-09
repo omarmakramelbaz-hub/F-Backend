@@ -15,6 +15,7 @@ class ContractController extends Controller
         $this->middleware('permission:contract-list', ['only' => ['show']]);
         $this->middleware('permission:contract-edit', ['only' => ['create','store']]);
         $this->middleware('permission:contract-edit', ['only' => ['edit','update']]);
+        $this->middleware('permission:contract-delete', ['only' => ['destroy','deleteAll']]);
     }
 
     public function index()

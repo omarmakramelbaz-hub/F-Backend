@@ -1,6 +1,6 @@
 <?php
 // Native supervisor endpoint. Its credential is distinct from the browser asset credential.
-use App\Services\Dashboard\DesktopDashboardJournal;
+use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardRefresh};
 
 try {
     if(($_SERVER['REQUEST_METHOD']??'')!=='POST'
@@ -18,6 +18,9 @@ try {
         case 'pending':$result=['commands'=>$journal->pending($device),'counts'=>$journal->counts($device)];break;
         case 'acknowledge':$journal->acknowledge($device,(string)($value['command_id']??''),(array)($value['receipt']??[]));$result=['counts'=>$journal->counts($device)];break;
         case 'failed':$journal->failed($device,(string)($value['command_id']??''),(string)($value['message']??''),($value['conflict']??false)===true);$result=['counts'=>$journal->counts($device)];break;
+        case 'refresh-begin':$result=$app->make(DesktopDashboardRefresh::class)->begin($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
+        case 'refresh-cancel':$result=$app->make(DesktopDashboardRefresh::class)->cancel($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
+        case 'refresh-status':$result=$app->make(DesktopDashboardRefresh::class)->inspect($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
         default:abort(422,'أمر التشغيل المحلي غير معروف.');
     }
     header('Content-Type: application/json');header('Cache-Control: no-store');

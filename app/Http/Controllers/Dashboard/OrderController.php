@@ -86,6 +86,7 @@ class OrderController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate(['from_date'=>'nullable|date_format:Y-m-d','to_date'=>'nullable|date_format:Y-m-d']);
         $searchQuery = trim($request->query('search'));
         $orders = Order::query();
         if(! empty(request('status')) ){
@@ -110,9 +111,9 @@ class OrderController extends Controller
             });
         }   
         $orders = $orders->when($request->query('from_date'), function($query, $from_date) {
-                $query->where('created_at', '>=', $from_date);
+                $query->where('created_at', '>=', \App\Services\Dashboard\OperatingDay::start($from_date)->toDateTimeString());
             })->when($request->query('to_date'), function($query, $to_date) {
-                $query->where('created_at', '<=', $to_date);
+                $query->where('created_at', '<', \App\Services\Dashboard\OperatingDay::end($to_date)->toDateTimeString());
             });
             // ->where('type','!=','wallet');
             // ->whereNotNull('status')
@@ -139,6 +140,7 @@ class OrderController extends Controller
     
     public function applies()
     {
+        request()->validate(['date'=>'nullable|date_format:Y-m-d']);
         $orders = Order::query()->with('carts');
         
 
@@ -166,7 +168,8 @@ class OrderController extends Controller
         }
         
         if(! empty(request()->date) ){
-            $orders = $orders->whereDate('created_at' , request()->date);
+            $orders->where('created_at','>=',\App\Services\Dashboard\OperatingDay::start(request()->date)->toDateTimeString())
+                ->where('created_at','<',\App\Services\Dashboard\OperatingDay::end(request()->date)->toDateTimeString());
         }
        
          if(request()->q){

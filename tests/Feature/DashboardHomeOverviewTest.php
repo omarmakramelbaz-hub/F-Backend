@@ -31,7 +31,7 @@ class DashboardHomeOverviewTest extends TestCase
         Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('status');$t->string('type')->default('delegate');$t->string('profession_key')->nullable();});
         Schema::create('go_stores',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id')->unique();$t->string('name')->default('GO store');});
         foreach(['2026_10_03_060000_create_order_board_clocks.php'=>'CreateOrderBoardClocks','2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos','2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets','2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses','2026_10_04_100000_create_branch_shift_closings.php'=>'CreateBranchShiftClosings','2026_10_04_210000_create_branch_inventory_recipes.php'=>'CreateBranchInventoryRecipes','2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs'] as $file=>$class){require_once database_path('migrations/'.$file);(new $class)->up();}
-        foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[21,'user',null],[22,'user',null],[30,'admin',null]] as [$id,$type,$parent])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'app_scope'=>$id===22?'go_customer':'fasakhansta','created_at'=>'2026-10-05 01:00:00']);
+        foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[21,'user',null],[22,'user',null],[30,'admin',null]] as [$id,$type,$parent])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'app_scope'=>$id===22?'go_customer':'fasakhansta','created_at'=>'2026-10-05 09:00:00']);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main','parent_id'=>null],['id'=>101,'user_id'=>11,'name'=>'Foreign','parent_id'=>null],['id'=>102,'user_id'=>11,'name'=>'Child','parent_id'=>100]]);
         DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100],['id'=>2,'resturant_id'=>101]]);
         DB::table('settings')->insert(['name'=>'service_fees','payload'=>'10']);
@@ -50,7 +50,7 @@ class DashboardHomeOverviewTest extends TestCase
         DB::table('takeaway_tills')->insertOrIgnore(['branch'=>$branch,'balance_cents'=>0,'tax_bps'=>0,'revision'=>1]);$till=DB::table('takeaway_tills')->where('branch',$branch)->first();
         DB::table('takeaway_orders')->insert(['id'=>$id,'branch'=>$branch,'till_id'=>$till->id,'actor_id'=>10,'request_key'=>sprintf('00000000-0000-4000-8000-%012d',$id),'request_hash'=>str_repeat('a',64),'quote_hash'=>str_repeat('b',64),'business_date'=>$day,'payment_method'=>'card','subtotal_cents'=>$gross-$delivery,'discount_cents'=>0,'tax_cents'=>0,'total_cents'=>$gross,'cash_received_cents'=>0,'change_cents'=>0,'tax_bps'=>0,'branch_snapshot'=>'{}','cashier_snapshot'=>'{}','channel'=>$channel,'delivery_cents'=>$delivery,'created_at'=>$day.' 05:00:00','updated_at'=>$day.' 05:00:00']);
     }
-    private function order(int $id,array $values=[]): void {DB::table('orders')->insert($values+['id'=>$id,'resturant_id'=>100,'user_id'=>20,'status'=>'completed','type'=>'current','total_price'=>'100','delivery_price'=>'20','user_tax'=>'5','created_at'=>'2026-10-05 01:00:00','updated_at'=>'2026-10-05 02:00:00']);}
+    private function order(int $id,array $values=[]): void {DB::table('orders')->insert($values+['id'=>$id,'resturant_id'=>100,'user_id'=>20,'status'=>'completed','type'=>'current','total_price'=>'100','delivery_price'=>'20','user_tax'=>'5','created_at'=>'2026-10-05 09:00:00','updated_at'=>'2026-10-05 10:00:00']);}
     private function expense(int $id,array $values=[]): void {DB::table('branch_expenses')->insert($values+['id'=>$id,'branch'=>'f:100','actor_id'=>10,'occurred_on'=>'2026-10-05','category'=>'purchases','description'=>'Goods','amount_cents'=>3000,'payment_method'=>'card','status'=>'approved']);}
     public function test_branch_home_has_only_stock_and_todays_approved_expenses(): void
     {
@@ -86,12 +86,33 @@ class DashboardHomeOverviewTest extends TestCase
     public function test_completion_clocks_and_cairo_boundaries_are_used_instead_of_last_update_or_creation(): void
     {
         $this->order(1,['created_at'=>'2026-10-04 22:00:00','updated_at'=>'2026-10-06 01:00:00']);
-        DB::table('order_board_clocks')->insert(['source'=>'legacy','order_id'=>1,'accepted_at'=>'2026-10-04 20:00:00','closed_at'=>'2026-10-04 21:00:00']);
-        $this->order(2,['updated_at'=>'2026-10-05 10:00:00']);DB::table('order_board_clocks')->insert(['source'=>'legacy','order_id'=>2,'accepted_at'=>'2026-10-04 19:00:00','closed_at'=>'2026-10-04 20:59:59']);
-        $this->order(3,['updated_at'=>'2026-10-06 10:00:00']);DB::table('branch_recipe_sales')->insert(['branch'=>'f:100','source_type'=>'app','source_id'=>'3','snapshot'=>'{}','created_at'=>'2026-10-04 21:30:00']);
+        DB::table('order_board_clocks')->insert(['source'=>'legacy','order_id'=>1,'accepted_at'=>'2026-10-04 20:00:00','closed_at'=>'2026-10-05 03:00:00']);
+        $this->order(2,['updated_at'=>'2026-10-05 10:00:00']);DB::table('order_board_clocks')->insert(['source'=>'legacy','order_id'=>2,'accepted_at'=>'2026-10-04 19:00:00','closed_at'=>'2026-10-05 02:59:59']);
+        $this->order(3,['updated_at'=>'2026-10-06 10:00:00']);DB::table('branch_recipe_sales')->insert(['branch'=>'f:100','source_type'=>'app','source_id'=>'3','snapshot'=>'{}','created_at'=>'2026-10-05 03:30:00']);
         $this->order(4,['created_at'=>'2025-10-05 01:00:00','updated_at'=>'2025-10-05 02:00:00']);
         $r=$this->overview(['branch'=>'f:100']);$this->assertSame(2,$r['completed']);$this->assertSame(27000,$r['sales']['gross_cents']);$this->assertSame(13500,$r['previous']['gross_cents']);$this->assertSame(0,$r['legacy_app_dates']);$this->assertSame(27000,$r['trend'][0]['amount_cents']);
     }
+    public function test_operating_day_sales_and_charts_include_next_morning_until_six(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-06 05:59:59','Africa/Cairo'));
+        $this->order(1,['created_at'=>'2026-10-05 05:59:59','updated_at'=>'2026-10-05 05:59:59']);
+        $this->order(2,['created_at'=>'2026-10-05 06:00:00','updated_at'=>'2026-10-05 06:00:00']);
+        $this->order(3,['created_at'=>'2026-10-06 05:59:59','updated_at'=>'2026-10-06 05:59:59']);
+        $this->order(4,['created_at'=>'2026-10-06 06:00:00','updated_at'=>'2026-10-06 06:00:00']);
+        $this->sale(1,'f:100','takeaway',10000,0,'2026-10-05');
+        DB::table('takeaway_orders')->where('id',1)->update(['created_at'=>'2026-10-06 12:00:00','context_snapshot'=>json_encode(['occurred_at'=>'2026-10-06T02:59:59Z'])]);
+        $this->expense(1);$this->expense(2,['occurred_on'=>'2026-10-06','amount_cents'=>9900]);
+        $r=$this->overview(['branch'=>'f:100']);
+        $this->assertSame('2026-10-05',$r['filters']['to']);$this->assertSame('2026-10-05',$r['operating_day']['date']);
+        $this->assertSame(3,$r['completed']);$this->assertSame(37000,$r['sales']['gross_cents']);$this->assertSame(3000,$r['sales']['expenses_cents']);
+        $this->assertSame(37000,array_sum(array_column($r['trend'],'amount_cents')));
+        $this->assertSame('06:00',$r['trend'][0]['label']);$this->assertSame('05:00',$r['trend'][23]['label']);
+        $this->assertSame(23500,$r['trend'][23]['amount_cents']);$this->assertSame(2,$r['app_orders']);
+        Carbon::setTestNow(Carbon::parse('2026-10-06 06:00:00','Africa/Cairo'));
+        $next=$this->overview(['branch'=>'f:100']);$this->assertSame('2026-10-06',$next['filters']['from']);
+        $this->assertSame(1,$next['completed']);$this->assertSame(9900,$next['sales']['expenses_cents']);
+    }
+
     public function test_branch_scope_persisted_identity_and_server_side_financial_redaction(): void
     {
         $this->sale(1);$this->sale(2,'f:101','takeaway',87654321);$this->order(1);$this->order(2,['resturant_id'=>101,'user_id'=>21]);

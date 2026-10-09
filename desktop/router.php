@@ -38,6 +38,9 @@ if ($file && is_file($file) && str_starts_with($file, $root.DIRECTORY_SEPARATOR)
     header('Content-Type: '.$extensions[$extension]);
     readfile($file); exit;
 }
+// Uploaded public storage has no dynamic fallback. Private expense files are served
+// only by their authenticated original controller, never by a guessed storage URL.
+if (str_starts_with($pathname, '/storage/')) { http_response_code(404); exit; }
 define('LARAVEL_START', microtime(true));
 $app = require __DIR__.'/bootstrap.php';
 $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);

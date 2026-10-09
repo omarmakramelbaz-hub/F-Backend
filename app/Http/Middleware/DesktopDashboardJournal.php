@@ -10,7 +10,11 @@ class DesktopDashboardJournal
 {
     public function handle($request,Closure $next)
     {
-        if (!config('desktop_dashboard.local')) return $next($request);
+        if (!config('desktop_dashboard.local')) {
+            if($request->hasHeader('X-Fasakhansta-Remote-Attempt')||$request->hasHeader('X-Fasakhansta-Remote-Capability'))
+                return app(\App\Services\Dashboard\DesktopDashboardRemoteAttempts::class)->handle($request,$next);
+            return $next($request);
+        }
         $route=$request->route()?->getName();
         if (!DesktopDashboardRoutes::journaled($route)) {
             $action=strtolower((string)$request->route()?->getActionName());

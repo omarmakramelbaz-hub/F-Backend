@@ -11,9 +11,8 @@
     <link rel="icon" type="image/png" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}" />
     <script src="{{ asset('dashboard/js/dashboard-spa.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-spa.js')) }}"></script>
-    @if(config('desktop_dashboard.local'))
+    <script src="{{ asset('dashboard/js/desktop-client.js') }}?v={{ filemtime(public_path('dashboard/js/desktop-client.js')) }}" defer></script>
     <script src="{{ asset('dashboard/js/desktop-dashboard.js') }}" defer></script>
-    @endif
   <meta name="description" content="لوحة التحكم في تطبيق "فسخانجي" مصممة لتلبية احتياجات أصحاب المطاعم والمناديب بفعالية. توفر النظام واجهة متقدمة لإدارة الطلبات حيث يمكن للمطاعم تلقي وتنظيم الطلبات من المستخدمين وتحديث حالتها بسهولة. يمكن لأصحاب المطاعم تتبع الطلبات المرسلة للطيارين، مع إمكانية إرسال إشعارات فورية للعملاء حول حالة الطلبات. كما تتيح لوحة التحكم تحليل أداء الطلبات وتنظيم وجبات الطيارين، مما يسهم في تحسين جودة الخدمة وتسهيل التواصل بين جميع الأطراف المشاركة في عملية الطلب والتوصيل.">
 
     <link rel="stylesheet" href="{{ url('/dashboard') }}/plugins/fontawesome-free/css/all.min.css">
@@ -193,5 +192,5 @@ firebase.initializeApp(firebaseConfig);
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js') }}"></script>
 </head>
 
-<body data-dashboard-actor="{{ auth('admin')->id() }}:{{ auth('admin')->user()->account_type }}" class="hold-transition sidebar-mini layout-fixed dashboard-theme{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}{{ request()->is('admin/takeaway*') ? ' dashboard-takeaway-page' : '' }}{{ request()->is('admin/dining*') ? ' dashboard-dining-page' : '' }}{{ request()->is('admin/phone-orders*') ? ' dashboard-phone-orders-page' : '' }}">
+<body data-dashboard-local="{{ config('desktop_dashboard.local') ? '1' : '0' }}" data-dashboard-remote-attempts="{{ config('desktop_dashboard.enabled') ? '1' : '0' }}" data-dashboard-actor="{{ auth('admin')->id() }}:{{ auth('admin')->user()->account_type }}" class="hold-transition sidebar-mini layout-fixed dashboard-theme{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}{{ request()->is('admin/takeaway*') ? ' dashboard-takeaway-page' : '' }}{{ request()->is('admin/dining*') ? ' dashboard-dining-page' : '' }}{{ request()->is('admin/phone-orders*') ? ' dashboard-phone-orders-page' : '' }}">
     <div class="wrapper">

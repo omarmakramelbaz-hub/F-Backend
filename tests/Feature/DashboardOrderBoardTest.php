@@ -722,6 +722,16 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame(['legacy:2'], $this->keys($today));
     }
 
+    public function test_selected_operating_date_includes_next_morning_and_excludes_exactly_six(): void
+    {
+        $this->legacy(1,['created_at'=>'2026-10-03 05:59:59']);
+        $this->legacy(2,['created_at'=>'2026-10-03 06:00:00']);
+        $this->legacy(3,['created_at'=>'2026-10-04 05:59:59']);
+        $this->legacy(4,['created_at'=>'2026-10-04 06:00:00']);
+        $this->assertEqualsCanonicalizing(['legacy:2','legacy:3'],$this->keys($this->board(10,['date'=>'2026-10-03'])));
+        $this->assertCount(4,$this->keys($this->board(10)));
+    }
+
     public function test_optional_go_tables_can_be_absent_after_a_legacy_server_restore(): void
     {
         foreach (['go_store_orders', 'go_stores', 'go_service_jobs', 'partner_service_requests'] as $table) {

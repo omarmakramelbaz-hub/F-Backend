@@ -31,7 +31,7 @@ class BranchExpenses
     public function filters(array $values): array
     {
         $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>['nullable',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
-        $v['from']=$v['from']??now('Africa/Cairo')->startOfMonth()->toDateString();$v['to']=$v['to']??now('Africa/Cairo')->toDateString();
+        $v['from']=$v['from']??substr(OperatingDay::date(),0,7).'-01';$v['to']=$v['to']??OperatingDay::date();
         abort_if($v['to']<$v['from'],422,'راجع الفترة المطلوبة.');return $v;
     }
     private function scope(array $v,$actor): array
@@ -55,14 +55,14 @@ class BranchExpenses
         $v=$this->filters($values);[$base,$branches]=$this->scope($v,$actor);$query=$this->filtered(clone $base,$v);
         $total=(clone $query)->count();abort_if($export&&$total>10000,422,'ضيّق الفترة لتصدير حتى ١٠ آلاف مصروف.');$perPage=$export?max(1,$total):30;$last=max(1,(int)ceil($total/$perPage));$page=min((int)($v['page']??1),$last);
         $rows=(clone $query)->orderByDesc('occurred_on')->orderByDesc('id')->offset($export?0:($page-1)*$perPage)->limit($perPage)->get();
-        $approved=(clone $base)->where('status','approved');$today=now('Africa/Cairo')->toDateString();$month=now('Africa/Cairo')->startOfMonth()->toDateString();
+        $approved=(clone $base)->where('status','approved');$today=OperatingDay::date();$month=substr(OperatingDay::date(),0,7).'-01';
         $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']))+1;
         $top=(clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderByDesc('amount')->first();
         $names=DB::table('users')->whereIn('id',$rows->pluck('actor_id')->merge($rows->pluck('reviewer_id'))->filter()->unique())->pluck('name','id');
         $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);$categories=app(ExpenseCategories::class)->options();
         $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$categories))->all();
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
-        return ['success'=>true,'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
+        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
             'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]]+app(ExpenseCategories::class)->choices($permissions['can_manage_categories']);
     }
@@ -83,6 +83,7 @@ class BranchExpenses
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
         $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
+        abort_if($v['occurred_on']>OperatingDay::date(),422,'لا يمكن تسجيل مصروف ليوم تشغيل مستقبلي.');
         abort_if(!empty($v['expense_id']),403,'تعديل المصروفات المسجلة غير متاح.');
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
         if($v['description']==='')throw ValidationException::withMessages(['description'=>'اكتب بيان المصروف.']);
@@ -137,7 +138,7 @@ class BranchExpenses
         abort_unless($balance>=-100000000000&&$balance<=100000000000,409,'رصيد خزنة الفرع خارج الحد المسموح.');
         $requestKey=\Illuminate\Support\Str::uuid()->toString();$kind=$sign<0?'expense':'expense_refund';
         DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>$balance,'revision'=>(int)$till->revision+1,'updated_at'=>$when]);
-        DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$expense->branch,'actor_id'=>$actor->id,'request_key'=>$requestKey,'request_hash'=>PosServiceTicket::fingerprint([$kind,$expense->id]),'kind'=>$kind,'amount_cents'=>$delta,'balance_cents'=>$balance,'business_date'=>$when->copy()->setTimezone('Africa/Cairo')->toDateString(),'note'=>mb_substr(($sign<0?'مصروف ':'عكس مصروف ').'EXP-'.$expense->id.' · '.$expense->description,0,500),'metadata'=>json_encode(['expense_id'=>(int)$expense->id,'occurred_on'=>$expense->occurred_on]),'created_at'=>$when,'updated_at'=>$when]);
+        DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$expense->branch,'actor_id'=>$actor->id,'request_key'=>$requestKey,'request_hash'=>PosServiceTicket::fingerprint([$kind,$expense->id]),'kind'=>$kind,'amount_cents'=>$delta,'balance_cents'=>$balance,'business_date'=>OperatingDay::date($when),'note'=>mb_substr(($sign<0?'مصروف ':'عكس مصروف ').'EXP-'.$expense->id.' · '.$expense->description,0,500),'metadata'=>json_encode(['expense_id'=>(int)$expense->id,'occurred_on'=>$expense->occurred_on]),'created_at'=>$when,'updated_at'=>$when]);
     }
     private function replay(array $v,$actor,string $hash): ?array
     {

@@ -14,7 +14,7 @@ class DesktopDashboardBootstrap
         'branch_stock','branch_stock_movements','branch_inventory','branch_inventory_movements','branch_stock_recipes','branch_recipe_sales',
         'branch_expenses','branch_expense_commands',
         'branch_customers','branch_delivery_companies','branch_employees','branch_operation_commands',
-        'branch_employee_salaries','branch_employee_days','branch_employee_entries','branch_payrolls',
+        'branch_attendance_rules','branch_employee_salaries','branch_employee_days','branch_employee_entries','branch_payrolls',
         'branch_shift_closings','phone_delivery_dispatches','phone_delivery_batches',
     ];
     private const CHILD_TABLES=[
@@ -29,8 +29,9 @@ class DesktopDashboardBootstrap
     {
         $this->devices->ready();
         abort_unless(DB::transactionLevel()===0,409,'تجهيز البيانات يحتاج معاملة مستقلة.');
+        $source=app(DesktopDashboardSource::class)->fingerprint();
         DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        return DB::transaction(function()use($device){
+        return DB::transaction(function()use($device,$source){
             $fresh=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($fresh&&$fresh->enabled,401);
             $actor=$this->devices->actor($fresh);$branches=[];
             foreach(json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR) as $branch){
@@ -70,11 +71,14 @@ class DesktopDashboardBootstrap
                 $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash('sha256',$encoded)];
             }
             ksort($schema);
-            return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>(string)Str::uuid(),'device_id'=>$fresh->id,
+            $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
+            abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
+            return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'generated_at'=>now('UTC')->toIso8601String(),
-                'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,
+                'source'=>$source,
+                'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
-                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>false]];
+                'coverage'=>['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),'full_dashboard'=>false,'media'=>$media['complete']]];
         });
     }
     private function redactJson(string $value): string

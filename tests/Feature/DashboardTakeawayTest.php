@@ -422,23 +422,27 @@ class DashboardTakeawayTest extends TestCase
         $this->assertSame('12500.00',$this->service()->quote($this->cart('f:100',1,'1000','piece'),$this->actor())['total']);
     }
 
-    public function test_business_day_is_cairo_and_uncertain_post_recovery_survives_midnight(): void
+    public function test_business_day_starts_at_six_in_cairo_and_uncertain_post_recovery_survives_rollover(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-10-03 21:30:00','UTC')); // Cairo 00:30 next day.
         $payload = $this->payment($this->cart()); $sale = $this->service()->checkout($payload,$this->actor());
-        $this->assertSame('2026-10-04',$sale['receipt']['business_date']);
+        $this->assertSame('2026-10-03',$sale['receipt']['business_date']);
         $this->assertSame('2026-10-04T00:30:00+03:00',$sale['receipt']['created_at']);
+        Carbon::setTestNow(Carbon::parse('2026-10-04 05:59:59','Africa/Cairo'));
+        $daily = $this->service()->receipts(['branch'=>'f:100'],$this->actor()); $this->assertSame(1,$daily['today']['count']);
+        Carbon::setTestNow(Carbon::parse('2026-10-04 06:00:00','Africa/Cairo'));
+        $daily = $this->service()->receipts(['branch'=>'f:100'],$this->actor()); $this->assertSame(0,$daily['today']['count']);
         Carbon::setTestNow(Carbon::parse('2026-10-05 00:30:00','Africa/Cairo'));
         $daily = $this->service()->receipts(['branch'=>'f:100'],$this->actor()); $this->assertSame(0,$daily['today']['count']);
         $recovery = $this->service()->receipts(['branch'=>'f:100','idempotency_key'=>$this->key()],$this->actor());
         $this->assertSame($sale['receipt'],$recovery['receipt']);
     }
 
-    public function test_sale_and_cash_entry_share_the_same_cairo_business_day_across_midnight(): void
+    public function test_sale_and_cash_entry_share_the_same_cairo_business_day_across_six(): void
     {
-        Carbon::setTestNow(Carbon::parse('2026-10-03 23:59:59','Africa/Cairo'));
+        Carbon::setTestNow(Carbon::parse('2026-10-04 05:59:59','Africa/Cairo'));
         DB::listen(function ($query) {
-            if (str_starts_with($query->sql,'insert into') && str_contains($query->sql,'takeaway_order_items')) Carbon::setTestNow(Carbon::parse('2026-10-04 00:00:00','Africa/Cairo'));
+            if (str_starts_with($query->sql,'insert into') && str_contains($query->sql,'takeaway_order_items')) Carbon::setTestNow(Carbon::parse('2026-10-04 06:00:00','Africa/Cairo'));
         });
         $sale = $this->service()->checkout($this->payment($this->cart()),$this->actor());
         $this->assertSame('2026-10-03',$sale['receipt']['business_date']);

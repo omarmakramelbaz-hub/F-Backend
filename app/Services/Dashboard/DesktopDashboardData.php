@@ -24,6 +24,11 @@ class DesktopDashboardData
             if(!in_array($table,DesktopDashboardSchema::EMPTY,true)&&($all||in_array($table,self::PUBLIC_TABLES,true)))$query=DB::table($table);
             $queries[$table]=$query;
         }
+        // The original shared template listing allows central admins with either
+        // contract-list or contract-edit, without requiring the Super Admin role.
+        if(!$all&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id)&&isset($queries['contracts'])
+            &&($actor->checkPermissionTo('contract-list','admin')||$actor->checkPermissionTo('contract-edit','admin')))
+            $queries['contracts']=DB::table('contracts');
         foreach(DesktopDashboardBootstrap::BRANCH_TABLES as $table)if(isset($queries[$table])){
             abort_unless(Schema::hasColumn($table,'branch'),409,'مخطط بيانات الفرع يحتاج مراجعة.');$queries[$table]=DB::table($table)->whereIn('branch',$branches);
         }

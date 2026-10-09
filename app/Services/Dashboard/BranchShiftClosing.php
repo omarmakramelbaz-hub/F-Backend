@@ -80,7 +80,7 @@ class BranchShiftClosing
     }
     private function build(array $branch,$last): array
     {
-        $value=$branch['value'];$now=now('UTC');$activated=$last?$last->activated_at:now('Africa/Cairo')->startOfDay()->setTimezone('UTC')->toDateTimeString();$started=$last?$last->closed_at:$activated;
+        $value=$branch['value'];$now=now('UTC');$activated=$last?$last->activated_at:OperatingDay::start()->utc()->toDateTimeString();$started=$last?$last->closed_at:$activated;
         $till=DB::table('takeaway_tills')->where('branch',$value)->first();$balance=(int)($till->balance_cents??0);
         $lastSnapshot=$last?json_decode($last->snapshot,true):[];
         // Historical closes keep their saved receipt; their captured till is the
@@ -123,7 +123,7 @@ class BranchShiftClosing
             $id=DB::table('branch_shift_closings')->insertGetId(['branch'=>$v['branch'],'sequence'=>(int)($last->sequence??0)+1,'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'activated_at'=>$built['activated_at'],'started_at'=>$built['started_at'],'closed_at'=>$built['closed_at'],'counted_cents'=>$counted,'expected_cents'=>$built['expected'],'variance_cents'=>$counted-$built['expected'],'till_balance_cents'=>$built['till_balance'],'snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'notes'=>$v['notes'],'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             foreach(array_chunk($built['sources'],500) as $chunk)DB::table('branch_shift_sources')->insert(array_map(fn($s)=>$s+['closing_id'=>$id,'branch'=>$v['branch']],$chunk));
             DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>0,'revision'=>(int)$till->revision+1,'updated_at'=>now('UTC')]);
-            DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>(string)\Illuminate\Support\Str::uuid(),'request_hash'=>PosServiceTicket::fingerprint(['shift_close',$id]),'kind'=>'shift_close','amount_cents'=>-$built['till_balance'],'balance_cents'=>0,'business_date'=>now('Africa/Cairo')->toDateString(),'note'=>'تصفير الدرج بعد إغلاق الوردية SHIFT-'.str_pad((string)$id,6,'0',STR_PAD_LEFT),'metadata'=>json_encode(['closing_id'=>$id]),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>(string)\Illuminate\Support\Str::uuid(),'request_hash'=>PosServiceTicket::fingerprint(['shift_close',$id]),'kind'=>'shift_close','amount_cents'=>-$built['till_balance'],'balance_cents'=>0,'business_date'=>OperatingDay::date(),'note'=>'تصفير الدرج بعد إغلاق الوردية SHIFT-'.str_pad((string)$id,6,'0',STR_PAD_LEFT),'metadata'=>json_encode(['closing_id'=>$id]),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             return ['success'=>true,'replayed'=>false,'closing'=>$this->stub(DB::table('branch_shift_closings')->where('id',$id)->first())];
         },3);
     }

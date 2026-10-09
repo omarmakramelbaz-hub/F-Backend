@@ -139,7 +139,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('advertisings/del/image',[AdvertisingController::class,'delete_image']);
 
         Route::resource('/categorys', CategoryController::class);
-        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll']);
+        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll'])->name('categorys.destroy-all');
         Route::get('categorys/{id}/services/prices',[CategoryController::class,'edit_services_prices'])->name('categorys.services.prices');
         Route::put('categorys/{id}/update/services/prices',[CategoryController::class,'update_services_prices'])->name('categorys.services.prices.update');
         Route::post('post-sortable',[CategoryController::class,'updateColumns']);
@@ -156,7 +156,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
         Route::resource('/products', ProductController::class);
-        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll']);
+        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll'])->name('products.destroy-all');
         Route::post('/fetch-subcategory', [ProductController::class, 'fetchSubcategory']);
         Route::post('/fetch-product', [ProductController::class, 'fetchProduct']);
         Route::post('/fetch-feature', [ProductController::class, 'fetchFeature']);
@@ -194,7 +194,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('users/{id}/go_drive_activation',[UserController::class,'go_drive_activation']);
 
         Route::resource('/features', FeatureController::class);
-        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll']);
+        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll'])->name('features.destroy-all');
         Route::resource('/blogs', BlogController::class);
         Route::delete('blogsDeleteAll', [BlogController::class,'deleteAll']);
         Route::resource('/banners', BannerController::class);
@@ -209,7 +209,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/contacts', [ContactController::class,'index'])->name('contacts.index');
         Route::get('/contacts/{id}', [ContactController::class,'show'])->name('contacts.show');
         Route::delete('/contacts/{contact}', [ContactController::class,'destroy'])->name('contacts.destroy');
-        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll']);
+        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll'])->name('contacts.destroy-all');
 
 
         Route::resource('/subscribers', SubscriberController::class);
@@ -240,7 +240,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================areas=====================
         //=====================================================
         Route::resource('areas',AreaController::class);
-        Route::delete('areasDeleteAll',[AreaController::class,'delete_all']);
+        Route::delete('areasDeleteAll',[AreaController::class,'delete_all'])->name('areas.destroy-all');
         
         
          //====================================================
@@ -254,7 +254,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================question_answers=====================
         //=====================================================
         Route::resource('question_answers',QuestionAnswerController::class);
-        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'delete_all']);
+        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'deleteAll'])->name('question_answers.destroy-all');
 
     });
 });

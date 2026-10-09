@@ -411,7 +411,7 @@ class TakeawayService
     }
 
     private function requireReady(): void { abort_unless($this->access->ready(), 503, 'نقطة البيع لم تُجهز بعد.'); }
-    private function businessDate(?Carbon $when = null): string { return ($when ? $when->copy() : now('UTC'))->setTimezone(config('app.timezone', 'Africa/Cairo'))->toDateString(); }
+    private function businessDate(?Carbon $when = null): string { return OperatingDay::date($when); }
     private function iso(string $time): string { return Carbon::parse($time, 'UTC')->setTimezone(config('app.timezone', 'Africa/Cairo'))->toIso8601String(); }
     private function hash(array $values): string { return hash('sha256', json_encode($values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
 }

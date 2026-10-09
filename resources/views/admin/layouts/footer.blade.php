@@ -194,8 +194,9 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
-<script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
+<script src="{{ url('/dashboard') }}/dist/js/adminlte.js?v={{ filemtime(public_path('dashboard/dist/js/adminlte.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-operating-day.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-operating-day.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-expense-badge.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-expense-badge.js')) }}"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
@@ -642,10 +643,12 @@ $(document).ready(function () {
                     });
 
 
+                  @unless(config('desktop_dashboard.local'))
                   $.each(allVals, function( index, value ) {
                       $('table tr').filter("[data-row-id='" + value + "']").remove();
                       
                   });
+                  @endunless
                 //   $('tbody').html(' <tr><td colspan="4"><h4>@lang('main.no data to show')</h4><td></tr>');
                 }  
             }  

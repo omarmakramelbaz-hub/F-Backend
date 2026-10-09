@@ -44,6 +44,7 @@ foreach([
     '2026_10_06_120000_create_branch_expenses_categories.php'=>'CreateBranchExpensesCategories',
     '2026_10_06_200000_manage_expense_categories.php'=>'ManageExpenseCategories',
     '2026_10_06_140000_add_employee_wallet_phone.php'=>'AddEmployeeWalletPhone',
+    '2026_10_08_190000_add_employee_attendance_rules.php'=>'AddEmployeeAttendanceRules',
     '2026_10_08_130000_create_desktop_dashboard_journal.php'=>'CreateDesktopDashboardJournal',
 ] as $file=>$class){require $application.'/database/migrations/'.$file;(new $class)->up();}
 DB::table('users')->insert([['id'=>1,'name'=>'الأونر','account_type'=>'admin'],['id'=>10,'name'=>'كاشير','account_type'=>'vendor'],['id'=>11,'name'=>'فرع آخر','account_type'=>'vendor']]);
@@ -87,9 +88,10 @@ denied(fn()=>$journal->execute($device,$deniedExpense['idempotency_key'],10,'bra
 check(DB::table('desktop_dashboard_commands')->count()===$before && DB::table('branch_expenses')->count()===1,'rejected permissions create neither expense nor queued success');
 $employeeId=(string)Str::uuid();$employee=['branch'=>'f:100','idempotency_key'=>$employeeId,'name'=>'موظف الاختبار','phone'=>'01012345678','job_title'=>'كاشير','shift'=>'صباحي','hired_on'=>'2026-10-01','effective_month'=>'2026-10','salary'=>'5000.00','active'=>true];
 $saved=$journal->execute($device,$employeeId,1,'employees.save',['values'=>$employee],[],fn()=>app(BranchPayroll::class)->employeeSave($employee,$actor));
-$attendanceId=(string)Str::uuid();$attendance=['branch'=>'f:100','idempotency_key'=>$attendanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','status'=>'present'];
+app(BranchPayroll::class)->saveAttendanceRules(['branch'=>'f:100','morning_start'=>'10:00','morning_end'=>'18:00','morning_late'=>'0.00','morning_early'=>'0.00','evening_start'=>'20:00','evening_end'=>'04:00','evening_late'=>'0.00','evening_early'=>'0.00','absence'=>'0.00','idempotency_key'=>(string)Str::uuid()],$actor);
+$attendanceId=(string)Str::uuid();$attendance=['branch'=>'f:100','idempotency_key'=>$attendanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','status'=>'morning','action'=>'check_in'];
 $journal->execute($device,$attendanceId,1,'employees.attendance',['values'=>$attendance],[$employeeId],fn()=>app(BranchPayroll::class)->attendance($attendance,$actor));
-check(DB::table('branch_employees')->count()===1 && DB::table('branch_employee_days')->value('status')==='present','the original employee and attendance services execute locally');
+check(DB::table('branch_employees')->count()===1 && DB::table('branch_employee_days')->value('status')==='morning','the original employee and attendance services execute locally');
 $advanceId=(string)Str::uuid();$advance=['branch'=>'f:100','idempotency_key'=>$advanceId,'employee_id'=>$saved['employee']['id'],'day'=>'2026-10-08','kind'=>'advance','amount'=>'50.00','reason'=>'سلفة'];
 $journal->execute($device,$advanceId,1,'employees.entry',['values'=>$advance],[$employeeId],fn()=>app(BranchPayroll::class)->entry($advance,$actor));
 check((int)DB::table('branch_employee_entries')->value('amount_cents')===5000,'the original payroll ledger records its local advance');
@@ -107,7 +109,7 @@ $stalePayroll=$payroll;$stalePayroll['preview_hash']=str_repeat('0',64);
 denied(fn()=>app(BranchPayroll::class)->desktopReview($stalePayroll,$actor),409,'local payroll closure requires the exact approved original preview');
 $payrollFacts=app(BranchPayroll::class)->desktopReview($payroll,$actor);
 $closedPayroll=$journal->execute($device,$payrollId,1,'employees.close',['values'=>$payroll,'facts'=>['payroll'=>$payrollFacts]],[],fn()=>app(BranchPayroll::class)->close($payroll,$actor));
-check($closedPayroll['statement']['net_cents']===495000&&$closedPayroll['statement']['status']==='closed','original payroll closure saves the reviewed salary and advance locally');
+check($closedPayroll['statement']['net_cents']===124032&&$closedPayroll['statement']['status']==='closed','original payroll closure saves eight accrued days less the advance locally');
 $payrollRetry=$journal->execute($device,$payrollId,1,'employees.close',['values'=>$payroll,'facts'=>$journal->savedFacts($device,$payrollId,1,'employees.close')],[],function(){throw new RuntimeException('A saved payroll must not close again.');});
 check($payrollRetry===$closedPayroll&&DB::table('branch_payrolls')->count()===1,'a lost local payroll reply reuses mapped saved facts without closing the month twice');
 check($journal->savedFacts($device,$payrollId,10,'employees.close')===null,'saved payroll review facts are bound to their original actor and route');
@@ -133,13 +135,14 @@ foreach(DB::table('desktop_dashboard_commands')->where('device_id',$device)->ord
         'payload'=>json_decode(\Illuminate\Support\Facades\Crypt::decryptString($row->command_cipher),true),
         'local_result'=>$savedCommand['result'],'local_references'=>$savedCommand['references'],'dependencies'=>json_decode($row->dependencies,true),'occurred_at'=>$row->created_at];
 }
-config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.enabled'=>true]);DB::purge();
+config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.enabled'=>true,'desktop_dashboard.local'=>false]);DB::purge();
 config(['app.key'=>'base64:'.base64_encode(random_bytes(32))]);$app->forgetInstance('encrypter');\Illuminate\Support\Facades\Facade::clearResolvedInstance('encrypter');
 // A server-side employee takes the local employee's integer ID before the offline device reconnects.
 DB::table('branch_employees')->insert(['branch'=>'f:101','name'=>'موظف السيرفر','job_title'=>'كاشير','hired_on'=>'2026-10-01','active'=>true,'revision'=>1,'actor_id'=>1]);
 // Other-branch operations also consume the receipt and expense IDs that the local device used.
 $serverActor=User::withoutGlobalScopes()->findOrFail(1);
-app(BranchPayroll::class)->attendance(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','status'=>'present','idempotency_key'=>(string)Str::uuid()],$serverActor);
+foreach(['f:100','f:101'] as $ruleBranch)app(BranchPayroll::class)->saveAttendanceRules(['branch'=>$ruleBranch,'morning_start'=>'10:00','morning_end'=>'18:00','morning_late'=>'0.00','morning_early'=>'0.00','evening_start'=>'20:00','evening_end'=>'04:00','evening_late'=>'0.00','evening_early'=>'0.00','absence'=>'0.00','idempotency_key'=>(string)Str::uuid()],$serverActor);
+app(BranchPayroll::class)->attendance(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','status'=>'morning','action'=>'check_in','idempotency_key'=>(string)Str::uuid()],$serverActor);
 app(BranchPayroll::class)->entry(['branch'=>'f:101','employee_id'=>1,'day'=>'2026-10-08','kind'=>'advance','amount'=>'10.00','reason'=>'حركة فرع آخر','idempotency_key'=>(string)Str::uuid()],$serverActor);
 DB::table('branch_employee_salaries')->insert(['branch'=>'f:101','employee_id'=>1,'effective_month'=>'2026-10','amount_cents'=>100000,'actor_id'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $otherPeriod=app(BranchPayroll::class)->statement(['branch'=>'f:101','employee_id'=>1,'month'=>'2026-10'],$serverActor)['statement'];
@@ -154,6 +157,12 @@ $bootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export
 check($bootstrap['device_id']===$device && $bootstrap['actor_id']===1 && !$bootstrap['coverage']['full_dashboard'],'initial data is bound to the enrolled account and reports incomplete coverage');
 $branchEnrollment=app(DesktopDashboardDevices::class)->enroll(['device_id'=>(string)Str::uuid(),'name'=>'جهاز الكاشير','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(10));
 $cashierBootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($branchEnrollment['token']));
+// Synthetic, disposable source for the separate Windows supervisor test. These flags
+// exercise activation machinery; the actual server export remains explicitly incomplete.
+if($nativeSnapshot=getenv('DESKTOP_TEST_SNAPSHOT_FILE')){
+    $synthetic=$cashierBootstrap;$synthetic['coverage']['full_dashboard']=true;$synthetic['coverage']['media']=true;$synthetic['media']=[];
+    file_put_contents($nativeSnapshot,\App\Services\Dashboard\DesktopDashboardBootstrap::json($synthetic));
+}
 check($cashierBootstrap['branches']===['f:100'] && count($cashierBootstrap['tables']['resturants']['rows'])===1 && count($cashierBootstrap['tables']['users']['rows'])===1,'a cashier initial dataset contains only the enrolled branch and account');
 check(count($cashierBootstrap['tables']['takeaway_orders']['rows'])===0 && count($cashierBootstrap['tables']['branch_employees']['rows'])===0,'other-branch sales and employees cannot leak into the local dataset');
 check(!isset($cashierBootstrap['tables']['desktop_dashboard_devices'],$cashierBootstrap['tables']['desktop_dashboard_commands']),'initial data never includes pairing tokens or another device journal');
@@ -162,39 +171,143 @@ $ownerUsers=array_column($bootstrap['tables']['users']['rows'],null,'id');
 check(!password_verify('LocalTest123',$ownerUsers[10]['password']),'other cached branch accounts have unusable password hashes');
 $staging='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$staging.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$staging){$pdo->exec('DROP DATABASE IF EXISTS `'.$staging.'`');});
-config(['database.connections.mysql.database'=>$staging,'desktop_dashboard.device_id'=>$branchEnrollment['device_id']]);DB::purge();
+config(['database.connections.mysql.database'=>$staging,'desktop_dashboard.device_id'=>$branchEnrollment['device_id'],'desktop_dashboard.local'=>true]);DB::purge();
+$sourceNode=proc_open(['node','-e','require(process.argv[1]).fingerprint(process.argv[2]).then(value=>process.stdout.write(JSON.stringify(value))).catch(error=>{process.stderr.write(error.message);process.exitCode=1;});',
+    __DIR__.'/../../desktop-pos/src/dashboard-source.cjs',$application],[['pipe','r'],['pipe','w'],['file',$profile.'/source-node.log','a']],$sourcePipes,$application);
+fclose($sourcePipes[0]);$nodeSource=json_decode(stream_get_contents($sourcePipes[1]),true);fclose($sourcePipes[1]);$sourceExit=proc_close($sourceNode);
+check($sourceExit===0&&$nodeSource===$cashierBootstrap['source'],'independent native Node and original PHP compute the same application-code binding');
+foreach(['sha256'=>str_repeat('0',64),'framework'=>'different-framework','files'=>$cashierBootstrap['source']['files']+1] as $field=>$value){
+    $wrongSource=$cashierBootstrap;$wrongSource['source'][$field]=$value;
+    denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($wrongSource),409,'different server application code is rejected before staging DDL: '.$field);
+}
+$missingSource=$cashierBootstrap;unset($missingSource['source']);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($missingSource),409,'an older unbound server snapshot cannot create a newly verified generation');
+check(DB::select('SHOW TABLES')===[],'failed code compatibility checks preserve the untouched empty staging schema');
 $corrupt=$cashierBootstrap;$corrupt['tables']['users']['rows'][0]['name']='تعديل أثناء النقل';
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($corrupt),422,'a damaged initial dataset is rejected before any local schema is created');
 check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new staging database empty');
 $imported=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap);
 check($imported['schema_hash']===$cashierBootstrap['schema_hash'] && DB::table('resturants')->count()===1 && DB::table('users')->count()===1,'the account dataset imports into a separate real local MariaDB schema');
 check(Schema::hasTable('desktop_dashboard_commands') && DB::table('desktop_dashboard_commands')->count()===0,'an imported local database receives its own empty encrypted command journal');
+$verified=app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported);
+check($verified['verified']&&$verified['branches']===['f:100'],'a reopened staging database verifies its actual table counts, actor and snapshot binding');
+check($verified['source']===$cashierBootstrap['source'],'independent staging verification retains its bound source and framework identity');
+$sourceRecord=DB::table('desktop_dashboard_source_manifest')->first();
+DB::table('desktop_dashboard_source_manifest')->where('device_id',$sourceRecord->device_id)->update(['sha256'=>str_repeat('0',64)]);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported),409,'a damaged persisted code manifest cannot pass staging verification');
+DB::table('desktop_dashboard_source_manifest')->where('device_id',$sourceRecord->device_id)->update(['sha256'=>$sourceRecord->sha256]);
+$wrongReceipt=$imported;$wrongReceipt['table_rows']['users']++;
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'a changed table count cannot pass independent staging verification');
+$wrongReceipt=$imported;$wrongReceipt['actor_id']=11;
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'another account cannot pass independent staging verification');
+$nativeEnv=getenv();$nativeEnv['DB_DATABASE']=$staging;$nativeEnv['DESKTOP_DASHBOARD_DEVICE_ID']=$branchEnrollment['device_id'];
+$verifyProcess=proc_open([PHP_BINARY,$application.'/desktop/verify.php'],[['pipe','r'],['pipe','w'],['file',$profile.'/verify.log','a']],$verifyPipes,$application,$nativeEnv);
+fwrite($verifyPipes[0],json_encode($imported,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));fclose($verifyPipes[0]);
+$nativeVerified=json_decode(stream_get_contents($verifyPipes[1]),true);fclose($verifyPipes[1]);$verifyExit=proc_close($verifyProcess);
+check($verifyExit===0&&($nativeVerified['verified']??false)&&$nativeVerified['snapshot_id']===$cashierBootstrap['snapshot_id'],'an independent actual PHP process verifies the imported MariaDB generation');
 $localCashier=User::withoutGlobalScopes()->findOrFail(10);
 $localSummary=app(TakeawayService::class)->summary('f:100',$localCashier);
 check($localSummary['ready'] && !$localSummary['permissions']['can_manage'],'the original dashboard service reads imported branch data with original cashier rights');
 denied(fn()=>app(TakeawayService::class)->summary('f:101',$localCashier),404,'the imported original dashboard cannot switch to an unauthorized branch');
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap),409,'re-running setup cannot overwrite a populated local database');
-config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.device_id'=>$device]);DB::purge();
+// A refresh must fence writes BEFORE downloading or activating another dataset. Exercise
+// the real imported branch, original customer service and a second InnoDB connection.
+$refresh=app(\App\Services\Dashboard\DesktopDashboardRefresh::class);$localDevice=$branchEnrollment['device_id'];
+$refreshId=(string)Str::uuid();$refreshToken=bin2hex(random_bytes(32));
+$localState=DB::table('desktop_dashboard_local_state')->first();
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>false,'held'=>false],'restart before acquiring a fence can inspect an absent attempt without changing the database');
+check($localState->snapshot_id===$cashierBootstrap['snapshot_id']&&(int)$localState->actor_id===10
+    &&json_decode($localState->branches,true)===['f:100'],'import durably binds refresh state to the verified snapshot, account and branches');
+$localCustomerId=(string)Str::uuid();$localCustomer=['branch'=>'f:100','idempotency_key'=>$localCustomerId,'name'=>'عميل محلي','phone'=>'01012345678','address'=>'المنصورة'];
+$customerWork=fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($localCustomer,$localCashier);
+$localCustomerResult=$journal->execute($localDevice,$localCustomerId,10,'customers.save',['values'=>$localCustomer],[],$customerWork);
+denied(fn()=>$refresh->begin($localDevice,$refreshId,$refreshToken),409,'a pending original customer operation prevents refresh before any data changes');
+$journal->failed($localDevice,$localCustomerId,'customer changed on the server',true);
+check($journal->pending($localDevice)===[],'a conflicted operation can leave no sendable commands');
+denied(fn()=>$refresh->begin($localDevice,$refreshId,$refreshToken),409,'an empty sendable outbox cannot bypass retained conflicts during refresh');
+$localReceipt=['device_id'=>$localDevice,'command_id'=>$localCustomerId,'committed'=>true,'result'=>$localCustomerResult];
+$journal->acknowledge($localDevice,$localCustomerId,$localReceipt);
+$held=$refresh->begin($localDevice,$refreshId,$refreshToken);
+check($held['held']&&$held['fenced_sequence']===1&&$held['coverage']['full_dashboard']===false,'a drained ledger acquires its durable fence without claiming complete dashboard coverage');
+check($refresh->begin($localDevice,$refreshId,$refreshToken)===$held,'a lost refresh-begin response resumes the same durable fence');
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>true]+$held,'restart inspection identifies the persisted fence without reacquiring it');
+denied(fn()=>$refresh->inspect($localDevice,$refreshId,str_repeat('0',64)),409,'restart inspection requires the original native capability');
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported),409,'a fenced used generation cannot masquerade as unused verified staging data');
+check(DB::table('desktop_dashboard_local_state')->value('refresh_token_hash')===hash('sha256',$refreshToken),'only a hash of the native refresh capability is stored');
+$replacement='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$replacement.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+register_shutdown_function(function()use($pdo,$replacement){$pdo->exec('DROP DATABASE IF EXISTS `'.$replacement.'`');});
+config(['database.connections.mysql.database'=>$replacement]);DB::purge();
+$refreshedSnapshot=$cashierBootstrap;$refreshedSnapshot['snapshot_id']=(string)Str::uuid();
+$refreshedSnapshot['tables']['branch_customers']['ddl']=preg_replace('/^(CREATE TABLE `branch_customers` \()/','$1'."\n  `desktop_upgrade_fixture` varchar(40) DEFAULT NULL,",$refreshedSnapshot['tables']['branch_customers']['ddl'],1,$replacementCount);
+check($replacementCount===1,'the schema-upgrade fixture adds a new nullable customer field only to its separate staging DDL');
+$replacementSchema=[];foreach($refreshedSnapshot['tables'] as $table=>$part)$replacementSchema[$table]=hash('sha256',$part['ddl']);ksort($replacementSchema);
+$refreshedSnapshot['schema_hash']=hash('sha256',\App\Services\Dashboard\DesktopDashboardBootstrap::json($replacementSchema));
+$replacementReceipt=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($refreshedSnapshot);
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,str_repeat('0',64)),409,'a staged database cannot copy journal protection without the original fence capability');
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,$refreshToken),409,'a new schema cannot guess the identity of its previous fenced generation');
+$sourceIdentity=['snapshot_id'=>$cashierBootstrap['snapshot_id'],'schema_hash'=>$cashierBootstrap['schema_hash']];
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,$refreshToken,array_merge($sourceIdentity,['snapshot_id'=>(string)Str::uuid()])),409,'schema-upgrade archival rejects a different previous snapshot before copying UUID protection');
+denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,$refreshToken,array_merge($sourceIdentity,['schema_hash'=>str_repeat('0',64)])),409,'schema-upgrade archival rejects a different previous schema before copying UUID protection');
+$archive=app(\App\Services\Dashboard\DesktopDashboardArchive::class)->seal($replacementReceipt,$staging,$refreshId,$refreshToken,$sourceIdentity);
+check(Schema::hasColumn('branch_customers','desktop_upgrade_fixture')&&$replacementReceipt['schema_hash']!==$cashierBootstrap['schema_hash'],'the independently verified new generation has its changed schema');
+check($archive['archived_commands']===1&&app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($replacementReceipt)['verified'],'verified refreshed data retains UUID protection from its confirmed previous journal');
+denied(fn()=>$journal->execute($localDevice,$localCustomerId,10,'customers.save',['values'=>$localCustomer],[],fn()=>throw new RuntimeException('Archived customer work ran again.')),409,'an old confirmed operation cannot execute again in a different database generation');
+check(DB::table('branch_customers')->count()===0&&DB::table('desktop_dashboard_commands')->count()===0,'rejecting an archived replay changes neither refreshed business data nor its journal');
+config(['database.connections.mysql.database'=>$staging]);DB::purge();
+check(!Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'schema-upgrade archival never alters the previous business schema');
+check(DB::table('desktop_dashboard_commands')->count()===1&&DB::table('branch_customers')->count()===1,'copying replay protection leaves original encrypted receipts and business rows intact');
+denied(fn()=>$refresh->cancel($localDevice,$refreshId,str_repeat('0',64)),409,'a different native capability cannot release the active refresh fence');
+$blockedId=(string)Str::uuid();$blocked=$localCustomer;$blocked['idempotency_key']=$blockedId;$blocked['phone']='01012345679';
+denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier)),409,'the refresh fence blocks the original business write before it can create a customer');
+check(DB::table('branch_customers')->count()===1&&$journal->counts($localDevice)['acknowledged']===1,'refresh neither deletes the confirmed journal nor changes its local business ledger');
+DB::disconnect();DB::reconnect();
+denied(fn()=>$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),409,'the refresh fence survives a database reconnect instead of expiring silently');
+$released=$refresh->cancel($localDevice,$refreshId,$refreshToken);
+check(!$released['held']&&$refresh->cancel($localDevice,$refreshId,$refreshToken)===$released,'lost cancellation replies safely retain the same released fence identity');
+check($refresh->inspect($localDevice,$refreshId,$refreshToken)===['exists'=>true]+$released,'restart inspection distinguishes a lost cancellation response from a still-held fence');
+check(!$refresh->begin($localDevice,$refreshId,$refreshToken)['held'],'a delayed retry cannot reacquire an already cancelled fence');
+denied(fn()=>$journal->execute($localDevice,$blockedId,1,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'imported branch writes remain bound to their enrolled account');
+denied(fn()=>$journal->execute((string)Str::uuid(),$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>[]),403,'another device UUID cannot bypass the prepared local journal gate');
+DB::beginTransaction();
+try{
+    $refresh->writable($localDevice,10);
+    $probe=new PDO('mysql:host=127.0.0.1;port='.$port.';dbname='.$staging.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    $probe->exec('SET innodb_lock_wait_timeout=1');
+    try{$probe->query('SELECT device_id FROM desktop_dashboard_local_state FOR UPDATE');throw new RuntimeException('Concurrent refresh bypassed a business lock.');}
+    catch(PDOException $error){check((int)$error->errorInfo[1]===1205,'a second actual InnoDB connection cannot acquire a refresh fence during an accepted write');}
+}finally{DB::rollBack();}
+$nextRefreshId=(string)Str::uuid();
+check($refresh->begin($localDevice,$nextRefreshId,$refreshToken)['held'],'rolling back a business transaction releases its refresh lock');
+check($refresh->begin($localDevice,$refreshId,$refreshToken)===$released
+    &&$refresh->cancel($localDevice,$refreshId,$refreshToken)===$released,'old begin and cancellation retries cannot steal or reopen a newer refresh fence');
+check(DB::table('desktop_dashboard_local_state')->value('refresh_id')===$nextRefreshId
+    &&DB::table('desktop_dashboard_local_state')->value('state')==='held','historical refresh responses leave the current active fence unchanged');
+$refresh->cancel($localDevice,$nextRefreshId,$refreshToken);
+$journal->execute($localDevice,$blockedId,10,'customers.save',['values'=>$blocked],[],fn()=>app(\App\Services\Dashboard\BranchCustomers::class)->save($blocked,$localCashier));
+check(DB::table('branch_customers')->count()===2&&$journal->counts($localDevice)['pending']===1,'a failed or cancelled preparation restores original local writes and their durable journal');
+config(['database.connections.mysql.database'=>$remoteDatabase,'desktop_dashboard.device_id'=>$device,'desktop_dashboard.local'=>false]);DB::purge();
+\Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-12T12:00:00Z')); // Sync four days after the reviewed offline salary.
 foreach($envelopes as $envelope){
     if($envelope['route_name']==='employees.close'){
         $day=DB::table('branch_employee_days')->where('branch','f:100')->first();
         DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'absent','revision'=>2]);
         denied(fn()=>$reconciliation->ingest($remoteDevice,$envelope),409,'a changed server attendance row retains the offline payroll closure as a conflict');
         check(DB::table('branch_payrolls')->where('branch','f:100')->count()===0,'rejected payroll review writes neither a server closing nor a payment');
-        DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'present','revision'=>1]);
+        DB::table('branch_employee_days')->where('id',$day->id)->update(['status'=>'morning','revision'=>1]);
     }
     $reply=$reconciliation->ingest($remoteDevice,$envelope);
     check($reply['committed'] && $reply['command_id']===$envelope['command_id'],'remote original service confirms '.$envelope['route_name']);
     $again=$reconciliation->ingest($remoteDevice,$envelope);
     check($reply===$again,'lost remote reply returns the identical committed '.$envelope['route_name'].' result');
 }
+check(app(BranchPayroll::class)->statement(['branch'=>'f:100','employee_id'=>DB::table('branch_employees')->where('branch','f:100')->value('id'),'month'=>'2026-10'],$actor)['statement']['accrued_through']==='2026-10-08','delayed offline reconciliation preserves the reviewed accrual day instead of paying later days');
 check(DB::table('takeaway_orders')->where('branch','f:100')->count()===1 && DB::table('branch_inventory_movements')->where('branch','f:100')->where('source_type','pos')->count()===1,'reconnecting creates one sale and one recipe deduction on the server');
 check(DB::table('takeaway_orders')->where('branch','f:100')->value('created_at')==='2026-10-08 12:00:00','server reconciliation preserves the original UTC sale hour rather than shifting it by Cairo time');
 $remoteEmployee=DB::table('branch_employees')->where('branch','f:100')->value('id');
 check((int)$remoteEmployee!== (int)$saved['employee']['id'] && (int)DB::table('branch_employee_days')->where('branch','f:100')->value('employee_id')===(int)$remoteEmployee,'attendance refers to the mapped server employee despite integer ID collision');
 check((int)DB::table('branch_employee_entries')->where('branch','f:100')->value('employee_id')===(int)$remoteEmployee,'a dependent payroll entry uses the server employee ID');
 $serverPayroll=DB::table('branch_payrolls')->where('branch','f:100')->first();
-check((int)$serverPayroll->id!==(int)$closedPayroll['statement']['payroll_id']&&(int)$serverPayroll->employee_id===(int)$remoteEmployee&&$serverPayroll->status==='paid'&&(int)$serverPayroll->net_cents===495000,'the mapped original payroll closes and pays once despite employee, entry, attendance and payroll ID collisions');
+check((int)$serverPayroll->id!==(int)$closedPayroll['statement']['payroll_id']&&(int)$serverPayroll->employee_id===(int)$remoteEmployee&&$serverPayroll->status==='paid'&&(int)$serverPayroll->net_cents===124032,'the mapped original payroll closes and pays once despite employee, entry, attendance and payroll ID collisions');
 check((int)DB::table('takeaway_tills')->value('balance_cents')===0 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'server cash and inventory match the local original operations after shift reconciliation');
 check(DB::table('branch_shift_closings')->count()===1 && DB::table('branch_shift_sources')->count()===2 && (int)DB::table('branch_shift_sources')->where('source','pos')->value('source_id')===2 && (int)DB::table('branch_shift_sources')->where('source','expense')->value('source_id')===2,'one synced closing maps and claims its single sale and expense sources despite ID collisions');
 $altered=$envelopes[0];$altered['payload']['values']['quantity']='9.000';denied(fn()=>$reconciliation->ingest($remoteDevice,$altered),409,'the server rejects altered content with an already committed operation UUID');
@@ -227,5 +340,6 @@ try{
     check(gateway($origin.'/_desktop/control',[...$nativeHeaders,'Origin: https://foreign.example'],['action'=>'pending'])[0]===403,'a foreign web origin cannot use the native control gateway');
     check(gateway($origin.'/storage/private.php',$headers)[0]===404,'public storage PHP paths cannot execute through the dashboard router');
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
+require __DIR__.'/phone.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;

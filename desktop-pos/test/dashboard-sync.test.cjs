@@ -66,3 +66,16 @@ test('failure to persist a remote acknowledgement cannot discard the operation',
   });
   await sync.run(); assert.equal(sends, 1); assert.equal(pending, true); assert.equal(sync.state.error, 'local disk error');
 });
+
+test('refresh follows durable confirmation, waits for all conflicts and is throttled on idle ticks',async()=>{
+  let pending=1,conflicts=0,refreshes=0,now=1000;const events=[];
+  const sync=new DashboardSync({now:()=>now,refreshInterval:60000,
+    local:async request=>{events.push(request.action);if(request.action==='acknowledge')pending=0;
+      return {commands:pending?[{command_id:'one'}]:[],counts:{pending,conflicts}};},
+    remote:async()=>{events.push('server-confirmed');return {committed:true};},
+    refresh:async()=>{events.push('refresh');refreshes++;}});
+  await sync.run();assert.equal(refreshes,1);assert.ok(events.indexOf('acknowledge')<events.indexOf('refresh'));
+  await sync.run();assert.equal(refreshes,1);
+  now+=60000;conflicts=1;await sync.run();assert.equal(refreshes,1);
+  conflicts=0;await sync.run();assert.equal(refreshes,2);
+});

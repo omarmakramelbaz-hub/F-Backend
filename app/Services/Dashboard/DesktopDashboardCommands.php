@@ -11,11 +11,32 @@ class DesktopDashboardCommands
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
         if(DesktopDashboardLegacy::handles($route))return app(DesktopDashboardLegacy::class)->execute($route,$payload,$actor);
         $v=$payload['values']??[];$p=$payload['parameters']??[];
+        if($route==='dashboard-inbox.notifications.read'){
+            abort_if(!empty($payload['files']),501);
+            $original=app('router')->getRoutes()->getByName($route);
+            abort_unless($original&&$original->getActionName()==='App\\Http\\Controllers\\Dashboard\\DashboardInboxController@readNotifications',409);
+            $request=\Illuminate\Http\Request::create(url('/admin/dashboard-inbox/notifications/read'),'POST',$v);
+            $request->headers->set('Accept','application/json');$request->setRouteResolver(fn()=>$original);
+            $request->setUserResolver(fn($name=null)=>auth($name??'admin')->user());
+            $guard=auth('admin');$previous=$guard->getUser();$previousDefault=auth()->getDefaultDriver();
+            try{
+                $guard->setUser($actor);auth()->shouldUse('admin');$router=app('router');
+                $middleware=array_map(fn($item)=>\Illuminate\Routing\MiddlewareNameResolver::resolve($item,$router->getMiddleware(),$router->getMiddlewareGroups()),$original->controllerMiddleware());
+                $response=(new \Illuminate\Pipeline\Pipeline(app()))->send($request)->through($middleware)
+                    ->then(fn($request)=>app(\App\Http\Controllers\Dashboard\DashboardInboxController::class)->readNotifications($request));
+                return json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR);
+            }finally{
+                if($previous)$guard->setUser($previous);
+                else (function(){$this->user=null;})->call($guard);
+                auth()->shouldUse($previousDefault);
+            }
+        }
         if(str_starts_with($route,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
         $simple=[
             'takeaway.checkout'=>[TakeawayService::class,'checkout'],
             'customers.save'=>[BranchCustomers::class,'save'],'delivery-companies.save'=>[DeliveryCompanies::class,'save'],
             'employees.save'=>[BranchPayroll::class,'employeeSave'],'employees.attendance'=>[BranchPayroll::class,'attendance'],
+            'employees.attendance-rules'=>[BranchPayroll::class,'saveAttendanceRules'],
             'employees.entry'=>[BranchPayroll::class,'entry'],'employees.wallet'=>[BranchPayroll::class,'wallet'],
             'employees.daily-notes'=>[BranchPayroll::class,'dailyNotes'],'employees.void-entry'=>[BranchPayroll::class,'voidEntry'],
             'employees.pay'=>[BranchPayroll::class,'pay'],

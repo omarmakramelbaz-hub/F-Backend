@@ -33,6 +33,7 @@ DB::table('users')->insert([
 ]);
 DB::table('users')->update(['added_by'=>1]);
 DB::table('users')->where('id',10)->update(['partner_auth_email'=>'hidden-account@test.invalid']);
+foreach([85001,85002,85003] as $contactId)DB::table('contacts')->insert(['id'=>$contactId,'user_id'=>20,'name'=>'رسالة اختبار المزامنة '.$contactId,'email'=>'contact@test.invalid','message'=>'محتوى رسالة التواصل '.$contactId]);
 DB::table('resturants')->insert([['id'=>100,'added_by'=>1,'user_id'=>10,'name'=>'الفرع الأول','status'=>'opened','address'=>'المنصورة'],['id'=>101,'added_by'=>1,'user_id'=>11,'name'=>'الفرع الثاني','status'=>'opened','address'=>'المحلة']]);
 DB::table('categories')->insert(['id'=>1,'added_by'=>1,'name_ar'=>'رنجة','name_en'=>'Herring','status'=>'show','order'=>1]);
 DB::table('products')->insert(['id'=>1,'added_by'=>1,'category_id'=>1,'name_ar'=>'رنجة سمينة','name_en'=>'Herring','status'=>'show']);
@@ -53,10 +54,12 @@ DB::table('settings')->insert(['group'=>'private','name'=>'service_account','loc
 DB::statement('SET FOREIGN_KEY_CHECKS=1');config(['desktop_dashboard.enabled'=>true]);
 $actor=User::withoutGlobalScopes()->findOrFail(10);$id=(string)\Illuminate\Support\Str::uuid();
 $link=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$id,'name'=>'اختبار مخطط السيرفر','nonce'=>bin2hex(random_bytes(32))],$actor);
+require __DIR__.'/media.php';
 $snapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($link['token']));
 verify(count($snapshot['tables'])===106,'all 106 inspected schemas are available for original dashboard queries');
 $userIds=array_column($snapshot['tables']['users']['rows'],'id');sort($userIds);
 verify($userIds===[1,10,20],'foreign-key closure adds the branch customer and creator without unrelated customer accounts');
+verify($snapshot['tables']['contacts']['rows']===[],'private global contact messages stay outside a branch account snapshot');
 verify(count($snapshot['tables']['orders']['rows'])===1&&count($snapshot['tables']['carts']['rows'])===1,'legacy app orders and cart rows stay inside the account branch');
 verify(count($snapshot['tables']['order_board_clocks']['rows'])===1 && $snapshot['tables']['order_board_clocks']['rows'][0]['source']==='legacy','colliding application order IDs cannot leak another source clock');
 verify($snapshot['tables']['social_accounts']['rows']===[]&&$snapshot['tables']['user_tokens']['rows']===[],'OAuth and application session rows are never exported');
@@ -65,6 +68,9 @@ verify(!str_contains(DesktopDashboardBootstrap::json($snapshot),'never-export')&
 verify(collect($snapshot['tables']['settings']['rows'])->firstWhere('name','app_balance')['payload']==='"0"','a branch dataset excludes the platform owner balance');
 config(['database.connections.mysql.database'=>$stage,'desktop_dashboard.device_id'=>$id]);DB::purge();
 $imported=app(DesktopDashboardImport::class)->import($snapshot);
+verify(app(DesktopDashboardImport::class)->verify($imported)['verified'],'an independent staging verification hashes the actual scoped local images');
+$shortened=$imported;$shortened['media']=[];
+rejectMedia(fn()=>app(DesktopDashboardImport::class)->verify($shortened),409,'a modified receipt cannot drop required images from the persisted snapshot manifest');
 verify($imported['tables']===106&&DB::table('users')->count()===3,'the full inspected dataset imports with legacy cyclic foreign keys intact');
 verify(app(\App\Models\GeneralSettings::class)->site_name==='فسخانستا','the original settings class resolves from imported safe settings');
 $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=(int)substr(strrchr(stream_socket_get_name($reservation,false),':'),1);fclose($reservation);
@@ -73,11 +79,11 @@ $env=getenv();$env['DB_DATABASE']=$stage;$env['APP_URL']=$origin;$env['DESKTOP_D
 $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browserToken;$env['DESKTOP_DASHBOARD_CONTROL_TOKEN']=bin2hex(random_bytes(32));
 $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];
-$http=function(string $path,?array $form=null,array $extraHeaders=[])use($origin,$browserToken,&$cookies){
+$http=function(string $path,?array $form=null,array $extraHeaders=[],?string $method=null)use($origin,$browserToken,&$cookies){
     $headers=['X-Fasakhansta-Desktop: '.$browserToken,...$extraHeaders];
     if($cookies)$headers[]='Cookie: '.implode('; ',array_map(fn($k,$v)=>$k.'='.$v,array_keys($cookies),$cookies));
     if($form!==null)$headers[]='Content-Type: application/x-www-form-urlencoded';
-    $context=stream_context_create(['http'=>['method'=>$form===null?'GET':'POST','header'=>implode("\r\n",$headers),'content'=>$form===null?'':http_build_query($form),'ignore_errors'=>true,'timeout'=>15,'follow_location'=>0]]);
+    $context=stream_context_create(['http'=>['method'=>$method??($form===null?'GET':'POST'),'header'=>implode("\r\n",$headers),'content'=>$form===null?'':http_build_query($form),'ignore_errors'=>true,'timeout'=>15,'follow_location'=>0]]);
     $body=@file_get_contents($origin.$path,false,$context);$responseHeaders=$http_response_header??[];
     preg_match('/^HTTP\/\S+ (\d+)/',$responseHeaders[0]??'',$status);
     foreach($responseHeaders as $header)if(preg_match('/^Set-Cookie: ([^=]+)=([^;]*)/i',$header,$match))$cookies[$match[1]]=$match[2];
@@ -87,6 +93,8 @@ try{
     for($n=0;$n<100;$n++){[$status]=$http('/_desktop/health');if($status===200)break;usleep(50000);}
     [$status,$page]=$http('/admin/login');
     verify($status===200&&str_contains($page,'dashboard-login-form')&&str_contains($page,'فسخانستا'),'the original branded login Blade page renders over the private local HTTP gateway');
+    verify($http('/admin/branch-expenses/'.$expenseAttachmentId.'/attachment')[0]===302,
+        'the private expense download retains the original signed-in dashboard requirement');
     preg_match('/name="_token" value="([^"]+)"/',$page,$token);verify(!empty($token[1]),'the original offline login retains Laravel CSRF protection');
     [$status,$page,$headers]=$http('/admin/signin',['_token'=>$token[1],'email'=>'branch@test.invalid','password'=>'Fixture123']);
     verify($status===302&&count(array_filter($headers,fn($header)=>str_contains($header,'/admin/applies-orders')))===1,'the imported enrolled account signs in through the unchanged original login controller');
@@ -96,6 +104,15 @@ try{
         verify($status===200&&str_contains($page,'dashboard-brand.css')&&str_contains($page,'dashboard-spa.js'),'original local dashboard page renders: '.$path);
     }
     verify($http('/dashboard/branding/dashboard-brand.css')[0]===200&&$http('/dashboard/js/dashboard-spa.js')[0]===200,'the original dashboard style and navigation scripts are served locally');
+    [$imageStatus,$localImage]=$http('/storage/products/3/'.rawurlencode('رنجة.png'));
+    verify($imageStatus===200&&$localImage===$imageBytes,'the protected original local HTTP gateway serves the downloaded Arabic product image');
+    [$attachmentStatus,$attachmentBody,$attachmentHeaders]=$http('/admin/branch-expenses/'.$expenseAttachmentId.'/attachment');
+    verify($attachmentStatus===200&&$attachmentBody===$expensePdfBytes&&in_array('Content-Type: application/pdf',$attachmentHeaders,true),
+        'the original signed-in expense controller reads the prepared PDF from its private local disk');
+    verify($http('/storage/'.$expenseAttachmentPath)[0]===404,
+        'the original public storage URL cannot expose the private expense PDF');
+    verify(str_ends_with(\App\Models\Resturant::findOrFail(100)->getFirstMediaUrl('logo'),'/storage/resturants/1/logo.png'),
+        'the original media library retains its model rows and generates the correct nested local disk URL');
     [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$csrf);
     [$status,$quote]=$http('/admin/takeaway/quote',['_token'=>$csrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'],['Accept: application/json']);
     verify($status===200&&isset(json_decode($quote,true)['quote_hash']),'original POST price calculation works locally without creating an outbox entry');
@@ -108,10 +125,21 @@ try{
 config(['database.connections.mysql.database'=>$database]);DB::purge();
 $owner=User::withoutGlobalScopes()->findOrFail(1);
 $role=\Spatie\Permission\Models\Role::create(['name'=>'Super Admin','guard_name'=>'admin']);
-foreach(['category-list','category-create','category-edit','product-list','product-create','product-edit'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+foreach(['category-list','category-create','category-edit','category-delete','product-list','product-create','product-edit','product-delete','areas-list','areas-create','areas-edit','areas-delete','question_answer-list','question_answer-create','question_answer-edit','question_answer-delete','contact-list','contact-delete','feature-list','feature-create','feature-edit','feature-delete','contract-list','contract-edit','contract-delete'] as $permission)$role->givePermissionTo(\Spatie\Permission\Models\Permission::create(['name'=>$permission,'guard_name'=>'admin']));
+DB::table('contracts')->insert([['id'=>87001,'added_by'=>1,'type'=>'vendor','template'=>'قالب مورّد مشترك'],['id'=>87002,'added_by'=>1,'type'=>'delegate','template'=>'قالب مندوب مشترك']]);
+$contractManager=User::withoutGlobalScopes()->create(['id'=>30,'added_by'=>1,'name'=>'مدير القوالب','email'=>'template-manager@test.invalid','mobile'=>'1200000030','password'=>password_hash('Fixture123',PASSWORD_BCRYPT),'account_type'=>'admin','status'=>'accepted','app_scope'=>'fasakhansta']);
+$contractRole=\Spatie\Permission\Models\Role::create(['name'=>'Template Manager','guard_name'=>'admin']);$contractRole->givePermissionTo('contract-edit');$contractManager->assignRole($contractRole);
+$contractQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],$contractManager,['f:100']);
+verify(!app(\App\Services\Dashboard\DesktopDashboardData::class)->allAdministration($contractManager)&&$contractQueries['contracts']->count()===2,'a central contract editor receives its original shared templates without requiring global Super Admin authority');
+$contractRole->revokePermissionTo('contract-edit');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+$contractManager=User::withoutGlobalScopes()->findOrFail(30);$contractQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],$contractManager,['f:100']);
+verify($contractQueries['contracts']->count()===0,'revoking the original contract read/edit authority removes templates from another initial preparation');
+$branchQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],User::withoutGlobalScopes()->findOrFail(10),['f:100']);
+verify($branchQueries['contracts']->count()===0,'shared contract templates remain outside an ordinary branch account snapshot');
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 $ownerDevice=(string)\Illuminate\Support\Str::uuid();$ownerLink=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$ownerDevice,'name'=>'owner fixture','nonce'=>bin2hex(random_bytes(32))],$owner);
 $ownerSnapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($ownerLink['token']));
+verify(count($ownerSnapshot['tables']['contacts']['rows'])===3,'the primary administrator preparation imports its original global contact messages');
 $ownerStage='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$ownerStage.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(fn()=>$pdo->exec('DROP DATABASE IF EXISTS `'.$ownerStage.'`'));
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.device_id'=>$ownerDevice]);DB::purge();app(DesktopDashboardImport::class)->import($ownerSnapshot);
@@ -177,5 +205,13 @@ try{app(\App\Services\Dashboard\DesktopDashboardReconciliation::class)->ingest($
 catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===409&&DB::table('categories')->where('id',$serverCategory)->value('name_ar')==='تعديل مستقل على السيرفر','a changed server category remains intact and reconciliation reports a retained conflict');}
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
 verify(app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($ownerDevice)[0]['command_id']===$conflicting['command_id'],'a rejected catalog update remains durably queued on the local device');
+require __DIR__.'/catalog-delete.php';
+require __DIR__.'/areas.php';
+require __DIR__.'/faq.php';
+require __DIR__.'/features.php';
+require __DIR__.'/contracts.php';
+require __DIR__.'/contacts.php';
+require __DIR__.'/shared-actions.php';
+require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

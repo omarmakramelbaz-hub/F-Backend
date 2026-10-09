@@ -4,8 +4,80 @@
 .op-employees .op-filters label{min-width:0;flex:1 1 140px}.op-employees .op-filters input,.op-employees .op-filters select{min-width:0;max-width:100%}.op-employees .op-month-tools input{min-width:0;max-width:100%}
 .op-employees .op-filters .select2-container{width:100%!important;min-width:0;max-width:100%}
 
+/* Attendance is recorded directly from the two dropdowns in each employee row. */
+#branch-operations .op-attendance-cell{display:grid;gap:6px;min-width:0;text-align:center}
+#branch-operations .op-attendance-cell label{display:grid;gap:3px;margin:0;min-width:0;font-size:10px;color:#607087}
+#branch-operations .op-attendance-cell .op-attendance{width:100%;min-width:0;min-height:32px;padding:6px 3px;font-size:11px;border-radius:5px;cursor:pointer}
+#branch-operations .op-attendance-cell select:disabled{cursor:default;opacity:.65}
+#branch-operations .op-attendance-cell .op-attendance[data-op-recorded]{font-size:14px;font-variant-numeric:tabular-nums;opacity:1}
+#branch-operations .op-attendance-cell .op-status-morning,#branch-operations .op-attendance-cell .op-status-evening{color:#197845;border-color:#cfe6d8;background:#f0faf4}
+#branch-operations .op-attendance-cell .op-status-unauthorized_absence{color:#c32837;border-color:#f1cbd0;background:#fff1f3}
+#branch-operations .op-attendance-cell .op-status-preapproved_leave{color:#2861c1;border-color:#d5e1f7;background:#f0f5ff}
+#branch-operations .op-attendance-cell .op-attendance-status{font-size:10px;margin:0;color:#197845}
+
 /* Net entitlement replaces the redundant daily save action. */
 #branch-operations .op-wallet-cell{min-width:126px;max-width:160px}#branch-operations .op-wallet-cell input{width:100%;min-width:0;padding:8px;border:1px solid #d9e3ed;border-radius:6px;font:13px Arial;text-align:center}#branch-operations .op-wallet-cell small{color:#738299;font-size:10px;display:block;margin-top:4px}
 #branch-operations .op-row-net{background:#eaf7ef;border:1px solid #c6e5d3;color:#107649;font-weight:700;border-radius:7px;padding:10px;white-space:nowrap}#branch-operations .op-row-net small{display:block;font-size:10px;font-weight:400;margin-top:5px}
 #branch-operations .op-daily-table table{min-width:1120px}#branch-operations .op-daily-table .op-day-notes{min-width:90px}
 @media(min-width:1200px){#branch-operations .op-daily-table table{width:100%;min-width:0;table-layout:fixed;font-size:11px}#branch-operations .op-daily-table th,#branch-operations .op-daily-table td{padding:9px 4px;min-width:0;overflow-wrap:anywhere}#branch-operations .op-daily-table th:nth-child(1){width:2.5%}#branch-operations .op-daily-table th:nth-child(2){width:17.5%}#branch-operations .op-daily-table th:nth-child(3){width:7%}#branch-operations .op-daily-table th:nth-child(4){width:9%}#branch-operations .op-daily-table th:nth-child(5),#branch-operations .op-daily-table th:nth-child(6),#branch-operations .op-daily-table th:nth-child(7){width:8%}#branch-operations .op-daily-table th:nth-child(8){width:12%}#branch-operations .op-daily-table th:nth-child(9){width:9%}#branch-operations .op-daily-table th:nth-child(10){width:13%}#branch-operations .op-daily-table th:nth-child(11){width:6%}#branch-operations .op-money-cell,#branch-operations .op-daily-table .op-actions,#branch-operations .op-wallet-cell,#branch-operations .op-daily-table .op-day-notes,#branch-operations .op-daily-table .op-attendance{min-width:0}#branch-operations .op-daily-table .op-attendance{padding:5px;font-size:10px}#branch-operations .op-money-total{min-width:0;padding:4px 6px}#branch-operations .op-money-add{font-size:9px;padding:3px 4px}#branch-operations .op-row-net{width:100%;padding:9px 4px;white-space:normal}#branch-operations .op-daily-table .op-wallet-cell input{font-size:12px;padding:8px 3px}}
+
+#branch-operations .op-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+@media(min-width:1200px){
+ #branch-operations.op-employees{padding:12px 18px}
+ #branch-operations.op-employees .op-header{gap:16px;margin-bottom:10px}
+ #branch-operations.op-employees .op-header h1{font-size:22px;margin:2px 0}
+ #branch-operations.op-employees .op-header small{font-size:10px}
+ #branch-operations.op-employees .op-header p{font-size:11px;line-height:1.5;margin:3px 0 0}
+ #branch-operations.op-employees .op-header-actions button{font-size:11px;min-height:30px;padding:6px 10px}
+ #branch-operations.op-employees .op-filters{padding:8px 10px;gap:8px;margin-bottom:8px}
+ #branch-operations.op-employees .op-filters label{font-size:11px;gap:3px}
+ #branch-operations.op-employees .op-filters input,#branch-operations.op-employees .op-filters select,#branch-operations.op-employees .op-filters button{min-height:28px;padding:4px 8px;font-size:11px}
+ #branch-operations.op-employees .op-filters .select2-selection{height:28px!important;min-height:28px}
+ #branch-operations.op-employees .op-filters .select2-selection__rendered{line-height:26px!important;font-size:11px}
+ #branch-operations.op-employees .op-filters .select2-selection__arrow{height:26px!important}
+ #branch-operations.op-employees .op-month-tools{gap:8px}
+ #branch-operations.op-employees .op-month-tools label{font-size:11px}
+ #branch-operations.op-employees .op-month-tools input,#branch-operations.op-employees .op-month-tools button{min-height:28px;padding:4px 8px;font-size:11px}
+ #branch-operations.op-employees .op-month-tools span{font-size:10px}
+ #branch-operations.op-employees .op-cards{margin:8px 0;gap:8px}
+ #branch-operations.op-employees .op-card{padding:6px 8px}
+ #branch-operations.op-employees .op-card span{font-size:10px}
+ #branch-operations.op-employees .op-card strong{font-size:18px;line-height:1.2;margin-top:3px}
+ #branch-operations.op-employees .op-card small{font-size:9px;margin-top:1px;line-height:1.3}
+ #branch-operations.op-employees .op-daily-table th:nth-child(2){width:16%}
+ #branch-operations.op-employees .op-daily-table th:nth-child(3){width:6.5%}
+ #branch-operations.op-employees .op-daily-table th:nth-child(4){width:13%}
+ #branch-operations.op-employees .op-daily-table th:nth-child(8){width:11.5%}
+ #branch-operations.op-employees .op-daily-table th:nth-child(9){width:8.5%}
+ #branch-operations.op-employees .op-daily-table th:nth-child(10){width:12%}
+ #branch-operations.op-employees .op-attendance-cell label>span{white-space:nowrap}
+ #branch-operations.op-employees .op-daily-table th{padding:6px 4px;font-size:10px}
+ #branch-operations.op-employees .op-daily-table tbody td{padding:3px 4px}
+ #branch-operations.op-employees .op-attendance-cell{gap:3px}
+ #branch-operations.op-employees .op-attendance-cell label{grid-template-columns:36px minmax(0,1fr);align-items:center;gap:3px;font-size:9px}
+ #branch-operations.op-employees .op-attendance-cell .op-attendance{min-height:24px;padding:2px 3px;font-size:10px}
+ #branch-operations.op-employees .op-attendance-cell .op-attendance[data-op-recorded]{font-size:12px}
+ #branch-operations.op-employees .op-attendance-cell .op-attendance-status{display:none}
+ #branch-operations.op-employees .op-attendance-cell .select2-container{width:100%!important;min-width:0}
+ #branch-operations.op-employees .op-attendance-cell .select2-selection{height:24px!important;min-height:24px}
+ #branch-operations.op-employees .op-attendance-cell .select2-selection__rendered{line-height:22px!important;font-size:10px;padding-inline-start:4px;padding-inline-end:16px}
+ #branch-operations.op-employees .op-attendance-cell .select2-selection__arrow{height:22px!important;width:12px}
+ #branch-operations.op-employees .op-avatar{width:28px;height:28px;font-size:15px}
+ #branch-operations.op-employees .op-employee{gap:6px}
+ #branch-operations.op-employees .op-money-cell{gap:2px}
+ #branch-operations.op-employees .op-money-total{min-height:26px;padding:2px 5px;gap:0}
+ #branch-operations.op-employees .op-money-total strong{font-size:12px;line-height:1.2}
+ #branch-operations.op-employees .op-money-total small{font-size:8px;line-height:1.2}
+ #branch-operations.op-employees .op-money-add{min-height:20px;padding:2px 4px;font-size:9px}
+ #branch-operations.op-employees .op-day-notes{height:36px;min-height:28px;padding:3px;font-size:11px;line-height:1.4}
+ #branch-operations.op-employees .op-wallet-cell input{min-height:26px;font-size:11px;padding:4px}
+ #branch-operations.op-employees .op-wallet-cell small{font-size:9px;margin-top:2px}
+ #branch-operations.op-employees .op-row-net{min-height:36px;padding:5px 4px;font-size:11px}
+ #branch-operations.op-employees .op-row-net small{font-size:9px;margin-top:2px}
+ #branch-operations.op-employees .op-daily-table tfoot td{padding:5px 4px;font-size:10px}
+ #branch-operations.op-employees .op-daily-table tfoot small{font-size:9px;margin-top:2px}
+ #branch-operations.op-employees .op-pager{margin:8px 0;gap:12px;font-size:11px}
+ #branch-operations.op-employees .op-pager button{min-height:26px;padding:3px 8px;font-size:11px}
+}
+@media(max-width:650px){#branch-operations .op-header{flex-wrap:wrap}#branch-operations .op-header-actions{width:100%;justify-content:flex-start}#branch-operations .op-header-actions button{font-size:11px;min-height:34px;padding:6px 9px}}
+#branch-operations .op-attendance-cell .op-attendance-fixed{display:block;font-size:9px;line-height:1.3;margin-top:2px;color:#647389}
