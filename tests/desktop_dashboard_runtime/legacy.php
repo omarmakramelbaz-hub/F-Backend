@@ -157,10 +157,14 @@ try{
     $http('/admin/signin',['_token'=>$csrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123']);
     foreach(['/admin/categorys','/admin/products'] as $path){[$status,$page]=$http($path);verify($status===200&&str_contains($page,'desktop-dashboard.js'),'the original owner catalog page retains its interface: '.$path);}
     if(getenv('DESKTOP_TEST_BROWSER_MODULE')){
-        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['pipe','w'],['pipe','w']],$browserPipes,__DIR__);
+        // Drain stdout normally, but never leave a second pipe blocked by verbose
+        // browser diagnostics while this process waits for stdout's EOF on Windows.
+        $browserErrors=$profile.'/browser-errors.log';
+        $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['pipe','w'],['file',$browserErrors,'w']],$browserPipes,__DIR__);
         fwrite($browserPipes[0],json_encode(['origin'=>$origin,'token'=>$browserToken]));fclose($browserPipes[0]);
-        echo stream_get_contents($browserPipes[1]);fwrite(STDERR,stream_get_contents($browserPipes[2]));fclose($browserPipes[1]);fclose($browserPipes[2]);
-        verify(proc_close($browser)===0,'the real offline browser preserves original catalog forms and stable UUIDs');
+        echo stream_get_contents($browserPipes[1]);fclose($browserPipes[1]);
+        $browserExit=proc_close($browser);fwrite(STDERR,file_get_contents($browserErrors));
+        verify($browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
     }
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
     [$status]=$http('/admin/categorys',$category);
