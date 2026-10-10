@@ -76,6 +76,23 @@ class Fixture:
         path.write_bytes(content)
         path.chmod(mode)
 
+    def initial_install_config_hardlinks(self):
+        """Keep the exact private publication links created by the prior installer."""
+        backups = self.root.parent / 'whatsapp-release-backups'
+        backups.mkdir(mode=0o700, exist_ok=True)
+        private = pathlib.Path(tempfile.mkdtemp(prefix='initial-install-', dir=backups))
+        journal = {}
+        aliases = {}
+        for relative in upgrader.CONFIG_PATHS:
+            path = self.path(relative)
+            content = path.read_bytes()
+            path.unlink()
+            base.replace_file(path, content, None, self.uid, self.root, {},
+                              journal=journal, relative=relative, private_directory=private)
+            aliases[relative] = journal[relative].temporary
+            self.originals[relative] = (content, metadata(path))
+        return aliases
+
     def runner(self, directory, args, capture=False, timeout=60):
         self.calls.append((pathlib.Path(directory), tuple(args), capture))
         if self.hook:
@@ -157,6 +174,22 @@ class WorkflowUpgradeTests(unittest.TestCase):
             f.assert_workflow(self, TARGET)
             f.assert_unrelated_unchanged(self)
 
+    def test_prior_initial_installer_private_config_links_upgrade_without_metadata_change(self):
+        f = self.fixture
+        aliases = f.initial_install_config_hardlinks()
+        before_aliases = {}
+        for relative, alias in aliases.items():
+            original = metadata(f.path(relative))
+            self.assertEqual(original[3:5], metadata(alias)[3:5])
+            self.assertEqual(original[-1], 2)
+            before_aliases[relative] = (alias.read_bytes(), metadata(alias))
+        status, _ = f.upgrade()
+        self.assertIn('UPGRADED', status)
+        f.assert_workflow(self, TARGET)
+        f.assert_unrelated_unchanged(self)
+        for relative, alias in aliases.items():
+            self.assertEqual((alias.read_bytes(), metadata(alias)), before_aliases[relative])
+
     def test_identical_target_repeat_preserves_inode_mode_and_does_not_create_backup(self):
         f = self.fixture
         f.upgrade()
@@ -232,9 +265,11 @@ class WorkflowUpgradeTests(unittest.TestCase):
         self.assertEqual((outside / 'WhatsAppOrderWorkflow.php').read_bytes(), OLD)
 
     def test_wrong_file_owner_is_refused(self):
-        for relative in (upgrader.WORKFLOW_PATH, '.env', upgrader.CACHE_PATH):
+        for relative in (upgrader.WORKFLOW_PATH, '.env', upgrader.CACHE_PATH, *upgrader.CONFIG_PATHS):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
                 f = Fixture(directory)
+                if relative in upgrader.CONFIG_PATHS:
+                    f.initial_install_config_hardlinks()
                 # User namespaces may disallow chown even as uid0. Exercise the
                 # actual owner guard with a changed fstat owner for one real inode.
                 wanted = f.path(relative).stat()
@@ -249,8 +284,8 @@ class WorkflowUpgradeTests(unittest.TestCase):
                     with self.assertRaises(base.SafeError): f.upgrade()
                 self.assertEqual(f.path(upgrader.WORKFLOW_PATH).read_bytes(), OLD)
 
-    def test_env_and_cache_symlinks_are_refused(self):
-        for relative in ('.env', upgrader.CACHE_PATH):
+    def test_env_cache_and_source_config_symlinks_are_refused(self):
+        for relative in ('.env', upgrader.CACHE_PATH, *upgrader.CONFIG_PATHS):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
                 f = Fixture(directory);path = f.path(relative)
                 outside = pathlib.Path(directory) / 'outside';outside.write_bytes(path.read_bytes())
@@ -259,6 +294,20 @@ class WorkflowUpgradeTests(unittest.TestCase):
                 with self.assertRaises(base.SafeError): f.upgrade()
                 f.assert_workflow(self, OLD)
                 self.assertTrue(path.is_symlink());self.assertEqual(metadata(outside), before)
+
+    def test_env_and_cache_hardlinks_remain_rejected(self):
+        for relative in ('.env', upgrader.CACHE_PATH):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
+                f = Fixture(directory)
+                alias = pathlib.Path(directory) / 'secret-alias'
+                os.link(f.path(relative), alias)
+                before = (f.path(relative).read_bytes(), metadata(f.path(relative)))
+                self.assertEqual(before[1][-1], 2)
+                with self.assertRaises(base.SafeError): f.upgrade()
+                f.assert_workflow(self, OLD)
+                self.assertEqual((f.path(relative).read_bytes(), metadata(f.path(relative))), before)
+                self.assertEqual((alias.read_bytes(), metadata(alias)), before)
+                self.assertFalse(f.calls)
 
     def test_nonstandard_effective_cache_path_and_nonreview_mode_fail_precheck(self):
         for failure in ('cache_path', 'auto'):
@@ -330,6 +379,70 @@ class WorkflowUpgradeTests(unittest.TestCase):
                 f.assert_workflow(self, TARGET);self.assertEqual(f.path(relative).read_bytes(), external)
                 self.assertEqual(metadata(f.path('.env')), f.originals['.env'][1])
                 self.assertEqual(metadata(f.path(upgrader.CACHE_PATH)), f.cache_before[1])
+
+    def test_private_config_alias_mutation_is_detected_before_and_after_publication(self):
+        for phase in ('source', 'target'):
+            for relative in upgrader.CONFIG_PATHS:
+                with self.subTest(phase=phase, relative=relative), tempfile.TemporaryDirectory() as directory:
+                    f = Fixture(directory)
+                    aliases = f.initial_install_config_hardlinks()
+                    before_inode = metadata(f.path(relative))[3:5]
+                    external = b"<?php return ['mode'=>'auto','changed'=>'external'];\n"
+                    done = False
+                    def hook(directory, args):
+                        nonlocal done
+                        trigger = (args[:2] == ['php', '-l'] if phase == 'source' else
+                                   args[:3] == ['php', '-r', upgrader.READINESS_PHP] and args[-1] == 'target')
+                        if trigger and not done:
+                            done = True
+                            aliases[relative].write_bytes(external)
+                    f.hook = hook
+                    with self.assertRaises(base.SafeError) as caught: f.upgrade()
+                    self.assertTrue(done)
+                    self.assertIn('CONFIGURATION_CHANGED', str(caught.exception))
+                    f.assert_workflow(self, OLD if phase == 'source' else TARGET)
+                    self.assertEqual(metadata(f.path(relative))[3:5], before_inode)
+                    self.assertEqual(metadata(aliases[relative])[3:5], before_inode)
+                    self.assertEqual(f.path(relative).read_bytes(), external)
+                    self.assertEqual(aliases[relative].read_bytes(), external)
+                    self.assertEqual(metadata(f.path(relative))[-1], 2)
+                    for other, (content, before) in f.originals.items():
+                        if other != relative:
+                            self.assertEqual((f.path(other).read_bytes(), metadata(f.path(other))), (content, before))
+                    self.assertEqual(metadata(f.path(upgrader.CACHE_PATH)), f.cache_before[1])
+
+    def test_same_bytes_config_alias_rewrite_or_unlink_cannot_hide_metadata_drift(self):
+        for mutation in ('rewrite_restore', 'unlink'):
+            for phase in ('source', 'target'):
+                with self.subTest(mutation=mutation, phase=phase), tempfile.TemporaryDirectory() as directory:
+                    f = Fixture(directory)
+                    relative = upgrader.CONFIG_PATHS[0]
+                    alias = f.initial_install_config_hardlinks()[relative]
+                    before = metadata(f.path(relative))
+                    original = f.path(relative).read_bytes()
+                    done = False
+                    def hook(directory, args):
+                        nonlocal done
+                        trigger = (args[:2] == ['php', '-l'] if phase == 'source' else
+                                   args[:3] == ['php', '-r', upgrader.READINESS_PHP] and args[-1] == 'target')
+                        if trigger and not done:
+                            done = True
+                            if mutation == 'rewrite_restore':
+                                alias.write_bytes(original + b'// transient external edit\n')
+                                alias.write_bytes(original)
+                            else:
+                                alias.unlink()
+                    f.hook = hook
+                    with self.assertRaises(base.SafeError) as caught: f.upgrade()
+                    self.assertTrue(done)
+                    self.assertIn('CONFIGURATION_CHANGED', str(caught.exception))
+                    f.assert_workflow(self, OLD if phase == 'source' else TARGET)
+                    self.assertEqual(f.path(relative).read_bytes(), original)
+                    self.assertEqual(metadata(f.path(relative))[3:5], before[3:5])
+                    self.assertNotEqual(metadata(f.path(relative)), before)
+                    self.assertEqual(metadata(f.path(relative))[-1], 2 if mutation == 'rewrite_restore' else 1)
+                    self.assertEqual(metadata(f.path('.env')), f.originals['.env'][1])
+                    self.assertEqual(metadata(f.path(upgrader.CACHE_PATH)), f.cache_before[1])
 
     def test_postpublication_env_or_cache_change_retains_new_guard_and_external_config(self):
         for relative in ('.env', upgrader.CACHE_PATH):

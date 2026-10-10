@@ -91,10 +91,16 @@ def env_fingerprint(root, uid, relative='.env', absent_ok=False):
         raise SafeError('WORKFLOW_CONFIGURATION_FILE_UNSAFE') from None
     try:
         metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != uid or metadata.st_nlink != 1:
-            raise SafeError('WORKFLOW_CONFIGURATION_OWNER_OR_TYPE_NEEDS_REVIEW')
+        # Initial additive publication retains a private hardlink to these source config files.
+        links_safe = metadata.st_nlink >= 1 if relative in CONFIG_PATHS else metadata.st_nlink == 1
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != uid or not links_safe:
+            details = ''
+            if relative in ('.env', CACHE_PATH, *CONFIG_PATHS):
+                details = (f'; FILE={relative} OWNER_UID={metadata.st_uid} EXPECTED_UID={uid}'
+                           f' LINKS={metadata.st_nlink} MODE={stat.S_IMODE(metadata.st_mode):04o}')
+            raise SafeError('WORKFLOW_CONFIGURATION_OWNER_OR_TYPE_NEEDS_REVIEW' + details)
         return (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode), metadata.st_dev,
-                metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+                metadata.st_ino, metadata.st_nlink, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
     finally:
         os.close(descriptor)
 
