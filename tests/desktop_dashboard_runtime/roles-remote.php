@@ -31,8 +31,49 @@ verify($http($roleRemoteDelete['path'],$roleRemoteRemove,$proof($roleRemoteDelet
 $authority=Role::findOrFail($role->id);$authority->revokePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
 verify($http($roleRemoteDelete['path'],$roleRemoteRemove,$proof($roleRemoteDeleteProof))[0]===403,'a stored role deletion response still requires current original delete authority');
 $authority->givePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
-verify($decide(['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/rolesDeleteAll'])[0]===422,'unreviewed original role bulk deletion cannot receive a native outcome reservation');
+foreach(['POST','PUT','PATCH'] as $wrongMethod)verify($decide(['id'=>(string)Str::uuid(),'method'=>$wrongMethod,'path'=>'/admin/rolesDeleteAll'])[0]===422,'the exact original role bulk endpoint cannot reserve an unsupported method');
+verify($decide(['id'=>(string)Str::uuid(),'method'=>'POST','path'=>'/admin/permissions'])[0]===422,'nonexistent original permission administration cannot receive a native outcome reservation');
 verify($decide(['id'=>(string)Str::uuid(),'method'=>'PUT','path'=>'/admin/roles'])[0]===422,'the role listing cannot reserve a non-existent single-role update route');
+
+$bulkRemoteIds=[];$normalRole=['_token'=>$roleRemoteCsrf[1],'name'=>'','permission'=>[(string)Permission::findByName('product-list','admin')->id]];
+foreach([1,2] as $index){
+    $normalRole['name']='دور نتيجة حذف جماعي '.$index;
+    verify($http('/admin/roles',$normalRole)[0]===302,'the normal original server role form prepares a bulk deletion without a native reservation');
+    $bulkRemoteIds[]=(int)DB::table('roles')->where('name',$normalRole['name'])->value('id');
+}
+\App\Models\User::withoutGlobalScopes()->findOrFail(21)->assignRole(Role::findOrFail($bulkRemoteIds[0]));
+$bulkRoleAttempt=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/rolesDeleteAll'];[$status,$bulkRoleProof]=$decide($bulkRoleAttempt);
+verify($status===200&&$bulkRoleProof['status']==='ready','the exact native role bulk DELETE reserves a real transactional server outcome');
+$bulkRoleForm=['_token'=>$roleRemoteCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>implode(',',array_reverse($bulkRemoteIds))];
+$authority=Role::findOrFail($role->id);$authority->revokePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
+verify($http($bulkRoleAttempt['path'],$bulkRoleForm,$proof($bulkRoleProof),'DELETE')[0]===403&&DB::table('roles')->whereIn('id',$bulkRemoteIds)->count()===2
+    &&$http($bulkRoleAttempt['path'],['_token'=>$roleRemoteCsrf[1],'ids'=>$bulkRoleForm['ids']],[],'DELETE')[0]===403,'both ordinary original requests and reserved bulk outcomes require role-delete before changing any role');
+$authority->givePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
+[$status,$bulkRoleBody]=$http($bulkRoleAttempt['path'],$bulkRoleForm,$proof($bulkRoleProof),'DELETE');
+verify($status===200&&json_decode($bulkRoleBody,true)===['success'=>trans('messages.RecordsDeleteSuccessfully')]
+    &&DB::table('roles')->whereIn('id',$bulkRemoteIds)->count()===0&&DB::table('role_has_permissions')->whereIn('role_id',$bulkRemoteIds)->count()===0
+    &&DB::table('model_has_roles')->whereIn('role_id',$bulkRemoteIds)->count()===0&&$decide($bulkRoleAttempt,'settle')[1]['status']==='committed','the exact original bulk server response, roles and every permission/member cascade commit with one saved outcome');
+$bulkRoleForm['ids']=implode(',',$bulkRemoteIds);
+verify($http($bulkRoleAttempt['path'],$bulkRoleForm,$proof($bulkRoleProof),'DELETE')[1]===$bulkRoleBody,'a reordered lost bulk role server response returns its exact saved JSON after all IDs disappear');
+$bulkRetry=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>$bulkRoleAttempt['path']];[, $bulkRetryProof]=$decide($bulkRetry);
+verify($http($bulkRetry['path'],$bulkRoleForm,$proof($bulkRetryProof),'DELETE')[1]===$bulkRoleBody,'a new bulk transmission UUID acknowledges the same immutable role deletion operation');
+$authority=Role::findOrFail($role->id);$authority->revokePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
+verify($http($bulkRoleAttempt['path'],$bulkRoleForm,$proof($bulkRoleProof),'DELETE')[0]===403&&$http($bulkRetry['path'],$bulkRoleForm,$proof($bulkRetryProof),'DELETE')[0]===403,'every saved bulk role outcome still checks current original deletion authority');
+$authority->givePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
+$changedBulk=$bulkRoleForm;$changedBulk['ids']=(string)$bulkRemoteIds[0];
+verify($http($bulkRoleAttempt['path'],$changedBulk,$proof($bulkRoleProof),'DELETE')[0]===409,'changing a selected role set cannot reuse a committed bulk operation UUID');
+
+$rollbackBulkIds=[];
+foreach([1,2] as $index){$normalRole['name']='دور تراجع حذف جماعي '.$index;verify($http('/admin/roles',$normalRole)[0]===302,'the original role controller prepares an atomic bulk outcome rollback fixture');$rollbackBulkIds[]=(int)DB::table('roles')->where('name',$normalRole['name'])->value('id');}
+\App\Models\User::withoutGlobalScopes()->findOrFail(21)->assignRole(Role::findOrFail($rollbackBulkIds[0]));
+$rollbackBulk=['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>$bulkRoleAttempt['path']];[, $rollbackBulkProof]=$decide($rollbackBulk);
+$rollbackBulkForm=['_token'=>$roleRemoteCsrf[1],'_desktop_command'=>(string)Str::uuid(),'ids'=>implode(',',$rollbackBulkIds)];
+DB::unprepared("CREATE TRIGGER fixture_reject_bulk_role_outcome BEFORE UPDATE ON desktop_dashboard_remote_attempts FOR EACH ROW BEGIN IF NEW.operation_id='".$rollbackBulkForm['_desktop_command']."' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture bulk role outcome rollback'; END IF; END");
+try{verify($http($rollbackBulk['path'],$rollbackBulkForm,$proof($rollbackBulkProof),'DELETE')[0]===500&&DB::table('roles')->whereIn('id',$rollbackBulkIds)->count()===2
+    &&DB::table('role_has_permissions')->whereIn('role_id',$rollbackBulkIds)->count()===2&&DB::table('model_has_roles')->whereIn('role_id',$rollbackBulkIds)->count()===1,'a failed bulk reserved outcome restores every original role, permission and member pivot');}
+finally{DB::unprepared('DROP TRIGGER fixture_reject_bulk_role_outcome');}
+verify($decide($rollbackBulk,'settle')[1]['status']==='cancelled'&&$http($rollbackBulk['path'],$rollbackBulkForm,$proof($rollbackBulkProof),'DELETE')[0]===409
+    &&DB::table('roles')->whereIn('id',$rollbackBulkIds)->count()===2,'a cancelled bulk outcome prevents a late original DELETE from removing the retained roles');
 
 $failedRoleForm=$roleRemoteForm;unset($failedRoleForm['_method']);$failedRoleForm['_desktop_command']=(string)Str::uuid();$failedRoleForm['name']='دور تراجع نتيجة السيرفر';
 $failedRoleAttempt=$attempt('/admin/roles');[, $failedRoleProof]=$decide($failedRoleAttempt);$pivotCount=DB::table('role_has_permissions')->count();

@@ -1,0 +1,588 @@
+{
+    "format": 1,
+    "reference": {
+        "sourceRevision": "0ddf0328a77b5090184f6877280956682617825f",
+        "sourceManifestSha256": "c8dfde7908d8ed82c8f46260dda5976397cb76c05153b8b6f10848a7aeb78cbd",
+        "sourceFingerprint": {
+            "format": 1,
+            "files": 1064,
+            "sha256": "2c8e9fdd8063621833df7f71105c37afb763562dc13c96843854092fd61ebabd",
+            "framework": "8.83.29"
+        },
+        "packages": {
+            "laravel/framework": {
+                "version": "v8.83.29",
+                "reference": "d841a226a50c715431952a10260ba4fac9e91cc4"
+            },
+            "laravelcollective/html": {
+                "version": "v6.4.1",
+                "reference": "64ddfdcaeeb8d332bd98bef442bef81e39c3910b"
+            }
+        },
+        "dependencyFilesSha256": {
+            "vendor/laravelcollective/html/src/FormBuilder.php": "a935457c407a5082f250fb6c4db2222b4d0706756968d1ae0ac1c6ada896d6e2",
+            "vendor/laravelcollective/html/src/HtmlBuilder.php": "fe375e35d411357aad93bc57acc74852989b22f64ac5971a10854655d83b2b05",
+            "vendor/laravel/framework/src/Illuminate/Foundation/helpers.php": "2ff11d1eb3f33386a0840292b7ac43f19671ca30b8a518b1566e61ee94acded8"
+        },
+        "expressionHashNormalization": "CRLF to LF only",
+        "domNormalization": "Sorted attributes; replace only current action origin prefix and current-session _token value. Preserve path, query, input order and all other attributes."
+    },
+    "requestQuery": {
+        "parent": "قسم & \"<اختبار>\"",
+        "account_type": "vendor & \"<test>\""
+    },
+    "syntheticRowId": 42,
+    "closeHtml": "</form>",
+    "cases": {
+        "admin/admins/index.blade.php#1": {
+            "view": "admin/admins/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "1e0dd8df83e4875a65f5da905c9ac31ab06418713ab93fac92f12086ebd4f53e",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/admins/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/advertisings/index.blade.php#1": {
+            "view": "admin/advertisings/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "28016e1b0df63416d5a6e3c6744616522be0a1570d62fcf7087c76319d2a936c",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/advertisings/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/areas/index.blade.php#1": {
+            "view": "admin/areas/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "2d9a8bf0a66b2290e16acf317a7853992bd114acbd9f98d99008adae04807933",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/areas/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/banners/index.blade.php#1": {
+            "view": "admin/banners/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "3be0888747356c4e649c679f424af8af9fa9210fef69dc09244039930a87a0c9",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/banners/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/categorys/index.blade.php#1": {
+            "view": "admin/categorys/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "12a2be3b35a71d782d51206f8ec5cda34250fe21c2241ca036d270bd178fcbc5",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/categorys/42?parent=parent",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/categorys/index.blade.php#2": {
+            "view": "admin/categorys/index.blade.php",
+            "ordinal": 2,
+            "expressionSha256": "cb8d05610295f7c66e4826857ac9b9ca4c300de3a2cd53e483cd8b8550e979b6",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/categorys/42?parent=%D9%82%D8%B3%D9%85%20%26%20%22%3C%D8%A7%D8%AE%D8%AA%D8%A8%D8%A7%D8%B1%3E%22",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/contacts/index.blade.php#1": {
+            "view": "admin/contacts/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "560e0b40cf11b886bd78cd8f35ce59e8ca03fc713ecd9253bd6aac8abb5aba67",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/contacts/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/contracts/index.blade.php#1": {
+            "view": "admin/contracts/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "4b17d3ad84d58940980fdb424f7e16ce3276c1051510426e3ef6844e74c8db48",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/contracts/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/coupon_wheels/index.blade.php#1": {
+            "view": "admin/coupon_wheels/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "30a6ac47f0a200975c678e53c5cc0fb609085e04b39c7b7f9009698b1a3645c2",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/coupon_wheels/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/features/index.blade.php#1": {
+            "view": "admin/features/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "4a8f2d5eccb380b782fde17c66a36a4309197ef576a7b49cfc4625760e87fb79",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/features/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/pending_vendors/index.blade.php#1": {
+            "view": "admin/pending_vendors/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "6bcf64f0015970aff05f51e8c4082fb429edadabaf3658bb0924405cbf581244",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/pending_vendors/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/products/index.blade.php#1": {
+            "view": "admin/products/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "f55a8609a7827d57f57d2a40a740ecece09e90c019b0ef7c5c712cf55a09bb60",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/products/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/question_answers/index.blade.php#1": {
+            "view": "admin/question_answers/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "c7d1274337fa6e68bf4c76bc3a9399795846c5753309030662f861fec8794b07",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/question_answers/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/resturants/index.blade.php#1": {
+            "view": "admin/resturants/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "b96076f9a70fc1278ccacb334a1e5939817018da056d080cc8cbac4bdc4b94d9",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/resturants/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/resturants/show.blade.php#1": {
+            "view": "admin/resturants/show.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "7edb0d92192b48be5a4294c6ac31775b771077ca65eee04a5f283fb1a761b499",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/resturant_products/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/resturants/show.blade.php#2": {
+            "view": "admin/resturants/show.blade.php",
+            "ordinal": 2,
+            "expressionSha256": "075fbf46c8bb0fea355e8dab81100ada98e1f731300f8961a37fb6ead721a85a",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/resturant_reviews/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/roles/index.blade.php#1": {
+            "view": "admin/roles/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "5d05cb0bfe93d69cb8b0b41afd1f4a8200a4670de4082174da09a80c2640ec28",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/roles/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/slidears/index.blade.php#1": {
+            "view": "admin/slidears/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "05dbf39d178abc1039f13fcc90dc77615969857c38aadf983622126022c41065",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/slidears/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/subscribers/index.blade.php#1": {
+            "view": "admin/subscribers/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "589ace23ad5342ffebbf5656dae731f7b453c358499edc3c9c2f1dcb15d0d038",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/subscribers/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/users/index.blade.php#1": {
+            "view": "admin/users/index.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "1b3eab81523034134284ecb988d50296637b97a3dc8e6bc87fca56a7dec9315e",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/users/42?account_type=vendor%20%26%20%22%3Ctest%3E%22",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/users/show.blade.php#1": {
+            "view": "admin/users/show.blade.php",
+            "ordinal": 1,
+            "expressionSha256": "3b3a8ddd714a71aa9246ab7e4ad1792f2604aa79d483c35a8185e8e78c989800",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/userWishlistsDelete/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        },
+        "admin/users/show.blade.php#2": {
+            "view": "admin/users/show.blade.php",
+            "ordinal": 2,
+            "expressionSha256": "0071b40283654c3f76cdedd567855b5dd2b1b90d8aac47bfd190773fce2554f8",
+            "dom": {
+                "attributes": {
+                    "accept-charset": "UTF-8",
+                    "action": "{{LOCAL_ORIGIN}}/admin/userAddressDelete/42",
+                    "method": "POST",
+                    "style": "display:inline"
+                },
+                "inputs": [
+                    {
+                        "name": "_method",
+                        "type": "hidden",
+                        "value": "DELETE"
+                    },
+                    {
+                        "name": "_token",
+                        "type": "hidden",
+                        "value": "{{CURRENT_CSRF_TOKEN}}"
+                    }
+                ]
+            }
+        }
+    }
+}

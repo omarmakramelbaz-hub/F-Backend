@@ -31,6 +31,7 @@ class OrderBoardMenu
         [$kind, $branchId] = explode(':', $values['branch']);
         $branch = $this->branch($kind, (int) $branchId, $actor);
         $result = ['success'=>true, 'ready'=>$this->ready($kind), 'branch'=>$branch,
+            'desktop_generation'=>app(DesktopDashboardMenuAvailability::class)->generation($actor),
             'can_toggle'=>$this->canToggle($actor), 'items'=>[], 'message'=>'',
             'pagination'=>['page'=>1, 'last_page'=>1, 'per_page'=>20, 'total'=>0, 'next_url'=>null, 'previous_url'=>null]];
         if (!$result['ready']) {
@@ -99,6 +100,17 @@ class OrderBoardMenu
         return $this->board->canAccess($actor);
     }
 
+    /** The journal must recheck original scope even when returning a saved reply. */
+    public function authorizeAvailability(string $kind, int $branchId, int $productId, $actor): array
+    {
+        abort_unless($this->board->canAccess($actor) && $this->canToggle($actor), 403);
+        abort_unless($this->ready($kind), 503, 'قائمة الأصناف غير متاحة حاليًا.');
+        $branch = $this->branch($kind, $branchId, $actor, true);
+        $row = $this->products($kind, $branchId)->where('id', $productId)->lockForUpdate()->first();
+        abort_unless($row, 404);
+        return ['branch'=>$branch, 'row'=>(array)$row];
+    }
+
     private function branch(string $kind, int $id, $actor, bool $lock = false): array
     {
         abort_unless($this->board->canAccess($actor), 403);
@@ -108,7 +120,15 @@ class OrderBoardMenu
             $query = DB::table('resturants')->where('id', $id);
             if ($lock) $query->lockForUpdate();
             $row = $query->first();
-            abort_unless($row && in_array($id, array_map('intval', $this->board->restaurantIds($actor)), true), 404);
+            // A locking authorization must use the current ownership row, rather
+            // than a second snapshot read of the restaurant ID list.
+            $allowed=$row&&($lock?($this->board->isAdmin($actor)
+                ||($actor->account_type==='admin'&&(int)$actor->owner_resturant_id===$id)
+                ||($actor->account_type==='resturant_owner'&&!empty($actor->owner_resturant_id)
+                    &&($id===(int)$actor->owner_resturant_id||(int)($row->parent_id??0)===(int)$actor->owner_resturant_id))
+                ||($actor->account_type!=='admin'&&($actor->account_type!=='resturant_owner'||empty($actor->owner_resturant_id))&&(int)$row->user_id===(int)$actor->id))
+                :in_array($id,array_map('intval',$this->board->restaurantIds($actor)),true));
+            abort_unless($allowed,404);
             return ['value'=>'f:'.$id, 'kind'=>'f', 'id'=>$id, 'label'=>$row->name ?? 'الفرع'];
         }
         // GO catalog store_id is the owner's users.id, not a profile's own row ID.
@@ -121,7 +141,7 @@ class OrderBoardMenu
         $query = DB::table('go_stores')->where('user_id', $id);
         if ($lock) $query->lockForUpdate();
         $row = $query->first();
-        abort_unless($row && $owner && ($owner->app_scope ?? '') === 'go_partner' && $this->isStoreOwner($owner), 404);
+        abort_unless($row && $owner && ($owner->app_scope ?? '') === 'go_partner' && $this->isStoreOwner($owner,$lock), 404);
         return ['value'=>'gs:'.$id, 'kind'=>'gs', 'id'=>$id, 'label'=>$row->name ?? 'المتجر'];
     }
 
@@ -131,12 +151,13 @@ class OrderBoardMenu
             : DB::table('resturant_products')->where('resturant_id', $branchId);
     }
 
-    private function isStoreOwner(object $owner): bool
+    private function isStoreOwner(object $owner,bool $lock=false): bool
     {
         if (($owner->account_type ?? '') === 'vendor') return true;
-        return ($owner->account_type ?? '') === 'delegate' && !empty($owner->pending_vendor_id)
-            && $this->has('pending_vendors', 'profession_key')
-            && DB::table('pending_vendors')->where('id', $owner->pending_vendor_id)->where('profession_key', 'store_owner')->exists();
+        if(($owner->account_type??'')!=='delegate'||empty($owner->pending_vendor_id)||!$this->has('pending_vendors','profession_key'))return false;
+        $query=DB::table('pending_vendors')->where('id',$owner->pending_vendor_id)->where('profession_key','store_owner');
+        if($lock)$query->lockForUpdate();
+        return (bool)$query->first();
     }
 
     private function present(string $kind, object $row, string $image): array

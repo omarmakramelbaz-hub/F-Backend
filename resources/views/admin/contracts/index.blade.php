@@ -73,14 +73,14 @@
                                                             href="{{ route('contracts.edit',[$contract->id]) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('contract-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['contracts.destroy', $contract->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan
                                                     
                                                 </td>

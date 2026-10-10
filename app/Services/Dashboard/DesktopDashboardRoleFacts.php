@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 /** Bind the original role form's permission IDs to their actual names and guards. */
 class DesktopDashboardRoleFacts
 {
-    public const ROUTES=['roles.store','roles.update','roles.destroy'];
+    public const ROUTES=['roles.store','roles.update','roles.destroy','roles.destroy-all'];
     public static function handles(?string $route): bool {return in_array($route,self::ROUTES,true);}
     private function validSelection(array $values): bool
     {

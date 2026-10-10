@@ -129,6 +129,37 @@ const watchdog = setTimeout(() => {
     const roleDeleteUUID=await roleDelete.inputValue();assert.notEqual(roleDeleteUUID,roleUpdateUUID);
     await roleDeleteForm.evaluate(form=>form.append(document.createElement('span')));assert.equal(await roleDelete.inputValue(),roleDeleteUUID);
     process.stdout.write('PASS original role create/update/delete forms retain their permission controls and immutable operation UUIDs\n');
+    for(const branch of ['f:100','gs:60']){
+      stage='original '+branch+' menu availability';
+      await page.goto(input.origin+'/admin/applies-orders?branch='+encodeURIComponent(branch));
+      const menuToggle=page.locator('[data-menu-toggle]');await menuToggle.waitFor({state:'visible'});
+      const menuNotice=page.locator('.swal-overlay--show-modal');
+      if(await menuNotice.isVisible()){await menuNotice.getByRole('button',{name:'تم',exact:true}).click();await menuNotice.waitFor({state:'hidden'});}
+      if(await page.locator('#branch-menu').evaluate(panel=>panel.hidden))await menuToggle.click();
+      const button=page.locator('[data-menu-availability="1"]');await button.waitFor({state:'visible'});
+      const path='/admin/order-board/menu/'+branch.replace(':','/')+'/products/1/availability', requests=[], replies=[];
+      await page.route('**'+path,async route=>{
+        const values=route.request().postDataJSON();requests.push(values);
+        const actual=await route.fetch({headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});assert.equal(actual.status(),200);replies.push(await actual.json());
+        if(requests.length===1)return route.abort('failed'); // PHP committed before the browser loses its response.
+        return route.fulfill({response:actual});
+      });
+      await button.click();await button.waitFor({state:'visible'});await page.waitForFunction(()=>!document.querySelector('[data-menu-availability="1"]').disabled);
+      assert.match(requests[0].idempotency_key,/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i);
+      const [refreshed]=await Promise.all([page.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes('/admin/order-board/menu?')),page.locator('[data-menu-refresh]').click()]);
+      const refreshedItem=(await refreshed.json()).items.find(item=>item.id===1);assert.equal(refreshedItem.available,false);
+      if(branch.startsWith('gs:'))assert.equal(refreshedItem.revision,2);
+      await page.waitForFunction(()=>document.querySelector('[data-menu-items]').getAttribute('aria-busy')==='false');await button.waitFor({state:'visible'});
+      await button.click();await page.waitForFunction(()=>!document.querySelector('[data-menu-availability="1"]').disabled);
+      assert.deepEqual(requests[1],requests[0],'The actual menu button keeps its UUID and desired payload after an ambiguous reply and original menu refresh.');
+      assert.deepEqual(replies[1],replies[0],'The actual PHP cached reply retains the first result and revision after refresh.');
+      await button.click();await page.waitForFunction(()=>!document.querySelector('[data-menu-availability="1"]').disabled);
+      assert.notEqual(requests[2].idempotency_key,requests[0].idempotency_key,'A confirmed availability result releases its UUID for a later toggle.');
+      assert.equal(replies[2].item.available,true);if(branch.startsWith('gs:'))assert.equal(replies[2].item.revision,3);
+      await page.unroute('**'+path);
+      process.stdout.write('PASS original '+branch+' menu button commits through actual PHP, loses reply, retains UUID/payload across changed-state refresh and receives the exact first result\n');
+    }
+    await page.goto(input.origin+'/admin/roles');
     assert.ok(await page.evaluate(async () => {
       const icons = await document.fonts.load('900 16px "Font Awesome 6 Free"', '\uf007');
       return icons.length > 0 && icons.every(face => face.status === 'loaded');
@@ -142,6 +173,53 @@ const watchdog = setTimeout(() => {
       const editor = CKEDITOR.replace(field, { language: 'ar' });
       editor.on('instanceReady', () => { clearTimeout(timeout); editor.destroy(); field.remove(); resolve(); });
     }));
+    stage='original bulk role deletion';
+    assert.ok(Array.isArray(input.bulkRoleIds)&&input.bulkRoleIds.length===2,'The disposable original roles page must contain two real bulk fixtures.');
+    const bulkRoleIds=input.bulkRoleIds.map(String);
+    assert.equal(new Set(bulkRoleIds).size,2);assert.ok(bulkRoleIds.every(id=>/^[1-9][0-9]*$/.test(id)));
+    const roleBulkButton=page.locator('.delete_all[data-url$="/admin/rolesDeleteAll"]');
+    assert.equal(await roleBulkButton.count(),1,'The original permission-gated bulk role button remains available.');
+    for(const id of bulkRoleIds){
+      const checkbox=page.locator('.sub_chk[data-id="'+id+'"]');
+      assert.equal(await checkbox.count(),1,'Each selected role must be an actual original table row.');
+      await checkbox.check();
+    }
+    const roleBulkRequests=[];
+    await page.route('**/admin/rolesDeleteAll',async route=>{
+      roleBulkRequests.push({command:route.request().headers()['x-fasakhansta-command'],data:route.request().postData(),method:route.request().method()});
+      if(roleBulkRequests.length===1){
+        const committed=await route.fetch({headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});
+        assert.equal(committed.status(),200);assert.ok((await committed.json()).success);
+        return route.abort(); // Lose a real committed response while retaining the original UI selection.
+      }
+      return route.continue({headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});
+    });
+    const clickRoleBulk=async outcome=>{
+      const confirmationPromise=page.waitForEvent('dialog'),clicked=roleBulkButton.click();
+      const confirmation=await confirmationPromise;
+      assert.equal(confirmation.type(),'confirm');assert.equal(confirmation.message(),'Are you sure you want to delete this row?');
+      const alertPromise=page.waitForEvent('dialog');
+      await confirmation.accept();
+      const alert=await alertPromise;
+      assert.equal(alert.type(),'alert');const message=alert.message();
+      // Release the native modal before waiting for transport events that it can defer.
+      await alert.accept();const [result]=await Promise.all([outcome,clicked]);
+      return {result,message};
+    };
+    await clickRoleBulk(page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname==='/admin/rolesDeleteAll'}));
+    assert.equal(await page.locator('.sub_chk:checked').count(),2,'A lost bulk role response keeps both original selected rows visible.');
+    const roleResponse=await clickRoleBulk(page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/rolesDeleteAll'&&response.request().method()==='DELETE'));
+    assert.equal(roleResponse.result.status(),200);const roleResult=await roleResponse.result.json();
+    assert.equal(typeof roleResult.success,'string');assert.ok(roleResult.success.length>0);assert.equal(roleResponse.message,roleResult.success);
+    assert.equal(roleBulkRequests.length,2);assert.ok(roleBulkRequests.every(request=>request.method==='DELETE'));
+    assert.match(roleBulkRequests[0].command,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
+    assert.equal(roleBulkRequests[1].command,roleBulkRequests[0].command,'The real original bulk role button retries its stable UUID after a lost reply.');
+    for(const request of roleBulkRequests)assert.deepEqual(new URLSearchParams(request.data).get('ids').split(',').sort(),[...bulkRoleIds].sort());
+    await page.unroute('**/admin/rolesDeleteAll');
+    const rolesAfterBulk=await page.goto(input.origin+'/admin/roles');assert.equal(rolesAfterBulk.status(),200);
+    for(const id of bulkRoleIds)assert.equal(await page.locator('.sub_chk[data-id="'+id+'"]').count(),0,'A fresh original index confirms the selected role was deleted.');
+    process.stdout.write('BROWSER_ROLE_BULK_PROOF '+JSON.stringify({command:roleBulkRequests[0].command,ids:bulkRoleIds})+'\n');
+    process.stdout.write('PASS real original bulk role checkboxes, confirm and alert dialogs delete both roles once after retrying the same UUID\n');
     const contactResponse = await page.goto(input.origin + '/admin/contacts');
     const contactCommand = page.locator('form input[name="_desktop_command"]').first();
     await journalField(contactCommand, 'original contact index', contactResponse);

@@ -47,6 +47,22 @@ test('overlapping ticks share one accepted run', async () => {
   assert.equal(calls, 2); assert.equal(f.queue.length, 0);
 });
 
+test('new local work created during a cycle waits for the next cycle without changing its UUID', async () => {
+  const queue = [{ command_id: 'already-waiting' }], sends = []; let added = false;
+  const sync = new DashboardSync({
+    local: async request => {
+      if (request.action === 'acknowledge') {
+        assert.equal(request.command_id, queue[0].command_id); queue.shift();
+        if (!added) { queue.push({ command_id: 'created-during-sync' }); added = true; }
+      }
+      return { commands: queue.slice(0, 1), counts: { pending: queue.length, conflicts: 0 } };
+    }, remote: async command => { sends.push(command.command_id); return { command_id: command.command_id, committed: true }; }
+  });
+  await sync.run(); assert.deepEqual(sends, ['already-waiting']);
+  assert.deepEqual(queue, [{ command_id: 'created-during-sync' }]); assert.equal(sync.state.pending, 1);
+  await sync.run(); assert.deepEqual(sends, ['already-waiting', 'created-during-sync']); assert.equal(queue.length, 0);
+});
+
 test('closing during a committed remote request retains its unconfirmed UUID for the next launch', async () => {
   let release; let entered;
   const started = new Promise(resolve => { entered = resolve; });

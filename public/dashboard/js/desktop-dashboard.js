@@ -63,19 +63,19 @@
                     let command=sessionStorage.getItem(key);
                     if(!command){command=crypto.randomUUID();sessionStorage.setItem(key,command);}
                     request.setRequestHeader('X-Fasakhansta-Command',command);
-                    request.done(value=>{if(value?.status==='success')sessionStorage.removeItem(key);});
+                    request.done(value=>{if(value?.status==='success'&&sessionStorage.getItem(key)===command)sessionStorage.removeItem(key);});
                 } catch { request.abort(); }
                 return;
             }
             if (url.origin !== location.origin || String(options.type).toUpperCase() !== 'DELETE'
-                || !/^\/admin\/(?:areas|categorys|products|question_answers|features|contacts)DeleteAll$/.test(url.pathname)) return;
+                || !/^\/admin\/(?:areas|categorys|products|question_answers|features|contacts|roles)DeleteAll$/.test(url.pathname)) return;
             const values = new URLSearchParams(options.data || ''), ids = (values.get('ids') || '').split(',')
                 .sort((a, b) => a.length - b.length || a.localeCompare(b)).join(',');
             const key = 'fasakhansta.catalog.' + document.body.dataset.dashboardActor + '.' + url.pathname + '.' + ids;
             let command = sessionStorage.getItem(key);
             if (!command) { command = crypto.randomUUID(); sessionStorage.setItem(key, command); }
             request.setRequestHeader('X-Fasakhansta-Command', command);
-            request.done(value => { if (value && value.success) sessionStorage.removeItem(key); });
+            request.done(value => { if (value && value.success && sessionStorage.getItem(key) === command) sessionStorage.removeItem(key); });
         });
     };
     document.addEventListener('submit', event => prepare(event.target), true);

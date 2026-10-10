@@ -15,6 +15,7 @@ class DesktopDashboardLegacy
         'roles.store'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'POST','action'=>'store','parameter'=>'role'],
         'roles.update'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'PUT','action'=>'update','parameter'=>'role'],
         'roles.destroy'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'DELETE','action'=>'destroy','parameter'=>'role'],
+        'roles.destroy-all'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'DELETE','action'=>'deleteAll','parameter'=>null],
         'categorys.reorder'=>['model'=>Category::class,'entity'=>'catalog_category','table'=>'categories','method'=>'POST','action'=>'updateColumns','parameter'=>null],
         'contracts.store'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'POST','action'=>'store','parameter'=>'contract'],
         'contracts.update'=>['model'=>Contract::class,'entity'=>'catalog_contract','table'=>'contracts','method'=>'PUT','action'=>'update','parameter'=>'contract'],
@@ -91,13 +92,17 @@ class DesktopDashboardLegacy
         $facts=$savedFacts??($this->isSelection($definition)?
             ['catalog_rows'=>array_map(fn($id)=>['id'=>$id,'state'=>$this->state($definition,$id)],$this->selected($definition,$values))]:
             ['catalog_before'=>$definition['action']!=='store'?$this->state($definition,(int)($parameters[$definition['parameter']]??0)):null]);
-        if($savedFacts===null&&$definition['table']==='roles'&&$definition['action']!=='destroy')
+        if($savedFacts===null&&$definition['table']==='roles'&&in_array($definition['action'],['store','update'],true))
             $facts['role_permissions']=app(DesktopDashboardRoleFacts::class)->selected($values,$facts['catalog_before']);
         return ['values'=>array_merge($values,['idempotency_key'=>$command]),'parameters'=>$parameters,'files'=>[],'facts'=>$facts];
     }
-    private function state(array $definition,int $id): array
+    private function state(array $definition,int $id,bool $missingConflict=false): array
     {
-        $row=DB::table($definition['table'])->where('id',$id)->lockForUpdate()->first();abort_unless($row,404);
+        $row=DB::table($definition['table'])->where('id',$id)->lockForUpdate()->first();
+        if(!$row){
+            if($missingConflict)abort(409,'أحد الأدوار المحفوظة في الدفعة لم يعد موجودًا على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
+            abort(404);
+        }
         $row=(array)$row;unset($row['id'],$row['created_at'],$row['updated_at']);
         $state=['row'=>$row,'features'=>$definition['table']==='products'?DB::table('product_features')->where('product_id',$id)->orderBy('id')->pluck('name')->all():[]];
         if($definition['table']==='roles'){
@@ -175,14 +180,16 @@ class DesktopDashboardLegacy
         $this->validateValues($definition,$values);
         if($this->isSelection($definition)){
             $rows=$payload['facts']['catalog_rows']??[];$ids=$this->selected($definition,$values);
+            $bulkRoles=$definition['table']==='roles'&&$this->isBulk($definition);
             abort_unless(is_array($rows)&&count($rows)===count($ids),409);
             foreach($rows as $index=>$row)abort_unless(is_array($row)&&is_array($row['state']??null)&&($row['id']??null)===($ids[$index]??null)
-                &&app(DesktopDashboardJournal::class)->fingerprint($row['state'])===app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,$ids[$index])),409,'أحد الأصناف أو الأقسام تغيّر على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
+                &&app(DesktopDashboardJournal::class)->fingerprint($row['state'])===app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,$ids[$index],$bulkRoles)),409,
+                $bulkRoles?'أحد الأدوار تغيّر على السيرفر؛ الحذف المحلي محفوظ للمراجعة.':'أحد الأصناف أو الأقسام تغيّر على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
         }elseif($definition['action']!=='store'){
             $before=$payload['facts']['catalog_before']??null;
             abort_unless(is_array($before)&&hash_equals(app(DesktopDashboardJournal::class)->fingerprint($before),app(DesktopDashboardJournal::class)->fingerprint($this->state($definition,(int)($payload['parameters'][$definition['parameter']]??0)))),409,'الصنف أو القسم تغيّر على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
         }
-        if($definition['table']==='roles'&&$definition['action']!=='destroy')
+        if($definition['table']==='roles'&&in_array($definition['action'],['store','update'],true))
             $values=app(DesktopDashboardRoleFacts::class)->resolve($values,$payload['facts']['role_permissions']??[],$payload['facts']['catalog_before']??null,(int)($payload['parameters']['role']??0));
         $uri='/'.$original->uri();
         foreach($payload['parameters']??[] as $key=>$value){abort_unless(is_scalar($value)&&preg_match('/^[1-9][0-9]{0,18}$/D',(string)$value),422);$uri=str_replace('{'.$key.'}',(string)$value,$uri);}
