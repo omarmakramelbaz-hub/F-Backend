@@ -1,0 +1,121 @@
+name: Isolated Laravel 12 original login on Windows
+
+on:
+  push:
+    branches: ['codex/laravel12-windows-diagnostic-20261010']
+
+permissions:
+  contents: read
+
+jobs:
+  windows-pilot:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Preserve exact reviewed Git bytes before checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not disable checkout line-ending conversion.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Could not select LF checkout line endings.' }
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          tools: composer:2.10.3
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Strictly install the actual candidate lock and exercise original private HTTP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $repository = (Get-Location).Path
+          $root = Join-Path $env:RUNNER_TEMP 'laravel12-windows-diagnostic'
+          if (Test-Path $root) { throw 'The diagnostic directory is not fresh.' }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          Get-ChildItem Env: | Where-Object { $_.Name -match '^COMPOSER(?:_|$)|^(?:APP|DB|SESSION|CACHE|DESKTOP_DASHBOARD)(?:_|$)|^(?:DATABASE_URL|MYSQL_ATTR_SSL_CA)$' } | ForEach-Object { Remove-Item ('Env:' + $_.Name) }
+          if (Get-ChildItem Env: | Where-Object { $_.Name -match '^COMPOSER(?:_|$)' }) { throw 'Inherited Composer policy overrides remain.' }
+          $env:COMPOSER_HOME = Join-Path $root 'composer-home'
+          $env:COMPOSER_CACHE_DIR = Join-Path $root 'composer-cache'
+          New-Item -ItemType Directory -Path $env:COMPOSER_HOME, $env:COMPOSER_CACHE_DIR | Out-Null
+          node .github/scripts/laravel12-windows-diagnostic.cjs prepare $repository $root
+          if ($LASTEXITCODE -ne 0) { throw 'Fresh reviewed source/input packaging failed.' }
+          $artifact = Join-Path $root 'artifact'
+          $application = Join-Path $root 'runtime/application'
+          $exits = [ordered]@{ install = $null; platform = $null; audit = $null; fixture = $null }
+          $databaseProcess = $null
+          try {
+            $platform = & php -r '$required=["pdo_mysql","pdo_sqlite","sqlite3","mbstring","exif","gd","fileinfo","intl","curl","openssl","sodium"]; if(PHP_VERSION!=="8.2.34"||PHP_OS_FAMILY!=="Windows"||PHP_INT_SIZE!==8){fwrite(STDERR,"Unexpected actual Windows PHP platform".PHP_EOL);exit(1);} $extensions=[];foreach($required as $name){if(!extension_loaded($name)){fwrite(STDERR,"Missing extension: ".$name.PHP_EOL);exit(1);}$extensions[$name]=["loaded"=>true,"version"=>phpversion($name)?:null];}echo json_encode(["version"=>PHP_VERSION,"os_family"=>PHP_OS_FAMILY,"int_size"=>PHP_INT_SIZE,"extensions"=>$extensions],JSON_THROW_ON_ERROR);'
+            if ($LASTEXITCODE -ne 0) { throw 'Actual Windows platform proof failed.' }
+            $platform | Set-Content (Join-Path $artifact 'platform.json') -Encoding utf8NoBOM
+            $composerVersion = & composer --version --no-ansi
+            if ($LASTEXITCODE -ne 0 -or $composerVersion -notmatch '^Composer version 2\.10\.3\b') { throw 'Unexpected actual Composer version.' }
+            $composerVersion | Set-Content (Join-Path $artifact 'composer-version.txt') -Encoding utf8NoBOM
+            & composer install --no-dev --no-scripts --no-interaction --prefer-dist --no-progress --working-dir=$application 2>&1 | Tee-Object (Join-Path $artifact 'composer-install.log')
+            $exits.install = $LASTEXITCODE
+            if ($exits.install -ne 0) { throw 'Strict actual candidate lock install failed.' }
+            $requirements = & composer check-platform-reqs --lock --no-dev --format=json --working-dir=$application | Out-String
+            $exits.platform = $LASTEXITCODE
+            $requirements | Set-Content (Join-Path $artifact 'platform-requirements.json') -Encoding utf8NoBOM
+            if ($exits.platform -ne 0) { throw 'Actual installed-platform requirements failed.' }
+            $audit = & composer audit --locked --no-dev --format=json --no-interaction --working-dir=$application | Out-String
+            $exits.audit = $LASTEXITCODE
+            $audit | Set-Content (Join-Path $artifact 'audit.json') -Encoding utf8NoBOM
+            if ($exits.audit -ne 0) { throw 'Strict actual locked audit failed.' }
+            $exits | ConvertTo-Json | Set-Content (Join-Path $artifact 'command-exits.json') -Encoding utf8NoBOM
+            node .github/scripts/laravel12-windows-diagnostic.cjs dependencies $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'dependency-verification.log') -OutVariable dependencyOutput
+            if ($LASTEXITCODE -ne 0 -or !(($dependencyOutput -join "`n") -match '(?m)^WINDOWS_LARAVEL12_DEPENDENCIES_COMPLETE:')) { throw 'Actual installed candidate dependency binding failed.' }
+            $archive = Join-Path $root 'mariadb.zip'
+            Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive -TimeoutSec 300
+            if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2') { throw 'Pinned MariaDB archive hash differs.' }
+            Expand-Archive $archive (Join-Path $root 'mariadb')
+            $servers = @(Get-ChildItem (Join-Path $root 'mariadb/*/bin/mariadbd.exe'))
+            if ($servers.Count -ne 1) { throw 'Expected exactly one pinned MariaDB server.' }
+            $server = $servers[0].FullName
+            $bin = Split-Path $server
+            $data = Join-Path $root 'private-mariadb-data'
+            if (Test-Path $data) { throw 'Private database directory is not fresh.' }
+            & (Join-Path $bin 'mariadb-install-db.exe') "--datadir=$data" 2>&1 | Tee-Object (Join-Path $artifact 'mariadb-initialize.log')
+            if ($LASTEXITCODE -ne 0) { throw 'Private MariaDB initialization failed.' }
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = $listener.LocalEndpoint.Port
+            $listener.Stop()
+            $databaseProcess = Start-Process $server -ArgumentList @('--no-defaults', "--datadir=`"$data`"", '--bind-address=127.0.0.1', "--port=$port", '--console') -PassThru -RedirectStandardOutput (Join-Path $artifact 'maria-out.log') -RedirectStandardError (Join-Path $artifact 'maria-error.log')
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 120; $attempt++) {
+              if ($databaseProcess.HasExited) { throw 'Private MariaDB stopped before readiness.' }
+              $client = [System.Net.Sockets.TcpClient]::new()
+              try { if ($client.ConnectAsync('127.0.0.1', $port).Wait(250)) { $ready = $true; break } } catch {} finally { $client.Dispose() }
+              Start-Sleep -Milliseconds 250
+            }
+            if (!$ready) { throw 'Private MariaDB readiness timed out.' }
+            & php .github/scripts/laravel12-windows-fixture.php $application $repository $port $artifact 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'fixture-output.log') -OutVariable fixtureOutput
+            $exits.fixture = $LASTEXITCODE
+            if ($exits.fixture -ne 0 -or !(($fixtureOutput -join "`n") -match '(?m)^LARAVEL12_ORIGINAL_HTTP_COMPLETE \{')) { throw 'Original HTTP fixture lacked its mandatory completion marker.' }
+            $exits | ConvertTo-Json | Set-Content (Join-Path $artifact 'command-exits.json') -Encoding utf8NoBOM
+            node .github/scripts/laravel12-windows-diagnostic.cjs verify $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'final-verification.log') -OutVariable verificationOutput
+            if ($LASTEXITCODE -ne 0 -or !(($verificationOutput -join "`n") -match '(?m)^WINDOWS_LARAVEL12_DIAGNOSTIC_COMPLETE:')) { throw 'Windows source/version/schema/HTTP evidence binding failed.' }
+          } finally {
+            if ($databaseProcess -and !$databaseProcess.HasExited) { Stop-Process -Id $databaseProcess.Id -Force }
+            $exits | ConvertTo-Json | Set-Content (Join-Path $artifact 'command-exits.json') -Encoding utf8NoBOM
+            if (Test-Path (Join-Path $application 'storage/logs/laravel.log')) { Copy-Item (Join-Path $application 'storage/logs/laravel.log') (Join-Path $artifact 'laravel.log') }
+            if ((Test-Path 'vendor') -or (Test-Path 'desktop-pos/runtime/vendor')) { throw 'The diagnostic wrote production vendor directories.' }
+            $changes = @(& git status --porcelain)
+            if ($LASTEXITCODE -ne 0 -or $changes.Count) { throw 'The diagnostic changed the reviewed checkout.' }
+          }
+      - name: Retain isolated Windows evidence, including failed attempt logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laravel12-windows-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/laravel12-windows-diagnostic/artifact/*
+          if-no-files-found: warn
+          retention-days: 14
