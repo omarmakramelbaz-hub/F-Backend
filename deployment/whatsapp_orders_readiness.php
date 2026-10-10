@@ -14,6 +14,8 @@ try {
     $configured = static fn ($v) => is_string($v) && trim($v) !== '';
     $safeReason = static fn ($v) => $v === null ? null
         : (is_string($v) && preg_match('/\A[A-Z][A-Z0-9_]{0,79}\z/', $v) ? $v : 'UNKNOWN');
+    $whitespace = static fn (string $v) => trim(preg_replace('/\s+/u', ' ', $v));
+    $branchName = static fn (string $v) => mb_strtolower($whitespace($v), 'UTF-8');
     $mode = config('whatsapp_orders.mode');
     $report = [
         'diagnostic' => $argc === 2 ? 'READ_ONLY_WITH_SYNTHETIC_AI_CALL' : 'READ_ONLY',
@@ -27,6 +29,7 @@ try {
         'eligible_actor_ids' => [], 'candidate_limit_reached' => false,
         'actor_checks_failed' => 0, 'branches_for_actor_id' => null,
         'branches' => [], 'branches_truncated' => false,
+        'duplicate_branch_groups' => [], 'duplicate_groups_truncated' => false,
     ];
     $access = app(\App\Services\Dashboard\TakeawayAccess::class);
     $inbox = app(\App\Services\Dashboard\WhatsAppInboxAccess::class);
@@ -35,6 +38,7 @@ try {
         ->orderBy('id')->limit(100)->get(['id']);
     $report['candidate_limit_reached'] = count($candidates) === 100;
     $first = null;
+    $branches = [];
     foreach ($candidates as $candidate) {
         try {
             $actor = $inbox->actor($candidate);
@@ -60,6 +64,30 @@ try {
             } catch (\Throwable $e) {}
             $report['branches'][] = ['id' => (int) $branch['id'],
                 'name' => (string) $branch['name'], 'delivery_settings_ready' => $ready];
+        }
+        $groups = [];
+        foreach ($branches as $branch) $groups[$branchName($branch['name'])][] = $branch;
+        $budget = 100;
+        $columns = ['id'];
+        foreach (['user_id', 'created_at'] as $column) {
+            if ($access->has('resturants', $column)) $columns[] = $column;
+        }
+        foreach ($groups as $group) {
+            if (count($group) < 2) continue;
+            if ($budget < count($group)) { $report['duplicate_groups_truncated'] = true; continue; }
+            $rows = [];
+            foreach ($group as $branch) {
+                $metadata = \Illuminate\Support\Facades\DB::table('resturants')
+                    ->where('id', $branch['id'])->first($columns);
+                $orderCount = $access->has('orders', 'resturant_id')
+                    ? \Illuminate\Support\Facades\DB::table('orders')->where('resturant_id', $branch['id'])->count() : null;
+                $rows[] = ['id' => (int) $branch['id'], 'name' => (string) $branch['name'],
+                    'business_address' => (string) ($branch['address'] ?? ''),
+                    'account_id' => isset($metadata->user_id) ? (int) $metadata->user_id : null,
+                    'created_at' => $metadata->created_at ?? null, 'order_count' => $orderCount];
+            }
+            $report['duplicate_branch_groups'][] = $rows;
+            $budget -= count($group);
         }
     }
     if ($argc === 2) {
@@ -89,6 +117,16 @@ try {
                 in_array($item['quantity'] ?? null, ['0.5', '0.50', '0.500'], true);
         }
         $decision = $data['decision'] ?? null;
+        $hint = $data['branch_hint'] ?? null;
+        $literal = is_string($hint) ? $whitespace($hint) : null;
+        $hintKind = $literal === null ? 'NULL'
+            : ($literal === 'المنصورة' ? 'CITY' : ($literal === 'فرع المنصورة' ? 'FULL_BRANCH' : 'OTHER'));
+        $exact = array_values(array_filter($branches, static fn ($b) => is_string($hint)
+            && $branchName($b['name']) === $branchName($hint)));
+        $allowedIds = config('whatsapp_orders.allowed_branch_ids', []);
+        $allowedIds = is_array($allowedIds) ? array_map('strval', $allowedIds) : [];
+        $allowed = array_values(array_filter($exact,
+            static fn ($b) => in_array((string) $b['id'], $allowedIds, true)));
         $report['synthetic_extraction'] = [
             'ok' => ($result['ok'] ?? false) === true,
             'reason' => $safeReason(array_key_exists('reason', $result) ? $result['reason'] : 'UNKNOWN'),
@@ -97,7 +135,11 @@ try {
             'phone_match' => ltrim((string) ($customer['phone'] ?? ''), '+') === '201000000001',
             'address_match' => ($customer['address'] ?? null) === 'شارع النخيل',
             'area_match' => ($customer['area'] ?? null) === 'المنصورة',
-            'branch_match' => ($data['branch_hint'] ?? null) === 'المنصورة',
+            'branch_match' => in_array($literal, ['المنصورة', 'فرع المنصورة'], true),
+            'branch_hint_kind' => $hintKind,
+            'accessible_exact_branch_ids' => array_map(static fn ($b) => (int) $b['id'], $exact),
+            'allowed_exact_branch_ids' => array_map(static fn ($b) => (int) $b['id'], $allowed),
+            'single_allowed_branch_match' => count($allowed) === 1,
             'delivery_match' => ($data['fulfillment'] ?? null) === 'DELIVERY',
             'two_items' => count($data['items'] ?? []) === 2,
         ] + $weights;
