@@ -1,0 +1,169 @@
+{
+  "format": 1,
+  "kind": "isolated-laravel12-original-suite-compatibility-proof",
+  "source": {
+    "baseCommit": "e62516840259cc85ea168b7245bcd5e91909ce78",
+    "applicationSourceFiles": 2245,
+    "applicationContentSha256": "946d76f57a8798fd5ff2c5b4fa98cf8c29c804bbab6abf6f51898d9e8f3cf2ce",
+    "actualChangedFiles": {
+      "app/Http/Controllers/Dashboard/RolesController.php": {
+        "baseSha256": "c07f02e378005770cfefc154523c9bcd8f2b72aa4192e490e3a92e3e308e08bb",
+        "candidateSha256": "2b465da02557fc4c876654e48de1b8d2665697834cceb744d5a1f134ae282d8c",
+        "baseGitBlob": "7019020e48e911cbe73a9779b94fa854e5e52ef6"
+      },
+      "app/Services/Dashboard/DesktopDashboardReconciliation.php": {
+        "baseSha256": "b7363e346684c15d1737d38e01f7ff1d8003325466cf3a121f7faaf0ed1664eb",
+        "candidateSha256": "e14f74765bc6a25f860e57c7c7bcdd57db38050a561ed25354b63e74b516b6a9",
+        "baseGitBlob": "111f9aefce4422ac217123c9d71e2014140838bc"
+      },
+      "resources/lang/ar/validation.php": {
+        "baseSha256": "6152fb36a1b7b137a9f772d44a4d3eca92db8ba73d3ad64a7478a726342bd794",
+        "candidateSha256": "058c4f4eeb1b955992d913787e11815c63db5729543a0858c8b7b257d6d3b71e",
+        "baseGitBlob": "6dd4b49e77e5b07e894d249d9f56a8e0f3687b5b"
+      }
+    },
+    "runtimeFreshPackagingCommit": "e62516840259cc85ea168b7245bcd5e91909ce78",
+    "allOther2242SourceFilesMatchBase": true,
+    "threeExplicitSourceOverlaysMatchReviewedWorktree": true,
+    "retainedVendorClassHashes": {
+      "Illuminate\\Foundation\\Application": {
+        "file": "vendor/laravel/framework/src/Illuminate/Foundation/Application.php",
+        "sha256": "4420a7bd285975fc7c0b10b93400ab0bb4b95531c3328f0577fc85ff7fb53a41"
+      },
+      "Spatie\\Permission\\PermissionRegistrar": {
+        "file": "vendor/spatie/laravel-permission/src/PermissionRegistrar.php",
+        "sha256": "05a08a206177258f8bd312859cbb3cc031fa15c83ef880fcbe8b37756d0d88a2"
+      },
+      "Spatie\\MediaLibrary\\MediaCollections\\Models\\Media": {
+        "file": "vendor/spatie/laravel-medialibrary/src/MediaCollections/Models/Media.php",
+        "sha256": "102831bc68d5ce2287d99d8118e680aff8f0f2faf8dc660b82535f916ec6701f"
+      }
+    }
+  },
+  "candidate": {
+    "manifestSha256": "c7f7f6ac9b766b9282be10dacfbc25c367600ad550488802b24e75b4dfc122c1",
+    "lockSha256": "f0fe7a09c3736dac4cddf120f14f9ca3a5c6553a1ff7ecc2e37f4be0e5cbee75",
+    "installedPackages": 139,
+    "actualInstalledAndAutoloadedGraphMatchesLock": true,
+    "laravel": "12.69.3",
+    "permission": "6.25.0",
+    "mediaLibrary": "11.23.9",
+    "collectiveAbsent": true,
+    "strictInstall": {
+      "composer": "2.10.3",
+      "freshHomeAndCache": true,
+      "updates": false,
+      "scripts": false,
+      "ignoredRequirements": false,
+      "auditExceptions": false
+    },
+    "actualPlatformRequirementsPassed": 21,
+    "lockedAuditFindings": 0
+  },
+  "completedSuite": {
+    "exitCode": 0,
+    "coreCompleted": true,
+    "legacyCompleted": true,
+    "coreChecks": 158,
+    "legacyChecks": 722,
+    "totalPassLines": 880,
+    "logSha256": "267ba1a3fff27cf30eec568a4c6da421eed2b656b2e922513d3ffda616584149",
+    "platform": {
+      "php": "8.3.6",
+      "os": "Linux",
+      "maria": "10.11.14-MariaDB-0ubuntu0.24.04.1"
+    },
+    "browserModuleEnabled": false,
+    "applicationMigrated": false,
+    "applicationValidated": false,
+    "acceptedRelease": false,
+    "fullDashboard": false
+  },
+  "privateFixtureTarget": {
+    "baseline": "e62516840259cc85ea168b7245bcd5e91909ce78",
+    "changedCopies": {
+      "run.php": {
+        "originalSha256": "7f086296c4447bee2726636314d111661070034791f196c01e8740133d5c0961",
+        "privateSha256": "96a38b870e3823e7300d54b5c3a53a79e9a31b96d6351a26a9182e4ed0419f73"
+      },
+      "legacy.php": {
+        "originalSha256": "ffff724591592576a22f917d120da23a02d4ab60fc2280f574b8d1ff67093100",
+        "privateSha256": "a0043f5e50521c6b585cf979da1c5a07179d13e54487ace1a26fe2396973654d"
+      },
+      "remote-attempts.php": {
+        "originalSha256": "0519f32168fa7c19d4c25c8a4a9c1cdaaa34d3a15983be26812987cc95101cad",
+        "privateSha256": "a85c37bf7c98bb93d1f17c93d14171f986b8a41e96ffedd5c0c4e712c313cc84"
+      },
+      "native-delete-form-contract.php": {
+        "originalSha256": "29c2470e2644cf66597882b2c91a63df63e9187a1590de1fa0658dca335c58cc",
+        "privateSha256": "bce090504f84fd95de6c3c68a254ff398d3956bd27a17d6238aef2c821bf9116"
+      }
+    },
+    "allOriginalAssertionsPreserved": true,
+    "minimum565RoutesPreserved": true,
+    "original8GuardUnchanged": true,
+    "realAuthenticatedCSRFRefreshes": 3,
+    "nativeDeleteTargets": 22,
+    "onlyNativeDOMTargetDelta": {
+      "csrfHiddenInput": {
+        "autocomplete": "off"
+      }
+    }
+  },
+  "supplemental": {
+    "actualControllerResolutionCases": 16,
+    "actualHTTPNumericNameCollision": {
+      "selectedId": 2,
+      "collisionId": 3,
+      "create": 302,
+      "update": 302,
+      "invalidIdentityStatuses": [
+        500,
+        500
+      ],
+      "existingGrantsRetained": true,
+      "originalValidationStatuses": [
+        302,
+        302,
+        302
+      ]
+    },
+    "actualHTTPMalformedArrayMessage": {
+      "before": 500,
+      "after": 422,
+      "stringArabicErrors": true,
+      "orderUnchanged": true,
+      "validOrder": 200
+    }
+  },
+  "proofFileHashes": {
+    "logs/original-unmodified-first-run.log": "8fde46d76ed2f782eb32d6df982e10a5d566b05374b0def686a620756fabcb2c",
+    "logs/candidate-first-core-legacy-run.log": "5b5664984540ea4f98df0f9f291cf970daf47f200204fa2a615d046f931911d9",
+    "logs/candidate-after-facts-rule-core-legacy-run.log": "bb6b14ffaa69787f9896281d33acc326326f562e155dd78d571a876d3a0ff4fa",
+    "logs/candidate-after-role-input-core-legacy-run.log": "5991a23267de1f5d477e93c35d2299ed0f5fec180016f6be18013ca1dd187183",
+    "logs/native-form-attribute-first-diagnostic.log": "18a9fa41dae45e74200f41edca6a3e6c49488f8df8228ffb539bba1cc3cd0d36",
+    "logs/native-form-candidate-target-proof.log": "bd0fcf45d13eec7cb86264e1b9f02f31cafa1396ba99d93b521702610bf41842",
+    "logs/permission-input-controller-parity.log": "bd1d485bfaf1aaaed8b0e85186866875affd75e1995763848034a972687ae6aa",
+    "role-http-identity-artifact/fixture-receipt.json": "a7edb3e10eba1b95d0d089040f6f36d55a2e764802fd9e900279ab99ce643955",
+    "category-translation-http-before-artifact/fixture-receipt.json": "7794a1bc8dde196c4d619cb697cc25b37b93d4bfc620c43738687d0253f22bcc",
+    "category-translation-http-after-artifact/fixture-receipt.json": "b13eaa311eff3d76138e89cb222ca216ba38b673b27a9040819ff194494b1a80",
+    "candidate-remote-token-read-failure.json": "34acded224726748f3862c88603d879bb2d38793b75514b720f179219c546923",
+    "logs/candidate-final-token-setup-core-legacy-run.log": "267ba1a3fff27cf30eec568a4c6da421eed2b656b2e922513d3ffda616584149"
+  },
+  "status": {
+    "vendorInstalled": true,
+    "applicationMigrated": false,
+    "applicationValidated": false,
+    "acceptedRelease": false,
+    "fullDashboard": false
+  },
+  "windowsPatchedFullSuite": "notRun",
+  "limitations": [
+    "Linux original fixture suites use synthetic data and do not establish full original dashboard coverage.",
+    "Browser module unset; no Windows execution of these three patches.",
+    "Credential-dependent route:list and broader provider flows remain outside the proof; no provider fake/credential bypass.",
+    "Old plural role/role_or_permission aliases are not exercised.",
+    "Exploratory late category list read fails on original NULLcreated_at; existing original product-create form supplies the current token instead.",
+    "No production manifest/lock/vendor or PR72/PR73 ref changed."
+  ]
+}

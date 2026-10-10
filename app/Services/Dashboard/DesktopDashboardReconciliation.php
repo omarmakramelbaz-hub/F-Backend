@@ -11,7 +11,7 @@ class DesktopDashboardReconciliation
     {
         $v=Validator::make($values,[
             'command_id'=>'required|uuid','actor_id'=>'required|integer|min:1','route_name'=>'required|string|max:150',
-            'payload'=>'required|array','payload.values'=>'required|array','payload.parameters'=>'nullable|array','payload.files'=>'nullable|array',
+            'payload'=>'required|array','payload.values'=>'required|array','payload.parameters'=>'nullable|array','payload.files'=>'nullable|array','payload.facts'=>'nullable|array',
             'local_result'=>'required|array','local_references'=>'present|array','local_references.*'=>'required|integer|min:1','dependencies'=>'present|array|max:1000','dependencies.*'=>'required|uuid|distinct','occurred_at'=>'required|date',
         ])->validate();
         abort_unless((int)$v['actor_id']===(int)$device->actor_id,403);

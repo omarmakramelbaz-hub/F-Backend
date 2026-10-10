@@ -70,7 +70,7 @@ class RolesController extends Controller
         ]);
 // dd($request->all());
         $role = Role::create(['name' => $request->input('name')]);
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->originalPermissions($role, $request->input('permission')));
         $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
@@ -127,7 +127,7 @@ class RolesController extends Controller
         $role->name = $request->input('name');
         $role->save();
 
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->originalPermissions($role, $request->input('permission')));
         $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
@@ -149,6 +149,21 @@ class RolesController extends Controller
                         ->with('success',trans('messages.DeleteSuccessfully'));
     }
     
+    private function originalPermissions(Role $role, array $values): array
+    {
+        // Original forms submit string IDs; resolve them before Spatie 6 treats
+        // numeric strings as names. Keep the original guard and name semantics.
+        $class = config('permission.models.permission');
+        $guard = \Spatie\Permission\Guard::getDefaultName($role);
+        $byId = static fn (int $id) => $class::findById($id, $guard);
+
+        return array_map(static fn ($value) => empty($value)
+            ? $value
+            : (is_numeric($value)
+                ? $byId($value)
+                : $class::findByName($value, $guard)), $values);
+    }
+
     private function invalidateCommittedPermissions(): void
     {
         // A concurrent request may cache the previous committed grants after the
