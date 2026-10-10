@@ -40,15 +40,17 @@ review({id:42,branch:'f:100',revision:2},'approve');var afterApprove=confirms;re
   await page.addScriptTag({content:read('public/dashboard/js/dashboard-location-picker.js')});
   await page.addScriptTag({content:read('public/dashboard/js/phone-address-search.js')});
   const phone=read('public/dashboard/js/phone-orders.js');
+  const desktopFlag=phone.match(/^    var desktopLocal = [^\n]+$/m);assert(desktopFlag);
   const start=phone.indexOf('    addressSearch=PhoneAddressSearch.create('),end=phone.indexOf('\n    async function confirmLocation',start);
   assert(start>0&&end>start);
-  await page.evaluate(code=>{
-   (0,eval)(`var root=document.getElementById('phone-orders'),fields={address:document.getElementById('address'),area:document.getElementById('area')},latInput=document.getElementById('lat'),lngInput=document.getElementById('lng'),addressSearch;
+  await page.evaluate(({code,flag})=>{
+   (0,eval)(`${flag}\nvar root=document.getElementById('phone-orders'),fields={address:document.getElementById('address'),area:document.getElementById('area')},latInput=document.getElementById('lat'),lngInput=document.getElementById('lng'),addressSearch;
 function locked(){return false;}function invalidateLocation(){}function previewLocation(){}
 var locationPicker=DashboardLocationPicker.create(root.querySelector('[data-phone-map]'),{key:'fixture'});
 ${code.replace("root.querySelector('[data-phone-address-options]')","document.getElementById('options')")}
 window.searchAddress=addressSearch;`);
-  },phone.slice(start,end));
+  },{code:phone.slice(start,end),flag:desktopFlag[0]});
+  assert.equal(await page.evaluate(()=>desktopLocal),false);
   await page.locator('#address').fill('عنوان');await page.evaluate(()=>searchAddress.search());await page.locator('#options button').click();
   await page.waitForFunction(()=>document.getElementById('area').value==='التجمع الجنوبي');
   assert.equal(await page.locator('#lat').inputValue(),'30.01');assert.equal(await page.locator('#lng').inputValue(),'31.02');assert((await page.evaluate(()=>requestedFields)).includes('addressComponents'));
