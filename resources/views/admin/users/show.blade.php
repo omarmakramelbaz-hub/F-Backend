@@ -219,14 +219,14 @@
                                                         {{$wishlist->created_at->diffForHumans()}}
                                                     </td>
                                                     <td width="250px">
-                                                            {!! Form::open([
+                                                            {!! \App\Support\NativeDeleteForm::open([
                                                                 'method' => 'DELETE',
                                                                 'route' => ['userwishlists.destroy', $wishlist->id],
                                                                 'style' => 'display:inline',
                                                             ]) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty
@@ -269,14 +269,14 @@
                                                         {{$address->created_at->diffForHumans()}}
                                                     </td>
                                                     <td width="250px">
-                                                            {!! Form::open([
+                                                            {!! \App\Support\NativeDeleteForm::open([
                                                                 'method' => 'DELETE',
                                                                 'route' => ['useraddresses.destroy', $address->id],
                                                                 'style' => 'display:inline',
                                                             ]) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty

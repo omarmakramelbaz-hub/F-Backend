@@ -58,7 +58,7 @@ class DesktopDashboardReferences
     }
     public function capture(string $device,string $command,string $route,array $result,array $payload,int $actor): array
     {
-        $outputs=$this->outputs($route,$result,$payload['values']??[],$actor);
+        $outputs=DesktopDashboardMenuAvailability::handles($route)?(isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):[]):$this->outputs($route,$result,$payload['values']??[],$actor);
         foreach($outputs as $entity=>$id)DB::table('desktop_dashboard_entities')->insertOrIgnore([
             'device_id'=>$device,'entity'=>$entity,'local_id'=>$id,'command_id'=>$command,'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
         ]);
@@ -77,6 +77,7 @@ class DesktopDashboardReferences
             return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
         if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardMenuAvailability::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if($route==='phone-orders.finish-batch')foreach($payload['values']['items']??[] as $index=>$item){
             if(isset($item['id'])&&!is_array($item['id']))$payload['values']['items'][$index]['id']=$reference('ticket',$item['id']);
         }

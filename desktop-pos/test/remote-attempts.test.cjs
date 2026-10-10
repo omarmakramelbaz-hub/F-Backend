@@ -18,13 +18,64 @@ test('original category ordering reserves only its reviewed POST endpoint',()=>{
   assert.equal(f.attempts.supported({url,method:'POST'}),true);
   for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
 });
-test('original single role writes reserve without claiming bulk roles or permission administration',()=>{
+test('native menu outcomes reserve only scoped f/gs product availability POSTs',()=>{
+  const f=fixture(),origin=credential.serverOrigin;
+  for(const kind of ['f','gs']){
+    const url=origin+'/admin/order-board/menu/'+kind+'/100/products/12/availability';
+    assert.equal(f.attempts.supported({url,method:'POST'}),true);
+    for(const method of ['GET','PUT','PATCH','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
+  }
+  for(const path of ['/admin/order-board/menu/other/100/products/12/availability','/admin/order-board/menu/f/0/products/12/availability',
+    '/admin/order-board/menu/f/100/products/0/availability','/admin/order-board/menu/f/100/products/12','/admin/order-board/legacy/12/action'])
+    assert.equal(f.attempts.supported({url:origin+path,method:'POST'}),false);
+});
+test('original role writes reserve only their reviewed methods without claiming permission administration',()=>{
   const f=fixture(),origin=credential.serverOrigin;
   assert.equal(f.attempts.supported({url:origin+'/admin/roles',method:'POST'}),true);
   for(const method of ['POST','PUT','PATCH','DELETE'])assert.equal(f.attempts.supported({url:origin+'/admin/roles/12',method}),true);
   for(const method of ['GET','PUT','DELETE'])assert.equal(f.attempts.supported({url:origin+'/admin/roles',method}),false);
-  for(const path of ['/admin/rolesDeleteAll','/admin/permissions','/admin/roles/12/edit'])
+  assert.equal(f.attempts.supported({url:origin+'/admin/rolesDeleteAll',method:'DELETE'}),true);
+  for(const method of ['GET','POST','PUT','PATCH'])assert.equal(f.attempts.supported({url:origin+'/admin/rolesDeleteAll',method}),false);
+  for(const path of ['/admin/permissions','/admin/permissions/12','/admin/roles/12/edit','/admin/rolesDeleteAll/12','/admin/rolesDeleteAll/'])
     assert.equal(f.attempts.supported({url:origin+path,method:'DELETE'}),false);
+});
+test('original bulk role deletion binds its exact DELETE path to a durable reservation and terminal recovery',async()=>{
+  const f=fixture(),id=crypto.randomUUID(),bulk={url:credential.serverOrigin+'/admin/rolesDeleteAll',method:'DELETE'};
+  const proof=await f.attempts.begin(id,bulk);
+  assert.equal(proof['X-Fasakhansta-Remote-Attempt'],id);assert.equal(proof['X-Fasakhansta-Remote-Capability'],'b'.repeat(64));
+  assert.equal(f.records.get('remote-attempts/'+id).method,'DELETE');assert.equal(f.records.get('remote-attempts/'+id).path,'/admin/rolesDeleteAll');
+  f.decisions.set(id,'committed');f.attempts.failed(id);
+  await new RemoteAttempts(f.options).recover();
+  assert.deepEqual((await f.state.read()).pending,[]);assert.equal((await f.state.read()).dirty,true);
+  assert.deepEqual(f.calls.map(value=>[value.action,value.method,value.path]),[['reserve','DELETE','/admin/rolesDeleteAll'],['settle','DELETE','/admin/rolesDeleteAll']]);
+});
+test('original bulk role AJAX retains one UUID after a lost or reordered reply and releases it only on acknowledgement',async()=>{
+  const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),storage=new Map();
+  let prefilter;
+  const document={body:{dataset:{dashboardLocal:'1',dashboardActor:'1'}},documentElement:{},querySelectorAll:()=>[],addEventListener:()=>{}};
+  await vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../public/dashboard/js/desktop-dashboard.js'),'utf8'),{
+    document,window:{jQuery:{ajaxPrefilter:callback=>{prefilter=callback;}}},location:{href:credential.serverOrigin+'/admin/roles',origin:credential.serverOrigin},
+    HTMLFormElement:class {},MutationObserver:class {observe(){}},URL,URLSearchParams,crypto,
+    sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}
+  });
+  assert.equal(typeof prefilter,'function');
+  const send=(data,{url=credential.serverOrigin+'/admin/rolesDeleteAll',type='DELETE'}={})=>{
+    const headers={},callbacks=[];
+    prefilter({url,type,data},{},{setRequestHeader:(name,value)=>{headers[name]=value;},done:callback=>callbacks.push(callback)});
+    return {command:headers['X-Fasakhansta-Command'],acknowledge:value=>callbacks.forEach(callback=>callback(value))};
+  };
+  const first=send('ids=12,3'),reordered=send('ids=3,12');
+  assert.match(first.command,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
+  assert.equal(reordered.command,first.command);assert.equal(storage.size,1);
+  reordered.acknowledge({error:'No acknowledgement'});
+  assert.equal(send('ids=12,3').command,first.command);
+  for(const options of [{type:'POST'},{url:credential.serverOrigin+'/admin/permissions'},{url:'https://other.test/admin/rolesDeleteAll'}])
+    assert.equal(send('ids=12,3',options).command,undefined);
+  reordered.acknowledge({success:'Original JSON acknowledgement'});
+  assert.equal(storage.size,0);const newer=send('ids=3,12');assert.notEqual(newer.command,first.command);
+  first.acknowledge({success:'Delayed old acknowledgement'});
+  assert.equal(storage.size,1);assert.equal(send('ids=12,3').command,newer.command,'A late old reply cannot erase the UUID of a newer lost-response retry.');
+  newer.acknowledge({success:'Current operation acknowledgement'});assert.equal(storage.size,0);
 });
 test('reviewed own-notification menu and history reads reserve, while external sends keep their guard',()=>{
   const f=fixture(),url=credential.serverOrigin+'/admin/dashboard-inbox/notifications/read';

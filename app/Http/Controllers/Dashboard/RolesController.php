@@ -21,7 +21,7 @@ class RolesController extends Controller
         $this->middleware('permission:role-list', ['only' => ['show']]);
         $this->middleware('permission:role-create', ['only' => ['create','store']]);
          $this->middleware('permission:role-edit', ['only' => ['edit','update']]);
-         $this->middleware('permission:role-delete', ['only' => ['destroy']]);
+         $this->middleware('permission:role-delete', ['only' => ['destroy','deleteAll']]);
     }
 
     /**
@@ -160,6 +160,9 @@ class RolesController extends Controller
     {
         $ids = $request->ids;
         Role::whereIn('id',explode(",",$ids))->delete();
+        // Mass deletion bypasses Role's per-model permission cache hook.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->invalidateCommittedPermissions();
         return response()->json(['success'=> trans('messages.RecordsDeleteSuccessfully')]);
     }
 

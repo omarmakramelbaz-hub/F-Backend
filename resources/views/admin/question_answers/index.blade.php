@@ -84,14 +84,14 @@
                                                         href="{{ route('question_answers.edit',[$question_answer->id,'type'=> request('type')]) }}">@lang('main.edit')</a>
                                                 @endcan
                                                 @can('question_answer-delete')
-                                                    {!! Form::open([
+                                                    {!! \App\Support\NativeDeleteForm::open([
                                                         'method' => 'DELETE',
                                                         'route' => ['question_answers.destroy', $question_answer->id],
                                                         'style' => 'display:inline',
                                                     ]) !!}
                                                     <button type="submit"
                                                         class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                    {!! Form::close() !!}
+                                                    {!! \App\Support\NativeDeleteForm::close() !!}
                                                 @endcan
 
                                             </td>

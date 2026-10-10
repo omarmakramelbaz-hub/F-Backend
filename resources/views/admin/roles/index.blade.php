@@ -77,10 +77,10 @@
                                                 @endcan
                                                 @if($role->id != 11 && $role->id != 2 && $role->id != 10 || $role->id != 13)
                                                 @can('role-delete')
-                                                    {!! Form::open(['method' => 'DELETE', 'route' => ['roles.destroy', $role->id], 'style' => 'display:inline']) !!}
+                                                    {!! \App\Support\NativeDeleteForm::open(['method' => 'DELETE', 'route' => ['roles.destroy', $role->id], 'style' => 'display:inline']) !!}
                                                     <button type="submit"
                                                         class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                    {!! Form::close() !!}
+                                                    {!! \App\Support\NativeDeleteForm::close() !!}
                                                 @endcan
                                                 @endif
                                             </td>

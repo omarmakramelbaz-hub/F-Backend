@@ -67,7 +67,6 @@ try{
     $localAuthority->givePermissionTo('role-delete');app(PermissionRegistrar::class)->forgetCachedPermissions();
     app(PermissionRegistrar::class)->clearClassPermissions();
     verify(!app(PermissionRegistrar::class)->getPermissions(['name'=>'product-list','guard_name'=>'admin'])->first()->roles->contains('id',$secondRole),'the original direct role deletion invalidates the warmed persisted cache so removed permission associations cannot linger');
-    verify($http('/admin/rolesDeleteAll',['_token'=>$roleCsrf[1],'ids'=>(string)$firstRole],[],'DELETE')[0]===501&&DB::table('roles')->where('id',$firstRole)->exists(),'role bulk deletion remains explicitly unavailable without reviewed coverage');
     $webPermission=Permission::create(['name'=>'fixture-role-web-permission','guard_name'=>'web']);
     $webFacts=app(DesktopDashboardRoleFacts::class)->selected(['permission'=>[(string)$webPermission->id]],['row'=>['guard_name'=>'web']]);
     verify($webFacts['guard_name']==='web'&&$webFacts['permissions'][0]['guard_name']==='web','permission facts follow an existing role model guard instead of inventing an admin guard for every role');

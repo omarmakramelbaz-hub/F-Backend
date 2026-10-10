@@ -4,6 +4,7 @@ const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require(
 const Shutdown=require('./shutdown.cjs');
 const LocalRuntime=require('./local-runtime.cjs');
 const DashboardSync=require('./dashboard-sync.cjs');
+const SyncSchedule=require('./sync-schedule.cjs');
 const {DashboardGeneration}=require('./dashboard-generation.cjs');
 const {DashboardPreparation}=require('./dashboard-preparation.cjs');
 const DashboardMode=require('./dashboard-mode.cjs');
@@ -16,9 +17,10 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,timer,retryMs=5000,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,quitting=false;
 const requests=new Set();
-const shutdown=new Shutdown(app,()=>{quitting=true;clearTimeout(timer);sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
+const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
+const shutdown=new Shutdown(app,()=>{quitting=true;syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -33,7 +35,7 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
   }finally{requests.delete(controller);}
 }
 function state() {
-  const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||''};
+  const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||'',sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting),sync_running:Boolean(syncSchedule.running)};
 }
 async function dashboardRequest(command, bootstrap=false, suppliedCredential, endpoint='commands') {
   const credential=suppliedCredential||await localRuntime.connection();
@@ -80,7 +82,7 @@ async function dashboardEnrollment(serverOrigin, input, csrf) {
 async function dashboardState() {
   if(!preparation)return {available:false};
   return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',...(localSync?.state||{}),
-    pending:(localSync?.state.pending||0)+(store?.counts().pending||0)};
+    pending:(localSync?.state.pending||0)+(store?.counts().pending||0),sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting),sync_running:Boolean(syncSchedule.running)};
 }
 async function dashboardSession(credential) {
   const controller=new AbortController();requests.add(controller);
@@ -116,17 +118,17 @@ function writable() {
   if(localSync)throw Error('استخدم أقسام الداشبورد للعمل؛ سجل النسخة السابقة محفوظ للاطلاع والطباعة.');
   if(store.get('authorization_blocked'))throw Error('ربط الجهاز متوقف من الإدارة. العمليات السابقة محفوظة؛ يلزم إعادة تفعيل الربط.');
 }
-async function tick() {
+async function syncCycle({refresh=false}={}) {
   if(!primaryInstance||quitting)return;
   try{await shutdown.run(async()=>{
     if(localSync){
       if(store.get('connection'))await sync.run();if(quitting)return;
-      try{await remoteAttempts?.recover();}catch(error){localSync.report({online:Boolean(error.status),error:error.message});retryMs=Math.min(retryMs*2,60000);return;}
-      const result=await localSync.run();retryMs=result.error?Math.min(retryMs*2,60000):5000;return;
+      try{await remoteAttempts?.recover();}catch(error){localSync.report({online:Boolean(error.status),error:error.message});return;}
+      if(refresh)localSync.nextRefresh=0;
+      await localSync.run();return;
     }
-    if(store.get('connection')) {await sync.run();if(quitting)return;if(sync.online&&!sync.error){retryMs=5000;store.set('last_synced',new Date().toISOString());}else retryMs=Math.min(retryMs*2,60000);notify();}
+    if(store.get('connection')) {await sync.run();if(quitting)return;if(sync.online&&!sync.error)store.set('last_synced',new Date().toISOString());notify();}
   });}catch(error){if(!quitting){sync.error=error.message;notify();}}
-  if(!quitting){clearTimeout(timer);timer=setTimeout(tick,retryMs);}
 }
 function handle(name,fn) {
   ipcMain.handle('pos:'+name,async(e,...args)=>{if(e.sender!==win.webContents||!e.senderFrame.url.startsWith('fasakhansta://pos/'))throw Error('مصدر غير مسموح.');try{return {ok:true,value:await shutdown.run(()=>fn(...args))};}catch(error){return {ok:false,error:error.message};}});
@@ -158,14 +160,14 @@ app.whenReady().then(async()=>{
   handle('discard',id=>{writable();return store.discard(id);});
   handle('order',id=>store.order(id));handle('update',(id,data)=>{writable();return store.update(id,data);});
   handle('action',(id,kind,reason)=>{writable();const e=store.dispatch(id,kind,reason);notify();return e;});handle('print',id=>printEvent(id));
-  handle('sync',async()=>{await sync.run();notify();return state();});
+  handle('sync',()=>{syncSchedule.request().catch(()=>{});notify();return state();});
   handle('pair',async(url,code)=>{
     writable();
     if(store.get('connection'))throw Error('الجهاز مرتبط بالفعل. حافظ على بياناته وعملياته.');
     if(!safeStorage.isEncryptionAvailable())throw Error('تعذر حفظ ربط الجهاز بشكل آمن في حساب ويندوز الحالي.');
     const o=origin(url), c=await request('POST','pair',{code:String(code)},{origin:o});
     store.set('connection',{origin:o,device_id:c.device_id,token_cipher:safeStorage.encryptString(c.token).toString('base64')});
-    await sync.run();notify();return state();
+    await sync.run({bootstrapOnly:true});notify();return state();
   });
   handle('printers',()=>win.webContents.getPrintersAsync());handle('printer',name=>{store.set('printer',String(name));return true;});
   handle('dashboard',async()=>{await dashboard.open();return true;});
@@ -185,7 +187,7 @@ app.whenReady().then(async()=>{
       credential:async()=>{if(!(await localRuntime.isPrepared()))return null;return localRuntime.connection();},
       request:(value,credential)=>dashboardRequest(value,false,credential,'remote-attempts')});
     preparation=new DashboardPreparation({runtime:localRuntime,enroll:dashboardEnrollment,download:value=>dashboardRequest(null,true,value),
-      beforePrepare:async()=>{if(store.get('connection'))await sync.run();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
+      beforePrepare:async()=>{if(store.get('connection'))await syncSchedule.request();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
       onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},onPrepared:async()=>{connectDashboardSync();}});
     if(await localRuntime.isPrepared()) {
       const local=await shutdown.run(()=>localRuntime.start());
@@ -197,7 +199,7 @@ app.whenReady().then(async()=>{
   if(quitting)return;
   dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
     prepare:preparation?(serverOrigin,csrf)=>remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf)):undefined,status:dashboardState,remoteState,remoteAttempts,
-    synchronize:async()=>{if(store.get('connection'))await sync.run();if(localSync){localSync.nextRefresh=0;await localSync.run();}return dashboardState();},
+    synchronize:()=>{syncSchedule.request({refresh:true}).catch(()=>{});return dashboardState();},
     archive:localRuntime?()=>localOrders():undefined,
     selectPrinter:async window=>{
       const printers=await window.webContents.getPrintersAsync();
@@ -212,6 +214,6 @@ app.whenReady().then(async()=>{
     connectDashboardSync();await shutdown.run(async()=>{await generations.recover();
       if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
   }
-  tick();await dashboard.open();
+  syncSchedule.start();await dashboard.open();
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج فسخانستا',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

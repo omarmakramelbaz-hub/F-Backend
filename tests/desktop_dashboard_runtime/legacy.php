@@ -140,6 +140,13 @@ foreach(['category-list','category-create','category-edit','category-delete','pr
 DB::table('contracts')->insert([['id'=>87001,'added_by'=>1,'type'=>'vendor','template'=>'قالب مورّد مشترك'],['id'=>87002,'added_by'=>1,'type'=>'delegate','template'=>'قالب مندوب مشترك']]);
 $contractManager=User::withoutGlobalScopes()->create(['id'=>30,'added_by'=>1,'name'=>'مدير القوالب','email'=>'template-manager@test.invalid','mobile'=>'1200000030','password'=>password_hash('Fixture123',PASSWORD_BCRYPT),'account_type'=>'admin','status'=>'accepted','app_scope'=>'fasakhansta']);
 $contractRole=\Spatie\Permission\Models\Role::create(['name'=>'Template Manager','guard_name'=>'admin']);$contractRole->givePermissionTo('contract-edit');$contractManager->assignRole($contractRole);
+$browserBulkRoleIds=[];$snapshotBulkRoleIds=[];
+foreach(['Browser Bulk Role A','Browser Bulk Role B','Snapshot Bulk Role A','Snapshot Bulk Role B'] as $index=>$name){
+    $bulkFixtureRole=\Spatie\Permission\Models\Role::create(['name'=>$name,'guard_name'=>'admin']);
+    $bulkFixtureRole->givePermissionTo($index%2===0?'product-list':'category-list');
+    if($index%2===0)User::withoutGlobalScopes()->findOrFail(21)->assignRole($bulkFixtureRole);
+    if($index<2)$browserBulkRoleIds[]=(int)$bulkFixtureRole->id;else $snapshotBulkRoleIds[]=(int)$bulkFixtureRole->id;
+}
 $contractQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],$contractManager,['f:100']);
 verify(!app(\App\Services\Dashboard\DesktopDashboardData::class)->allAdministration($contractManager)&&$contractQueries['contracts']->count()===2,'a central contract editor receives its original shared templates without requiring global Super Admin authority');
 $contractRole->revokePermissionTo('contract-edit');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
@@ -148,6 +155,13 @@ verify($contractQueries['contracts']->count()===0,'revoking the original contrac
 $branchQueries=app(\App\Services\Dashboard\DesktopDashboardData::class)->queries((object)[],User::withoutGlobalScopes()->findOrFail(10),['f:100']);
 verify($branchQueries['contracts']->count()===0,'shared contract templates remain outside an ordinary branch account snapshot');
 $owner->assignRole($role);app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+foreach([60,61] as $storeOwner){
+    DB::table('users')->insert(['id'=>$storeOwner,'added_by'=>1,'name'=>'مالك متجر اختبار '.$storeOwner,'email'=>'store'.$storeOwner.'@test.invalid','mobile'=>'12000000'.$storeOwner,
+        'password'=>password_hash('Fixture123',PASSWORD_BCRYPT),'account_type'=>'vendor','status'=>'accepted','app_scope'=>'go_partner','balance'=>0]);
+    DB::table('go_stores')->insert(['user_id'=>$storeOwner,'name'=>'متجر اختبار '.$storeOwner,'kind'=>'grocery','address'=>'عنوان الاختبار','revision'=>1]);
+    DB::table('go_store_products')->insert(['id'=>$storeOwner===60?1:2,'user_id'=>$storeOwner,'name'=>'صنف متجر '.$storeOwner,'price_cents'=>10000,'available'=>true,'revision'=>1,'options'=>'[]']);
+}
+DB::table('resturant_products')->insert(['id'=>2,'added_by'=>1,'resturant_id'=>101,'product_id'=>1,'category_id'=>1,'product_name'=>'صنف الفرع الآخر','product_price'=>'100.00','status'=>'show','price'=>'{}']);
 $browserNotificationId=(string)\Illuminate\Support\Str::uuid();DB::table('notifications')->insert(['id'=>$browserNotificationId,'type'=>'FixtureNotification',
     'notifiable_type'=>User::class,'notifiable_id'=>1,'data'=>json_encode(['title'=>'إشعار اختبار المتصفح','text'=>'نص سجل الإشعارات']),
     'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -170,7 +184,7 @@ try{
         $browserOutput=$profile.'/browser-output.log';
         $browserErrors=$profile.'/browser-errors.log';
         $browser=proc_open(['node',__DIR__.'/browser.cjs'],[['pipe','r'],['file',$browserOutput,'w'],['file',$browserErrors,'w']],$browserPipes,__DIR__);
-        fwrite($browserPipes[0],json_encode(['origin'=>$origin,'token'=>$browserToken]));fclose($browserPipes[0]);
+        fwrite($browserPipes[0],json_encode(['origin'=>$origin,'token'=>$browserToken,'bulkRoleIds'=>$browserBulkRoleIds]));fclose($browserPipes[0]);
         $browserDeadline=microtime(true)+300;
         do{$browserStatus=proc_get_status($browser);if(!$browserStatus['running'])break;usleep(250000);}while(microtime(true)<$browserDeadline);
         $browserTimedOut=$browserStatus['running'];
@@ -185,25 +199,48 @@ try{
             fwrite(STDERR,'BROWSER_WEB_LOG_TAIL'.PHP_EOL.substr($webLog,-16000).PHP_EOL);
         }
         verify(!$browserTimedOut&&$browserExit===0,'the real offline browser preserves original catalog forms and stable UUIDs');
+        $browserMenuIds=DB::table('desktop_dashboard_commands')->where('route_name','order-board.menu.availability')->pluck('command_id');
+        verify($browserMenuIds->count()===4&&(int)DB::table('go_store_products')->where('id',1)->value('revision')===3,
+            'both real browser menu toggles record exactly one disabling and one enabling UUID, with no duplicate store revision');
+        // Return only this disposable browser fixture to its initial baseline.
+        DB::table('desktop_dashboard_entities')->whereIn('command_id',$browserMenuIds)->delete();
+        DB::table('desktop_dashboard_commands')->whereIn('command_id',$browserMenuIds)->delete();
+        DB::table('go_store_products')->where('id',1)->update(['revision'=>1]);
+        $browserBulk=DB::table('desktop_dashboard_commands')->where('route_name','roles.destroy-all')->get();
+        preg_match('/BROWSER_ROLE_BULK_PROOF (\{[^\r\n]+\})/',file_get_contents($browserOutput),$browserBulkProof);
+        $browserBulkProof=isset($browserBulkProof[1])?json_decode($browserBulkProof[1],true):[];
+        verify($browserBulk->count()===1&&DB::table('roles')->whereIn('id',$browserBulkRoleIds)->count()===0
+            &&DB::table('role_has_permissions')->whereIn('role_id',$browserBulkRoleIds)->count()===0
+            &&($browserBulkProof['command']??null)===$browserBulk[0]->command_id
+            &&($browserBulkProof['ids']??null)===array_map('strval',$browserBulkRoleIds),'the real original role bulk button commits exactly its observed UUID and removes its permission pivots');
+        $browserCommand=app(\App\Services\Dashboard\DesktopDashboardJournal::class)->pending($ownerDevice)[0];
+        verify($browserCommand['route_name']==='roles.destroy-all','the actual browser deletion retains its precise original named route');
+        config(['database.connections.mysql.database'=>$database,'desktop_dashboard.local'=>false]);DB::purge();
+        $browserReceipt=app(\App\Services\Dashboard\DesktopDashboardReconciliation::class)->ingest(app(DesktopDashboardDevices::class)->device($ownerLink['token']),$browserCommand);
+        verify(DB::table('roles')->whereIn('id',$browserBulkRoleIds)->count()===0&&DB::table('role_has_permissions')->whereIn('role_id',$browserBulkRoleIds)->count()===0
+            &&DB::table('model_has_roles')->whereIn('role_id',$browserBulkRoleIds)->count()===0,'the actual browser bulk deletion reconciles its imported roles and foreign membership cascades');
+        config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
+        app(\App\Services\Dashboard\DesktopDashboardJournal::class)->acknowledge($ownerDevice,$browserCommand['command_id'],$browserReceipt);
     }
+    $catalogBaseline=DB::table('desktop_dashboard_commands')->count();
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
     [$status]=$http('/admin/categorys',$category);
     if($status!==302)fwrite(STDERR,file_get_contents($profile.'/logs/laravel.log'));
     $categoryId=(int)DB::table('categories')->where('name_ar',$category['name_ar'])->value('id');
-    verify($status===302&&$categoryId>1&&DB::table('desktop_dashboard_commands')->count()===1,'the original category controller and form redirect commit with their encrypted local command');
+    verify($status===302&&$categoryId>1&&DB::table('desktop_dashboard_commands')->count()===$catalogBaseline+1,'the original category controller and form redirect commit with their encrypted local command');
     verify($http('/admin/categorys',$category)[0]===302&&DB::table('categories')->where('name_ar',$category['name_ar'])->count()===1,'retrying a lost original form response does not create a second category');
     $productCommand=(string)\Illuminate\Support\Str::uuid();$product=['_token'=>$csrf[1],'_desktop_command'=>$productCommand,'added_by'=>1,'category_id'=>$categoryId,'name_ar'=>'صنف من الجهاز','status'=>'show','product_features'=>['kilo','half']];
     [$status]=$http('/admin/products',$product);$productId=(int)DB::table('products')->where('name_ar',$product['name_ar'])->value('id');
     verify($status===302&&$productId>1&&DB::table('product_features')->where('product_id',$productId)->count()===2,'the original product repository saves its category and portion features locally');
     $category['_desktop_command']=(string)\Illuminate\Support\Str::uuid();$category['_method']='PUT';$category['name_ar']='قسم معدل من الجهاز';
     verify($http('/admin/categorys/'.$categoryId,$category)[0]===302&&DB::table('categories')->where('id',$categoryId)->value('name_ar')===$category['name_ar'],'the original category update is journaled without changing its form behavior');
-    verify($http('/admin/categorys/'.$categoryId,$category)[0]===302&&DB::table('desktop_dashboard_commands')->count()===3,'an update retry retains the original before-state and operation UUID');
+    verify($http('/admin/categorys/'.$categoryId,$category)[0]===302&&DB::table('desktop_dashboard_commands')->count()===$catalogBaseline+3,'an update retry retains the original before-state and operation UUID');
     $product['_desktop_command']=(string)\Illuminate\Support\Str::uuid();$product['_method']='PUT';$product['product_id']=$productId;$product['name_ar']='صنف معدل من الجهاز';$product['product_features']=['quarter','combo'];
     verify($http('/admin/products/'.$productId,$product)[0]===302&&DB::table('products')->where('id',$productId)->value('name_ar')===$product['name_ar'],'the original product update and replacement portion features commit locally');
     $invalid=$category;$invalid['_desktop_command']=(string)\Illuminate\Support\Str::uuid();unset($invalid['_method']);$invalid['name_ar']='';
-    verify($http('/admin/categorys',$invalid)[0]===302&&DB::table('desktop_dashboard_commands')->count()===4,'original form validation errors retain their redirect and do not queue a success');
+    verify($http('/admin/categorys',$invalid)[0]===302&&DB::table('desktop_dashboard_commands')->count()===$catalogBaseline+4,'original form validation errors retain their redirect and do not queue a success');
     $category['_desktop_command']=(string)\Illuminate\Support\Str::uuid();$category['name_ar']='قسم تعارض من الجهاز';
-    verify($http('/admin/categorys/'.$categoryId,$category)[0]===302&&DB::table('desktop_dashboard_commands')->count()===5,'a later offline update retains its expected original catalog state');
+    verify($http('/admin/categorys/'.$categoryId,$category)[0]===302&&DB::table('desktop_dashboard_commands')->count()===$catalogBaseline+5,'a later offline update retains its expected original catalog state');
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 config(['database.connections.mysql.database'=>$database,'desktop_dashboard.local'=>false]);DB::purge();
 DB::table('categories')->insert(['id'=>$categoryId,'added_by'=>1,'name_ar'=>'قسم سيرفر مستقل','name_en'=>'Server collision','status'=>'show']);
@@ -241,10 +278,13 @@ require __DIR__.'/faq.php';
 require __DIR__.'/features.php';
 require __DIR__.'/contracts.php';
 require __DIR__.'/roles.php';
+require __DIR__.'/roles-bulk.php';
+require __DIR__.'/native-delete-form-contract.php';
 require __DIR__.'/contacts.php';
 require __DIR__.'/category-order.php';
 require __DIR__.'/shared-actions.php';
 require __DIR__.'/notification-history.php';
+require __DIR__.'/menu-availability.php';
 require __DIR__.'/remote-attempts.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

@@ -17,10 +17,16 @@ class DashboardSync {
   report(values) { Object.assign(this.state, values); if (!this.stopped) this.onState({ ...this.state }); }
   async flush() {
     try {
+      let batchSize;
       for (let count = 0; count < 1000 && !this.stopped; count++) {
         const outbox = await this.local({ action: 'pending' });
         this.report(outbox.counts);
         if (this.stopped) return this.state;
+        // Work created during this cycle stays local until the next slot.
+        if (batchSize === undefined) {
+          if (!Number.isSafeInteger(outbox.counts.pending) || outbox.counts.pending < 0) throw Error('Invalid local pending count.');
+          batchSize = Math.min(outbox.counts.pending, 1000);
+        }
         if (!outbox.commands.length) {
           if (this.refresh && outbox.counts.pending === 0 && outbox.counts.conflicts === 0 && this.now() >= this.nextRefresh) {
             this.nextRefresh = this.now() + this.refreshInterval;
@@ -29,6 +35,7 @@ class DashboardSync {
           }
           return this.state;
         }
+        if (count >= batchSize) return this.state;
         const command = outbox.commands[0];
         let receipt;
         try {

@@ -36,6 +36,19 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardMenuAvailability::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardMenuAvailability::class);
+                $command=(string)$request->input('idempotency_key');$payload=$adapter->payload($request,$command,$actor);$status=200;
+                $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],function()use($request,$next,&$status){
+                    $response=$next($request);$status=$response->getStatusCode();
+                    if($status>=400)throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
+                    return json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR);
+                });
+                return response()->json($result,$status)->header('Cache-Control','private, no-store');
+            });
+        }
         if(\App\Services\Dashboard\DesktopDashboardNotificationReads::handles($route)){
             $reads=app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class);
             $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));

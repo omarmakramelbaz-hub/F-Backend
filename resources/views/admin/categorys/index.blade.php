@@ -93,14 +93,14 @@
                                                             href="{{ route('categorys.edit',[$category->id,'parent' => 'parent']) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('category-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['categorys.destroy', $category->id,'parent' => 'parent'],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan   
                                                     @else
                                                     @can('category-list')
@@ -112,14 +112,14 @@
                                                             href="{{ route('categorys.edit',[$category->id,'parent' => 'sub']) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('category-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['categorys.destroy', $category->id,'parent' => request('parent')],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan  
                                                     @endif
                                                 </td>

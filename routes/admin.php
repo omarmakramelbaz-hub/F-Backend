@@ -121,7 +121,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::put('/advertising/update', [SettingsController::class, 'update_advertising'])->name('updateAdvertising');
 
         Route::resource('/roles', RolesController::class);
-        Route::delete('rolesDeleteAll', [RolesController::class,'deleteAll']);
+        Route::delete('rolesDeleteAll', [RolesController::class,'deleteAll'])->name('roles.destroy-all');
 
         Route::resource('/admins', AdminsController::class);
         Route::delete('adminsDeleteAll', [AdminsController::class,'deleteAll']);

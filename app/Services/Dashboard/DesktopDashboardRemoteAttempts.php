@@ -32,9 +32,11 @@ class DesktopDashboardRemoteAttempts
         $v=Validator::make($values,['id'=>'required|uuid','method'=>'required|in:POST,PUT,PATCH,DELETE','path'=>'required|string|max:200'])->validate();
         $single=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features|contracts)(?:/[1-9][0-9]{0,18})?$#D',$v['path']);
         $roles=($v['method']==='POST'&&$v['path']==='/admin/roles')
-            ||(in_array($v['method'],['POST','PUT','PATCH','DELETE'],true)&&preg_match('#^/admin/roles/[1-9][0-9]{0,18}$#D',$v['path']));
+            ||(in_array($v['method'],['POST','PUT','PATCH','DELETE'],true)&&preg_match('#^/admin/roles/[1-9][0-9]{0,18}$#D',$v['path']))
+            ||($v['method']==='DELETE'&&$v['path']==='/admin/rolesDeleteAll');
         $bulk=preg_match('#^/admin/(?:areas|categorys|products|question_answers|features)DeleteAll$#D',$v['path'])&&$v['method']==='DELETE';
         $ordering=$v['path']==='/admin/post-sortable'&&$v['method']==='POST';
+        $availability=$v['method']==='POST'&&preg_match('#^/admin/order-board/menu/(f|gs)/[1-9][0-9]{0,18}/products/[1-9][0-9]{0,18}/availability$#D',$v['path'],$menuPath);
         $contact=(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/contacts/[1-9][0-9]{0,18}$#D',$v['path']))
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
         $history=in_array($v['method'],['POST','PUT'],true)&&preg_match('#^/admin/read/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$#iD',$v['path']);
@@ -43,7 +45,7 @@ class DesktopDashboardRemoteAttempts
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$roles||$bulk||$ordering||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($single||$roles||$bulk||$ordering||$availability||$contact||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
@@ -53,6 +55,11 @@ class DesktopDashboardRemoteAttempts
         if($roles)foreach(['permissions','role_has_permissions','model_has_roles'] as $roleTable){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$roleTable]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد الدور يحتاج جداول تدعم المعاملات.');
+        }
+        if($availability)foreach(array_merge(['users','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'],
+            $menuPath[1]==='f'?['resturants','resturant_products']:['go_stores','go_store_products','pending_vendors']) as $menuTable){
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$menuTable]);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد إتاحة الصنف يحتاج جداول تدعم المعاملات.');
         }
         if($table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
@@ -104,18 +111,23 @@ class DesktopDashboardRemoteAttempts
         $this->devices->ready();
         $name=$request->route()?->getName();$catalog=DesktopDashboardLegacy::handles($name);
         $history=DesktopDashboardNotificationReads::handles($name);
-        abort_unless($catalog||isset(self::CORE[$name??'']),501);
+        $availability=DesktopDashboardMenuAvailability::handles($name);
+        abort_unless($catalog||$availability||isset(self::CORE[$name??'']),501);
         $files=app(DesktopDashboardExpenseAttachments::class)->files($request,$name);
         $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
-        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$name,$files){
+        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$name,$files){
             $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device);
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row&&(int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
                 &&hash_equals($this->capability($row),$capability),403);
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
             if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
+            elseif($availability){
+                $parameters=$request->route()->parameters();$actor=app(DesktopDashboardMenuAvailability::class)->authorize($parameters,$actor)['actor'];
+                app(DesktopDashboardMenuAvailability::class)->enrolledBranch($device,$parameters);
+            }
             else{
                 // Expense categories are the original shared vocabulary and have no branch input.
                 if(!in_array(self::CORE[$name],['can_manage_expense_categories','can_read_own_notifications'],true))$this->devices->branch($device,(string)$request->input('branch'),$actor);

@@ -1,0 +1,44 @@
+# Remaining original dashboard write coverage
+
+Static review baseline: tree `2b4c9a582e1ef44af6eb250b2fc107ab83c48ead`, 2026-10-10. Controllers, repository bindings, executed model references, and original Blade/JS entry points were inspected. This document is an inventory, not HTTP acceptance evidence. An existing controller/action can still fail for particular data, permissions, providers or incomplete legacy relationships. `coverage.full_dashboard` remains false. Roles bulk deletion is being handled separately.
+
+This increment covers only `order-board.menu.availability`: original restaurant/store scope, expected availability and store revision, current authority before saved replies, complete product/ownership before-facts, and immutable operation UUIDs. It does not cover branch/product creation. Existing imported IDs remain exact; later availability commands use named typed mappings produced by prior availability receipts. No identity is guessed from a name or numeric ID in another entity kind.
+
+Menu scope uses the enabled enrolled device's current branch membership and the original menu authority. It does not substitute POS branch policy: the original restaurant-owner fallback without a parent remains valid, and a central administrator's original access to a GO target owner is not narrowed by that target owner's account status. The enrolled actor's disabled/declined status and revoked current permissions still reject stored replies.
+
+Verification uses the actual Laravel controllers and independent MariaDB connections: both menu kinds, local/server/native saved replies, changed payloads and before-facts, store revisions, atomic rollback, actual owner-fallback HTTP, typed dependent identities, real catalog-product ID drift, and warmed role/direct grants under older repeatable-read snapshots. Node contracts execute the original page script through its registered click listener for stale SPA replies and temporary authorization/session failures. The Edge fixture commits through actual PHP before dropping the response, refreshes changed availability/revision, and retries the original button. Actual Edge execution remains a Windows integration requirement; the local MariaDB/Node runs do not prove that browser acceptance.
+
+| Active uncovered module | Original routes/actions | Required effects |
+| --- | --- | --- |
+| Restaurants | `resturants.store/update/destroy/changeStatus/updateStatus/changeUnderContract`, `update_sorting_is_featured`, `DELETE /admin/resturantsDeleteAll` | Scoped restaurant records, delivery-area replacement, featured/sort/contract/operating flags, logo/background media and broadcasts. Custom action permission coverage differs from resource actions. |
+| Restaurant products/reviews | `resturant_products.store/update/destroy/update.status/update.highest_rated`, `resturant_reviews.destroy`, `copy_menu` | Product JSON option prices, images/conversions, broadcasts, copying existing product/media or updating price. Status/highest-rated routes are GET mutations. |
+| Original orders/board | `order-board.action`, `vendor.updateOrder/acceptOrder/updateOrderStatus`, `updateOrderTotalPrice`, `orders.change_status/transfer_price/cancel_order_delegate/destroy`, `DELETE /admin/ordersDeleteAll` | Distinct legacy/store/service/partner-service transitions, assignments, cart lines, clocks, wallet/app balance, ledger and providers. `orders.destroy` deletes a Cart, while bulk deletion deletes Orders. Cancellation is a GET mutation with financial effects. |
+| GO stores | `go-stores.store/update/products.store/products.update` | Owner/password and profile creation, normalized identity collisions, commission, profile/product/options revisions and public images. Preserve explicit central-admin and restaurant permission checks. |
+| User accounts | `users.store/update/destroy/change-status`, `DELETE /admin/usersDeleteAll`, `useraddresses.destroy`, `userwishlists.destroy`, `GET /admin/users/{id}/go_drive_activation`, `vendor.UpdatePhone` | Passwords, role assignment, pending-vendor links/documents, email, status/expiration, order blocks and mobile identity. Admin accounts also use these routes with `account_type=admin`; separate `admins` routes are broken. |
+| Pending applications | `pending_vendors.update/destroy/transferVendor/approvePartner`, `sendingDeclineMail`, `DELETE /admin/pending_vendorsDeleteAll` | Identity-document media, approval state, account/role/restaurant/area creation, GO draft promotion and mail. Preserve current review authority and collision constraints. |
+| Wallets | `wallets.transfer`, `wallets.withdraw.store`, `vendor.charging_wallet` | Ledger, balances and possible reactivation; notifications invoke FCM during database rendering. Charging creates pending wallet/order records and starts Paymob checkout. Original transfer/withdraw are not atomic; withdrawal creates its completed row before checking funds. `wallet-create` middleware targets `create`, not `store`. |
+| Settings | `updateSetting`, `updateAdvertising`, `updatePaymentActivation`, `updateEnv` | Settings/cache and images. `updateEnv` rewrites Paymob secrets in `.env`; it requires a separate online configuration boundary. |
+| Promotions | `banners`, `slidears`, `advertisings`, `coupon_wheels` resource store/update/destroy; their `*DeleteAll` endpoints; `DELETE /admin/slidears/del/image`, `/admin/advertisings/del/image` | Images/conversions/deletion, coupon restaurant associations and broadcasts. Creation requires images. Coupon media is missing from the current snapshot media model mapping. |
+| Push/support | `fcm_notifications.store`, `dashboard-push.step/resume`, `POST /admin/save-token`, `/admin/send_chat_notification`, `dashboard-inbox.support.read/send` | Current recipient/inbox scope, FCM delivery/campaign state, Firestore masked reads and UUID message commits. Provider processing belongs on the server; tokens are deliberately absent from snapshots. |
+| Branch printing | `phone-orders.print-claim/print-complete` | Branch-specific claim token/actor and physical invocation/failure status. The original claim cannot invoke twice after an ambiguous response. Preserve uncertainty and explicit review. |
+| Global control | `GET /admin/resturantControl` | Navbar action toggles every scoped restaurant's `control`, except ID 82; needs selected-row facts and a UUID. |
+
+## Broken original actions, excluded from usable write coverage
+
+* `admins.store/deleteAll` execute absent `App\Models\Admin`; update/destroy require that missing typed model. `admins.create` can still render its role-based form.
+* Complaint actions execute or require absent `App\Models\Complaint`.
+* Subscriber actions require absent `Subscriber`; mail history requires absent `AdminMail`. Several generated resource methods do not exist.
+* `BlogController`, `orders.store/update`, category service-price action methods, and `UserController@fetchGate` are absent.
+* `notifications.sendNotify` creates `GeneralNotify` before instantiating absent `AdminToUserNotification`. It can partially write before failing and needs repair, not a blanket registry entry.
+
+Missing imports alone were not treated as proof of a dead action: unused `ResturantPrice`/`ResturantProductPrice` imports do not invalidate the implemented repository paths.
+
+## Boundaries beyond the route inventory
+
+* `phone-orders.address-suggestions` is a read POST using network/cache, omitted from `READ_POSTS`; currently blocked locally. An offline fallback is needed.
+* Pair/revoke, installer upload and enrollment are active infrastructure endpoints with online dependencies, separate from business CRUD.
+* `order-board:advance` runs every minute, advances courier phases after 15 minutes and financial completion after 90 minutes. Push dispatch and other scheduled financial/notification jobs are also outside route coverage. Do not enable unjournaled local schedulers or blindly replay stale timers.
+* Existing reviewed catalog routes still reject uploads. Route registration does not imply complete media coverage, conflict-review UI, native PDF/printer acceptance, updates or full-product acceptance.
+* A read controller or view can still fail offline when it writes an audit row: the local read-only transaction then returns 501. Read action availability must be verified separately from this static write inventory.
+
+Next small increments: DB-only review/address/wishlist actions; then scoped restaurant-product administration with uploads. Printing requires a separate physical-effect path. Orders/wallets and account-role assignment require transaction, current authority, conflict and provider-outbox work.

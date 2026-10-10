@@ -42,8 +42,13 @@ module.exports=async context=>{
   // machine-wide long-path policy. Keep $INSTDIR normal for shortcuts/registry.
   const extendedNsis=previewNsis.replace(extractionRoot,'SetOutPath "\\\\?\\$INSTDIR"');
   const uninstallList=path.join(project,'dist/uninstall-files.nsh');
-  const removal=await fs.readFile(uninstallList,'utf8');
-  await fs.writeFile(uninstallList,removal.replaceAll('"$INSTDIR\\','"\\\\?\\$INSTDIR\\'));
+  // Use the Unicode filesystem APIs for every exact packaged path. Reject
+  // quote delimiters rather than emitting an ambiguous System::Call argument.
+  const removal=(await fs.readFile(uninstallList,'utf8')).replace(/^(Delete|RMDir) "(\$INSTDIR\\[^"'\r\n]+)"$/gm,
+    (_,command,target)=>"System::Call 'kernel32::"+(command==='Delete'?'DeleteFileW':'RemoveDirectoryW')
+      +'(w "\\\\?\\'+target+'") i .r0\'');
+  if(/^(Delete|RMDir) /m.test(removal))throw Error('An unreviewed uninstaller path remains.');
+  await fs.writeFile(uninstallList,removal);
   const fileDirective='File /r "${PROJECT_DIR}\\dist\\win-unpacked\\*"';
   if(!extendedNsis.includes(fileDirective))throw Error('The complete NSIS input directive is missing.');
   // makensis cannot open some original vendor files via the runner's long path.

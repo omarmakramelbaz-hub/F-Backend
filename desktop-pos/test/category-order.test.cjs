@@ -28,6 +28,18 @@ test('new desired positions and refreshed datasets cannot reuse an archived cate
   assert.notEqual(fixture(storage,crypto.randomUUID()).request(order).headers['X-Fasakhansta-Command'],id);
   assert.equal(fixture(storage,'').request(order).aborted,true);
 });
+test('a late duplicate drag acknowledgement cannot erase a newer operation UUID for the same desired order',()=>{
+  const storage=new Map(),order=[{id:'12',position:'1'},{id:'13',position:'2'}];
+  const first=fixture(storage).request(order),duplicate=fixture(storage).request([...order].reverse());
+  assert.equal(duplicate.headers['X-Fasakhansta-Command'],first.headers['X-Fasakhansta-Command']);
+  first.complete({status:'success'});
+  const newer=fixture(storage).request(order),newerId=newer.headers['X-Fasakhansta-Command'];
+  assert.notEqual(newerId,first.headers['X-Fasakhansta-Command']);
+  duplicate.complete({status:'success'});
+  assert.equal(fixture(storage).request([...order].reverse()).headers['X-Fasakhansta-Command'],newerId);
+  newer.complete({status:'failed'});assert.equal(fixture(storage).request(order).headers['X-Fasakhansta-Command'],newerId);
+  newer.complete({status:'success'});assert.notEqual(fixture(storage).request(order).headers['X-Fasakhansta-Command'],newerId);
+});
 test('foreign drag targets and malformed order selections never receive command headers',()=>{
   const f=fixture(),order=[{id:'12',position:'1'}];
   assert.deepEqual(f.request(order,{url:'https://foreign.test/admin/post-sortable'}).headers,{});

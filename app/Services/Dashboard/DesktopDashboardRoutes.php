@@ -12,6 +12,7 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'order-board.menu.availability',
         'read_notify','mark_all_as_read',
         'dashboard-inbox.notifications.read',
         'takeaway.checkout','takeaway.movements','takeaway.settings',

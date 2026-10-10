@@ -615,7 +615,8 @@ $(document).ready(function () {
                 if(check == true){  
 
 
-                    var join_selected_values = allVals.join(","); 
+                    var selectedIds = Object.freeze(allVals.slice());
+                    var join_selected_values = selectedIds.join(",");
 
 
                     $.ajax({
@@ -625,7 +626,9 @@ $(document).ready(function () {
                         data: 'ids='+join_selected_values,
                         success: function (data) {
                             if (data['success']) {
-                                $(".sub_chk:checked").each(function() {  
+                                $(".sub_chk").filter(function() {
+                                    return selectedIds.includes($(this).attr('data-id'));
+                                }).each(function() {
                                     $(this).parents("tr").remove();
                                 });
                                 alert(data['success']);
@@ -644,7 +647,7 @@ $(document).ready(function () {
 
 
                   @unless(config('desktop_dashboard.local'))
-                  $.each(allVals, function( index, value ) {
+                  $.each(selectedIds, function( index, value ) {
                       $('table tr').filter("[data-row-id='" + value + "']").remove();
                       
                   });

@@ -91,14 +91,14 @@
                                                             href="{{ route('areas.edit', $area->id) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('areas-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['areas.destroy', $area->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan
     
                                                 </td>

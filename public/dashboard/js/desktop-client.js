@@ -14,12 +14,13 @@
         button.textContent = state.mode === 'local' ? 'العمل على الجهاز' : state.prepared ? 'السيرفر · الجهاز مجهّز' : 'تجهيز بدون إنترنت';
         const waiting = Number(state.pending || 0), conflicts = Number(state.conflicts || 0);
         description.textContent = (labels[state.phase] || labels.idle)
-            + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '') + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '');
+            + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '') + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '')
+            + (state.prepared ? ' · المزامنة كل ٣٠ ثانية' : '') + (state.sync_queued ? ' · طلب المزامنة في الدورة القادمة' : '');
         progress.value = Math.max(0, Math.min(100, Number(state.progress || 0)));
         progress.hidden = state.prepared || ['idle', 'failed'].includes(state.phase);
         error.textContent = state.error || '';
-        action.disabled = !['idle', 'failed', 'ready'].includes(state.phase);
-        action.textContent = state.prepared ? 'مزامنة الآن' : 'تجهيز الجهاز';
+        action.disabled = !['idle', 'failed', 'ready'].includes(state.phase) || Boolean(state.sync_queued || state.sync_running);
+        action.textContent = state.prepared ? (state.sync_running ? 'جارٍ المزامنة' : state.sync_queued ? 'بانتظار الدورة القادمة' : 'طلب مزامنة') : 'تجهيز الجهاز';
     }
     async function update() { try { render(await native.status()); } catch { /* A transition/closed page cannot reopen another window. */ } }
     function mount() {

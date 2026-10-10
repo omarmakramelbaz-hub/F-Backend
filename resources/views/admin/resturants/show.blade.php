@@ -191,14 +191,14 @@
                                                     <td width="250px">
                                                             <button class="edit-item btn btn-warning p-1 clickeditbtn" type="submit" 
                                                             data-info="{{$item->id}},{{$item->resturant_id}},{{$item->product_id}},{{$item->product_name}},{{$item->product_description}},{{$item->product_price}},{{$item->category_id}},{{json_decode($item->price)->extra_combo}},{{json_decode($item->price)->extra_large}},{{json_decode($item->price)->extra_medium}},{{json_decode($item->price)->extra_clean}},{{json_decode($item->price)->extra_clear}},{{$item->product?->subcategory_id}},{{$item->getFirstMediaUrl('product_image','thumb')}},{{json_decode($item->price)->extra_vacuim}}"><i class='fa fa-edit'></i></button>
-                                                            {!! Form::open([
+                                                            {!! \App\Support\NativeDeleteForm::open([
                                                                 'method' => 'DELETE',
                                                                 'route' => ['resturant_products.destroy', $item->id],
                                                                 'style' => 'display:inline',
                                                             ]) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm p-1"><i class="fa fa-trash"></i></button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty
@@ -243,14 +243,14 @@
                                                         {{$review->created_at->diffForHumans()}}
                                                     </td>
                                                     <td>
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['resturant_reviews.destroy', $review->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm"><i class="fa fa-trash"></i></button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty
