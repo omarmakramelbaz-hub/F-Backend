@@ -36,10 +36,14 @@ jobs:
         run: |
           npm install --prefix "$env:RUNNER_TEMP/dpapi-electron" --no-audit --no-fund electron@44.6.0
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron installation failed.' }
+          # Electron 44 downloads its binary on demand; invoke the installed pin's CLI.
+          & "$env:RUNNER_TEMP/dpapi-electron/node_modules/.bin/install-electron.cmd"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron native binary download failed.' }
+          if (!(Test-Path -LiteralPath "$env:RUNNER_TEMP/dpapi-electron/node_modules/electron/dist/electron.exe" -PathType Leaf)) { throw 'Pinned native Electron executable is missing.' }
       - name: Exercise actual Windows encrypted metadata across processes
         shell: pwsh
         run: |
-          $executable = "$env:RUNNER_TEMP/dpapi-electron/node_modules/electron/dist/electron.exe"
+          $executable = (Resolve-Path -LiteralPath "$env:RUNNER_TEMP/dpapi-electron/node_modules/electron/dist/electron.exe").Path
           $artifact = "$env:RUNNER_TEMP/dpapi-proof"
           node tests/desktop_native_safety/safe-storage-native.cjs $executable $artifact 2>&1 | Tee-Object -Variable proof
           if ($LASTEXITCODE -ne 0 -or !(($proof -join "`n") -match 'WINDOWS_SAFE_STORAGE_NATIVE_COMPLETE')) { throw 'Actual Windows safeStorage proof did not complete.' }
