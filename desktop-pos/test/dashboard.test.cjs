@@ -69,6 +69,16 @@ test('a lost original price calculation remains a read while an original GET mut
   await new Promise(r=>setImmediate(r));assert.equal(begun.length,1);
   f.session.webRequest.error({...quote,error:'net::ERR_CONNECTION_RESET'});assert.equal(failures.at(-1).method,'UNKNOWN');
 });
+test('original address suggestions remain a read without a remote command reservation after a lost response',async t=>{
+  const reservations=[],failures=[];const f=fixture(t,{remoteState:{begin:async id=>reservations.push(id)},
+    remoteAttempts:{begin:async id=>{reservations.push(id);return {};}},offline:(_message,details)=>failures.push(details)});
+  await f.dashboard.open();const request={id:14,url:policy.DEFAULT_ORIGIN+'/admin/phone-orders/address-suggestions',method:'POST',
+    webContentsId:f.windows[0].webContents.id,requestHeaders:{}};let decision;
+  f.session.webRequest.headers(request,value=>decision=value);
+  assert.ok(decision.requestHeaders);assert.deepEqual(reservations,[]);
+  f.session.webRequest.error({...request,error:'net::ERR_CONNECTION_RESET'});
+  assert.equal(failures.at(-1).method,'GET');assert.deepEqual(reservations,[]);
+});
 test('native remote proofs wait for reservation and cannot leak through foreign requests or be forged by a page',async t=>{
   let release;const finished=[],failed=[],f=fixture(t,{remoteAttempts:{begin:async id=>{await new Promise(r=>release=r);return {'X-Fasakhansta-Remote-Attempt':id,'X-Fasakhansta-Remote-Capability':'a'.repeat(64)};},
     complete:async id=>finished.push(id),failed:id=>failed.push(id)}});

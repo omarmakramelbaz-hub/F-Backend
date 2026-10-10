@@ -242,3 +242,5 @@
  #phone-orders.ph-step-details .ph-customer-scroll{overflow:auto}
  #phone-orders.ph-step-details [data-phone-map]{min-height:220px;flex:none}
 }
+/* Keep saved-address details inside their panel, above the separate continue button. */
+body[data-dashboard-local="1"] #phone-orders.ph-step-details .ph-customer-scroll{overflow:auto}

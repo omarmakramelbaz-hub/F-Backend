@@ -4,8 +4,8 @@ namespace App\Services\Dashboard;
 /** Exact original write routes. This list is coverage, not a claim about unregistered modules. */
 class DesktopDashboardRoutes
 {
-    // These original POST actions calculate prices; they do not commit a business operation.
-    public const READ_POSTS=['takeaway.quote','dining.quote','phone-orders.quote','phone-orders.delivery-quote'];
+    // These original POST actions calculate prices or read addresses without committing a business operation.
+    public const READ_POSTS=['takeaway.quote','dining.quote','phone-orders.quote','phone-orders.delivery-quote','phone-orders.address-suggestions'];
     public const READ_POST_ACTIONS=[
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchSubcategory',
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchProduct',

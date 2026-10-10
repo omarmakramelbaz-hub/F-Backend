@@ -62,6 +62,7 @@ foreach($pdo->query('SHOW TABLES FROM `'.$database.'`')->fetchAll(PDO::FETCH_COL
     $pdo->exec('INSERT INTO `'.$remoteDatabase.'`.`'.$table.'` SELECT * FROM `'.$database.'`.`'.$table.'`');
 }
 $actor=User::withoutGlobalScopes()->findOrFail(1);$cashier=User::withoutGlobalScopes()->findOrFail(10);$journal=app(DesktopDashboardJournal::class);$device=(string)Str::uuid();
+require __DIR__.'/address-suggestions.php';
 $receiveId=(string)Str::uuid();$receive=['branch'=>'f:100','idempotency_key'=>$receiveId,'ingredient_id'=>6,'unit'=>'kg','quantity'=>'2.000','supplier'=>'المورد'];
 $received=$journal->execute($device,$receiveId,1,'branch-stock.receive',['values'=>$receive],[],fn()=>app(BranchInventory::class)->receive($receive,$actor));
 check((int)DB::table('branch_inventory')->value('quantity_units')===2000000 && $journal->counts($device)['pending']===1,'original goods receipt and encrypted command commit together');
