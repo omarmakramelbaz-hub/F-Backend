@@ -1,0 +1,98 @@
+name: Audit a disposable candidate desktop dependency lock
+
+on:
+  push:
+    branches: ['codex/dependency-lock-diagnostic-20261009']
+    paths:
+      - '.github/workflows/desktop-dependency-lock-diagnostic.yml'
+      - '.github/scripts/desktop-dependency-lock-receipt.cjs'
+      - 'desktop-pos/runtime/composer.json'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-lock-audit:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_MANIFEST_SHA256: c7f7f6ac9b766b9282be10dacfbc25c367600ad550488802b24e75b4dfc122c1
+      EXPECTED_OLD_LOCK_SHA256: 319ea5f627a46681c45e57c4e780f2d1c19a80f0272711ccf770feb3716d18a7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          tools: composer:2.10.3
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve and audit only a disposable copy of the candidate manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repository = (Get-Location).Path
+          $sourceCommit = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sourceCommit -ne $env:GITHUB_SHA) { throw 'The checkout is not the triggering source commit.' }
+          $inputPaths = @('composer.json', 'composer.lock', 'desktop-pos/runtime/composer.json', 'desktop-pos/runtime/composer.lock')
+          function Input-Hashes {
+            $hashes = [ordered]@{}
+            foreach ($inputPath in $inputPaths) {
+              $hashes[$inputPath] = if (Test-Path $inputPath -PathType Leaf) { (Get-FileHash $inputPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+            }
+            return $hashes
+          }
+          $before = Input-Hashes
+          if ($before['desktop-pos/runtime/composer.json'] -ne $env:EXPECTED_MANIFEST_SHA256 -or $before['desktop-pos/runtime/composer.lock'] -ne $env:EXPECTED_OLD_LOCK_SHA256) { throw 'The reviewed dependency inputs changed.' }
+          if (Test-Path 'vendor') { throw 'Application dependencies already exist in the checkout.' }
+          if (Test-Path 'desktop-pos/runtime/vendor') { throw 'Runtime dependencies already exist in the checkout.' }
+          $diagnosticRoot = Join-Path $env:RUNNER_TEMP 'desktop-dependency-lock-diagnostic'
+          if (Test-Path $diagnosticRoot) { throw 'The disposable diagnostic directory is not fresh.' }
+          $working = Join-Path $diagnosticRoot 'working'
+          $artifact = Join-Path $diagnosticRoot 'artifact'
+          New-Item -ItemType Directory -Path $working, $artifact | Out-Null
+          Copy-Item 'desktop-pos/runtime/composer.json' (Join-Path $working 'composer.json')
+          Copy-Item 'desktop-pos/runtime/composer.lock' (Join-Path $working 'composer.lock')
+          # setup-php exports COMPOSER_NO_AUDIT. Remove that and all other inherited
+          # Composer overrides; a fresh home also excludes global policy exceptions/plugins.
+          Get-ChildItem Env: | Where-Object { $_.Name -match '^COMPOSER(?:_|$)' } | ForEach-Object { Remove-Item ('Env:' + $_.Name) }
+          if (Test-Path Env:COMPOSER_NO_AUDIT) { throw 'Inherited Composer audit suppression remains.' }
+          if (Get-ChildItem Env: | Where-Object { $_.Name -match '^COMPOSER(?:_|$)' }) { throw 'Inherited Composer overrides remain.' }
+          Write-Host 'Inherited COMPOSER_NO_AUDIT and Composer policy/platform overrides removed.'
+          $env:COMPOSER_HOME = Join-Path $diagnosticRoot 'composer-home'
+          $env:COMPOSER_CACHE_DIR = Join-Path $diagnosticRoot 'composer-cache'
+          New-Item -ItemType Directory -Path $env:COMPOSER_HOME, $env:COMPOSER_CACHE_DIR | Out-Null
+          $before | ConvertTo-Json | Set-Content (Join-Path $working 'input-hashes.json') -Encoding utf8NoBOM
+          try {
+            $platform = & php -r '$required = ["pdo_mysql", "pdo_sqlite", "sqlite3", "mbstring", "exif", "gd", "fileinfo", "intl", "curl", "openssl", "sodium"]; if (PHP_VERSION !== "8.2.34" || PHP_OS_FAMILY !== "Windows" || PHP_INT_SIZE !== 8) { fwrite(STDERR, "Unexpected native PHP platform" . PHP_EOL); exit(1); } $extensions = []; foreach ($required as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing extension: " . $extension . PHP_EOL); exit(1); } $extensions[$extension] = ["loaded" => true, "version" => phpversion($extension) ?: null]; } echo json_encode(["version" => PHP_VERSION, "os_family" => PHP_OS_FAMILY, "int_size" => PHP_INT_SIZE, "extensions" => $extensions], JSON_THROW_ON_ERROR);'
+            if ($LASTEXITCODE -ne 0) { throw 'The actual Windows platform is incomplete.' }
+            $platform | Set-Content (Join-Path $working 'platform.json') -Encoding utf8NoBOM
+            $composerVersion = & composer --version --no-ansi
+            if ($LASTEXITCODE -ne 0) { throw 'Composer is unavailable.' }
+            $composerVersion | Set-Content (Join-Path $working 'composer-version.txt') -Encoding utf8NoBOM
+            composer update -W --no-install --no-scripts --no-interaction --working-dir=$working
+            $updateExit = $LASTEXITCODE
+            if ($updateExit -ne 0) { throw 'The strict candidate update failed.' }
+            composer audit --locked --format=json --no-interaction --working-dir=$working > (Join-Path $working 'audit.json')
+            $auditExit = $LASTEXITCODE
+            if ($auditExit -ne 0) { throw "The locked candidate audit failed (exit $auditExit)." }
+            @{ update = $updateExit; audit = $auditExit } | ConvertTo-Json | Set-Content (Join-Path $working 'command-exits.json') -Encoding utf8NoBOM
+            node .github/scripts/desktop-dependency-lock-receipt.cjs $repository $working $artifact
+            if ($LASTEXITCODE -ne 0) { throw 'The diagnostic receipt checks failed.' }
+          } finally {
+            $after = Input-Hashes
+            foreach ($inputPath in $inputPaths) { if ($before[$inputPath] -ne $after[$inputPath]) { throw 'A committed Composer input changed: ' + $inputPath } }
+            $changes = @(& git status --porcelain -- $inputPaths)
+            if ($LASTEXITCODE -ne 0 -or $changes.Count) { throw 'The checkout Composer inputs are no longer clean.' }
+            foreach ($vendorPath in @('vendor', 'desktop-pos/runtime/vendor', (Join-Path $working 'vendor'))) { if (Test-Path $vendorPath) { throw 'The diagnostic unexpectedly installed application dependencies.' } }
+          }
+      - name: Retain the diagnostic lock, strict audit and source-bound receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dependency-lock-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/desktop-dependency-lock-diagnostic/artifact/*
+          if-no-files-found: error
+          retention-days: 14
