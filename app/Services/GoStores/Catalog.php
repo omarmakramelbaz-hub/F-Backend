@@ -55,7 +55,7 @@ class Catalog
         ]);
         return DB::transaction(function () use ($id, $data) {
             DB::table('users')->where('id', $id)->lockForUpdate()->first();
-            $row = DB::table('go_stores')->where('user_id', $id)->first();
+            $row = DB::table('go_stores')->where('user_id', $id)->lockForUpdate()->first();
             abort_unless((int) ($row->revision ?? 0) === (int) $data['revision'], 409, 'تم تعديل بيانات المتجر. حدّث الصفحة قبل الحفظ.');
             $values = ['name' => trim($data['name']), 'kind' => $data['kind'], 'address' => trim($data['address']),
                 'revision' => (int) $data['revision'] + 1, 'updated_at' => now()];

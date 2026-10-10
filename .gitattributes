@@ -4,3 +4,7 @@
 *.js linguist-vendored
 CHANGELOG.md export-ignore
 public/dashboard/vendor/desktop-external/** -text
+# Source-bound browser fixtures compare their actual bytes with the Git blobs on Windows.
+tests/desktop_dashboard_runtime/*.php text eol=lf
+tests/desktop_dashboard_runtime/*.cjs text eol=lf
+tests/desktop_dashboard_runtime/fixtures/*.json text eol=lf

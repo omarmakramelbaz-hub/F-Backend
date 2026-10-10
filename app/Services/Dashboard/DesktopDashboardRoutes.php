@@ -12,6 +12,8 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'resturant_reviews.destroy',
+        'userwishlists.destroy',
         'order-board.menu.availability',
         'read_notify','mark_all_as_read',
         'dashboard-inbox.notifications.read',

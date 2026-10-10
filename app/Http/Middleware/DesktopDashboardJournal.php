@@ -36,6 +36,28 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardReviewDeletion::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardReviewDeletion::class);
+                $command=$adapter->command($request);
+                $payload=$adapter->payload($request,$command,$actor);$request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                    function()use($adapter,$request,$next,&$response){return $adapter->capture(function()use($request,$next,&$response){return $response=$next($request);});});
+                return $response??$adapter->response($result);
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardWishlistDeletion::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardWishlistDeletion::class);
+                $command=$adapter->command($request);
+                $payload=$adapter->payload($request,$command,$actor);$request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
+                    function()use($adapter,$request,$next,&$response){return $adapter->capture(function()use($request,$next,&$response){return $response=$next($request);});});
+                return $response??$adapter->response($result);
+            });
+        }
         if(\App\Services\Dashboard\DesktopDashboardMenuAvailability::handles($route)){
             return DB::transaction(function()use($request,$next,$actor,$route){
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
@@ -58,18 +80,30 @@ class DesktopDashboardJournal
             return $response??$reads->response($result);
         }
         if(\App\Services\Dashboard\DesktopDashboardLegacy::handles($route)){
-            $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);$legacy->authorize($actor);
+            $legacy=app(\App\Services\Dashboard\DesktopDashboardLegacy::class);
+            $store=\App\Services\Dashboard\DesktopDashboardGoStoreProfile::handles($route);
+            if(!$store)$legacy->authorize($actor);
             if(\App\Services\Dashboard\DesktopDashboardRoleFacts::handles($route))$legacy->authorizeRoleRoute($route,$actor);
-            $command=(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
-            return DB::transaction(function()use($legacy,$route,$command,$actor,$request,$next){
+            $command=$store?app(\App\Services\Dashboard\DesktopDashboardGoStoreProfile::class)->command($request):(string)($request->header('X-Fasakhansta-Command')?:$request->input('_desktop_command'));
+            return DB::transaction(function()use($legacy,$route,$command,$actor,$request,$next,$store){
                 // Capture selected-row facts only after the common write/refresh fence.
                 // Concurrent drag requests then observe the preceding committed order.
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
+                if($store){
+                    $adapter=app(\App\Services\Dashboard\DesktopDashboardGoStoreProfile::class);$parameters=$request->route()->parameters();
+                    $actor=$adapter->authorize($parameters,$actor);$state=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock((string)config('desktop_dashboard.device_id'));
+                    $adapter->enrolledBranch($state,$parameters);
+                }
                 $payload=$legacy->payload($request,$command);
                 // Journal metadata must never reach the original mass-assignment repositories.
                 $request->request->remove('_desktop_command');$response=null;
                 $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
-                    function()use($legacy,$route,$next,$request,&$response){return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});});
+                    function()use($legacy,$route,$next,$request,$actor,$store,&$response){
+                        if(!$store)return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});
+                        $guard=auth('admin');$previous=$guard->getUser();
+                        try{$guard->setUser($actor);return $legacy->capture($route,function()use($next,$request,&$response){return $response=$next($request);});}
+                        finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+                    });
                 return $response??$legacy->response($result);
             });
         }
