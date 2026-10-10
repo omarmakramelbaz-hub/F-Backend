@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\WhatsAppInboxAccess;
 use App\Services\Dashboard\WhatsAppInboxConsumer;
+use App\Support\WhatsAppInboxProtocol;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -126,6 +127,7 @@ class WhatsAppInboxController extends Controller
                     'direction' => $row->direction === 'outbound' ? 'outbound' : 'inbound',
                     'type' => $this->messageType($row->type),
                     'text' => $this->displayText($dto, 20000),
+                    'cart' => $this->displayCart($dto),
                     'sent_at' => $this->timestamp($row->sent_at),
                     'received_at' => $this->timestamp($row->created_at),
                     'unavailable' => $dto === null,
@@ -244,7 +246,30 @@ class WhatsAppInboxController extends Controller
             return $this->safeText($message['interactive']['button_reply']['title']
                 ?? $message['interactive']['list_reply']['title'] ?? null, $limit);
         }
+        if ($type === 'order') {
+            $cart = $this->displayCart($dto);
+            return $cart === null ? null : $this->safeText($cart['text'] ?: count($cart['product_items'])
+                . ' × ' . ($this->labels()['cart_title'] ?? 'Cart') . ' · ' . $cart['total_price'] . ' ' . $cart['currency'], $limit);
+        }
         return null;
+    }
+
+    private function displayCart(?array $dto): ?array
+    {
+        if (($dto['type'] ?? null) !== 'order' || ($dto['direction'] ?? null) !== 'inbound') return null;
+        $cart = WhatsAppInboxProtocol::cart($dto['content']['message']['order'] ?? null);
+        if ($cart === null) return null;
+        $names = config('whatsapp_cart.product_names', []);
+        $catalogNames = is_array($names) && is_array($names[$cart['catalog_id']] ?? null)
+            ? $names[$cart['catalog_id']] : [];
+        foreach ($cart['product_items'] as &$item) {
+            $name = $catalogNames[$item['product_retailer_id']] ?? null;
+            if (is_string($name) && $name !== '' && trim($name) === $name && strlen($name) <= 800
+                && preg_match('//u', $name) === 1 && mb_strlen($name, 'UTF-8') <= 200
+                && !preg_match('/[\x00-\x1f\x7f]/', $name)) $item['name'] = $name;
+        }
+        unset($item);
+        return $cart;
     }
 
     private function phone($value): ?string
@@ -295,6 +320,9 @@ class WhatsAppInboxController extends Controller
             'more_conversations' => 'More conversations', 'older_messages' => 'Older messages',
             'back' => 'Conversations', 'customer' => 'Customer', 'business' => 'Business message',
             'message_unavailable' => 'This message could not be read.', 'no_messages' => 'No messages in this conversation.',
+            'cart_title' => 'Submitted cart', 'cart_product' => 'Catalog product', 'cart_quantity' => 'Catalog units',
+            'cart_unit_price' => 'Quoted unit price', 'cart_total' => 'Quoted cart subtotal',
+            'cart_note' => 'Product IDs are matched to the branch catalog before creating an order.',
             'types' => ['text' => 'Text', 'image' => 'Image', 'video' => 'Video', 'audio' => 'Voice message',
                 'document' => 'Document', 'sticker' => 'Sticker', 'location' => 'Location', 'contacts' => 'Contact',
                 'interactive' => 'Interactive message', 'button' => 'Button reply', 'reaction' => 'Reaction',
@@ -314,6 +342,9 @@ class WhatsAppInboxController extends Controller
             'more_conversations' => 'عرض محادثات أخرى', 'older_messages' => 'رسائل أقدم',
             'back' => 'المحادثات', 'customer' => 'العميل', 'business' => 'رسالة من النشاط',
             'message_unavailable' => 'تعذّرت قراءة هذه الرسالة.', 'no_messages' => 'لا توجد رسائل في هذه المحادثة.',
+            'cart_title' => 'سلة العميل', 'cart_product' => 'صنف الكتالوج', 'cart_quantity' => 'عدد وحدات الصنف',
+            'cart_unit_price' => 'سعر الوحدة في السلة', 'cart_total' => 'إجمالي أصناف السلة',
+            'cart_note' => 'تُطابق الأصناف مع قائمة الفرع قبل إنشاء الطلب.',
             'types' => ['text' => 'رسالة نصية', 'image' => 'صورة', 'video' => 'فيديو', 'audio' => 'رسالة صوتية',
                 'document' => 'مستند', 'sticker' => 'ملصق', 'location' => 'موقع', 'contacts' => 'جهة اتصال',
                 'interactive' => 'رسالة تفاعلية', 'button' => 'ردّ بزر', 'reaction' => 'تفاعل',

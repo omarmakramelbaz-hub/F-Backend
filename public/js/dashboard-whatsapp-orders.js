@@ -29,6 +29,14 @@
         var more = panel.querySelector('[data-wa-order-more]');
         var picker = panel.querySelector('[data-wa-order-draft]');
         var pickerLabel = panel.querySelector('[data-wa-order-draft-label]');
+        var customerLookup = panel.querySelector('[data-wa-order-customer-lookup]');
+        var customerResults = panel.querySelector('[data-wa-order-customer-results]');
+        var addressSearch = panel.querySelector('[data-wa-order-address-search]');
+        var addressResults = panel.querySelector('[data-wa-order-address-results]');
+        var mapElement = panel.querySelector('[data-wa-order-map]');
+        var locationStatus = panel.querySelector('[data-wa-order-location-status]');
+        var confirmPin = panel.querySelector('[data-wa-order-confirm-pin]');
+        var distance = panel.querySelector('[data-wa-order-distance]');
         ['customer_name', 'customer_phone', 'address', 'area', 'delivery_notes', 'branch',
             'latitude', 'longitude', 'location_confirmed'].forEach(function (name) {
             fields[name] = panel.querySelector('[data-wa-order-field="' + name + '"]');
@@ -37,6 +45,8 @@
         var meta = null, drafts = [], draft = null, rows = [], catalog = new Map();
         var catalogBranch = '', catalogPage = 1, catalogLast = 1, catalogSearch = '', catalogRequest = 0;
         var quoteToken = null, busy = '', catalogBusy = false, pending = false;
+        var locationPicker = null, deliverySettings = null, locationVersion = 0, mapRequest = 0;
+        var locationBusy = false, localEdited = false, stateTimer = null;
 
         function node(tag, className, text) {
             var element = document.createElement(tag);
@@ -60,6 +70,7 @@
         }
         function clear(reason) {
             generation++; abort(); conversation = 0; draft = null; drafts = []; rows = [];
+            resetMap(); window.clearTimeout(stateTimer); stateTimer = null; localEdited = false;
             catalog.clear(); catalogBranch = ''; catalogRequest++; quoteToken = null; busy = ''; catalogBusy = false; pending = false;
             Object.keys(fields).forEach(function (name) {
                 if (name === 'location_confirmed') fields[name].checked = false;
@@ -77,12 +88,15 @@
             var reviewing = allowed && draft && ['REVIEW', 'READY'].indexOf(draft.status) !== -1 && !pending;
             analyze.disabled = !allowed || !meta.ai_ready || Boolean(busy);
             reload.disabled = !conversation || Boolean(busy) || closed || denied;
-            calculate.disabled = !reviewing || Boolean(busy) || catalogBusy;
+            calculate.disabled = !reviewing || Boolean(busy) || catalogBusy || locationBusy;
             dispatch.disabled = !reviewing || Boolean(busy) || !quoteToken;
             add.disabled = !reviewing || Boolean(busy) || rows.length >= 60;
             searchButton.disabled = !reviewing || !fields.branch.value || Boolean(busy) || catalogBusy;
             more.disabled = searchButton.disabled;
             picker.disabled = Boolean(busy);
+            customerLookup.disabled = !reviewing || Boolean(busy) || !fields.branch.value || !fields.customer_phone.value.trim();
+            addressSearch.disabled = !reviewing || Boolean(busy) || !fields.branch.value || !fields.address.value.trim();
+            confirmPin.disabled = !reviewing || Boolean(busy) || locationBusy || !validPin();
             Object.keys(fields).forEach(function (name) { fields[name].disabled = !reviewing || Boolean(busy); });
             rows.forEach(function (row) {
                 row.product.disabled = !reviewing || Boolean(busy) || !fields.branch.value || catalogBusy;
@@ -90,6 +104,136 @@
                 row.quantity.disabled = !reviewing || Boolean(busy); row.mode.disabled = !reviewing || Boolean(busy);
                 row.remove.disabled = !reviewing || Boolean(busy);
             });
+        }
+        function endpoint(key, values) {
+            var target = new URL(meta && meta.urls && meta.urls[key] || '', window.location.href);
+            if (!meta || !meta.urls || !meta.urls[key] || target.origin !== new URL(window.location.href).origin) throw new Error('Unavailable');
+            Object.keys(values || {}).forEach(function (name) { target.searchParams.set(name, String(values[name])); });
+            return target.href;
+        }
+        function validPin() {
+            var lat = fields.latitude.value, lng = fields.longitude.value;
+            return lat !== '' && lng !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+                && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180 && !(Number(lat) === 0 && Number(lng) === 0);
+        }
+        function locationLocked() {
+            return closed || denied || !draft || form.hidden || busy || pending || !meta || !meta.can_checkout
+                || navigator.onLine === false || document.hidden;
+        }
+        function resetMap() {
+            mapRequest++; locationVersion++; locationBusy = false; deliverySettings = null;
+            if (locationPicker) locationPicker.destroy(); locationPicker = null;
+            [customerResults, addressResults].forEach(function (box) { box.textContent = ''; box.hidden = true; });
+            locationStatus.textContent = ''; distance.textContent = '';
+        }
+        function invalidateLocation(clearPin) {
+            locationVersion++; locationBusy = false; fields.location_confirmed.checked = false;
+            ['delivery', 'address', 'customers'].forEach(function (key) { if (controllers.has(key)) controllers.get(key).abort(); });
+            addressResults.textContent = ''; addressResults.hidden = true; distance.textContent = '';
+            if (locationPicker) { locationPicker.invalidate(); locationPicker.route(null); }
+            if (clearPin) {
+                fields.latitude.value = ''; fields.longitude.value = '';
+                if (locationPicker) locationPicker.clear();
+            }
+            invalidate(labels.quote_expired);
+        }
+        function setPin(lat, lng) {
+            invalidateLocation(false); fields.latitude.value = String(lat); fields.longitude.value = String(lng);
+            if (!validPin()) { invalidateLocation(true); return; }
+            if (locationPicker) locationPicker.set(lat, lng);
+            locationStatus.textContent = labels.pin_review; localEdited = true; controls();
+        }
+        function setupMap() {
+            var branch = fields.branch.value, current = generation, selection = conversation, version = ++mapRequest;
+            if (locationPicker) locationPicker.destroy(); locationPicker = null; deliverySettings = null;
+            if (!branch || form.hidden || !meta || !meta.urls) return;
+            if (!window.DashboardLocationPicker) { locationStatus.textContent = labels.map_unavailable; return; }
+            request(endpoint('delivery_settings', {branch: branch}), 'delivery-settings').then(function (data) {
+                if (closed || current !== generation || selection !== conversation || branch !== fields.branch.value || version !== mapRequest) return;
+                deliverySettings = data.settings;
+                var ready = deliverySettings && deliverySettings.ready, maps = meta.maps || {};
+                locationStatus.textContent = ready ? labels.pin_review : labels.branch_policy_missing;
+                locationPicker = window.DashboardLocationPicker.create(mapElement, {
+                    key: maps.browser_key, preferOpenMap: Boolean(maps.open_enabled), routeOnly: Boolean(maps.open_enabled), tileUrl: maps.tile_url,
+                    latitude: fields.latitude.value, longitude: fields.longitude.value,
+                    center: ready ? [deliverySettings.latitude, deliverySettings.longitude] : null,
+                    origin: ready ? [deliverySettings.latitude, deliverySettings.longitude] : null,
+                    locked: locationLocked, unavailable: function () { if (!closed) { invalidateLocation(true); locationStatus.textContent = labels.map_unavailable; } },
+                    change: function (lat, lng) { if (!locationLocked()) setPin(lat, lng); }
+                });
+                locationPicker.resize(); controls();
+            }).catch(function (error) { failure(error, current); });
+        }
+        function loadCustomers() {
+            if (locationLocked() || !fields.branch.value || !fields.customer_phone.value.trim()) return;
+            var branch = fields.branch.value, phone = fields.customer_phone.value.trim(), current = generation, selection = conversation, version = locationVersion;
+            customerResults.textContent = ''; customerResults.hidden = false;
+            request(endpoint('customers', {branch: branch, phone: phone}), 'customers').then(function (data) {
+                if (closed || current !== generation || selection !== conversation || version !== locationVersion
+                    || branch !== fields.branch.value || phone !== fields.customer_phone.value.trim() || locationLocked()) return;
+                customerResults.textContent = '';
+                var matches = Array.isArray(data.items) ? data.items.slice(0, 8) : [];
+                if (!matches.length) customerResults.appendChild(node('p', '', labels.lookup_empty));
+                matches.forEach(function (customer) {
+                    var button = node('button', 'wa-inbox-button', [customer.name, customer.address, customer.area].filter(Boolean).join(' · '));
+                    button.type = 'button'; button.addEventListener('click', function () {
+                        if (locationLocked() || current !== generation || selection !== conversation || branch !== fields.branch.value || phone !== fields.customer_phone.value.trim()) return;
+                        invalidateLocation(true);
+                        ['customer_name', 'address', 'area', 'delivery_notes'].forEach(function (name) {
+                            var key = name === 'customer_name' ? 'name' : name; fields[name].value = customer[key] || '';
+                        });
+                        if (customer.latitude !== null && customer.longitude !== null && customer.latitude !== undefined && customer.longitude !== undefined) setPin(customer.latitude, customer.longitude);
+                        localEdited = true; locationStatus.textContent = validPin() ? labels.pin_review : labels.pin_required;
+                        controls();
+                    }); customerResults.appendChild(button);
+                });
+            }).catch(function (error) { failure(error, current); });
+        }
+        function searchAddress() {
+            if (locationLocked() || !fields.branch.value || fields.address.value.trim().length < 2) return;
+            var query = fields.address.value.trim().slice(0, 240), branch = fields.branch.value;
+            var current = generation, selection = conversation, version = locationVersion, pickerAtStart = locationPicker;
+            addressResults.textContent = ''; addressResults.hidden = false; locationStatus.textContent = labels.loading;
+            var searchPromise = meta.maps && meta.maps.open_enabled
+                ? request(endpoint('address_suggestions', {branch: branch, query: query}), 'address').then(function (data) { return data.items || []; })
+                : pickerAtStart ? pickerAtStart.suggest(query) : Promise.reject(new Error('Unavailable'));
+            searchPromise.then(function (results) {
+                if (closed || current !== generation || selection !== conversation || version !== locationVersion
+                    || branch !== fields.branch.value || query !== fields.address.value.trim().slice(0, 240) || locationLocked()) return;
+                locationStatus.textContent = results.length ? labels.pin_review : labels.address_empty;
+                results.slice(0, 6).forEach(function (item) {
+                    var button = node('button', 'wa-inbox-button', item.label); button.type = 'button';
+                    button.addEventListener('click', function () {
+                        if (locationLocked() || version !== locationVersion || current !== generation || branch !== fields.branch.value || selection !== conversation) return;
+                        var resolve = meta.maps && meta.maps.open_enabled ? Promise.resolve(item) : pickerAtStart.resolve(item);
+                        resolve.then(function (point) {
+                            if (locationLocked() || current !== generation || version !== locationVersion || branch !== fields.branch.value || selection !== conversation) return;
+                            // Preserve the full delivery address typed by the operator; suggestions choose the pin only.
+                            setPin(point.latitude, point.longitude);
+                        }).catch(function (error) { failure(error, current); });
+                    }); addressResults.appendChild(button);
+                });
+            }).catch(function (error) { failure(error, current); });
+        }
+        function quoteDelivery() {
+            if (locationLocked() || !validPin() || locationBusy) return;
+            invalidate(labels.quote_expired); fields.location_confirmed.checked = false;
+            var branch = fields.branch.value, current = generation, selection = conversation, version = ++locationVersion;
+            locationBusy = true; controls();
+            request(endpoint('delivery_quote'), 'delivery', {branch: branch, latitude: Number(fields.latitude.value),
+                longitude: Number(fields.longitude.value), location_confirmed: true}).then(function (data) {
+                if (closed || current !== generation || selection !== conversation || version !== locationVersion || branch !== fields.branch.value || locationLocked()) return;
+                fields.location_confirmed.checked = true; localEdited = true; showDelivery(data.delivery);
+            }).catch(function (error) { failure(error, current); }).finally(function () {
+                if (current === generation && version === locationVersion) { locationBusy = false; controls(); }
+            });
+        }
+        function showDelivery(delivery) {
+            if (!delivery) return;
+            if (locationPicker && Array.isArray(delivery.route_path)) locationPicker.route(delivery.route_path);
+            distance.textContent = (delivery.method === 'road_osrm' ? labels.route_distance : labels.direct_distance)
+                + ': ' + String(delivery.distance_km || '') + ' ' + labels.km + ' × ' + String(delivery.km_price || '')
+                + ' ' + labels.currency + ' = ' + String(delivery.delivery_fee || '') + ' ' + labels.currency;
         }
         function request(url, key, body) {
             if (closed || denied || navigator.onLine === false || document.hidden) return Promise.reject(new Error('Unavailable'));
@@ -157,7 +301,19 @@
                 if (!meta.available || data.available === false) note(labels.unavailable, true);
                 else if (changed) note(labels.changed, true);
                 controls();
+                scheduleState();
             }).catch(function (error) { failure(error, current); });
+        }
+        function scheduleState() {
+            window.clearTimeout(stateTimer); stateTimer = null;
+            if (closed || denied || !conversation || !meta || meta.mode !== 'auto') return;
+            stateTimer = window.setTimeout(function () {
+                stateTimer = null;
+                // Server automation owns analysis and checkout; the browser only reads its result.
+                if (closed || denied || document.hidden || navigator.onLine === false) return;
+                if (busy || localEdited) { scheduleState(); return; }
+                loadState();
+            }, pending ? 5000 : 30000);
         }
         function statusText(value) {
             return value && value.status === 'DISPATCHED' ? labels.dispatched
@@ -179,6 +335,7 @@
             proposed.appendChild(list);
         }
         function renderDraft(value) {
+            resetMap(); localEdited = false;
             invalidate(); draft = value; rows = []; catalog.clear(); catalogBranch = ''; items.textContent = '';
             showProposed(value && value.data);
             Object.keys(fields).forEach(function (name) {
@@ -186,7 +343,7 @@
                 else fields[name].value = '';
             });
             form.hidden = !value || ['REVIEW', 'READY'].indexOf(value.status) === -1;
-            if (!value) { note(meta && !meta.ai_ready ? labels.not_configured : labels.empty); controls(); return; }
+            if (!value) { note(meta && !meta.ai_ready ? labels.not_configured : meta && meta.mode === 'auto' ? labels.empty_auto : labels.empty); controls(); return; }
             var reviewed = value.review || {}, customer = value.data && value.data.customer || {};
             ['customer_name', 'customer_phone', 'address', 'area', 'delivery_notes'].forEach(function (name) {
                 var key = {customer_name: 'name', customer_phone: 'phone', delivery_notes: 'notes'}[name] || name;
@@ -199,8 +356,8 @@
             var source = Array.isArray(reviewed.items) && reviewed.items.length ? reviewed.items : value.data && value.data.items || [];
             source.slice(0, 60).forEach(function (item) { addRow(item); });
             if (!rows.length && !form.hidden) addRow({});
-            note(pending ? labels.pending : statusText(value) + (value.ticket_id ? ' ' + labels.ticket + ': ' + value.ticket_id : ''));
-            if (!form.hidden && fields.branch.value) loadCatalog(false);
+            note(pending ? meta && meta.mode === 'auto' ? labels.pending_auto : labels.pending : statusText(value) + (value.ticket_id ? ' ' + labels.ticket + ': ' + value.ticket_id : ''));
+            if (!form.hidden && fields.branch.value) { loadCatalog(false); setupMap(); }
             controls();
         }
         function productOptions(row) {
@@ -314,6 +471,7 @@
                 quoteBox.textContent = labels.total + ': ' + String(data.quote.total || '') + ' ' + labels.currency
                     + '\n' + labels.delivery + ': ' + String(data.delivery.delivery_fee || '') + ' ' + labels.currency;
                 quoteBox.hidden = false; note(labels.ready);
+                showDelivery(data.delivery);
             }).catch(function (error) { failure(error, current); }).finally(function () {
                 if (current === generation) { busy = ''; controls(); }
             });
@@ -323,17 +481,24 @@
             else if (event.target.closest('[data-wa-order-reload]') && !reload.disabled) { invalidate(); loadState(); }
             else if (event.target.closest('[data-wa-order-calculate]') && !calculate.disabled) action('calculate');
             else if (event.target.closest('[data-wa-order-dispatch]') && !dispatch.disabled) action('dispatch');
-            else if (event.target.closest('[data-wa-order-add]') && !add.disabled) { invalidate(labels.quote_expired); addRow({}); }
+            else if (event.target.closest('[data-wa-order-add]') && !add.disabled) { localEdited = true; invalidate(labels.quote_expired); addRow({}); }
             else if (event.target.closest('[data-wa-order-search-button]') && !searchButton.disabled) loadCatalog(false);
             else if (event.target.closest('[data-wa-order-more]') && !more.disabled) {
                 if (catalogSearch !== search.value.trim()) loadCatalog(false); else loadCatalog(true);
-            } else if (event.target.closest('[data-wa-order-remove]') && !busy) {
+            } else if (event.target.closest('[data-wa-order-customer-lookup]') && !customerLookup.disabled) loadCustomers();
+            else if (event.target.closest('[data-wa-order-address-search]') && !addressSearch.disabled) searchAddress();
+            else if (event.target.closest('[data-wa-order-confirm-pin]') && !confirmPin.disabled) quoteDelivery();
+            else if (event.target.closest('[data-wa-order-remove]') && !busy) {
                 var row = rows.find(function (item) { return item.remove === event.target.closest('[data-wa-order-remove]'); });
-                if (row) { invalidate(labels.quote_expired); rows = rows.filter(function (item) { return item !== row; }); row.element.remove(); controls(); }
+                if (row) { localEdited = true; invalidate(labels.quote_expired); rows = rows.filter(function (item) { return item !== row; }); row.element.remove(); controls(); }
             }
         }
         function edited(event) {
             if (event.target === search || event.target === picker) return;
+            localEdited = true;
+            if ([fields.branch, fields.customer_phone, fields.address, fields.area].indexOf(event.target) !== -1) {
+                invalidateLocation(true); customerResults.textContent = ''; customerResults.hidden = true;
+            }
             invalidate(labels.quote_expired);
             if (busy) return;
             if (event.target === fields.branch) {
@@ -341,7 +506,7 @@
                 catalogRequest++;
                 catalogBusy = false; catalog.clear(); catalogBranch = ''; search.value = ''; more.hidden = true;
                 rows.forEach(function (row) { row.productId = ''; row.optionId = ''; row.product.value = ''; row.option.value = ''; productOptions(row); });
-                loadCatalog(false);
+                loadCatalog(false); setupMap();
             } else {
                 rows.forEach(function (row) {
                     if (event.target === row.product) { row.productId = row.product.value; row.optionId = ''; row.option.value = ''; optionOptions(row); }
@@ -361,7 +526,8 @@
         }
         function updated(event) {
             if (conversation && Number(event.detail && event.detail.conversation) === conversation) {
-                pending = true; invalidate(); note(labels.pending); controls();
+                pending = true; invalidate(); note(meta && meta.mode === 'auto' ? labels.pending_auto : labels.pending); controls();
+                scheduleState();
             }
         }
         function submit(event) { event.preventDefault(); }

@@ -24,5 +24,16 @@
 .wa-orders-item-hint { grid-column: 1 / -1; font-size: 11px; color: #697d72; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wa-orders-quote { padding: 14px; margin-top: 14px; border: 1px solid #d1e7db; background: #edf7f1; border-radius: 10px; font-weight: 700; white-space: pre-wrap; }
 .wa-orders-footer { justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid #e4e9e7; }
+.wa-orders-phone-lookup, .wa-orders-location header { display: flex; align-items: center; gap: 8px; }
+.wa-orders-phone-lookup input { flex: 1; }
+.wa-orders-phone-lookup button { flex: 0 0 auto; font-size: 11px; }
+.wa-orders-location { margin: 16px 0; border: 1px solid #d8e3dc; border-radius: 12px; padding: 12px; }
+.wa-orders-location header { flex-wrap: wrap; justify-content: space-between; }
+.wa-orders-map { min-height: 280px; margin: 10px 0; border-radius: 10px; overflow: hidden; z-index: 0; }
+.wa-orders-address-list { display: flex; flex-direction: column; gap: 7px; margin: 10px 0; max-height: 260px; overflow: auto; }
+.wa-orders-address-list[hidden] { display: none; }
+.wa-orders-address-list button { white-space: normal; text-align: start; overflow-wrap: anywhere; }
+.wa-orders-map-attribution { font-size: 10px; direction: ltr; color: #697d72; }
+.wa-orders-distance { margin: 10px 0 !important; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
 @media (max-width: 960px) { .wa-orders-item { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wa-orders-item > button { justify-self: start; } }
 @media (max-width: 600px) { .wa-orders { padding: 13px; } .wa-orders-fields { grid-template-columns: minmax(0, 1fr); } .wa-orders-actions { width: 100%; } .wa-orders-actions button { flex: 1; } .wa-orders-item { padding: 10px; } .wa-orders-item > label:first-of-type { grid-column: 1 / -1; } .wa-orders-footer button { width: 100%; } }

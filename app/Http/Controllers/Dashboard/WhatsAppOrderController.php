@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayCatalog;
+use App\Services\Dashboard\PhoneDelivery;
+use App\Services\Dashboard\PhoneMapProvider;
+use App\Services\Dashboard\PosServicePhone;
 use App\Services\Dashboard\WhatsAppInboxAccess;
 use App\Services\Dashboard\WhatsAppOrderWorkflow;
 use Illuminate\Http\Request;
@@ -35,9 +38,56 @@ class WhatsAppOrderController extends Controller
             return ['success' => true, 'available' => $this->available(), 'ai_ready' => (bool) $configured,
                 'mode' => config('whatsapp_orders.mode') === 'auto' ? 'auto' : 'review',
                 'can_checkout' => (bool) (app(TakeawayAccess::class)->permissions($actor)['can_checkout'] ?? false),
-                'branches' => $branches, 'urls' => ['catalog' => route('whatsapp-orders.catalog'),
+                'branches' => $branches, 'maps' => ['open_enabled' => app(PhoneMapProvider::class)->enabled(),
+                    'browser_key' => (string) config('services.maps.browser_key', ''),
+                    'tile_url' => (string) config('services.maps.tile_url', '')],
+                'urls' => ['catalog' => route('whatsapp-orders.catalog'),
+                    'customers' => route('whatsapp-orders.customers'), 'delivery_settings' => route('whatsapp-orders.delivery-settings'),
+                    'delivery_quote' => route('whatsapp-orders.delivery-quote'), 'address_suggestions' => route('whatsapp-orders.address-suggestions'),
                     'conversations_base' => url('/admin/whatsapp/conversations'), 'drafts_base' => url('/admin/whatsapp/orders')]];
         });
+    }
+
+    /** Same exact-phone saved/app/history lookup as the phone order screen. */
+    public function customers(Request $request, WhatsAppInboxAccess $access)
+    {
+        return $this->respond($access, true, function ($actor) use ($request) {
+            $values = $request->validate(['branch' => $this->branchRules(), 'phone' => 'required|string|max:30']);
+            $values['prefix'] = false;
+            return app(PosServicePhone::class)->customers($values, $actor);
+        });
+    }
+
+    public function deliverySettings(Request $request, WhatsAppInboxAccess $access)
+    {
+        return $this->respond($access, true, function ($actor) use ($request) {
+            $values = $request->validate(['branch' => $this->branchRules()]);
+            return ['success' => true, 'settings' => app(PhoneDelivery::class)->settings($values['branch'], $actor)];
+        });
+    }
+
+    public function addressSuggestions(Request $request, WhatsAppInboxAccess $access)
+    {
+        return $this->respond($access, true, function ($actor) use ($request) {
+            $values = $request->validate(['branch' => $this->branchRules(), 'query' => 'required|string|min:2|max:240']);
+            return app(PhoneMapProvider::class)->suggestions($values, $actor);
+        });
+    }
+
+    /** Preview only; the workflow quotes again and binds the dispatch hashes. */
+    public function deliveryQuote(Request $request, WhatsAppInboxAccess $access)
+    {
+        return $this->respond($access, true, function ($actor) use ($request) {
+            $values = $request->validate(['branch' => $this->branchRules(),
+                'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180',
+                'location_confirmed' => 'required|accepted']);
+            return app(PhoneDelivery::class)->quote($values, $actor);
+        });
+    }
+
+    private function branchRules(): array
+    {
+        return ['required', 'string', 'regex:/\Af:[1-9][0-9]{0,18}\z/'];
     }
 
     public function catalog(Request $request, WhatsAppInboxAccess $access)
@@ -147,7 +197,7 @@ class WhatsAppOrderController extends Controller
         } catch (ValidationException $error) {
             $status = 422;
         } catch (HttpException $error) {
-            $status = in_array($error->getStatusCode(), [401, 403, 404, 409, 422, 503], true) ? $error->getStatusCode() : 503;
+            $status = in_array($error->getStatusCode(), [401, 403, 404, 409, 422, 429, 503], true) ? $error->getStatusCode() : 503;
         } catch (\Throwable $error) {
             $status = 503;
         }

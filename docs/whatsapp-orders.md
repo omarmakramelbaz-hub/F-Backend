@@ -1,5 +1,7 @@
 # WhatsApp orders, replies and unread state
 
+For the subsequent background processing, cart and shared delivery upgrade, see [Automatic WhatsApp delivery orders](whatsapp-automatic.md). The initial installation and review rollout described below remain the deployed baseline.
+
 This upgrade adds AI order drafts, central manual replies and per-user unread state to the existing WhatsApp inbox. It preserves the encrypted raw webhook events, existing conversation/message records and deployed POS/customer/delivery/printing services. It changes only the two known WhatsApp UI files and appends three route includes to the verified existing inbox route include. It does not replace shared menus or admin views.
 
 ## Installation

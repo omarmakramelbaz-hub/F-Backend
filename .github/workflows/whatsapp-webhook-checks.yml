@@ -27,6 +27,7 @@ on:
       - 'app/Http/Controllers/Dashboard/WhatsAppOrderController.php'
       - 'app/Console/Commands/ProcessWhatsAppOrders.php'
       - 'config/whatsapp_orders.php'
+      - 'config/whatsapp_cart.php'
       - 'routes/whatsapp_orders.php'
       - 'database/migrations/*whatsapp_order*'
       - 'public/js/dashboard-whatsapp-orders.js'
@@ -45,6 +46,10 @@ on:
       - 'public/css/dashboard-whatsapp-replies.css'
       - 'tests/whatsapp_repl*'
       - 'tests/whatsapp_voice*'
+      - 'tests/whatsapp_cart*'
+      - 'tests/whatsapp_catalog*'
+      - 'tests/whatsapp_capture*'
+      - 'tests/whatsapp_automatic*'
       - '.github/workflows/whatsapp-webhook-checks.yml'
 
 permissions:
@@ -77,10 +82,14 @@ jobs:
           for file in app/Services/Dashboard/WhatsAppReplyService.php app/Services/Dashboard/WhatsAppVoiceMedia.php app/Services/Dashboard/WhatsAppInboxReadState.php app/Http/Controllers/Dashboard/WhatsAppReplyController.php app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php config/whatsapp_replies.php routes/whatsapp_replies.php routes/whatsapp_reads.php database/migrations/*whatsapp_reply* tests/whatsapp_reply*.php tests/whatsapp_voice*.php; do
             php -l "$file"
           done
+          for file in config/whatsapp_cart.php deployment/whatsapp_capture_gap_diagnostic.php deployment/whatsapp_catalog_mapping_readiness.php tests/whatsapp_cart_presentation_test.php tests/whatsapp_capture_gap_diagnostic_test.php tests/whatsapp_catalog_mapping_readiness_test.php; do
+            php -l "$file"
+          done
       - name: Check installer syntax
         run: |
           bash -n deployment/install_whatsapp_webhook.sh
           bash -n deployment/whatsapp_install_root_wrapper.sh
+          bash -n deployment/install_whatsapp_automatic_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -120,6 +129,10 @@ jobs:
         run: |
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_order_workflow_upgrade_test.py
           php -l deployment/whatsapp_order_live_review.php
+      - name: Verify automatic runtime and isolated timer installation
+        run: |
+          python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_install_test.py
+          python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_activation_test.py
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
@@ -156,3 +169,7 @@ jobs:
           php tests/whatsapp_inbox_reads_test.php
           php tests/whatsapp_reply_service_test.php
           php tests/whatsapp_voice_media_test.php
+          php tests/whatsapp_cart_presentation_test.php
+          php tests/whatsapp_catalog_mapping_readiness_test.php
+          php tests/whatsapp_capture_gap_diagnostic_test.php
+          php tests/whatsapp_orders_delivery_controller_test.php

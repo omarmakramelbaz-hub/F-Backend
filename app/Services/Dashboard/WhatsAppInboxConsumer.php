@@ -16,6 +16,7 @@ class WhatsAppInboxConsumer
 {
     public const WABA_ID = '468336579702269';
     public const PHONE_ID = '515388018324075';
+    public const QUARANTINE_BATCH_RECHECK = true;
     private const MAX_EVENT_BYTES = 4194304;
 
     public function consume(int $limit = 100, bool $retryQuarantined = false): array
@@ -43,10 +44,16 @@ class WhatsAppInboxConsumer
         foreach ($ids as $id) {
             $metrics['events_seen']++;
             try {
-                $result = $this->withUniqueRetry(function () use ($id, $key) {
+                $result = $this->withUniqueRetry(function () use ($id, $key, $retryQuarantined) {
                     $event = DB::table('whatsapp_webhook_events')->where('id', $id)
                         ->lockForUpdate()->first();
                     if (!$event || $event->processed_at !== null) {
+                        return ['events_skipped' => 1];
+                    }
+                    // A quarantine can be recorded after batch selection while this worker waits
+                    // for the raw-event lock. Automatic projection must preserve that decision.
+                    if (!$retryQuarantined && DB::table('whatsapp_inbox_ingestion_failures')
+                        ->where('event_id', $id)->lockForUpdate()->first()) {
                         return ['events_skipped' => 1];
                     }
                     try {

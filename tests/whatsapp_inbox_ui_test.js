@@ -45,7 +45,7 @@ class Element {
     contains(element) { return true; }
 }
 
-function fixture(withUnread = false) {
+function fixture(withUnread = false, withCart = false) {
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert',
         'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back', 'unread-total'].forEach(name => {
@@ -59,7 +59,9 @@ function fixture(withUnread = false) {
     const state = {calls: [], redirected: false, status: 200, emptyNewer: true};
     const labels = {customer: 'Customer', business: 'Business', loading: 'Loading', denied: 'DENIED',
         choose_conversation: 'Choose', empty: 'Empty', unavailable: 'Unavailable', connected: 'Updated',
-        no_messages: 'No messages', offline: 'Offline', types: {text: 'Text', other: 'Message'}};
+        no_messages: 'No messages', offline: 'Offline', types: {text: 'Text', other: 'Message', order: 'Cart'},
+        cart_title: 'Submitted cart', cart_product: 'Catalog product', cart_quantity: 'Catalog units',
+        cart_unit_price: 'Quoted unit price', cart_total: 'Quoted cart subtotal', cart_note: 'Catalog mapping required'};
     const config = {available: true,
         conversations_url: 'https://example.test/admin/whatsapp/conversations',
         messages_base_url: 'https://example.test/admin/whatsapp/conversations', labels};
@@ -107,6 +109,13 @@ function fixture(withUnread = false) {
             headers: {get: () => 'application/json'}, json: async () => ({success: true, total_unread: 3,
                 conversations: [{id: 1, unread_count: 3, latest_inbound_id: 3}]})};
         const visibleRows = [{id: 1, direction: 'inbound', type: 'text', text: '<img src=x onerror=alert(1)>', sent_at: thread.last_message_at}];
+        if (withCart) Object.assign(visibleRows[0], {type: 'order', text: 'Cart preview', cart: {
+            catalog_id: '1234567', text: '<script>Cart note</script>', total_price: '445.00', currency: 'EGP',
+            product_items: [
+                {product_retailer_id: '<img src=x onerror=alert(1)>', quantity: '2', item_price: '100.50', currency: 'EGP'},
+                {product_retailer_id: 'SKU_TWO', name: 'Verified product <b>title</b>', quantity: '1', item_price: '244.00', currency: 'EGP'},
+            ],
+        }});
         if (withUnread) visibleRows.push({id: 2, direction: 'outbound', type: 'text', text: 'Outbound', sent_at: thread.last_message_at},
             {id: 3, direction: 'inbound', type: 'text', text: 'Outside viewport', sent_at: thread.last_message_at});
         return {ok: state.status === 200, status: state.status, redirected: state.redirected,
@@ -237,6 +246,23 @@ async function unreadVisibility() {
     offscreen.state.cleanup();
 }
 
+async function cartRendering() {
+    const test = fixture(false, true); await settle();
+    click(test, 'data-wa-thread', 1); await settle();
+    const messages = test.elements['[data-wa-messages]'];
+    assert(messages.textContent.includes('Submitted cart'));
+    assert(messages.textContent.includes('Catalog units: 2'));
+    assert(messages.textContent.includes('Quoted unit price: 100.50 EGP'));
+    assert(messages.textContent.includes('Quoted cart subtotal: 445.00 EGP'));
+    assert(messages.textContent.includes('SKU_TWO'));
+    assert(messages.textContent.includes('Verified product <b>title</b>'), 'Configured public catalog title remains literal text while retailer ID is retained');
+    assert(messages.textContent.includes('<img src=x onerror=alert(1)>'), 'Cart retailer IDs remain literal text');
+    assert(messages.textContent.includes('<script>Cart note</script>'), 'Cart notes never create DOM markup');
+    assert.strictEqual(messages.children[0].children[0].children[2].tag, 'section', 'Submitted cart gets structured presentation');
+    test.state.cleanup();
+    assert.strictEqual(messages.textContent, '', 'Cart contents cleared on SPA navigation');
+}
+
 (async () => {
     await initialAndSafeRendering();
     await expiredAccessClears(true);
@@ -244,6 +270,7 @@ async function unreadVisibility() {
     await expiredAccessClears(false, 419);
     await visibilityAndOffline();
     await unreadVisibility();
+    await cartRendering();
     console.log('WHATSAPP_INBOX_UI_PASS initial reads, escaped chat text, mobile reopen, empty poll, redirect/403 privacy, cleanup, offline');
 })().catch(error => {
     console.error(error.stack);

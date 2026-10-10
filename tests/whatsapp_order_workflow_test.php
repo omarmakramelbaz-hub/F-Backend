@@ -83,6 +83,15 @@ namespace App\Services\Dashboard {
             return ['customer'=>(array)DB::table('branch_customers')->where('id',$id)->first()];
         }
     }
+    class PosServicePhone {
+        public static $items=[]; public static $calls=0; public static $callback;
+        public function customers(array $values,$actor): array {
+            self::$calls++; \abort_unless(($values['prefix']??null)===false,500,'EXACT_PHONE_REQUIRED');
+            \app(TakeawayAccess::class)->branch($values['branch'],$actor);
+            if (self::$callback) (self::$callback)();
+            return ['items'=>self::$items];
+        }
+    }
     class PhoneDelivery {
         public static $drift=0;
         public function quote(array $v,$actor): array {
@@ -101,7 +110,7 @@ namespace App\Services\Dashboard {
         public function quote($channel,array $v,$actor): array {
             \abort_unless($channel==='phone',422,'CHANNEL_CONTRACT'); \app(TakeawayAccess::class)->branch($v['branch'],$actor);
             \abort_unless(isset($v['delivery_quote_hash']),422,'DELIVERY_HASH_REQUIRED');
-            foreach($v['items'] as $i) \abort_unless($i['product_id']===11&&$i['quantity_mode']==='weight'&&(float)$i['quantity']>0&&$i['option_id']==='',422,'CATALOG_CONTRACT');
+            foreach($v['items'] as $i) \abort_unless($i['product_id']===11&&$i['quantity_mode']==='weight'&&(float)$i['quantity']>0&&in_array($i['option_id'],array_merge([''],array_column(TakeawayCatalog::$options,'id')),true),422,'CATALOG_CONTRACT');
             $total=10000+self::$drift;
             return ['quote_hash'=>self::fingerprint([$v['branch'],$v['items'],$total]),'total'=>number_format($total/100,2,'.',''),'total_cents'=>$total];
         }
@@ -119,10 +128,10 @@ namespace App\Services\Dashboard {
         }
     }
     class TakeawayCatalog {
-        public static $ambiguous=false;
+        public static $ambiguous=false; public static $mode='weight'; public static $options=[];
         public function listing($v,$actor): array {
             \app(TakeawayAccess::class)->branch($v['branch'],$actor);
-            $p=['id'=>11,'name'=>'فسيخ','available'=>true,'quantity_mode'=>'weight','options'=>[]];
+            $p=['id'=>11,'name'=>'فسيخ','available'=>true,'quantity_mode'=>self::$mode,'options'=>self::$options];
             return ['items'=>self::$ambiguous?[$p,$p]:[$p],'pagination'=>['last_page'=>1]];
         }
     }
@@ -151,7 +160,8 @@ namespace {
     $container->instance('config',new \Illuminate\Config\Repository(['app'=>['key'=>'base64:'.base64_encode($key)],
         'database'=>['default'=>'default','connections'=>['default'=>['driver'=>'sqlite','database'=>':memory:','prefix'=>'','foreign_key_constraints'=>true]]],
         'whatsapp_orders'=>['enabled'=>true,'mode'=>'review','model'=>'fixture','api_key'=>'fixture-secret','automation_actor_id'=>7,
-            'allowed_branch_ids'=>['1'],'activation_message_id'=>0,'activation_event_id'=>0]]));
+            'allowed_branch_ids'=>['1'],'activation_message_id'=>0,'activation_event_id'=>0],
+        'whatsapp_cart'=>['debounce_seconds'=>0,'product_mappings'=>[],'activated_at'=>'2026-10-09 22:00:00']]));
     $translator=new \Illuminate\Translation\Translator(new \Illuminate\Translation\ArrayLoader,'en');
     $container->instance('validator',new \Illuminate\Validation\Factory($translator,$container)); Facade::setFacadeApplication($container);
     require dirname(__DIR__).'/app/Support/WhatsAppInboxProtocol.php';
@@ -164,6 +174,7 @@ namespace {
     Schema::create('test_users',function(Blueprint $t){$t->unsignedInteger('id')->primary();$t->string('account_type');$t->integer('owner_resturant_id')->nullable();$t->boolean('active');$t->boolean('can_checkout');$t->text('branches');});
     Schema::create('test_branches',function(Blueprint $t){$t->unsignedInteger('id')->primary();$t->string('name');$t->string('status');});
     Schema::create('branch_customers',function(Blueprint $t){$t->bigIncrements('id');$t->string('branch');$t->string('phone_key');$t->string('phone');$t->string('name');$t->string('address');$t->string('area');$t->string('delivery_notes');$t->float('latitude');$t->float('longitude');$t->integer('revision');$t->unique(['branch','phone_key']);});
+    Schema::create('pos_service_tickets',function(Blueprint $t){$t->bigIncrements('id');$t->string('branch');$t->string('channel');$t->string('customer_phone');$t->string('address');$t->string('area')->nullable();$t->string('delivery_notes')->nullable();$t->string('status');$t->string('payment_status');$t->timestamp('bill_issued_at')->nullable();$t->text('delivery_snapshot');});
     Schema::create('test_tickets',function(Blueprint $t){$t->bigIncrements('id');$t->string('branch');$t->integer('customer_id');$t->integer('actor_id');$t->uuid('command_key')->unique();$t->string('payment_status');$t->string('status');});
     Schema::create('test_kitchen',function(Blueprint $t){$t->integer('ticket_id')->unique();});
     Schema::create('test_print',function(Blueprint $t){$t->integer('ticket_id')->unique();$t->string('branch');$t->string('status');});
@@ -175,12 +186,14 @@ namespace {
     function expectFlow($condition,$label) { global $checks; $checks++; if(!$condition)throw new \RuntimeException('FAILED:'.$label); }
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
-        foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
+        foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','pos_service_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
         Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Pos::$drift=0; Pos::$failAfterWrite=false; Pos::$saveCalls=0; PhoneDelivery::$drift=0; BranchCustomers::$calls=0;
-        \App\Services\Dashboard\TakeawayCatalog::$ambiguous=false;
+        \App\Services\Dashboard\TakeawayCatalog::$ambiguous=false; \App\Services\Dashboard\TakeawayCatalog::$mode='weight'; \App\Services\Dashboard\TakeawayCatalog::$options=[];
+        \App\Services\Dashboard\PosServicePhone::$items=[]; \App\Services\Dashboard\PosServicePhone::$calls=0; \App\Services\Dashboard\PosServicePhone::$callback=null;
         DB::table('test_users')->where('id',7)->update(['active'=>1,'can_checkout'=>1,'owner_resturant_id'=>null]);
         DB::table('test_branches')->where('id',1)->update(['status'=>'opened']);
         app('config')->set('whatsapp_orders.mode','review'); app('config')->set('whatsapp_orders.activation_message_id',0); app('config')->set('whatsapp_orders.allowed_branch_ids',['1']);
+        app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:00'); app('config')->set('whatsapp_cart.debounce_seconds',0); app('config')->set('whatsapp_cart.product_mappings',[]); app('config')->set('whatsapp_cart.branch_aliases',[]);
         Ai::$data=extractionData();
     }
     function extractionData(): array {
@@ -211,6 +224,44 @@ namespace {
         insertMessage($c,'pin'.$suffix,'inbound','',2,['lat'=>31.04,'long'=>31.37],'US.fixture'.$suffix);
         insertMessage($c,'confirm'.$suffix,'outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',3,null,'US.fixture'.$suffix);
         return $c;
+    }
+    function insertCartMessage(int $c,string $id,int $second,array $lines): int {
+        $m=['id'=>$id,'timestamp'=>(string)(strtotime('2026-10-09 22:00:00 UTC')+$second),'type'=>'order',
+            'from'=>'201000000001','from_user_id'=>'US.fixture','order'=>['catalog_id'=>'999','product_items'=>$lines]];
+        $payload=['object'=>'whatsapp_business_account','entry'=>[['id'=>'468336579702269','changes'=>[['field'=>'messages','value'=>[
+            'messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>'515388018324075','display_phone_number'=>'201285545554'],'messages'=>[$m]]]]]]];
+        $report=\App\Support\WhatsAppInboxProtocol::report($payload,'468336579702269','515388018324075');
+        expectFlow(count($report['messages'])===1,'actual cart normalizer'); $dto=$report['messages'][0];
+        return DB::table('whatsapp_inbox_messages')->insertGetId(['conversation_id'=>$c,'message_key'=>hash('sha256','whatsapp-message-v1:468336579702269:515388018324075:'.$id),
+            'direction'=>$dto['direction'],'type'=>$dto['type'],'source'=>$dto['source'],'sent_at'=>$dto['sent_at'],'content'=>Crypt::encryptString(json_encode($dto)),
+            'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    }
+    function cartThread(): int {
+        $c=addConversation();
+        insertMessage($c,'cart-customer','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة.',1);
+        insertCartMessage($c,'cart-order',2,[['product_retailer_id'=>'half-fish','quantity'=>2,'item_price'=>'45.00','currency'=>'EGP']]);
+        insertMessage($c,'cart-pin','inbound','',3,['lat'=>31.04,'long'=>31.37]);
+        insertMessage($c,'cart-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',4);
+        Ai::$data=extractionData(); Ai::$data['items'][0]['cart_reference']=['message_id'=>'m2','product_retailer_id'=>'half-fish'];
+        Ai::$data['evidence']=['request_ids'=>['m1','m2'],'confirmation_ids'=>['m4'],'customer_acceptance_ids'=>[],'location_id'=>'m3'];
+        return $c;
+    }
+    function mappedCart(): void {
+        app('config')->set('whatsapp_cart.product_mappings',['999'=>['half-fish'=>['f:1'=>[
+            'product_id'=>11,'quantity_mode'=>'weight','quantity_per_unit'=>'0.5','option_id'=>'']]]]);
+    }
+    function textAddressThread(string $address='شارع البحر',string $total='99.00'): int {
+        $c=addConversation();
+        insertMessage($c,'address-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني '.$address.' في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
+        insertMessage($c,'address-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى '.$address.'، الإجمالي التقريبي '.$total.' جنيه.',3);
+        Ai::$data=extractionData(); Ai::$data['customer']['address']=$address; Ai::$data['approximate_total']=$total;
+        Ai::$data['evidence']['confirmation_ids']=['m2']; Ai::$data['evidence']['location_id']=null;
+        Ai::$data['issues']=['LOCATION_REQUIRED','PRICE_ESTIMATE_ONLY'];
+        return $c;
+    }
+    function savedCustomer($actor,string $address='شارع البحر',float $lat=31.04,float $lng=31.37): void {
+        app(BranchCustomers::class)->save(['branch'=>'f:1','idempotency_key'=>'00000000-0000-4000-8000-000000000007',
+            'name'=>'عمر','phone'=>'201000000001','address'=>$address,'area'=>'المنصورة','delivery_notes'=>'','latitude'=>$lat,'longitude'=>$lng],$actor);
     }
     function reviewData(int $revision=1): array {
         return ['expected_revision'=>$revision,'branch'=>'f:1','customer_name'=>'عمر','customer_phone'=>'201000000001','address'=>'شارع البحر','area'=>'المنصورة','delivery_notes'=>'',
@@ -283,7 +334,7 @@ namespace {
     expectFlow($a['draft']['id']===$b['draft']['id']&&$b['draft']['revision']===2&&$b['draft']['data']!==null,'force retry same evidence uses same draft');
 
     resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');DB::table('whatsapp_webhook_events')->insert(['processed_at'=>null]);$p=$workflow->process();
-    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0,'unprojected capture blocks auto dispatch');
+    expectFlow($p['capture_pending']===1&&Ai::$calls===0&&DB::table('test_tickets')->count()===0,'unprojected capture blocks analysis and auto dispatch');
 
     resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');
     $event=DB::table('whatsapp_webhook_events')->insertGetId(['processed_at'=>null]);
@@ -320,7 +371,7 @@ namespace {
     expectFlow($q2['success']&&DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first()->reason==='STALE_TRANSCRIPT','same confirmation can replace undispatched stale quote');
 
     resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');
-    app(BranchCustomers::class)->save(['branch'=>'f:1','idempotency_key'=>'00000000-0000-4000-8000-000000000007','name'=>'عمر','phone'=>'201000000001','address'=>'شارع البحر','area'=>'منطقة محفوظة','delivery_notes'=>'ملاحظات محفوظة','latitude'=>32.1,'longitude'=>32.2],$actor);
+    app(BranchCustomers::class)->save(['branch'=>'f:1','idempotency_key'=>'00000000-0000-4000-8000-000000000007','name'=>'عمر','phone'=>'201000000001','address'=>'شارع البحر','area'=>'المنصورة','delivery_notes'=>'','latitude'=>31.04,'longitude'=>31.37],$actor);
     BranchCustomers::$calls=0;$before=(array)DB::table('branch_customers')->first();$p=$workflow->process();
     expectFlow($p['dispatched']===1&&BranchCustomers::$calls===0,'auto reuses saved customer without update');
     expectFlow((array)DB::table('branch_customers')->first()===$before,'all saved customer metadata retained');
@@ -441,6 +492,167 @@ namespace {
     expectFlow((array)DB::table('whatsapp_order_drafts')->where('id',$id)->first()===$receipt&&DB::table('test_tickets')->count()===1,'cutover analysis retains dispatched receipt byte for byte');
     app('config')->set('whatsapp_orders.activation_message_id',(int)DB::table('whatsapp_inbox_messages')->max('id'));
     expectFlow($workflow->dispatch($id,$v,(object)['id'=>8])['replayed']===true&&DB::table('test_tickets')->count()===1,'historical dispatched receipt replay survives newer global cutoff');
+
+    // Arrival bursts settle before analysis and reset the debounce when another message arrives.
+    resetFlow(); \Carbon\Carbon::setTestNow('2026-10-10 02:00:00'); $c=fixtureThread();
+    app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.debounce_seconds',10);
+    $p=$workflow->process(); expectFlow($p['analyzed']===0&&Ai::$calls===0,'new arrival deferred without API billing');
+    \Carbon\Carbon::setTestNow('2026-10-10 02:00:09'); $p=$workflow->process(); expectFlow(Ai::$calls===0,'settlement window remains bounded');
+    insertMessage($c,'burst-last','inbound','تمام',4);
+    \Carbon\Carbon::setTestNow('2026-10-10 02:00:11'); $p=$workflow->process(); expectFlow(Ai::$calls===0,'latest arrival resets settlement');
+    \Carbon\Carbon::setTestNow('2026-10-10 02:00:20'); $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Ai::$calls===1,'settled burst analyzes and dispatches once');
+    $workflow->process(); expectFlow(Ai::$calls===1&&DB::table('test_tickets')->count()===1,'idle poll never repeats billing or order');
+    \Carbon\Carbon::setTestNow();
+
+    // The real F catalog lets the operator choose weight/piece rather than fixing one mode.
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$mode='select'; $p=$workflow->process();
+    expectFlow($p['dispatched']===1,'live select quantity mode accepts grounded weight choice');
+
+    // An estimated total is evidence only; the unpaid ERP quote remains canonical.
+    resetFlow(); $c=textAddressThread(); savedCustomer($actor); app('config')->set('whatsapp_orders.mode','auto');
+    $before=(array)DB::table('branch_customers')->first(); BranchCustomers::$calls=0; $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&\App\Services\Dashboard\PosServicePhone::$calls>=2,'exact saved address reuses actual phone lookup automatically');
+    expectFlow(BranchCustomers::$calls===0&&(array)DB::table('branch_customers')->first()===$before,'unchanged saved customer retains metadata');
+    $sealed=json_decode(Crypt::decryptString(DB::table('whatsapp_order_drafts')->first()->sealed_payload),true);
+    expectFlow($sealed['quote']['total']==='100.00'&&Ai::$data['approximate_total']==='99.00','ticket uses current ERP quote instead of estimate');
+    resetFlow(); $c=textAddressThread('عنوان مختلف'); savedCustomer($actor); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'changed text address cannot reuse old saved pin');
+    resetFlow(); $c=fixtureThread(); savedCustomer($actor,'عنوان قديم',32.1,32.2); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    $saved=DB::table('branch_customers')->first();
+    expectFlow($p['dispatched']===1&&$saved->address==='شارع البحر'&&(int)$saved->revision===2&&round((float)$saved->latitude,2)===31.04,'fresh native pin updates existing customer through revisioned phone service');
+
+    resetFlow(); $c=textAddressThread(); app('config')->set('whatsapp_orders.mode','auto');
+    $history=DB::table('pos_service_tickets')->insertGetId(['branch'=>'f:1','channel'=>'phone','customer_phone'=>'01000000001','address'=>'شارع البحر','area'=>'المنصورة','delivery_notes'=>'',
+        'status'=>'finished','payment_status'=>'paid','bill_issued_at'=>now('UTC')->subDay(),'delivery_snapshot'=>json_encode(['latitude'=>31.04,'longitude'=>31.37])]);
+    \App\Services\Dashboard\PosServicePhone::$items=[['phone'=>'01000000001','address'=>'شارع البحر','latitude'=>31.04,'longitude'=>31.37,'last_ticket_id'=>$history]];
+    $p=$workflow->process(); expectFlow($p['dispatched']===1&&DB::table('branch_customers')->count()===1,'closed prior phone ticket supplies exact historical customer pin');
+    resetFlow(); $c=textAddressThread(); savedCustomer($actor); app('config')->set('whatsapp_orders.mode','auto');
+    $history=DB::table('pos_service_tickets')->insertGetId(['branch'=>'f:1','channel'=>'phone','customer_phone'=>'01000000001','address'=>'شارع البحر','area'=>'المنصورة','delivery_notes'=>'',
+        'status'=>'finished','payment_status'=>'paid','bill_issued_at'=>now('UTC')->subDay(),'delivery_snapshot'=>json_encode(['latitude'=>32.0,'longitude'=>32.0])]);
+    \App\Services\Dashboard\PosServicePhone::$items=[['phone'=>'01000000001','address'=>'شارع البحر','latitude'=>32.0,'longitude'=>32.0,'last_ticket_id'=>$history]];
+    $p=$workflow->process(); expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'conflicting saved and historical exact address coordinates require review');
+    resetFlow(); $c=textAddressThread(); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\PosServicePhone::$items=[['phone'=>'01000000001','address'=>'شارع البحر','latitude'=>31.04,'longitude'=>31.37]];
+    $p=$workflow->process(); expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'unproven source lookup suggestion cannot become confirmed customer location');
+    resetFlow(); $c=textAddressThread(); savedCustomer($actor); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\PosServicePhone::$callback=function(){if(DB::connection()->transactionLevel()>0)DB::table('branch_customers')->update(['revision'=>2,'address'=>'عنوان أحدث']);};
+    $p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0,'pin source changing at locked dispatch gate blocks stale quote');
+
+    // A killed/failed ERP write resumes the cached analysis after backoff, without another AI call.
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto'); Pos::$failAfterWrite=true; $p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'pipeline rollback leaves no partial ERP writes');
+    expectFlow(DB::table('whatsapp_order_drafts')->first()->status==='READY','prepared draft remains recoverable');
+    Pos::$failAfterWrite=false; $workflow->process(); expectFlow(Ai::$calls===1,'dispatch backoff avoids hot retry and API billing');
+    DB::table('whatsapp_order_scans')->update(['next_attempt_at'=>now('UTC')->subSecond()]); $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Ai::$calls===1&&DB::table('test_tickets')->count()===1&&DB::table('test_kitchen')->count()===1,'cached confirmed draft resumes one unpaid order');
+
+    // A grounded delivery area can select only the explicitly configured unique branch alias.
+    resetFlow(); $c=fixtureThread(); Ai::$data['branch_hint']=null; Ai::$data['issues']=['MISSING_BRANCH'];
+    app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.branch_aliases',['1'=>['المنصورة']]); $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&DB::table('test_tickets')->first()->branch==='f:1','explicit area alias resolves omitted branch hint');
+    resetFlow(); $c=fixtureThread(); Ai::$data['branch_hint']=null; Ai::$data['issues']=['MISSING_BRANCH'];
+    app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_orders.allowed_branch_ids',['1','2']);
+    app('config')->set('whatsapp_cart.branch_aliases',['1'=>['المنصورة'],'2'=>['المنصورة']]); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'ambiguous area aliases never choose first branch');
+
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.debounce_seconds',10);
+    DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->update(['created_at'=>now('UTC')->subSeconds(11)]);
+    Ai::$callback=function()use($c){insertMessage($c,'arrives-during-ai','inbound','غير الطلب',4);}; $p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('whatsapp_order_drafts')->count()===0,'incoming change during provider call invalidates automatic result');
+
+    // Arrival ids may be new while the actual message timestamps predate automatic activation.
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto');
+    app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:05'); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='STALE_TRANSCRIPT'&&DB::table('test_tickets')->count()===0,'late preactivation confirmation cannot dispatch through newer insertion ids');
+    expectFlow((int)DB::table('whatsapp_order_scans')->first()->auto_floor===0,'late history guard never advances message floor');
+    $draft=DB::table('whatsapp_order_drafts')->first(); $q=$workflow->quote((int)$draft->id,reviewData((int)$draft->revision),$actor);
+    expectFlow($q['success']&&$q['draft']['status']==='READY','manual historical review remains available after automatic time cutover');
+
+    resetFlow(); $c=addConversation(); app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:05');
+    insertMessage($c,'old-commit','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
+    insertMessage($c,'new-info-only','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة.',6);
+    insertMessage($c,'later-pin','inbound','',7,['lat'=>31.04,'long'=>31.37]);
+    insertMessage($c,'new-final-old-request','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',8);
+    Ai::$data=extractionData(); Ai::$data['evidence']['request_ids']=['m1','m2']; Ai::$data['evidence']['confirmation_ids']=['m4']; Ai::$data['evidence']['location_id']='m3'; $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'new name-only followup cannot launder historical committing request');
+
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&WhatsAppOrderWorkflow::AUTOMATIC_ACTIVATION_TIME_GUARD==='whatsapp-auto-activation-time-v1','fresh commitment and confirmation pass explicit automatic time guard');
+    resetFlow(); $c=addConversation(); app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:05');
+    insertMessage($c,'old-request-fresh-accept','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
+    insertMessage($c,'fresh-accept-pin','inbound','',7,['lat'=>31.04,'long'=>31.37]);
+    insertMessage($c,'fresh-accept-final','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',8);
+    insertMessage($c,'fresh-explicit-accept','inbound','تمام موافق',9);
+    Ai::$data=extractionData(); Ai::$data['evidence']['customer_acceptance_ids']=['m4']; $p=$workflow->process();
+    expectFlow($p['dispatched']===1,'fresh explicit acceptance of fresh final summary counts as automatic commitment');
+    foreach ([null,'2026-02-30 00:00:00','2026-10-09T22:00:00Z','0000-01-01 00:00:00',now('UTC')->addMinutes(2)->format('Y-m-d H:i:s')] as $invalid) {
+        resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.activated_at',$invalid); $p=$workflow->process();
+        expectFlow($p['disabled']===1&&Ai::$calls===0&&DB::table('whatsapp_order_scans')->count()===0,'invalid automatic activation timestamp prevents provider call and dispatch');
+    }
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto');
+    Ai::$callback=function(){app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:01');}; $p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('whatsapp_order_drafts')->count()===0&&DB::table('test_tickets')->count()===0,'activation timestamp changing during provider call invalidates claim');
+
+    resetFlow(); $c=textAddressThread(); savedCustomer($actor); DB::table('branch_customers')->update(['area'=>'مدينة مبارك']);
+    app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'changed explicit delivery area cannot reuse same text address pin');
+    resetFlow(); $c=textAddressThread(); savedCustomer($actor); DB::table('branch_customers')->update(['delivery_notes'=>'تعليمات محفوظة']);
+    Ai::$data['customer']['area']=null; Ai::$data['issues'][]='MISSING_AREA'; app('config')->set('whatsapp_orders.mode','auto'); BranchCustomers::$calls=0; $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&BranchCustomers::$calls===0&&DB::table('branch_customers')->first()->delivery_notes==='تعليمات محفوظة','omitted area and notes preserve authoritative unchanged saved source');
+
+    // A literal current catalog choice cannot vanish because the model omitted option_hint.
+    resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
+    $summary=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('direction','outbound')->first();
+    $dto=json_decode(Crypt::decryptString($summary->content),true); $dto['text']=str_replace('1 كيلو فسيخ','1 كيلو فسيخ تنظيف إضافي',$dto['text']);
+    $dto['content']['message']['text']['body']=$dto['text']; DB::table('whatsapp_inbox_messages')->where('id',$summary->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    $sealed=json_decode(Crypt::decryptString(DB::table('whatsapp_order_drafts')->first()->sealed_payload),true);
+    expectFlow($p['dispatched']===1&&$sealed['review']['items'][0]['option_id']==='clean-extra','omitted AI hint resolves explicit unique live option instead of base order');
+
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
+    $summary=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('direction','outbound')->first();
+    $dto=json_decode(Crypt::decryptString($summary->content),true); $dto['text']=str_replace('1 كيلو فسيخ','1 كيلو فسيخ تنظيف إضافي',$dto['text']);
+    $dto['content']['message']['text']['body']=$dto['text']; DB::table('whatsapp_inbox_messages')->where('id',$summary->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'base cart mapping cannot drop a positive final cleaning choice');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
+    app('config')->set('whatsapp_cart.product_mappings.999.half-fish.f:1.option_id','clean-extra');
+    $summary=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('direction','outbound')->first();
+    $dto=json_decode(Crypt::decryptString($summary->content),true); $dto['text']=str_replace('1 كيلو فسيخ','1 كيلو فسيخ تنظيف إضافي',$dto['text']);
+    $dto['content']['message']['text']['body']=$dto['text']; DB::table('whatsapp_inbox_messages')->where('id',$summary->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    expectFlow($p['dispatched']===1,'exact cart mapping preserves proven canonical option when model hint omitted');
+
+    // Cart identities and portions are resolved from explicit mappings, never numeric retailer ids.
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Ai::$lastTranscript[1]['cart']['product_items'][0]['quantity']==='2','submitted cart reaches automatic analysis and canonical ERP product');
+    $sealed=json_decode(Crypt::decryptString(DB::table('whatsapp_order_drafts')->first()->sealed_payload),true);
+    expectFlow($sealed['review']['items'][0]['product_id']===11&&$sealed['review']['items'][0]['quantity']==='1','verified two half-kilo units create one grounded kilo');
+    resetFlow(); $c=cartThread(); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='CATALOG_UNRESOLVED'&&DB::table('test_tickets')->count()===0,'unmapped cart remains review without product guesses');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    app('config')->set('whatsapp_cart.product_mappings.999.half-fish.f:1.quantity_per_unit','1'); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'cart portion mismatch blocks automatic order');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    app('config')->set('whatsapp_cart.product_mappings.999.half-fish.f:1.product_id',999); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'foreign ERP product mapping rejected');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    $order=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('type','order')->first();
+    $dto=json_decode(Crypt::decryptString($order->content),true); $dto['content']['message']['order']['product_items'][]=
+        ['product_retailer_id'=>'second-item','quantity'=>1,'item_price'=>'10.00','currency'=>'EGP'];
+    DB::table('whatsapp_inbox_messages')->where('id',$order->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    expectFlow($p['dispatched']===0&&DB::table('test_tickets')->count()===0,'partial cart extraction never dispatches only one submitted line');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    $order=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('type','order')->first();
+    $dto=json_decode(Crypt::decryptString($order->content),true); $dto['content']['message']['order']['product_items'][0]['currency']='USD';
+    DB::table('whatsapp_inbox_messages')->where('id',$order->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'foreign currency cart cannot silently convert to ERP order');
+    resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
+    insertCartMessage($c,'later-cart-same-second',4,[['product_retailer_id'=>'half-fish','quantity'=>3,'item_price'=>'45.00','currency'=>'EGP']]); $p=$workflow->process();
+    expectFlow($p['dispatched']===0&&DB::table('test_tickets')->count()===0,'later same-second cart invalidates earlier confirmation');
 
     fwrite(STDOUT,'whatsapp-order-workflow: '.$checks." checks passed\n");
 }

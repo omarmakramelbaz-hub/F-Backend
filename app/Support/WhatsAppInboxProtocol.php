@@ -5,6 +5,82 @@ namespace App\Support;
 /** Pure parsing only: no database, network, or thread-control operations. */
 final class WhatsAppInboxProtocol
 {
+    public const MAX_CART_ITEMS = 30;
+
+    /** Catalog IDs/SKUs and quoted prices remain evidence, never ERP product IDs or prices. */
+    public static function cart($order): ?array
+    {
+        if (!is_array($order) || !is_string($order['catalog_id'] ?? null)
+            || !preg_match('/\A[0-9]{1,30}\z/', $order['catalog_id'])
+            || !self::isList($order['product_items'] ?? null) || $order['product_items'] === []
+            || count($order['product_items']) > self::MAX_CART_ITEMS) return null;
+        $text = $order['text'] ?? null;
+        if ($text !== null && (!is_string($text) || strlen($text) > 4000 || preg_match('//u', $text) !== 1)) return null;
+        $items = []; $seen = []; $currency = null; $total = 0;
+        foreach ($order['product_items'] as $item) {
+            if (!is_array($item)) return null;
+            $retailer = $item['product_retailer_id'] ?? null;
+            $quantity = $item['quantity'] ?? null;
+            $price = self::cartPrice($item['item_price'] ?? null);
+            $unitCurrency = $item['currency'] ?? null;
+            if (!is_string($retailer) || trim($retailer) !== $retailer || $retailer === ''
+                || strlen($retailer) > 200 || preg_match('//u', $retailer) !== 1
+                || preg_match('/[\x00-\x1f\x7f]/', $retailer) || isset($seen[$retailer])
+                || (!is_int($quantity) && !is_string($quantity))
+                || !preg_match('/\A[1-9][0-9]{0,5}\z/', (string) $quantity)
+                || $price === null || !is_string($unitCurrency) || !preg_match('/\A[A-Z]{3}\z/', $unitCurrency)
+                || ($currency !== null && $currency !== $unitCurrency)) return null;
+            $seen[$retailer] = true; $currency = $unitCurrency;
+            $minor = self::cartMinor($price); $total += $minor * (int) $quantity;
+            if ($total > 9999999999) return null;
+            $items[] = ['product_retailer_id' => $retailer, 'quantity' => (string) $quantity,
+                'item_price' => $price, 'currency' => $unitCurrency];
+        }
+        return ['catalog_id' => $order['catalog_id'], 'text' => $text, 'product_items' => $items,
+            'total_price' => self::cartMoney($total), 'currency' => $currency];
+    }
+
+    /** Revalidate coordinator-supplied cart DTOs, including derived quoted totals. */
+    public static function normalizedCart($cart): ?array
+    {
+        if (!is_array($cart) || count($cart) !== 5 || array_diff(array_keys($cart),
+            ['catalog_id', 'text', 'product_items', 'total_price', 'currency'])
+            || !is_string($cart['total_price'] ?? null)
+            || !preg_match('/\A(?:0|[1-9][0-9]{0,7})\.[0-9]{2}\z/', $cart['total_price'])
+            || !is_string($cart['currency'] ?? null) || !preg_match('/\A[A-Z]{3}\z/', $cart['currency'])
+            || !self::isList($cart['product_items'] ?? null) || count($cart['product_items']) > self::MAX_CART_ITEMS) return null;
+        foreach ($cart['product_items'] as $item) {
+            if (!is_array($item) || count($item) !== 4 || array_diff(array_keys($item),
+                ['product_retailer_id', 'quantity', 'item_price', 'currency'])) return null;
+        }
+        $normalized = self::cart($cart);
+        if ($normalized === null || self::canonical($normalized) !== self::canonical($cart)) return null;
+        return $normalized;
+    }
+
+    private static function cartPrice($value): ?string
+    {
+        if (is_int($value)) $value = (string) $value;
+        elseif (is_float($value)) {
+            if (!is_finite($value) || $value < 0 || $value > 99999999.99
+                || abs($value * 100 - round($value * 100)) > 0.000001) return null;
+            $value = number_format($value, 2, '.', '');
+        }
+        if (!is_string($value) || !preg_match('/\A(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?\z/', $value)) return null;
+        return self::cartMoney(self::cartMinor($value));
+    }
+
+    private static function cartMinor(string $value): int
+    {
+        $parts = explode('.', $value, 2);
+        return (int) $parts[0] * 100 + (int) str_pad($parts[1] ?? '', 2, '0');
+    }
+
+    private static function cartMoney(int $minor): string
+    {
+        return intdiv($minor, 100) . '.' . str_pad((string) ($minor % 100), 2, '0', STR_PAD_LEFT);
+    }
+
     public static function messages(array $payload, string $wabaId = '468336579702269', string $phoneId = '515388018324075'): array
     {
         return self::report($payload, $wabaId, $phoneId)['messages'];
@@ -277,6 +353,8 @@ final class WhatsAppInboxProtocol
             if (!is_string($body['text'] ?? null)) return false;
         } elseif ($type === 'reaction') {
             if (!self::identifier($body['message_id'] ?? null, 512) || !is_string($body['emoji'] ?? null)) return false;
+        } elseif ($type === 'order') {
+            return self::cart($body) !== null;
         } elseif (in_array($type, ['edit', 'revoke'], true)) {
             if (!self::identifier($body['original_message_id'] ?? null, 512)) return false;
         } elseif (!in_array($type, ['order', 'system', 'referral', 'unsupported', 'unknown'], true)) {

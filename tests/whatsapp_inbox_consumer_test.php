@@ -435,6 +435,28 @@ namespace {
     $tests++;
 
     DB::reset();
+    event(payload([message()]));
+    $rawBefore = DB::$tables['whatsapp_webhook_events'][0];
+    $marker = ['event_id' => 1, 'reason' => 'INVALID_EVENT', 'attempts' => 1, 'last_attempted_at' => '2026-10-10 00:00:00'];
+    DB::$beforeTransaction = function () use ($marker) {
+        // The batch ID has already been selected. Another locked operation quarantines
+        // the raw event before this consumer acquires/rechecks its row.
+        DB::$tables['whatsapp_inbox_ingestion_failures'][] = $marker;
+    };
+    $metrics = consume();
+    check(WhatsAppInboxConsumer::QUARANTINE_BATCH_RECHECK === true, 'activation guard marker available');
+    check($metrics['events_seen'] === 1 && $metrics['events_skipped'] === 1 && $metrics['events_processed'] === 0
+        && $metrics['messages_inserted'] === 0 && $metrics['errors'] === 0, 'quarantine added after batch selection is rechecked under raw lock');
+    check(DB::$tables['whatsapp_webhook_events'][0] === $rawBefore && DB::$tables['whatsapp_inbox_ingestion_failures'] === [$marker]
+        && DB::$tables['whatsapp_inbox_messages'] === [] && DB::$tables['whatsapp_inbox_conversations'] === [] && DB::$locks >= 2,
+        'late quarantine preserves encrypted event and marker without projection or publication');
+    $tests++;
+    $metrics = consume(1, true);
+    check($metrics['events_processed'] === 1 && $metrics['messages_inserted'] === 1
+        && DB::$tables['whatsapp_inbox_ingestion_failures'] === [], 'explicit retry remains distinct from default guarded projection');
+    $tests++;
+
+    DB::reset();
     event(payload([message('wamid.new')]));
     $older = message('wamid.old');
     $older['timestamp'] = '1691583100';

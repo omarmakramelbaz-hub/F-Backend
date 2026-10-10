@@ -180,6 +180,52 @@ try {
     expect(count(Protocol::messages(payload('messages', value(['messages' => [$location]])))), 1, 'valid coordinates retained');
     $location['location']['latitude'] = 100;
     expect(Protocol::report(payload('messages', value(['messages' => [$location]])))['quarantined_count'], 1, 'invalid coordinates quarantined');
+    $cart = ['catalog_id' => '1234567', 'product_items' => [
+        ['product_retailer_id' => 'SKU_ONE', 'quantity' => 2, 'item_price' => '100.50', 'currency' => 'EGP'],
+        ['product_retailer_id' => 'SKU_TWO', 'quantity' => '1', 'item_price' => 244, 'currency' => 'EGP'],
+    ], 'text' => 'Catalog order note'];
+    $normalizedCart = Protocol::cart($cart);
+    expect($normalizedCart['total_price'], '445.00', 'cart subtotal uses exact decimal minor units');
+    expect($normalizedCart['product_items'][0]['quantity'], '2', 'catalog unit count canonicalized');
+    expect($normalizedCart['product_items'][1]['item_price'], '244.00', 'integer quoted price supported');
+    expect(Protocol::normalizedCart($normalizedCart), $normalizedCart, 'normalized cart revalidated');
+    $order = message(['type' => 'order', 'order' => $cart]); unset($order['text']);
+    $parsedOrder = Protocol::messages(payload('messages', value(['messages' => [$order]])))[0];
+    expect($parsedOrder['text'], null, 'cart does not manufacture named product text');
+    expect($parsedOrder['content']['message']['order'], $cart, 'raw cart provenance retained unchanged');
+    expect(isset($parsedOrder['content']['cart']), false, 'cart derivation preserves existing encrypted DTO replay shape');
+    $cartBad = $cart; $cartBad['product_items'][1]['currency'] = 'USD';
+    expect(Protocol::cart($cartBad), null, 'mixed currencies require review');
+    $cartBad = $cart; $cartBad['product_items'][1]['product_retailer_id'] = 'SKU_ONE';
+    expect(Protocol::cart($cartBad), null, 'duplicate retailer IDs never silently aggregated');
+    foreach ([0, -1, 1.5, true, '01', '1e2', '1000000', ' 1'] as $badQuantity) {
+        $cartBad = $cart; $cartBad['product_items'][0]['quantity'] = $badQuantity;
+        expect(Protocol::cart($cartBad), null, 'invalid catalog unit count');
+    }
+    foreach ([-1, NAN, INF, true, '01', '1e2', '0.001', '100000000'] as $badPrice) {
+        $cartBad = $cart; $cartBad['product_items'][0]['item_price'] = $badPrice;
+        expect(Protocol::cart($cartBad), null, 'invalid quoted cart price');
+    }
+    $cartBad = $cart; $cartBad['product_items'][0]['item_price'] = 100.5;
+    expect(Protocol::cart($cartBad)['product_items'][0]['item_price'], '100.50', 'numeric quoted price canonicalized without guessing');
+    foreach (['', "SKU\nONE", ' SKU', str_repeat('a', 201)] as $badId) {
+        $cartBad = $cart; $cartBad['product_items'][0]['product_retailer_id'] = $badId;
+        expect(Protocol::cart($cartBad), null, 'invalid retailer ID');
+    }
+    $cartBad = $cart; $cartBad['catalog_id'] = 'https://foreign.test/catalog';
+    expect(Protocol::cart($cartBad), null, 'catalog identity is a scoped numeric identifier');
+    $cartBad = $cart; $cartBad['product_items'] = [];
+    expect(Protocol::cart($cartBad), null, 'empty cart rejected');
+    $cartBad['product_items'] = array_fill(0, 31, $cart['product_items'][0]);
+    expect(Protocol::cart($cartBad), null, 'cart line bound');
+    $tamperedCart = $normalizedCart; $tamperedCart['total_price'] = '1.00';
+    expect(Protocol::normalizedCart($tamperedCart), null, 'derived subtotal cannot be tampered');
+    $extraCart = $normalizedCart; $extraCart['product_items'][0]['untrusted_extra'] = ['nested' => 'data'];
+    expect(Protocol::normalizedCart($extraCart), null, 'normalized cart does not accept unbounded extra nested fields');
+    $orderedCart = $normalizedCart; $orderedCart['product_items'][0] = array_reverse($orderedCart['product_items'][0], true);
+    expect(Protocol::normalizedCart($orderedCart), $normalizedCart, 'cart object key order does not change evidence');
+    $order['order'] = $cartBad;
+    expect(Protocol::report(payload('messages', value(['messages' => [$order]])))['quarantined_count'], 1, 'malformed cart retained in encrypted raw quarantine');
     $unknown = message(['type' => 'unknown', 'errors' => [['code' => 131051]]]);
     unset($unknown['text']);
     expect(count(Protocol::messages(payload('messages', value(['messages' => [$unknown]])))), 1, 'unsupported message evidence retained');

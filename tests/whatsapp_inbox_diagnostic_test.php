@@ -159,7 +159,9 @@ function diagnosticRun(string $repo, string $configuration, array $settings): ar
     $snapshot = diagnosticSnapshot();
     $environment = getenv();
     $environment['WA_DIAGNOSTIC_FIXTURE_CONFIG'] = $configuration;
-    $process = proc_open([PHP_BINARY, $repo . '/deployment/whatsapp_inbox_diagnostic.php'],
+    // Preserve a test runtime wrapper's extension flags when one is provided.
+    $interpreter = getenv('WHATSAPP_TEST_PHP') ?: PHP_BINARY;
+    $process = proc_open([$interpreter, $repo . '/deployment/whatsapp_inbox_diagnostic.php'],
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $repo, $environment);
     diagnosticCheck(is_resource($process), 'subprocess_started');
     fclose($pipes[0]);

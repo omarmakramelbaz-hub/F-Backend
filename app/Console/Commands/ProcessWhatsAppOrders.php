@@ -18,7 +18,11 @@ class ProcessWhatsAppOrders extends Command
         try {
             if (!(bool)config('whatsapp_orders.enabled',false)) { $this->line('{"disabled":1}'); return 0; }
             // Projection is bounded and retains existing quarantine markers. No retries or billing.
-            $capture=$inbox->consume(100);
+            $capture=$inbox->consume(500);
+            if (($capture['errors']??0)>0) {
+                $this->line(json_encode(['capture'=>$capture,'orders'=>['capture_failed'=>1]],JSON_THROW_ON_ERROR));
+                return 1;
+            }
             $metrics=$workflow->process((int)$limit);
             $this->line(json_encode(['capture'=>$capture,'orders'=>$metrics],JSON_THROW_ON_ERROR));
             return ($capture['errors']??0)>0||$metrics['errors']>0?1:0;

@@ -4,6 +4,7 @@ namespace App\Services\Dashboard;
 
 use App\Models\User;
 use App\Support\WhatsAppOrderExtraction;
+use App\Support\WhatsAppInboxProtocol;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Validator;
 /** Suggestions are encrypted; only the existing unpaid phone-order services can dispatch. */
 class WhatsAppOrderWorkflow
 {
+    public const AUTOMATIC_ACTIVATION_TIME_GUARD = 'whatsapp-auto-activation-time-v1';
     private const DRAFTS = 'whatsapp_order_drafts';
     private const SCANS = 'whatsapp_order_scans';
     private const MAX_MESSAGES = 60;
@@ -36,6 +38,10 @@ class WhatsAppOrderWorkflow
         $drafts = DB::table(self::DRAFTS)->where('conversation_id', $conversation)->orderByDesc('id')->limit(10)->get();
         return ['success'=>true, 'available'=>true, 'enabled'=>(bool)config('whatsapp_orders.enabled', false),
             'mode'=>$this->mode(), 'pending_analysis'=>$this->ceiling($conversation) > (int)($scan->analyzed_ceiling ?? 0),
+            'automatic'=>['configured'=>(bool)config('whatsapp_orders.enabled',false)&&$this->mode()==='auto'
+                &&is_numeric(config('whatsapp_orders.automation_actor_id'))&&(int)config('whatsapp_orders.automation_actor_id')>0
+                &&is_array(config('whatsapp_orders.allowed_branch_ids'))&&config('whatsapp_orders.allowed_branch_ids')!==[],
+                'debounce_seconds'=>$this->debounceSeconds(),'last_analysis_at'=>$scan->updated_at??null,'next_attempt_at'=>$scan->next_attempt_at??null],
             'drafts'=>$drafts->map(fn($r)=>$this->present($r))->all()];
     }
 
@@ -85,12 +91,14 @@ class WhatsAppOrderWorkflow
     {
         abort_unless($limit >= 1 && $limit <= 20, 422, 'INVALID_LIMIT');
         $metrics = ['threads_seen'=>0, 'baselined'=>0, 'analyzed'=>0, 'review_required'=>0,
-            'dispatched'=>0, 'replayed'=>0, 'errors'=>0, 'disabled'=>0];
+            'dispatched'=>0, 'replayed'=>0, 'errors'=>0, 'disabled'=>0, 'capture_pending'=>0, 'deferred'=>0];
         if (!(bool)config('whatsapp_orders.enabled', false) || !$this->available()) { $metrics['disabled']=1; return $metrics; }
         try { $actor = $this->automaticActor(); }
         catch (\Throwable $error) { $metrics['disabled']=1; return $metrics; }
         $activation=$this->activationBoundary('activation_message_id');
-        if ($activation===null || $this->activationBoundary('activation_event_id')===null) { $metrics['disabled']=1; return $metrics; }
+        if ($activation===null || $this->activationBoundary('activation_event_id')===null || $this->activationInstant()===null) { $metrics['disabled']=1; return $metrics; }
+        // Incomplete projection must never classify a partial transcript or spend another API call.
+        if ($this->pendingCapture()) { $metrics['capture_pending']=1; return $metrics; }
         $rows = DB::table('whatsapp_inbox_conversations as c')
             ->join('whatsapp_inbox_messages as m', 'm.conversation_id', '=', 'c.id')
             ->leftJoin(self::SCANS.' as s', 's.conversation_id', '=', 'c.id')
@@ -100,11 +108,12 @@ class WhatsAppOrderWorkflow
                 $q->whereNull('s.auto_floor')->orWhere('s.auto_floor','<',$activation)
                     ->orWhereNull('s.next_attempt_at')->orWhere('s.next_attempt_at', '<=', now('UTC'));
             })
-            ->select('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')->selectRaw('MAX(m.id) AS ceiling')
+            ->select('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')->selectRaw('MAX(m.id) AS ceiling, MAX(m.created_at) AS observed_at')
             ->groupBy('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')
+            ->havingRaw('MAX(m.created_at) <= ?', [$this->settledBefore()])
             ->havingRaw('MAX(m.id) > ?',[$activation])
             ->havingRaw('MAX(m.id) > COALESCE(s.auto_floor, 0)')
-            ->havingRaw('MAX(m.id) > COALESCE(s.analyzed_ceiling, 0)')
+            ->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.self::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?))))', ['REVIEW','READY'])
             ->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3 OR s.auto_floor IS NULL OR s.auto_floor < ?)',[$activation])
             ->orderBy('c.id')->limit($limit)->get();
         foreach ($rows as $thread) {
@@ -118,16 +127,18 @@ class WhatsAppOrderWorkflow
                 if ($draft->reason==='AI_UNAVAILABLE') { $metrics['review_required']++; continue; }
                 if ($this->mode() !== 'auto') { $metrics['review_required']++; continue; }
                 $reason = null; $review = $this->automaticReview($draft, $actor, $reason);
-                if ($review === null) { $this->reviewReason($draft, $reason ?? 'REVIEW_REQUIRED'); $metrics['review_required']++; continue; }
+                if ($review === null) { $this->reviewReason($draft, $reason ?? 'REVIEW_REQUIRED'); $this->deferDispatch((int)$draft->conversation_id); $metrics['review_required']++; continue; }
                 $quoted = $this->quote((int)$draft->id, $review, $actor);
                 $review = $quoted['draft']['review']; $review['expected_revision']=$quoted['draft']['revision'];
-                $extraction = $this->decode($draft->extraction);
-                if ($this->minor($extraction['approximate_total']??null) === null || $this->minor($extraction['approximate_total']) !== $this->minor($quoted['quote']['total']??null)) {
-                    $this->reviewReason($this->draft((int)$draft->id), 'PRICE_REQUIRES_REVIEW'); $metrics['review_required']++; continue;
-                }
+                // A business estimate is advisory. The unpaid ticket uses the current ERP catalog
+                // and delivery quote, and dispatch rechecks both fingerprints before any write.
                 $sent = $this->dispatchInternal((int)$draft->id, $review, $this->automaticActor(), true);
                 $metrics[$sent['replayed'] ? 'replayed' : 'dispatched']++;
-            } catch (\Throwable $error) { $metrics['errors']++; }
+            } catch (\Throwable $error) {
+                if ($error->getMessage()==='TRANSCRIPT_SETTLING') $metrics['deferred']++;
+                elseif ($error->getMessage()==='CAPTURE_PENDING') $metrics['capture_pending']=1;
+                else { $metrics['errors']++; $this->deferDispatch((int)$thread->id); }
+            }
         }
         return $metrics;
     }
@@ -139,13 +150,19 @@ class WhatsAppOrderWorkflow
             $this->scanInsert($conversation);
             $scan = DB::table(self::SCANS)->where('conversation_id', $conversation)->lockForUpdate()->first();
             $ceiling = $this->ceiling($conversation); abort_unless($ceiling > 0, 422, 'EMPTY_CONVERSATION');
+            if ($automatic) {
+                abort_if($this->pendingCapture(),409,'CAPTURE_PENDING');
+                $observed=DB::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->max('created_at');
+                abort_unless(is_string($observed)&&$observed<=$this->settledBefore(),409,'TRANSCRIPT_SETTLING');
+            }
             $existing = DB::table(self::DRAFTS)->where('conversation_id', $conversation)->where('evidence_ceiling', $ceiling)->first();
             // Completed receipts remain immutable even when automatic activation moves forward.
             if ($existing && $existing->status==='DISPATCHED') return ['existing'=>$existing,'baselined'=>false];
             abort_if($scan->claim_nonce && $scan->lease_until >= now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_BUSY');
             $activation=$automatic ? $this->activationBoundary('activation_message_id') : null;
             $eventActivation=$automatic ? $this->activationBoundary('activation_event_id') : null;
-            if ($automatic) abort_unless($activation!==null && $eventActivation!==null,403,'AUTO_NOT_CONFIGURED');
+            $activationTime=$automatic ? $this->activationInstant() : null;
+            if ($automatic) abort_unless($activation!==null && $eventActivation!==null && $activationTime!==null,403,'AUTO_NOT_CONFIGURED');
             $floor=$automatic ? $this->automaticFloor($conversation,$scan,true) : $this->dispatchedCeiling($conversation);
             if ($automatic) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
             $baselined=$automatic && ($scan->auto_floor===null || (int)$scan->auto_floor<$activation);
@@ -165,7 +182,7 @@ class WhatsAppOrderWorkflow
             DB::table(self::SCANS)->where('conversation_id', $conversation)->update(['claimed_ceiling'=>$ceiling, 'claim_nonce'=>$nonce,
                 'lease_until'=>now('UTC')->addSeconds(180), 'attempts'=>min(3,$attempts), 'next_attempt_at'=>null, 'updated_at'=>now('UTC')]);
             return ['nonce'=>$nonce, 'floor'=>$floor, 'ceiling'=>$ceiling, 'existing_id'=>$existing ? (int)$existing->id : null,
-                'activation'=>$activation,'event_activation'=>$eventActivation,'baselined'=>$baselined];
+                'activation'=>$activation,'event_activation'=>$eventActivation,'activation_time'=>$activationTime,'baselined'=>$baselined];
         }, 3);
         if (isset($claim['existing'])) return ['success'=>true, 'draft'=>$this->present($claim['existing']),'baselined'=>$claim['baselined']];
         try {
@@ -189,6 +206,7 @@ class WhatsAppOrderWorkflow
                 if ($automatic) {
                     abort_unless($this->activationBoundary('activation_message_id')===$claim['activation']
                         && $this->activationBoundary('activation_event_id')===$claim['event_activation']
+                        && $this->activationInstant()===$claim['activation_time']
                         && $claim['floor'] >= $this->automaticFloor($conversation,$scan,true),409,'STALE_TRANSCRIPT');
                 }
                 abort_unless($this->ceiling($conversation) === $claim['ceiling'] && $this->snapshot($conversation,$claim['floor'],$claim['ceiling'])['hash'] === $snapshot['hash'], 409, 'STALE_TRANSCRIPT');
@@ -248,12 +266,12 @@ class WhatsAppOrderWorkflow
             $customer=DB::table('branch_customers')->where('branch',$v['branch'])->where('phone_key',$key)->lockForUpdate()->first();
             $version=$sealed['customer_version']??null;
             abort_unless($version===null ? $customer===null : ($customer && (int)$customer->id===$version['id'] && (int)$customer->revision===$version['revision']),409,'CUSTOMER_VERSION_CHANGED');
-            if ($automatic && $customer) abort_unless($this->sameCustomer($customer,$v),409,'CUSTOMER_CHANGE');
             $customerValues=['branch'=>$v['branch'],'idempotency_key'=>$row->customer_command_key,'name'=>$v['customer_name'],
                 'phone'=>$v['customer_phone'],'address'=>$v['address'],'area'=>$v['area'],'delivery_notes'=>$v['delivery_notes'],
                 'latitude'=>$v['latitude'],'longitude'=>$v['longitude']];
             if ($customer) $customerValues+=['customer_id'=>(int)$customer->id,'expected_revision'=>(int)$customer->revision];
-            $saved=$automatic&&$customer ? ['customer'=>['id'=>(int)$customer->id]] : app(BranchCustomers::class)->save($customerValues,$actor);
+            $saved=$automatic&&$customer&&$this->sameCustomerValues($customer,$v)
+                ? ['customer'=>['id'=>(int)$customer->id]] : app(BranchCustomers::class)->save($customerValues,$actor);
             $payload=$v; unset($payload['expected_revision']);
             $payload+=['idempotency_key'=>$row->ticket_command_key,'customer_id'=>(int)$saved['customer']['id'],
                 'send_to_kitchen'=>true,'discount'=>'0.00','discount_reason'=>''];
@@ -294,33 +312,43 @@ class WhatsAppOrderWorkflow
     private function automaticReview(object $row, $actor, ?string &$reason,bool $lock=false): ?array
     {
         $eventFloor=$this->activationBoundary('activation_event_id');
-        if ($eventFloor===null || $this->activationBoundary('activation_message_id')===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
+        if ($eventFloor===null || $this->activationBoundary('activation_message_id')===null || $this->activationInstant()===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
         $floor=$this->automaticFloor((int)$row->conversation_id,null,$lock);
         if ((int)$row->evidence_floor<$floor || (int)$row->evidence_ceiling<=$floor) { $reason='STALE_TRANSCRIPT'; return null; }
         $failures=DB::table('whatsapp_inbox_ingestion_failures')->where('event_id','>',$eventFloor);
         if ($lock) $failures->lockForUpdate();
         if ($failures->first(['event_id'])) { $reason='CAPTURE_REVIEW_REQUIRED'; return null; }
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
-        if (!$snapshot['complete'] || !$data || ($data['decision']??null)!=='CONFIRMED' || ($data['issues']??[])!==[]) { $reason='REVIEW_REQUIRED'; return null; }
+        if (!$snapshot['complete'] || !$data || ($data['decision']??null)!=='CONFIRMED'
+            || array_diff($data['issues']??[],['PRICE_ESTIMATE_ONLY','LOCATION_REQUIRED','MISSING_BRANCH','MISSING_AREA'])!==[]) { $reason='REVIEW_REQUIRED'; return null; }
+        if (!$this->freshAutomaticEvidence($data,$snapshot['transcript'])) { $reason='STALE_TRANSCRIPT'; return null; }
         if (($data['fulfillment']??null)!=='DELIVERY') { $reason='PICKUP_REQUIRES_REVIEW'; return null; }
-        $branches=array_values(array_filter(app(TakeawayAccess::class)->branches($actor),function ($b) use ($data) {
-            return $b['kind']==='f' && $this->allowed($b['value']) && $this->name($b['name'])===$this->name((string)($data['branch_hint']??''));
-        }));
-        if (count($branches)!==1) { $reason='BRANCH_UNRESOLVED'; return null; } $branch=$branches[0]['value'];
+        $resolved=$this->automaticBranch($data,$actor);
+        if ($resolved===null) { $reason='BRANCH_UNRESOLVED'; return null; } $branches=[$resolved]; $branch=$resolved['value'];
         if (!$this->branchOpen($branches[0],$reason,$lock)) return null;
         $customer=$data['customer']??[];
         foreach (['name','phone','address'] as $k) if (!is_string($customer[$k]??null)||trim($customer[$k])==='') { $reason='REVIEW_REQUIRED'; return null; }
+        $savedQuery=DB::table('branch_customers')->where('branch',$branch)->where('phone_key',BranchCustomers::phoneKey($customer['phone']));
+        if ($lock) $savedQuery->lockForUpdate(); $saved=$savedQuery->first();
         $location=null;
         $locationTime=null; $addressTime=null; $lastLocation=null; $summaryAddress=false;
         foreach ($snapshot['transcript'] as $m) {
-            if ($m['speaker']==='customer' && is_string($m['text']) && strpos($m['text'],$customer['address'])!==false) $addressTime=$m['sent_at'];
+            if ($m['speaker']==='customer' && ((is_string($m['text']) && strpos($m['text'],$customer['address'])!==false)
+                || (is_string($m['cart']['text']??null)&&strpos($m['cart']['text'],$customer['address'])!==false))) $addressTime=$m['sent_at'];
             if ($m['speaker']==='customer' && $m['location']!==null) $lastLocation=$m['id'];
             if ($m['id']===($data['evidence']['location_id']??null)&&$m['speaker']==='customer') { $location=$m['location']; $locationTime=$m['sent_at']; }
             if ($m['speaker']==='business' && in_array($m['id'],$data['evidence']['confirmation_ids']??[],true)
                 && is_string($m['text']) && strpos($m['text'],$customer['address'])!==false) $summaryAddress=true;
         }
-        if (!$location || !$addressTime || $locationTime<$addressTime || $lastLocation!==($data['evidence']['location_id']??null) || !$summaryAddress) {
-            $reason='LOCATION_UNCONFIRMED'; return null;
+        if (!$addressTime || !$summaryAddress) { $reason='LOCATION_UNCONFIRMED'; return null; }
+        if ($lastLocation!==null) {
+            // A newer native pin cannot be replaced by an older saved customer address.
+            if (!$location || $locationTime<$addressTime || $lastLocation!==($data['evidence']['location_id']??null)) {
+                $reason='LOCATION_UNCONFIRMED'; return null;
+            }
+        } else {
+            $location=$this->existingLocation($customer,$branch,$actor,$saved,$lock);
+            if ($location===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
         }
         $items=[]; $catalog=[];
         for ($page=1;$page<=3;$page++) {
@@ -329,23 +357,215 @@ class WhatsAppOrderWorkflow
             if ((int)($list['pagination']['last_page']??1)<=$page) break;
             if ($page===3) { $reason='CATALOG_UNRESOLVED'; return null; }
         }
+        $summaryTexts=[];
+        foreach ($snapshot['transcript'] as $message) if ($message['speaker']==='business'&&in_array($message['id'],$data['evidence']['confirmation_ids']??[],true)&&is_string($message['text'])) $summaryTexts[]=$message['text'];
+        $usedCartLines=[];
         foreach ($data['items'] as $item) {
+            if (($item['cart_reference']??null)!==null) {
+                $resolved=$this->cartItem($item,$data['items'],$summaryTexts,$snapshot['transcript'],$catalog,$branch,$usedCartLines);
+                if ($resolved===null) { $reason='CATALOG_UNRESOLVED'; return null; }
+                $items[]=$resolved; continue;
+            }
             $matches=array_values(array_filter($catalog,fn($p)=>($p['available']??false)&&$this->name($p['name'])===$this->name($item['name'])));
             if (count($matches)!==1 || !is_string($item['quantity']??null) || !in_array($item['quantity_mode'],['piece','weight'],true)
-                || ($matches[0]['quantity_mode']??'select')!==$item['quantity_mode']) { $reason='CATALOG_UNRESOLVED'; return null; }
-            $p=$matches[0]; $option='';
-            if (($item['option_hint']??null)!==null && trim($item['option_hint'])!=='') {
-                $options=array_values(array_filter($p['options']??[],fn($o)=>$this->name($o['label'])===$this->name($item['option_hint'])));
-                if (count($options)!==1) { $reason='CATALOG_UNRESOLVED'; return null; } $option=$options[0]['id'];
-            }
+                || !in_array($matches[0]['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) { $reason='CATALOG_UNRESOLVED'; return null; }
+            $p=$matches[0]; $option=$this->catalogOption($item,$data['items'],$summaryTexts,$p);
+            if ($option===null) { $reason='CATALOG_UNRESOLVED'; return null; }
             $items[]=['product_id'=>$p['id'],'quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode'],'option_id'=>$option];
         }
+        if (!$this->completeCart($snapshot['transcript'],$data,$usedCartLines)) { $reason='CATALOG_UNRESOLVED'; return null; }
+        $sourceMatches=$saved&&BranchCustomers::phoneKey($saved->phone)===BranchCustomers::phoneKey($customer['phone'])
+            &&$this->name($saved->address)===$this->name($customer['address'])&&$this->sourceAreaAgrees($saved->area??null,$customer['area']??null);
+        $area=$customer['area']??($sourceMatches?trim((string)($saved->area??'')):($location['source_area']??''));
+        $notes=$customer['notes']??($sourceMatches?trim((string)($saved->delivery_notes??'')):($location['source_notes']??''));
         $v=['expected_revision'=>(int)$row->revision,'branch'=>$branch,'customer_name'=>$customer['name'],'customer_phone'=>$customer['phone'],
-            'address'=>$customer['address'],'area'=>$customer['area']??'','delivery_notes'=>$customer['notes']??'',
+            'address'=>$customer['address'],'area'=>$area,'delivery_notes'=>$notes,
             'latitude'=>$location['lat'],'longitude'=>$location['long'],'location_confirmed'=>true,'items'=>$items];
-        $v=$this->review($v); $saved=DB::table('branch_customers')->where('branch',$branch)->where('phone_key',BranchCustomers::phoneKey($v['customer_phone']))->first();
-        if ($saved&&!$this->sameCustomer($saved,$v)) { $reason='CUSTOMER_CHANGE'; return null; }
+        $v=$this->review($v);
         return $v;
+    }
+
+    /** Insert ids alone cannot exclude late delivery of a pre-activation webhook. */
+    private function freshAutomaticEvidence(array $data,array $transcript): bool
+    {
+        $activation=$this->activationInstant();
+        if ($activation===null) return false;
+        $rows=array_column($transcript,null,'id');
+        $confirmations=$data['evidence']['confirmation_ids']??[];
+        if (!is_array($confirmations)||$confirmations===[]) return false;
+        foreach ($confirmations as $id) {
+            $row=is_string($id)?($rows[$id]??null):null;
+            if (!is_array($row)||$row['speaker']!=='business'||!is_string($row['sent_at']??null)||$row['sent_at']<$activation) return false;
+        }
+        // The pure validator distinguishes a genuine request/cart/acceptance from name-only
+        // followups. New contact details cannot turn a late historical order into a new one.
+        $requests=WhatsAppOrderExtraction::committingRequestIds($data,$transcript);
+        foreach ($requests as $id) {
+            $row=is_string($id)?($rows[$id]??null):null;
+            if (is_array($row)&&$row['speaker']==='customer'&&is_string($row['sent_at']??null)&&$row['sent_at']>=$activation) return true;
+        }
+        return false;
+    }
+
+    private function activationInstant(): ?string
+    {
+        $value=config('whatsapp_cart.activated_at');
+        if (!is_string($value)||!preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\z/',$value)) return null;
+        $date=\DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$value,new \DateTimeZone('UTC'));
+        $errors=\DateTimeImmutable::getLastErrors();
+        if ($date===false||($errors!==false&&($errors['warning_count']!==0||$errors['error_count']!==0))||$date->format('Y-m-d H:i:s')!==$value||substr($value,0,4)==='0000'||$value>now('UTC')->addSeconds(5)->format('Y-m-d H:i:s')) return null;
+        return $value;
+    }
+
+    /** Only explicit aliases for allowed branches, backed by exact extracted text, can route. */
+    private function automaticBranch(array $data,$actor): ?array
+    {
+        $available=array_values(array_filter(app(TakeawayAccess::class)->branches($actor),fn($b)=>$b['kind']==='f'&&$this->allowed($b['value'])));
+        $aliases=config('whatsapp_cart.branch_aliases',[]); $hint=trim((string)($data['branch_hint']??''));
+        $area=trim((string)($data['customer']['area']??'')); $byHint=[]; $byArea=[];
+        foreach ($available as $branch) {
+            $names=[$branch['name']]; $configured=is_array($aliases)?($aliases[(string)$branch['id']]??[]):[];
+            foreach (is_array($configured)?$configured:[] as $alias) if (is_string($alias)&&$alias!=='') $names[]=$alias;
+            $names=array_map(fn($name)=>$this->name($name),$names);
+            if ($hint!==''&&in_array($this->name($hint),$names,true)) $byHint[$branch['value']]=$branch;
+            if ($area!==''&&in_array($this->name($area),$names,true)) $byArea[$branch['value']]=$branch;
+        }
+        if ($hint!=='') {
+            if (count($byHint)!==1) return null;
+            $branch=array_values($byHint)[0];
+            // Two explicit places disagreeing cannot silently pick the nearest or first branch.
+            if ($byArea!==[]&&(count($byArea)!==1||!isset($byArea[$branch['value']]))) return null;
+            return $branch;
+        }
+        return count($byArea)===1?array_values($byArea)[0]:null;
+    }
+
+    /** Reuse existing phone-order lookup. New addresses still require a real pin. */
+    private function existingLocation(array $customer,string $branch,$actor,?object $saved,bool $lock): ?array
+    {
+        $points=[];
+        if ($saved&&BranchCustomers::phoneKey($saved->phone)===BranchCustomers::phoneKey($customer['phone'])
+            &&$this->name($saved->address)===$this->name($customer['address'])&&$this->sourceAreaAgrees($saved->area??null,$customer['area']??null)) {
+            $point=$this->validPoint($saved->latitude,$saved->longitude);
+            if ($point!==null) $points[PosServiceTicket::fingerprint($point)]=['location'=>$point,'area'=>trim((string)($saved->area??'')),'notes'=>trim((string)($saved->delivery_notes??''))];
+        }
+        $lookup=app(PosServicePhone::class)->customers(['branch'=>$branch,'phone'=>$customer['phone'],'prefix'=>false],$actor);
+        foreach ($lookup['items']??[] as $candidate) {
+            if (!is_array($candidate)||BranchCustomers::phoneKey((string)($candidate['phone']??''))!==BranchCustomers::phoneKey($customer['phone'])
+                ||$this->name((string)($candidate['address']??''))!==$this->name($customer['address'])) continue;
+            $point=$this->validPoint($candidate['latitude']??null,$candidate['longitude']??null);
+            if ($point===null) continue;
+            // Local saved records are independently read/locked above. History needs a stable
+            // phone ticket source; app/search suggestions with no source identity need review.
+            if (isset($candidate['last_ticket_id'])&&Schema::hasTable('pos_service_tickets')) {
+                $query=DB::table('pos_service_tickets')->where('id',(int)$candidate['last_ticket_id'])->where('channel','phone');
+                if ($lock) $query->lockForUpdate(); $ticket=$query->first();
+                if (!$ticket||$ticket->status==='cancelled'||($ticket->payment_status==='unpaid'&&empty($ticket->bill_issued_at)&&$ticket->status!=='awaiting_bill')
+                    ||BranchCustomers::phoneKey($ticket->customer_phone)!==BranchCustomers::phoneKey($customer['phone'])
+                    ||$this->name($ticket->address)!==$this->name($customer['address'])||!$this->sourceAreaAgrees($ticket->area??null,$customer['area']??null)) continue;
+                app(TakeawayAccess::class)->branch($ticket->branch,$actor,$lock);
+                $snapshot=json_decode((string)$ticket->delivery_snapshot,true);
+                $original=is_array($snapshot)?$this->validPoint($snapshot['latitude']??null,$snapshot['longitude']??null):null;
+                if ($original!==$point) return null;
+                $pointKey=PosServiceTicket::fingerprint($point);
+                if (!isset($points[$pointKey])) $points[$pointKey]=['location'=>$point,'area'=>trim((string)($ticket->area??'')),'notes'=>trim((string)($ticket->delivery_notes??''))];
+            } elseif ($saved&&isset($candidate['customer_id'])&&(int)$candidate['customer_id']===(int)$saved->id) {
+                $original=$this->validPoint($saved->latitude,$saved->longitude);
+                if ($original!==$point) return null;
+            }
+        }
+        if (count($points)!==1) return null; $source=array_values($points)[0];
+        return $source['location']+['source_area'=>$source['area'],'source_notes'=>$source['notes']];
+    }
+    private function sourceAreaAgrees($source,$explicit): bool
+    {
+        return $explicit===null||trim((string)$explicit)===''||$this->name((string)$source)===$this->name((string)$explicit);
+    }
+    private function validPoint($latitude,$longitude): ?array
+    {
+        if (!is_numeric($latitude)||!is_numeric($longitude)||!is_finite((float)$latitude)||!is_finite((float)$longitude)
+            ||abs((float)$latitude)>90||abs((float)$longitude)>180||((float)$latitude===0.0&&(float)$longitude===0.0)) return null;
+        return ['lat'=>round((float)$latitude,7),'long'=>round((float)$longitude,7)];
+    }
+
+    /** Retailer ids are scoped external ids, never ERP ids or inferred sale quantities. */
+    private function cartItem(array $item,array $allItems,array $summaryTexts,array $transcript,array $catalog,string $branch,array &$used): ?array
+    {
+        $reference=$item['cart_reference']??null;
+        if (!is_array($reference)||!is_string($reference['message_id']??null)||!is_string($reference['product_retailer_id']??null)) return null;
+        $message=null;
+        foreach ($transcript as $m) if ($m['id']===$reference['message_id']&&$m['speaker']==='customer') $message=$m;
+        $cart=$message['cart']??null;
+        if (!is_array($cart)||($cart['currency']??null)!=='EGP') return null;
+        $line=null;
+        foreach ($cart['product_items']??[] as $candidate) if ($candidate['product_retailer_id']===$reference['product_retailer_id']) $line=$candidate;
+        if ($line===null) return null;
+        $key=$reference['message_id'].':'.$reference['product_retailer_id'];
+        if (isset($used[$key])) return null;
+        $maps=config('whatsapp_cart.product_mappings',[]);
+        $mapping=is_array($maps) ? ($maps[$cart['catalog_id']][$line['product_retailer_id']][$branch]??null) : null;
+        if (!is_array($mapping)||!preg_match('/\A[1-9][0-9]{0,18}\z/',(string)($mapping['product_id']??''))
+            ||!in_array($mapping['quantity_mode']??null,['piece','weight'],true)) return null;
+        $unit=$this->quantityMillis($mapping['quantity_per_unit']??null);
+        $requested=$this->quantityMillis($item['quantity']??null);
+        if ($unit===null||$requested===null||$unit*(int)$line['quantity']!==$requested||$requested>9999999
+            ||($mapping['quantity_mode']==='piece'&&$requested%1000!==0)||$mapping['quantity_mode']!==($item['quantity_mode']??null)) return null;
+        $matches=array_values(array_filter($catalog,fn($p)=>(string)$p['id']===(string)$mapping['product_id']));
+        if (count($matches)!==1) return null; $product=$matches[0];
+        if (!($product['available']??false)||$this->name($product['name'])!==$this->name($item['name'])
+            ||!in_array($product['quantity_mode']??'select',[$mapping['quantity_mode'],'select'],true)) return null;
+        $option=$mapping['option_id']??'';
+        if (!is_string($option)||strlen($option)>80) return null;
+        $proven=$this->catalogOption($item,$allItems,$summaryTexts,$product);
+        if ($proven===null||$proven!==$option) return null;
+        $used[$key]=true;
+        return ['product_id'=>(int)$product['id'],'quantity'=>$item['quantity'],'quantity_mode'=>$mapping['quantity_mode'],'option_id'=>$option];
+    }
+
+    /** A base/default choice cannot omit a literal live sale option in the final item clause. */
+    private function catalogOption(array $item,array $allItems,array $summaryTexts,array $product): ?string
+    {
+        $options=$product['options']??[]; if (!is_array($options)) return null;
+        $labels=[];
+        foreach ($options as $option) {
+            if (!is_array($option)||!is_string($option['id']??null)||!is_string($option['label']??null)||$option['label']==='') return null;
+            // An explicit weight amount already represents half/quarter kilograms; packaged
+            // or meal variants still need their actual catalog identity and option mapping.
+            $portion=$this->name($option['label']); $quantity=$this->quantityMillis($item['quantity']??null);
+            if (($item['quantity_mode']??null)==='weight'&&!preg_match('/(?:وجبة|وجبات|علبة|عبوة|ساندوتش|سندوتش|ميكس|\b(?:meal|pack|package|box|sandwich)\b)/iu',$product['name'])&&(($portion==='نصف'&&$quantity===500)||($portion==='ربع'&&$quantity===250))) continue;
+            $labels[]=$option['label'];
+        }
+        $proof=WhatsAppOrderExtraction::optionClauseLabels($item,$allItems,$summaryTexts,$labels);
+        if ($proof===null) return null;
+        $hint=$item['option_hint']??null;
+        if ($hint!==null&&(!is_string($hint)||trim($hint)==='')) return null;
+        if ($hint!==null) {
+            if (count($proof)!==1||$this->name($proof[0])!==$this->name($hint)) return null;
+        } elseif (count($proof)>1) return null;
+        if ($proof===[]) return $hint===null?'':null;
+        $matches=array_values(array_filter($options,fn($option)=>$this->name($option['label'])===$this->name($proof[0])));
+        return count($matches)===1?$matches[0]['id']:null;
+    }
+
+    /** A submitted cart is one request: no partial lines or an earlier abandoned cart. */
+    private function completeCart(array $transcript,array $data,array $used): bool
+    {
+        $latest=null;
+        foreach ($transcript as $m) if ($m['speaker']==='customer'&&is_array($m['cart']??null)) $latest=$m;
+        if ($latest===null) return $used===[];
+        if (!in_array($latest['id'],$data['evidence']['request_ids']??[],true)) return false;
+        $expected=[];
+        foreach ($latest['cart']['product_items']??[] as $line) $expected[$latest['id'].':'.$line['product_retailer_id']]=true;
+        ksort($expected); ksort($used);
+        return $expected!==[]&&$expected===$used;
+    }
+
+    private function quantityMillis($value): ?int
+    {
+        if (!is_string($value)||!preg_match('/\A(?:0|[1-9][0-9]{0,3})(?:\.[0-9]{1,3})?\z/',$value)) return null;
+        [$whole,$fraction]=array_pad(explode('.',$value),2,'');
+        $millis=(int)$whole*1000+(int)str_pad($fraction,3,'0');
+        return $millis>0?$millis:null;
     }
 
     private function branchOpen(array $branch, ?string &$reason,bool $lock=false): bool
@@ -383,13 +603,18 @@ class WhatsAppOrderWorkflow
             $speaker=$row->direction==='inbound'?'customer':($row->direction==='outbound'?'business':null);
             abort_unless($speaker!==null && is_string($row->sent_at) && preg_match('/\A\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/',$row->sent_at),500,'INVALID_INBOX_MESSAGE');
             $text=is_string($dto['text']??null)?$dto['text']:null; $location=null;
+            $cart=$row->type==='order'&&$row->direction==='inbound' ? WhatsAppInboxProtocol::cart($dto['content']['message']['order']??null) : null;
             if ($row->type==='location' && isset($dto['content']['message']['location']['latitude'],$dto['content']['message']['location']['longitude'])) {
                 $l=$dto['content']['message']['location']; $location=['lat'=>(float)$l['latitude'],'long'=>(float)$l['longitude']];
                 if (abs($location['lat'])>90||abs($location['long'])>180) $location=null;
             }
             $chars+=$text===null?0:mb_strlen($text,'UTF-8');
-            $id='m'.($i+1); $transcript[]=['id'=>$id,'speaker'=>$speaker,'sent_at'=>$row->sent_at,'text'=>$text,'location'=>$location];
-            $keys[$id]=$row->message_key; $hash[]=[(int)$row->id,$row->message_key,$row->direction,$row->type,$row->sent_at,$text,$location];
+            if ($row->type==='order' && $cart===null) $complete=false;
+            $id='m'.($i+1); $item=['id'=>$id,'speaker'=>$speaker,'sent_at'=>$row->sent_at,'text'=>$text,'location'=>$location];
+            if ($cart!==null) { $item['cart']=$cart; $chars+=mb_strlen(json_encode($cart,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),'UTF-8'); }
+            $transcript[]=$item;
+            $keys[$id]=$row->message_key; $identity=[(int)$row->id,$row->message_key,$row->direction,$row->type,$row->sent_at,$text,$location];
+            if ($cart!==null) $identity[]=$cart; $hash[]=$identity;
         }
         if ($chars>self::MAX_CHARS) $complete=false;
         return ['transcript'=>$transcript,'keys'=>$keys,'hash'=>hash_hmac('sha256',PosServiceTicket::fingerprint($hash),Crypt::getKey()),'complete'=>$complete];
@@ -442,11 +667,34 @@ class WhatsAppOrderWorkflow
         return BranchCustomers::phoneKey($row->phone)===BranchCustomers::phoneKey($v['customer_phone'])
             && trim($row->name)===$v['customer_name']&&trim($row->address)===$v['address'];
     }
+    private function sameCustomerValues(object $row,array $v): bool
+    {
+        if (!$this->sameCustomer($row,$v)) return false;
+        foreach (['area'=>'area','delivery_notes'=>'delivery_notes'] as $column=>$field) {
+            if (trim((string)($row->$column??''))!==$v[$field]) return false;
+        }
+        return is_numeric($row->latitude)&&is_numeric($row->longitude)
+            && round((float)$row->latitude,7)===$v['latitude']&&round((float)$row->longitude,7)===$v['longitude'];
+    }
     private function name(string $value): string { return mb_strtolower(trim(preg_replace('/\s+/u',' ',$value)),'UTF-8'); }
     private function reviewHash(array $v,bool $hashes=true): string
     {
         unset($v['expected_revision']); if (!$hashes) unset($v['quote_hash'],$v['delivery_quote_hash']); return PosServiceTicket::fingerprint($v);
     }
+    private function debounceSeconds(): int
+    {
+        $seconds=config('whatsapp_cart.debounce_seconds',10);
+        if (!is_int($seconds)&&!(is_string($seconds)&&preg_match('/\A[0-9]{1,3}\z/',$seconds))) $seconds=10;
+        return max(0,min(120,(int)$seconds));
+    }
+    private function settledBefore(): string { return now('UTC')->subSeconds($this->debounceSeconds())->format('Y-m-d H:i:s'); }
+    private function deferDispatch(int $conversation): void
+    {
+        // Only an idle scan is ours to defer. Another analysis holder keeps its complete lease.
+        DB::table(self::SCANS)->where('conversation_id',$conversation)->whereNull('claim_nonce')
+            ->update(['next_attempt_at'=>now('UTC')->addSeconds(60),'updated_at'=>now('UTC')]);
+    }
+
     private function activationBoundary(string $name): ?int
     {
         $value=config('whatsapp_orders.'.$name);
@@ -509,11 +757,6 @@ class WhatsAppOrderWorkflow
     {
         abort_unless(in_array($reason,self::REASONS,true),500,'INVALID_REASON');
         DB::table(self::DRAFTS)->where('id',$row->id)->whereNotIn('status',['DISPATCHED','NONE','CANCELLED'])->update(['status'=>'REVIEW','reason'=>$reason,'updated_at'=>now('UTC')]);
-    }
-    private function minor($value): ?int
-    {
-        if (!is_string($value)||!preg_match('/\A[0-9]{1,9}(?:\.[0-9]{1,2})?\z/',$value)) return null;
-        [$whole,$fraction]=array_pad(explode('.',$value),2,''); return (int)$whole*100+(int)str_pad($fraction,2,'0');
     }
     private function uuid(): string
     {

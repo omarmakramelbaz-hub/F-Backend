@@ -53,6 +53,28 @@
                     + ' · ' + date.toLocaleTimeString(document.documentElement.lang || 'ar', {hour: '2-digit', minute: '2-digit'});
         }
         function typeText(type) { return (labels.types || {})[type] || (labels.types || {}).other || ''; }
+        function cartNode(cart) {
+            if (!cart || typeof cart !== 'object' || !Array.isArray(cart.product_items)
+                || !cart.product_items.length || cart.product_items.length > 30
+                || typeof cart.total_price !== 'string' || typeof cart.currency !== 'string') return null;
+            var section = node('section', 'wa-inbox-cart');
+            section.appendChild(node('strong', 'wa-inbox-cart-title', labels.cart_title || typeText('order')));
+            var list = node('ul', 'wa-inbox-cart-items');
+            cart.product_items.forEach(function (line) {
+                var item = node('li', 'wa-inbox-cart-item');
+                var product = typeof line.name === 'string' && line.name ? line.name : String(line.product_retailer_id || '');
+                item.appendChild(node('span', 'wa-inbox-cart-product', (labels.cart_product || '') + ': ' + product));
+                if (typeof line.name === 'string' && line.name) item.appendChild(node('span', 'wa-inbox-cart-details', String(line.product_retailer_id || '')));
+                item.appendChild(node('span', 'wa-inbox-cart-details', (labels.cart_quantity || '') + ': ' + String(line.quantity || '')
+                    + ' · ' + (labels.cart_unit_price || '') + ': ' + String(line.item_price || '') + ' ' + String(line.currency || '')));
+                list.appendChild(item);
+            });
+            section.appendChild(list);
+            section.appendChild(node('p', 'wa-inbox-cart-total', (labels.cart_total || '') + ': ' + cart.total_price + ' ' + cart.currency));
+            section.appendChild(node('p', 'wa-inbox-cart-note', labels.cart_note || ''));
+            if (typeof cart.text === 'string' && cart.text) section.appendChild(node('p', 'wa-inbox-message-text', cart.text));
+            return section;
+        }
         function displayName(thread) { return thread.name || thread.phone || labels.customer + ' #' + thread.id; }
         function notice(text, isError) {
             alert.textContent = text || ''; alert.hidden = !text;
@@ -206,7 +228,9 @@
                 var bubble = node('article', 'wa-inbox-bubble');
                 bubble.appendChild(node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : labels.customer));
                 if (message.type !== 'text') bubble.appendChild(node('span', 'wa-inbox-message-type', typeText(message.type)));
-                bubble.appendChild(node('p', 'wa-inbox-message-text', message.unavailable ? labels.message_unavailable
+                var cart = !message.unavailable && message.type === 'order' ? cartNode(message.cart) : null;
+                if (cart) bubble.appendChild(cart);
+                else bubble.appendChild(node('p', 'wa-inbox-message-text', message.unavailable ? labels.message_unavailable
                     : (message.text || typeText(message.type))));
                 var timestamp = message.sent_at || message.received_at;
                 var time = node('time', '', dateText(timestamp, true)); if (timestamp) time.dateTime = timestamp;

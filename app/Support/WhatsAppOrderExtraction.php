@@ -19,6 +19,7 @@ final class WhatsAppOrderExtraction
         'AMBIGUOUS_CONFIRMATION', 'UNCONFIRMED', 'UNSUPPORTED_MESSAGE',
         'CONTEXT_INCOMPLETE', 'CONFLICTING_DETAILS', 'PRICE_ESTIMATE_ONLY',
         'LOCATION_REQUIRED', 'PROMPT_INJECTION',
+        'CART_ITEM_MAPPING_REQUIRED',
     ];
     private const QUANTITY_PATTERN = '/\A(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,3})?\z/';
     private const MONEY_PATTERN = '/\A(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?\z/';
@@ -43,6 +44,10 @@ final class WhatsAppOrderExtraction
                     'pattern' => '^(?:0|[1-9][0-9]{0,5})(?:\\.[0-9]{1,3})?$'],
                 'quantity_mode' => ['type' => 'string', 'enum' => ['piece', 'weight', 'unknown']],
                 'option_hint' => $nullable(200),
+                'cart_reference' => ['anyOf' => [self::object([
+                    'message_id' => ['type' => 'string', 'enum' => $labels],
+                    'product_retailer_id' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200],
+                ]), ['type' => 'null']]],
             ])],
             'approximate_total' => ['type' => ['string', 'null'],
                 'pattern' => '^(?:0|[1-9][0-9]{0,7})(?:\\.[0-9]{1,2})?$'],
@@ -88,7 +93,8 @@ final class WhatsAppOrderExtraction
         $characters = 0;
         $previous = null;
         foreach ($transcript as $row) {
-            if (!is_array($row) || !self::keys($row, ['id', 'speaker', 'sent_at', 'text', 'location'])
+            if (!is_array($row) || (!self::keys($row, ['id', 'speaker', 'sent_at', 'text', 'location'])
+                    && !self::keys($row, ['id', 'speaker', 'sent_at', 'text', 'location', 'cart']))
                 || !is_string($row['id']) || !preg_match('/\Am(?:[1-9]|[1-5][0-9]|60)\z/', $row['id'])
                 || isset($ids[$row['id']]) || !in_array($row['speaker'], ['customer', 'business'], true)
                 || !is_string($row['sent_at']) || !self::date($row['sent_at'])
@@ -103,9 +109,14 @@ final class WhatsAppOrderExtraction
                     return self::result(false, 'INVALID_INPUT');
                 }
             }
+            if (($row['cart'] ?? null) !== null && ($row['speaker'] !== 'customer'
+                || WhatsAppInboxProtocol::normalizedCart($row['cart']) === null)) {
+                return self::result(false, 'INVALID_INPUT');
+            }
             $ids[$row['id']] = true;
             $previous = $row['sent_at'];
             $characters += $row['text'] === null ? 0 : self::length($row['text']);
+            if (($row['cart'] ?? null) !== null) $characters += self::length(json_encode($row['cart'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
             if ($characters > self::MAX_INPUT_CHARACTERS) {
                 return self::result(false, 'INPUT_TOO_LARGE');
             }
@@ -116,11 +127,32 @@ final class WhatsAppOrderExtraction
     public static function hasProbe(array $transcript): bool
     {
         foreach ($transcript as $row) {
-            if (is_string($row['text'] ?? null) && preg_match('/\bWA-[0-9]{4}\b/i', $row['text'])) {
+            if (preg_match('/\bWA-[0-9]{4}\b/i', self::rowText($row))) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** The automatic cutover must use real commitment, never a recent name/address-only row. */
+    public static function committingRequestIds(array $data, array $transcript): array
+    {
+        $checked = self::validate($data, $transcript);
+        if (!$checked['ok'] || ($checked['data']['decision'] ?? null) !== 'CONFIRMED') return [];
+        $rows = array_column($transcript, null, 'id');
+        $summary = max(array_map(static fn ($id) => $rows[$id]['sent_at'], $data['evidence']['confirmation_ids']));
+        $ids = [];
+        foreach ($data['evidence']['request_ids'] as $id) {
+            $row = $rows[$id];
+            if (strcmp($row['sent_at'], $summary) < 0
+                && (self::commitment(self::rowText($row)) || ($row['cart'] ?? null) !== null)) $ids[] = $id;
+        }
+        foreach ($data['evidence']['customer_acceptance_ids'] as $id) {
+            $row = $rows[$id]; $text = self::rowText($row);
+            if (strcmp($row['sent_at'], $summary) > 0 && !self::instruction($text)
+                && preg_match('/(?:تمام|موافق|أ[ك]?كد|اكد|أكد|اتفقنا|تأكيد|yes|confirm|\bok(?:ay)?\b)/iu', $text)) $ids[] = $id;
+        }
+        return array_values(array_unique($ids));
     }
 
     public static function validate(array $data, array $transcript): array
@@ -161,7 +193,8 @@ final class WhatsAppOrderExtraction
             return self::result(false, 'INVALID_EXTRACTION');
         }
         foreach ($data['items'] as $item) {
-            if (!is_array($item) || !self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint'])
+            if (!is_array($item) || (!self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint'])
+                    && !self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint', 'cart_reference']))
                 || !self::string($item['name'], 200) || !self::decimal($item['quantity'], self::QUANTITY_PATTERN, true)
                 || !in_array($item['quantity_mode'], ['piece', 'weight', 'unknown'], true)
                 || !self::nullableString($item['option_hint'], 200)) {
@@ -178,11 +211,28 @@ final class WhatsAppOrderExtraction
             $seen = [];
             foreach ($ids as $id) {
                 if (!is_string($id) || !isset($rows[$id]) || isset($seen[$id])
-                    || $rows[$id]['speaker'] !== $speaker || !self::string($rows[$id]['text'], self::MAX_INPUT_CHARACTERS)) {
+                    || $rows[$id]['speaker'] !== $speaker
+                    || (!self::string(self::rowText($rows[$id]), self::MAX_INPUT_CHARACTERS)
+                        && !($field === 'request_ids' && ($rows[$id]['cart'] ?? null) !== null))) {
                     return self::result(false, 'INVALID_EVIDENCE');
                 }
                 $seen[$id] = true;
             }
+        }
+        $cartReferences = [];
+        foreach ($data['items'] as $item) {
+            $ref = $item['cart_reference'] ?? null;
+            if ($ref === null) continue;
+            if (!is_array($ref) || !self::keys($ref, ['message_id', 'product_retailer_id'])
+                || !is_string($ref['message_id']) || !is_string($ref['product_retailer_id'])
+                || !in_array($ref['message_id'], $data['evidence']['request_ids'], true)
+                || !isset($rows[$ref['message_id']]) || ($rows[$ref['message_id']]['cart'] ?? null) === null) {
+                return self::result(false, 'INVALID_EVIDENCE');
+            }
+            $line = self::cartLine($rows[$ref['message_id']]['cart'], $ref['product_retailer_id']);
+            $key = $ref['message_id'] . ':' . $ref['product_retailer_id'];
+            if ($line === null || isset($cartReferences[$key])) return self::result(false, 'INVALID_EVIDENCE');
+            $cartReferences[$key] = true;
         }
         $locationId = $data['evidence']['location_id'];
         if ($locationId !== null && (!is_string($locationId) || !isset($rows[$locationId])
@@ -190,7 +240,7 @@ final class WhatsAppOrderExtraction
             return self::result(false, 'INVALID_EVIDENCE');
         }
         $evidenceIds = array_merge($data['evidence']['request_ids'], $data['evidence']['confirmation_ids']);
-        $texts = array_map(static fn ($id) => $rows[$id]['text'], $evidenceIds);
+        $texts = array_map(static fn ($id) => self::rowText($rows[$id]), $evidenceIds);
         foreach (['name', 'address', 'area', 'notes'] as $field) {
             if ($data['customer'][$field] !== null && !self::backed($data['customer'][$field], $texts)) {
                 return self::result(false, 'INVALID_EVIDENCE');
@@ -212,7 +262,7 @@ final class WhatsAppOrderExtraction
                 return self::result(false, 'INVALID_EVIDENCE');
             }
         }
-        $confirmationTexts = array_map(static fn ($id) => $rows[$id]['text'], $data['evidence']['confirmation_ids']);
+        $confirmationTexts = array_map(static fn ($id) => self::rowText($rows[$id]), $data['evidence']['confirmation_ids']);
         if ($data['approximate_total'] !== null && !self::priceBacked($data['approximate_total'], $confirmationTexts)) {
             return self::result(false, 'INVALID_EVIDENCE');
         }
@@ -253,36 +303,60 @@ final class WhatsAppOrderExtraction
         }
         $committingRequest = null;
         $requestTexts = [];
+        $cartRows = [];
         foreach ($data['evidence']['request_ids'] as $id) {
-            if (self::instruction($rows[$id]['text']) || self::negatedRequest($rows[$id]['text'])) {
+            $requestText = self::rowText($rows[$id]);
+            if (self::instruction($requestText) || self::negatedRequest($requestText)) {
                 return false;
             }
             if (strcmp($rows[$id]['sent_at'], $summary) >= 0) {
                 return false;
             }
-            $requestTexts[] = $rows[$id]['text'];
-            if (self::commitment($rows[$id]['text']) && strcmp($rows[$id]['sent_at'], $summary) < 0
+            $requestTexts[] = $requestText;
+            if (($rows[$id]['cart'] ?? null) !== null) $cartRows[$id] = $rows[$id]['cart'];
+            if ((self::commitment($requestText) || ($rows[$id]['cart'] ?? null) !== null) && strcmp($rows[$id]['sent_at'], $summary) < 0
                 && ($committingRequest === null || strcmp($rows[$id]['sent_at'], $committingRequest) > 0)) {
                 $committingRequest = $rows[$id]['sent_at'];
             }
         }
+        $accounted = [];
         foreach ($data['items'] as $item) {
-            if (!self::backed($item['name'], $requestTexts) || !self::backed($item['name'], $summaryTexts)) {
+            $ref = $item['cart_reference'] ?? null;
+            $cartBacked = $ref !== null && isset($cartRows[$ref['message_id']])
+                && self::cartLine($cartRows[$ref['message_id']], $ref['product_retailer_id']) !== null;
+            if ((!$cartBacked && !self::backed($item['name'], $requestTexts)) || !self::backed($item['name'], $summaryTexts)) {
                 return false;
             }
-            if ($item['quantity'] !== null && (!self::quantityBacked($item, $data['items'], $requestTexts)
+            if ($item['option_hint'] !== null && (!self::optionBacked($item, $data['items'], $summaryTexts)
+                || (!$cartBacked && !self::optionBacked($item, $data['items'], $requestTexts)))) return false;
+            if ($item['quantity'] !== null && ((!$cartBacked && !self::quantityBacked($item, $data['items'], $requestTexts))
                 || !self::quantityBacked($item, $data['items'], $summaryTexts))) {
                 return false;
             }
+            if ($cartBacked) $accounted[$ref['message_id']][$ref['product_retailer_id']] = true;
         }
+        if ($data['customer']['phone'] !== null && !self::summaryPhoneConsistent($data['customer']['phone'], $summaryTexts)) return false;
+        foreach ($cartRows as $id => $cart) foreach ($cart['product_items'] as $line) {
+            if (!isset($accounted[$id][$line['product_retailer_id']])) return false;
+        }
+        // One submitted cart per order; repeated/changed carts need a fresh matching summary.
+        if (count($cartRows) > 1) return false;
+        $positions = array_flip(array_keys($rows));
+        $cartPosition = $cartRows ? $positions[array_key_first($cartRows)] : null;
+        $finalPosition = max(array_map(static fn ($id) => $positions[$id], $data['evidence']['confirmation_ids']));
         foreach ($rows as $row) {
+            if ($row['speaker'] === 'business' && $positions[$row['id']] > $finalPosition
+                && self::pendingHandoff($row['text'] ?? '')) return false;
+            if ($row['speaker'] === 'customer' && ($row['cart'] ?? null) !== null
+                && $cartPosition !== null && $positions[$row['id']] > $cartPosition) return false;
             if ($row['speaker'] === 'business' && strcmp($row['sent_at'], $summary) > 0
                 && self::negativeSummary($row['text'] ?? '')) {
                 return false;
             }
             if ($row['speaker'] === 'customer' && strcmp($row['sent_at'], $committingRequest ?? $summary) > 0
                 && (self::negatedRequest($row['text'] ?? '')
-                    || preg_match('/(?:بدل|بدّل|غيّر|غير الطلب|\b(?:change|instead)\b)/iu', $row['text'] ?? ''))) {
+                    || preg_match('/(?:بدل|بدّل|غيّر|غير الطلب|\b(?:change|instead)\b)/iu', $row['text'] ?? '')
+                    || ($row['cart'] ?? null) !== null)) {
                 return false;
             }
         }
@@ -305,7 +379,7 @@ final class WhatsAppOrderExtraction
         $summaries = 0;
         foreach ($rows as $row) {
             $text = $row['text'] ?? '';
-            if ($row['speaker'] === 'customer' && self::commitment($text) && !self::instruction($text)) {
+            if ($row['speaker'] === 'customer' && (self::commitment($text) || ($row['cart'] ?? null) !== null) && !self::instruction($text)) {
                 $pendingRequest = true;
             }
             if ($row['speaker'] === 'business' && $pendingRequest
@@ -316,6 +390,17 @@ final class WhatsAppOrderExtraction
             }
         }
         return $summaries > 1;
+    }
+
+    private static function rowText(array $row): string
+    {
+        return implode("\n", array_filter([$row['text'] ?? null, $row['cart']['text'] ?? null], 'is_string'));
+    }
+
+    private static function cartLine(array $cart, string $retailer): ?array
+    {
+        foreach ($cart['product_items'] as $line) if ($line['product_retailer_id'] === $retailer) return $line;
+        return null;
     }
 
     private static function commitment(string $text): bool
@@ -346,9 +431,20 @@ final class WhatsAppOrderExtraction
 
     private static function negativeSummary(string $text): bool
     {
-        return preg_match('/(?:إلغ|الغ|لغي|اتلغ|ملغ|(?:^|\s)(?:لم|لن|لا|مش|لسه|لو|إذا|اذا|لما)\s).{0,70}(?:طلب|أوردر|اوردر|تأك|تاك|أكّد|اكد|نأكد|اتأكد)|'
+        return self::pendingHandoff($text) || preg_match('/(?:إلغ|الغ|لغي|اتلغ|ملغ|(?:^|\s)(?:لم|لن|لا|مش|لسه|لو|إذا|اذا|لما)\s).{0,70}(?:طلب|أوردر|اوردر|تأك|تاك|أكّد|اكد|نأكد|اتأكد)|'
             . '(?:طلب|أوردر|اوردر).{0,40}(?:إلغ|الغ|لغي|اتلغ|ملغ)|'
             . '\b(?:not\s+confirmed|unconfirmed|cancelled|canceled|if|unless|pending)\b/iu', $text) === 1;
+    }
+
+    /** A transfer for future verification is not a final order, even under a confirmation heading. */
+    private static function pendingHandoff(string $text): bool
+    {
+        return preg_match('/\b(?:we|they|our\s+team|the\s+team|team)\s*(?:will|[’\x27]ll)\s+'
+            . '(?:verify|review|check|confirm)\b.{0,100}\b(?:order|details|information|it)\b|'
+            . '\b(?:connected|transferred|passed|forwarded)\b.{0,80}\b(?:team|staff|colleague)\b'
+            . '.{0,80}\bto\s+(?:verify|review|check|confirm)\b.{0,80}\b(?:order|details|it)\b|'
+            . '(?:إرسال|ارسال|تحويل|إحالة|احالة).{0,80}(?:طلب|أوردر|اوردر).{0,80}'
+            . '(?:فريق|موظف|زميل).{0,80}(?:لمراجع|للمراجع|للتحقق|لتأكيد|للتأكيد|للتاكيد|وتأكيد)/ius', $text) === 1;
     }
 
     private static function instruction(string $text): bool
@@ -432,12 +528,118 @@ final class WhatsAppOrderExtraction
         foreach ($texts as $text) {
             preg_match_all('/(?<![0-9])\+?[0-9](?:[ .()\-]?[0-9]){7,14}(?![0-9])/', self::asciiDigits($text), $matches);
             foreach ($matches[0] as $candidate) {
-                if (self::digits($candidate) === $phone) {
+                if (self::canonicalPhone(self::digits($candidate)) === self::canonicalPhone($phone)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    private static function canonicalPhone(string $phone): string
+    {
+        if (preg_match('/\A00201[0125][0-9]{8}\z/', $phone)) $phone = substr($phone, 2);
+        return preg_match('/\A01[0125][0-9]{8}\z/', $phone) ? '20' . substr($phone, 1) : $phone;
+    }
+
+    /** A final explicit callback cannot be replaced by an older customer number. */
+    private static function summaryPhoneConsistent(string $phone, array $texts): bool
+    {
+        $wanted = self::canonicalPhone(self::digits($phone));
+        foreach ($texts as $text) {
+            $text = self::asciiDigits($text);
+            preg_match_all('/(?<![0-9])\+?[0-9](?:[ .()\-]?[0-9]){7,14}(?![0-9])/', $text, $matches, PREG_OFFSET_CAPTURE);
+            foreach ($matches[0] as [$candidate, $offset]) {
+                $digits = self::digits($candidate); $canonical = self::canonicalPhone($digits);
+                $prefix = substr($text, max(0, $offset - 100), min(100, $offset));
+                $explicit = preg_match('/(?:رقم(?:\s+(?:الهاتف|هاتف|التليفون|تليفون|الموبايل|موبايل|التواصل|العميل))?|رقمي|'
+                    . 'هاتف|موبايل|phone|mobile|telephone|callback|contact\s+number)\s*[:：\-]?\s*\z/iu', $prefix) === 1;
+                if (($explicit || preg_match('/\A201[0125][0-9]{8}\z/', $canonical)) && $canonical !== $wanted) return false;
+            }
+        }
+        return true;
+    }
+
+    /** Unique product clauses are shared by quantity and option provenance checks. */
+    private static function itemClauses(array $item, array $items, array $texts): array
+    {
+        $result = [];
+        foreach ($texts as $text) {
+            $text = str_replace('٫', '.', self::asciiDigits($text));
+            $clauses = preg_split('/[\n;؛،,!?؟]+|(?<![0-9])\.(?![0-9])|\s+(?:and|&)\s+|'
+                . '\s+و(?=\s*(?:[0-9]|نص|نصف|ربع|كيلو|جرام|قطعة|علبة))/iu', $text);
+            foreach ($clauses as $clause) {
+                $clause = preg_replace('/\s+/u', ' ', trim($clause));
+                preg_match_all('/' . preg_quote($item['name'], '/') . '/iu', $clause, $names, PREG_OFFSET_CAPTURE);
+                if (!$names[0]) continue;
+                $otherItem = false;
+                foreach ($items as $other) {
+                    if ($other['name'] === $item['name']) continue;
+                    preg_match_all('/' . preg_quote($other['name'], '/') . '/iu', $clause, $others, PREG_OFFSET_CAPTURE);
+                    foreach ($others[0] as $otherName) {
+                        $withinName = false;
+                        foreach ($names[0] as $name) $withinName = $withinName || ($otherName[1] >= $name[1]
+                            && $otherName[1] + strlen($otherName[0]) <= $name[1] + strlen($name[0]));
+                        if (!$withinName) $otherItem = true;
+                    }
+                }
+                $result[] = ['text' => $clause, 'names' => $names[0], 'shared' => $otherItem];
+            }
+        }
+        return $result;
+    }
+
+    /** Exact positive live labels tied to one item; null means attribution is ambiguous. */
+    public static function optionClauseLabels(array $item, array $items, array $texts, array $liveLabels): ?array
+    {
+        if (!self::string($item['name'] ?? null, 200) || count($items) > self::MAX_ITEMS
+            || count($texts) > self::MAX_MESSAGES || count($liveLabels) > 100) return null;
+        foreach ($items as $other) if (!is_array($other) || !self::string($other['name'] ?? null, 200)) return null;
+        foreach ($texts as $text) if (!is_string($text) || strlen($text) > 65536) return null;
+        foreach ($liveLabels as $label) if (!self::string($label, 200)) return null;
+        $found = []; $declined = []; $sharedDecline = false;
+        foreach (self::itemClauses($item, $items, $texts) as $part) {
+            $hits = [];
+            foreach (array_unique($liveLabels) as $label) {
+                preg_match_all('/(?<![\p{L}\p{N}])(?:ب)?(' . preg_quote($label, '/') . ')(?![\p{L}\p{N}])/iu',
+                    $part['text'], $matches, PREG_OFFSET_CAPTURE);
+                foreach ($matches[1] as [$match, $offset]) {
+                    if (self::overlapsName($offset, strlen($match), $part['names'])) continue;
+                    $before = substr($part['text'], 0, $offset);
+                    $after = substr($part['text'], $offset + strlen($match));
+                    // A generic cleaning label is not proof of the distinct extra-cleaning choice.
+                    if ($label === 'تنظيف' && preg_match('/\A\s+(?:إضافي|اضافي)(?![\p{L}\p{N}])/u', $after)) continue;
+                    $negated = preg_match('/(?:بدون|دون|من\s+غير|غير|لا|مش|ليس|not|no|without)\s*(?:(?:أي|اي)\s+|ب)?\z/iu', $before) === 1;
+                    $hits[] = ['label' => $label, 'offset' => $offset, 'length' => strlen($match), 'negated' => $negated];
+                }
+            }
+            foreach ($hits as $hit) {
+                $contained = false;
+                foreach ($hits as $other) if ($other['length'] > $hit['length'] && $hit['offset'] >= $other['offset']
+                    && $hit['offset'] + $hit['length'] <= $other['offset'] + $other['length']) $contained = true;
+                if ($contained) continue;
+                if ($hit['negated']) {
+                    $declined[$hit['label']] = true; $sharedDecline = $sharedDecline || $part['shared']; continue;
+                }
+                if ($part['shared']) return null;
+                if (preg_match('/(?<![\p{L}\p{N}])(?:أو|او|أم|ام|or)(?![\p{L}\p{N}])/iu', $part['text'])) return null;
+                $found[$hit['label']] = true;
+            }
+        }
+        if (array_intersect_key($found, $declined) || ($found && $sharedDecline)) return null;
+        return array_keys($found);
+    }
+
+    private static function optionBacked(array $item, array $items, array $texts): bool
+    {
+        $hint = $item['option_hint'];
+        $labels = array_values(array_unique([$hint, 'تنظيف', 'تنظيف إضافي', 'تغليف مفرغ']));
+        $proof = self::optionClauseLabels($item, $items, $texts, $labels);
+        if ($proof === null || !in_array($hint, $proof, true)) return false;
+        if (in_array($hint, ['تنظيف', 'تنظيف إضافي', 'تغليف مفرغ'], true)) {
+            foreach ($proof as $label) if ($label !== $hint && in_array($label, ['تنظيف', 'تنظيف إضافي', 'تغليف مفرغ'], true)) return false;
+        }
+        return true;
     }
 
     /** A classification never proves a guessed quantity or a unit selected by the model. */
@@ -451,45 +653,11 @@ final class WhatsAppOrderExtraction
             return false;
         }
         $proofs = [];
-        foreach ($texts as $text) {
-            $text = str_replace('٫', '.', self::asciiDigits($text));
-            $clauses = preg_split('/[\n;؛،,!?؟]+|(?<![0-9])\.(?![0-9])|\s+(?:and|&)\s+|'
-                . '\s+و(?=\s*(?:[0-9]|نص|نصف|ربع|كيلو|جرام|قطعة|علبة))/iu', $text);
-            foreach ($clauses as $clause) {
-                $clause = preg_replace('/\s+/u', ' ', trim($clause));
-                preg_match_all('/' . preg_quote($item['name'], '/') . '/iu', $clause, $names, PREG_OFFSET_CAPTURE);
-                if (!$names[0]) {
-                    continue;
-                }
-                // A shared clause naming several products does not assign its amount to one product.
-                $otherItem = false;
-                foreach ($items as $other) {
-                    if ($other['name'] === $item['name']) {
-                        continue;
-                    }
-                    preg_match_all('/' . preg_quote($other['name'], '/') . '/iu', $clause, $others, PREG_OFFSET_CAPTURE);
-                    foreach ($others[0] as $otherName) {
-                        $withinName = false;
-                        foreach ($names[0] as $name) {
-                            $withinName = $withinName || ($otherName[1] >= $name[1]
-                                && $otherName[1] + strlen($otherName[0]) <= $name[1] + strlen($name[0]));
-                        }
-                        if (!$withinName) {
-                            $otherItem = true;
-                        }
-                    }
-                }
-                if ($otherItem) {
-                    continue;
-                }
-                $amounts = self::clauseAmounts($clause, $names[0]);
-                if (count($amounts) > 1) {
-                    return false;
-                }
-                if (count($amounts) === 1) {
-                    $proofs[] = $amounts[0];
-                }
-            }
+        foreach (self::itemClauses($item, $items, $texts) as $part) {
+            if ($part['shared']) continue;
+            $amounts = self::clauseAmounts($part['text'], $part['names']);
+            if (count($amounts) > 1) return false;
+            if (count($amounts) === 1) $proofs[] = $amounts[0];
         }
         if (!$proofs) {
             return false;

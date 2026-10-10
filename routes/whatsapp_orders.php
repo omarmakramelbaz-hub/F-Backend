@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\Route;
 Route::group(['prefix' => 'admin/whatsapp', 'middleware' => ['lang', 'IsAdmin']], function () {
     Route::get('/orders/meta', [WhatsAppOrderController::class, 'meta'])->name('whatsapp-orders.meta');
     Route::get('/orders/catalog', [WhatsAppOrderController::class, 'catalog'])->name('whatsapp-orders.catalog');
+    Route::get('/orders/customers', [WhatsAppOrderController::class, 'customers'])->name('whatsapp-orders.customers');
+    Route::get('/orders/delivery-settings', [WhatsAppOrderController::class, 'deliverySettings'])->name('whatsapp-orders.delivery-settings');
+    Route::get('/orders/address-suggestions', [WhatsAppOrderController::class, 'addressSuggestions'])->name('whatsapp-orders.address-suggestions');
+    Route::post('/orders/delivery-quote', [WhatsAppOrderController::class, 'deliveryQuote'])->name('whatsapp-orders.delivery-quote');
     Route::get('/conversations/{conversation}/orders', [WhatsAppOrderController::class, 'state'])
         ->whereNumber('conversation')->name('whatsapp-orders.state');
     Route::post('/conversations/{conversation}/orders/analyze', [WhatsAppOrderController::class, 'analyze'])

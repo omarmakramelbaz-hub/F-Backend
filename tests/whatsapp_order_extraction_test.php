@@ -1,5 +1,6 @@
 <?php
 
+require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 
@@ -78,6 +79,41 @@ try {
     $data = orderData();
     orderSchema(Extraction::schema());
     orderExpect(Extraction::validate($data, $rows)['ok'], true, 'grounded confirmed classification');
+    $changedOption = $rows; $changedOption[1]['text'] = str_replace('بدون شطة', 'بشطة', $changedOption[1]['text']);
+    orderExpect(Extraction::validate($data, $changedOption)['reason'], 'INVALID_EVIDENCE', 'requested option cannot override different option in final business summary');
+    $missingOption = $rows; $missingOption[1]['text'] = str_replace('بدون شطة', '', $missingOption[1]['text']);
+    orderExpect(Extraction::validate($data, $missingOption)['reason'], 'INVALID_EVIDENCE', 'confirmed item option must be grounded in final summary');
+    orderExpect(Extraction::validate($data, $rows)['ok'], true, 'matching requested and final option remains confirmed');
+    $cleanData = $data; $cleanData['items'][0]['option_hint'] = 'تنظيف'; $cleanData['customer']['notes'] = null;
+    $cleanRows = $rows;
+    $cleanRows[0]['text'] = str_replace('بدون شطة', 'مع تنظيف', $cleanRows[0]['text']);
+    $cleanRows[1]['text'] = str_replace('بدون شطة', 'مع تنظيف', $cleanRows[1]['text']);
+    orderExpect(Extraction::validate($cleanData, $cleanRows)['ok'], true, 'matching cleaning option is grounded for same product');
+    foreach (['بدون تنظيف', 'بدون أي تنظيف', 'مش بتنظيف', 'تنظيف إضافي', 'تغليف مفرغ'] as $finalChoice) {
+        $wrongChoice = $cleanRows; $wrongChoice[1]['text'] = str_replace('مع تنظيف', $finalChoice, $wrongChoice[1]['text']);
+        orderExpect(Extraction::validate($cleanData, $wrongChoice)['reason'], 'INVALID_EVIDENCE', 'negated or different cleaning choice cannot prove generic cleaning');
+    }
+    $otherChoice = $cleanRows; $otherChoice[1]['text'] = str_replace('مع تنظيف', '', $otherChoice[1]['text']) . '؛ نصف كيلو رنجة مع تنظيف';
+    $otherData = $cleanData; $otherData['items'][] = ['name' => 'رنجة', 'quantity' => '0.5', 'quantity_mode' => 'weight', 'option_hint' => null];
+    $otherChoice[0]['text'] .= '؛ عايز نصف كيلو رنجة';
+    orderExpect(Extraction::validate($otherData, $otherChoice)['reason'], 'INVALID_EVIDENCE', 'cleaning on another product cannot confirm first product choice');
+    $liveChoices = ['تنظيف', 'تنظيف إضافي', 'تغليف مفرغ'];
+    orderExpect(Extraction::optionClauseLabels($cleanData['items'][0], $cleanData['items'], ['نصف كيلو فسيخ مع تنظيف إضافي'], $liveChoices), ['تنظيف إضافي'], 'longest live cleaning label avoids generic substring choice');
+    orderExpect(Extraction::optionClauseLabels($cleanData['items'][0], $cleanData['items'], ['نصف كيلو فسيخ بدون تنظيف'], $liveChoices), [], 'negative cleaning clause means no positive add-on');
+    orderExpect(Extraction::optionClauseLabels($cleanData['items'][0], $otherData['items'], ['نصف كيلو فسيخ ورنجة مع تنظيف'], $liveChoices), null, 'shared product option clause stays ambiguous');
+    orderExpect(Extraction::optionClauseLabels($cleanData['items'][0], $cleanData['items'], ['نصف كيلو فسيخ تنظيف إضافي أو بدون تنظيف'], $liveChoices), null, 'alternative option choices are not a selected live add-on');
+    orderExpect(Extraction::optionClauseLabels($cleanData['items'][0], $cleanData['items'], ['نصف كيلو فسيخ مع تنظيف', 'نصف كيلو فسيخ بدون تنظيف'], $liveChoices), null, 'positive and negated same-product final choices conflict rather than selecting old option');
+    $finalPhone = $rows; $finalPhone[1]['text'] .= ' رقم الهاتف: +201000000002';
+    orderExpect(Extraction::validate($data, $finalPhone)['reason'], 'INVALID_EVIDENCE', 'explicit final callback cannot be replaced with old committing request phone');
+    $finalPhone[1]['text'] = $rows[1]['text'] . ' رقم الهاتف: ٠١٠٠٠٠٠٠٠٠٢';
+    orderExpect(Extraction::validate($data, $finalPhone)['reason'], 'INVALID_EVIDENCE', 'Arabic local Egyptian callback conflict rejected');
+    $finalPhone[1]['text'] = $rows[1]['text'] . ' رقم الهاتف: +٢٠١٠٠٠٠٠٠٠٠٢';
+    orderExpect(Extraction::validate($data, $finalPhone)['reason'], 'INVALID_EVIDENCE', 'Arabic international Egyptian callback conflict rejected');
+    foreach (['+201000000001', '01000000001', '٠١٠٠٠٠٠٠٠٠١'] as $samePhone) {
+        $finalPhone[1]['text'] = $rows[1]['text'] . ' رقم الهاتف: ' . $samePhone;
+        orderExpect(Extraction::validate($data, $finalPhone)['ok'], true, 'same final callback matches local and international Egyptian representations');
+    }
+    orderExpect(Extraction::validate($data, $rows)['ok'], true, 'summary without explicit phone may retain grounded customer callback');
     $native = $data;
     $native['evidence']['customer_acceptance_ids'] = ['m1'];
     orderExpect(Extraction::validate($native, array_slice($rows, 0, 2))['ok'], false, 'location must exist in same window');
@@ -229,6 +265,88 @@ try {
     $multiple[] = orderRow('m4', 'customer', 'عايز طلب آخر 0.5 كيلو فسيخ', 4);
     $multiple[] = orderRow('m5', 'business', 'تأكيد طلب آخر 0.5 كيلو فسيخ الإجمالي 450.50 جنيه', 5);
     orderExpect(Extraction::validate($data, $multiple)['reason'], 'INVALID_EVIDENCE', 'multiple independent orders require review');
+
+    $cart = \App\Support\WhatsAppInboxProtocol::cart(['catalog_id' => '1234567', 'product_items' => [
+        ['product_retailer_id' => 'SKU_FISH_HALF', 'quantity' => 1, 'item_price' => '450.50', 'currency' => 'EGP'],
+    ]]);
+    $cartRows = $rows;
+    $cartRows[0]['text'] = 'اسمي عميل اختبار ورقمي 201000000001 وعنواني شارع الاختبار في المنصورة بدون شطة.';
+    $cartRows[0]['cart'] = $cart;
+    $cartData = $data;
+    $cartData['items'][0]['cart_reference'] = ['message_id' => 'm1', 'product_retailer_id' => 'SKU_FISH_HALF'];
+    orderExpect(Extraction::validate($cartData, $cartRows)['ok'], true, 'submitted cart backs customer request while final summary proves named sale quantity');
+    $cartRows[0]['text'] = null;
+    $cartRows[1]['text'] .= ' اسمي عميل اختبار ورقمي 201000000001 وعنواني شارع الاختبار في المنصورة بدون شطة.';
+    orderExpect(Extraction::validate($cartData, $cartRows)['ok'], true, 'cart-only customer request remains structured evidence');
+    orderExpect(Extraction::committingRequestIds($cartData, $cartRows), ['m1', 'm3'], 'native cart and later explicit acceptance are real commitment evidence');
+    orderExpect(Extraction::committingRequestIds($data, $rows), ['m1', 'm3'], 'actual committing request and fresh explicit acceptance retained');
+    $followup = [
+        $rows[0], orderRow('m2', 'customer', 'اسمي عميل اختبار وعنواني شارع الاختبار في المنصورة.', 2),
+        array_replace($rows[1], ['id' => 'm3', 'sent_at' => '2026-10-09 22:00:03']),
+        array_replace($rows[2], ['id' => 'm4', 'sent_at' => '2026-10-09 22:00:04']),
+    ];
+    $followupData = $data; $followupData['evidence'] = ['request_ids' => ['m1', 'm2'],
+        'confirmation_ids' => ['m3'], 'customer_acceptance_ids' => ['m4'], 'location_id' => 'm4'];
+    orderExpect(Extraction::committingRequestIds($followupData, $followup), ['m1', 'm4'], 'new name/address followup cannot launder old order commitment while explicit acceptance retained');
+    $acceptedRows = $rows; $acceptedRows[0]['text'] = str_replace('عايز', 'بسأل عن', $acceptedRows[0]['text']);
+    orderExpect(Extraction::committingRequestIds($data, $acceptedRows), ['m3'], 'explicit customer acceptance after summary can commit when no earlier committing request');
+    $invalidCommit = $data; $invalidCommit['evidence']['request_ids'] = ['m60'];
+    orderExpect(Extraction::committingRequestIds($invalidCommit, $rows), [], 'invalid extraction yields no commitment evidence');
+    orderExpect(Extraction::committingRequestIds(Extraction::none(), $rows), [], 'no-order result yields no automatic commitment');
+    $handoffDetails = str_replace('تأكيد طلب', 'بيانات طلب', $cartRows[1]['text']);
+    foreach ([
+        "I've connected you with our team. They'll verify your order details and confirm it.",
+        "Order confirmation:\nI've connected you with our team. They'll verify your order details and confirm it.",
+        "Order confirmation:\nI've connected you with our team. They’ll verify your order details and confirm it.",
+        "Order confirmation:\nI've transferred you to our team to review your order and confirm it.",
+        'تم إرسال طلبك للفريق لمراجعته وتأكيده',
+        'تأكيد الطلب: تم إرسال طلبك للفريق لمراجعته وتأكيده',
+    ] as $handoff) {
+        $pendingCart = $cartRows; $pendingCart[1]['text'] = $handoffDetails . "\n" . $handoff;
+        orderExpect(Extraction::validate($cartData, $pendingCart)['reason'], 'INVALID_EVIDENCE', 'future team verification cannot confirm submitted cart even under confirmation heading');
+    }
+    $handoffAfter = $cartRows;
+    $handoffAfter[] = orderRow('m4', 'business', "I've connected you with our team. They'll verify your order details and confirm it.", 4);
+    orderExpect(Extraction::validate($cartData, $handoffAfter)['reason'], 'INVALID_EVIDENCE', 'later pending handoff blocks reuse of old final cart summary');
+    $handoffTied = $cartRows;
+    $handoffTied[2] = orderRow('m3', 'business', "Our team will verify your order and confirm it.", 2);
+    $handoffTied[] = orderRow('m4', 'customer', 'تمام موافق', 3, ['lat' => 30.1, 'long' => 31.2]);
+    $handoffTiedData = $cartData; $handoffTiedData['evidence']['customer_acceptance_ids'] = ['m4']; $handoffTiedData['evidence']['location_id'] = 'm4';
+    orderExpect(Extraction::validate($handoffTiedData, $handoffTied)['reason'], 'INVALID_EVIDENCE', 'pending handoff in same second does not reuse preceding summary');
+    $preparation = $cartRows; $preparation[1]['text'] .= ' تم إرسال طلبك للفريق لتجهيزه.';
+    orderExpect(Extraction::validate($cartData, $preparation)['ok'], true, 'confirmed order sent for preparation remains final');
+    $preparation[1]['text'] .= ' Our team will prepare your order.';
+    orderExpect(Extraction::validate($cartData, $preparation)['ok'], true, 'future preparation alone is not future confirmation');
+    $wrongCart = $cartData; $wrongCart['items'][0]['cart_reference']['product_retailer_id'] = 'UNKNOWN';
+    orderExpect(Extraction::validate($wrongCart, $cartRows)['reason'], 'INVALID_EVIDENCE', 'fabricated cart line cannot ground request');
+    $wrongCart = $cartData; $wrongCart['items'][0]['cart_reference']['message_id'] = 'm2';
+    orderExpect(Extraction::validate($wrongCart, $cartRows)['reason'], 'INVALID_EVIDENCE', 'business cannot supply customer cart request');
+    $cartMore = $cartRows; $extra = $cart['product_items'][0]; $extra['product_retailer_id'] = 'SKU_OMITTED';
+    $cartMore[0]['cart'] = \App\Support\WhatsAppInboxProtocol::cart(['catalog_id' => '1234567', 'product_items' => [$cart['product_items'][0], $extra]]);
+    orderExpect(Extraction::validate($cartData, $cartMore)['reason'], 'INVALID_EVIDENCE', 'partial cart extraction never confirms omitted line');
+    $cartLate = $cartRows; $cartLate[] = orderRow('m4', 'customer', 'Updated cart', 4); $cartLate[3]['cart'] = $cart;
+    orderExpect(Extraction::validate($cartData, $cartLate)['reason'], 'INVALID_EVIDENCE', 'later submitted cart invalidates prior summary');
+    $cartTied = $cartRows; $cartTied[] = orderRow('m4', 'customer', 'Changed cart', 3); $cartTied[3]['cart'] = $cart;
+    orderExpect(Extraction::validate($cartData, $cartTied)['reason'], 'INVALID_EVIDENCE', 'changed cart in same second cannot reuse prior summary');
+    $cartWrongQty = $cartData; $cartWrongQty['items'][0]['quantity'] = '3';
+    orderExpect(Extraction::validate($cartWrongQty, $cartRows)['reason'], 'INVALID_EVIDENCE', 'cart count cannot replace business-confirmed sale quantity');
+    $cartWrongName = $cartData; $cartWrongName['items'][0]['name'] = 'SKU_FISH_HALF';
+    orderExpect(Extraction::validate($cartWrongName, $cartRows)['reason'], 'INVALID_EVIDENCE', 'retailer ID never becomes guessed product name');
+    $cartBadInput = $cartRows; $cartBadInput[0]['cart']['total_price'] = '1.00';
+    orderExpect(Extraction::validateTranscript($cartBadInput)['reason'], 'INVALID_INPUT', 'tampered cart DTO rejected before API');
+    $cartBusiness = $cartRows; $cartBusiness[1]['cart'] = $cart;
+    orderExpect(Extraction::validateTranscript($cartBusiness)['reason'], 'INVALID_INPUT', 'business cart cannot impersonate a submitted customer order');
+    $cartProbe = $cartRows; $cartProbe[0]['cart']['text'] = 'WA-7777 test';
+    orderExpect(Extraction::validate($cartData, $cartProbe)['data']['decision'], 'NONE', 'cart note test markers remain excluded');
+    $cartCalls = 0;
+    $cartProvider = new Provider(function ($body) use (&$cartCalls, $cartData, $cartRows) {
+        $cartCalls++; $request = json_decode($body, true);
+        orderExpect(json_decode($request['input'][0]['content'], true)['transcript'], $cartRows, 'provider receives bounded structured cart rather than generic message label');
+        orderExpect(strpos($request['instructions'], 'retailer ID is not a product name or ERP ID') !== false, true, 'provider receives explicit cart identity boundary');
+        return orderApi($cartData);
+    }, orderConfig());
+    orderExpect($cartProvider->extract($cartRows)['ok'], true, 'structured cart extraction supported by Responses provider');
+    orderExpect($cartCalls, 1, 'structured cart uses one bounded provider request');
 
     $badRows = $rows;
     $badRows[1]['id'] = 'm1';
