@@ -121,6 +121,8 @@ jobs:
         run: |
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
           cp -R deployment tests /tmp/whatsapp-terminal-fixtures/
+          mkdir /tmp/whatsapp-terminal-fixtures/config
+          cp config/whatsapp_cart.php /tmp/whatsapp-terminal-fixtures/config/
       - name: Verify additive order installation and rollback
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_orders_install_test.py
       - name: Verify hidden independent API credential configuration
@@ -158,7 +160,7 @@ jobs:
           echo 'f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2  /usr/local/bin/composer' | sha256sum -c -
           chmod 0755 /usr/local/bin/composer
           mkdir -p /tmp/whatsapp-inbox-test
-          composer require --working-dir=/tmp/whatsapp-inbox-test --no-interaction --no-progress illuminate/database:8.83.27 illuminate/events:8.83.27 illuminate/encryption:8.83.27 illuminate/config:8.83.27 illuminate/validation:8.83.27 symfony/http-foundation:^5.4 symfony/http-kernel:^5.4
+          composer require --working-dir=/tmp/whatsapp-inbox-test --no-interaction --no-progress illuminate/database:8.83.27 illuminate/events:8.83.27 illuminate/encryption:8.83.27 illuminate/config:8.83.27 illuminate/validation:8.83.27 illuminate/http:8.83.27 symfony/http-foundation:^5.4 symfony/http-kernel:^5.4
       - name: Verify real SQL persistence and rollback
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-inbox-test/vendor/autoload.php
