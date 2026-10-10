@@ -76,6 +76,8 @@ class DesktopDashboardReferences
             $dependencies[$row->command_id]=true;
             return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
+        if(DesktopDashboardReviewDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardReviewDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardWishlistDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardWishlistDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardMenuAvailability::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if($route==='phone-orders.finish-batch')foreach($payload['values']['items']??[] as $index=>$item){

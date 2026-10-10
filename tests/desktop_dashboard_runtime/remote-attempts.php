@@ -21,6 +21,7 @@ try{
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
     require __DIR__.'/category-order-remote.php';
     require __DIR__.'/menu-availability-remote.php';
+    require __DIR__.'/wishlist-deletion-remote.php';
     $ownRemoteNote=(string)Str::uuid();$foreignRemoteNote=(string)Str::uuid();
     foreach([$ownRemoteNote=>1,$foreignRemoteNote=>20] as $note=>$actor)DB::table('notifications')->insert(['id'=>$note,'type'=>'FixtureNotification','notifiable_type'=>\App\Models\User::class,
         'notifiable_id'=>$actor,'data'=>json_encode(['title'=>'إشعار نتيجة السيرفر','text'=>'نص الإشعار الأصلي']),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -210,6 +211,7 @@ try{
     $currentRole->givePermissionTo('contract-delete');app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     verify($decide(['id'=>(string)Str::uuid(),'method'=>'DELETE','path'=>'/admin/contractsDeleteAll'])[0]===422,'the nonexistent contract bulk endpoint cannot reserve an original operation');
     require __DIR__.'/roles-remote.php';
+    require __DIR__.'/review-deletion-remote.php';
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

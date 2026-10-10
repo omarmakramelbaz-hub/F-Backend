@@ -25,7 +25,22 @@ class DesktopDashboardReconciliation
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
+            if(DesktopDashboardReviewDeletion::handles($v['route_name'])){
+                app(DesktopDashboardReviewDeletion::class)->validateReferences($v['payload']);
+                $reviewPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=app(DesktopDashboardReviewDeletion::class)->authorize($reviewPayload,$actor,$locked);
+            }
+            if(DesktopDashboardWishlistDeletion::handles($v['route_name'])){
+                app(DesktopDashboardWishlistDeletion::class)->validateReferences($v['payload']);
+                $wishlistPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=app(DesktopDashboardWishlistDeletion::class)->authorize($wishlistPayload,$actor,$locked);
+            }
             if(DesktopDashboardRoleFacts::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorizeRoleRoute($v['route_name'],$actor);
+            if(DesktopDashboardGoStoreProfile::handles($v['route_name'])){
+                $adapter=app(DesktopDashboardGoStoreProfile::class);$adapter->validateReferences($v['payload']);
+                $storePayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($storePayload['parameters']??[],$actor);$adapter->enrolledBranch($locked,$storePayload['parameters']);
+            }
             if(DesktopDashboardMenuAvailability::handles($v['route_name'])){
                 app(DesktopDashboardMenuAvailability::class)->validateReferences($v['payload']);
                 $menuPayload=$this->references->resolve($device->id,$v['payload']);
@@ -35,8 +50,8 @@ class DesktopDashboardReconciliation
             $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor){
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
-                if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor);
-                elseif(!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
+                elseif(!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
                     $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();

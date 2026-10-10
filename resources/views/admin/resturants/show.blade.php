@@ -85,7 +85,7 @@
                                     <div class="col-sm-6">
                                         <div class="form-group">
                                             <label> @lang('main.created_at')</label>
-                                            <span>{{$resturant->created_at->diffForHumans()}}</span>
+                                            <span>{{$resturant->created_at?->diffForHumans() ?? '—'}}</span>
                                         </div>
                                     </div>
                                     
@@ -186,7 +186,7 @@
                                                         @endif
                                                     </td>
                                                     <td>
-                                                        {{$item->created_at->diffForHumans()}}
+                                                        {{$item->created_at?->diffForHumans() ?? '—'}}
                                                     </td>
                                                     <td width="250px">
                                                             <button class="edit-item btn btn-warning p-1 clickeditbtn" type="submit" 
@@ -240,7 +240,7 @@
                                                         {{$review->rate}} <i style="color:#ffda21;" class="fa fa-star"></i>  {{ __('main.review_'.$review->rate) }}
                                                     </td>
                                                     <td>
-                                                        {{$review->created_at->diffForHumans()}}
+                                                        {{$review->created_at?->diffForHumans() ?? '—'}}
                                                     </td>
                                                     <td>
                                                         {!! \App\Support\NativeDeleteForm::open([

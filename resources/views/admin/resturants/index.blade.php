@@ -141,7 +141,7 @@
                                                 </td>
                                                 @endif
                                                 <td>
-                                                    {{$resturant->created_at->diffForHumans()}}
+                                                    {{$resturant->created_at?->diffForHumans() ?? '—'}}
                                                 </td>
                                                 
                                                 <td width="250px">

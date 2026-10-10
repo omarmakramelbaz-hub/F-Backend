@@ -92,9 +92,48 @@ jobs:
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
             }
+            $reviewProofDirectory = "$env:RUNNER_TEMP/review-delete-browser"
+            New-Item -ItemType Directory -Path $reviewProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/review-deletion-browser-http.php "$bundle/application" $port $reviewProofDirectory 2>&1 | Tee-Object -Variable reviewProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($reviewProofOutput -join "`n") -match '(?m)^ORIGINAL_REVIEW_BROWSER_COMPLETE ')) { throw 'Original Review Edge fixture did not complete.' }
+            $reviewReceipt = Get-Content "$reviewProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if (!$reviewReceipt.completed -or !$reviewReceipt.verifiedImport -or !$reviewReceipt.privateDatabasesDropped -or !$reviewReceipt.httpStopped -or !$reviewReceipt.browserStopped -or $reviewReceipt.sourceRevision -ne $env:GITHUB_SHA -or $reviewReceipt.importedSnapshotTables -ne 106 -or $reviewReceipt.checks -ne 7 -or $reviewReceipt.browserExitCode -ne 0 -or $reviewReceipt.browserProof.browser -ne 'Windows Edge' -or $reviewReceipt.browserProof.newPageErrors -ne 0 -or !$reviewReceipt.browserProof.committedResponseLost -or !$reviewReceipt.browserProof.originalFormRetrySameUuid) { throw 'Original Review Edge receipt does not match this complete source-bound fixture.' }
+            $wishlistProofDirectory = "$env:RUNNER_TEMP/wishlist-delete-browser"
+            New-Item -ItemType Directory -Path $wishlistProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/wishlist-deletion-browser-http.php "$bundle/application" $port $wishlistProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable wishlistProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($wishlistProofOutput -join "`n") -match '(?m)^ORIGINAL_WISHLIST_BROWSER_COMPLETE ')) { throw 'Original Wishlist Edge fixture did not complete.' }
+            $wishlistReceipt = Get-Content "$wishlistProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if (!$wishlistReceipt.completed -or !$wishlistReceipt.verifiedImport -or !$wishlistReceipt.privateDatabasesDropped -or !$wishlistReceipt.httpStopped -or !$wishlistReceipt.browserStopped -or !$wishlistReceipt.sourceVerifiedAfter -or !$wishlistReceipt.vendorUnchanged -or !$wishlistReceipt.mediaPreserved -or $wishlistReceipt.sourceRevision -ne $env:GITHUB_SHA -or $wishlistReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $wishlistReceipt.importedSnapshotTables -ne 106 -or $wishlistReceipt.checks -ne 10 -or $wishlistReceipt.browserExitCode -ne 0 -or $wishlistReceipt.browserProof.browser -ne 'Windows Edge' -or $wishlistReceipt.browserProof.browserPlatform -ne 'win32' -or $wishlistReceipt.browserProof.sourceCommit -ne $env:GITHUB_SHA -or $wishlistReceipt.browserProof.fixtureRevision -ne $env:GITHUB_SHA -or $wishlistReceipt.browserProof.newPageErrors -ne 0 -or !$wishlistReceipt.browserProof.committedResponseLost -or !$wishlistReceipt.browserProof.originalFormRetrySameUuid -or $wishlistReceipt.fullDashboard -ne $false) { throw 'Original Wishlist Edge receipt does not match this complete source-bound fixture.' }
+            $dateProofDirectory = "$env:RUNNER_TEMP/restaurant-date-http"
+            New-Item -ItemType Directory -Path $dateProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/restaurant-nullable-date-http.php "$bundle/application" $port $dateProofDirectory fixed 2>&1 | Tee-Object -Variable dateProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($dateProofOutput -join "`n") -match '(?m)^RESTAURANT_NULLABLE_DATE_HTTP_COMPLETE ')) { throw 'Original restaurant date HTTP fixture did not complete.' }
+            $dateReceipt = Get-Content "$dateProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if (!$dateReceipt.completed -or !$dateReceipt.databaseDropped -or $dateReceipt.mode -ne 'fixed' -or $dateReceipt.sourceRevision -ne $env:GITHUB_SHA -or $dateReceipt.schemaTables -ne 106 -or $dateReceipt.checks -ne 24) { throw 'Original restaurant date receipt does not match this source and complete fixture.' }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Retain the original Review Edge receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-review-delete-browser
+          path: ${{ runner.temp }}/review-delete-browser
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original restaurant date HTTP receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-restaurant-date-http
+          path: ${{ runner.temp }}/restaurant-date-http
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original Wishlist Edge receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-wishlist-delete-browser
+          path: ${{ runner.temp }}/wishlist-delete-browser
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify native dashboard preparation and restart recovery
         shell: pwsh
         timeout-minutes: 25

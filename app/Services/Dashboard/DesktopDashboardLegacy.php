@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\{DB,Facade,Validator};
 class DesktopDashboardLegacy
 {
     public const ROUTES=[
+        'go-stores.update'=>['model'=>User::class,'entity'=>'menu_store_owner','table'=>'go_stores','method'=>'POST','action'=>'update','parameter'=>'owner'],
         'roles.store'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'POST','action'=>'store','parameter'=>'role'],
         'roles.update'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'PUT','action'=>'update','parameter'=>'role'],
         'roles.destroy'=>['model'=>\Spatie\Permission\Models\Role::class,'entity'=>'catalog_role','table'=>'roles','method'=>'DELETE','action'=>'destroy','parameter'=>'role'],
@@ -50,8 +51,9 @@ class DesktopDashboardLegacy
     private function isBulk(array $definition): bool {return in_array($definition['action'],['deleteAll','delete_all'],true);}
     private function isSelection(array $definition): bool {return $this->isBulk($definition)||$definition['action']==='updateColumns';}
     private function selected(array $definition,array $values): array {return $this->isBulk($definition)?$values['ids']:array_column($values['order'],'id');}
-    public function authorize(User $actor): void
+    public function authorize(User $actor,?string $name=null): void
     {
+        if(DesktopDashboardGoStoreProfile::handles($name)){app(DesktopDashboardGoStoreProfile::class)->authorizeActor($actor);return;}
         // These original administration actions change shared reference data.
         abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
     }
@@ -98,6 +100,7 @@ class DesktopDashboardLegacy
     }
     private function state(array $definition,int $id,bool $missingConflict=false): array
     {
+        if($definition['table']==='go_stores')return app(DesktopDashboardGoStoreProfile::class)->state($id);
         $row=DB::table($definition['table'])->where('id',$id)->lockForUpdate()->first();
         if(!$row){
             if($missingConflict)abort(409,'أحد الأدوار المحفوظة في الدفعة لم يعد موجودًا على السيرفر؛ الحذف المحلي محفوظ للمراجعة.');
@@ -122,6 +125,7 @@ class DesktopDashboardLegacy
             abort_if(array_diff(array_keys($values),$definition['table']==='categories'?['parent']:[]),422,'حقول عملية الحذف غير مقبولة.');return;
         }
         $allowed=match($definition['table']){
+            'go_stores'=>['name','kind','address','revision','commission_rate'],
             'roles'=>['name','permission','permi'],
             'contracts'=>['added_by','template','type'],
             'features'=>['added_by','title_ar','title_en','text_ar','text_en','status'],
@@ -170,9 +174,9 @@ class DesktopDashboardLegacy
     }
     public function execute(string $name,array $payload,User $actor): array
     {
-        $this->authorize($actor);$definition=self::ROUTES[$name];$app=app();$router=$app['router'];
+        $this->authorize($actor,$name);$definition=self::ROUTES[$name];$app=app();$router=$app['router'];
         $original=$router->getRoutes()->getByName($name);abort_unless($original,409);
-        $controller=match($definition['table']){'roles'=>'RolesController','contracts'=>'ContractController','features'=>'FeatureController','areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
+        $controller=match($definition['table']){'go_stores'=>'GoStores\\StoreController','roles'=>'RolesController','contracts'=>'ContractController','features'=>'FeatureController','areas'=>'AreaController','categories'=>'CategoryController','contacts'=>'ContactController','products'=>'ProductController','question_answers'=>'QuestionAnswerController'};
         $expected='App\\Http\\Controllers\\Dashboard\\'.$controller.'@'.$definition['action'];
         abort_unless($original->getActionName()===$expected,409,'مسار الكتالوج الأصلي تغيّر.');
         abort_if(!empty($payload['files']),501);
@@ -228,6 +232,7 @@ class DesktopDashboardLegacy
     {
         $definition=self::ROUTES[$name];
         $map=match($definition['table']){
+            'go_stores'=>['user_id'=>'menu_store_owner'],
             'areas'=>['parent_id'=>'catalog_area'],'question_answers','contacts','features','contracts','roles'=>[],
             default=>['category_id'=>'catalog_category','subcategory_id'=>'catalog_category','parent_id'=>'catalog_category','product_id'=>'catalog_product'],
         };
