@@ -345,5 +345,102 @@ namespace {
     expectFlow($p['disabled']===1&&Ai::$calls===0&&DB::table('whatsapp_order_scans')->count()===0,'disabled worker no side effects');
     app('config')->set('whatsapp_orders.enabled',true);
 
+    // A later review-to-auto cutoff applies to existing scan rows and cached drafts.
+    resetFlow();$c=fixtureThread();$a=$workflow->analyze($c,$actor);
+    $historical=(array)DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first();
+    $cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0,'analyzed_ceiling'=>0]);
+    app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
+    $calls=Ai::$calls;$p=$workflow->process();
+    expectFlow($p['threads_seen']===0&&Ai::$calls===$calls,'refreshed global cutoff excludes historical thread despite old scan');
+    expectFlow((array)DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first()===$historical&&DB::table('test_tickets')->count()===0,'excluded historical draft retained without ticket');
+
+    resetFlow();$c=fixtureThread();$old=$workflow->analyze($c,$actor);
+    $historical=(array)DB::table('whatsapp_order_drafts')->where('id',$old['draft']['id'])->first();
+    $cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0]);
+    insertMessage($c,'fresh-cutover-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',4);
+    insertMessage($c,'fresh-cutover-pin','inbound','',5,['lat'=>31.04,'long'=>31.37]);
+    insertMessage($c,'fresh-cutover-confirmation','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',6);
+    app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
+    $p=$workflow->process();$fresh=DB::table('whatsapp_order_drafts')->where('status','DISPATCHED')->first();
+    expectFlow($p['dispatched']===1&&DB::table('test_tickets')->count()===1&&(int)$fresh->evidence_floor===$cutover,'complete new confirmation dispatches after cutover in existing thread');
+    expectFlow(count(Ai::$lastTranscript)===3&&$fresh->id!==$old['draft']['id']&&(array)DB::table('whatsapp_order_drafts')->where('id',$old['draft']['id'])->first()===$historical,'fresh confirmation excludes and retains earlier cached order');
+
+    resetFlow();$c=fixtureThread();$cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    insertMessage($c,'post-cutover-greeting','inbound','أهلا',4);
+    $a=$workflow->analyze($c,$actor);$q=$workflow->quote($a['draft']['id'],reviewData(),$actor);
+    $cached=(array)DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first();
+    $latest=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0,'analyzed_ceiling'=>0,
+        'claimed_ceiling'=>$latest,'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
+    app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$calls=Ai::$calls;$p=$workflow->process();
+    $fresh=DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first();
+    $scan=DB::table('whatsapp_order_scans')->where('conversation_id',$c)->first();
+    expectFlow(Ai::$calls===$calls+1&&count(Ai::$lastTranscript)===1&&Ai::$lastTranscript[0]['text']==='أهلا','stale cached extraction recomputed only from post-cutover evidence');
+    expectFlow($fresh->status==='NONE'&&(int)$fresh->evidence_floor===$cutover&&(int)$fresh->revision===(int)$cached['revision']+1,'cutoff replaces stale cached draft in place');
+    expectFlow($fresh->confirmation_key===null&&$fresh->sealed_payload===null&&$fresh->customer_command_key===$cached['customer_command_key']&&$fresh->ticket_command_key===$cached['ticket_command_key'],'reanalysis clears stale authorization and preserves command identities');
+    expectFlow((int)$scan->auto_floor===$cutover&&(int)$scan->attempts===1&&$scan->claim_nonce===null&&$scan->next_attempt_at===null,'new cutoff scope resets exhausted retry and backoff safely');
+    expectFlow($p['dispatched']===0&&DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'old confirmation never dispatches on later greeting');
+
+    // The dispatch gate independently refuses an old READY cache, even with current source hashes.
+    resetFlow();$c=fixtureThread();$cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    insertMessage($c,'cached-ready-greeting','inbound','أهلا',4);[$id,$v]=prepared($workflow,$actor,$c);
+    app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
+    $autoReview=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'automaticReview');$autoReview->setAccessible(true);
+    $reason=null;$args=[DB::table('whatsapp_order_drafts')->where('id',$id)->first(),$actor,&$reason];
+    expectFlow($autoReview->invokeArgs($workflow,$args)===null&&$reason==='STALE_TRANSCRIPT','automatic review refuses cached floor below refreshed activation');
+    $autoDispatch=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'dispatchInternal');$autoDispatch->setAccessible(true);
+    blocked(fn()=>$autoDispatch->invoke($workflow,$id,$v,$actor,true),409,'automatic direct dispatch refuses historical READY cache');
+    expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'stale direct dispatch has no ERP writes');
+
+    // A floor migration must not clear another analysis holder, including a cached draft path.
+    resetFlow();$c=fixtureThread();$cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    insertMessage($c,'leased-greeting','inbound','أهلا',4);$a=$workflow->analyze($c,$actor);
+    $latest=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+    DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0,'analyzed_ceiling'=>0,
+        'claimed_ceiling'=>$latest,'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour(),
+        'claim_nonce'=>str_repeat('a',64),'lease_until'=>now('UTC')->addMinutes(3)]);
+    $before=(array)DB::table('whatsapp_order_scans')->where('conversation_id',$c)->first();
+    app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
+    $autoAnalyze=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'analyzeInternal');$autoAnalyze->setAccessible(true);$calls=Ai::$calls;
+    blocked(fn()=>$autoAnalyze->invoke($workflow,$c,$actor,false,true),409,'live holder blocks automatic cached reuse and cutoff reset');
+    $workflow->process();
+    expectFlow(Ai::$calls===$calls&&(array)DB::table('whatsapp_order_scans')->where('conversation_id',$c)->first()===$before,'live holder nonce lease attempts backoff and floor all preserved');
+    expectFlow(DB::table('test_tickets')->count()===0,'leased historical cache never creates ticket');
+
+    // Configuration or a stored effective floor changing during the provider call invalidates its result.
+    foreach (['activation_message_id','activation_event_id','stored_auto_floor'] as $race) {
+        resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.activation_event_id',0);app('config')->set('whatsapp_orders.mode','auto');
+        $latest=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+        Ai::$callback=function()use($race,$latest,$c){
+            if($race==='stored_auto_floor')DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>$latest]);
+            else app('config')->set('whatsapp_orders.'.$race,$race==='activation_message_id'?$latest:1);
+        };
+        $p=$workflow->process();
+        expectFlow(Ai::$calls===1&&$p['errors']===1&&DB::table('whatsapp_order_drafts')->count()===0,'cutover race '.$race.' rejects provider persistence');
+        expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0&&DB::table('whatsapp_order_scans')->first()->claim_nonce===null,'cutover race '.$race.' releases own lease without ERP writes');
+    }
+    app('config')->set('whatsapp_orders.activation_event_id',0);
+
+    resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');$otherNonce=str_repeat('b',64);$holder=null;
+    Ai::$callback=function()use($c,$otherNonce,&$holder){
+        DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['claim_nonce'=>$otherNonce,'lease_until'=>now('UTC')->addMinutes(3)]);
+        $holder=(array)DB::table('whatsapp_order_scans')->where('conversation_id',$c)->first();
+    };
+    $p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('whatsapp_order_drafts')->count()===0&&(array)DB::table('whatsapp_order_scans')->first()===$holder,'lease-loss cleanup cannot clear replacement holder');
+
+    // Successful historical receipts survive every cutoff change and remain replayable.
+    resetFlow();$c=fixtureThread();[$id,$v]=prepared($workflow,$actor,$c);$workflow->dispatch($id,$v,$actor);
+    $receipt=(array)DB::table('whatsapp_order_drafts')->where('id',$id)->first();
+    insertMessage($c,'after-receipt-greeting','inbound','أهلا',4);Ai::$data=\App\Support\WhatsAppOrderExtraction::none();
+    app('config')->set('whatsapp_orders.mode','auto');$p=$workflow->process();
+    expectFlow(count(Ai::$lastTranscript)===1&&Ai::$lastTranscript[0]['text']==='أهلا','last dispatched receipt remains lower bound of automatic evidence');
+    expectFlow((array)DB::table('whatsapp_order_drafts')->where('id',$id)->first()===$receipt&&DB::table('test_tickets')->count()===1,'cutover analysis retains dispatched receipt byte for byte');
+    app('config')->set('whatsapp_orders.activation_message_id',(int)DB::table('whatsapp_inbox_messages')->max('id'));
+    expectFlow($workflow->dispatch($id,$v,(object)['id'=>8])['replayed']===true&&DB::table('test_tickets')->count()===1,'historical dispatched receipt replay survives newer global cutoff');
+
     fwrite(STDOUT,'whatsapp-order-workflow: '.$checks." checks passed\n");
 }

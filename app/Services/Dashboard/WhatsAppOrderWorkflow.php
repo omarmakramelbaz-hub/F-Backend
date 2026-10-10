@@ -89,33 +89,31 @@ class WhatsAppOrderWorkflow
         if (!(bool)config('whatsapp_orders.enabled', false) || !$this->available()) { $metrics['disabled']=1; return $metrics; }
         try { $actor = $this->automaticActor(); }
         catch (\Throwable $error) { $metrics['disabled']=1; return $metrics; }
-        $activation=config('whatsapp_orders.activation_message_id');
-        if (!is_numeric($activation)||(string)(int)$activation!==(string)$activation||(int)$activation<0) { $metrics['disabled']=1; return $metrics; }
-        $activation=(int)$activation;
+        $activation=$this->activationBoundary('activation_message_id');
+        if ($activation===null || $this->activationBoundary('activation_event_id')===null) { $metrics['disabled']=1; return $metrics; }
         $rows = DB::table('whatsapp_inbox_conversations as c')
             ->join('whatsapp_inbox_messages as m', 'm.conversation_id', '=', 'c.id')
             ->leftJoin(self::SCANS.' as s', 's.conversation_id', '=', 'c.id')
             ->where('c.waba_id', WhatsAppInboxAccess::WABA_ID)->where('c.phone_number_id', WhatsAppInboxAccess::PHONE_ID)
-            ->where(function ($q) { $q->whereNull('s.next_attempt_at')->orWhere('s.next_attempt_at', '<=', now('UTC')); })
+            ->where(function ($q) use ($activation) {
+                // A newer cutoff starts a new bounded attempt sequence, under the scan lock below.
+                $q->whereNull('s.auto_floor')->orWhere('s.auto_floor','<',$activation)
+                    ->orWhereNull('s.next_attempt_at')->orWhere('s.next_attempt_at', '<=', now('UTC'));
+            })
             ->select('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')->selectRaw('MAX(m.id) AS ceiling')
             ->groupBy('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')
-            ->havingRaw('MAX(m.id) > COALESCE(s.analyzed_ceiling, ?)',[$activation])
-            ->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3)')
+            ->havingRaw('MAX(m.id) > ?',[$activation])
+            ->havingRaw('MAX(m.id) > COALESCE(s.auto_floor, 0)')
+            ->havingRaw('MAX(m.id) > COALESCE(s.analyzed_ceiling, 0)')
+            ->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3 OR s.auto_floor IS NULL OR s.auto_floor < ?)',[$activation])
             ->orderBy('c.id')->limit($limit)->get();
         foreach ($rows as $thread) {
             $metrics['threads_seen']++;
             try {
-                if ($thread->auto_floor === null) {
-                    DB::transaction(function () use ($thread,$activation) {
-                        $this->scanInsert((int)$thread->id);
-                        $scan = DB::table(self::SCANS)->where('conversation_id', $thread->id)->lockForUpdate()->first();
-                        if ($scan->auto_floor === null && !$scan->claim_nonce) DB::table(self::SCANS)->where('conversation_id', $thread->id)
-                            ->update(['auto_floor'=>$activation, 'analyzed_ceiling'=>min($activation,(int)$thread->ceiling), 'updated_at'=>now('UTC')]);
-                    }, 3);
-                    $metrics['baselined']++;
-                }
                 $result = $this->analyzeInternal((int)$thread->id, $actor, false, true); $metrics['analyzed']++;
+                if ($result['baselined'] ?? false) $metrics['baselined']++;
                 $draft = $this->draft((int)$result['draft']['id']);
+                if ($draft->status==='DISPATCHED') { $metrics['replayed']++; continue; }
                 if (in_array($draft->status,['NONE','CANCELLED'],true)) continue;
                 if ($draft->reason==='AI_UNAVAILABLE') { $metrics['review_required']++; continue; }
                 if ($this->mode() !== 'auto') { $metrics['review_required']++; continue; }
@@ -142,20 +140,34 @@ class WhatsAppOrderWorkflow
             $scan = DB::table(self::SCANS)->where('conversation_id', $conversation)->lockForUpdate()->first();
             $ceiling = $this->ceiling($conversation); abort_unless($ceiling > 0, 422, 'EMPTY_CONVERSATION');
             $existing = DB::table(self::DRAFTS)->where('conversation_id', $conversation)->where('evidence_ceiling', $ceiling)->first();
+            // Completed receipts remain immutable even when automatic activation moves forward.
+            if ($existing && $existing->status==='DISPATCHED') return ['existing'=>$existing,'baselined'=>false];
+            abort_if($scan->claim_nonce && $scan->lease_until >= now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_BUSY');
+            $activation=$automatic ? $this->activationBoundary('activation_message_id') : null;
+            $eventActivation=$automatic ? $this->activationBoundary('activation_event_id') : null;
+            if ($automatic) abort_unless($activation!==null && $eventActivation!==null,403,'AUTO_NOT_CONFIGURED');
+            $floor=$automatic ? $this->automaticFloor($conversation,$scan,true) : $this->dispatchedCeiling($conversation);
+            if ($automatic) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
+            $baselined=$automatic && ($scan->auto_floor===null || (int)$scan->auto_floor<$activation);
+            if ($baselined) {
+                // Never reset a live lease. Keep historical drafts and completed command receipts.
+                DB::table(self::SCANS)->where('conversation_id',$conversation)->update(['auto_floor'=>$activation,
+                    'claimed_ceiling'=>0,'attempts'=>0,'next_attempt_at'=>null,'updated_at'=>now('UTC')]);
+                $scan->auto_floor=$activation; $scan->claimed_ceiling=0; $scan->attempts=0; $scan->next_attempt_at=null;
+            }
+            $staleAutomatic=$automatic && $existing && (int)$existing->evidence_floor<$floor;
             $retry=$automatic && $existing && $existing->reason==='AI_UNAVAILABLE' && (int)$scan->attempts<3;
-            if ($existing && ((!$force&&!$retry) || $existing->status==='DISPATCHED')) return ['existing'=>$existing];
-            abort_if($scan->claim_nonce && $scan->lease_until > now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_BUSY');
+            if ($existing && !$staleAutomatic && !$force && !$retry) return ['existing'=>$existing,'baselined'=>$baselined];
             if (!$force) abort_if($scan->next_attempt_at && $scan->next_attempt_at > now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_BACKOFF');
             $attempts = (int)$scan->claimed_ceiling === $ceiling ? (int)$scan->attempts+1 : 1;
             abort_if($attempts > 3 && !$force, 409, 'ANALYSIS_RETRY_LIMIT');
-            $last = (int)DB::table(self::DRAFTS)->where('conversation_id', $conversation)->where('status', 'DISPATCHED')->max('evidence_ceiling');
-            $floor = max($last, $automatic ? (int)($scan->auto_floor ?? $ceiling) : 0);
             $nonce = bin2hex(random_bytes(32));
             DB::table(self::SCANS)->where('conversation_id', $conversation)->update(['claimed_ceiling'=>$ceiling, 'claim_nonce'=>$nonce,
                 'lease_until'=>now('UTC')->addSeconds(180), 'attempts'=>min(3,$attempts), 'next_attempt_at'=>null, 'updated_at'=>now('UTC')]);
-            return ['nonce'=>$nonce, 'floor'=>$floor, 'ceiling'=>$ceiling, 'existing_id'=>$existing ? (int)$existing->id : null];
+            return ['nonce'=>$nonce, 'floor'=>$floor, 'ceiling'=>$ceiling, 'existing_id'=>$existing ? (int)$existing->id : null,
+                'activation'=>$activation,'event_activation'=>$eventActivation,'baselined'=>$baselined];
         }, 3);
-        if (isset($claim['existing'])) return ['success'=>true, 'draft'=>$this->present($claim['existing'])];
+        if (isset($claim['existing'])) return ['success'=>true, 'draft'=>$this->present($claim['existing']),'baselined'=>$claim['baselined']];
         try {
             $snapshot = $this->snapshot($conversation, $claim['floor'], $claim['ceiling']);
             $result = $snapshot['complete'] ? app(WhatsAppOrderAiProvider::class)->extract($snapshot['transcript'])
@@ -174,6 +186,11 @@ class WhatsAppOrderWorkflow
                 $this->actor($actor);
                 $scan = DB::table(self::SCANS)->where('conversation_id', $conversation)->lockForUpdate()->first();
                 abort_unless($scan && hash_equals((string)$scan->claim_nonce, $claim['nonce']) && $scan->lease_until >= now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_LEASE_LOST');
+                if ($automatic) {
+                    abort_unless($this->activationBoundary('activation_message_id')===$claim['activation']
+                        && $this->activationBoundary('activation_event_id')===$claim['event_activation']
+                        && $claim['floor'] >= $this->automaticFloor($conversation,$scan,true),409,'STALE_TRANSCRIPT');
+                }
                 abort_unless($this->ceiling($conversation) === $claim['ceiling'] && $this->snapshot($conversation,$claim['floor'],$claim['ceiling'])['hash'] === $snapshot['hash'], 409, 'STALE_TRANSCRIPT');
                 $values = ['conversation_id'=>$conversation, 'evidence_floor'=>$claim['floor'],
                     'evidence_ceiling'=>$claim['ceiling'], 'evidence_hash'=>$snapshot['hash'], 'confirmation_key'=>null,
@@ -190,7 +207,7 @@ class WhatsAppOrderWorkflow
                     'claim_nonce'=>null,'lease_until'=>null,'next_attempt_at'=>$reason==='AI_UNAVAILABLE'&&$automatic?now('UTC')->addSeconds(60):null,'updated_at'=>now('UTC')]);
                 return $id;
             }, 3);
-            return ['success'=>true,'draft'=>$this->present($this->draft($id))];
+            return ['success'=>true,'draft'=>$this->present($this->draft($id)),'baselined'=>$claim['baselined']];
         } catch (\Throwable $error) {
             // The lease can only be released by its holder. Exception content is never recorded.
             DB::table(self::SCANS)->where('conversation_id',$conversation)->where('claim_nonce',$claim['nonce'])
@@ -276,9 +293,11 @@ class WhatsAppOrderWorkflow
 
     private function automaticReview(object $row, $actor, ?string &$reason,bool $lock=false): ?array
     {
-        $eventFloor=config('whatsapp_orders.activation_event_id');
-        if (!is_numeric($eventFloor)||(string)(int)$eventFloor!==(string)$eventFloor||(int)$eventFloor<0) { $reason='AUTO_NOT_CONFIGURED'; return null; }
-        $failures=DB::table('whatsapp_inbox_ingestion_failures')->where('event_id','>',(int)$eventFloor);
+        $eventFloor=$this->activationBoundary('activation_event_id');
+        if ($eventFloor===null || $this->activationBoundary('activation_message_id')===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
+        $floor=$this->automaticFloor((int)$row->conversation_id,null,$lock);
+        if ((int)$row->evidence_floor<$floor || (int)$row->evidence_ceiling<=$floor) { $reason='STALE_TRANSCRIPT'; return null; }
+        $failures=DB::table('whatsapp_inbox_ingestion_failures')->where('event_id','>',$eventFloor);
         if ($lock) $failures->lockForUpdate();
         if ($failures->first(['event_id'])) { $reason='CAPTURE_REVIEW_REQUIRED'; return null; }
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
@@ -427,6 +446,35 @@ class WhatsAppOrderWorkflow
     private function reviewHash(array $v,bool $hashes=true): string
     {
         unset($v['expected_revision']); if (!$hashes) unset($v['quote_hash'],$v['delivery_quote_hash']); return PosServiceTicket::fingerprint($v);
+    }
+    private function activationBoundary(string $name): ?int
+    {
+        $value=config('whatsapp_orders.'.$name);
+        if (!is_int($value) && !is_string($value)) return null;
+        $digits=(string)$value; $maximum=(string)PHP_INT_MAX;
+        if (!preg_match('/\A(?:0|[1-9][0-9]*)\z/',$digits)
+            || strlen($digits)>strlen($maximum)
+            || (strlen($digits)===strlen($maximum) && strcmp($digits,$maximum)>0)) return null;
+        return (int)$digits;
+    }
+    private function automaticFloor(int $conversation,?object $scan=null,bool $lock=false): int
+    {
+        // Publishing a new cutoff still requires quiescing workers that loaded older configuration.
+        $activation=$this->activationBoundary('activation_message_id');
+        abort_unless($activation!==null,403,'AUTO_NOT_CONFIGURED');
+        if ($scan===null) {
+            $query=DB::table(self::SCANS)->where('conversation_id',$conversation);
+            if ($lock) $query->lockForUpdate();
+            $scan=$query->first();
+        }
+        return max($activation,(int)($scan->auto_floor??0),$this->dispatchedCeiling($conversation,$lock));
+    }
+    private function dispatchedCeiling(int $conversation,bool $lock=false): int
+    {
+        $query=DB::table(self::DRAFTS)->where('conversation_id',$conversation)->where('status','DISPATCHED');
+        if (!$lock) return (int)$query->max('evidence_ceiling');
+        $row=$query->orderByDesc('evidence_ceiling')->lockForUpdate()->first(['evidence_ceiling']);
+        return (int)($row->evidence_ceiling??0);
     }
     private function scanInsert(int $conversation): void
     {
