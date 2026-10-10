@@ -1,0 +1,56 @@
+name: Actual Windows safeStorage metadata
+
+on:
+  push:
+    branches: ['codex/desktop-windows-dpapi-20261010']
+  pull_request:
+    paths:
+      - 'tests/desktop_native_safety/**'
+      - 'desktop-pos/src/dashboard-generation.cjs'
+      - 'desktop-pos/package.json'
+      - '.github/workflows/desktop-windows-dpapi.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-dpapi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-safe-storage:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Preserve exact Git source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install the pinned native Electron runtime
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/dpapi-electron" --no-audit --no-fund electron@44.6.0
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron installation failed.' }
+          # Electron 44 downloads its binary on demand; invoke the installed pin's CLI.
+          & "$env:RUNNER_TEMP/dpapi-electron/node_modules/.bin/install-electron.cmd"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron native binary download failed.' }
+          if (!(Test-Path -LiteralPath "$env:RUNNER_TEMP/dpapi-electron/node_modules/electron/dist/electron.exe" -PathType Leaf)) { throw 'Pinned native Electron executable is missing.' }
+      - name: Exercise actual Windows encrypted metadata across processes
+        shell: pwsh
+        run: |
+          $executable = (Resolve-Path -LiteralPath "$env:RUNNER_TEMP/dpapi-electron/node_modules/electron/dist/electron.exe").Path
+          $artifact = "$env:RUNNER_TEMP/dpapi-proof"
+          node tests/desktop_native_safety/safe-storage-native.cjs $executable $artifact 2>&1 | Tee-Object -Variable proof
+          if ($LASTEXITCODE -ne 0 -or !(($proof -join "`n") -match 'WINDOWS_SAFE_STORAGE_NATIVE_COMPLETE')) { throw 'Actual Windows safeStorage proof did not complete.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-safe-storage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dpapi-proof/*.json
+          if-no-files-found: warn
+          retention-days: 14
