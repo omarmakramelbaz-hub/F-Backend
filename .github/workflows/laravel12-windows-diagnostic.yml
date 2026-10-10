@@ -70,7 +70,7 @@ jobs:
             $audit | Set-Content (Join-Path $artifact 'audit.json') -Encoding utf8NoBOM
             if ($exits.audit -ne 0) { throw 'Strict actual locked audit failed.' }
             $exits | ConvertTo-Json | Set-Content (Join-Path $artifact 'command-exits.json') -Encoding utf8NoBOM
-            node .github/scripts/laravel12-windows-diagnostic.cjs dependencies $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'dependency-verification.log') -Variable dependencyOutput
+            node .github/scripts/laravel12-windows-diagnostic.cjs dependencies $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'dependency-verification.log') -OutVariable dependencyOutput
             if ($LASTEXITCODE -ne 0 -or !(($dependencyOutput -join "`n") -match '(?m)^WINDOWS_LARAVEL12_DEPENDENCIES_COMPLETE:')) { throw 'Actual installed candidate dependency binding failed.' }
             $archive = Join-Path $root 'mariadb.zip'
             Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive -TimeoutSec 300
@@ -97,11 +97,11 @@ jobs:
               Start-Sleep -Milliseconds 250
             }
             if (!$ready) { throw 'Private MariaDB readiness timed out.' }
-            & php .github/scripts/laravel12-windows-fixture.php $application $repository $port $artifact 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'fixture-output.log') -Variable fixtureOutput
+            & php .github/scripts/laravel12-windows-fixture.php $application $repository $port $artifact 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'fixture-output.log') -OutVariable fixtureOutput
             $exits.fixture = $LASTEXITCODE
             if ($exits.fixture -ne 0 -or !(($fixtureOutput -join "`n") -match '(?m)^LARAVEL12_ORIGINAL_HTTP_COMPLETE \{')) { throw 'Original HTTP fixture lacked its mandatory completion marker.' }
             $exits | ConvertTo-Json | Set-Content (Join-Path $artifact 'command-exits.json') -Encoding utf8NoBOM
-            node .github/scripts/laravel12-windows-diagnostic.cjs verify $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'final-verification.log') -Variable verificationOutput
+            node .github/scripts/laravel12-windows-diagnostic.cjs verify $repository $root 2>&1 | Tee-Object -FilePath (Join-Path $artifact 'final-verification.log') -OutVariable verificationOutput
             if ($LASTEXITCODE -ne 0 -or !(($verificationOutput -join "`n") -match '(?m)^WINDOWS_LARAVEL12_DIAGNOSTIC_COMPLETE:')) { throw 'Windows source/version/schema/HTTP evidence binding failed.' }
           } finally {
             if ($databaseProcess -and !$databaseProcess.HasExited) { Stop-Process -Id $databaseProcess.Id -Force }
