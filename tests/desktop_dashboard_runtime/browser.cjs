@@ -200,9 +200,10 @@ const watchdog = setTimeout(() => {
       assert.equal(confirmation.type(),'confirm');assert.equal(confirmation.message(),'Are you sure you want to delete this row?');
       const alertPromise=page.waitForEvent('dialog');
       await confirmation.accept();
-      const [result,alert]=await Promise.all([outcome,alertPromise]);
+      const alert=await alertPromise;
       assert.equal(alert.type(),'alert');const message=alert.message();
-      await alert.accept();await clicked;
+      // Release the native modal before waiting for transport events that it can defer.
+      await alert.accept();const [result]=await Promise.all([outcome,clicked]);
       return {result,message};
     };
     await clickRoleBulk(page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname==='/admin/rolesDeleteAll'}));
