@@ -1,0 +1,42 @@
+name: Windows Edge bulk dialog ordering probe
+
+on:
+  push:
+    branches: ['codex/edge-bulk-dialog-probe-20261010']
+    paths:
+      - '.github/workflows/edge-bulk-dialog-probe.yml'
+      - '.github/scripts/edge-bulk-dialog-probe.cjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mock-dialog-order:
+    runs-on: windows-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Playwright for the existing Windows Edge
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/edge-dialog-probe" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned browser dependency installation failed.' }
+          "DESKTOP_TEST_BROWSER_MODULE=$env:RUNNER_TEMP/edge-dialog-probe/node_modules/playwright" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EDGE_DIALOG_PROBE_RECEIPT=$env:RUNNER_TEMP/edge-dialog-order-receipt.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prove native dialog event ordering with original jQuery and bulk handler
+        shell: pwsh
+        run: |
+          node .github/scripts/edge-bulk-dialog-probe.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Edge dialog ordering probe failed.' }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: edge-dialog-order-receipt
+          path: "${{ runner.temp }}/edge-dialog-order-receipt.json"
+          if-no-files-found: error
+          retention-days: 3
+
