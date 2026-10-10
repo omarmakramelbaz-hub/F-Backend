@@ -14,6 +14,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   const children = new Set();
   const remoteWrites = new Map();
   const readPosts = new Set(['/admin/takeaway/quote', '/admin/dining/quote', '/admin/phone-orders/quote', '/admin/phone-orders/delivery-quote',
+    '/admin/phone-orders/address-suggestions',
     '/admin/fetch-subcategory', '/admin/fetch-product', '/admin/fetch-feature']);
   function remoteWrite(details) {
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
