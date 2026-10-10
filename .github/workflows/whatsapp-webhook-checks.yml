@@ -116,6 +116,10 @@ jobs:
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_orders_install_test.py
       - name: Verify hidden independent API credential configuration
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_orders_config_test.py
+      - name: Verify pinned workflow upgrade and review-only handoff
+        run: |
+          python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_order_workflow_upgrade_test.py
+          php -l deployment/whatsapp_order_live_review.php
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
