@@ -19,6 +19,14 @@ jobs:
       EXPECTED_MANIFEST_SHA256: c7f7f6ac9b766b9282be10dacfbc25c367600ad550488802b24e75b4dfc122c1
       EXPECTED_OLD_LOCK_SHA256: 319ea5f627a46681c45e57c4e780f2d1c19a80f0272711ccf770feb3716d18a7
     steps:
+      - name: Preserve reviewed Git bytes on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not disable checkout line-ending conversion.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Could not select LF checkout line endings.' }
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
