@@ -58,7 +58,19 @@ function setupPrivate(array $report): void {
     }
 }
 
-Setup::loadSibling(dirname(__DIR__) . '/deployment', (int) fileowner(__FILE__));
+// Container checkouts can be writable mounts; reproduce the private staged CLI handoff.
+$staged = sys_get_temp_dir() . '/whatsapp-cart-staged-' . bin2hex(random_bytes(6));
+if (!mkdir($staged, 0700)) throw new RuntimeException('STAGING_FAILED');
+$stagedHelper = $staged . '/whatsapp_catalog_mapping_readiness.php';
+try {
+    file_put_contents($stagedHelper, file_get_contents(dirname(__DIR__) . '/deployment/whatsapp_catalog_mapping_readiness.php'));
+    chmod($stagedHelper, 0644);
+    chmod($staged, 0777);
+    try { Setup::loadSibling($staged, (int) fileowner(__FILE__)); throw new RuntimeException('EXPECTED_UNSAFE_DIRECTORY'); }
+    catch (RuntimeException $error) { setupCheck($error->getMessage(), 'UNSAFE_CATALOG_HELPER', 'writable staging directory rejected'); }
+    chmod($staged, 0700);
+    Setup::loadSibling($staged, (int) fileowner(__FILE__));
+} finally { unlink($stagedHelper); rmdir($staged); }
 setupCheck(Setup::arguments([]), ['after_event' => 0, 'through_event' => null], 'defaults');
 setupCheck(Setup::arguments(['--after-event=12', '--through-event=40']), ['after_event' => 12, 'through_event' => 40], 'bounded window');
 foreach ([['--after-event=-1'], ['--after-event=01'], ['--after-event=1;id'], ['--through-event=0'],
