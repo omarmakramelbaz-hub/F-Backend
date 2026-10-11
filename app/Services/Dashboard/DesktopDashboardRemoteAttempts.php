@@ -42,13 +42,14 @@ class DesktopDashboardRemoteAttempts
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
         $review=in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/resturant_reviews/[1-9][0-9]{0,18}$#D',$v['path']);
         $wishlist=in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/userWishlistsDelete/[1-9][0-9]{0,18}$#D',$v['path']);
+        $restaurantFlags=$v['method']==='POST'&&preg_match('#^/admin/resturantchange(?:Status|UnderContract)/[1-9][0-9]{0,18}$#D',$v['path']);
         $history=in_array($v['method'],['POST','PUT'],true)&&preg_match('#^/admin/read/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$#iD',$v['path']);
         $core=false;
         if($v['method']==='POST'&&str_starts_with($v['path'],'/admin/')){
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$roles||$bulk||$ordering||$availability||$store||$contact||$review||$wishlist||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($single||$roles||$bulk||$ordering||$availability||$store||$contact||$review||$wishlist||$restaurantFlags||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
@@ -66,6 +67,10 @@ class DesktopDashboardRemoteAttempts
         if($wishlist)foreach(['wishlists','resturants','users','roles','model_has_roles'] as $wishlistTable){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$wishlistTable]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد حذف المفضلة يحتاج جداول تدعم المعاملات.');
+        }
+        if($restaurantFlags)foreach(['resturants','users','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'] as $flagTable){
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$flagTable]);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد علامة المطعم يحتاج جداول تدعم المعاملات.');
         }
         if($availability)foreach(array_merge(['users','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'],
             $menuPath[1]==='f'?['resturants','resturant_products']:['go_stores','go_store_products','pending_vendors']) as $menuTable){
@@ -132,6 +137,12 @@ class DesktopDashboardRemoteAttempts
                     app(DesktopDashboardWishlistDeletion::class)->authorize(['parameters'=>['id'=>(int)$wishlistPath[1]],
                         'values'=>['idempotency_key'=>$saved['operation']],'files'=>[],'facts'=>$saved['wishlist_facts']],$this->devices->actor($fresh),$fresh);
                 }
+                if($row->method==='POST'&&preg_match('#^/admin/resturantchange(Status|UnderContract)/([1-9][0-9]{0,18})$#D',$row->path,$flagPath)){
+                    abort_unless(is_array($saved['restaurant_flag_facts']??null),503);
+                    app(DesktopDashboardRestaurantFlags::class)->authorize('resturants.change'.$flagPath[1],
+                        ['parameters'=>['resturant'=>(int)$flagPath[2]],'values'=>['idempotency_key'=>$saved['operation']],
+                            'files'=>[],'facts'=>$saved['restaurant_flag_facts']],$this->devices->actor($fresh),$fresh);
+                }
             }
             return ['format'=>1,'id'=>$row->id,'device_id'=>$row->device_id,'actor_id'=>(int)$row->actor_id,'method'=>$row->method,'path'=>$row->path,
                 'status'=>$row->status,'capability'=>$cancel?null:$this->capability($row)];
@@ -145,19 +156,32 @@ class DesktopDashboardRemoteAttempts
         $availability=DesktopDashboardMenuAvailability::handles($name);
         $review=DesktopDashboardReviewDeletion::handles($name);
         $wishlist=DesktopDashboardWishlistDeletion::handles($name);
-        abort_unless($catalog||$availability||$review||$wishlist||isset(self::CORE[$name??'']),501);
+        $restaurantFlags=DesktopDashboardRestaurantFlags::handles($name);
+        abort_unless($catalog||$availability||$review||$wishlist||$restaurantFlags||isset(self::CORE[$name??'']),501);
         $files=app(DesktopDashboardExpenseAttachments::class)->files($request,$name);
         $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
-        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$name,$files){
+        return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$name,$files){
             $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device);
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row&&(int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
                 &&hash_equals($this->capability($row),$capability),403);
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
-            $reviewPayload=null;$wishlistPayload=null;
-            if($review){
+            $reviewPayload=null;$wishlistPayload=null;$flagPayload=null;
+            if($restaurantFlags){
+                $adapter=app(DesktopDashboardRestaurantFlags::class);$operation=$adapter->command($request);
+                $savedRow=$row->status==='committed'?$row:DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
+                $savedFacts=null;
+                if($savedRow){
+                    abort_unless($savedRow->status==='committed',409);
+                    $savedResult=json_decode(Crypt::decryptString($savedRow->response_cipher),true,512,JSON_THROW_ON_ERROR);
+                    abort_unless(is_array($savedResult['restaurant_flag_facts']??null),503);$savedFacts=$savedResult['restaurant_flag_facts'];
+                }
+                $flagPayload=$adapter->remotePayload($name,$request,$operation,$actor,$device,$savedFacts);
+                $actor=$adapter->authorize($name,$flagPayload,$actor,$device);
+            }
+            elseif($review){
                 $operation=app(DesktopDashboardReviewDeletion::class)->command($request);
                 $savedRow=$row->status==='committed'?$row:DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
                 $savedFacts=null;
@@ -213,6 +237,7 @@ class DesktopDashboardRemoteAttempts
             (new Pipeline(app()))->send($request)->through($middleware)->then(fn()=>true);
             abort_if($row->status==='cancelled',409,'الطلب السابق أُلغي قبل تنفيذه؛ أعد المحاولة كعملية جديدة.');
             $operation=match(true){
+                $restaurantFlags=>app(DesktopDashboardRestaurantFlags::class)->command($request),
                 $review=>app(DesktopDashboardReviewDeletion::class)->command($request),
                 $wishlist=>app(DesktopDashboardWishlistDeletion::class)->command($request),
                 DesktopDashboardGoStoreProfile::handles($name)=>app(DesktopDashboardGoStoreProfile::class)->command($request),
@@ -243,7 +268,14 @@ class DesktopDashboardRemoteAttempts
                 return $this->response(json_decode(Crypt::decryptString($previous->response_cipher),true,512,JSON_THROW_ON_ERROR),$files);
             }
             $request->request->remove('_desktop_command');
-            $response=$next($request);
+            $flagResult=null;
+            if($restaurantFlags){
+                $guard=auth('admin');$previousActor=$guard->getUser();$response=null;
+                try{
+                    $guard->setUser($actor);
+                    $flagResult=app(DesktopDashboardRestaurantFlags::class)->capture($name,$flagPayload,function()use($request,$next,&$response){return $response=$next($request);});
+                }finally{if($previousActor)$guard->setUser($previousActor);else (function(){$this->user=null;})->call($guard);}
+            }else $response=$next($request);
             if($response->getStatusCode()>=400||($request->hasSession()&&in_array('errors',$request->session()->get('_flash.new',[]),true)))
                 throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
             // Unhandled exceptions roll back both original rows and the result. Recovery can then cancel the reservation.
@@ -252,8 +284,9 @@ class DesktopDashboardRemoteAttempts
             $saved=['operation'=>$operation,'status'=>$response->getStatusCode(),'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$response->headers->get('Location')];
             if($review){$saved['review_facts']=$reviewPayload['facts'];$saved['review_success']=session('success');}
             if($wishlist){$saved['wishlist_facts']=$wishlistPayload['facts'];$saved['wishlist_success']=session('success');}
+            if($restaurantFlags){$saved['restaurant_flag_facts']=$flagPayload['facts'];$saved['restaurant_flag_after']=$flagResult['after'];$saved['restaurant_flag_success']=$flagResult['success'];}
             DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'committed','request_hash'=>$fingerprint,
-                'operation_id'=>$operation,'response_cipher'=>Crypt::encryptString(json_encode($saved,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)),'updated_at'=>now('UTC')]);
+                'operation_id'=>$operation,'response_cipher'=>Crypt::encryptString(json_encode($saved,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR|($restaurantFlags?JSON_PRESERVE_ZERO_FRACTION:0))),'updated_at'=>now('UTC')]);
             return $response;
         });
     }
@@ -263,6 +296,7 @@ class DesktopDashboardRemoteAttempts
         // A lost Review redirect must retain its original success flash for the following page.
         if(isset($saved['review_facts'],$saved['review_success']))session()->flash('success',$saved['review_success']);
         if(isset($saved['wishlist_facts'],$saved['wishlist_success']))session()->flash('success',$saved['wishlist_success']);
+        if(isset($saved['restaurant_flag_facts'],$saved['restaurant_flag_success']))session()->flash('success',$saved['restaurant_flag_success']);
         $response=response($saved['content'],$saved['status']);
         foreach(['type'=>'Content-Type','location'=>'Location'] as $key=>$header)if($saved[$key])$response->headers->set($header,$saved[$key]);
         return $response->header('Cache-Control','private, no-store');

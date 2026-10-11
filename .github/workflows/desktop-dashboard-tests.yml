@@ -91,6 +91,7 @@ jobs:
               $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
+              if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
             }
             $reviewProofDirectory = "$env:RUNNER_TEMP/review-delete-browser"
             New-Item -ItemType Directory -Path $reviewProofDirectory -Force | Out-Null
@@ -110,6 +111,15 @@ jobs:
             if ($LASTEXITCODE -ne 0 -or !(($dateProofOutput -join "`n") -match '(?m)^RESTAURANT_NULLABLE_DATE_HTTP_COMPLETE ')) { throw 'Original restaurant date HTTP fixture did not complete.' }
             $dateReceipt = Get-Content "$dateProofDirectory/receipt.json" -Raw | ConvertFrom-Json
             if (!$dateReceipt.completed -or !$dateReceipt.databaseDropped -or $dateReceipt.mode -ne 'fixed' -or $dateReceipt.sourceRevision -ne $env:GITHUB_SHA -or $dateReceipt.schemaTables -ne 106 -or $dateReceipt.checks -ne 24) { throw 'Original restaurant date receipt does not match this source and complete fixture.' }
+            $flagsProofDirectory = "$env:RUNNER_TEMP/restaurant-flags-browser"
+            New-Item -ItemType Directory -Path $flagsProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/restaurant-flags-browser-http.php "$bundle/application" $port $flagsProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable flagsProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($flagsProofOutput -join "`n") -match '(?m)^ORIGINAL_RESTAURANT_FLAGS_BROWSER_COMPLETE ')) { throw 'Original restaurant checkbox Edge fixture did not complete.' }
+            $flagsReceipt = Get-Content "$flagsProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if ($flagsReceipt.format -ne 1 -or $flagsReceipt.kind -ne 'original-restaurant-two-flags-browser') { throw 'Restaurant checkbox proof envelope differs.' }
+            if (!$flagsReceipt.browserProof.actualAssociatedFormControls -or !$flagsReceipt.browserProof.exactSerializedCsrfAndUuid) { throw 'Restaurant checkbox proof must inspect original associated controls and exact transmitted CSRF/UUID fields.' }
+            if ($flagsReceipt.schemaInventory -ne 106 -or $flagsReceipt.originalBusinessTablesBefore.tables -ne 106 -or $flagsReceipt.originalBusinessTablesAfter.tables -ne 106 -or $flagsReceipt.reflectionBindings -ne 5 -or $flagsReceipt.laravel -ne '8.83.29' -or $flagsReceipt.applicationValidated -ne $false -or $flagsReceipt.providersReplaced -ne $false -or @($flagsReceipt.browserProof.operations).Count -ne 4 -or @($flagsReceipt.browserProof.retries).Count -ne 2 -or !$flagsReceipt.browserProof.originalForm -or !$flagsReceipt.browserProof.originalQueryReadPreserved -or !$flagsReceipt.browserProof.originalFormsHaveNoPageField -or $flagsReceipt.browserProof.force -ne $false -or $flagsReceipt.browserProof.domInjection -ne $false -or $flagsReceipt.vendorBefore.sha256 -ne $flagsReceipt.vendorAfter.sha256 -or $flagsReceipt.vendorBefore.files -ne $flagsReceipt.vendorAfter.files -or $flagsReceipt.installedGraphBefore.sha256 -ne $flagsReceipt.installedGraphAfter.sha256 -or $flagsReceipt.installedGraphBefore.packages -ne $flagsReceipt.installedGraphAfter.packages -or $flagsReceipt.originalBusinessTablesBefore.sha256 -ne $flagsReceipt.originalBusinessTablesAfter.sha256) { throw 'Restaurant checkbox proof inventory or immutable dependency/business binding differs.' }
+            if (!$flagsReceipt.completed -or !$flagsReceipt.verifiedImport -or !$flagsReceipt.privateDatabasesDropped -or !$flagsReceipt.httpStopped -or !$flagsReceipt.browserStopped -or !$flagsReceipt.sourceVerifiedAfter -or !$flagsReceipt.fixturesVerifiedAfter -or !$flagsReceipt.vendorUnchanged -or !$flagsReceipt.installedGraphUnchanged -or !$flagsReceipt.mediaPreserved -or !$flagsReceipt.originalBusinessTablesUnchanged -or $flagsReceipt.sourceRevision -ne $env:GITHUB_SHA -or $flagsReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.importedSnapshotTables -ne 106 -or $flagsReceipt.targetColumnCount -ne 29 -or $flagsReceipt.commands -ne 4 -or $flagsReceipt.checks -ne 22 -or $flagsReceipt.browserExitCode -ne 0 -or $flagsReceipt.browserProof.browser -ne 'Windows Edge' -or $flagsReceipt.browserProof.browserPlatform -ne 'win32' -or $flagsReceipt.browserProof.sourceCommit -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.newPageErrors -ne 0 -or !$flagsReceipt.browserProof.originalCheckboxOnchange -or !$flagsReceipt.browserProof.checkedAndUncheckedBothFlags -or $flagsReceipt.browserProof.committedResponsesLost -ne 2 -or $flagsReceipt.browserProof.oppositeSameUuidRejected -ne 2 -or $flagsReceipt.browserProof.originalValueRetrySameUuid -ne 2 -or !$flagsReceipt.browserProof.freshUuidOnlyAfterAcceptedNavigation -or $flagsReceipt.fullDashboard -ne $false) { throw 'Original restaurant checkbox receipt does not match this complete source-bound fixture.' }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
@@ -132,6 +142,13 @@ jobs:
         with:
           name: original-wishlist-delete-browser
           path: ${{ runner.temp }}/wishlist-delete-browser
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original restaurant checkbox Edge receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-restaurant-flags-browser
+          path: ${{ runner.temp }}/restaurant-flags-browser
           if-no-files-found: error
           retention-days: 14
       - name: Verify native dashboard preparation and restart recovery

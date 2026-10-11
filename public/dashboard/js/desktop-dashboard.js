@@ -14,7 +14,8 @@
                 || (method==='DELETE'&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname))
-                || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(url.pathname)));
+                || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
     const prepare = form => {
         if (form instanceof HTMLFormElement && form.hasAttribute('data-desktop-notification-read')) {

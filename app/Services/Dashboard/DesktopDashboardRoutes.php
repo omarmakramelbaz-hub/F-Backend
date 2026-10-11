@@ -12,6 +12,7 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'resturants.changeStatus','resturants.changeUnderContract',
         'resturant_reviews.destroy',
         'userwishlists.destroy',
         'order-board.menu.availability',
