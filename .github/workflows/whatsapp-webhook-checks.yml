@@ -91,6 +91,7 @@ jobs:
           bash -n deployment/install_whatsapp_webhook.sh
           bash -n deployment/whatsapp_install_root_wrapper.sh
           bash -n deployment/install_whatsapp_automatic_root.sh
+          bash -n deployment/install_whatsapp_capture_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -136,6 +137,9 @@ jobs:
         run: |
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_install_test.py
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_activation_test.py
+      - name: Verify continuous inbox projection
+        run: |
+          python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_capture_root_test.py
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
