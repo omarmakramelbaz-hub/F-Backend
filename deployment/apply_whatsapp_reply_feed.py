@@ -192,7 +192,9 @@ def apply(root, uid, manifest, digest, runner=spinner.command):
             if base.blob_hash(source) != new:
                 raise SafeError('REPLY_FEED_PAYLOAD_HASH_MISMATCH: ' + relative)
             original = base.snapshot(root / relative, uid, root)
-            if original.mode & 0o022 or (root / relative).lstat().st_nlink != 1:
+            # Live release files may share an inode with a backup. Atomic exchange
+            # publishes a fresh inode and retains every original hardlink intact.
+            if original.mode & 0o022:
                 raise SafeError('REPLY_FEED_LIVE_FILE_UNSAFE: ' + relative)
             if base.blob_hash(original.content) not in (old, new):
                 raise SafeError('REPLY_FEED_LIVE_HASH_NEEDS_REVIEW: ' + relative)
@@ -200,7 +202,7 @@ def apply(root, uid, manifest, digest, runner=spinner.command):
         all_views = {**VIEW_NAMES, spinner.FOOTER_PATH: 'admin.layouts.footer'}
         for relative in all_views:
             original = base.snapshot(root / relative, uid, root)
-            if original.mode & 0o022 or (root / relative).lstat().st_nlink != 1:
+            if original.mode & 0o022:
                 raise SafeError('REPLY_FEED_LIVE_VIEW_UNSAFE: ' + relative)
             before[relative] = original
             proposals[relative] = (spinner.proposal(original.content) if relative == spinner.FOOTER_PATH

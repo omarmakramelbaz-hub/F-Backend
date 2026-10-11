@@ -156,6 +156,54 @@ class InstallTest(unittest.TestCase):
             if other != relative:
                 self.assertEqual((self.root / other).read_bytes(), original)
 
+    def hardlink_live_source_and_view(self):
+        peers = {}
+        for index, relative in enumerate((
+                'app/Services/Dashboard/WhatsAppReplyService.php',
+                'resources/views/admin/whatsapp/replies.blade.php')):
+            live = self.root / relative
+            peer = self.root.parent / ('retained-backup-peer-' + str(index))
+            os.link(live, peer)
+            original_inode = live.stat().st_ino
+            self.assertEqual(live.stat().st_nlink, 2)
+            peers[relative] = (peer, original_inode)
+        return peers
+
+    def test_hardlinked_live_source_and_view_publish_fresh_inodes(self):
+        peers = self.hardlink_live_source_and_view()
+        self.run_fix()
+        for relative, (peer, original_inode) in peers.items():
+            live = self.root / relative
+            self.assertNotEqual(live.stat().st_ino, original_inode)
+            self.assertEqual(live.stat().st_nlink, 1)
+            self.assertEqual(peer.stat().st_ino, original_inode)
+            self.assertEqual(peer.read_bytes(), self.originals[relative])
+            self.assertEqual(peer.stat().st_mode & 0o777, 0o644)
+
+    def test_hardlinked_live_source_and_view_rollback_return_original_inodes(self):
+        peers = self.hardlink_live_source_and_view()
+        def runner(root, args, **kwargs):
+            if len(args) > 2 and args[1:3] == ['-r', fix.SMOKE_PHP]:
+                return 1, b''
+            return self.runner(root, args, **kwargs)
+        with self.assertRaisesRegex(fix.SafeError, 'REPLY_FEED_FILES_RESTORED'):
+            self.run_fix(runner)
+        for relative, (peer, original_inode) in peers.items():
+            live = self.root / relative
+            self.assertEqual(live.stat().st_ino, original_inode)
+            self.assertEqual(peer.stat().st_ino, original_inode)
+            self.assertEqual(live.stat().st_nlink, 2)
+            self.assertEqual(live.read_bytes(), self.originals[relative])
+            self.assertEqual(peer.read_bytes(), self.originals[relative])
+
+    def test_hardlinked_payload_remains_rejected(self):
+        relative = next(iter(fix.SOURCE_PINS))
+        os.link(self.payload / relative, self.payload / 'payload-peer')
+        with self.assertRaisesRegex(fix.SafeError, 'UNSAFE_REPLY_FEED_PAYLOAD'):
+            self.run_fix()
+        for other, original in self.originals.items():
+            self.assertEqual((self.root / other).read_bytes(), original)
+
 
 if __name__ == '__main__':
     unittest.main()
