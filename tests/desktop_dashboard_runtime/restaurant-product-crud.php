@@ -151,9 +151,12 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
             &&DB::table('carts')->where('resturant_product_id',1)->count()===1&&!DB::table('desktop_dashboard_commands')->where('command_id',$deleteExisting['_desktop_command'])->exists(),
             'the actual restrictive original cart foreign key prevents product deletion without losing its cart, product or image');
         DB::table('desktop_dashboard_local_state')->where('device_id',$ownerDevice)->update(['branches'=>json_encode(['f:100'])]);
+        $invalidBusiness=$fingerprint();
         foreach([['added_by'=>'999999999'],['resturant_id'=>'101'],['category_id'=>['1']],['product_price'=>['1']],['unreviewed_field'=>'x']] as $override){$bad=array_replace($base,$override);$bad['_desktop_command']=(string)Str::uuid();
-            verify(in_array($request('/admin/resturant_products',$bad,['product_image'=>$uploadA],['Accept: application/json'])[0],[403,422],true),
-                'malformed or unauthorized original CRUD inputs create no business effect: '.implode(',',array_keys($override)));}
+            [$invalidStatus]=$request('/admin/resturant_products',$bad,['product_image'=>$uploadA],['Accept: application/json']);
+            verify(in_array($invalidStatus,[403,422,409],true)&&$fingerprint()===$invalidBusiness
+                &&!DB::table('desktop_dashboard_commands')->where('command_id',$bad['_desktop_command'])->exists(),
+                'malformed, missing-reference or unauthorized original CRUD inputs preserve all106 business tables and create no command: '.implode(',',array_keys($override)).' (HTTP '.$invalidStatus.')');}
         DB::table('desktop_dashboard_local_state')->where('device_id',$ownerDevice)->update(['branches'=>$localScope['branches']]);
         $bad=$base;$bad['_desktop_command']=(string)Str::uuid();verify($request('/admin/resturant_products',$bad,['unreviewed_file'=>$uploadA],['Accept: application/json'])[0]===422,
             'an extra uploaded field cannot be silently dropped from a reviewed product operation');

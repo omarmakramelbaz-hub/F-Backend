@@ -1,6 +1,6 @@
 # Original restaurant-product forms in the desktop journal
 
-`DesktopDashboardRestaurantProductCrud` supports the three original forms through `Dashboard\ResturantController`, its existing FormRequest and repository. The original multipart forms, validation responses, permissions and Arabic success messages remain the user interface. The adapter does not expose a separate product editor. `full_dashboard` remains `false`; copy-menu and the other unsupported dashboard writes remain outside this increment.
+`DesktopDashboardRestaurantProductCrud` supports the three original forms through `Dashboard\ResturantController`, its existing FormRequest and repository. The original multipart forms, content validation, permissions and Arabic success messages remain the user interface. Desktop fact-capture boundaries may reject an operation before the original FormRequest runs. The adapter does not expose a separate product editor. `full_dashboard` remains `false`; copy-menu and the other unsupported dashboard writes remain outside this increment.
 
 | Original route | Effective method | Native physical transport | Original action |
 | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ The original delete is a query delete. It therefore retains product media databa
 
 ## Complete facts and receipts
 
-The authoritative deployed schema fixture has 13 product columns and 18 media columns. The adapter rejects unknown columns rather than dropping them. It captures the complete product row, its branch ownership links, creator identity, category, catalog product, every catalog feature, every associated media row, and bounded physical image proofs. Selected destination relationships are separately captured even when they differ from the old product's relationships.
+The authoritative deployed schema fixture has 13 product columns and 18 media columns. The adapter rejects unknown columns rather than dropping them. A fresh submission naming a missing creator, branch, category or catalog relationship cannot produce complete before-facts and fails closed with HTTP 409 before the original FormRequest, without a business mutation or accepted journal entry. Unsupported relationship shapes likewise fail at fact capture. When complete supported facts are available, the original FormRequest continues to validate the submitted content and return its original responses; exact original status parity is not claimed for invalid foreign-key submissions blocked by the desktop fact boundary. It captures the complete product row, its branch ownership links, creator identity, category, catalog product, every catalog feature, every associated media row, and bounded physical image proofs. Selected destination relationships are separately captured even when they differ from the old product's relationships.
 
 The payload shape is:
 
