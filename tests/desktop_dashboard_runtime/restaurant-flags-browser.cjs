@@ -21,7 +21,7 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     await overlay.getByRole('button',{name:'تم',exact:true}).click();await overlay.waitFor({state:'hidden'});
     // The query is an original read filter. The checkbox forms have no page field.
     assert.equal((await page.goto(input.origin+'/admin/resturants?resturant_id=100')).status(),200);
-    const initialPageErrors=[...errors],operations=[],retries=[];
+    const initialPageErrors=[...errors],operations=[],retries=[],formControlDiagnostics=[];
     const fields=request=>new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();
     const formFor=path=>page.locator('form[action="'+input.origin+path+'"]');
     const originalForm=async(path,field)=>{
@@ -29,13 +29,43 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       await form.locator('[name="_desktop_command"]').waitFor({state:'attached'});
       assert.equal(await form.getAttribute('method'),'post');
       assert.equal(await checkbox.getAttribute('onchange'),'this.form.submit()');
-      assert.equal(await form.locator('[name="_token"]').count(),1);
-      assert.equal(await form.locator('[name="_desktop_command"]').count(),1);
-      assert.equal(await form.locator('[name="_method"],[name="page"]').count(),0);
-      const command=await form.locator('[name="_desktop_command"]').inputValue();
-      assert.match(command,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
       const element=await form.elementHandle();assert.ok(element);
-      return {form,checkbox,command,element};
+      // The original featured cell has an unclosed label before the sorting form.
+      // Browser repair can nest that form in the DOM. Actual association and
+      // native FormData determine submitted controls, not arbitrary descendants.
+      const association=await form.evaluate((actual,field)=>{
+        const associated=Array.from(actual.elements),own=associated.filter(control=>control.form===actual),data=new FormData(actual);
+        const named=name=>own.filter(control=>control.name===name);
+        const describe=control=>({name:control.name,type:control.type||null,tag:control.tagName,
+          formAction:control.form?new URL(control.form.action,location.href).pathname:null,owned:control.form===actual});
+        const flag=named(field);
+        return {allElementsOwned:associated.every(control=>control.form===actual),tokenControls:named('_token').length,commandControls:named('_desktop_command').length,
+          pageOrMethodControls:named('page').length+named('_method').length,flagControls:flag.length,
+          tokenTypes:named('_token').map(control=>control.type),commandTypes:named('_desktop_command').map(control=>control.type),
+          flagType:flag[0]?.type,checked:flag[0]?.checked,command:named('_desktop_command')[0]?.value,csrf:named('_token')[0]?.value,
+          serializedTokenCount:data.getAll('_token').length,serializedCommandCount:data.getAll('_desktop_command').length,
+          serializedCommand:data.get('_desktop_command'),serializedCsrf:data.get('_token'),serializedNames:Array.from(data.keys()).sort(),
+          serializedFlag:data.getAll(field),controls:own.map(describe),descendantControls:Array.from(actual.querySelectorAll('input,select,textarea,button')).map(describe)};
+      },field);
+      assert.equal(association.allElementsOwned,true);assert.equal(association.tokenControls,1);assert.equal(association.commandControls,1);
+      assert.equal(association.pageOrMethodControls,0);assert.equal(association.flagControls,1);
+      assert.deepEqual(association.tokenTypes,['hidden']);assert.deepEqual(association.commandTypes,['hidden']);assert.equal(association.flagType,'checkbox');
+      assert.equal(await checkbox.evaluate((control,actual)=>control.form===actual,element),true);
+      assert.equal(association.serializedTokenCount,1);assert.equal(association.serializedCommandCount,1);
+      assert.ok(typeof association.csrf==='string'&&association.csrf.length>0&&association.serializedCsrf===association.csrf,'the actual associated CSRF must serialize once and unchanged');
+      const command=association.command;assert.match(command,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
+      assert.equal(association.serializedCommand,command);
+      assert.deepEqual(association.serializedNames,['_token','_desktop_command',...(association.checked?[field]:[])].sort());
+      assert.deepEqual(association.serializedFlag,association.checked?['on']:[]);
+      formControlDiagnostics.push({path,field,associatedControls:association.controls,descendantControls:association.descendantControls,
+        associatedCsrfCount:association.tokenControls,associatedCommandCount:association.commandControls,associatedPageOrMethodCount:association.pageOrMethodControls,
+        serializedCsrfCount:association.serializedTokenCount,serializedCommandCount:association.serializedCommandCount,serializedNames:association.serializedNames});
+      return {form,checkbox,command,element,csrf:association.csrf};
+    };
+    const assertBody=(body,current,field,checked)=>{
+      assert.deepEqual(Array.from(body.keys()).sort(),['_token','_desktop_command',...(checked?[field]:[])].sort());
+      assert.equal(body.getAll('_token').length,1);assert.ok(body.get('_token')===current.csrf,'the original bound CSRF must be posted unchanged');
+      assert.deepEqual(body.getAll('_desktop_command'),[current.command]);assert.deepEqual(body.getAll(field),checked?['on']:[]);
     };
     const sentAndResponse=path=>[
       page.waitForRequest(request=>new URL(request.url()).pathname===path&&request.method()==='POST'),
@@ -81,28 +111,27 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       await context.route(input.origin+path,interception);
       const lost=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===path&&request.method()==='POST'});
       await current.checkbox.check();const firstBody=await commitPromise;await lost;
-      assert.equal(firstBody.get('_desktop_command'),current.command);assert.equal(firstBody.get(field),'on');assert.ok(firstBody.get('_token'));
-      assert.equal(firstBody.has('page'),false);assert.equal(firstBody.has('_method'),false);
+      assertBody(firstBody,current,field,true);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
       assert.equal(await current.checkbox.isChecked(),true);assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
       // The untouched automatic checkbox has no retry button. Its opposite value
       // must fail under the saved UUID, then returning to the original value retries it.
       let [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.uncheck();let sent=await sentPromise,response=await responsePromise,body=await fields(sent);
-      assert.equal(body.get('_desktop_command'),current.command);assert.equal(body.has(field),false);assert.equal(response.status(),409);
+      assertBody(body,current,field,false);assert.equal(response.status(),409);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
       assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
       assert.equal(await current.checkbox.isChecked(),false);
       await persistedStillChecked(path,field);
       [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.check();sent=await sentPromise;response=await responsePromise;body=await fields(sent);
-      assert.equal(body.get('_desktop_command'),current.command);assert.equal(body.get(field),'on');assert.ok(body.get('_token'));redirect(response);
+      assertBody(body,current,field,true);redirect(response);
       operations.push({route_name:route==='resturantchangeStatus'?'resturants.changeStatus':'resturants.changeUnderContract',field,checked:true,command:current.command,originalRedirect:true});
       retries.push({field,command:current.command,committedResponseLost:true,oppositeSameUuidStatus:409,persistedAfterOppositeStillChecked:true,originalValueSameUuidStatus:302,actualCheckboxControls:true});
       current=await acceptedNavigation(current,path,field);assert.equal(await current.checkbox.isChecked(),true);
       [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.uncheck();sent=await sentPromise;response=await responsePromise;body=await fields(sent);
-      assert.equal(body.get('_desktop_command'),current.command);assert.equal(body.has(field),false);assert.ok(body.get('_token'));redirect(response);
+      assertBody(body,current,field,false);redirect(response);
       operations.push({route_name:route==='resturantchangeStatus'?'resturants.changeStatus':'resturants.changeUnderContract',field,checked:false,command:current.command,originalRedirect:true});
       current=await acceptedNavigation(current,path,field);assert.equal(await current.checkbox.isChecked(),false);
       await context.unroute(input.origin+path,interception);
@@ -112,6 +141,7 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     process.stdout.write('RESTAURANT_FLAGS_BROWSER_PROOF '+JSON.stringify({restaurant:100,operations,retries,originalForm:true,originalCheckboxOnchange:true,
       checkedAndUncheckedBothFlags:true,committedResponsesLost:2,oppositeSameUuidRejected:2,originalValueRetrySameUuid:2,
       freshUuidOnlyAfterAcceptedNavigation:true,originalQueryReadPreserved:true,originalFormsHaveNoPageField:true,
+      actualAssociatedFormControls:true,exactSerializedCsrfAndUuid:true,formControlDiagnostics,
       initialOriginalPageErrors:initialPageErrors,newPageErrors:0,force:false,domInjection:false,
       sourceCommit:input.sourceCommit,fixtureRevision:input.fixtureRevision,browser:'Windows Edge',browserVersion:browser.version(),browserPlatform:process.platform})+'\n');
   }finally{await browser.close();}
