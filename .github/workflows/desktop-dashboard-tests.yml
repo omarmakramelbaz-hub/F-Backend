@@ -7,6 +7,7 @@ on:
     paths:
       - 'app/Services/Dashboard/DesktopDashboard*.php'
       - 'app/Services/Dashboard/CategoryOrdering.php'
+      - 'app/Repositories/ResturantProductRepository.php'
       - 'app/Http/Controllers/Dashboard/CategoryController.php'
       - 'routes/admin.php'
       - 'app/Http/Middleware/DesktopDashboardJournal.php'
@@ -93,6 +94,7 @@ jobs:
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }
+              if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_COMPLETE ') -or !(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '))) { throw 'Both original product CRUD acceptance modules must complete.' }
             }
             $reviewProofDirectory = "$env:RUNNER_TEMP/review-delete-browser"
             New-Item -ItemType Directory -Path $reviewProofDirectory -Force | Out-Null
@@ -122,6 +124,21 @@ jobs:
             if ($flagsReceipt.schemaInventory -ne 106 -or $flagsReceipt.originalBusinessTablesBefore.tables -ne 106 -or $flagsReceipt.originalBusinessTablesAfter.tables -ne 106 -or $flagsReceipt.reflectionBindings -ne 5 -or $flagsReceipt.laravel -ne '8.83.29' -or $flagsReceipt.applicationValidated -ne $false -or $flagsReceipt.providersReplaced -ne $false -or @($flagsReceipt.browserProof.operations).Count -ne 6 -or @($flagsReceipt.browserProof.retries).Count -ne 2 -or !$flagsReceipt.browserProof.originalForm -or !$flagsReceipt.browserProof.originalQueryReadPreserved -or !$flagsReceipt.browserProof.originalCheckboxFormsHaveNoPageField -or $flagsReceipt.browserProof.force -ne $false -or $flagsReceipt.browserProof.domInjection -ne $false -or $flagsReceipt.vendorBefore.sha256 -ne $flagsReceipt.vendorAfter.sha256 -or $flagsReceipt.vendorBefore.files -ne $flagsReceipt.vendorAfter.files -or $flagsReceipt.installedGraphBefore.sha256 -ne $flagsReceipt.installedGraphAfter.sha256 -or $flagsReceipt.installedGraphBefore.packages -ne $flagsReceipt.installedGraphAfter.packages -or $flagsReceipt.originalBusinessTablesBefore.sha256 -ne $flagsReceipt.originalBusinessTablesAfter.sha256) { throw 'Restaurant checkbox proof inventory or immutable dependency/business binding differs.' }
             if (!$flagsReceipt.browserProof.originalFeaturedOrderingSubmit -or !$flagsReceipt.browserProof.originalSortingHasPageField -or $flagsReceipt.browserProof.featuredOrderingCommands -ne 2 -or $flagsReceipt.browserProof.featuredOrderingFinalValue -ne 8 -or $flagsReceipt.browserProof.sortingRetry.field -ne 'sortby_is_featured' -or !$flagsReceipt.browserProof.sortingRetry.committedResponseLost -or $flagsReceipt.browserProof.sortingRetry.changedSameUuidStatus -ne 409 -or !$flagsReceipt.browserProof.sortingRetry.persistedAfterChangedStillSeven -or $flagsReceipt.browserProof.sortingRetry.originalValueSameUuidStatus -ne 302 -or !$flagsReceipt.browserProof.sortingRetry.actualNumberAndSubmitControls -or $flagsReceipt.browserProof.sortingRetry.isNavigationRequest -ne $false -or $flagsReceipt.browserProof.sortingRetry.resourceType -ne 'fetch' -or !$flagsReceipt.browserProof.sortingRetry.originalFormRetainedAfterLoss) { throw 'Original featured ordering proof must use the original number/submit/page controls and retain UUID through lost/changed/original retries.' }
             if (!$flagsReceipt.completed -or !$flagsReceipt.verifiedImport -or !$flagsReceipt.privateDatabasesDropped -or !$flagsReceipt.httpStopped -or !$flagsReceipt.browserStopped -or !$flagsReceipt.sourceVerifiedAfter -or !$flagsReceipt.fixturesVerifiedAfter -or !$flagsReceipt.vendorUnchanged -or !$flagsReceipt.installedGraphUnchanged -or !$flagsReceipt.mediaPreserved -or !$flagsReceipt.originalBusinessTablesUnchanged -or $flagsReceipt.sourceRevision -ne $env:GITHUB_SHA -or $flagsReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.importedSnapshotTables -ne 106 -or $flagsReceipt.targetColumnCount -ne 29 -or $flagsReceipt.commands -ne 6 -or $flagsReceipt.checks -ne 29 -or $flagsReceipt.browserExitCode -ne 0 -or $flagsReceipt.browserProof.browser -ne 'Windows Edge' -or $flagsReceipt.browserProof.browserPlatform -ne 'win32' -or $flagsReceipt.browserProof.sourceCommit -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.newPageErrors -ne 0 -or !$flagsReceipt.browserProof.originalCheckboxOnchange -or !$flagsReceipt.browserProof.checkedAndUncheckedBothFlags -or $flagsReceipt.browserProof.committedResponsesLost -ne 2 -or $flagsReceipt.browserProof.oppositeSameUuidRejected -ne 2 -or $flagsReceipt.browserProof.originalValueRetrySameUuid -ne 2 -or !$flagsReceipt.browserProof.freshUuidOnlyAfterAcceptedNavigation -or $flagsReceipt.fullDashboard -ne $false) { throw 'Original restaurant checkbox receipt does not match this complete source-bound fixture.' }
+            $crudProofDirectory = "$env:RUNNER_TEMP/restaurant-product-crud-browser"
+            New-Item -ItemType Directory -Path $crudProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/restaurant-product-crud-browser-http.php "$bundle/application" $port $crudProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable crudProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($crudProofOutput -join "`n") -match '(?m)^ORIGINAL_RESTAURANT_PRODUCT_CRUD_BROWSER_COMPLETE ')) { throw 'Original restaurant product CRUD Edge fixture did not complete.' }
+            $crudReceipt = Get-Content "$crudProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if ($crudReceipt.format -ne 1 -or $crudReceipt.kind -ne 'original-restaurant-product-crud-browser' -or $crudReceipt.sourceRevision -ne $env:GITHUB_SHA -or $crudReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $crudReceipt.schemaInventory -ne 106 -or $crudReceipt.importedSnapshotTables -ne 106 -or $crudReceipt.targetColumnCount -ne 13 -or $crudReceipt.mediaColumnCount -ne 18 -or $crudReceipt.reflectionBindings -ne 8 -or $crudReceipt.checks -ne 30 -or $crudReceipt.commands -ne 4 -or $crudReceipt.fullDashboard -ne $false -or $crudReceipt.applicationValidated -ne $false) { throw 'Original CRUD receipt source, schema, bindings or bounded coverage differs.' }
+            foreach ($field in @('completed','verifiedImport','privateDatabasesDropped','httpStopped','browserStopped','sourceVerifiedAfter','fixturesVerifiedAfter','vendorUnchanged','installedGraphUnchanged','mediaPreserved','originalBusinessTablesUnchanged','originalForm','actualAssociatedFormControls','exactSerializedCsrfAndUuid','retainedFileAfterLoss','changedSameUuid409','originalRetry302','createUpdateReplaceDelete')) {
+              if ($crudReceipt.$field -ne $true) { throw "Original CRUD receipt is incomplete: $field" }
+            }
+            $crudProof = $crudReceipt.browserProof
+            if ($crudReceipt.browserExitCode -ne 0 -or $crudProof.browser -ne 'Windows Edge' -or $crudProof.browserPlatform -ne 'win32' -or $crudProof.sourceCommit -ne $env:GITHUB_SHA -or $crudProof.fixtureRevision -ne $env:GITHUB_SHA -or $crudProof.newPageErrors -ne 0 -or $crudProof.force -ne $false -or $crudProof.domInjection -ne $false -or @($crudProof.operations).Count -ne 4) { throw 'Original CRUD browser proof differs from this complete fixture.' }
+            foreach ($field in @('originalForm','actualAssociatedFormControls','exactSerializedCsrfAndUuid','retainedFileAfterLoss','changedSameUuid409','originalRetry302','createUpdateReplaceDelete','originalAddModal','originalEditModal','originalConfirmedDelete','originalMultipartFiles','originalAjaxCatalogAndAddons','noImageUpdate','replacementImageUpdate','originalQueryReadPreserved','freshUuidOnlyAfterAcceptedNavigation')) {
+              if ($crudProof.$field -ne $true) { throw "Original CRUD browser proof did not exercise: $field" }
+            }
+            if ($crudReceipt.originalBusinessTablesBefore.tables -ne 106 -or $crudReceipt.originalBusinessTablesAfter.tables -ne 106 -or $crudReceipt.originalBusinessTablesBefore.sha256 -ne $crudReceipt.originalBusinessTablesAfter.sha256 -or $crudReceipt.vendorBefore.sha256 -ne $crudReceipt.vendorAfter.sha256 -or $crudReceipt.vendorBefore.files -ne $crudReceipt.vendorAfter.files -or $crudReceipt.installedGraphBefore.sha256 -ne $crudReceipt.installedGraphAfter.sha256 -or $crudReceipt.installedGraphBefore.packages -ne $crudReceipt.installedGraphAfter.packages) { throw 'Original CRUD immutable business or dependency inventories differ.' }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
@@ -151,6 +168,13 @@ jobs:
         with:
           name: original-restaurant-flags-browser
           path: ${{ runner.temp }}/restaurant-flags-browser
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original restaurant product CRUD Edge receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-restaurant-product-crud-browser
+          path: ${{ runner.temp }}/restaurant-product-crud-browser
           if-no-files-found: error
           retention-days: 14
       - name: Verify native dashboard preparation and restart recovery

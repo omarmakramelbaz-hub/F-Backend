@@ -96,7 +96,7 @@ class ResturantProductRepository implements ResturantProductRepositoryInterface
         $ResturantProduct->update(['price' => $prices ]);
                     // dd($ResturantProduct->price);
                     $ResturantProduct= ResturantProduct::find($ResturantProductId);
-        broadcast(new ResturantProductUpdated($ResturantProduct,$ResturantProductId))->toOthers();
+        app(\App\Services\Dashboard\DesktopDashboardProductEffects::class)->updated($ResturantProduct,$ResturantProductId);
 
 // dd($ResturantProduct);
         return $updated;

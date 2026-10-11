@@ -48,8 +48,7 @@ use Illuminate\Support\Str;
             verify($get($path,[$field=>$value])[0]===302&&$row()[$field]===$value,'ordinary online product '.$field.' GET links keep their original behavior without a native UUID');
         }
         verify($related()===$beforeRelated,'native product links preserve every original catalog/media/branch and financial row');
-        foreach([['POST','/admin/resturant_products'],['PUT','/admin/resturant_products/update'],['DELETE','/admin/resturant_products/1'],['POST','/admin/resturant/copy/items']] as [$method,$path])
-            verify($decide(['id'=>(string)Str::uuid(),'method'=>$method,'path'=>$path])[0]===422,'product flag coverage does not advertise unreviewed media CRUD/copy: '.$method.' '.$path);
+        verify($decide(['id'=>(string)Str::uuid(),'method'=>'POST','path'=>'/admin/resturant/copy/items'])[0]===422,'product coverage does not advertise unreviewed copying');
         echo 'Restaurant product original native GET outcomes completed'.PHP_EOL;
     }finally{$restore($original);}
 })();

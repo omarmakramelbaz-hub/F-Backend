@@ -214,6 +214,7 @@ try{
     require __DIR__.'/review-deletion-remote.php';
     require __DIR__.'/restaurant-flags-remote.php';
 require __DIR__.'/restaurant-products-remote.php';
+require __DIR__.'/restaurant-product-crud-remote.php';
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

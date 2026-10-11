@@ -49,6 +49,7 @@ class DesktopDashboardJournal
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');
                 $result=$this->saved($old->local_result_cipher)['result'];
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+                if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 return $result;
             }
             foreach ($dependencies as $dependency) {
@@ -59,13 +60,20 @@ class DesktopDashboardJournal
             // Collections and date objects must have the same JSON representation on first reply and replay.
             $result=json_decode($this->json($result),true,512,JSON_THROW_ON_ERROR);
             if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+            if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
             $references=$this->references->capture($device,$command,$route,$result,$payload,$actor);
             $now = now('UTC');
+            $occurred=$now;
+            if(config('desktop_dashboard.local')&&DesktopDashboardRestaurantProductCrud::handles($route)&&isset($result['after']['product']['row']['updated_at'])){
+                // Original Eloquent DATETIME values use the source app timezone. Record the
+                // business write time, rather than time spent hashing its complete image facts.
+                $occurred=\Carbon\Carbon::parse($result['after']['product']['row']['updated_at'],config('app.timezone'))->setTimezone('UTC');
+            }
             DB::table('desktop_dashboard_commands')->insert([
                 'device_id'=>$device,'command_id'=>$command,'actor_id'=>$actor,'route_name'=>$route,'request_hash'=>$hash,
                 'command_cipher'=>Crypt::encryptString($this->json($payload)),
                 'local_result_cipher'=>Crypt::encryptString($this->json(['format'=>1,'result'=>$result,'references'=>$references])),
-                'dependencies'=>$this->json($dependencies),'status'=>'pending','attempts'=>0,'created_at'=>$now,'updated_at'=>$now,
+                'dependencies'=>$this->json($dependencies),'status'=>'pending','attempts'=>0,'created_at'=>$occurred,'updated_at'=>$now,
             ]);
             return $result;
         });
