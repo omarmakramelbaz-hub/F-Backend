@@ -96,7 +96,24 @@
             request.done(value => { if (value && value.success && sessionStorage.getItem(key) === command) sessionStorage.removeItem(key); });
         });
     };
-    document.addEventListener('submit', event => prepare(event.target), true);
+    document.addEventListener('submit', event => {
+        const form = event.target;
+        prepare(form);
+        if (event.defaultPrevented || !(form instanceof HTMLFormElement) || !eligible(form)
+            || !/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(new URL(form.action, location.href).pathname)
+            || form.method.toUpperCase() !== 'POST' || form.hasAttribute('data-spa-off')
+            || (form.target && form.target !== '_self') || !window.DashboardSPA
+            || typeof window.DashboardSPA.ready !== 'function' || !window.DashboardSPA.ready()
+            || !document.querySelector('[data-dashboard-page]')) return;
+        const submitter = event.submitter;
+        if (submitter && (submitter.form !== form || submitter.name
+            || ['formaction','formmethod','formtarget','formenctype'].some(name => submitter.hasAttribute(name)))) return;
+        // The original unclosed featured label can nest this form in the DOM. Capture its
+        // natural submit before legacy bubbling handlers and use the same SPA submission
+        // path as the original checkbox's this.form.submit(), retaining its UUID on loss.
+        event.preventDefault();
+        HTMLFormElement.prototype.submit.call(form);
+    }, true);
     document.addEventListener('DOMContentLoaded', () => { scan(); ajax(); });
     new MutationObserver(scan).observe(document.documentElement, {childList: true, subtree: true});
     scan(); ajax();

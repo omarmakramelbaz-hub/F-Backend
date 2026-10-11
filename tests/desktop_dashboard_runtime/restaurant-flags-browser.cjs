@@ -137,10 +137,11 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       const current=await originalSortForm();assert.notEqual(current.command,previous.command);return current;
     };
     const exerciseSort=async()=>{
-      let current=await originalSortForm(),intercept=true,resolveCommit;
+      let current=await originalSortForm(),intercept=true,resolveCommit,sortTransport;
       const commitPromise=new Promise(resolve=>{resolveCommit=resolve;});
       const interception=async route=>{
         if(intercept&&route.request().method()==='POST'){
+          sortTransport={resourceType:route.request().resourceType(),isNavigationRequest:route.request().isNavigationRequest()};
           intercept=false;const actual=await route.fetch({maxRedirects:0,headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});
           redirect(actual);resolveCommit(await fields(route.request()));await route.abort();
         }else await route.fallback();
@@ -149,6 +150,13 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       const lost=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===current.path&&request.method()==='POST'});
       await current.number.fill('7');await current.button.click();assertSortBody(await commitPromise,current,'7');await lost;
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
+      const afterLoss=await page.evaluate(()=>({url:location.href,spaReady:window.DashboardSPA?.ready(),dashboardPage:Boolean(document.querySelector('[data-dashboard-page]')),
+        forms:Array.from(document.forms).map(form=>({path:new URL(form.action,location.href).pathname,
+          ownCommands:Array.from(form.elements).filter(control=>control.form===form&&control.name==='_desktop_command').length}))}));
+      process.stdout.write('RESTAURANT_SORT_LOST_TRANSPORT '+JSON.stringify({...sortTransport,afterLoss})+'\n');
+      assert.equal(sortTransport.isNavigationRequest,false,'The original sort button must use the SPA fetch, preserving the original form after an uncertain result.');
+      assert.equal(sortTransport.resourceType,'fetch');assert.equal(afterLoss.spaReady,true);assert.equal(afterLoss.dashboardPage,true);
+      assert.equal(await current.element.evaluate(element=>element.isConnected),true,'The original sorting form must remain connected after the failed fetch.');
       assert.equal(await ownedCommandValue(current),current.command);
       let [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('8');await current.button.click();
       let sent=await sentPromise,response=await responsePromise;assertSortBody(await fields(sent),current,'8');assert.equal(response.status(),409);
@@ -162,7 +170,8 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       sent=await sentPromise;response=await responsePromise;assertSortBody(await fields(sent),current,'7');redirect(response);
       operations.push({route_name:'update_sorting_is_featured',field:'sortby_is_featured',value:7,command:current.command,originalRedirect:true});
       const retry={field:'sortby_is_featured',command:current.command,committedResponseLost:true,changedSameUuidStatus:409,
-        persistedAfterChangedStillSeven:true,originalValueSameUuidStatus:302,actualNumberAndSubmitControls:true};
+        persistedAfterChangedStillSeven:true,originalValueSameUuidStatus:302,actualNumberAndSubmitControls:true,
+        isNavigationRequest:sortTransport.isNavigationRequest,resourceType:sortTransport.resourceType,originalFormRetainedAfterLoss:true};
       current=await acceptedSortNavigation(current);assert.equal(await current.number.inputValue(),'7');
       [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('8');await current.button.click();
       sent=await sentPromise;response=await responsePromise;assertSortBody(await fields(sent),current,'8');redirect(response);

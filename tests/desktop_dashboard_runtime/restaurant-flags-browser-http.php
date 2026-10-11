@@ -121,7 +121,8 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
         $sortingRetry=$proof['sortingRetry']??[];
         verify(($proof['originalFeaturedOrderingSubmit']??false)&&($proof['originalSortingHasPageField']??false)&&($proof['featuredOrderingCommands']??null)===2&&($proof['featuredOrderingFinalValue']??null)===8
             &&($sortingRetry['field']??null)==='sortby_is_featured'&&($sortingRetry['committedResponseLost']??false)&&($sortingRetry['changedSameUuidStatus']??null)===409
-            &&($sortingRetry['persistedAfterChangedStillSeven']??false)&&($sortingRetry['originalValueSameUuidStatus']??null)===302&&($sortingRetry['actualNumberAndSubmitControls']??false),
+            &&($sortingRetry['persistedAfterChangedStillSeven']??false)&&($sortingRetry['originalValueSameUuidStatus']??null)===302&&($sortingRetry['actualNumberAndSubmitControls']??false)
+            &&($sortingRetry['isNavigationRequest']??null)===false&&($sortingRetry['resourceType']??null)==='fetch'&&($sortingRetry['originalFormRetainedAfterLoss']??false),
             'actual original featured ordering number input and submit button retain UUID through lost302, changed409 and original-value retry before a fresh accepted save');
         $rows=DB::table('desktop_dashboard_commands')->orderBy('sequence')->get();$operations=$proof['operations']??[];
         verify($rows->count()===6&&count($operations)===6&&count(array_unique(array_column($operations,'command')))===6,
