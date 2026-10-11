@@ -112,6 +112,9 @@
         // natural submit before legacy bubbling handlers and use the same SPA submission
         // path as the original checkbox's this.form.submit(), retaining its UUID on loss.
         event.preventDefault();
+        // The SPA's later capture listener snapshots after this call disables buttons.
+        // Discard that previous in-flight snapshot so every retry restores current controls.
+        delete form.dashboardSubmitButtons;
         HTMLFormElement.prototype.submit.call(form);
     }, true);
     document.addEventListener('DOMContentLoaded', () => { scan(); ajax(); });
