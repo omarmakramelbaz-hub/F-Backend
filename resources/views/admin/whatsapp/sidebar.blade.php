@@ -6,3 +6,5 @@
     </a>
 </li>
 @endif
+
+@include('admin.meta.sidebar')

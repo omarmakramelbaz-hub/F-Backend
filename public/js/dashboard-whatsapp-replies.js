@@ -10,6 +10,7 @@
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
         var panel = host.querySelector('[data-wa-replies]'); if (!panel) return;
+        var textLimit = Number(config.text_limit) || 4096;
         var labels = config.labels || {}, status = panel.querySelector('[data-wa-reply-status]');
         var form = panel.querySelector('[data-wa-reply-form]'), text = panel.querySelector('[data-wa-reply-text]');
         var send = panel.querySelector('[data-wa-reply-send]'), refresh = panel.querySelector('[data-wa-reply-refresh]');
@@ -27,7 +28,7 @@
         function clear(reason) {
             generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
             clearVoice(); openingMicrophone = false;
-            text.value = ''; count.textContent = '0 / 4096'; panel.hidden = true;
+            text.value = ''; count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
         }
@@ -37,7 +38,7 @@
             text.disabled = !available || sending || recording || !state || !state.available;
             text.readOnly = uncertain || Boolean(state && !state.can_reply);
             send.disabled = !available || sending || recording || checking || uncertain || !state || !state.available || !state.can_reply
-                || !text.value.trim() || text.value.length > 4096;
+                || !text.value.trim() || Array.from(text.value).length > textLimit;
             refresh.disabled = !available || checking || sending || recording;
             if (record) {
                 record.disabled = !available || sending || checking || uncertain || recording || Boolean(voiceBlob)
@@ -134,7 +135,7 @@
                 renderAudit(data);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
                     var accepted = data.request_state === 'ACCEPTED', wasText = attempt.kind === 'text'; uncertain = false; attempt = null;
-                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / 4096'; }
+                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / ' + textLimit; }
                     note(accepted ? labels.accepted : labels.failed, !accepted);
                 } else if (uncertain || ['SEND_UNCERTAIN', 'UNKNOWN_PENDING'].indexOf(data.reason) !== -1 || data.request_state === 'UNKNOWN') {
                     uncertain = true; note(labels.unknown, true);
@@ -171,7 +172,7 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
-                    if (kind === 'text') { text.value = ''; count.textContent = '0 / 4096'; }
+                    if (kind === 'text') { text.value = ''; count.textContent = '0 / ' + textLimit; }
                     attempt = null; uncertain = false; note(labels.accepted);
                 } else if (data.state === 'FAILED') {
                     attempt = null; uncertain = false; note(labels.failed, true);
@@ -279,7 +280,7 @@
             body.append('expected_inbound_id', String(inbound)); attempt = {id: id, inbound: inbound, kind: 'voice'};
             clearVoice(); sendRequest(selected, current, 'voice', body, 'voice');
         }
-        function input() { count.textContent = text.value.length + ' / 4096'; controls(); }
+        function input() { count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
         function refreshClick() { if (!refresh.disabled) loadState(false); }
         function reset(event) {
             var reason = event && event.detail && event.detail.reason;

@@ -285,3 +285,5 @@ Route::post('/pusher/auth', function (Request $request) {
 
 // WhatsApp webhook integration
 require __DIR__.'/whatsapp.php';
+
+require __DIR__.'/meta_messaging.php';

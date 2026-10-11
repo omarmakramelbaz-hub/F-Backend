@@ -29,7 +29,7 @@
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
         var threadMap = new Map(), messageMap = new Map(), controllers = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
-        var chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
+        var channel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
 
@@ -140,6 +140,7 @@
                 var body = node('span', 'wa-inbox-thread-body');
                 var heading = node('span', 'wa-inbox-thread-heading');
                 heading.appendChild(node('strong', '', displayName(thread)));
+                if (thread.channel) body.appendChild(node('span', 'wa-inbox-channel-label', (thread.channel === 'instagram' ? 'Instagram' : 'Messenger') + ' · ' + (thread.account_label || '')));
                 var unread = unreadMap.get(Number(thread.id)) || 0;
                 if (unread > 0) {
                     var badge = node('span', 'wa-inbox-unread', unread > 99 ? '99+' : String(unread));
@@ -202,20 +203,21 @@
         }
         function loadThreads(previous) {
             if (threadLoading) return Promise.resolve();
-            var page = previous ? nextCursor : null;
+            var page = previous ? nextCursor : null, epoch = threadEpoch;
             if (previous && !page) return Promise.resolve();
             threadLoading = true; more.disabled = true;
             var url = new URL(config.conversations_url, window.location.href);
             if (page) url.searchParams.set('cursor', page);
+            if (channel) url.searchParams.set('channel', channel);
             return request(url.href, 'threads').then(function (data) {
-                if (closed || denied) return;
+                if (closed || denied || epoch !== threadEpoch) return;
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
                 renderThreads(); count.textContent = String(data.total || 0);
                 if (previous || !nextCursor || threadMap.size <= 25) nextCursor = data.next_cursor || null;
                 more.hidden = !nextCursor;
-            }).finally(function () { threadLoading = false; if (!closed) more.disabled = false; });
+            }).finally(function () { if (epoch === threadEpoch) { threadLoading = false; if (!closed) more.disabled = false; } });
         }
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
@@ -300,6 +302,18 @@
                 .finally(function () { pollBusy = false; if (!closed) refresh.disabled = false; schedule(); });
         }
         function click(event) {
+            var channelButton = event.target.closest('[data-meta-channel]');
+            if (channelButton && panel.contains(channelButton)) {
+                channel = channelButton.dataset.metaChannel || ''; threadEpoch++; generation++; chosen = 0;
+                controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
+                clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
+                threadMap.clear(); messageMap.clear(); threads.textContent = ''; messages.textContent = '';
+                nextCursor = null; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false;
+                title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
+                panel.classList.remove('has-selection'); back.hidden = true;
+                panel.querySelectorAll('[data-meta-channel]').forEach(function (item) { item.setAttribute('aria-pressed', item === channelButton ? 'true' : 'false'); });
+                loadThreads(false).then(loadUnread).then(success).catch(unavailable); return;
+            }
             var button = event.target.closest('[data-wa-thread]');
             if (button && panel.contains(button)) { choose(Number(button.dataset.waThread)); return; }
             if (event.target.closest('[data-wa-older]') && !older.disabled) loadMessages('older').catch(unavailable);

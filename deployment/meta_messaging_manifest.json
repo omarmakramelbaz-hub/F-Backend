@@ -1,0 +1,41 @@
+{
+  "baseline": {
+    "app/Services/Dashboard/WhatsAppOrderWorkflow.php": "27603aae0a454edda0325ef244360e11ee6f3550",
+    "public/css/dashboard-whatsapp-inbox.css": "d802231fe4ad2fe37be9b932d68e9f842dc583c8",
+    "public/js/dashboard-whatsapp-inbox.js": "f079f9ff546e0e338567c6e408845defef279149",
+    "public/js/dashboard-whatsapp-replies.js": "d2a0bc0476eb1cc8ddcb62678dda8545398b072e"
+  },
+  "new_files": [
+    "app/Console/Commands/ConfigureMetaMessages.php",
+    "app/Console/Commands/ProcessMetaMessages.php",
+    "app/Http/Controllers/Api/V1/MetaMessagingWebhookController.php",
+    "app/Http/Controllers/Dashboard/MetaInboxController.php",
+    "app/Http/Controllers/Dashboard/MetaInboxReadController.php",
+    "app/Http/Controllers/Dashboard/MetaOrderController.php",
+    "app/Http/Controllers/Dashboard/MetaReplyController.php",
+    "app/Services/Dashboard/MetaInboxAccess.php",
+    "app/Services/Dashboard/MetaInboxConsumer.php",
+    "app/Services/Dashboard/MetaInboxReadState.php",
+    "app/Services/Dashboard/MetaInvalidEvent.php",
+    "app/Services/Dashboard/MetaOrderWorkflow.php",
+    "app/Services/Dashboard/MetaReplyService.php",
+    "app/Support/MetaMessagingProtocol.php",
+    "config/meta_cart.php",
+    "config/meta_messaging.php",
+    "config/meta_orders.php",
+    "database/migrations/2026_10_11_160000_create_meta_webhook_events_table.php",
+    "database/migrations/2026_10_11_160001_create_meta_inbox_tables.php",
+    "database/migrations/2026_10_11_160002_create_meta_order_drafts.php",
+    "database/migrations/2026_10_11_160003_create_meta_reply_requests.php",
+    "database/migrations/2026_10_11_160004_create_meta_inbox_reads.php",
+    "resources/views/admin/meta/index.blade.php",
+    "resources/views/admin/meta/orders.blade.php",
+    "resources/views/admin/meta/replies.blade.php",
+    "resources/views/admin/meta/sidebar.blade.php",
+    "routes/meta_inbox.php",
+    "routes/meta_messaging.php",
+    "routes/meta_orders.php",
+    "routes/meta_reads.php",
+    "routes/meta_replies.php"
+  ]
+}

@@ -2,9 +2,18 @@ name: WhatsApp webhook checks
 
 on:
   push:
-    branches: [codex/whatsapp-webhook-20261009]
+    branches: [codex/whatsapp-webhook-20261009, codex/meta-messages-20261011]
   pull_request:
     paths:
+      - 'app/**/Meta*.php'
+      - 'app/Console/Commands/ConfigureMetaMessages.php'
+      - 'app/Console/Commands/ProcessMetaMessages.php'
+      - 'config/meta*.php'
+      - 'routes/meta*.php'
+      - 'resources/views/admin/meta/**'
+      - 'database/migrations/*create_meta*'
+      - 'deployment/*meta_messaging*'
+      - 'tests/meta_messaging*'
       - 'app/Support/WhatsAppWebhookProtocol.php'
       - 'app/Http/Controllers/Api/V1/WhatsAppWebhookController.php'
       - 'config/whatsapp.php'
@@ -91,6 +100,10 @@ jobs:
           bash -n deployment/install_whatsapp_webhook.sh
           bash -n deployment/whatsapp_install_root_wrapper.sh
           bash -n deployment/install_whatsapp_automatic_root.sh
+          bash -n deployment/install_meta_messaging_root.sh
+          for file in app/Support/Meta*.php app/Services/Dashboard/Meta*.php app/Http/Controllers/Dashboard/Meta*.php app/Http/Controllers/Api/V1/MetaMessagingWebhookController.php app/Console/Commands/ConfigureMetaMessages.php app/Console/Commands/ProcessMetaMessages.php config/meta*.php routes/meta*.php database/migrations/*create_meta* tests/meta_messaging_test.php; do
+            php -l "$file"
+          done
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -118,6 +131,8 @@ jobs:
         run: python3 tests/whatsapp_allowlist_update_test.py
       - name: Verify additive inbox installation and rollback
         run: python3 tests/whatsapp_inbox_install_test.py
+      - name: Verify Meta installation preservation and rollback
+        run: python3 tests/meta_messaging_install_test.py
       - name: Stage helpers under the test runner's ownership
         run: |
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
@@ -169,6 +184,7 @@ jobs:
           php tests/whatsapp_inbox_database_test.php
           php tests/whatsapp_inbox_diagnostic_test.php
           php tests/whatsapp_order_workflow_test.php
+          php tests/meta_messaging_test.php
           php tests/whatsapp_inbox_reads_test.php
           php tests/whatsapp_reply_service_test.php
           php tests/whatsapp_voice_media_test.php
