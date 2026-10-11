@@ -11,6 +11,12 @@
         destroy();
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
+        var namespace = '', legacyWhatsApp = false;
+        try {
+            var messagesRoute = new URL(config.messages_base_url, window.location.href);
+            namespace = messagesRoute.origin + messagesRoute.pathname.replace(/\/+$/, '');
+            legacyWhatsApp = /\/whatsapp(?:\/|$)/.test(messagesRoute.pathname);
+        } catch (error) {}
         var labels = config.labels || {};
         var threads = panel.querySelector('[data-wa-thread-list]');
         var listStatus = panel.querySelector('[data-wa-list-status]');
@@ -29,7 +35,7 @@
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
         var threadMap = new Map(), messageMap = new Map(), apiReplyMap = new Map(), controllers = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
-        var chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
+        var channel = '', selectedChannel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
 
@@ -87,7 +93,7 @@
         function unavailable(error) {
             if (closed || error && error.name === 'AbortError') return;
             if (error && [401, 403, 419].indexOf(error.status) !== -1) {
-                denied = true; generation++; chosen = 0;
+                denied = true; generation++; chosen = 0; selectedChannel = '';
                 clearTimeout(readTimer);
                 emit('whatsapp:private-reset', {reason: 'denied'});
                 threadMap.clear(); messageMap.clear(); apiReplyMap.clear(); threads.textContent = ''; messages.textContent = '';
@@ -144,6 +150,7 @@
                 var body = node('span', 'wa-inbox-thread-body');
                 var heading = node('span', 'wa-inbox-thread-heading');
                 heading.appendChild(node('strong', '', displayName(thread)));
+                if (thread.channel) body.appendChild(node('span', 'wa-inbox-channel-label', (thread.channel === 'instagram' ? 'Instagram' : 'Messenger') + ' · ' + (thread.account_label || '')));
                 var unread = unreadMap.get(Number(thread.id)) || 0;
                 if (unread > 0) {
                     var badge = node('span', 'wa-inbox-unread', unread > 99 ? '99+' : String(unread));
@@ -206,20 +213,21 @@
         }
         function loadThreads(previous) {
             if (threadLoading) return Promise.resolve();
-            var page = previous ? nextCursor : null;
+            var page = previous ? nextCursor : null, epoch = threadEpoch;
             if (previous && !page) return Promise.resolve();
             threadLoading = true; more.disabled = true;
             var url = new URL(config.conversations_url, window.location.href);
             if (page) url.searchParams.set('cursor', page);
+            if (channel) url.searchParams.set('channel', channel);
             return request(url.href, 'threads').then(function (data) {
-                if (closed || denied) return;
+                if (closed || denied || epoch !== threadEpoch) return;
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
                 renderThreads(); count.textContent = String(data.total || 0);
                 if (previous || !nextCursor || threadMap.size <= 25) nextCursor = data.next_cursor || null;
                 more.hidden = !nextCursor;
-            }).finally(function () { threadLoading = false; if (!closed) more.disabled = false; });
+            }).finally(function () { if (epoch === threadEpoch) { threadLoading = false; if (!closed) more.disabled = false; } });
         }
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
@@ -274,6 +282,7 @@
         function acceptedReplies(event) {
             var detail = event && event.detail;
             if (closed || denied || document.hidden || navigator.onLine === false || !chosen || !detail
+                || selectedChannel !== 'whatsapp' || detail.channel !== selectedChannel || detail.namespace !== namespace
                 || detail.conversation !== chosen || detail.generation !== generation || !Array.isArray(detail.replies)) return;
             var nearBottom = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 90;
             var language = document.documentElement && document.documentElement.lang || 'ar';
@@ -285,7 +294,7 @@
                     || reply.kind === 'text' && (typeof reply.text !== 'string' || !reply.text)) return;
                 var stamp = messageStamp(reply.accepted_at || reply.created_at);
                 if (!stamp || !Number.isFinite(new Date(stamp).getTime())) return;
-                apiReplyMap.set('api-reply:' + reply.id, {id: reply.id, kind: reply.kind, text: reply.kind === 'text' ? reply.text.slice(0, 4096) : '',
+                apiReplyMap.set('api-reply:' + reply.id, {id: reply.id, kind: reply.kind, text: reply.kind === 'text' ? Array.from(reply.text).slice(0, 4096).join('') : '',
                     timestamp: new Date(stamp).toISOString(), projected_message_id: Number.isSafeInteger(reply.projected_message_id)
                         && reply.projected_message_id > 0 ? reply.projected_message_id : null,
                     source_label: typeof replyLabels.api_source === 'string' && replyLabels.api_source ? replyLabels.api_source
@@ -314,6 +323,11 @@
                 title.textContent = displayName(data.conversation || {id: chosen});
                 customer.textContent = data.conversation && data.conversation.name && data.conversation.phone ? data.conversation.phone : '';
                 customer.dir = 'ltr';
+                if (data.conversation && typeof data.conversation.channel === 'string' && data.conversation.channel
+                    && data.conversation.channel !== selectedChannel) {
+                    selectedChannel = data.conversation.channel; apiReplyMap.clear();
+                    emit('whatsapp:conversation-selected', {conversation: selection, generation: generation, channel: selectedChannel, namespace: namespace});
+                }
                 var rows = data.messages || [];
                 rows.forEach(function (message) { messageMap.set(Number(message.id), message); });
                 lastId = Math.max(lastId, Number(data.last_id) || 0);
@@ -333,7 +347,10 @@
             if (closed || denied || !id) return;
             if (chosen === id) { panel.classList.add('has-selection'); back.hidden = false; return; }
             generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear(); apiReplyMap.clear();
-            emit('whatsapp:conversation-selected', {conversation: id, generation: generation});
+            var selected = threadMap.get(id);
+            selectedChannel = selected && typeof selected.channel === 'string' && selected.channel ? selected.channel
+                : channel || (legacyWhatsApp ? 'whatsapp' : '');
+            emit('whatsapp:conversation-selected', {conversation: id, generation: generation, channel: selectedChannel, namespace: namespace});
             if (controllers.has('messages')) controllers.get('messages').abort();
             messages.textContent = ''; title.textContent = labels.loading; customer.textContent = '';
             chatStatus.textContent = labels.loading; older.hidden = true;
@@ -357,6 +374,18 @@
                 .finally(function () { pollBusy = false; if (!closed) refresh.disabled = false; schedule(); });
         }
         function click(event) {
+            var channelButton = event.target.closest('[data-meta-channel]');
+            if (channelButton && panel.contains(channelButton)) {
+                channel = channelButton.dataset.metaChannel || ''; threadEpoch++; generation++; chosen = 0; selectedChannel = '';
+                controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
+                clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
+                threadMap.clear(); messageMap.clear(); apiReplyMap.clear(); threads.textContent = ''; messages.textContent = '';
+                nextCursor = null; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false;
+                title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
+                panel.classList.remove('has-selection'); back.hidden = true;
+                panel.querySelectorAll('[data-meta-channel]').forEach(function (item) { item.setAttribute('aria-pressed', item === channelButton ? 'true' : 'false'); });
+                loadThreads(false).then(loadUnread).then(success).catch(unavailable); return;
+            }
             var button = event.target.closest('[data-wa-thread]');
             if (button && panel.contains(button)) { choose(Number(button.dataset.waThread)); return; }
             if (event.target.closest('[data-wa-older]') && !older.disabled) loadMessages('older').catch(unavailable);
@@ -366,12 +395,12 @@
         }
         function visibility() {
             if (document.hidden) { clearTimeout(timer); emit('whatsapp:private-reset', {reason: 'hidden'}); }
-            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation}); acknowledgeVisible(); poll(); }
+            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation, channel: selectedChannel, namespace: namespace}); acknowledgeVisible(); poll(); }
         }
         function online() {
             clearTimeout(timer);
             if (navigator.onLine === false) { emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
-            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation}); poll(); }
+            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation, channel: selectedChannel, namespace: namespace}); poll(); }
         }
         panel.addEventListener('click', click);
         scroll.addEventListener('scroll', readScroll);
@@ -380,7 +409,7 @@
         document.addEventListener('whatsapp:private-reset', resetAcceptedReplies);
         window.addEventListener('offline', online); window.addEventListener('online', online);
         var session = {panel: panel, selection: function () { return chosen; },
-            selectionState: function () { return {conversation: chosen, generation: generation}; }, destroy: function () {
+            selectionState: function () { return {conversation: chosen, generation: generation, channel: selectedChannel, namespace: namespace}; }, destroy: function () {
             if (closed) return; closed = true; generation++; clearTimeout(timer);
             clearTimeout(readTimer);
             emit('whatsapp:private-reset', {reason: 'closed'});
@@ -408,7 +437,7 @@
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardWhatsAppInbox = {mount: mount, destroy: destroy,
         selection: function () { return active && active.selection ? active.selection() : 0; },
-        selectionState: function () { return active && active.selectionState ? active.selectionState() : {conversation: 0, generation: 0}; }};
+        selectionState: function () { return active && active.selectionState ? active.selectionState() : {conversation: 0, generation: 0, channel: '', namespace: ''}; }};
     document.addEventListener('dashboard:before-unload', destroy);
     document.addEventListener('dashboard:page-mounted', mount);
     mount();

@@ -31,7 +31,7 @@ const accepted = (replyId = 17, extras = {}) => Object.assign({reply_id: replyId
     text: '<script>accepted reply</script>', created_at: '2026-10-12 00:00:01', actor_id: 7,
     client_request_id: '00000000-0000-4000-8000-000000000001', accepted_at: '2026-10-12T00:00:02Z', projected_message_id: null}, extras);
 
-function fixture() {
+function fixture(textLimit = 4096, route = 'whatsapp') {
     const document = new Element(), window = new Element(), host = new Element(), replyPanel = new Element();
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert', 'connection',
@@ -40,15 +40,19 @@ function fixture() {
         elements['[data-wa-' + name + ']'] = new Element();
     });
     host.querySelector = selector => selector === '[data-wa-replies]' ? replyPanel : elements[selector] || null;
+    const channels = ['', 'messenger', 'instagram'].map(channel => {
+        const button = new Element('button'); button.dataset.metaChannel = channel; return button;
+    });
+    host.querySelectorAll = selector => selector === '[data-meta-channel]' ? channels : [];
     replyPanel.querySelector = selector => elements[selector] || null;
     const bootstrap = new Element(), replyBootstrap = new Element();
     const labels = {customer: 'Customer', business: 'Business', loading: 'Loading', denied: 'Denied', choose_conversation: 'Choose',
         empty: 'Empty', unavailable: 'Unavailable', connected: 'Connected', no_messages: 'No messages', offline: 'Offline',
         types: {text: 'Text', audio: 'Audio', other: 'Message'}};
     bootstrap.textContent = JSON.stringify({available: true, csrf: 'fixture-csrf', labels,
-        conversations_url: 'https://example.test/conversations', messages_base_url: 'https://example.test/conversations',
-        read_base_url: 'https://example.test/conversations', unread_url: 'https://example.test/unread', unread_label: 'Unread'});
-    replyBootstrap.textContent = JSON.stringify({csrf: 'fixture-csrf', conversations_base_url: 'https://example.test/conversations',
+        conversations_url: 'https://example.test/' + route + '/conversations', messages_base_url: 'https://example.test/' + route + '/conversations',
+        read_base_url: 'https://example.test/' + route + '/conversations', unread_url: 'https://example.test/unread', unread_label: 'Unread'});
+    replyBootstrap.textContent = JSON.stringify({csrf: 'fixture-csrf', text_limit: textLimit, conversations_base_url: 'https://example.test/' + route + '/conversations',
         labels: {loading: 'Loading', accepted: 'ACCEPTED', ready: 'Ready', unavailable: 'Unavailable', sending: 'Sending',
             denied: 'Denied', offline: 'Offline', unknown: 'Unknown', failed: 'Failed', voice_message: 'Voice message',
             api_source: 'Dashboard reply · accepted by WhatsApp'}});
@@ -66,7 +70,8 @@ function fixture() {
     const state = {calls: [], snapshots: [], cleanup: [], recent: [accepted()], raw: [
         {id: 1, type: 'text', direction: 'inbound', text: 'Inbound', sent_at: '2026-10-12T00:00:00Z'},
         {id: 3, type: 'text', direction: 'inbound', text: 'Outside viewport', sent_at: '2026-10-12T00:00:03Z'}
-    ], newer: [], older: [], nextBefore: 1, replyStatus: 200, delayState: false, stateResolvers: [], sendOutcome: 'ACCEPTED', sends: 0};
+    ], newer: [], older: [], nextBefore: 1, replyStatus: 200, delayState: false, stateResolvers: [],
+        delayThreads: false, threadResolvers: [], threadChannel: route === 'meta' ? 'messenger' : null, sendOutcome: 'ACCEPTED', sends: 0};
     document.addEventListener('whatsapp:accepted-replies', event => state.snapshots.push(event.detail));
     window.DashboardSPA = {isCurrentPage: () => true, onCleanup: callback => state.cleanup.push(callback)};
     window.crypto = {randomUUID: () => '00000000-0000-4000-8000-000000000001'};
@@ -95,7 +100,11 @@ function fixture() {
                 messages: older ? state.older : newer ? state.newer : state.raw, last_id: newer && state.newer.length ? 4 : 3,
                 next_before_id: older ? null : state.nextBefore, has_more: false};
         } else {
-            data = {success: true, conversations: [{id: 1, name: 'Customer 1'}, {id: 2, name: 'Customer 2'}], total: 2, next_cursor: null};
+            const channel = parsed.searchParams.get('channel');
+            if (state.delayThreads) await new Promise(resolve => state.threadResolvers.push(resolve));
+            data = {success: true, conversations: channel ? [{id: channel === 'instagram' ? 201 : 101, name: 'Meta customer',
+                channel, account_label: channel + ' account'}] : [{id: 1, name: 'Customer 1', channel: state.threadChannel},
+                    {id: 2, name: 'Customer 2', channel: state.threadChannel}], total: channel ? 1 : 2, next_cursor: null};
         }
         return {ok: status === 200, status, redirected: false, headers: {get: () => 'application/json'}, json: async () => data};
     }
@@ -106,11 +115,16 @@ function fixture() {
     for (const name of ['dashboard-whatsapp-inbox.js', 'dashboard-whatsapp-replies.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public/js', name), 'utf8'), context);
     }
-    return {elements, document, window, host, replyPanel, navigator, state, timers, context};
+    return {elements, document, window, host, replyPanel, navigator, state, timers, context, channels};
 }
 async function settle() { for (let index = 0; index < 12; index++) await new Promise(setImmediate); }
 function click(test, attribute, id) {
     const target = {dataset: id ? {waThread: String(id)} : {}, closest: selector => selector === '[' + attribute + ']' ? target : null};
+    test.host.dispatchEvent({type: 'click', target});
+}
+function channelClick(test, channel) {
+    const target = test.channels.find(button => button.dataset.metaChannel === channel);
+    target.closest = selector => selector === '[data-meta-channel]' ? target : null;
     test.host.dispatchEvent({type: 'click', target});
 }
 function bubbleRows(test) { return test.elements['[data-wa-messages]'].children; }
@@ -221,8 +235,67 @@ async function scrollAndOlderPaging() {
     assert.strictEqual((test.document.listeners['whatsapp:accepted-replies'] || []).length, 1, 'Only the test observer remains after module cleanup');
 }
 
+async function liveChannelFiltersAndEpochPrivacy() {
+    const test = fixture(); await settle(); click(test, 'data-wa-thread', 1); await settle();
+    const selected = test.window.DashboardWhatsAppInbox.selectionState(); assert.strictEqual(apiRows(test).length, 1);
+    test.state.delayThreads = true; channelClick(test, 'messenger'); await settle();
+    assert.strictEqual(test.window.DashboardWhatsAppInbox.selection(), 0); assert.strictEqual(apiRows(test).length, 0);
+    assert.strictEqual(test.elements['[data-wa-reply-audit-list]'].textContent, '', 'Changing Meta channels clears the WhatsApp reply metadata');
+    channelClick(test, 'instagram'); await settle();
+    assert(test.state.calls.some(call => new URL(call.url).searchParams.get('channel') === 'messenger'));
+    assert(test.state.calls.some(call => new URL(call.url).searchParams.get('channel') === 'instagram'));
+    test.state.threadResolvers[1](); await settle();
+    assert(test.elements['[data-wa-thread-list]'].textContent.includes('Instagram · instagram account'));
+    test.state.threadResolvers[0](); await settle();
+    assert(!test.elements['[data-wa-thread-list]'].textContent.includes('Messenger'), 'An older channel response cannot replace the new channel thread list');
+    publish(test, {conversation: selected.conversation, generation: selected.generation, replies: [accepted(91, {text: 'Old WhatsApp private reply'})]});
+    assert.strictEqual(apiRows(test).length, 0);
+    assert.strictEqual(test.channels.find(button => button.dataset.metaChannel === 'instagram').attributes['aria-pressed'], 'true');
+    assert.strictEqual(test.channels.find(button => button.dataset.metaChannel === 'messenger').attributes['aria-pressed'], 'false');
+    close(test);
+}
+
+async function liveUnicodeTextLimits() {
+    const test = fixture(3); await settle(); click(test, 'data-wa-thread', 1); await settle();
+    const text = test.elements['[data-wa-reply-text]'], count = test.elements['[data-wa-reply-count]'], send = test.elements['[data-wa-reply-send]'];
+    assert.strictEqual(count.textContent, '0 / 3');
+    text.value = '😀😀😀'; text.dispatchEvent({type: 'input'});
+    assert.strictEqual(count.textContent, '3 / 3'); assert.strictEqual(send.disabled, false, 'Configured limits count Unicode code points, preserving the live Meta composer');
+    text.value += '😀'; text.dispatchEvent({type: 'input'}); assert.strictEqual(count.textContent, '4 / 3'); assert.strictEqual(send.disabled, true);
+    text.value = '😀😀😀'; text.dispatchEvent({type: 'input'});
+    test.elements['[data-wa-reply-form]'].dispatchEvent({type: 'submit', preventDefault() {}}); await settle();
+    assert.strictEqual(count.textContent, '0 / 3'); assert(apiRows(test)[0].textContent.includes('😀😀😀'));
+    test.state.recent = [accepted(17, {text: '😀'.repeat(4096)})]; refreshReplies(test); await settle();
+    const body = apiRows(test)[0].children[0].children.find(row => row.tag === 'p');
+    assert.strictEqual(Array.from(body.textContent).length, 4096, 'Accepted WhatsApp text stays intact at the Unicode character limit');
+    close(test);
+}
+
+async function freshMetaIdCollisionAndNamespace() {
+    for (const knownChannel of [true, false]) {
+        const test = fixture(1000, 'meta'); await settle();
+        if (!knownChannel) { test.state.threadChannel = null; click(test, 'data-wa-refresh'); await settle(); }
+        click(test, 'data-wa-thread', 1); await settle();
+        const selected = test.window.DashboardWhatsAppInbox.selectionState();
+        assert.strictEqual(selected.channel, knownChannel ? 'messenger' : '', 'Meta all-filter derives channel from the actual thread and keeps unknown Meta rows ineligible');
+        assert.strictEqual(apiRows(test).length, 0, 'A fresh Meta conversation with the same numeric ID cannot render WhatsApp API replies');
+        publish(test, {channel: 'whatsapp', replies: [accepted(27, {text: 'Cross-channel WhatsApp reply'})]});
+        assert.strictEqual(apiRows(test).length, 0);
+        const text = test.elements['[data-wa-reply-text]']; text.value = 'Explicit Meta draft'; text.dispatchEvent({type: 'input'});
+        assert.strictEqual(test.elements['[data-wa-reply-send]'].disabled, false, 'The existing Meta composer stays active');
+        test.elements['[data-wa-reply-form]'].dispatchEvent({type: 'submit', preventDefault() {}}); await settle();
+        assert.strictEqual(postCount(test, '/replies'), 1); assert.strictEqual(apiRows(test).length, 0);
+        assert.strictEqual(test.elements['[data-wa-reply-count]'].textContent, '0 / 1000'); close(test);
+    }
+    const test = fixture(); await settle(); click(test, 'data-wa-thread', 1); await settle();
+    publish(test, {namespace: 'https://example.test/meta/conversations', replies: [accepted(51, {text: 'Wrong endpoint namespace'})]});
+    assert(!test.elements['[data-wa-messages]'].textContent.includes('Wrong endpoint namespace')); close(test);
+}
+
 (async () => {
     await reloadAndSingleSend(); await echoDeduplicationAndCursors(); await strictAcceptedSnapshotAndVoice();
     await selectionAndLateResponses(); await privacyCleanupAndDeniedState(); await scrollAndOlderPaging();
-    console.log('WHATSAPP_ACCEPTED_REPLY_FEED_PASS reload/send visibility, echo dedupe, strict state/voice, scoped generations, privacy, raw cursors/read positions, scrolling');
+    await liveChannelFiltersAndEpochPrivacy(); await liveUnicodeTextLimits();
+    await freshMetaIdCollisionAndNamespace();
+    console.log('WHATSAPP_ACCEPTED_REPLY_FEED_PASS reload/send visibility, echo dedupe, strict state/voice, scoped generations, privacy, raw cursors/read positions, scrolling, live Meta channels/Unicode limits and cross-channel isolation');
 })().catch(error => { console.error(error); process.exitCode = 1; });

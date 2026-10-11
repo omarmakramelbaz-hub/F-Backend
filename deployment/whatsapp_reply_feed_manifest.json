@@ -8,13 +8,13 @@
     },
     {
       "path": "public/js/dashboard-whatsapp-inbox.js",
-      "before_blob": "f079f9ff546e0e338567c6e408845defef279149",
-      "after_blob": "2a7a826839c19a8cd2b532399f5245b2e5e23095"
+      "before_blob": "4d74ba3154fbab2ce1512ad605520666cf811bff",
+      "after_blob": "19117235ba454c5e73bbd291920f9f56c84ebea8"
     },
     {
       "path": "public/js/dashboard-whatsapp-replies.js",
-      "before_blob": "d2a0bc0476eb1cc8ddcb62678dda8545398b072e",
-      "after_blob": "5d1ee1a58557f2d52b04a5f8e1f998f10a449861"
+      "before_blob": "8a5cf1ab3e802c991949756f55b868d37cb37f80",
+      "after_blob": "304a0bc6acd2474adb7850664708f30bddbd6a29"
     }
   ],
   "views": [

@@ -18,9 +18,9 @@ SOURCE_PINS = {
     'app/Services/Dashboard/WhatsAppReplyService.php': (
         '2cfc072d8e25c40e2f8de6fec5f8eca5899219bd', '7047caefba93935a25029ea99715dac645d9c24d'),
     'public/js/dashboard-whatsapp-inbox.js': (
-        'f079f9ff546e0e338567c6e408845defef279149', '2a7a826839c19a8cd2b532399f5245b2e5e23095'),
+        '4d74ba3154fbab2ce1512ad605520666cf811bff', '19117235ba454c5e73bbd291920f9f56c84ebea8'),
     'public/js/dashboard-whatsapp-replies.js': (
-        'd2a0bc0476eb1cc8ddcb62678dda8545398b072e', '5d1ee1a58557f2d52b04a5f8e1f998f10a449861'),
+        '8a5cf1ab3e802c991949756f55b868d37cb37f80', '304a0bc6acd2474adb7850664708f30bddbd6a29'),
 }
 VIEW_NAMES = {
     'resources/views/admin/whatsapp/index.blade.php': 'admin.whatsapp.index',

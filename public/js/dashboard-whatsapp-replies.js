@@ -9,7 +9,13 @@
         destroy();
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
+        var namespace = '';
+        try {
+            var replyRoute = new URL(config.conversations_base_url, window.location.href);
+            namespace = replyRoute.origin + replyRoute.pathname.replace(/\/+$/, '');
+        } catch (error) {}
         var panel = host.querySelector('[data-wa-replies]'); if (!panel) return;
+        var textLimit = Number(config.text_limit) || 4096;
         var labels = config.labels || {}, status = panel.querySelector('[data-wa-reply-status]');
         var form = panel.querySelector('[data-wa-reply-form]'), text = panel.querySelector('[data-wa-reply-text]');
         var send = panel.querySelector('[data-wa-reply-send]'), refresh = panel.querySelector('[data-wa-reply-refresh]');
@@ -19,16 +25,17 @@
         var preview = panel.querySelector('[data-wa-voice-preview]'), voiceTime = panel.querySelector('[data-wa-voice-time]');
         var voiceNote = panel.querySelector('[data-wa-voice-status]');
         var audit = panel.querySelector('[data-wa-reply-audit]'), auditList = panel.querySelector('[data-wa-reply-audit-list]');
-        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, closed = false, denied = false;
+        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, inboxChannel = '', inboxNamespace = '', closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
         function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
         function clear(reason) {
             if (conversation) publishAcceptedReplies({recent_replies: []}, conversation, generation);
-            generation++; abort(); conversation = 0; inboxGeneration = null; state = null; attempt = null; uncertain = false; sending = false; checking = false;
+            generation++; abort(); conversation = 0; inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
+            state = null; attempt = null; uncertain = false; sending = false; checking = false;
             clearVoice(); openingMicrophone = false;
-            text.value = ''; count.textContent = '0 / 4096'; panel.hidden = true;
+            text.value = ''; count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
         }
@@ -38,7 +45,7 @@
             text.disabled = !available || sending || recording || !state || !state.available;
             text.readOnly = uncertain || Boolean(state && !state.can_reply);
             send.disabled = !available || sending || recording || checking || uncertain || !state || !state.available || !state.can_reply
-                || !text.value.trim() || text.value.length > 4096;
+                || !text.value.trim() || Array.from(text.value).length > textLimit;
             refresh.disabled = !available || checking || sending || recording;
             if (record) {
                 record.disabled = !available || sending || checking || uncertain || recording || Boolean(voiceBlob)
@@ -125,6 +132,7 @@
         }
         function publishAcceptedReplies(data, selected, current) {
             if (closed || denied || current !== generation || selected !== conversation || !Number.isSafeInteger(inboxGeneration)
+                || inboxChannel !== 'whatsapp' || !namespace || inboxNamespace !== namespace
                 || !document.dispatchEvent || typeof CustomEvent === 'undefined') return;
             var replies = Array.isArray(data.recent_replies) ? data.recent_replies.slice(0, 20).filter(function (reply) {
                 return reply && reply.state === 'ACCEPTED';
@@ -133,7 +141,7 @@
                     created_at: reply.created_at, accepted_at: reply.accepted_at, projected_message_id: reply.projected_message_id};
             }) : [];
             document.dispatchEvent(new CustomEvent('whatsapp:accepted-replies', {detail: {
-                conversation: selected, generation: inboxGeneration, replies: replies,
+                conversation: selected, generation: inboxGeneration, channel: inboxChannel, namespace: inboxNamespace, replies: replies,
                 labels: {voice_message: labels.voice_message, accepted: labels.accepted, api_source: labels.api_source}
             }}));
         }
@@ -150,7 +158,7 @@
                 publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
                     var accepted = data.request_state === 'ACCEPTED', wasText = attempt.kind === 'text'; uncertain = false; attempt = null;
-                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / 4096'; }
+                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / ' + textLimit; }
                     note(accepted ? labels.accepted : labels.failed, !accepted);
                 } else if (uncertain || ['SEND_UNCERTAIN', 'UNKNOWN_PENDING'].indexOf(data.reason) !== -1 || data.request_state === 'UNKNOWN') {
                     uncertain = true; note(labels.unknown, true);
@@ -164,6 +172,8 @@
             if (!Number.isSafeInteger(id) || id < 1 || closed || denied || document.hidden || navigator.onLine === false) return;
             clear(); conversation = id;
             inboxGeneration = event && event.detail && Number.isSafeInteger(event.detail.generation) ? event.detail.generation : null;
+            inboxChannel = event && event.detail && typeof event.detail.channel === 'string' ? event.detail.channel : '';
+            inboxNamespace = event && event.detail && typeof event.detail.namespace === 'string' ? event.detail.namespace : '';
             panel.hidden = false; note(labels.loading); loadState();
         }
         function uuid() {
@@ -189,7 +199,7 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
-                    if (kind === 'text') { text.value = ''; count.textContent = '0 / 4096'; }
+                    if (kind === 'text') { text.value = ''; count.textContent = '0 / ' + textLimit; }
                     attempt = null; uncertain = false; note(labels.accepted);
                 } else if (data.state === 'FAILED') {
                     attempt = null; uncertain = false; note(labels.failed, true);
@@ -297,7 +307,7 @@
             body.append('expected_inbound_id', String(inbound)); attempt = {id: id, inbound: inbound, kind: 'voice'};
             clearVoice(); sendRequest(selected, current, 'voice', body, 'voice');
         }
-        function input() { count.textContent = text.value.length + ' / 4096'; controls(); }
+        function input() { count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
         function refreshClick() { if (!refresh.disabled) loadState(false); }
         function reset(event) {
             var reason = event && event.detail && event.detail.reason;
