@@ -137,9 +137,10 @@ jobs:
         run: |
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_install_test.py
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_activation_test.py
-      - name: Verify continuous inbox projection
+      - name: Verify continuous inbox projection and token-only credential rotation
         run: |
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_capture_root_test.py
+          python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_catalog_token_rotation_test.py
       - name: Check inbox rendering and SPA privacy
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
