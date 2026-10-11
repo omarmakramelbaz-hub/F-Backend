@@ -289,5 +289,6 @@ require __DIR__.'/review-deletion.php';
 require __DIR__.'/wishlist-deletion.php';
 require __DIR__.'/remote-attempts.php';
 require __DIR__.'/go-store-profile.php';
+require __DIR__.'/restaurant-flags.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

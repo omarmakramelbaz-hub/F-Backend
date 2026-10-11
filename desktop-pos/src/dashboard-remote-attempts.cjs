@@ -13,6 +13,7 @@ class DashboardRemoteAttempts {
     if(['POST','DELETE'].includes(method)&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='POST'&&path==='/admin/post-sortable')return true;
     if(method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='POST'&&/^\/admin\/order-board\/menu\/(?:f|gs)\/[1-9][0-9]{0,18}\/products\/[1-9][0-9]{0,18}\/availability$/.test(path))return true;
     if((['POST','PUT'].includes(method)&&/^\/admin\/read\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(path))
       ||(method==='POST'&&path==='/admin/read/all/notification'))return true;
