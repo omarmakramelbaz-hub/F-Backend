@@ -5,7 +5,7 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
 
 // Included after the actual106-schema owner fixture. No substitute controller, repository or media library.
 (function()use($database,$ownerStage,$ownerDevice,$remoteDevice,$env,$application,$httpPort,$profile,$origin,&$cookies,$report){
-    $switch=function(bool $local){config(['database.connections.mysql.database'=>$local?$ownerStage:$database,'desktop_dashboard.local'=>$local,'desktop_dashboard.device_id'=>$ownerDevice]);DB::purge();};
+    $switch=function(bool $local)use($database,$ownerStage,$ownerDevice){config(['database.connections.mysql.database'=>$local?$ownerStage:$database,'desktop_dashboard.local'=>$local,'desktop_dashboard.device_id'=>$ownerDevice]);DB::purge();};
     $rows=fn(string $table)=>DB::table($table)->get()->map(fn($row)=>(array)$row)->all();
     $product=fn(int $id)=>(array)DB::table('resturant_products')->where('id',$id)->first();
     $media=fn(int $id)=>DB::table('media')->where('model_type',\App\Models\ResturantProduct::class)->where('model_id',$id)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all();
