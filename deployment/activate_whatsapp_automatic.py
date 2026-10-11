@@ -20,6 +20,7 @@ from datetime import datetime
 APP_ROOT = pathlib.Path('/home/fasakha/public_html')
 BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 CONFIG_WRITER_BLOB = 'a0780b40adc404f81b5bd2b9934b50d13dc0797a'
+MESSAGING_HELPER_BLOB = 'b824ea3c09f0314d5debdb278a0d02d37f41bfce'
 CART_DEFAULT_BLOB = 'fc02576f4e7896c7cee33152561ca76c69b669cd'
 CACHE_PATH = 'bootstrap/cache/config.php'
 CART_PATH = 'config/whatsapp_cart.php'
@@ -59,6 +60,7 @@ def verified_module(filename, wanted, name):
 try:
     base = verified_module('install_whatsapp_inbox.py', BASE_BLOB, 'wa_auto_activation_base')
     writer = verified_module('configure_whatsapp_orders.py', CONFIG_WRITER_BLOB, 'wa_auto_activation_writer')
+    messaging = verified_module('rotate_whatsapp_messaging_token.py', MESSAGING_HELPER_BLOB, 'wa_auto_activation_cache')
     # Both verified helpers use identical base bytes. Share one Snapshot/SafeError identity.
     writer.base = base
     writer.SafeError = base.SafeError
@@ -236,6 +238,10 @@ try {
         'fingerprint'=>hash('sha256',serialize([$orders,$replies,$cart]))];
     $bytes=json_encode($state,JSON_THROW_ON_ERROR);
     if(file_put_contents($argv[2],$bytes)!==strlen($bytes))exit(1); chmod($argv[2],0600);
+    $effective=serialize(config()->all()); $effectivePath=dirname($argv[2]).'/effective.before.bin';
+    $stream=fopen($effectivePath,'xb');if($stream===false)exit(1);
+    $written=fwrite($stream,$effective);$flushed=fflush($stream);fclose($stream);
+    if($written!==strlen($effective)||!$flushed||!chmod($effectivePath,0600))exit(1);
 } catch(\Throwable $e) { exit(1); }
 '''
 
@@ -270,7 +276,8 @@ try {
         $message=(int)\Illuminate\Support\Facades\DB::table('whatsapp_inbox_messages as m')
             ->join('whatsapp_inbox_conversations as c','c.id','=','m.conversation_id')
             ->where('c.waba_id','468336579702269')->where('c.phone_number_id','515388018324075')->max('m.id');
-        $clock=\Illuminate\Support\Facades\DB::selectOne('SELECT UTC_TIMESTAMP() AS activation_time');
+        // Native webhook timestamps have second precision; start at the next whole UTC second.
+        $clock=\Illuminate\Support\Facades\DB::selectOne('SELECT DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 SECOND) AS activation_time');
         if(!is_string($clock->activation_time??null)||!preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\z/',$clock->activation_time))throw new \RuntimeException();
         return ['event_ceiling'=>$event,'message_ceiling'=>$message,'pending_runnable'=>0,
             'quarantines_retained'=>count($pending),'activated_at'=>$clock->activation_time];
@@ -280,21 +287,87 @@ try {
 }catch(\Throwable $e){exit(1);}
 '''
 
+def namespace_cache_scanner_php():
+    """Reuse pinned cache tokenization and balanced expression skipping, not value evaluation."""
+    source = messaging.rotation.CACHE_CANDIDATE_PHP
+    start = '    $tokens = []; $offset = 0;'
+    end = '    $original = require $argv[1];'
+    if source.count(start) != 1 or source.count(end) != 1:
+        raise RuntimeError('PINNED_CACHE_SCANNER_MARKER_MISMATCH')
+    source = source[source.index(start):source.index(end)]
+    skip = messaging.replace_once(messaging.SKIP_SIBLING_PHP,
+        "if ($path !== [] && $path !== ['whatsapp_replies']\n            && $path !== ['whatsapp_replies', 'access_token']) {",
+        'if ($path !== []) {')
+    skip = messaging.replace_once(skip,
+        '            if ($i === $start || $stack) throw new \\RuntimeException();\n            return;',
+        r'''            if ($i === $start || $stack) throw new \RuntimeException();
+            $firstOffset = $tokens[$start][2];
+            $last = $tokens[$i - 1];
+            $locations[$path[0]] = [$firstOffset, $last[2] + strlen($last[1]) - $firstOffset];
+            return;''')
+    source = messaging.replace_once(source,
+        "        if ($first[0] === T_ARRAY || $first[1] === '[') {",
+        skip + "        if ($first[0] === T_ARRAY || $first[1] === '[') {")
+    scalar_start = "        if ($path === ['whatsapp_replies', 'access_token']) {"
+    scalar_end = '    };\n    if (($tokens[$i++][0] ?? null) !== T_RETURN) exit(1);'
+    if source.count(scalar_start) != 1 or source.count(scalar_end) != 1:
+        raise RuntimeError('PINNED_CACHE_SCANNER_SCALAR_MARKER_MISMATCH')
+    source = (source[:source.index(scalar_start)] + '        throw new \\RuntimeException();\n'
+              + source[source.index(scalar_end):])
+    source = messaging.replace_once(source,
+        " || count($locations) !== 1) exit(1);",
+        ") exit(1);\n    $rootCloseOffset = $tokens[$i - 2][2];\n    $rootTrailingComma = ($tokens[$i - 3][1] ?? null) === ',';")
+    return source
+
+
+NAMESPACE_CACHE_SCANNER_PHP = namespace_cache_scanner_php()
+
 STAGE_PHP = r'''
-ini_set('display_errors','0');
+ini_set('display_errors','0');ini_set('log_errors','0');ob_start();
 try {
+    require 'vendor/autoload.php';$app=require 'bootstrap/app.php';
+    $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+    if($app->getCachedConfigPath()!==getcwd().'/bootstrap/cache/config.php')exit(1);
+    $effective=config()->all();$before=file_get_contents(dirname($argv[1]).'/effective.before.bin');
+    if(!is_string($before)||serialize($effective)!==$before||!is_array($effective['whatsapp_orders']??null))exit(1);
     $updates=json_decode(file_get_contents($argv[1]),true,64,JSON_THROW_ON_ERROR);
-    $cart=$updates['cart']; $bytes='<?php return '.var_export($cart,true).';'.PHP_EOL;
-    if(file_put_contents($argv[2],$bytes)!==strlen($bytes))exit(1);chmod($argv[2],0600);
-    if((require $argv[2])!==$cart)exit(1);
-    if($argv[3]!=='') {
-        $original=require $argv[3];if(!is_array($original)||!is_array($original['whatsapp_orders']??null))exit(1);
-        foreach($updates['orders'] as $key=>$value)$original['whatsapp_orders'][$key]=$value;
-        $original['whatsapp_cart']=$cart;
-        $bytes='<?php return '.var_export($original,true).';'.PHP_EOL;
-        if(file_put_contents($argv[4],$bytes)!==strlen($bytes))exit(1);chmod($argv[4],0600);
-        if((require $argv[4])!==$original)exit(1);
+    if(!is_array($updates)||array_keys($updates)!==['orders','cart']||!is_array($updates['orders'])||!is_array($updates['cart']))exit(1);
+    $plain=static function($v)use(&$plain){if(is_array($v)){foreach($v as $child)if(!$plain($child))return false;return true;}
+        return is_scalar($v)||$v===null;};
+    $write=static function($path,$bytes){$s=fopen($path,'xb');if($s===false)throw new \RuntimeException();
+        $n=fwrite($s,$bytes);$flushed=fflush($s);fclose($s);
+        if($n!==strlen($bytes)||!$flushed||!chmod($path,0600))throw new \RuntimeException();};
+    $cart=$updates['cart'];if(!$plain($cart)||!$plain($effective['whatsapp_orders']))exit(1);
+    $write($argv[2],'<?php return '.var_export($cart,true).';'.PHP_EOL);
+    if(serialize(require $argv[2])!==serialize($cart))exit(1);
+    foreach($updates['orders']as$key=>$value)$effective['whatsapp_orders'][$key]=$value;
+    $effective['whatsapp_cart']=$cart;
+    if($argv[3]!==''){
+        $original=require $argv[3];if(!is_array($original)||!is_array($original['whatsapp_orders']??null)||!$plain($original['whatsapp_orders']))exit(1);
+        $expected=$original;foreach($updates['orders']as$key=>$value)$expected['whatsapp_orders'][$key]=$value;
+        $expected['whatsapp_cart']=$cart;
+        $bytes=file_get_contents($argv[3]);if(!is_string($bytes))exit(1);
+''' + NAMESPACE_CACHE_SCANNER_PHP + r'''
+        if(!isset($locations['whatsapp_orders']))exit(1);
+        $edits=[];
+        foreach(['whatsapp_orders','whatsapp_cart']as$namespace){
+            $export=var_export($expected[$namespace],true);
+            if(isset($locations[$namespace]))$edits[]=[$locations[$namespace][0],$locations[$namespace][1],$export];
+            else{
+                if($namespace!=='whatsapp_cart')exit(1);
+                $edits[]=[$rootCloseOffset,0,($rootTrailingComma?'':',').PHP_EOL."  'whatsapp_cart' => ".$export.','.PHP_EOL];
+            }
+        }
+        usort($edits,static fn($a,$b)=>$b[0]<=>$a[0]);
+        foreach($edits as[$offset,$length,$replacement])$bytes=substr_replace($bytes,$replacement,$offset,$length);
+        $write($argv[4],$bytes);
+        if(serialize(require $argv[4])!==serialize($expected))exit(1);
+    }else{
+        foreach(['automation_actor_id','activation_message_id','activation_event_id']as$key)
+            $effective['whatsapp_orders'][$key]=(string)$effective['whatsapp_orders'][$key];
     }
+    $write(dirname($argv[1]).'/effective.expected.bin',serialize($effective));
+    exit(0);
 }catch(\Throwable $e){exit(1);}
 '''
 
@@ -304,6 +377,8 @@ try {
     require 'vendor/autoload.php';$app=require 'bootstrap/app.php';$kernel=$app->make(\Illuminate\Contracts\Console\Kernel::class);$kernel->bootstrap();
     $expected=json_decode(file_get_contents($argv[1]),true,64,JSON_THROW_ON_ERROR);
     $before=json_decode(file_get_contents($argv[2]),true,64,JSON_THROW_ON_ERROR);
+    $effectiveExpected=file_get_contents(dirname($argv[1]).'/effective.expected.bin');
+    if(!is_string($effectiveExpected)||serialize(config()->all())!==$effectiveExpected)exit(1);
     $actual=config('whatsapp_orders');if(!is_array($actual))exit(1);
     foreach($expected['orders'] as $key=>$value){$v=$actual[$key]??null;if(in_array($key,['automation_actor_id','activation_message_id','activation_event_id'],true))$v=(string)$v;if($v!==(in_array($key,['automation_actor_id','activation_message_id','activation_event_id'],true)?(string)$value:$value))exit(1);}
     if(($actual['enabled']??null)!==true||($actual['model']??null)!=='gpt-6-luna'||($actual['api_key']??null)!==$before['orders']['api_key']
@@ -375,6 +450,7 @@ def activate(root, uid, actor, branches, mapping_path=None, runner=command):
         code, _ = runner(root, ['php', '-r', PREFLIGHT_PHP, str(inputs), str(current_path)])
         if code != 0: raise SafeError('ACTIVATION_REVIEW_ACTOR_BRANCH_OR_RUNTIME_NOT_READY')
         current = read_json_private(current_path, uid, root)
+        writer.secure_snapshot(backup / 'effective.before.bin', uid, root)
         validate_current(current)
         validate_env_credentials(before['.env'][0].content, current)
         if mapping is None: mapping = validate_mappings(current['cart']['product_mappings'], branches)
@@ -405,6 +481,7 @@ def activate(root, uid, actor, branches, mapping_path=None, runner=command):
         code, _ = runner(root, ['php','-r',STAGE_PHP,str(settings),str(cart_candidate),
             str(backup / 'config.before.php') if before[CACHE_PATH][0] else '',str(cache_candidate)])
         if code != 0: raise SafeError('ACTIVATION_CACHE_OR_CART_STAGING_FAILED')
+        writer.secure_snapshot(backup / 'effective.expected.bin', uid, root)
         values = {'WHATSAPP_ORDERS_MODE':'auto','WHATSAPP_ORDERS_AUTOMATION_ACTOR_ID':actor,
                   'WHATSAPP_ORDERS_ALLOWED_BRANCH_IDS':','.join(branches),
                   'WHATSAPP_ORDERS_ACTIVATION_MESSAGE_ID':str(cutover['message_ceiling']),

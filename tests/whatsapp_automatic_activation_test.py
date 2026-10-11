@@ -63,6 +63,9 @@ class Fixture:
         else: self.path(helper.CACHE_PATH).parent.mkdir(parents=True)
         self.before = {path: self.path(path).read_bytes() for path in ('.env', helper.CART_PATH, *helper.PROTECTED)}
         self.backups = None
+        self.enable_real_php_boot()
+        self.real_boot = False
+        self.write_fixture_state()
 
     def close(self): self.temp.cleanup()
     def path(self, relative): return self.root / relative
@@ -100,10 +103,30 @@ class TakeawayCatalog{public function listing($v,$actor){return ['items'=>[['id'
 namespace { class FixtureKernel{public function bootstrap(){}public function all(){return ['whatsapp:process-orders'=>true];}}
 class FixtureApp{public function make($class){if($class==='Illuminate\\Contracts\\Console\\Kernel')return new FixtureKernel;return new $class;}public function getCachedConfigPath(){return getcwd().'/bootstrap/cache/config.php';}}
 function app($class){return (new FixtureApp)->make($class);}
-function config($name){$cache=getcwd().'/bootstrap/cache/config.php';$values=is_file($cache)?require $cache:\FixtureState::read()['current'];if(isset($values['orders']))$values=['whatsapp_orders'=>$values['orders'],'whatsapp_replies'=>$values['replies'],'whatsapp_cart'=>$values['cart']];return $values[$name]??null;}
+function fixture_config_values(){
+ $cache=getcwd().'/bootstrap/cache/config.php';$values=is_file($cache)?require $cache:\FixtureState::read()['current'];
+ if(isset($values['orders'])){
+  $values=['whatsapp_orders'=>$values['orders'],'whatsapp_replies'=>$values['replies'],'whatsapp_cart'=>require getcwd().'/config/whatsapp_cart.php'];
+  $env=file_get_contents(getcwd().'/.env');
+  foreach(['MODE'=>'mode','AUTOMATION_ACTOR_ID'=>'automation_actor_id','ACTIVATION_MESSAGE_ID'=>'activation_message_id','ACTIVATION_EVENT_ID'=>'activation_event_id','ALLOWED_BRANCH_IDS'=>'allowed_branch_ids']as$key=>$field){
+   if(preg_match_all('/^WHATSAPP_ORDERS_'.$key.'=(?:"([^"]*)"|([^\s]+))/m',$env,$matches,PREG_SET_ORDER)){
+    $last=$matches[count($matches)-1];$value=isset($last[2])&&$last[2]!==''?$last[2]:$last[1];
+    $values['whatsapp_orders'][$field]=$field==='allowed_branch_ids'?explode(',',$value):$value;
+   }
+  }
+ }
+ if(is_file(getcwd().'/fixture-extra.json'))$values['dynamic_namespace']=json_decode(file_get_contents(getcwd().'/fixture-extra.json'),true,8,JSON_THROW_ON_ERROR);
+ return $values;
+}
+class FixtureConfig{public function all(){return fixture_config_values();}}
+function config($name=null){return $name===null?new FixtureConfig:(fixture_config_values()[$name]??null);}
 return new FixtureApp; }
 '''
         self.write('bootstrap/app.php',source.encode())
+    def write_fixture_state(self):
+        self.write('fixture-state.json',json.dumps({'current':self.current,'actor_allowed':self.actor_allowed,
+            'branch_allowed':self.branch_allowed,'runtime_allowed':self.runtime_allowed,
+            'activation_guard_allowed':self.activation_guard_allowed,'catalog_options':self.catalog_options}).encode())
     def runner(self, root, args, capture=False, timeout=60):
         self.calls.append(tuple(args))
         if self.hook: self.hook(self, args)
@@ -112,10 +135,14 @@ return new FixtureApp; }
         if operation == helper.PREFLIGHT_PHP:
             if self.fail == 'preflight': return 1, b'SENSITIVE_OUTPUT_MUST_NOT_ESCAPE'
             if getattr(self,'real_boot',False):
-                self.write('fixture-state.json',json.dumps({'current':self.current,'actor_allowed':self.actor_allowed,
-                    'branch_allowed':self.branch_allowed,'runtime_allowed':self.runtime_allowed,'activation_guard_allowed':self.activation_guard_allowed,'catalog_options':self.catalog_options}).encode())
+                self.write_fixture_state()
                 return self.php(args)
             self.write_private(pathlib.Path(args[4]), json.dumps(self.current).encode())
+            self.write_fixture_state()
+            code, effective = self.php(['php','-r',
+                "require 'vendor/autoload.php';$app=require 'bootstrap/app.php';$app->make('Illuminate\\\\Contracts\\\\Console\\\\Kernel')->bootstrap();echo serialize(config()->all());"])
+            if code != 0: return code, b''
+            self.write_private(pathlib.Path(args[4]).parent/'effective.before.bin',effective)
         elif operation == helper.CUTOVER_PHP:
             if self.fail == 'history': return 1, b'SENSITIVE_OUTPUT_MUST_NOT_ESCAPE'
             self.write_private(pathlib.Path(args[3]), json.dumps(self.cutover).encode())
@@ -155,6 +182,94 @@ class ActivationTests(unittest.TestCase):
         for path, content in item.before.items(): self.assertEqual(item.path(path).read_bytes(), content)
         if item.cache_original is not None: self.assertEqual(item.path(helper.CACHE_PATH).read_bytes(), item.cache_original)
         else: self.assertFalse(item.path(helper.CACHE_PATH).exists())
+
+    def complex_cache(self, item, with_cart=True):
+        item.enable_real_php_boot()
+        values=item.php_value(item.path(helper.CACHE_PATH))
+        if with_cart: values['whatsapp_cart']=copy.deepcopy(DEFAULT_CART)
+        item.write_php(helper.CACHE_PATH, values, 0o640)
+        item.write('vendor/autoload.php',r'''<?php
+namespace Fixture\Cache {
+ enum Mode: string { case Keep='retained'; }
+ class Holder {
+  public const NUMBER=37;
+  public string $value='';
+  public static function __set_state(array $properties): self {
+   $value=new self;foreach($properties as $key=>$item)$value->$key=$item;return $value;
+  }
+ }
+}
+'''.encode())
+        opaque=r'''  /* Outside the two activation namespaces: preserve this exact expression. */
+  'opaque_class_values' => array(
+    'object' => \Fixture\Cache\Holder::__set_state(array('value' => 'retained, [ ) }')),
+    'enum' => \Fixture\Cache\Mode::Keep,
+    'class_string' => \Fixture\Cache\Holder::class,
+    'constant' => \Fixture\Cache\Holder::NUMBER,
+    'nested_call' => array(sprintf('%s,%s', 'first', 'second'), array('retained')),
+  ),
+'''.encode()
+        original=item.path(helper.CACHE_PATH).read_bytes()
+        self.assertEqual(original.count(b"  'unrelated' =>"),1)
+        item.write(helper.CACHE_PATH, original.replace(b"  'unrelated' =>", opaque+b"  'unrelated' =>",1),0o640)
+        item.cache_original=item.path(helper.CACHE_PATH).read_bytes()
+        return opaque
+
+    def masked_cache(self, item, path):
+        code,output=item.php(['php','-r', '$bytes=file_get_contents($argv[1]);'+helper.NAMESPACE_CACHE_SCANNER_PHP
+            +'echo json_encode($locations,JSON_THROW_ON_ERROR);',str(path)])
+        self.assertEqual(code,0)
+        ranges=json.loads(output); content=path.read_bytes()
+        for namespace in ('whatsapp_orders','whatsapp_cart'):
+            self.assertIn(namespace,ranges)
+        for start,length in sorted((ranges['whatsapp_orders'],ranges['whatsapp_cart']),reverse=True):
+            content=content[:start]+b'__ACTIVATION_NAMESPACE__'+content[start+length:]
+        return content
+
+    def test_cache_objects_enum_static_values_and_non_wa_bytes_preserved(self):
+        item=self.fixture();opaque=self.complex_cache(item)
+        original=pathlib.Path(item.temp.name)/'original.cache.php';original.write_bytes(item.cache_original)
+        masked=self.masked_cache(item,original)
+        status,backup,_=item.activate()
+        self.assertEqual(status,'WHATSAPP_AUTOMATIC_CONFIGURED_TIMER_START_REQUIRED')
+        self.assertIn(opaque,item.path(helper.CACHE_PATH).read_bytes())
+        self.assertEqual(self.masked_cache(item,item.path(helper.CACHE_PATH)),masked)
+        self.assertEqual((backup/'config.before.php').read_bytes(),item.cache_original)
+        self.assertEqual((backup/'effective.expected.bin').stat().st_mode & 0o777,0o600)
+        # Serial bytes compare values/classes without ever reconstructing objects with unserialize.
+        self.assertNotIn('unserialize(',helper.STAGE_PHP+helper.POSTFLIGHT_PHP)
+
+    def test_cache_class_expression_with_missing_cart_and_no_trailing_comma(self):
+        item=self.fixture();opaque=self.complex_cache(item,with_cart=False)
+        original=item.path(helper.CACHE_PATH).read_bytes()
+        self.assertTrue(original.endswith(b',\n);\n'))
+        item.write(helper.CACHE_PATH,original[:-len(b',\n);\n')]+b'\n);\n',0o640)
+        item.cache_original=item.path(helper.CACHE_PATH).read_bytes()
+        self.assertTrue(item.activate()[2]['automatic_ready'])
+        self.assertIn(opaque,item.path(helper.CACHE_PATH).read_bytes())
+
+    def test_non_wa_effective_drift_before_stage_leaves_configuration_unchanged(self):
+        item=self.fixture();item.enable_real_php_boot();item.write('fixture-extra.json',b'{"version":"original"}')
+        def change(f,args):
+            if len(args)>2 and args[2]==helper.STAGE_PHP:f.write('fixture-extra.json',b'{"version":"peer"}')
+        item.hook=change
+        with self.assertRaisesRegex(helper.SafeError,'ACTIVATION_CACHE_OR_CART_STAGING_FAILED'):item.activate()
+        self.assert_unchanged(item)
+        self.assertEqual(item.path('fixture-extra.json').read_bytes(),b'{"version":"peer"}')
+
+    def test_non_wa_effective_drift_after_publish_rolls_back_without_overwriting_peer(self):
+        item=self.fixture();item.enable_real_php_boot();item.write('fixture-extra.json',b'{"version":"original"}')
+        def change(f,args):
+            if len(args)>2 and args[2]==helper.POSTFLIGHT_PHP:f.write('fixture-extra.json',b'{"version":"peer"}')
+        item.hook=change
+        with self.assertRaisesRegex(helper.SafeError,'ACTIVATION_CONFIGURATION_RESTORED'):item.activate()
+        self.assert_unchanged(item)
+        self.assertEqual(item.path('fixture-extra.json').read_bytes(),b'{"version":"peer"}')
+
+    def test_actual_uncached_effective_configuration_checks_dotenv_types(self):
+        item=self.fixture(cached=False);item.enable_real_php_boot()
+        self.assertTrue(item.activate()[2]['automatic_ready'])
+        self.assertFalse(item.path(helper.CACHE_PATH).exists())
 
     def test_actual_cache_merge_preserves_all_unrelated_values_and_existing_credentials(self):
         item = self.fixture(); original = item.php_value(item.path(helper.CACHE_PATH))
