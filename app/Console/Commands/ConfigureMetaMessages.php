@@ -47,8 +47,9 @@ class ConfigureMetaMessages extends Command
                 $actor=app(MetaInboxAccess::class)->actor(\App\Models\User::withoutGlobalScopes()->find((int)$id));
                 foreach ($branches as $branch) app(TakeawayAccess::class)->branch('f:'.$branch,$actor);
                 // The root helper stops the dedicated timer. The lock also excludes manual workers.
-                if (!is_dir(dirname($path))) mkdir(dirname($path),0700,true);
-                $lock=fopen(dirname($path).'/meta-messaging-worker.lock','c');
+                $lockPath=storage_path('app/private/meta-messaging-worker.lock');
+                if (!is_dir(dirname($lockPath))) mkdir(dirname($lockPath),0700,true);
+                $lock=fopen($lockPath,'c');
                 if (!$lock||!flock($lock,LOCK_EX|LOCK_NB)) { $this->error('Meta worker is running'); return 1; }
                 try {
                     $pending=(int)DB::table('meta_webhook_events')->whereNull('processed_at')->count();

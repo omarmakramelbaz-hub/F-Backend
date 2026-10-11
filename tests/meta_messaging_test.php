@@ -11,7 +11,16 @@ namespace {
     set_error_handler(function($s,$m,$f,$l){if($s&E_ALL)throw new \ErrorException($m,0,$s,$f,$l);return false;});
 }
 namespace App\Models { class User { public $id=1;public $account_type='admin';public $owner_resturant_id=null;public $active=true; } }
-namespace App\Services\Dashboard { class TakeawayAccess { public function actor($actor) { \abort_unless($actor&&$actor->active,403);return $actor; } public function permissions($actor) { return ['can_checkout'=>true]; } } }
+namespace App\Services\Dashboard {
+    class TakeawayAccess { public function actor($actor) { \abort_unless($actor&&$actor->active,403);return $actor; } public function permissions($actor) { return ['can_checkout'=>true]; } }
+    // The isolated CI runtime contains framework packages only, without the installed POS overlay.
+    class PosServiceTicket {
+        public static function fingerprint(array $value): string {
+            $sort=function($data)use(&$sort){if(!is_array($data))return $data;if(!array_is_list($data))ksort($data);foreach($data as $key=>$item)$data[$key]=$sort($item);return $data;};
+            return hash('sha256',json_encode($sort($value),JSON_UNESCAPED_UNICODE));
+        }
+    }
+}
 namespace {
     use Illuminate\Container\Container;
     use Illuminate\Config\Repository;
