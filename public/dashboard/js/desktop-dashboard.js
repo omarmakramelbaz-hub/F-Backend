@@ -15,7 +15,8 @@
                 || (method==='DELETE'&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(url.pathname))
-                || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname)));
+                || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
     const prepare = form => {
         if (form instanceof HTMLFormElement && form.hasAttribute('data-desktop-notification-read')) {
@@ -44,7 +45,20 @@
         const field = document.createElement('input');
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);
     };
-    const scan = () => document.querySelectorAll('form').forEach(prepare);
+    const prepareProductLink = link => {
+        const url = new URL(link.href, location.href);
+        if (url.origin !== location.origin || !/^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname)) return;
+        // Keep the operation on the original link until an accepted navigation creates a new page.
+        // A lost reply then retries its original UUID, just like the original checkbox forms.
+        const command = link.dataset.desktopProductCommand || crypto.randomUUID();
+        link.dataset.desktopProductCommand = command;
+        url.searchParams.set('_desktop_command', command);
+        link.href = url.href;
+    };
+    const scan = () => {
+        document.querySelectorAll('form').forEach(prepare);
+        document.querySelectorAll('a[href]').forEach(prepareProductLink);
+    };
     const ajax = () => {
         if (!window.jQuery || window.jQuery.fasakhanstaCatalogJournal) return;
         window.jQuery.fasakhanstaCatalogJournal = true;

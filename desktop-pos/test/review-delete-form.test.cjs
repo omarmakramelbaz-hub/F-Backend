@@ -19,7 +19,7 @@ async function forms(specifications=[{}],{local=true,prepared=true}={}){
   }
   const list=specifications.map(value=>new Form(value)),events=new Map();let mutation,statusReads=0;
   const document={body:{dataset:{dashboardLocal:local?'1':'0',dashboardRemoteAttempts:'1',dashboardActor:'1'}},documentElement:{},
-    querySelectorAll:selector=>{assert.equal(selector,'form');return list;},createElement:tag=>{assert.equal(tag,'input');return {};},
+    querySelectorAll:selector=>{if(selector==='a[href]')return [];assert.equal(selector,'form');return list;},createElement:tag=>{assert.equal(tag,'input');return {};},
     addEventListener:(name,callback)=>events.set(name,callback)};
   await vm.runInNewContext(source,{document,window:{FasakhanstaDesktop:{status:async()=>{statusReads++;return {prepared};}}},
     location:{href:origin+'/admin/resturant_reviews',origin},URL,URLSearchParams,crypto,HTMLFormElement:Form,

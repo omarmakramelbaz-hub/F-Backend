@@ -161,7 +161,7 @@ $cashierBootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)-
 // Synthetic, disposable source for the separate Windows supervisor test. These flags
 // exercise activation machinery; the actual server export remains explicitly incomplete.
 if($nativeSnapshot=getenv('DESKTOP_TEST_SNAPSHOT_FILE')){
-    $synthetic=$cashierBootstrap;$synthetic['coverage']['full_dashboard']=true;$synthetic['coverage']['media']=true;$synthetic['media']=[];
+    $synthetic=$cashierBootstrap;$synthetic['coverage']['media']=true;$synthetic['media']=[];
     file_put_contents($nativeSnapshot,\App\Services\Dashboard\DesktopDashboardBootstrap::json($synthetic));
 }
 check($cashierBootstrap['branches']===['f:100'] && count($cashierBootstrap['tables']['resturants']['rows'])===1 && count($cashierBootstrap['tables']['users']['rows'])===1,'a cashier initial dataset contains only the enrolled branch and account');

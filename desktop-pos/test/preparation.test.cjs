@@ -78,3 +78,17 @@ test('a missing server code binding or a different verified staging code cannot 
   assert.equal(changed.saved.has('prepared'),false);assert.equal(changed.calls.includes('activate'),false);
   assert.equal(changed.saved.get('enrollment').enrolled,true);
 });
+test('the explicit preview handshake prepares a verified original partial scope without promoting coverage', async () => {
+  const f = fixture(); f.snapshot.coverage = { full_dashboard: false, media: true, write_routes: ['customers.save'], role_memberships: [] };
+  const manifest = { format: 1, platform: 'win32-x64', channel: 'preview', fullDashboard: false,
+    sourceRevision: 'b'.repeat(40), sourceFingerprint: f.snapshot.source, previewWriteRoutes: ['customers.save'] };
+  f.runtime.coverageManifest = async () => manifest;
+  const stage = f.runtime.stage;
+  f.runtime.stage = async (...args) => ({ ...await stage(...args), receipt: { verified: true, device_id: f.snapshot.device_id,
+    actor_id: f.snapshot.actor_id, schema_hash: f.snapshot.schema_hash, snapshot_id: f.snapshot.snapshot_id,
+    source: f.snapshot.source, branches: f.snapshot.branches, coverage: f.snapshot.coverage, media: [] } });
+  const setup = new DashboardPreparation({ runtime: f.runtime, allowPreview: true, enroll: async () => f.link, download: async () => f.snapshot });
+  await setup.prepare('https://fixture.test', 'csrf');
+  const ready = f.saved.get('prepared'); assert.equal(ready.fullCoverage, false); assert.equal(ready.previewOnly, true);
+  assert.deepEqual(ready.coverage, f.snapshot.coverage);
+});

@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const media = require('./dashboard-media.cjs');
 const sourceCode = require('./dashboard-source.cjs');
+const coverage = require('./dashboard-coverage.cjs');
 
 const uuid = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value || '');
 const hash = value => /^[a-f0-9]{64}$/.test(value || '');
@@ -11,14 +12,15 @@ const generation = value => /^[a-f0-9]{16}$/.test(value || '');
 const database = value => value === 'fasakhansta_dashboard' || /^fasakhansta_dashboard_stage_[a-f0-9]{16}$/.test(value || '');
 function identity(value) {
   return JSON.stringify([value.deviceId, value.actorId, value.schemaHash, value.database || 'fasakhansta_dashboard', value.snapshotId || null, value.refreshId || null, value.serverOrigin, value.token,
-    value.sourceRevision || null,value.sourceFingerprint?.sha256 || null,value.sourceFingerprint?.framework || null,value.sourceFingerprint?.files || null]);
+    value.sourceRevision || null,value.sourceFingerprint?.sha256 || null,value.sourceFingerprint?.framework || null,value.sourceFingerprint?.files || null,
+    value.fullCoverage, value.previewOnly || false, value.coverageBinding || null]);
 }
-function prepared(value, deviceId) {
+function prepared(value, deviceId, manifest = null) {
   let origin;
   try { origin = new URL(value.serverOrigin); } catch { return false; }
   if (![1, 2].includes(value.format) || value.deviceId !== deviceId || !uuid(deviceId)
       || !Number.isSafeInteger(value.actorId) || value.actorId < 1 || !hash(value.schemaHash)
-      || value.fullCoverage !== true || !hash(value.token) || origin.protocol !== 'https:'
+      || !(value.fullCoverage === true && value.previewOnly !== true || coverage.previewPrepared(value, manifest)) || !hash(value.token) || origin.protocol !== 'https:'
       || origin.username || origin.password || origin.origin !== value.serverOrigin) return false;
   if (value.format === 1) return value.database === undefined && value.generation === undefined;
   if (value.sourceFingerprint !== undefined && !sourceCode.valid(value.sourceFingerprint)) return false;
@@ -55,8 +57,9 @@ class GenerationStore {
 
 /** A refresh is accepted only after the original outbox has been durably confirmed. */
 class DashboardGeneration {
-  constructor({ runtime, metadata, download, transition = async work => work() }) {
+  constructor({ runtime, metadata, download, allowPreview = false, transition = async work => work() }) {
     this.runtime = runtime; this.metadata = metadata; this.download = download; this.transition = transition;
+    this.allowPreview = allowPreview === true;
   }
   recover() {
     if (this.running) return this.running;
@@ -99,19 +102,21 @@ class DashboardGeneration {
           || snapshot.device_id !== previous.deviceId || snapshot.actor_id !== previous.actorId
           || !hash(snapshot.schema_hash) || !Array.isArray(snapshot.branches) || !snapshot.branches.length)
         throw Error('نسخة السيرفر لا تطابق حساب الجهاز أو مخططه.');
-      if (snapshot.coverage?.full_dashboard !== true || snapshot.coverage?.media !== true
-          || !Array.isArray(snapshot.media))
-        throw Error('نسخة الداشبورد لم تكتمل بعد؛ بيانات الجهاز الحالية محفوظة.');
       media.manifest(snapshot.media);
       if (!sourceCode.valid(snapshot.source)) throw Error('مصدر نسخة السيرفر لم يتأكد بعد؛ بيانات الجهاز الحالية محفوظة.');
+      const manifest = snapshot.coverage?.full_dashboard !== true && this.allowPreview ? await this.runtime.coverageManifest(snapshot) : null;
+      coverage.snapshotCoverage(snapshot, manifest, this.allowPreview);
       const candidate = await this.runtime.stage(snapshot, intent.generation, intent);
       if (candidate.mediaVerified !== true) throw Error('لم يتم التحقق من صور الداشبورد؛ بيانات الجهاز الحالية محفوظة.');
       if (!sourceCode.same(snapshot.source, candidate.sourceFingerprint)) throw Error('مصدر برنامج التجهيز لا يطابق نسخة السيرفر.');
+      const scope = coverage.preparedCoverage(snapshot, candidate, manifest, this.allowPreview);
       const next = { ...previous, format: 2, generation: intent.generation, database: candidate.database,
         snapshotId: snapshot.snapshot_id, schemaHash: snapshot.schema_hash, branches: snapshot.branches,
-        fullCoverage: true, mediaVerified: candidate.mediaVerified, refreshId: intent.id, sourceRevision: candidate.sourceRevision,
+        ...scope, mediaVerified: candidate.mediaVerified, refreshId: intent.id, sourceRevision: candidate.sourceRevision,
         sourceFingerprint: candidate.sourceFingerprint };
-      if (!prepared(next, previous.deviceId)) throw Error('نسخة التجهيز المحلية غير مكتملة.');
+      if (next.previewOnly) next.coverageBinding = coverage.binding(next);
+      else { delete next.previewOnly; delete next.coverage; delete next.mediaManifestHash; delete next.coverageBinding; }
+      if (!prepared(next, previous.deviceId, manifest)) throw Error('نسخة التجهيز المحلية غير مكتملة.');
       await this.metadata.write('generations/' + intent.id, { format: 1, previous, next, fence, receipt: candidate.receipt });
       await this.transition(() => this.runtime.activate(next, () => this.metadata.write('prepared', next)));
       await this.metadata.clearIntent();

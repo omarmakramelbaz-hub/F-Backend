@@ -11,18 +11,18 @@ use Illuminate\Support\Str;
         $query=DB::table($table);if($table==='resturants')$query->where('id','!=',100);$result[$table]=$query->orderBy('id')->get()->map(fn($item)=>(array)$item)->all();}return $result;};
     $relatedBefore=$related();
     try{
-        foreach([['Status','is_featured','4'],['UnderContract','under_contract','9']] as [$action,$field,$page]){
-            $path='/admin/resturantchange'.$action.'/100';$reservation=$attempt($path);[$status,$reserved]=$decide($reservation);
+        foreach([['Status','is_featured','4'],['UnderContract','under_contract','9'],['Sorting','sortby_is_featured','5']] as [$action,$field,$page]){
+            $sorting=$field==='sortby_is_featured';$path=$sorting?'/admin/update_sorting_is_featured/100':'/admin/resturantchange'.$action.'/100';$reservation=$attempt($path);[$status,$reserved]=$decide($reservation);
             verify($status===200&&$reserved['status']==='ready','the original restaurant '.$field.' POST reserves a native transactional outcome');
-            $form=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),$field=>'on','page'=>$page];$before=$row();$journalBefore=DB::table('desktop_dashboard_commands')->count();
+            $form=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),$field=>$sorting?'7':'on','page'=>$page];$before=$row();$journalBefore=DB::table('desktop_dashboard_commands')->count();
             verify($http($path,$form,[...$proof($reserved),'Accept: application/json','X-Fasakhansta-Command: '.Str::uuid()])[0]===409&&$row()===$before,'conflicting native restaurant '.$field.' UUIDs preserve the entire original row');
             foreach([false,true] as $header){$bad=$form;$bad['_desktop_command']=[(string)Str::uuid()];$headers=[...$proof($reserved),'Accept: application/json'];if($header)$headers[]='X-Fasakhansta-Command: '.Str::uuid();
                 $reply=$http($path,$bad,$headers);$stored=DB::table('desktop_dashboard_remote_attempts')->where('id',$reservation['id'])->first();
                 verify($reply[0]===422&&$row()===$before&&$stored->status==='ready'&&$stored->operation_id===null&&$stored->response_cipher===null&&DB::table('desktop_dashboard_commands')->count()===$journalBefore,
                     'raw native restaurant '.$field.' UUID arrays return422 before conversion with no mutation or outcome'.($header?' with a valid header':' without a header'));}
-            [$status,$body,$headers]=$http($path,$form,$proof($reserved));$after=$row();$expected=$origin.'/admin/resturants'.($field==='is_featured'?'?page='.$page:'');
+            [$status,$body,$headers]=$http($path,$form,$proof($reserved));$after=$row();$expected=$origin.'/admin/resturants'.($field!=='under_contract'?'?page='.$page:'');
             $sameBefore=$before;$sameAfter=$after;unset($sameBefore[$field],$sameAfter[$field],$sameBefore['updated_at'],$sameAfter['updated_at']);
-            verify($status===302&&in_array('Location: '.$expected,$headers,true)&&$after[$field]==='yes'&&$sameAfter===$sameBefore&&$decide($reservation,'settle')[1]['status']==='committed',
+            verify($status===302&&in_array('Location: '.$expected,$headers,true)&&$after[$field]===($sorting?7:'yes')&&$sameAfter===$sameBefore&&$decide($reservation,'settle')[1]['status']==='committed',
                 'the original restaurant '.$field.' controller commits only its flag/timestamp with its distinct redirect and native receipt');
             $stored=DB::table('desktop_dashboard_remote_attempts')->where('id',$reservation['id'])->first();$outcome=json_decode(Crypt::decryptString($stored->response_cipher),true,512,JSON_THROW_ON_ERROR);
             verify(count($outcome['restaurant_flag_facts']['restaurant_flag_before']['row'])===29&&$outcome['restaurant_flag_after']['row']===$after&&$outcome['restaurant_flag_success']===trans('messages.UpdateSuccessfully'),
@@ -52,10 +52,12 @@ use Illuminate\Support\Str;
             verify($decide($rollback,'settle')[1]['status']==='cancelled'&&$http($path,$rollbackForm,[...$proof($rollbackProof),'Accept: application/json'])[0]===409&&$row()===$rollbackBefore,
                 'terminal native restaurant '.$field.' cancellation rejects a delayed original POST');
             foreach(['GET','PUT','PATCH','DELETE'] as $method)verify($decide(['id'=>(string)Str::uuid(),'method'=>$method,'path'=>$path])[0]===422,'restaurant '.$field.' outcome reservations reject unreviewed '.$method.' methods');
-            $normal=['_token'=>$serverCsrf[1]];verify($http($path,$normal)[0]===302&&$row()[$field]==='no','ordinary online restaurant '.$field.' checkboxes retain original missing-means-no behavior without a native UUID');
-            $normal[$field]='off';verify($http($path,$normal)[0]===302&&$row()[$field]==='no','ordinary online restaurant '.$field.' preserves the exact comparison instead of treating all supplied values as true');
+            $normal=['_token'=>$serverCsrf[1]];verify($http($path,$normal)[0]===302&&$row()[$field]===($sorting?null:'no'),
+                'ordinary online restaurant '.$field.' retains the original absent value semantics without a native UUID');
+            $normal[$field]=$sorting?'-3':'off';verify($http($path,$normal)[0]===302&&$row()[$field]===($sorting?-3:'no'),
+                'ordinary online restaurant '.$field.' preserves its exact original input and database semantics');
         }
-        verify($decide($attempt('/admin/update_sorting_is_featured/100'))[0]===422,'the two restaurant checkbox flags do not claim unreviewed featured sorting coverage');
+        verify($decide($attempt('/admin/updateStatus/100'))[0]===422,'restaurant checkbox and featured ordering coverage does not claim unreviewed operating-status broadcasts');
         verify($related()===$relatedBefore,'native restaurant checkbox flags preserve all related rows and every other restaurant');
         echo 'Restaurant flag original native outcome acceptance completed'.PHP_EOL;
     }finally{$restore($original);DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['actor_id'=>$deviceOriginal['actor_id'],'enabled'=>$deviceOriginal['enabled'],'branches'=>$deviceOriginal['branches']]);}

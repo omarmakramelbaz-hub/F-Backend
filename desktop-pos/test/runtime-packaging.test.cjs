@@ -13,6 +13,9 @@ test('the actual source bundle excludes renamed production credentials and keeps
   const files = {
     'artisan': '<?php /* original entry point */',
     'app/Controllers.php': '<?php /* original business code */',
+    'app/Services/Dashboard/DesktopDashboardRoutes.php': "<?php class DesktopDashboardRoutes { public const WRITES=['customers.save',]; }",
+    'app/Services/Dashboard/DesktopDashboardLegacy.php': "<?php class DesktopDashboardLegacy { public const ROUTES=[\n 'roles.store'=>['model'=>User::class,'entity'=>'role','table'=>'roles','method'=>'POST','action'=>'store','parameter'=>'role'],\n ]; }",
+    'desktop-pos/package.json': '{"version":"0.3.0-preview.1"}',
     'public/firebase_credentials.json': '{"type":"service_account"}',
     'public/firebase_credentials.json-old': '{"private_key":"SYNTHETIC_KEY"}',
     'public/firebase_credentials_old.json': '{"private_key":"SYNTHETIC_KEY"}',
@@ -43,6 +46,8 @@ test('the actual source bundle excludes renamed production credentials and keeps
   assert.deepEqual(await fs.readFile(path.join(target,'php/ssl/cacert.pem')),ca);
   await assert.rejects(fs.access(path.join(target,'php/ssl/unrelated-private.pem')),{code:'ENOENT'});
   const manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.channel, 'preview'); assert.equal(manifest.fullDashboard, false);
+  assert.deepEqual(manifest.previewWriteRoutes, ['customers.save', 'roles.store']);
   for (const file of ['artisan','app/Controllers.php','config/firebase.php','public/firebase-messaging-sw.js','public/catalog.json']) {
     assert.ok(manifest.sourceHashes[file]); assert.equal(await fs.readFile(path.join(target, 'application', file), 'utf8'), files[file]);
   }

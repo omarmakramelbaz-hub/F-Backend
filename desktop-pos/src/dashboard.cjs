@@ -9,10 +9,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   prepare, remoteState, remoteAttempts, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
-  let window, loading = false, refreshing = false;
+  let window, loading = false, refreshing = false, printing = 0;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
+  const activeRequests = new Set();
   const readPosts = new Set(['/admin/takeaway/quote', '/admin/dining/quote', '/admin/phone-orders/quote', '/admin/phone-orders/delivery-quote',
     '/admin/phone-orders/address-suggestions',
     '/admin/fetch-subcategory', '/admin/fetch-product', '/admin/fetch-feature']);
@@ -46,6 +47,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } catch (error) { return { ok: false, error: error.message }; }
   });
   ipcMain.handle('dashboard:print-receipt', async (event, value) => { try { return await accepted(async () => {
+    printing++;
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (refreshing) throw Error('يجري تحديث بيانات الداشبورد؛ أعد المحاولة بعد اكتماله.');
@@ -78,6 +80,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         return { ok: true, value: true };
       } finally { owned.delete(printWindow.webContents.id); printWindow.destroy(); }
     } catch (error) { return { ok: false, error: error.message }; }
+    finally { printing--; }
   }); } catch (error) { return { ok: false, error: error.message }; } });
   function reveal() {
     if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
@@ -99,7 +102,15 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
             for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability)$/i.test(name)) delete headers[name];
-            if (!policy.sameOrigin(details.url, origin)) { callback({ requestHeaders: headers }); return; }
+            if (!policy.sameOrigin(details.url, origin)) {
+              // An absolute legacy URL must not send a prepared local form or
+              // dashboard poll directly to production outside the shared cycle.
+              if (localToken && owned.has(details.webContentsId) && serverOrigin && policy.sameOrigin(details.url, serverOrigin)) {
+                callback({ cancel: true }); return;
+              }
+              callback({ requestHeaders: headers }); return;
+            }
+            if (details.id != null && owned.has(details.webContentsId)) activeRequests.add(details.id);
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
               if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
@@ -116,6 +127,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             callback({ requestHeaders: { ...headers, 'X-Fasakhansta-Desktop': localToken } });
         });
         contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
+          activeRequests.delete(details.id);
           if (!remoteWrites.has(details.id)) return;
           const attempt=remoteWrites.get(details.id);
           const forget=()=>{if(remoteWrites.get(details.id)===attempt)remoteWrites.delete(details.id);};
@@ -157,6 +169,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         });
         // Fetch failures during SPA navigation do not trigger did-fail-load.
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
+          activeRequests.delete(details.id);
           if(remoteAttempts&&remoteWrites.has(details.id)){remoteAttempts.failed(remoteWrites.get(details.id));remoteWrites.delete(details.id);}
           if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
             offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
@@ -224,17 +237,43 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
     { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => focused()?.webContents.print({ printBackground: true }) }] }
   ]));
+  async function canRefresh() {
+    if (loading || refreshing || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
+    if (!window || window.isDestroyed()) return true;
+    const current = window.webContents.getURL();
+    if (!policy.sameOrigin(current, origin) || new URL(current).pathname !== '/admin/dashboard') return false;
+    // Home filters and visible dialogs can also contain unsaved work. A failed
+    // probe defers replacement instead of guessing that the page is idle.
+    try {
+      return await window.webContents.executeJavaScript(`(() => {
+        if (document.readyState !== 'complete') return false;
+        const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
+        if (document.activeElement?.matches(editable)) return false;
+        if (document.querySelector('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"]')) return false;
+        return !Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
+          if (field.disabled || field.readOnly) return false;
+          if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
+          if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
+          return field.value !== field.defaultValue;
+        });
+      })()`) === true;
+    } catch { return false; }
+  }
   async function refresh(work) {
     if (!localToken || refreshing || quitting()) throw Error('تعذر تحديث الداشبورد الحالية.');
-    return switchTo({ origin, localToken }, work);
+    if (!(await canRefresh())) return { deferred: true };
+    return switchTo({ origin, localToken }, work, { preserveCurrent: true });
   }
-  async function switchTo(target, work = async () => {}) {
+  async function switchTo(target, work = async () => {}, { preserveCurrent = false } = {}) {
     if (refreshing || quitting()) throw Error('الداشبورد تنتقل بين نسختي الجهاز والسيرفر.');
     const destination = new URL(target.origin);
     const local = destination.protocol === 'http:' && destination.hostname === '127.0.0.1' && destination.port && target.localToken;
     const remote = destination.protocol === 'https:' && target.origin === serverOrigin && !target.localToken;
     if ((!local && !remote) || destination.username || destination.password || destination.origin !== target.origin)
       throw Error('وجهة الداشبورد غير مسموحة.');
+    const currentURL = window?.webContents.getURL();
+    const returnURL = preserveCurrent && policy.sameOrigin(currentURL, origin)
+      ? target.origin + new URL(currentURL).pathname + new URL(currentURL).search : target.origin + '/admin/dashboard';
     // Do not let an old form or child tab post into a newly activated generation.
     refreshing = true;
     window?.webContents.stop();
@@ -249,13 +288,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       // Navigate to a read page, never reload a previously submitted POST.
       if (window && !window.isDestroyed() && !quitting()) await window.loadURL('about:blank').catch(() => {});
       refreshing = false;
-      if (window && !window.isDestroyed() && !quitting()) await open(home);
+      if (window && !window.isDestroyed() && !quitting()) await open(policy.sameOrigin(returnURL, origin) ? returnURL : home);
     }
   }
   function publish(value) {
     if (window && !window.isDestroyed() && !quitting() && policy.sameOrigin(window.webContents.getURL(), origin))
       window.webContents.send('dashboard:state', value);
   }
-  return { open, refresh, switchTo, publish, reveal, session: () => window?.webContents.session,
+  return { open, refresh, canRefresh, switchTo, publish, reveal, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };

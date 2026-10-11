@@ -178,12 +178,54 @@ test('generation activation blocks old form requests, closes old popups and reop
   const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
   const window=f.windows[0],child=new window.constructor(window.options);
   window.webContents.emit('did-create-window',child);
-  await f.dashboard.refresh(async()=>{
+  await f.dashboard.switchTo({origin,localToken:'private'},async()=>{
     let decision;f.session.webRequest.headers({url:origin+'/admin/save',webContentsId:window.webContents.id,requestHeaders:{}},value=>{decision=value;});
     assert.equal(decision.cancel,true);assert.ok(child.destroyed);assert.ok(window.webContents.stopped);
     assert.equal(window.webContents.popup({url:origin+'/admin/dashboard'}).action,'deny');
   });
   assert.equal(window.url,origin+'/admin/dashboard');assert.equal(f.windows.filter(value=>!value.destroyed).length,1);
   let decision;f.session.webRequest.headers({url:origin+'/admin/dashboard',webContentsId:window.webContents.id,requestHeaders:{}},value=>{decision=value;});
+  assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private');
+});
+
+test('bulk background replacement waits for active forms, popups and outstanding page requests',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
+  const window=f.windows[0];let updates=0;
+  await f.dashboard.open(origin+'/admin/takeaway');
+  assert.equal((await f.dashboard.refresh(async()=>updates++)).deferred,true);
+  assert.equal(window.url,origin+'/admin/takeaway');assert.equal(updates,0);assert.equal(window.webContents.stopped,undefined);
+  await f.dashboard.open();const child=new window.constructor(window.options);window.webContents.emit('did-create-window',child);
+  assert.equal((await f.dashboard.refresh(async()=>updates++)).deferred,true);assert.equal(child.destroyed,false);
+  child.emit('closed');
+  f.session.webRequest.headers({id:42,url:origin+'/admin/dashboard',method:'GET',webContentsId:window.webContents.id,requestHeaders:{}},()=>{});
+  assert.equal(await f.dashboard.canRefresh(),false);f.session.webRequest.completed({id:42});
+  assert.equal(await f.dashboard.canRefresh(),true);await f.dashboard.refresh(async()=>updates++);assert.equal(updates,1);
+});
+test('a settled home refresh keeps the selected report URL and blocks navigation throughout staging',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open(origin+'/admin/dashboard?period=week');
+  const window=f.windows[0];await f.dashboard.refresh(async()=>{
+    let blocked=false;window.webContents.emit('will-navigate',{preventDefault(){blocked=true;}},origin+'/admin/employees');assert.equal(blocked,true);
+  });
+  assert.equal(window.url,origin+'/admin/dashboard?period=week');
+});
+test('focused or changed home fields and visible dialogs defer snapshots while settled read content permits them',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
+  const document={readyState:'complete',activeElement:{matches:()=>false},querySelector:()=>null,querySelectorAll:()=>[]};
+  f.windows[0].webContents.executeJavaScript=async source=>vm.runInNewContext(source,{document});
+  assert.equal(await f.dashboard.canRefresh(),true);
+  document.activeElement.matches=()=>true;assert.equal(await f.dashboard.canRefresh(),false);document.activeElement.matches=()=>false;
+  document.querySelector=()=>({});assert.equal(await f.dashboard.canRefresh(),false);document.querySelector=()=>null;
+  document.querySelectorAll=()=>[{tagName:'INPUT',type:'text',value:'changed',defaultValue:''}];assert.equal(await f.dashboard.canRefresh(),false);
+  document.querySelectorAll=()=>[{tagName:'SELECT',options:[{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),false);
+  document.querySelectorAll=()=>[];document.readyState='loading';assert.equal(await f.dashboard.canRefresh(),false);
+});
+test('prepared local pages cannot submit absolute production requests outside scheduled native reconciliation',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private',serverOrigin:policy.DEFAULT_ORIGIN});await f.dashboard.open();
+  const sender=f.windows[0].webContents;let decision;
+  f.session.webRequest.headers({url:policy.DEFAULT_ORIGIN+'/admin/employees/save',method:'POST',webContentsId:sender.id,requestHeaders:{}},value=>decision=value);
+  assert.equal(decision.cancel,true);
+  f.session.webRequest.headers({url:policy.DEFAULT_ORIGIN+'/admin/order-board/live',method:'GET',webContentsId:sender.id,requestHeaders:{}},value=>decision=value);
+  assert.equal(decision.cancel,true);
+  f.session.webRequest.headers({url:origin+'/admin/employees/save',method:'POST',webContentsId:sender.id,requestHeaders:{}},value=>decision=value);
   assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private');
 });

@@ -17,7 +17,8 @@ function fixture(){
       if(value.action==='refresh-status')return {exists:held===value.refresh_id,held:held===value.refresh_id};
       if(value.action==='refresh-cancel'){if(loseCancel)throw Error('lost cancel');held=null;return {held:false};}
     }};
-  const view={current:()=>({local}),switchTo:async(target,work=async()=>{})=>{calls.push('switch');await work();local=Boolean(target.localToken);}};
+  const view={current:()=>({local}),canRefresh:async()=>true,refresh:async work=>{calls.push('local-refresh');return work();},
+    switchTo:async(target,work=async()=>{})=>{calls.push('switch');await work();local=Boolean(target.localToken);}};
   const generations={run:async()=>{calls.push('generation');connection.snapshotId=crypto.randomUUID();}};
   const probe=async()=>({device_id:connection.deviceId,actor_id:probeActor});
   const mode=new DashboardMode({runtime,view,generations,probe});
@@ -36,7 +37,7 @@ test('a pending operation racing the refresh cannot switch to server',async()=>{
 });
 test('another server account or a lost session preserves local mode and reopens local writing',async()=>{
   const f=fixture();f.setActor(11);await assert.rejects(f.mode.refresh());
-  assert.equal(f.view.current().local,true);assert.equal(f.held(),null);assert.equal(f.records.get('return'),null);
+  assert.equal(f.view.current().local,true);assert.equal(f.held(),null);assert.equal(f.records.get('return')??null,null);
 });
 test('a lost begin reply is recovered using its durable capability without acquiring another fence',async()=>{
   const f=fixture();await f.metadata.write('return',{format:1,id:crypto.randomUUID(),token:'d'.repeat(64),previous:f.connection});
@@ -57,4 +58,27 @@ test('remote background refresh first releases its own inactive fence, then hold
   const f=fixture();await f.mode.refresh();const old=f.records.get('return').id;await f.mode.refresh();
   assert.equal(f.view.current().local,false);assert.notEqual(f.records.get('return').id,old);
   assert.equal(f.calls.filter(x=>x==='switch').length,1);assert.equal(f.calls.filter(x=>x==='generation').length,2);
+});
+
+test('scheduled local refresh keeps original forms local and needs no browser server session',async()=>{
+  const f=fixture();f.mode.probe=async()=>{throw Error('server browser signed out');};
+  await f.mode.refresh({stayLocal:true});
+  assert.equal(f.view.current().local,true);assert.equal(f.held(),null);assert.equal(f.records.get('return')??null,null);
+  assert.deepEqual(f.calls,['local-refresh','generation']);
+});
+test('an editing page defers the bulk generation without acquiring a write fence or probing the server',async()=>{
+  const f=fixture();f.view.canRefresh=async()=>false;
+  assert.deepEqual(await f.mode.refresh({stayLocal:true}),{deferred:true});assert.deepEqual(f.calls,[]);
+  assert.equal(f.view.current().local,true);assert.equal(f.held(),null);
+});
+test('legacy server mode returns local only after a coherent refresh and reopens its inactive local fence',async()=>{
+  const f=fixture();await f.mode.refresh();assert.ok(f.held());
+  await f.mode.refresh({stayLocal:true});assert.equal(f.view.current().local,true);assert.equal(f.held(),null);
+  assert.equal(f.records.get('return'),null);assert.equal(f.calls.filter(x=>x==='generation').length,2);
+});
+test('a failed scheduled generation keeps local writing and the old mode without acquiring a new server fence',async()=>{
+  const f=fixture();f.generations.run=async()=>{throw Error('offline snapshot');};
+  await assert.rejects(f.mode.refresh({stayLocal:true}),/offline snapshot/);
+  assert.equal(f.view.current().local,true);assert.equal(f.held(),null);
+  assert.equal(f.calls.includes('refresh-begin'),false);
 });

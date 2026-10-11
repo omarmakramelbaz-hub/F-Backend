@@ -158,3 +158,26 @@ test('bounded downloads reject dishonest or missing lengths, wrong formats and m
   await assert.rejects(readSnapshot(new Response('{}', { headers: { 'content-type': 'text/html' } })));
   await assert.rejects(readSnapshot(new Response('invalid', { headers: { 'content-type': 'application/json' } })));
 });
+test('an opted preview refresh preserves exact partial coverage and a later unapproved refresh retains that prepared database', async t => {
+  const f = await fixture(t);
+  f.snapshot.coverage = { full_dashboard: false, media: true, write_routes: ['customers.save'], role_memberships: [] };
+  const manifest = { format: 1, platform: 'win32-x64', channel: 'preview', fullDashboard: false,
+    sourceRevision: 'c'.repeat(40), sourceFingerprint: f.snapshot.source, previewWriteRoutes: ['customers.save'] };
+  f.runtime.coverageManifest = async () => manifest;
+  const stage = f.runtime.stage;
+  f.runtime.stage = async (...args) => ({ ...await stage(...args), receipt: { verified: true, device_id: f.snapshot.device_id,
+    actor_id: f.snapshot.actor_id, schema_hash: f.snapshot.schema_hash, snapshot_id: f.snapshot.snapshot_id,
+    source: f.snapshot.source, branches: f.snapshot.branches, coverage: f.snapshot.coverage, media: [] } });
+  const next = await f.create({ allowPreview: true }).run();
+  assert.equal(next.fullCoverage, false); assert.equal(next.previewOnly, true); assert.deepEqual(next.coverage, f.snapshot.coverage);
+  assert.equal(prepared(next, f.previous.deviceId), false); assert.equal(prepared(next, f.previous.deviceId, manifest), true);
+  // Simulate the active generation's own ledger receiving the next refresh fence.
+  f.runtime.control = async value => {
+    f.calls.push(value.action);
+    if (value.action === 'refresh-begin') return { held: true, device_id: next.deviceId, actor_id: next.actorId, schema_hash: next.schemaHash, refresh_id: value.refresh_id };
+    if (value.action === 'refresh-status') return { exists: true, held: true };
+    if (value.action === 'refresh-cancel') return { held: false };
+  };
+  await assert.rejects(f.create().run()); assert.deepEqual(await f.metadata.read('prepared'), next);
+  assert.equal(await f.metadata.read('refresh'), null);
+});

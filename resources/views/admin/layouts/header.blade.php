@@ -159,6 +159,7 @@
 }
 
     </style>
+    @unless(config('desktop_dashboard.local'))
      <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js') }}"></script>
      <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js') }}"></script>
     <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js') }}"></script>
@@ -187,6 +188,7 @@ firebase.initializeApp(firebaseConfig);
 
 
     </script>
+    @endunless
  
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js') }}"></script>
 </head>

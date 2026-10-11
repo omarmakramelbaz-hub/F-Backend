@@ -8,12 +8,13 @@ use Illuminate\Routing\MiddlewareNameResolver;
 use Illuminate\Session\{Store,ArraySessionHandler};
 use Illuminate\Support\Facades\{DB,Facade,Validator};
 
-/** Journal only the two original restaurant checkbox updates, using their original scoped controller. */
+/** Journal the original restaurant checkboxes and featured ordering, through their scoped controller. */
 class DesktopDashboardRestaurantFlags
 {
     public const ROUTES=[
         'resturants.changeStatus'=>['action'=>'changeStatus','field'=>'is_featured','uri'=>'admin/resturantchangeStatus/{resturant}'],
         'resturants.changeUnderContract'=>['action'=>'changeUnderContract','field'=>'under_contract','uri'=>'admin/resturantchangeUnderContract/{resturant}'],
+        'update_sorting_is_featured'=>['action'=>'update_sorting_is_featured','field'=>'sortby_is_featured','uri'=>'admin/update_sorting_is_featured/{resturant}'],
     ];
     private const COLUMNS=[
         'id','added_by','user_id','name','status','created_at','updated_at','parent_id','address','avg_rate','lat','lng',
@@ -60,7 +61,8 @@ class DesktopDashboardRestaurantFlags
         abort_unless(self::handles($name),422);
         abort_if(array_diff(array_keys($values),['idempotency_key',self::ROUTES[$name]['field'],'page']),422);
         Validator::make(['command'=>$values['idempotency_key']??null],['command'=>'required|uuid'])->validate();
-        // Preserve request('field') == 'on' in the original controller. An absent checkbox stays absent.
+        // Preserve the exact original input, including absent checkboxes and the nullable numeric
+        // ordering value. The original controller/database determine persisted value semantics.
         return $values;
     }
     private function state(int $id,bool $replay=false): array
