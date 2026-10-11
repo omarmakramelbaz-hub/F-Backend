@@ -9,9 +9,11 @@ final class WhatsAppCaptureGapDiagnostic
     private const WABA = '468336579702269';
     private const PHONE = '515388018324075';
     private const SINCE = '2026-10-10 01:47:00';
-    private const EVENT_LIMIT = 500;
+    private const EVENT_LIMIT = 30;
+    private const MAX_EVENT_LIMIT = 50;
     private const RECORD_LIMIT = 160;
     private const CHANGE_LIMIT = 200;
+    private const NORMALIZATION_LIMIT = 8;
     private const OUTPUT_LIMIT = 524288;
     private const MAX_BYTES = 4194304;
     private const FIELDS = ['messages', 'standby', 'smb_message_echoes', 'messaging_handovers'];
@@ -96,18 +98,22 @@ final class WhatsAppCaptureGapDiagnostic
     {
         $out = ['scoped_changes' => [], 'unscoped_entry_standby' => 0, 'excluded_changes' => 0,
             'malformed_envelopes' => 0, 'records_omitted' => 0, 'changes_omitted' => 0,
-            'entries_omitted' => 0,
+            'entries_omitted' => 0, 'normalizations_omitted' => 0,
             'normalizer' => ['messages' => 0, 'quarantined' => 0, 'ignored' => 0, 'statuses' => 0]];
         if (($payload['object'] ?? null) !== 'whatsapp_business_account' || !self::list($payload['entry'] ?? null)) {
             $out['malformed_envelopes']++; return $out;
         }
         $out['entries_omitted'] = max(0, count($payload['entry']) - 100);
-        $normalized = [];
+        $normalized = []; $normalizedCounts = [];
         $report = \App\Support\WhatsAppInboxProtocol::report($payload, self::WABA, self::PHONE);
         foreach (['messages' => 'messages', 'quarantined_count' => 'quarantined', 'ignored_count' => 'ignored', 'status_count' => 'statuses'] as $key => $target) {
             $out['normalizer'][$target] = $key === 'messages' ? count($report[$key]) : $report[$key];
         }
-        foreach ($report['messages'] as $dto) $normalized[$dto['message_id']][] = $dto;
+        foreach ($report['messages'] as $dto) {
+            $id = $dto['message_id'];
+            $normalizedCounts[$id] = ($normalizedCounts[$id] ?? 0) + 1;
+            if (count($normalized[$id] ?? []) < self::NORMALIZATION_LIMIT) $normalized[$id][] = $dto;
+        }
         foreach (array_slice($payload['entry'], 0, 100) as $entry) {
             if (!is_array($entry) || ($entry['id'] ?? null) !== self::WABA) continue;
             if (array_key_exists('standby', $entry)) $out['unscoped_entry_standby']++;
@@ -164,7 +170,9 @@ final class WhatsAppCaptureGapDiagnostic
                             'type' => in_array($message['type'] ?? null, self::TYPES, true) ? $message['type'] : 'OTHER',
                             'native_identity' => $this->identity($record), 'nested_message_identity' => $record === $message ? [] : $this->identity($message),
                             'normalized' => is_string($id) ? array_map(function (array $dto): array { return $this->normalized($dto); }, $normalized[$id] ?? []) : [],
+                            'normalizations_omitted' => is_string($id) ? max(0, ($normalizedCounts[$id] ?? 0) - self::NORMALIZATION_LIMIT) : 0,
                             'projected' => ['status' => 'NOT_LOOKED_UP']];
+                        $out['normalizations_omitted'] += $data['normalizations_omitted'];
                         if ($data['kind'] === 'STATUS') {
                             $data['delivery_status'] = in_array($message['status'] ?? null, ['sent', 'delivered', 'read', 'failed', 'deleted'], true)
                                 ? $message['status'] : 'OTHER';
@@ -201,7 +209,7 @@ final class WhatsAppCaptureGapDiagnostic
         return $out;
     }
 
-    /** A size fallback explicitly withholds details rather than emitting partial identities. */
+    /** Keep complete newest events within the byte budget; never emit a partial record. */
     public static function output(array $result): string
     {
         $json = json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
@@ -209,8 +217,44 @@ final class WhatsAppCaptureGapDiagnostic
         $result['status'] = 'PARTIAL';
         $result['details_truncated'] = true;
         $result['output_details_omitted'] = true;
+        $events = $result['events'];
+        $previouslyOmitted = (int) ($result['output_events_omitted'] ?? 0);
         $result['events'] = [];
-        return json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $result['output_events_omitted'] = $previouslyOmitted + count($events);
+        $json = json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        if (strlen($json) > self::OUTPUT_LIMIT) {
+            return json_encode(['diagnostic' => 'READ_ONLY_CAPTURE_GAP', 'status' => 'PARTIAL',
+                'window_complete' => false, 'selected_range_complete' => false,
+                'details_truncated' => true, 'output_details_omitted' => true,
+                'output_events_omitted' => $result['output_events_omitted'], 'events' => []], JSON_THROW_ON_ERROR);
+        }
+        foreach ($events as $event) {
+            $candidate = $result;
+            $candidate['events'][] = $event;
+            $candidate['output_events_omitted']--;
+            $encoded = json_encode($candidate, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+            if (strlen($encoded) <= self::OUTPUT_LIMIT) { $result = $candidate; $json = $encoded; }
+        }
+        return $json;
+    }
+
+    /** Only numeric event boundaries are accepted; arguments never enter SQL or paths. */
+    public static function arguments(array $arguments): array
+    {
+        $options = ['after_event' => 0, 'through_event' => null, 'limit' => self::EVENT_LIMIT];
+        $seen = [];
+        foreach ($arguments as $argument) {
+            if (!is_string($argument) || !preg_match('/\A--(after-event|through-event|limit)=(0|[1-9][0-9]{0,18})\z/', $argument, $match)) throw new \RuntimeException();
+            $name = str_replace('-', '_', $match[1]); $value = $match[2];
+            if (isset($seen[$name]) || strlen($value) > strlen((string) PHP_INT_MAX)
+                || (strlen($value) === strlen((string) PHP_INT_MAX) && strcmp($value, (string) PHP_INT_MAX) > 0)) throw new \RuntimeException();
+            $seen[$name] = true;
+            $options[$name] = (int) $value;
+            if (($name === 'limit' && ($options[$name] < 1 || $options[$name] > self::MAX_EVENT_LIMIT))
+                || ($name === 'through_event' && $options[$name] < 1)) throw new \RuntimeException();
+        }
+        if ($options['through_event'] !== null && $options['through_event'] <= $options['after_event']) throw new \RuntimeException();
+        return $options;
     }
 
     private static function decode($ciphertext): array
@@ -225,15 +269,19 @@ final class WhatsAppCaptureGapDiagnostic
 
     public static function run(): array
     {
-        if (($_SERVER['argc'] ?? 1) !== 1 || !chdir(self::ROOT)) throw new \RuntimeException();
+        $options = self::arguments(array_slice($_SERVER['argv'] ?? [], 1));
+        if (!chdir(self::ROOT)) throw new \RuntimeException();
         require self::ROOT . '/vendor/autoload.php';
         $app = require self::ROOT . '/bootstrap/app.php';
         $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
         $db = \Illuminate\Support\Facades\DB::class;
-        $ceiling = (int) ($db::table('whatsapp_webhook_events')->max('id') ?? 0);
+        $observedCeiling = (int) ($db::table('whatsapp_webhook_events')->max('id') ?? 0);
+        $ceiling = $options['through_event'] === null ? $observedCeiling : min($observedCeiling, $options['through_event']);
         $query = $db::table('whatsapp_webhook_events')->where('id', '<=', $ceiling)->where('received_at', '>=', self::SINCE);
         $total = (int) (clone $query)->count();
-        $rows = $query->orderByDesc('id')->limit(self::EVENT_LIMIT)->get(['id', 'payload', 'received_at', 'processed_at']);
+        $selected = (clone $query)->where('id', '>', $options['after_event']);
+        $selectedTotal = (int) (clone $selected)->count();
+        $rows = $selected->orderByDesc('id')->limit($options['limit'])->get(['id', 'payload', 'received_at', 'processed_at']);
         $diagnostic = new self(static function (string $key, callable $sanitize) use ($db): array {
             $row = $db::table('whatsapp_inbox_messages as m')->join('whatsapp_inbox_conversations as c', 'c.id', '=', 'm.conversation_id')
                 ->where('m.message_key', $key)->where('c.waba_id', self::WABA)->where('c.phone_number_id', self::PHONE)
@@ -247,18 +295,28 @@ final class WhatsAppCaptureGapDiagnostic
             } catch (\Throwable $error) { return ['status' => 'UNREADABLE']; }
         });
         $out = ['diagnostic' => 'READ_ONLY_CAPTURE_GAP', 'status' => 'READY', 'since_received_utc' => self::SINCE,
-            'event_ceiling' => $ceiling, 'window_events_at_ceiling' => $total, 'events_read' => count($rows),
+            'event_ceiling' => $ceiling, 'observed_event_ceiling' => $observedCeiling,
+            'after_event' => $options['after_event'], 'through_event_requested' => $options['through_event'],
+            'event_limit' => $options['limit'], 'event_order' => 'NEWEST_FIRST',
+            'observation' => 'BOUNDED_EVENT_IDS_WITH_NON_TRANSACTIONAL_LIVE_PROJECTION_LOOKUPS',
+            'capture_count_scope' => 'ALL_CAPTURED_WEBHOOK_EVENTS_BEFORE_PAYLOAD_SCOPE_FILTER',
+            'window_events_at_ceiling' => $total, 'selected_range_events_at_ceiling' => $selectedTotal,
+            'events_read' => count($rows), 'selected_range_complete' => count($rows) === $selectedTotal,
+            'events_omitted_by_limit' => max(0, $selectedTotal - count($rows)),
+            'historical_events_outside_range' => max(0, $total - $selectedTotal),
+            'next_through_event' => count($rows) < $selectedTotal && count($rows) > 0 ? (int) $rows->last()->id - 1 : null,
             'window_complete' => count($rows) === $total, 'details_truncated' => false,
-            'output_details_omitted' => false, 'records_omitted' => 0, 'changes_omitted' => 0,
+            'output_details_omitted' => false, 'output_events_omitted' => 0,
+            'records_omitted' => 0, 'changes_omitted' => 0, 'normalizations_omitted' => 0,
             'entries_omitted' => 0, 'unreadable_events' => 0, 'events' => []];
         if (!$out['window_complete']) $out['status'] = 'PARTIAL';
-        foreach ($rows->reverse() as $row) {
+        foreach ($rows as $row) {
             $event = ['event_id' => (int) $row->id, 'received_at_utc' => self::date($row->received_at), 'processed' => $row->processed_at !== null];
             $failure = $db::table('whatsapp_inbox_ingestion_failures')->where('event_id', $row->id)->value('reason');
             $event['quarantine_reason'] = $failure === null ? null : (in_array($failure, ['INVALID_EVENT', 'CONFLICTING_MESSAGE'], true) ? $failure : 'OTHER');
             try { $event['capture'] = $diagnostic->inspect(self::decode($row->payload)); }
             catch (\Throwable $error) { $event['status'] = 'UNREADABLE'; $out['unreadable_events']++; $out['status'] = 'PARTIAL'; }
-            foreach (['records_omitted', 'changes_omitted', 'entries_omitted'] as $counter) {
+            foreach (['records_omitted', 'changes_omitted', 'entries_omitted', 'normalizations_omitted'] as $counter) {
                 $out[$counter] += $event['capture'][$counter] ?? 0;
                 if ($out[$counter] > 0) { $out['details_truncated'] = true; $out['status'] = 'PARTIAL'; }
             }
@@ -277,3 +335,4 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     echo $json . "\n";
     exit($exit);
 }
+

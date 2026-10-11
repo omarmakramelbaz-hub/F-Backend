@@ -82,7 +82,7 @@ jobs:
           for file in app/Services/Dashboard/WhatsAppReplyService.php app/Services/Dashboard/WhatsAppVoiceMedia.php app/Services/Dashboard/WhatsAppInboxReadState.php app/Http/Controllers/Dashboard/WhatsAppReplyController.php app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php config/whatsapp_replies.php routes/whatsapp_replies.php routes/whatsapp_reads.php database/migrations/*whatsapp_reply* tests/whatsapp_reply*.php tests/whatsapp_voice*.php; do
             php -l "$file"
           done
-          for file in config/whatsapp_cart.php deployment/whatsapp_capture_gap_diagnostic.php deployment/whatsapp_catalog_mapping_readiness.php tests/whatsapp_cart_presentation_test.php tests/whatsapp_capture_gap_diagnostic_test.php tests/whatsapp_catalog_mapping_readiness_test.php; do
+          for file in config/whatsapp_cart.php deployment/whatsapp_capture_gap_diagnostic.php deployment/whatsapp_catalog_mapping_readiness.php deployment/whatsapp_cart_setup_readiness.php tests/whatsapp_cart_presentation_test.php tests/whatsapp_capture_gap_diagnostic_test.php tests/whatsapp_catalog_mapping_readiness_test.php tests/whatsapp_cart_setup_readiness_test.php; do
             php -l "$file"
           done
       - name: Check installer syntax
@@ -173,5 +173,6 @@ jobs:
           php tests/whatsapp_voice_media_test.php
           php tests/whatsapp_cart_presentation_test.php
           php tests/whatsapp_catalog_mapping_readiness_test.php
+          php tests/whatsapp_cart_setup_readiness_test.php
           php tests/whatsapp_capture_gap_diagnostic_test.php
           php tests/whatsapp_orders_delivery_controller_test.php

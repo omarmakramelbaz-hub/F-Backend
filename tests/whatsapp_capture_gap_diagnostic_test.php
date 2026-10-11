@@ -38,6 +38,23 @@ function captureSafe(array $result): void
 }
 
 try {
+    captureCheck(WhatsAppCaptureGapDiagnostic::arguments([]) === ['after_event' => 0, 'through_event' => null, 'limit' => 30], 'recent_thirty_defaults');
+    captureCheck(WhatsAppCaptureGapDiagnostic::arguments(['--after-event=12', '--through-event=30', '--limit=50'])
+        === ['after_event' => 12, 'through_event' => 30, 'limit' => 50], 'strict_numeric_boundaries_and_limit');
+    captureCheck(WhatsAppCaptureGapDiagnostic::arguments(['--after-event=0', '--through-event=' . PHP_INT_MAX, '--limit=1'])['through_event'] === PHP_INT_MAX, 'native_integer_limit_not_float');
+    $invalidArguments = [
+        ['--unsafe-option'], ['--limit=0'], ['--limit=51'], ['--limit=01'], ['--limit=-1'],
+        ['--limit=+1'], ['--limit=1.0'], ['--limit=1', '--limit=2'], ['--limit', '1'],
+        ['--after-event= 3'], ['--after-event=3\n'], ['--after-event=EAAprivateTokenText'],
+        ['--after-event=9223372036854775808'], ['--after-event=99999999999999999999'],
+        ['--through-event=0'], ['--through-event=10', '--after-event=10'],
+        ['--through-event=9', '--after-event=10'], ['--after-event=1', '--after-event=2'],
+    ];
+    foreach ($invalidArguments as $arguments) {
+        $rejected = false;
+        try { WhatsAppCaptureGapDiagnostic::arguments($arguments); } catch (\Throwable $error) { $rejected = true; }
+        captureCheck($rejected, 'invalid_argument_rejected');
+    }
     $diagnostic = new WhatsAppCaptureGapDiagnostic();
     $in = $diagnostic->inspect(capturePayload([captureMessage()], 'messages', 'messages', [[
         'wa_id' => '201050007771', 'user_id' => 'US.PRIVATE_CUSTOMER', 'profile' => ['name' => 'PRIVATE_NAME'],
@@ -84,15 +101,31 @@ try {
     $bounded = new WhatsAppCaptureGapDiagnostic();
     $large = $bounded->inspect(capturePayload(array_fill(0, 180, captureMessage())));
     captureCheck(count($large['scoped_changes'][0]['records']) === 160 && $large['records_omitted'] === 20, 'record_limit_omissions_explicit');
+    captureCheck(count($large['scoped_changes'][0]['records'][0]['normalized']) === 1
+        && $large['scoped_changes'][0]['records'][0]['normalizations_omitted'] === 0
+        && $large['normalizations_omitted'] === 0, 'same_message_duplicates_do_not_expand_normalized_records');
+    captureSafe($large);
     $secondLarge = $bounded->inspect(capturePayload(array_fill(0, 180, captureMessage(true)), 'smb_message_echoes', 'message_echoes'));
     captureCheck(count($secondLarge['scoped_changes'][0]['records']) === 0 && $secondLarge['records_omitted'] === 180, 'record_limit_applies_across_events');
+    $oversizedEvents = [];
+    for ($i = 600; $i > 0; $i--) $oversizedEvents[] = ['event_id' => $i, 'safe_shape' => str_repeat('A', 1000)];
     $oversized = ['diagnostic' => 'READ_ONLY_CAPTURE_GAP', 'status' => 'READY', 'window_complete' => true,
-        'details_truncated' => false, 'output_details_omitted' => false, 'events' => array_fill(0, 600, ['safe_shape' => str_repeat('A', 1000)])];
+        'selected_range_complete' => true, 'details_truncated' => false, 'output_details_omitted' => false,
+        'output_events_omitted' => 0, 'events' => $oversizedEvents];
     $boundedJson = WhatsAppCaptureGapDiagnostic::output($oversized);
     $boundedOutput = json_decode($boundedJson, true, 512, JSON_THROW_ON_ERROR);
     captureCheck(strlen($boundedJson) <= 524288, 'final_json_output_byte_limit');
     captureCheck($boundedOutput['window_complete'] === true && $boundedOutput['details_truncated'] === true
-        && $boundedOutput['output_details_omitted'] === true && $boundedOutput['events'] === [], 'detail_truncation_distinct_from_capture_window_completeness');
+        && $boundedOutput['output_details_omitted'] === true && count($boundedOutput['events']) > 0
+        && $boundedOutput['output_events_omitted'] === 600 - count($boundedOutput['events']), 'whole_events_retained_with_explicit_output_omissions');
+    captureCheck($boundedOutput['events'][0] === $oversizedEvents[0]
+        && $boundedOutput['events'][count($boundedOutput['events']) - 1] === $oversizedEvents[count($boundedOutput['events']) - 1], 'newest_complete_event_priority');
+    $oversized['events'] = [['event_id' => 2, 'safe_shape' => str_repeat('A', 600000)], ['event_id' => 1, 'safe_shape' => 'bounded']];
+    $retained = json_decode(WhatsAppCaptureGapDiagnostic::output($oversized), true, 512, JSON_THROW_ON_ERROR);
+    captureCheck($retained['events'] === [$oversized['events'][1]] && $retained['output_events_omitted'] === 1, 'one_huge_event_does_not_erase_other_complete_events');
+    $oversized['metadata'] = str_repeat('A', 600000);
+    $minimal = WhatsAppCaptureGapDiagnostic::output($oversized);
+    captureCheck(strlen($minimal) <= 524288 && json_decode($minimal, true)['details_truncated'] === true, 'metadata_overflow_still_bounded');
     $status = $diagnostic->inspect(capturePayload([['id' => 'wamid.PRIVATE_STATUS', 'recipient_id' => '201050007771',
         'recipient_user_id' => 'US.PRIVATE_CUSTOMER', 'timestamp' => '1791597000', 'status' => 'read']], 'messages', 'statuses'));
     captureCheck($status['scoped_changes'][0]['records'][0]['kind'] === 'STATUS', 'delivery_receipt_separate_from_message_body');
@@ -135,6 +168,8 @@ try {
     }
     register_shutdown_function(static function () use ($root, $temporary) { captureRemove($root); captureRemove($temporary); });
     $database = $temporary . '/fixture.sqlite'; touch($database);
+    $bootLog = $temporary . '/bootstrap-count';
+    putenv('WA_GAP_FIXTURE_BOOT_LOG=' . $bootLog);
     $key = random_bytes(32);
     $setup = <<<'PHP'
 <?php
@@ -175,6 +210,7 @@ PHP;
     file_put_contents($root . '/bootstrap/app.php', <<<'PHP'
 <?php
 return new class { public function make($contract) { return new class { public function bootstrap() {
+    file_put_contents(getenv('WA_GAP_FIXTURE_BOOT_LOG'), "boot\n", FILE_APPEND);
     echo 'PRIVATE_BOOTSTRAP_NOISE EAAprivateTokenText';
     if (getenv('WA_GAP_FIXTURE_FAIL') === 'true') throw new \RuntimeException('PRIVATE_BOOTSTRAP_EXCEPTION');
     captureFixtureBoot();
@@ -201,11 +237,55 @@ PHP);
     captureCheck($exit === 0 && $result['status'] === 'PARTIAL', 'corrupt_capture_reported_without_global_abort');
     captureCheck($result['events_read'] === 2 && $result['window_complete'] === true, 'fixed_utc_window_and_ceiling');
     captureCheck($result['unreadable_events'] === 1, 'bounded_corrupt_count');
-    captureCheck($result['events'][0]['quarantine_reason'] === 'INVALID_EVENT', 'quarantine_retained_visible');
-    $projection = $result['events'][0]['capture']['scoped_changes'][0]['records'][0]['projected'];
+    captureCheck($result['event_order'] === 'NEWEST_FIRST' && $result['events'][0]['event_id'] === 3, 'recent_events_inspected_newest_first');
+    captureCheck($result['events'][1]['quarantine_reason'] === 'INVALID_EVENT', 'quarantine_retained_visible');
+    $projection = $result['events'][1]['capture']['scoped_changes'][0]['records'][0]['projected'];
     captureCheck($projection['status'] === 'FOUND' && $projection['conversation_id'] === 7 && $projection['columns_agree'] === true, 'scoped_projection_comparison');
-    [$bad, $exit] = $run(['--unsafe-option']);
-    captureCheck($exit === 1 && $bad['status'] === 'FAILED', 'unsupported_cli_argument_fails_before_bootstrap');
+    foreach ($invalidArguments as $arguments) {
+        $bootBefore = file_get_contents($bootLog);
+        [$bad, $exit] = $run($arguments);
+        captureCheck($exit === 1 && $bad['status'] === 'FAILED'
+            && file_get_contents($bootLog) === $bootBefore, 'invalid_cli_arguments_fail_before_bootstrap');
+    }
+    for ($i = 0; $i < 90; $i++) $db::table('whatsapp_webhook_events')->insert([
+        'payload' => $crypt::encryptString(json_encode($payload)), 'received_at' => '2026-10-10 01:50:00', 'processed_at' => null]);
+    $cart['order']['catalog_id'] = '1234567890123'; $cart['order']['product_items'][0]['quantity'] = 2;
+    $cart['order']['product_items'][0]['currency'] = 'EGP';
+    $db::table('whatsapp_webhook_events')->insert(['payload' => $crypt::encryptString(json_encode(capturePayload([$cart]))),
+        'received_at' => '2026-10-10 01:51:00', 'processed_at' => null]);
+    $db::table('whatsapp_webhook_events')->insert(['payload' => $crypt::encryptString(json_encode(capturePayload([captureMessage(true)], 'smb_message_echoes', 'message_echoes'))),
+        'received_at' => '2026-10-10 01:52:00', 'processed_at' => null]);
+    [$recent, $exit] = $run();
+    captureCheck($exit === 0 && $recent['events_read'] === 30 && $recent['event_limit'] === 30
+        && $recent['window_events_at_ceiling'] === 94 && $recent['selected_range_events_at_ceiling'] === 94
+        && $recent['window_complete'] === false && $recent['selected_range_complete'] === false
+        && $recent['events_omitted_by_limit'] === 64 && $recent['next_through_event'] === 65, 'broader_window_and_recent_page_coverage_explicit');
+    captureCheck($recent['events'][0]['event_id'] === 95
+        && $recent['events'][0]['capture']['scoped_changes'][0]['records'][0]['normalized'][0]['direction'] === 'outbound'
+        && $recent['events'][1]['capture']['scoped_changes'][0]['records'][0]['cart_shape']['catalog_id'] === '1234567890123', 'newest_echo_and_cart_survive_background_traffic');
+    captureCheck($recent['records_omitted'] === 0 && $recent['normalizations_omitted'] === 0
+        && $recent['output_details_omitted'] === false, 'default_recent_details_remain_useful');
+    [$fresh, $exit] = $run(['--after-event=93']);
+    captureCheck($exit === 0 && $fresh['events_read'] === 2 && $fresh['selected_range_complete'] === true
+        && $fresh['window_complete'] === false && $fresh['historical_events_outside_range'] === 92
+        && $fresh['events_omitted_by_limit'] === 0, 'fresh_floor_completeness_distinct_from_historical_window');
+    [$page, $exit] = $run(['--after-event=93', '--limit=1']);
+    captureCheck($exit === 0 && $page['events'][0]['event_id'] === 95 && $page['next_through_event'] === 94
+        && $page['selected_range_complete'] === false && $page['events_omitted_by_limit'] === 1, 'fresh_range_page_limit');
+    [$older, $exit] = $run(['--after-event=93', '--through-event=94', '--limit=1']);
+    captureCheck($exit === 0 && $older['event_ceiling'] === 94 && $older['observed_event_ceiling'] === 95
+        && $older['events'][0]['event_id'] === 94 && $older['selected_range_complete'] === true, 'explicit_frozen_upper_bound_pages_without_overlap');
+    [$secondPage, $exit] = $run(['--through-event=' . $recent['next_through_event']]);
+    $firstIds = array_column($recent['events'], 'event_id'); $secondIds = array_column($secondPage['events'], 'event_id');
+    captureCheck($exit === 0 && $secondIds[0] === 65 && array_intersect($firstIds, $secondIds) === [], 'historical_recent_pages_are_disjoint');
+    $db::table('whatsapp_webhook_events')->insert(['payload' => $crypt::encryptString(json_encode($payload)),
+        'received_at' => '2026-10-10 01:53:00', 'processed_at' => null]);
+    [$frozen, $exit] = $run(['--after-event=93', '--through-event=95']);
+    captureCheck($exit === 0 && $frozen['observed_event_ceiling'] === 96 && $frozen['event_ceiling'] === 95
+        && array_column($frozen['events'], 'event_id') === [95, 94], 'later_arrival_excluded_from_frozen_range');
+    [$capped, $exit] = $run(['--through-event=9999', '--limit=50']);
+    captureCheck($exit === 0 && $capped['through_event_requested'] === 9999 && $capped['event_ceiling'] === 96
+        && $capped['events_read'] === 50, 'requested_future_ceiling_capped_to_observed_capture');
     putenv('WA_GAP_FIXTURE_FAIL=true'); [$bad, $exit] = $run(); putenv('WA_GAP_FIXTURE_FAIL');
     captureCheck($exit === 1 && $bad['status'] === 'FAILED', 'private_bootstrap_exception_suppressed');
     echo "WhatsApp capture gap diagnostic: $checks checks passed.\n";
@@ -214,3 +294,4 @@ PHP);
     fwrite(STDERR, 'CAPTURE_GAP_TEST_FAILED ' . $error->getMessage() . "\n");
     exit(1);
 }
+
