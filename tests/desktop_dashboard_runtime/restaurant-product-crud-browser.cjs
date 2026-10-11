@@ -71,25 +71,52 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       await current.form.locator('[name="product_description"]').fill(description);
       for(let index=0;index<addonNames.length;index++)await current.form.locator('[name="'+addonNames[index]+'"]').fill(String(index+1));
     };
+    const settledOriginalAjax=()=>page.waitForFunction(()=>window.jQuery&&window.jQuery.active===0);
     await page.locator('#clickbtn').click();const addForm=page.locator('#addItem form[action="'+input.origin+'/admin/resturant_products"]');
     await addForm.waitFor({state:'visible'});await addForm.locator('select[name="category_id"]').selectOption('1');
+    // The original category change starts several AJAX reads. Their getproducts
+    // callbacks replace both modal selects, so visibility alone is not completion.
+    await settledOriginalAjax();
     const subcategorySelect=addForm.locator('select[name="subcategory_id"]');await subcategorySelect.waitFor({state:'visible'});await subcategorySelect.selectOption('2');
+    await settledOriginalAjax();
     const productSelect=addForm.locator('select[name="product_id"]');await productSelect.waitFor({state:'visible'});await productSelect.selectOption('1');
+    await settledOriginalAjax();
     for(const field of addonNames)await addForm.locator('[name="'+field+'"]').waitFor({state:'visible'});
     let current=await associated(addForm,null);assert.equal(await addForm.getAttribute('enctype'),'multipart/form-data');
     const originalName='رنجة منتج المتصفح',description='وصف المنتج من الشاشة الأصلية';
     await fill(current,originalName,'123',description);await current.upload.setInputFiles(imageA);
     const base={added_by:'1',resturant_id:'100',category_id:'1',subcategory_id:'2',product_id:'1',product_name:originalName,product_price:'123',product_description:description,
       ...Object.fromEntries(addonNames.map((name,index)=>[name,String(index+1)]))};
-    let intercept=true,resolveCommit,lossRequest;
-    const committed=new Promise(resolve=>{resolveCommit=resolve;});
+    const beforeSubmit=await current.form.evaluate(actual=>({url:location.href,spaReady:window.DashboardSPA?.ready(),ajaxActive:window.jQuery?.active,
+      buttonOwned:Array.from(actual.elements).filter(control=>control.tagName==='BUTTON'&&control.type==='submit').every(control=>control.form===actual&&!control.disabled),
+      controls:Array.from(actual.elements).filter(control=>control.form===actual).map(control=>({name:control.name,type:control.type,required:control.required,
+        value:['_token','_desktop_command'].includes(control.name)?'[bound]':control.value,
+        valid:!control.willValidate||control.validity.valid,validationMessage:control.validationMessage||'',
+        files:control.type==='file'?Array.from(control.files).map(file=>({name:file.name,type:file.type,size:file.size})):undefined}))}));
+    process.stdout.write('RESTAURANT_PRODUCT_CREATE_BEFORE_SUBMIT '+JSON.stringify(beforeSubmit)+'\n');
+    assert.equal(beforeSubmit.spaReady,true);assert.equal(beforeSubmit.ajaxActive,0);assert.equal(beforeSubmit.buttonOwned,true);
+    assert.deepEqual(beforeSubmit.controls.filter(control=>!control.valid),[],'The original add form must be natively valid after its actual catalog AJAX reads settle.');
+    assert.equal(await productSelect.inputValue(),'1');assert.equal(await subcategorySelect.inputValue(),'2');
+    let intercept=true,resolveCommit,rejectCommit,lossRequest;
+    const committed=new Promise((resolve,reject)=>{resolveCommit=resolve;rejectCommit=reject;});
     const interception=async route=>{if(intercept&&route.request().method()==='POST'){
-      intercept=false;lossRequest=route.request();const actual=await route.fetch({maxRedirects:0,headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});
-      redirect(actual);resolveCommit(await assertBody(route.request(),current,base,imageA));await route.abort();
+      intercept=false;lossRequest=route.request();
+      const transport={method:lossRequest.method(),resourceType:lossRequest.resourceType(),isNavigationRequest:lossRequest.isNavigationRequest(),
+        contentType:lossRequest.headers()['content-type'],bodyBytes:lossRequest.postDataBuffer()?.length};
+      process.stdout.write('RESTAURANT_PRODUCT_CREATE_INTERCEPTED '+JSON.stringify(transport)+'\n');
+      try{
+        const actual=await route.fetch({timeout:20000,maxRedirects:0,headers:{...lossRequest.headers(),'X-Fasakhansta-Desktop':input.token}});
+        process.stdout.write('RESTAURANT_PRODUCT_CREATE_COMMITTED_RESPONSE '+JSON.stringify({status:actual.status(),location:actual.headers().location})+'\n');
+        redirect(actual);const body=await assertBody(lossRequest,current,base,imageA);await route.abort();resolveCommit(body);
+      }catch(error){
+        process.stdout.write('RESTAURANT_PRODUCT_CREATE_INTERCEPTION_FAILED '+JSON.stringify({transport,error:error.message})+'\n');
+        rejectCommit(error);try{await route.abort();}catch{};
+      }
     }else await route.fallback();};
     await context.route(input.origin+current.path,interception);
     const lost=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===current.path&&request.method()==='POST'});
-    await current.button.click();const createBody=await committed;await lost;await ready(current);
+    const lossOutcome=Promise.all([committed,lost]).then(values=>({values}),error=>({error}));
+    await current.button.click();const outcome=await lossOutcome;if(outcome.error)throw outcome.error;const [createBody]=outcome.values;await ready(current);
     const afterLoss=await page.evaluate(()=>({url:location.href,spaReady:window.DashboardSPA?.ready(),dashboardPage:Boolean(document.querySelector('[data-dashboard-page]'))}));
     assert.equal(afterLoss.url,input.origin+input.returnPath);assert.equal(afterLoss.spaReady,true);assert.equal(afterLoss.dashboardPage,true);
     let [sentPromise,responsePromise]=posted(current.path);await current.form.locator('[name="product_name"]').fill(originalName+' مختلف');await current.button.click();
@@ -107,7 +134,7 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     const productId=Number(info[0]);assert.ok(Number.isSafeInteger(productId)&&productId>1);
     const edit=async()=>{
       await createdRow().locator('button.edit-item').click();const form=page.locator('#editItem form[action="'+input.origin+'/admin/resturant_products/update"]');
-      await form.waitFor({state:'visible'});await form.locator('select[name="product_id"]').waitFor({state:'visible'});
+      await form.waitFor({state:'visible'});await settledOriginalAjax();await form.locator('select[name="product_id"]').waitFor({state:'visible'});
       for(const name of addonNames)await form.locator('[name="'+name+'"]').waitFor({state:'visible'});
       const result=await associated(form,'put');assert.equal(await form.locator('[name="id"]').inputValue(),String(productId));
       assert.equal(await form.locator('[name="product_name"]').inputValue(),originalName);return result;

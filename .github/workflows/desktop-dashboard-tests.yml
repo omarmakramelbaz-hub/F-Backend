@@ -171,6 +171,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Retain the original restaurant product CRUD Edge receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: original-restaurant-product-crud-browser
