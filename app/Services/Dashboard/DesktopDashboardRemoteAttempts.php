@@ -286,7 +286,7 @@ class DesktopDashboardRemoteAttempts
             if($wishlist){$saved['wishlist_facts']=$wishlistPayload['facts'];$saved['wishlist_success']=session('success');}
             if($restaurantFlags){$saved['restaurant_flag_facts']=$flagPayload['facts'];$saved['restaurant_flag_after']=$flagResult['after'];$saved['restaurant_flag_success']=$flagResult['success'];}
             DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'committed','request_hash'=>$fingerprint,
-                'operation_id'=>$operation,'response_cipher'=>Crypt::encryptString(json_encode($saved,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)),'updated_at'=>now('UTC')]);
+                'operation_id'=>$operation,'response_cipher'=>Crypt::encryptString(json_encode($saved,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR|($restaurantFlags?JSON_PRESERVE_ZERO_FRACTION:0))),'updated_at'=>now('UTC')]);
             return $response;
         });
     }
