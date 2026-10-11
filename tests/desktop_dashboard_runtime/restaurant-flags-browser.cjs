@@ -24,12 +24,20 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     const initialPageErrors=[...errors],operations=[],retries=[],formControlDiagnostics=[];
     const fields=request=>new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();
     const formFor=path=>page.locator('form[action="'+input.origin+path+'"]');
+    const ownedCommandValue=current=>current.form.evaluate(actual=>{
+      const commands=Array.from(actual.elements).filter(control=>control.form===actual&&control.name==='_desktop_command');
+      if(commands.length!==1)throw Error('The original form must own exactly one operation UUID.');
+      return commands[0].value;
+    });
+    const waitForOwnedCommand=async element=>{
+      await page.waitForFunction(actual=>Array.from(actual.elements)
+        .filter(control=>control.form===actual&&control.name==='_desktop_command').length===1,element);
+    };
     const originalForm=async(path,field)=>{
       const form=formFor(path),checkbox=form.locator('input[type="checkbox"][name="'+field+'"]');
-      await form.locator('[name="_desktop_command"]').waitFor({state:'attached'});
+      const element=await form.elementHandle();assert.ok(element);await waitForOwnedCommand(element);
       assert.equal(await form.getAttribute('method'),'post');
       assert.equal(await checkbox.getAttribute('onchange'),'this.form.submit()');
-      const element=await form.elementHandle();assert.ok(element);
       // The original featured cell has an unclosed label before the sorting form.
       // Browser repair can nest that form in the DOM. Actual association and
       // native FormData determine submitted controls, not arbitrary descendants.
@@ -99,10 +107,9 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     };
     const originalSortForm=async()=>{
       const path='/admin/update_sorting_is_featured/100',form=formFor(path),number=form.locator('[name="sortby_is_featured"]');
-      await form.locator('[name="_desktop_command"]').waitFor({state:'attached'});await number.waitFor({state:'visible'});
+      const element=await form.elementHandle();assert.ok(element);await waitForOwnedCommand(element);await number.waitFor({state:'visible'});
       assert.equal(await form.getAttribute('method'),'post');assert.equal(await number.getAttribute('type'),'number');
       assert.equal(await number.getAttribute('min'),'1');assert.equal(await number.getAttribute('step'),'1');
-      const element=await form.elementHandle();assert.ok(element);
       const association=await form.evaluate(actual=>{
         const own=Array.from(actual.elements).filter(control=>control.form===actual),data=new FormData(actual);
         return {allElementsOwned:Array.from(actual.elements).every(control=>control.form===actual),
@@ -142,11 +149,11 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       const lost=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===current.path&&request.method()==='POST'});
       await current.number.fill('7');await current.button.click();assertSortBody(await commitPromise,current,'7');await lost;
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await ownedCommandValue(current),current.command);
       let [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('8');await current.button.click();
       let sent=await sentPromise,response=await responsePromise;assertSortBody(await fields(sent),current,'8');assert.equal(response.status(),409);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await ownedCommandValue(current),current.command);
       const persisted=await context.request.get(input.origin+'/admin/resturants',{headers:{'X-Fasakhansta-Desktop':input.token}});
       assert.equal(persisted.status(),200);const html=await persisted.text();
       const sortForms=[...html.matchAll(/<form\b[^>]*action="[^"]*\/admin\/update_sorting_is_featured\/100"[^>]*>([\s\S]*?)<\/form>/g)];
@@ -180,14 +187,14 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       await current.checkbox.check();const firstBody=await commitPromise;await lost;
       assertBody(firstBody,current,field,true);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.checkbox.isChecked(),true);assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await current.checkbox.isChecked(),true);assert.equal(await ownedCommandValue(current),current.command);
       // The untouched automatic checkbox has no retry button. Its opposite value
       // must fail under the saved UUID, then returning to the original value retries it.
       let [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.uncheck();let sent=await sentPromise,response=await responsePromise,body=await fields(sent);
       assertBody(body,current,field,false);assert.equal(response.status(),409);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await ownedCommandValue(current),current.command);
       assert.equal(await current.checkbox.isChecked(),false);
       await persistedStillChecked(path,field);
       [sentPromise,responsePromise]=sentAndResponse(path);
