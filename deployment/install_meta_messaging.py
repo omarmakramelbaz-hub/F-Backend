@@ -13,6 +13,7 @@ def main():
     if os.geteuid()==0: raise RuntimeError('RUN_AS_APPLICATION_USER')
     if not (root/'vendor/autoload.php').is_file(): raise RuntimeError('APPLICATION_RUNTIME_MISSING')
     manifest=json.loads(git(root,'show',args.release+':deployment/meta_messaging_manifest.json'))
+    route_probe=git(root,'show',args.release+':deployment/meta_messaging_route_check.php').encode()
     targets={};modes={}
     def safe_path(path):
         if path.is_symlink() or any(p.is_symlink() for p in path.parents): raise RuntimeError('SYMLINK_TARGET')
@@ -49,6 +50,8 @@ def main():
     cached={rel:(root/rel).read_bytes() if (root/rel).is_file() else None for rel in ['bootstrap/cache/config.php','bootstrap/cache/routes-v7.php']}
     cache_modes={rel:stat.S_IMODE((root/rel).stat().st_mode) if (root/rel).is_file() else 0o600 for rel in cached}
     before={}
+    phase='install'
+    verification=None
     def atomic(path,content,mode=0o644):
         path.parent.mkdir(parents=True,exist_ok=True)
         fd,tmp=tempfile.mkstemp(prefix='.meta-install-',dir=path.parent)
@@ -58,6 +61,7 @@ def main():
         finally:
             if os.path.exists(tmp):os.unlink(tmp)
     try:
+        probe_path=backup/'verify-meta-routes.php';probe_path.write_bytes(route_probe);os.chmod(probe_path,0o600)
         for rel,(old,target) in targets.items():
             path=root/rel
             if (path.read_bytes() if path.exists() else None)!=old: raise RuntimeError('CONCURRENT_EDIT: '+rel)
@@ -72,11 +76,34 @@ def main():
         if cached['bootstrap/cache/config.php'] is not None: run([args.php,'artisan','config:cache'],root)
         run([args.php,'artisan','route:clear'],root)
         if cached['bootstrap/cache/routes-v7.php'] is not None: run([args.php,'artisan','route:cache'],root)
-        listing=run([args.php,'artisan','route:list','--path=meta'],root,True).stdout
-        if 'meta/messaging/webhook' not in listing or 'admin/meta' not in listing: raise RuntimeError('ROUTE_VERIFICATION_FAILED')
+        phase='verify-meta-routes'
+        verification=run([args.php,str(probe_path)],root,True)
+        checked=json.loads(verification.stdout)
+        if checked!={'ok':True,'verified_routes':20}: raise RuntimeError('ROUTE_VERIFICATION_FAILED')
+        print('META_ROUTES_VERIFIED=20')
         print('META_MESSAGING_INSTALLED');print('BACKUP='+str(backup))
         # Configuration remains separate; no token, business Agent or automatic order changes during installation.
-    except Exception:
+    except Exception as error:
+        if phase=='verify-meta-routes':
+            diagnostic=backup/'route-check-failure.log'
+            output=(getattr(error,'stdout',None) or (verification.stdout if verification is not None else ''))+'\n'+(getattr(error,'stderr',None) or '')
+            diagnostic_saved=False
+            try:
+                descriptor=os.open(diagnostic,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                with os.fdopen(descriptor,'w') as stream: stream.write(output)
+                diagnostic_saved=True
+            except OSError: pass # Diagnostic failure must never prevent code restoration.
+            # A verifier failure prints structural diagnostics only; raw PHP output stays private.
+            details={'reason':'ROUTE_VERIFICATION_FAILED'}
+            try:
+                decoded=json.loads(getattr(error,'stdout','') or '')
+                allowed={'phase','reason','route','error_type','missing_class'}
+                for key in allowed:
+                    value=decoded.get(key)
+                    if isinstance(value,str) and len(value)<=256 and re.fullmatch(r'[A-Za-z0-9_.\\:-]+',value): details[key]=value
+            except (ValueError,TypeError,AttributeError): pass
+            print('META_ROUTE_CHECK_FAILED='+json.dumps(details,sort_keys=True))
+            print('PRIVATE_DIAGNOSTIC='+str(diagnostic) if diagnostic_saved else 'PRIVATE_DIAGNOSTIC_UNAVAILABLE')
         for rel,(old,target) in reversed(list(before.items())):
             path=root/rel
             if path.is_file() and path.read_bytes()==target:

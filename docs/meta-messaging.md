@@ -12,6 +12,8 @@ Manual text replies use the account token, native recipient and standard 24-hour
 
 Use the pinned root helper. The incremental installer checks installed WhatsApp workflow/UI blobs, backs up replaced code privately and preserves unrelated installed route/menu changes. It migrates only the five Meta migrations, rebuilds existing caches and verifies routes. Unknown blobs fail before writing. Failure restores code/caches without dropping additive tables or deleting captured data. It does not reset a branch or overwrite credentials.
 
+Route verification directly checks all twenty Meta routes, controller methods, HTTP methods, actual request matching, API exclusions and dashboard access/session middleware. It avoids Laravel 8's broad `route:list` inspection, which can resolve unrelated controllers before applying its path filter. An actual Meta verification failure still restores code and reports structural diagnostics; raw PHP output remains in a private backup log. After a failed installation, retrying leaves the already applied migrations in place.
+
 The dedicated service runs as `fasakha`; its timer waits 30 seconds after the previous invocation. Each run projects up to 500 events and processes up to ten threads. A worker lock prevents overlap. The WhatsApp timer is untouched. Automatic dispatch remains independently configured.
 
 Configure credentials through hidden SSH terminal prompts:
