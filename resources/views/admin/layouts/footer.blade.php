@@ -189,7 +189,9 @@ $(document).ready(function() {
 <script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
 </div>
+@unless(config('desktop_dashboard.local'))
   <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://js.pusher.com/8.2.0/pusher.min.js') }}"></script>
+@endunless
 
 <!-- AdminLTE App -->
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
@@ -208,6 +210,7 @@ $(document).ready(function() {
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
+@unless(config('desktop_dashboard.local'))
 <script>
 console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
 // // Ensure Service Worker is supported
@@ -407,6 +410,24 @@ function sendTokenToServer(token){
  }
 
 </script>
+@else
+<script>
+// A previous preview may retain its old FCM worker in this local profile.
+if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+        var localOrigin = new URL(window.location.href).origin;
+        registrations.forEach(function (registration) {
+            var messagingWorker = [registration.active, registration.waiting, registration.installing].some(function (worker) {
+                if (!worker) return false;
+                var source = new URL(worker.scriptURL, window.location.href);
+                return source.origin === localOrigin && source.pathname === '/firebase-messaging-sw.js';
+            });
+            if (messagingWorker) registration.unregister().catch(function () {});
+        });
+    }).catch(function () {});
+}
+</script>
+@endunless
 <!-- Page JS -->
 <script data-dashboard-page-init>
     $(document).ready(function() {
@@ -723,10 +744,10 @@ $(document).ready(function () {
   <!--</script>-->
  <script>
     // Enable Pusher logging - disable in production
-    Pusher.logToConsole = true;
+    if (document.body.dataset.dashboardLocal !== '1') Pusher.logToConsole = true;
 
     // Initialize Pusher
-    const pusher = new Pusher('0f818db2b7622218a22a', {
+    const pusher = document.body.dataset.dashboardLocal === '1' ? null : new Pusher('0f818db2b7622218a22a', {
         cluster: 'mt1',
         authEndpoint: "{{url('/')}}/pusher/auth",
         auth: {
@@ -738,7 +759,7 @@ $(document).ready(function () {
 
     // Subscribe to the private channel
     const userId = "{{auth('admin')->user()->id}}";
-    const channel = pusher.subscribe('private-user.' + userId);
+    const channel = pusher ? pusher.subscribe('private-user.' + userId) : null;
 
     // Notification sound
     const notificationSound = new Audio("{{url('/')}}/sounds/mixkit-correct-answer-reward-952.wav");
@@ -746,7 +767,7 @@ $(document).ready(function () {
     let isSoundPlaying = false; // Track if sound is currently playing
 
     // Request Notification Permission
-    if (Notification.permission !== 'granted') {
+    if (channel && Notification.permission !== 'granted') {
         Notification.requestPermission().then((permission) => {
             if (permission !== 'granted') {
                 console.warn('Notification permission denied');
@@ -805,7 +826,7 @@ $(document).ready(function () {
     }
 
     // Listen for events
-    channel.bind('order.updated', function (data) {
+    if (channel) channel.bind('order.updated', function (data) {
         console.log('vendor Notification received:', data);
 
         if (data.action === "accepted" || data.action === "declined") {
@@ -891,7 +912,7 @@ openOrFocusWindow(orderId);
       
         showNotification('New Order Received!', `Order ID: ${orderId}`, `{{url('admin/applies-orders?modal=${orderId}')}}`);
     });
-channel.bind('user.updated', function (data) {
+if (channel) channel.bind('user.updated', function (data) {
 
     console.log('User Updated:', data);
 

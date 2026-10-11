@@ -12,7 +12,8 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
-        'resturants.changeStatus','resturants.changeUnderContract',
+        'resturants.changeStatus','resturants.changeUnderContract','update_sorting_is_featured',
+        'resturant_products.update.status','resturant_products.update.highest_rated',
         'resturant_reviews.destroy',
         'userwishlists.destroy',
         'order-board.menu.availability',

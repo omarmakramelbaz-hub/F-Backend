@@ -5,6 +5,7 @@
     if (!shell) return;
     var pendingRead = false, noteBusy = false, supportBusy = false, supportCount = 0;
     var roomUnsubscribe = [], refreshTimer = null, fallbackTimer = null, noteGeneration = 0;
+    function localDashboard() { return document.body.dataset.dashboardLocal === '1'; }
     function request(url, data) {
         var options = {credentials: 'same-origin', headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}};
         if (data) {
@@ -81,18 +82,19 @@
         }).finally(function () { pendingRead = false; refreshNotifications(); });
     }
     function refreshSupport(fresh) {
-        if (!shell.dataset.supportUrl || supportBusy || document.hidden) return Promise.resolve();
+        if (localDashboard() || !shell.dataset.supportUrl || supportBusy || document.hidden) return Promise.resolve();
         supportBusy = true;
         return request(shell.dataset.supportUrl + (fresh ? '?fresh=1' : '')).then(supportBadges).catch(function () {})
             .finally(function () { supportBusy = false; });
     }
     function queueSupport() {
+        if (localDashboard()) return;
         clearTimeout(refreshTimer); refreshTimer = setTimeout(function () { refreshSupport(true); }, 600);
     }
     // The existing app updates each room's lastMessageTimestamp for every message.
     // Listen only to this account's inbox, then ask the authenticated server for its actual unread count.
     function subscribeSupport() {
-        if (!shell.dataset.supportUrl || !window.firebase || !firebase.firestore || roomUnsubscribe.length) return;
+        if (localDashboard() || !shell.dataset.supportUrl || !window.firebase || !firebase.firestore || roomUnsubscribe.length) return;
         try {
             String(shell.dataset.inboxIds || '').split(',').filter(Boolean).forEach(function (id) {
                 roomUnsubscribe.push(firebase.firestore().collection('DashboardChat')

@@ -62,8 +62,19 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
         $last=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid(),'page'=>'7'];
         verify($http('/admin/resturantchangeStatus/100',$last)[0]===302&&$row()['is_featured']==='no'&&$row()['under_contract']==='yes'
             &&$row()['updated_at']!==$contractAfter['updated_at'],'an absent original featured checkbox means no and completes a three-operation temporal chain');$operations[]=$saved($last['_desktop_command']);
+        $sort=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid(),'sortby_is_featured'=>'7','page'=>'5'];$sortBefore=$row();$sortCount=DB::table('desktop_dashboard_commands')->count();
+        [$status,$sortBody,$sortHeaders]=$http('/admin/update_sorting_is_featured/100',$sort);$sortAfter=$row();
+        verify($status===302&&in_array('Location: '.$origin.'/admin/resturants?page=5',$sortHeaders,true)&&$sortAfter['sortby_is_featured']===7
+            &&$onlyFlag($sortBefore,$sortAfter,'sortby_is_featured')&&DB::table('desktop_dashboard_commands')->count()===$sortCount+1,
+            'the original featured ordering persists its exact numeric value, page redirect and one durable command while preserving every other column');$operations[]=$saved($sort['_desktop_command']);
+        verify($http('/admin/update_sorting_is_featured/100',$sort)[1]===$sortBody&&$row()===$sortAfter&&DB::table('desktop_dashboard_commands')->count()===$sortCount+1,
+            'a lost local featured ordering response retains its UUID, entire row and original timestamp');
+        $changedSort=$sort;$changedSort['sortby_is_featured']='8';verify($http('/admin/update_sorting_is_featured/100',$changedSort,['Accept: application/json'])[0]===409&&$row()===$sortAfter,
+            'a local featured ordering UUID cannot acknowledge a different number');
+        $extraSort=$sort;$extraSort['_desktop_command']=(string)Str::uuid();$extraSort['status']='closed';verify($http('/admin/update_sorting_is_featured/100',$extraSort,['Accept: application/json'])[0]===422&&$row()===$sortAfter,
+            'featured ordering rejects unrelated restaurant fields before any controller mutation');
         $fourth=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid(),'is_featured'=>'on'];verify($http('/admin/resturantchangeStatus/100',$fourth)[0]===302,'the original featured controller prepares a complete before-state conflict fixture');$conflict=$saved($fourth['_desktop_command']);
-        $fifth=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid()];verify($http('/admin/resturantchangeStatus/100',$fifth)[0]===302,'the original featured controller prepares a typed identity replay with its actual local after-state');$typed=$saved($fifth['_desktop_command']);
+        $fifth=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid(),'sortby_is_featured'=>'11'];verify($http('/admin/update_sorting_is_featured/100',$fifth)[0]===302,'the original featured ordering controller prepares a typed identity replay with its actual local after-state');$typed=$saved($fifth['_desktop_command']);
         DB::unprepared("CREATE TRIGGER reject_restaurant_flag_journal BEFORE INSERT ON desktop_dashboard_commands FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture restaurant flag journal rollback'");
         try{$rollback=['_token'=>$csrf[1],'_desktop_command'=>(string)Str::uuid(),'is_featured'=>'on'];$beforeRollback=$row();$journalBefore=DB::table('desktop_dashboard_commands')->count();
             verify($http('/admin/resturantchangeStatus/100',$rollback,['Accept: application/json'])[0]===500&&$row()===$beforeRollback&&DB::table('desktop_dashboard_commands')->count()===$journalBefore,'failure to persist the restaurant flag command rolls back its original field and timestamp update');}
@@ -73,13 +84,19 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
         $switch($database);$actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);
         DB::table('resturants')->where('id',100)->update(['updated_at'=>'2020-01-02 00:00:00']);
         foreach($operations as $index=>$operation){
+            if($operation['route_name']==='update_sorting_is_featured'){
+                $beforeSortReplay=$row();DB::table('resturants')->where('id',100)->update(['sortby_is_featured'=>999]);
+                $reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$operation),409,'a changed current restaurant ordering conflicts before replaying the original local sort');
+                verify($row()['sortby_is_featured']===999&&!DB::table('desktop_dashboard_commands')->where('command_id',$operation['command_id'])->exists(),
+                    'a sorting before-state conflict preserves the current server value and creates no receipt');$restore($beforeSortReplay);
+            }
             $receipt=app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$operation);
             verify($receipt===app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$operation),'restaurant flag chain reconciles exactly once with an identical retained receipt '.$index);
             app(DesktopDashboardRestaurantFlags::class)->verifyAfter($receipt['result'],$operation['local_result'],app(\App\Services\Dashboard\DesktopDashboardReferences::class)->resolve($ownerDevice,$operation['payload']),$operation['payload']);
             verify($receipt['result']['after']['row']['created_at']===$baseline['created_at'],'restaurant flag replay retains the exact original creation identity '.$index);
             $switch($ownerStage,true);app(DesktopDashboardJournal::class)->acknowledge($ownerDevice,$operation['command_id'],$receipt);$switch($database);
         }
-        verify($row()['is_featured']==='no'&&$row()['under_contract']==='yes','the three real local flag writes reconcile in order despite request/journal updated_at timing');
+        verify($row()['is_featured']==='no'&&$row()['under_contract']==='yes'&&$row()['sortby_is_featured']===7,'the real local checkbox and numeric ordering writes reconcile in order despite request/journal updated_at timing');
         $adapter=app(DesktopDashboardRestaurantFlags::class);$resolvedFirst=app(\App\Services\Dashboard\DesktopDashboardReferences::class)->resolve($ownerDevice,$operations[0]['payload']);
         $vendor=\App\Models\User::withoutGlobalScopes()->findOrFail(10);$vendorDevice=app(\App\Services\Dashboard\DesktopDashboardDevices::class)->device($link['token']);
         verify((int)$adapter->authorize($operations[0]['route_name'],$resolvedFirst,$vendor,$vendorDevice)->id===10,'the original fresh scoped restaurant binding permits its enrolled vendor without resource flag permissions');
@@ -128,8 +145,8 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
         $mapped['payload']['parameters']['resturant']=$ref;$mapped['payload']['facts']['restaurant_flag_before']['row']['id']=$ref;$mapped['payload']['facts']['restaurant_flag_before']['branch']['id']=$ref;$mapped['dependencies']=[$dependency];
         $wrong=$mapped;$wrong['payload']['parameters']['resturant']['$desktop_ref']['entity']='catalog_product';$reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$wrong),422,'a restaurant flag rejects another entity kind before numeric reference resolution');
         $mappedReceipt=app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$mapped);
-        verify(DB::table('resturants')->where('id',$mappedId)->value('is_featured')==='no'&&$row()['is_featured']==='yes'
-            &&$mappedReceipt['references']===[['entity'=>'menu_restaurant','local_id'=>100,'server_id'=>$mappedId]],'typed restaurant flag replay changes only the mapped restaurant and preserves a colliding numeric ID');
+        verify(DB::table('resturants')->where('id',$mappedId)->value('sortby_is_featured')===11&&$row()['sortby_is_featured']===7&&$row()['is_featured']==='yes'
+            &&$mappedReceipt['references']===[['entity'=>'menu_restaurant','local_id'=>100,'server_id'=>$mappedId]],'typed restaurant ordering replay changes only the mapped restaurant and preserves a colliding numeric ID');
         $switch($ownerStage,true);app(DesktopDashboardJournal::class)->acknowledge($ownerDevice,$typed['command_id'],$mappedReceipt);$switch($database);
         verify($snapshot()===$serverRelated,'server restaurant flags preserve original related media, users, orders and financial balances');
         echo 'Restaurant flag original local and reconciliation acceptance completed'.PHP_EOL;

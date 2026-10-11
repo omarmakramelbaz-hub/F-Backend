@@ -5,7 +5,7 @@ class DashboardSync {
   constructor({ local, remote, refresh, refreshInterval = 60000, now = Date.now, onState = () => {} }) {
     this.local = local; this.remote = remote; this.onState = onState; this.stopped = false;
     this.refresh = refresh; this.refreshInterval = refreshInterval; this.now = now; this.nextRefresh = 0;
-    this.state = { online: false, pending: 0, conflicts: 0, acknowledged: 0, error: '' };
+    this.state = { online: false, pending: 0, conflicts: 0, acknowledged: 0, error: '', refresh_deferred: false };
   }
   stop() { this.stopped = true; }
   run() {
@@ -29,9 +29,12 @@ class DashboardSync {
         }
         if (!outbox.commands.length) {
           if (this.refresh && outbox.counts.pending === 0 && outbox.counts.conflicts === 0 && this.now() >= this.nextRefresh) {
+            const result = await this.refresh();
+            // An active local form defers replacement, not the next scheduled
+            // upload. It has not proved server connectivity or refreshed data.
+            if (result?.deferred) { this.report({ refresh_deferred: true }); return this.state; }
             this.nextRefresh = this.now() + this.refreshInterval;
-            await this.refresh();
-            this.report({ online: true, error: '', refreshedAt: new Date(this.now()).toISOString() });
+            this.report({ online: true, error: '', refresh_deferred: false, refreshedAt: new Date(this.now()).toISOString() });
           }
           return this.state;
         }

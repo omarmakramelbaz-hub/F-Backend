@@ -15,7 +15,8 @@
                 || (method==='DELETE'&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(url.pathname))
-                || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname)));
+                || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
     const prepare = form => {
         if (form instanceof HTMLFormElement && form.hasAttribute('data-desktop-notification-read')) {
@@ -44,7 +45,20 @@
         const field = document.createElement('input');
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);
     };
-    const scan = () => document.querySelectorAll('form').forEach(prepare);
+    const prepareProductLink = link => {
+        const url = new URL(link.href, location.href);
+        if (url.origin !== location.origin || !/^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname)) return;
+        // Keep the operation on the original link until an accepted navigation creates a new page.
+        // A lost reply then retries its original UUID, just like the original checkbox forms.
+        const command = link.dataset.desktopProductCommand || crypto.randomUUID();
+        link.dataset.desktopProductCommand = command;
+        url.searchParams.set('_desktop_command', command);
+        link.href = url.href;
+    };
+    const scan = () => {
+        document.querySelectorAll('form').forEach(prepare);
+        document.querySelectorAll('a[href]').forEach(prepareProductLink);
+    };
     const ajax = () => {
         if (!window.jQuery || window.jQuery.fasakhanstaCatalogJournal) return;
         window.jQuery.fasakhanstaCatalogJournal = true;
@@ -82,7 +96,27 @@
             request.done(value => { if (value && value.success && sessionStorage.getItem(key) === command) sessionStorage.removeItem(key); });
         });
     };
-    document.addEventListener('submit', event => prepare(event.target), true);
+    document.addEventListener('submit', event => {
+        const form = event.target;
+        prepare(form);
+        if (event.defaultPrevented || !(form instanceof HTMLFormElement) || !eligible(form)
+            || !/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(new URL(form.action, location.href).pathname)
+            || form.method.toUpperCase() !== 'POST' || form.hasAttribute('data-spa-off')
+            || (form.target && form.target !== '_self') || !window.DashboardSPA
+            || typeof window.DashboardSPA.ready !== 'function' || !window.DashboardSPA.ready()
+            || !document.querySelector('[data-dashboard-page]')) return;
+        const submitter = event.submitter;
+        if (submitter && (submitter.form !== form || submitter.name
+            || ['formaction','formmethod','formtarget','formenctype'].some(name => submitter.hasAttribute(name)))) return;
+        // The original unclosed featured label can nest this form in the DOM. Capture its
+        // natural submit before legacy bubbling handlers and use the same SPA submission
+        // path as the original checkbox's this.form.submit(), retaining its UUID on loss.
+        event.preventDefault();
+        // The SPA's later capture listener snapshots after this call disables buttons.
+        // Discard that previous in-flight snapshot so every retry restores current controls.
+        delete form.dashboardSubmitButtons;
+        HTMLFormElement.prototype.submit.call(form);
+    }, true);
     document.addEventListener('DOMContentLoaded', () => { scan(); ajax(); });
     new MutationObserver(scan).observe(document.documentElement, {childList: true, subtree: true});
     scan(); ajax();

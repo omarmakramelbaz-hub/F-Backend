@@ -38,7 +38,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
         }
         return ['packages'=>count($binding),'sha256'=>hash('sha256',json_encode($binding,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR))];
     };$graphBefore=$graphFingerprint();
-    $receipt=['format'=>1,'kind'=>'original-restaurant-two-flags-browser','sourceRevision'=>$commit,'fixtureRevision'=>$argv[4],
+    $receipt=['format'=>1,'kind'=>'original-restaurant-flags-and-ordering-browser','sourceRevision'=>$commit,'fixtureRevision'=>$argv[4],
         'sourceFilesVerified'=>count($manifest['sourceHashes']),'sourceFingerprint'=>$manifest['sourceFingerprint'],'schemaInventory'=>106,'fixtureSourceBindings'=>$fixtureBindings,
         'fixtureSha256'=>hash_file('sha256',__FILE__),'browserFixtureSha256'=>hash_file('sha256',$script),
         'legacySeedSha256'=>hash_file('sha256',$fixture.'/legacy.php'),'fullSchemaFixtureSha256'=>hash_file('sha256',$fixture.'/full-schema.php'),
@@ -76,7 +76,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     $read=\Spatie\Permission\Models\Permission::create(['name'=>'resturant-list','guard_name'=>'admin']);$actor->givePermissionTo($read);
     verify(!$actor->hasRole('Super Admin')&&$actor->roles->pluck('id')->all()===[11]&&$actor->getAllPermissions()->pluck('name')->all()===['resturant-list'],
         'actual role11 restaurant checkbox actor has only original restaurant read authority and no edit/POS grant');
-    DB::table('resturants')->where('id',100)->update(['is_featured'=>'no','under_contract'=>'no','created_at'=>$stamp,'updated_at'=>$stamp]);
+    DB::table('resturants')->where('id',100)->update(['is_featured'=>'no','under_contract'=>'no','sortby_is_featured'=>null,'created_at'=>$stamp,'updated_at'=>$stamp]);
     $device=(string)\Illuminate\Support\Str::uuid();$link=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$device,'name'=>'original restaurant checkbox browser','nonce'=>bin2hex(random_bytes(32))],$actor);
     $snapshot=app(DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($link['token']));
     config(['database.connections.mysql.database'=>$stage,'desktop_dashboard.local'=>true,'desktop_dashboard.device_id'=>$device]);DB::purge();$import=app(DesktopDashboardImport::class)->import($snapshot);
@@ -90,7 +90,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     // permissions and unrelated restaurants. Only the target's flags/timestamp are omitted.
     $businessFingerprint=function()use($report){
         $tables=[];foreach(array_keys($report['tables']) as $table){$rows=[];
-            foreach(DB::table($table)->get() as $raw){$row=(array)$raw;if($table==='resturants'&&(int)$row['id']===100)unset($row['is_featured'],$row['under_contract'],$row['updated_at']);ksort($row);$rows[]=json_encode($row,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);}
+            foreach(DB::table($table)->get() as $raw){$row=(array)$raw;if($table==='resturants'&&(int)$row['id']===100)unset($row['is_featured'],$row['under_contract'],$row['sortby_is_featured'],$row['updated_at']);ksort($row);$rows[]=json_encode($row,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);}
             sort($rows);$tables[$table]=['rows'=>count($rows),'sha256'=>hash('sha256',implode("\n",$rows))];}
         ksort($tables);return ['tables'=>count($tables),'sha256'=>hash('sha256',json_encode($tables,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR))];
     };$businessBefore=$businessFingerprint();$receipt['originalBusinessTablesBefore']=$businessBefore;
@@ -118,13 +118,19 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
             &&array_column($retryProof,'persistedAfterOppositeStillChecked')===[true,true]
             &&array_column($retryProof,'actualCheckboxControls')===[true,true],
             'both actual checkbox writes retain same UUID through lost302 and unchanged persisted flag after opposite409 before accepted retry/navigation');
+        $sortingRetry=$proof['sortingRetry']??[];
+        verify(($proof['originalFeaturedOrderingSubmit']??false)&&($proof['originalSortingHasPageField']??false)&&($proof['featuredOrderingCommands']??null)===2&&($proof['featuredOrderingFinalValue']??null)===8
+            &&($sortingRetry['field']??null)==='sortby_is_featured'&&($sortingRetry['committedResponseLost']??false)&&($sortingRetry['changedSameUuidStatus']??null)===409
+            &&($sortingRetry['persistedAfterChangedStillSeven']??false)&&($sortingRetry['originalValueSameUuidStatus']??null)===302&&($sortingRetry['actualNumberAndSubmitControls']??false)
+            &&($sortingRetry['isNavigationRequest']??null)===false&&($sortingRetry['resourceType']??null)==='fetch'&&($sortingRetry['originalFormRetainedAfterLoss']??false),
+            'actual original featured ordering number input and submit button retain UUID through lost302, changed409 and original-value retry before a fresh accepted save');
         $rows=DB::table('desktop_dashboard_commands')->orderBy('sequence')->get();$operations=$proof['operations']??[];
-        verify($rows->count()===4&&count($operations)===4&&count(array_unique(array_column($operations,'command')))===4,
-            'four actual checked/unchecked writes produce exactly four distinct journal commands despite both lost-response retries');
+        verify($rows->count()===6&&count($operations)===6&&count(array_unique(array_column($operations,'command')))===6,
+            'four actual checked/unchecked and two numeric ordering writes produce exactly six journal commands despite lost-response retries');
         $expected=$before;$firstCommand=$operations[0]['command'];
         $canonical=function($value)use(&$canonical){if(!is_array($value))return $value;if(!array_is_list($value))ksort($value);foreach($value as $key=>$item)$value[$key]=$canonical($item);return $value;};
         $exact=function($left,$right)use($canonical){return $canonical($left)===$canonical($right);};
-        $expectedOperations=[['resturants.changeStatus','is_featured',true],['resturants.changeStatus','is_featured',false],
+        $expectedOperations=[['resturants.changeStatus','is_featured',true],['update_sorting_is_featured','sortby_is_featured',7],['update_sorting_is_featured','sortby_is_featured',8],['resturants.changeStatus','is_featured',false],
             ['resturants.changeUnderContract','under_contract',true],['resturants.changeUnderContract','under_contract',false]];
         $localId=function($value,string $entity,bool $typed)use($firstCommand){
             if(!$typed){if($value!==100)throw new RuntimeException('First restaurant checkbox must use the exact imported integer identity.');return $value;}
@@ -135,32 +141,34 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
         };
         foreach($rows as $index=>$row){
             $operation=$operations[$index];$payload=json_decode(Crypt::decryptString($row->command_cipher),true,512,JSON_THROW_ON_ERROR);
+            $sorting=$operation['field']==='sortby_is_featured';$value=$sorting?($operation['value']??null):($operation['checked']??null);
             $saved=json_decode(Crypt::decryptString($row->local_result_cipher),true,512,JSON_THROW_ON_ERROR);$result=$saved['result'];
             $dependencies=json_decode($row->dependencies,true,512,JSON_THROW_ON_ERROR);
-            verify([$operation['route_name'],$operation['field'],$operation['checked']]===$expectedOperations[$index]
+            verify([$operation['route_name'],$operation['field'],$value]===$expectedOperations[$index]
                 &&$row->command_id===$operation['command']&&$row->route_name===$operation['route_name']&&(int)$row->actor_id===1&&$row->status==='pending'
                 &&$localId($payload['parameters']['resturant']??null,'menu_restaurant',$index>0)===100&&$payload['values']['idempotency_key']===$row->command_id
                 &&$dependencies===($index===0?[]:[$firstCommand])&&$saved['references']===['menu_restaurant'=>100]
-                &&($operation['checked']?($payload['values'][$operation['field']]??null)==='on':!array_key_exists($operation['field'],$payload['values'])),
-                'actual original restaurant checkbox journal binds route, actor, target, UUID and exact checked/omitted value '.$index);
+                &&($sorting?($payload['values'][$operation['field']]??null)===(string)$value&&array_key_exists('page',$payload['values'])&&$payload['values']['page']===null:
+                    ($value?($payload['values'][$operation['field']]??null)==='on':!array_key_exists($operation['field'],$payload['values']))),
+                'actual original restaurant journal binds route, actor, target, UUID and exact checked/omitted/numeric value '.$index);
             $fact=$payload['facts']['restaurant_flag_before'];$fact['row']['id']=$localId($fact['row']['id'],'menu_restaurant',$index>0);$fact['branch']['id']=$localId($fact['branch']['id'],'menu_restaurant',$index>0);
             verify(count($fact['row'])===29&&$exact($fact['row'],$expected)&&$fact['added_by']===['id'=>1]&&$fact['owner']===['id'=>10]
                 &&$fact['parent']===null&&$exact($fact['branch'],['kind'=>'f','id'=>100]),
                 'actual original restaurant checkbox saves all29 before-state columns and exact original relations '.$index);
-            $after=$result['after']['row'];$prior=$expected;$prior[$operation['field']]=$operation['checked']?'yes':'no';
+            $after=$result['after']['row'];$prior=$expected;$prior[$operation['field']]=$sorting?$value:($value?'yes':'no');
             $compared=$after;unset($compared['updated_at'],$prior['updated_at']);
             verify(count($after)===29&&$exact($compared,$prior)&&$result['http']['status']===302&&$result['http']['location']==='/admin/resturants'
                 &&$result['success']===trans('messages.UpdateSuccessfully')&&$result['references']===['menu_restaurant'=>100],
-                'actual original restaurant checkbox changes only its flag and timestamp while retaining original302/success '.$index);$expected=$after;
+                'actual original restaurant checkbox or ordering changes only its field and timestamp while retaining original302/success '.$index);$expected=$after;
         }
-        verify($exact((array)DB::table('resturants')->where('id',100)->first(),$expected)&&$expected['is_featured']==='no'&&$expected['under_contract']==='no',
-            'actual final restaurant row exactly matches the four original checked/unchecked results');
+        verify($exact((array)DB::table('resturants')->where('id',100)->first(),$expected)&&$expected['is_featured']==='no'&&$expected['under_contract']==='no'&&$expected['sortby_is_featured']===8,
+            'actual final restaurant row exactly matches the four original checked/unchecked and two ordering results');
         $receipt['originalBusinessTablesAfter']=$businessFingerprint();$receipt['originalBusinessTablesUnchanged']=$receipt['originalBusinessTablesAfter']===$businessBefore;
         verify($receipt['originalBusinessTablesUnchanged']&&$businessBefore['tables']===106,
             'all106 original business tables remain identical outside the target flags/timestamp, including other rows and media');
         verify(is_file($file)&&hash_file('sha256',$file)===$mediaHash,'actual original restaurant checkbox writes and same-UUID retries preserve attached file bytes');
-        $receipt['mediaFileSha256']=$mediaHash;$receipt['mediaPreserved']=true;$receipt['targetColumnCount']=29;$receipt['commands']=4;
+        $receipt['mediaFileSha256']=$mediaHash;$receipt['mediaPreserved']=true;$receipt['targetColumnCount']=29;$receipt['commands']=6;
         $fixtureCompleted=true;
-        echo 'ORIGINAL_RESTAURANT_FLAGS_BROWSER_COMPLETE '.json_encode(['sourceRevision'=>$commit,'fixtureRevision'=>$argv[4],'schemaInventory'=>106,'checks'=>$GLOBALS['count']??0,'commands'=>4,'fullDashboard'=>false]).PHP_EOL;
+        echo 'ORIGINAL_RESTAURANT_FLAGS_BROWSER_COMPLETE '.json_encode(['sourceRevision'=>$commit,'fixtureRevision'=>$argv[4],'schemaInventory'=>106,'checks'=>$GLOBALS['count']??0,'commands'=>6,'fullDashboard'=>false]).PHP_EOL;
     }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);$httpStopped=true;}
 })();

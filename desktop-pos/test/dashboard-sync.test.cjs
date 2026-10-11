@@ -95,3 +95,23 @@ test('refresh follows durable confirmation, waits for all conflicts and is throt
   now+=60000;conflicts=1;await sync.run();assert.equal(refreshes,1);
   conflicts=0;await sync.run();assert.equal(refreshes,2);
 });
+
+test('deferred form refresh leaves connectivity unchanged and does not delay the next upload batch',async()=>{
+  let canRefresh=false,now=1000,refreshes=0;const sent=[],queue=[];
+  const sync=new DashboardSync({now:()=>now,
+    local:async request=>{if(request.action==='acknowledge')queue.shift();return {commands:queue.slice(0,1),counts:{pending:queue.length,conflicts:0}};},
+    remote:async command=>{sent.push(command.command_id);return {committed:true};},
+    refresh:async()=>{if(!canRefresh)return {deferred:true};refreshes++;}});
+  await sync.run();assert.equal(sync.state.refresh_deferred,true);assert.equal(sync.state.online,false);assert.equal(sync.nextRefresh,0);
+  queue.push({command_id:'new-local-sale'});now+=30000;await sync.run();
+  assert.deepEqual(sent,['new-local-sale']);assert.equal(sync.state.refresh_deferred,true);assert.equal(refreshes,0);
+  canRefresh=true;now+=30000;await sync.run();assert.equal(refreshes,1);assert.equal(sync.state.refresh_deferred,false);
+  assert.equal(sync.nextRefresh,now+60000);
+});
+test('a failed complete refresh retries the next shared slot and does not claim fresh data',async()=>{
+  let failed=true;const sync=new DashboardSync({now:()=>1000,
+    local:async()=>({commands:[],counts:{pending:0,conflicts:0}}),remote:async()=>{},
+    refresh:async()=>{if(failed)throw Error('snapshot connection lost');}});
+  await sync.run();assert.equal(sync.nextRefresh,0);assert.equal(sync.state.refreshedAt,undefined);
+  failed=false;await sync.run();assert.equal(sync.state.refreshedAt,new Date(1000).toISOString());
+});

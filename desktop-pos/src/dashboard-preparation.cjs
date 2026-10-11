@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { prepared } = require('./dashboard-generation.cjs');
 const media = require('./dashboard-media.cjs');
 const sourceCode = require('./dashboard-source.cjs');
+const coverage = require('./dashboard-coverage.cjs');
 
 const uuid = value => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value || '');
 const hash = value => /^[a-f0-9]{64}$/.test(value || '');
@@ -20,10 +21,11 @@ function enrollment(value, deviceId) {
 
 /** The original signed-in dashboard starts preparation. Credentials remain in native encrypted metadata. */
 class DashboardPreparation {
-  constructor({ runtime, enroll, download, beforePrepare = async () => {}, onState = () => {}, onPrepared = async () => {} }) {
+  constructor({ runtime, enroll, download, allowPreview = false, beforePrepare = async () => {}, onState = () => {}, onPrepared = async () => {} }) {
     this.runtime = runtime; this.metadata = runtime.metadata; this.enroll = enroll; this.download = download;
     this.onState = onState; this.onPrepared = onPrepared; this.state = { phase: 'idle', progress: 0, error: '' };
     this.beforePrepare = beforePrepare;
+    this.allowPreview = allowPreview === true;
   }
   report(value) { Object.assign(this.state, value); this.onState({ ...this.state }); }
   async credential() {
@@ -75,10 +77,10 @@ class DashboardPreparation {
         || snapshot.device_id !== value.deviceId || snapshot.actor_id !== value.actorId || !hash(snapshot.schema_hash)
         || !Array.isArray(snapshot.branches) || !snapshot.branches.length)
         throw Error('بيانات التجهيز لا تخص حساب الجهاز.');
-      if (snapshot.coverage?.full_dashboard !== true || snapshot.coverage?.media !== true || !Array.isArray(snapshot.media))
-        throw Error('تجهيز كل أقسام الداشبورد لم يكتمل بعد؛ يمكنك الاستمرار على السيرفر.');
       media.manifest(snapshot.media);
       if (!sourceCode.valid(snapshot.source)) throw Error('مصدر نسخة السيرفر لم يتأكد بعد؛ بيانات الجهاز محفوظة.');
+      const manifest = snapshot.coverage?.full_dashboard !== true && this.allowPreview ? await this.runtime.coverageManifest(snapshot) : null;
+      coverage.snapshotCoverage(snapshot, manifest, this.allowPreview);
       const id = crypto.randomBytes(8).toString('hex'), refreshId = crypto.randomUUID();
       await this.metadata.write('preparation', { format: 1, generation: id, refreshId, deviceId: value.deviceId, actorId: value.actorId, snapshotId: snapshot.snapshot_id });
       this.report({ phase: 'starting', progress: 30 });
@@ -86,12 +88,14 @@ class DashboardPreparation {
       this.report({ phase: 'verifying', progress: 45 });
       const candidate = await this.runtime.stage(snapshot, id);
       if (!sourceCode.same(snapshot.source, candidate.sourceFingerprint)) throw Error('مصدر برنامج التجهيز لا يطابق نسخة السيرفر.');
+      const scope = coverage.preparedCoverage(snapshot, candidate, manifest, this.allowPreview);
       const next = { format: 2, deviceId: value.deviceId, actorId: value.actorId, token: value.token, serverOrigin: origin,
         schemaHash: snapshot.schema_hash, branches: snapshot.branches, generation: id, database: candidate.database,
         snapshotId: snapshot.snapshot_id, refreshId, sourceRevision: candidate.sourceRevision,
         sourceFingerprint: candidate.sourceFingerprint,
-        fullCoverage: true, mediaVerified: candidate.mediaVerified };
-      if (!prepared(next, value.deviceId)) throw Error('بيانات التجهيز المحلية لم تكتمل.');
+        ...scope, mediaVerified: candidate.mediaVerified };
+      if (next.previewOnly) next.coverageBinding = coverage.binding(next);
+      if (!prepared(next, value.deviceId, manifest)) throw Error('بيانات التجهيز المحلية لم تكتمل.');
       await this.metadata.write('generations/' + refreshId, { format: 1, initial: true, next, receipt: candidate.receipt });
       this.report({ phase: 'activating', progress: 95 });
       await this.runtime.activate(next, () => this.metadata.write('prepared', next));

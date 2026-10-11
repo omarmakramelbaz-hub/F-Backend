@@ -78,3 +78,23 @@ test('closing during an accepted cycle lets its result settle without another cy
   release(); assert.equal(await accepted, 'confirmed'); await time.advance(120000);
   assert.equal(calls, 1); assert.equal(time.size(), 0);
 });
+
+test('a refresh requested during a slow cycle survives skipped slots and runs only at the next free 30-second boundary', async () => {
+  const time=clock(),calls=[];let release;
+  const schedule=new SyncSchedule({...time,work:async options=>{calls.push({at:time.now(),...options});if(calls.length===1)await new Promise(resolve=>release=resolve);}});
+  schedule.start();await time.advance(30000);
+  const first=schedule.request({refresh:true}),second=schedule.request({refresh:true});
+  assert.equal(first,schedule.running);assert.equal(second,first);assert.equal(schedule.refreshPending,true);
+  await time.advance(70000);assert.deepEqual(calls,[{at:30000,refresh:false}]);
+  release();await first;assert.equal(calls.length,1);assert.equal(schedule.refreshPending,true);
+  await time.advance(89999);assert.equal(calls.length,1);
+  await time.advance(90000);assert.deepEqual(calls,[{at:30000,refresh:false},{at:90000,refresh:true}]);assert.equal(schedule.refreshPending,false);
+  await time.advance(120000);assert.equal(calls[2].refresh,false);schedule.stop();
+});
+test('closing cancels a refresh queued during the accepted cycle without starting another cycle', async () => {
+  const time=clock();let calls=0,release;
+  const schedule=new SyncSchedule({...time,work:async()=>{calls++;await new Promise(resolve=>release=resolve);}});
+  schedule.start();await time.advance(30000);const active=schedule.request({refresh:true});
+  assert.equal(schedule.refreshPending,true);schedule.stop();assert.equal(schedule.refreshPending,false);
+  release();await active;await time.advance(90000);assert.equal(calls,1);
+});

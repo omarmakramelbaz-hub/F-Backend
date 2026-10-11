@@ -10,7 +10,7 @@ async function formFixture(url='https://dashboard.test/admin/go-stores/60',metho
     querySelector(selector){return this.fields.find(field=>selector==='[name="'+field.name+'"]')||null;}
     append(field){this.fields.push(field);}
   }
-  const form=new Form(),events={},document={body:{dataset},documentElement:{},querySelectorAll:()=>[form],createElement:()=>({}),addEventListener:(name,callback)=>events[name]=callback};
+  const form=new Form(),events={},document={body:{dataset},documentElement:{},querySelectorAll:selector=>selector==='form'?[form]:[],createElement:()=>({}),addEventListener:(name,callback)=>events[name]=callback};
   await vm.runInNewContext(source,{document,window:{FasakhanstaDesktop:{status:async()=>({prepared:true})}},location:{href:'https://dashboard.test/admin/go-stores/60',origin:'https://dashboard.test'},URL,crypto,HTMLFormElement:Form,MutationObserver:class{observe(){}}});
   return {form,submit:()=>events.submit({target:form}),command:()=>form.fields.find(field=>field.name==='_desktop_command')?.value};
 }

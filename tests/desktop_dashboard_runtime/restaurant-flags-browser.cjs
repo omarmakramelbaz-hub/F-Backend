@@ -1,5 +1,5 @@
 'use strict';
-// Real original restaurant checkboxes and their original onchange/form.submit path.
+// Real original restaurant checkboxes, number input and their original form submission paths.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE);
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
@@ -24,12 +24,20 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     const initialPageErrors=[...errors],operations=[],retries=[],formControlDiagnostics=[];
     const fields=request=>new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();
     const formFor=path=>page.locator('form[action="'+input.origin+path+'"]');
+    const ownedCommandValue=current=>current.form.evaluate(actual=>{
+      const commands=Array.from(actual.elements).filter(control=>control.form===actual&&control.name==='_desktop_command');
+      if(commands.length!==1)throw Error('The original form must own exactly one operation UUID.');
+      return commands[0].value;
+    });
+    const waitForOwnedCommand=async element=>{
+      await page.waitForFunction(actual=>Array.from(actual.elements)
+        .filter(control=>control.form===actual&&control.name==='_desktop_command').length===1,element);
+    };
     const originalForm=async(path,field)=>{
       const form=formFor(path),checkbox=form.locator('input[type="checkbox"][name="'+field+'"]');
-      await form.locator('[name="_desktop_command"]').waitFor({state:'attached'});
+      const element=await form.elementHandle();assert.ok(element);await waitForOwnedCommand(element);
       assert.equal(await form.getAttribute('method'),'post');
       assert.equal(await checkbox.getAttribute('onchange'),'this.form.submit()');
-      const element=await form.elementHandle();assert.ok(element);
       // The original featured cell has an unclosed label before the sorting form.
       // Browser repair can nest that form in the DOM. Actual association and
       // native FormData determine submitted controls, not arbitrary descendants.
@@ -97,6 +105,81 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       const current=await originalForm(path,field);assert.notEqual(current.command,previous.command);
       return current;
     };
+    const originalSortForm=async()=>{
+      const path='/admin/update_sorting_is_featured/100',form=formFor(path),number=form.locator('[name="sortby_is_featured"]');
+      const element=await form.elementHandle();assert.ok(element);await waitForOwnedCommand(element);await number.waitFor({state:'visible'});
+      assert.equal(await form.getAttribute('method'),'post');assert.equal(await number.getAttribute('type'),'number');
+      assert.equal(await number.getAttribute('min'),'1');assert.equal(await number.getAttribute('step'),'1');
+      const association=await form.evaluate(actual=>{
+        const own=Array.from(actual.elements).filter(control=>control.form===actual),data=new FormData(actual);
+        return {allElementsOwned:Array.from(actual.elements).every(control=>control.form===actual),
+          csrf:data.getAll('_token'),commands:data.getAll('_desktop_command'),page:data.getAll('page'),values:data.getAll('sortby_is_featured'),
+          serializedNames:Array.from(data.keys()).sort(),controls:own.map(control=>({name:control.name,type:control.type||null,tag:control.tagName,
+            formAction:new URL(control.form.action,location.href).pathname,owned:control.form===actual}))};
+      });
+      assert.equal(association.allElementsOwned,true);assert.equal(association.csrf.length,1);assert.equal(association.commands.length,1);
+      assert.deepEqual(association.page,['']);assert.equal(association.values.length,1);
+      assert.deepEqual(association.serializedNames,['_desktop_command','_token','page','sortby_is_featured'].sort());
+      assert.equal(await number.evaluate((control,actual)=>control.form===actual,element),true);
+      const command=association.commands[0];assert.match(command,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
+      assert.ok(typeof association.csrf[0]==='string'&&association.csrf[0].length>0);
+      formControlDiagnostics.push({path,field:'sortby_is_featured',associatedControls:association.controls,serializedNames:association.serializedNames});
+      return {path,form,number,element,command,csrf:association.csrf[0],button:form.locator('button[type="submit"]')};
+    };
+    const assertSortBody=(body,current,value)=>{
+      assert.deepEqual(Array.from(body.keys()).sort(),['_token','_desktop_command','page','sortby_is_featured'].sort());
+      assert.deepEqual(body.getAll('_token'),[current.csrf]);assert.deepEqual(body.getAll('_desktop_command'),[current.command]);
+      assert.deepEqual(body.getAll('page'),['']);assert.deepEqual(body.getAll('sortby_is_featured'),[value]);
+    };
+    const acceptedSortNavigation=async previous=>{
+      await previous.element.waitForElementState('hidden');assert.equal(await previous.element.evaluate(element=>element.isConnected),false);
+      await page.waitForURL(url=>url.pathname==='/admin/resturants'&&url.search==='');
+      const current=await originalSortForm();assert.notEqual(current.command,previous.command);return current;
+    };
+    const exerciseSort=async()=>{
+      let current=await originalSortForm(),intercept=true,resolveCommit,sortTransport;
+      const commitPromise=new Promise(resolve=>{resolveCommit=resolve;});
+      const interception=async route=>{
+        if(intercept&&route.request().method()==='POST'){
+          sortTransport={resourceType:route.request().resourceType(),isNavigationRequest:route.request().isNavigationRequest()};
+          intercept=false;const actual=await route.fetch({maxRedirects:0,headers:{...route.request().headers(),'X-Fasakhansta-Desktop':input.token}});
+          redirect(actual);resolveCommit(await fields(route.request()));await route.abort();
+        }else await route.fallback();
+      };
+      await context.route(input.origin+current.path,interception);
+      const lost=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===current.path&&request.method()==='POST'});
+      await current.number.fill('7');await current.button.click();assertSortBody(await commitPromise,current,'7');await lost;
+      await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
+      const afterLoss=await page.evaluate(()=>({url:location.href,spaReady:window.DashboardSPA?.ready(),dashboardPage:Boolean(document.querySelector('[data-dashboard-page]')),
+        forms:Array.from(document.forms).map(form=>({path:new URL(form.action,location.href).pathname,
+          ownCommands:Array.from(form.elements).filter(control=>control.form===form&&control.name==='_desktop_command').length}))}));
+      process.stdout.write('RESTAURANT_SORT_LOST_TRANSPORT '+JSON.stringify({...sortTransport,afterLoss})+'\n');
+      assert.equal(sortTransport.isNavigationRequest,false,'The original sort button must use the SPA fetch, preserving the original form after an uncertain result.');
+      assert.equal(sortTransport.resourceType,'fetch');assert.equal(afterLoss.spaReady,true);assert.equal(afterLoss.dashboardPage,true);
+      assert.equal(await current.element.evaluate(element=>element.isConnected),true,'The original sorting form must remain connected after the failed fetch.');
+      assert.equal(await ownedCommandValue(current),current.command);
+      let [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('8');await current.button.click();
+      let sent=await sentPromise,response=await responsePromise;assertSortBody(await fields(sent),current,'8');assert.equal(response.status(),409);
+      await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
+      assert.equal(await ownedCommandValue(current),current.command);
+      const persisted=await context.request.get(input.origin+'/admin/resturants',{headers:{'X-Fasakhansta-Desktop':input.token}});
+      assert.equal(persisted.status(),200);const html=await persisted.text();
+      const sortForms=[...html.matchAll(/<form\b[^>]*action="[^"]*\/admin\/update_sorting_is_featured\/100"[^>]*>([\s\S]*?)<\/form>/g)];
+      assert.equal(sortForms.length,1);assert.match(sortForms[0][1],/<input\b[^>]*name="sortby_is_featured"[^>]*value="7"/);
+      [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('7');await current.button.click();
+      sent=await sentPromise;response=await responsePromise;assertSortBody(await fields(sent),current,'7');redirect(response);
+      operations.push({route_name:'update_sorting_is_featured',field:'sortby_is_featured',value:7,command:current.command,originalRedirect:true});
+      const retry={field:'sortby_is_featured',command:current.command,committedResponseLost:true,changedSameUuidStatus:409,
+        persistedAfterChangedStillSeven:true,originalValueSameUuidStatus:302,actualNumberAndSubmitControls:true,
+        isNavigationRequest:sortTransport.isNavigationRequest,resourceType:sortTransport.resourceType,originalFormRetainedAfterLoss:true};
+      current=await acceptedSortNavigation(current);assert.equal(await current.number.inputValue(),'7');
+      [sentPromise,responsePromise]=sentAndResponse(current.path);await current.number.fill('8');await current.button.click();
+      sent=await sentPromise;response=await responsePromise;assertSortBody(await fields(sent),current,'8');redirect(response);
+      operations.push({route_name:'update_sorting_is_featured',field:'sortby_is_featured',value:8,command:current.command,originalRedirect:true});
+      current=await acceptedSortNavigation(current);assert.equal(await current.number.inputValue(),'8');
+      await context.unroute(input.origin+current.path,interception);return retry;
+    };
+    let sortingRetry;
     for(const [route,field] of [['resturantchangeStatus','is_featured'],['resturantchangeUnderContract','under_contract']]){
       const path='/admin/'+route+'/100';let current=await originalForm(path,field);
       assert.equal(await current.checkbox.isChecked(),false);
@@ -113,14 +196,14 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       await current.checkbox.check();const firstBody=await commitPromise;await lost;
       assertBody(firstBody,current,field,true);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.checkbox.isChecked(),true);assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await current.checkbox.isChecked(),true);assert.equal(await ownedCommandValue(current),current.command);
       // The untouched automatic checkbox has no retry button. Its opposite value
       // must fail under the saved UUID, then returning to the original value retries it.
       let [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.uncheck();let sent=await sentPromise,response=await responsePromise,body=await fields(sent);
       assertBody(body,current,field,false);assert.equal(response.status(),409);
       await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));
-      assert.equal(await current.form.locator('[name="_desktop_command"]').inputValue(),current.command);
+      assert.equal(await ownedCommandValue(current),current.command);
       assert.equal(await current.checkbox.isChecked(),false);
       await persistedStillChecked(path,field);
       [sentPromise,responsePromise]=sentAndResponse(path);
@@ -129,6 +212,9 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       operations.push({route_name:route==='resturantchangeStatus'?'resturants.changeStatus':'resturants.changeUnderContract',field,checked:true,command:current.command,originalRedirect:true});
       retries.push({field,command:current.command,committedResponseLost:true,oppositeSameUuidStatus:409,persistedAfterOppositeStillChecked:true,originalValueSameUuidStatus:302,actualCheckboxControls:true});
       current=await acceptedNavigation(current,path,field);assert.equal(await current.checkbox.isChecked(),true);
+      if(field==='is_featured'){
+        sortingRetry=await exerciseSort();current=await originalForm(path,field);assert.equal(await current.checkbox.isChecked(),true);
+      }
       [sentPromise,responsePromise]=sentAndResponse(path);
       await current.checkbox.uncheck();sent=await sentPromise;response=await responsePromise;body=await fields(sent);
       assertBody(body,current,field,false);redirect(response);
@@ -136,11 +222,12 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
       current=await acceptedNavigation(current,path,field);assert.equal(await current.checkbox.isChecked(),false);
       await context.unroute(input.origin+path,interception);
     }
-    assert.equal(new Set(operations.map(operation=>operation.command)).size,4);
+    assert.equal(new Set(operations.map(operation=>operation.command)).size,6);
     assert.deepEqual(errors,initialPageErrors);
-    process.stdout.write('RESTAURANT_FLAGS_BROWSER_PROOF '+JSON.stringify({restaurant:100,operations,retries,originalForm:true,originalCheckboxOnchange:true,
+    process.stdout.write('RESTAURANT_FLAGS_BROWSER_PROOF '+JSON.stringify({restaurant:100,operations,retries,sortingRetry,originalForm:true,originalCheckboxOnchange:true,
       checkedAndUncheckedBothFlags:true,committedResponsesLost:2,oppositeSameUuidRejected:2,originalValueRetrySameUuid:2,
-      freshUuidOnlyAfterAcceptedNavigation:true,originalQueryReadPreserved:true,originalFormsHaveNoPageField:true,
+      originalFeaturedOrderingSubmit:true,featuredOrderingCommands:2,featuredOrderingFinalValue:8,
+      freshUuidOnlyAfterAcceptedNavigation:true,originalQueryReadPreserved:true,originalCheckboxFormsHaveNoPageField:true,originalSortingHasPageField:true,
       actualAssociatedFormControls:true,exactSerializedCsrfAndUuid:true,formControlDiagnostics,
       initialOriginalPageErrors:initialPageErrors,newPageErrors:0,force:false,domInjection:false,
       sourceCommit:input.sourceCommit,fixtureRevision:input.fixtureRevision,browser:'Windows Edge',browserVersion:browser.version(),browserPlatform:process.platform})+'\n');

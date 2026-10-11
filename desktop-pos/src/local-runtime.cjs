@@ -138,8 +138,24 @@ class LocalRuntime {
       const value = await this.metadata.read('prepared');
       if (!value) return false;
       const settings = await this.settings();
-      return prepared(value, settings.deviceId);
+      return prepared(value, settings.deviceId, await this.preparedManifest(value));
     } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  }
+  async preparedManifest(value) {
+    if (value?.previewOnly !== true && value?.fullCoverage !== false) return null;
+    if (this.manifest?.sourceRevision === value.sourceRevision) return this.manifest;
+    const archive = new RuntimeArchive(this.profile, this.metadata);
+    const installed = await archive.manifest(this.installedBundle);
+    if (installed.sourceRevision === value.sourceRevision) return installed;
+    if (!/^[a-f0-9]{40}$/.test(value.sourceRevision || '')) return null;
+    return archive.manifest(path.join(this.profile, 'runtimes', value.sourceRevision));
+  }
+  async coverageManifest(snapshot) {
+    if (this.manifest && sourceCode.same(snapshot.source, this.manifest.sourceFingerprint)) return this.manifest;
+    const manifest = await new RuntimeArchive(this.profile, this.metadata).manifest(this.installedBundle);
+    if (!sourceCode.same(snapshot.source, manifest.sourceFingerprint))
+      throw Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
+    return manifest;
   }
   async connection() {
     if (!(await this.isPrepared())) throw Error('بيانات الداشبورد المحلية لم تُجهّز بالكامل.');
@@ -163,7 +179,7 @@ class LocalRuntime {
     if (this.platform !== 'win32') throw Error('حزمة التشغيل المحلية مخصصة لويندوز.');
     const settings = await this.settings();
     const active = await this.metadata.read('prepared');
-    if (active && !prepared(active, settings.deviceId)) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
+    if (active && !prepared(active, settings.deviceId, await this.preparedManifest(active))) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
     this.bundle = await new RuntimeArchive(this.profile, this.metadata).select(this.bundle, active);
     const manifest = JSON.parse(await fs.readFile(path.join(this.bundle, 'manifest.json'), 'utf8'));
     if (manifest.format !== 1 || manifest.platform !== 'win32-x64') throw Error('حزمة الداشبورد المحلية غير متوافقة.');
@@ -325,7 +341,7 @@ class LocalRuntime {
   }
   async activate(next, commitPointer) {
     const context = this.stagedContexts.get(next.generation);
-    if (this.stopping || !context || !prepared(next, (await this.settings()).deviceId) || next.sourceRevision !== context.manifest.sourceRevision
+    if (this.stopping || !context || !prepared(next, (await this.settings()).deviceId, context.manifest) || next.sourceRevision !== context.manifest.sourceRevision
         || !sourceCode.same(next.sourceFingerprint, context.sourceFingerprint))
       throw Error('نسخة التجهيز غير قابلة للتفعيل.');
     const oldEnvironment = this.environment;

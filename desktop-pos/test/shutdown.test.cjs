@@ -5,13 +5,13 @@ const Sync=require('../src/sync.cjs');
 const {randomUUID}=require('node:crypto');
 const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();await new Promise(setImmediate);};
 
-async function fixture(t,{paired=false,packaged=false,fetch,holdPrint=false,holdLoad=false}={}){
+async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
   const seed=new Store(file),snapshot={id:randomUUID(),generated_at:new Date().toISOString(),branch:{value:'f:100',name:'اختبار'},actor:{id:10,name:'كاشير'},tax_bps:0,service_bps:0,can_discount:false,categories:[],products:[{id:1,name:'رنجة',unit:'piece',variants:[{option_id:'',label:'أساسي',unit_price_cents:10000,quantity_mode:'piece'}]}]};
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,dashboardOpens=0;
+  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,dashboardOpens=0,runtimeReady=prepared,localSwitches=0;
   class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;}
@@ -30,12 +30,19 @@ async function fixture(t,{paired=false,packaged=false,fetch,holdPrint=false,hold
     destroy(){if(this.destroyed)return;this.destroyed=true;this.emit('closed');if(windows.every(w=>w.destroyed))app.emit('window-all-closed');}
   }
   const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox(){},showSaveDialog:async()=>({canceled:true})}};
-  class UnpreparedRuntime{constructor(){this.metadata={read:async()=>null,write:async()=>{}};}async isPrepared(){return false;}async stop(){}}
-  class Preparation{constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:false};}}
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;return {open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},current:()=>({local:false})};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  class UnpreparedRuntime{
+    constructor(){this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async()=>null,write:async()=>{}};}
+    async isPrepared(){return runtimeReady;}async start(){return {origin:this.origin,token:this.token};}
+    async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){}
+  }
+  class Preparation{
+    constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:runtimeReady};}
+    async prepare(){runtimeReady=true;await preparationOptions.onPrepared();return {available:true,prepared:true};}
+  }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.ok(delay > 29900 && delay <= 30000);timers.delete(fn);fn();await settle();},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get dashboardOpens(){return dashboardOpens;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.ok(delay > 29900 && delay <= 30000);timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get dashboardOpens(){return dashboardOpens;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
 
 test('closing the last app window does not re-enter quit or close SQLite twice, and the ledger reopens intact',async t=>{
@@ -89,6 +96,21 @@ test('the actual packaged dashboard button queues immediately and preparation jo
   await settle();assert.equal(sent.length,0);assert.equal(prepared,false);assert.equal(f.store.pending()[0].id,f.sale.id);
   await f.syncSlot();await preflight;assert.equal(prepared,true);
   assert.equal(sent.filter(url=>url.endsWith('/sync')).length,1);assert.equal(f.store.counts().pending,0);
+  f.app.quit();await settle();assert.ok(f.app.exited);
+});
+
+test('the actual prepared packaged app opens local dashboard pages even when production is online',async t=>{
+  const calls=[];const f=await fixture(t,{packaged:true,prepared:true,fetch:async url=>{calls.push(url);throw Error('unexpected startup request');}});
+  assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
+  assert.equal(f.dashboardOptions.serverOrigin,'https://fasakhaninja.com');assert.deepEqual(calls,[]);assert.equal(f.dashboardOpens,1);
+  f.app.quit();await settle();assert.ok(f.app.exited);
+});
+test('the actual preparation handler switches local only after clearing the protected snapshot gate',async t=>{
+  const f=await fixture(t,{packaged:true});assert.equal(f.preparationOptions.allowPreview,true);assert.equal(f.localSwitches,0);
+  const ready=await f.dashboardOptions.prepare('https://fasakhaninja.com','csrf-token');
+  assert.equal(ready.prepared,true);assert.equal(f.localSwitches,1);
+  // DashboardMode.local asserts clean remote state, so this succeeds only after
+  // the outer preparation snapshot has flushed its clean encrypted record.
   f.app.quit();await settle();assert.ok(f.app.exited);
 });
 

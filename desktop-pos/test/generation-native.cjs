@@ -16,11 +16,13 @@ const { DashboardPreparation } = require(path.join(codeRoot, 'dashboard-preparat
 const DashboardMode = require(path.join(codeRoot, 'dashboard-mode.cjs'));
 const DashboardRemoteState = require(path.join(codeRoot, 'dashboard-remote-state.cjs'));
 const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
+const coverageCode = require(path.join(codeRoot, 'dashboard-coverage.cjs'));
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
   const [bundle, sourceFile] = process.argv.slice(2);
   const snapshot = JSON.parse(await fs.readFile(sourceFile, 'utf8'));
+  assert.equal(snapshot.coverage.full_dashboard, false, 'The original scoped bootstrap must not be promoted to full dashboard coverage.');
   const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=', 'base64');
   const imagePath = 'products/42/رنجة.png', imageTicket = 'synthetic-media-capability';
   snapshot.media = [{ path: imagePath, sha256: crypto.createHash('sha256').update(imageBytes).digest('hex'),
@@ -79,9 +81,16 @@ async function main() {
     console.log('PASS Windows snapshot input reaches redacted JSON validation within the installed 256 MiB memory limit');
     const settings = await runtime.settings(); settings.deviceId = snapshot.device_id;
     await runtime.metadata.write('credentials', settings);
-    const preparation = new DashboardPreparation({ runtime,
+    const preparationOptions = { runtime,
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
-      download: async () => snapshot });
+      download: async () => snapshot };
+    await assert.rejects(new DashboardPreparation(preparationOptions).prepare('https://fixture.test', 'synthetic-signed-in-CSRF'));
+    assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
+    await assert.rejects(new DashboardPreparation({ ...preparationOptions, allowPreview: true,
+      download: async () => ({ ...snapshot, coverage: { ...snapshot.coverage, write_routes: snapshot.coverage.write_routes.slice(1) } })
+    }).prepare('https://fixture.test', 'synthetic-signed-in-CSRF'));
+    assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
+    const preparation = new DashboardPreparation({ ...preparationOptions, allowPreview: true });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
     // PHP resolves Windows 8.3 aliases; compare the same actual retained files.
     const extensionDirectory = (await fs.realpath(path.join(runtime.bundle,'php/ext'))).replaceAll('\\','/');
@@ -90,6 +99,12 @@ async function main() {
       { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0',
         extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
+    assert.equal(initial.fullCoverage, false); assert.equal(initial.previewOnly, true);
+    assert.deepEqual(initial.coverage, snapshot.coverage);
+    assert.equal(await runtime.isPrepared(), true);
+    const originalScope = await php(bootstrap + "echo json_encode(json_decode(\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('coverage'),true));");
+    assert.deepEqual(originalScope, snapshot.coverage);
+    console.log('PASS real Windows preparation accepts the original partial bootstrap only in the explicit preview runtime and preserves its exact incomplete coverage');
     assert.ok(sourceCode.same(snapshot.source, initial.sourceFingerprint));
     assert.ok(sourceCode.same(snapshot.source, runtime.manifest.sourceFingerprint));
     const localImage = await fetch(runtime.origin + '/storage/products/42/' + encodeURIComponent('رنجة.png'), { headers: { 'X-Fasakhansta-Desktop': runtime.token } });
@@ -108,7 +123,7 @@ async function main() {
       { id: crypto.randomUUID(), device: snapshot.device_id, actor: snapshot.actor_id });
     const pending = await runtime.control({ action: 'pending' }); assert.equal(pending.counts.pending, 1);
     let downloads = 0;
-    const coordinator = () => new DashboardGeneration({ runtime, metadata: runtime.metadata,
+    const coordinator = () => new DashboardGeneration({ runtime, metadata: runtime.metadata, allowPreview: true,
       download: async () => { downloads++; return snapshot; } });
     await assert.rejects(coordinator().run()); assert.equal(downloads, 0);
     await runtime.control({ action: 'failed', command_id: pending.commands[0].command_id, message: 'synthetic conflict', conflict: true });
@@ -120,7 +135,7 @@ async function main() {
     snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
     const retainedPointer = await runtime.metadata.read('prepared');
     const retainedFiles = await fs.readdir(path.join(runtime.profile, 'generations'));
-    await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata,
+    await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata, allowPreview: true,
       download: async () => ({ ...snapshot, source: { ...snapshot.source, sha256: '0'.repeat(64) } }) }).run(), /نسخة البرنامج/);
     assert.deepEqual(await runtime.metadata.read('prepared'), retainedPointer);
     assert.deepEqual(await fs.readdir(path.join(runtime.profile, 'generations')), retainedFiles);
@@ -170,6 +185,9 @@ async function main() {
     const installedManifest = JSON.parse(await fs.readFile(path.join(bundle, 'manifest.json'), 'utf8'));
     await fs.writeFile(path.join(upgraded, 'manifest.json'), JSON.stringify({ ...installedManifest, sourceRevision: 'f'.repeat(40) }));
     runtime = create(upgraded); await runtime.start();
+    assert.equal(await runtime.isPrepared(), true); assert.equal((await runtime.connection()).fullCoverage, false);
+    assert.deepEqual((await runtime.connection()).coverage, snapshot.coverage);
+    console.log('PASS real Windows restart verifies the retained preview source, route scope and imported media while preserving fullCoverage false');
     assert.equal(runtime.manifest.sourceRevision, next.sourceRevision);
     assert.notEqual(runtime.bundle, upgraded);
     await coordinator().recover(); assert.equal(await runtime.metadata.read('refresh'), null);
@@ -178,9 +196,15 @@ async function main() {
     assert.equal(failures.length, 0);
     await runtime.stop();
     const currentPointer = await runtime.metadata.read('prepared');
+    const wrongScope = structuredClone(currentPointer); wrongScope.coverage.write_routes.pop();
+    wrongScope.coverageBinding = coverageCode.binding(wrongScope);
+    await runtime.metadata.write('prepared', wrongScope); runtime = create();
+    await assert.rejects(runtime.start(), /بيانات تجهيز/); assert.equal(runtime.children.length, 0);
+    assert.deepEqual(await runtime.metadata.read('prepared'), wrongScope);
+    await runtime.metadata.write('prepared', currentPointer); runtime = create();
     const wrongSource = { ...currentPointer, sourceFingerprint: { ...currentPointer.sourceFingerprint, sha256: '0'.repeat(64) } };
     await runtime.metadata.write('prepared', wrongSource); runtime = create();
-    await assert.rejects(runtime.start(), /مصدر البرنامج/);
+    await assert.rejects(runtime.start(), /مصدر البرنامج|بيانات تجهيز/);
     assert.deepEqual(await runtime.metadata.read('prepared'), wrongSource);
     assert.equal(runtime.children.length, 0);
     await runtime.metadata.write('prepared', currentPointer); runtime = create(); await runtime.start();

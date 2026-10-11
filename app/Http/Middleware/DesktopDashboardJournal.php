@@ -36,14 +36,14 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
-        if(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)){
+        if(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantProducts::handles($route)){
             return DB::transaction(function()use($request,$next,$actor,$route){
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
-                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::class);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)?\App\Services\Dashboard\DesktopDashboardRestaurantFlags::class:\App\Services\Dashboard\DesktopDashboardRestaurantProducts::class);
                 $command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
                 $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock((string)config('desktop_dashboard.device_id'));abort_unless($scope,403);
                 $actor=$adapter->authorize($route,$payload,$actor,$scope);
-                $request->request->remove('_desktop_command');$response=null;
+                $request->request->remove('_desktop_command');$request->query->remove('_desktop_command');$response=null;
                 $result=app(Journal::class)->execute((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$route,$payload,[],
                     function()use($adapter,$route,$payload,$actor,$request,$next,&$response){
                         $guard=auth('admin');$previous=$guard->getUser();

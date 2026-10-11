@@ -35,7 +35,7 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
   }finally{requests.delete(controller);}
 }
 function state() {
-  const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||'',sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting),sync_running:Boolean(syncSchedule.running)};
+  const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||'',sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
 async function dashboardRequest(command, bootstrap=false, suppliedCredential, endpoint='commands') {
   const credential=suppliedCredential||await localRuntime.connection();
@@ -82,7 +82,7 @@ async function dashboardEnrollment(serverOrigin, input, csrf) {
 async function dashboardState() {
   if(!preparation)return {available:false};
   return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',...(localSync?.state||{}),
-    pending:(localSync?.state.pending||0)+(store?.counts().pending||0),sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting),sync_running:Boolean(syncSchedule.running)};
+    pending:(localSync?.state.pending||0)+(store?.counts().pending||0),sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
 async function dashboardSession(credential) {
   const controller=new AbortController();requests.add(controller);
@@ -103,13 +103,15 @@ async function dashboardOffline(message, failure) {
 }
 function connectDashboardSync() {
   if(localSync)return;
+  // DashboardMode holds the settled home page for the whole guarded replacement.
+  // Individual activation must not nest another window refresh.
   generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),
-    transition:work=>dashboard.current().local?dashboard.refresh(work):work()});
+    allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
   dashboardMode=new DashboardMode({runtime:localRuntime,generations,view:dashboard,probe:dashboardSession,remoteState,remoteAttempts,
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
   localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,refresh:async()=>{
-    const old=store.counts();if(old.pending)throw Error('توجد عمليات محفوظة من النسخة السابقة؛ يلزم تأكيدها قبل العودة للسيرفر.');
-    return dashboardMode.refresh();},
+    const old=store.counts();if(old.pending)throw Error('توجد عمليات محفوظة من النسخة السابقة؛ يلزم تأكيدها قبل تحديث بيانات الجهاز.');
+    return dashboardMode.refresh({stayLocal:true});},
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
 }
 function notify() {if(!quitting&&win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
@@ -187,6 +189,7 @@ app.whenReady().then(async()=>{
       credential:async()=>{if(!(await localRuntime.isPrepared()))return null;return localRuntime.connection();},
       request:(value,credential)=>dashboardRequest(value,false,credential,'remote-attempts')});
     preparation=new DashboardPreparation({runtime:localRuntime,enroll:dashboardEnrollment,download:value=>dashboardRequest(null,true,value),
+      allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
       beforePrepare:async()=>{if(store.get('connection'))await syncSchedule.request();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
       onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},onPrepared:async()=>{connectDashboardSync();}});
     if(await localRuntime.isPrepared()) {
@@ -198,7 +201,13 @@ app.whenReady().then(async()=>{
   }
   if(quitting)return;
   dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
-    prepare:preparation?(serverOrigin,csrf)=>remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf)):undefined,status:dashboardState,remoteState,remoteAttempts,
+    prepare:preparation?async(serverOrigin,csrf)=>{
+      const ready=await remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf));
+      // The encrypted snapshot gate is clean only after preparation returns.
+      // Start using original local forms immediately, even while online.
+      if(ready.prepared)await dashboardMode.local({method:'GET'});
+      return ready;
+    }:undefined,status:dashboardState,remoteState,remoteAttempts,
     synchronize:()=>{syncSchedule.request({refresh:true}).catch(()=>{});return dashboardState();},
     archive:localRuntime?()=>localOrders():undefined,
     selectPrinter:async window=>{

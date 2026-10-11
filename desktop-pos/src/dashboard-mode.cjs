@@ -52,10 +52,26 @@ class DashboardMode {
     await this.metadata.write('return', null);
   }
   recover() { return this.serialize('recover', () => this.cancelHold()); }
-  refresh() {
-    return this.serialize('refresh', async () => {
+  refresh({ stayLocal = false } = {}) {
+    return this.serialize(stayLocal ? 'local-refresh' : 'refresh', async () => {
       try {
+        // Background reconciliation must never turn an online local session into
+        // direct server forms. Bulk replacement waits for a settled read page.
+        if (stayLocal && this.view.canRefresh && !(await this.view.canRefresh())) return { deferred: true };
         await this.remoteAttempts?.recover();
+        if (stayLocal) {
+          const update = async () => {
+            await this.cancelHold();
+            if (this.remoteState) return this.remoteState.snapshot(() => this.generations.run());
+            return this.generations.run();
+          };
+          const result = this.view.current().local
+            ? await this.view.refresh(update)
+            : await this.view.switchTo({ origin: this.runtime.origin, localToken: this.runtime.token }, update);
+          if (result?.deferred) return result;
+          this.onState({ mode: 'local', error: '' });
+          return this.runtime.connection();
+        }
         await this.cancelHold();
         if (this.remoteState) await this.remoteState.snapshot(() => this.generations.run());
         else await this.generations.run();

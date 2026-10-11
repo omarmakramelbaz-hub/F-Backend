@@ -9,7 +9,7 @@ function history(storage,ids,{actor='1:admin',origin='https://dashboard.test',si
     append(field){this.fields.push(field);}
   }
   const form=new Form(),events={},document={body:{dataset:{dashboardLocal:'1',dashboardActor:actor}},documentElement:{},
-    querySelectorAll:()=>[form],createElement:()=>({}),addEventListener:(event,callback)=>events[event]=callback};
+    querySelectorAll:selector=>selector==='form'?[form]:[],createElement:()=>({}),addEventListener:(event,callback)=>events[event]=callback};
   vm.runInNewContext(source,{document,window:{},location:{href:'https://dashboard.test/admin/notifications',origin:'https://dashboard.test'},
     URL,crypto,HTMLFormElement:Form,MutationObserver:class{observe(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)}});
