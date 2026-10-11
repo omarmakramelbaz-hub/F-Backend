@@ -56,6 +56,11 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       await page.waitForURL(url=>url.pathname+url.search===input.returnPath);await page.waitForFunction(()=>!document.body.classList.contains('dashboard-spa-loading'));};
     const posted=path=>[page.waitForRequest(request=>new URL(request.url()).pathname===path&&request.method()==='POST'),
       page.waitForResponse(response=>new URL(response.url()).pathname===path&&response.request().method()==='POST')];
+    const transmit=async(current,action=()=>current.button.click())=>{
+      const outcome=Promise.all(posted(current.path)).then(values=>({values}),error=>({error}));
+      try{await action();}catch(error){process.stdout.write('RESTAURANT_PRODUCT_ACTION_FAILED '+JSON.stringify({path:current.path,error:error.message})+'\n');throw error;}
+      const result=await outcome;if(result.error)throw result.error;return result.values;
+    };
     const assertBody=async(request,current,expected,file)=>{
       const body=await fields(request);assert.equal(request.resourceType(),'fetch');assert.equal(request.isNavigationRequest(),false);
       assert.deepEqual(body.getAll('_token'),[current.csrf]);assert.deepEqual(body.getAll('_desktop_command'),[current.command]);
@@ -119,12 +124,12 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     await current.button.click();const outcome=await lossOutcome;if(outcome.error)throw outcome.error;const [createBody]=outcome.values;await ready(current);
     const afterLoss=await page.evaluate(()=>({url:location.href,spaReady:window.DashboardSPA?.ready(),dashboardPage:Boolean(document.querySelector('[data-dashboard-page]'))}));
     assert.equal(afterLoss.url,input.origin+input.returnPath);assert.equal(afterLoss.spaReady,true);assert.equal(afterLoss.dashboardPage,true);
-    let [sentPromise,responsePromise]=posted(current.path);await current.form.locator('[name="product_name"]').fill(originalName+' مختلف');await current.button.click();
-    let sent=await sentPromise,response=await responsePromise;await assertBody(sent,current,{...base,product_name:originalName+' مختلف'},imageA);assert.equal(response.status(),409);await ready(current);
+    await current.form.locator('[name="product_name"]').fill(originalName+' مختلف');let [sent,response]=await transmit(current);
+    await assertBody(sent,current,{...base,product_name:originalName+' مختلف'},imageA);assert.equal(response.status(),409);await ready(current);
     const persisted=await context.request.get(input.origin+input.returnPath,{headers:{'X-Fasakhansta-Desktop':input.token}});assert.equal(persisted.status(),200);
     const persistedHtml=await persisted.text();assert.ok(persistedHtml.includes(originalName));assert.ok(!persistedHtml.includes(originalName+' مختلف'));
-    [sentPromise,responsePromise]=posted(current.path);await current.form.locator('[name="product_name"]').fill(originalName);await current.button.click();
-    sent=await sentPromise;response=await responsePromise;await assertBody(sent,current,base,imageA);redirect(response);
+    await current.form.locator('[name="product_name"]').fill(originalName);[sent,response]=await transmit(current);
+    await assertBody(sent,current,base,imageA);redirect(response);
     operations.push({route_name:'resturant_products.store',command:current.command,product_name:originalName,product_price:'123',body:createBody,originalRedirect:true});
     const lostProof={command:current.command,committedResponseLost:true,changedSameUuidStatus:409,originalFileSameUuidStatus:302,
       originalFormRetained:true,originalFileRetained:true,persistedNameUnchanged:true,resourceType:lossRequest.resourceType(),isNavigationRequest:lossRequest.isNavigationRequest(),afterLoss};
@@ -139,19 +144,36 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       const result=await associated(form,'put');assert.equal(await form.locator('[name="id"]').inputValue(),String(productId));
       assert.equal(await form.locator('[name="product_name"]').inputValue(),originalName);return result;
     };
+    const validOriginalEdit=async(current,stage)=>{
+      const state=await current.form.evaluate(actual=>{
+        const buttons=Array.from(actual.elements).filter(control=>control.tagName==='BUTTON'&&control.type==='submit'),
+          footer=actual.closest('.modal')?.querySelector('.modal-footer button[type="submit"]');
+        return {spaReady:window.DashboardSPA?.ready(),ajaxActive:window.jQuery?.active,buttonCount:buttons.length,
+          ownButtonCount:buttons.filter(button=>button.form===actual).length,footerExists:Boolean(footer),footerOwned:footer?.form===actual,footerDescendant:actual.contains(footer),
+          controls:Array.from(actual.elements).filter(control=>control.form===actual).map(control=>({name:control.name,type:control.type,
+            value:['_token','_desktop_command'].includes(control.name)?'[bound]':control.value,valid:!control.willValidate||control.validity.valid,
+            validationMessage:control.validationMessage||'',files:control.type==='file'?Array.from(control.files).map(file=>({name:file.name,type:file.type,size:file.size})):undefined}))};
+      });
+      process.stdout.write('RESTAURANT_PRODUCT_EDIT_BEFORE_SUBMIT '+JSON.stringify({stage,...state})+'\n');
+      assert.equal(state.spaReady,true);assert.equal(state.ajaxActive,0);assert.equal(state.buttonCount,1);assert.equal(state.ownButtonCount,1);
+      assert.equal(state.footerExists,true);assert.equal(state.footerOwned,true);assert.equal(state.footerDescendant,true);
+      assert.deepEqual(state.controls.filter(control=>!control.valid),[],'The original edit controls must be natively valid.');
+      assert.equal(await current.button.count(),1);assert.equal(await current.button.evaluate((button,actual)=>button.form===actual,current.element),true);
+      assert.equal(await current.button.isEnabled(),true);
+    };
     current=await edit();assert.notEqual(current.command,operations[0].command);await fill(current,originalName,'124',description);
-    [sentPromise,responsePromise]=posted(current.path);await current.button.click();sent=await sentPromise;response=await responsePromise;
+    await validOriginalEdit(current,'no-image');[sent,response]=await transmit(current);
     const noImageBody=await assertBody(sent,current,{...base,product_price:'124',id:String(productId),product_id:['1','1'],subcatid:'2'},null);redirect(response);
     operations.push({route_name:'resturant_products.update',command:current.command,product_name:originalName,product_price:'124',body:noImageBody,originalRedirect:true});await accepted(current);
     current=await edit();assert.notEqual(current.command,operations[1].command);await fill(current,originalName,'125',description);await current.upload.setInputFiles(imageB);
-    [sentPromise,responsePromise]=posted(current.path);await current.button.click();sent=await sentPromise;response=await responsePromise;
+    await validOriginalEdit(current,'replacement-image');[sent,response]=await transmit(current);
     const replacementBody=await assertBody(sent,current,{...base,product_price:'125',id:String(productId),product_id:['1','1'],subcatid:'2'},imageB);redirect(response);
     operations.push({route_name:'resturant_products.update',command:current.command,product_name:originalName,product_price:'125',body:replacementBody,originalRedirect:true});await accepted(current);
     const deleteForm=createdRow().locator('form[action="'+input.origin+'/admin/resturant_products/'+productId+'"]');
     current=await associated(deleteForm,'DELETE');assert.notEqual(current.command,operations[2].command);
-    [sentPromise,responsePromise]=posted(current.path);await current.button.click();await overlay.waitFor({state:'visible'});
-    assert.equal(await overlay.locator('.swal-title').textContent(),'هل انت متاكد من حذف هذا العنصر ؟');await overlay.getByRole('button',{name:'نعم',exact:true}).click();
-    sent=await sentPromise;response=await responsePromise;const deletionBody=await fields(sent);
+    [sent,response]=await transmit(current,async()=>{await current.button.click();await overlay.waitFor({state:'visible'});
+      assert.equal(await overlay.locator('.swal-title').textContent(),'هل انت متاكد من حذف هذا العنصر ؟');await overlay.getByRole('button',{name:'نعم',exact:true}).click();});
+    const deletionBody=await fields(sent);
     assert.deepEqual(Array.from(deletionBody.keys()).sort(),['_desktop_command','_method','_token'].sort());
     assert.deepEqual(deletionBody.getAll('_desktop_command'),[current.command]);assert.deepEqual(deletionBody.getAll('_token'),[current.csrf]);assert.deepEqual(deletionBody.getAll('_method'),['DELETE']);
     assert.equal(sent.resourceType(),'fetch');assert.equal(sent.isNavigationRequest(),false);redirect(response);
