@@ -327,16 +327,51 @@ class WhatsAppReplyService
 
     private function recent(int $conversation): array
     {
-        $items = [];
+        $items = []; $acceptedKeys = [];
         foreach ($this->requests($conversation)->orderByDesc('id')->limit(20)->get() as $row) {
             try {
                 $audit = $this->decrypt($row->audit);
+                $acceptedAt = null;
+                if ($row->state === 'ACCEPTED' && is_string($row->completed_at ?? null)) {
+                    $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',
+                        $row->completed_at, new \DateTimeZone('UTC'));
+                    if ($date && $date->format('Y-m-d H:i:s') === $row->completed_at)
+                        $acceptedAt = $date->format('Y-m-d\\TH:i:s\\Z');
+                }
+                $index = count($items);
                 $items[] = ['reply_id' => (int) $row->id, 'client_request_id' => $audit['client_request_id'],
                     'state' => $this->publicState($row->state), 'kind' => $row->kind,
                     'text' => $row->kind === 'text' ? $audit['text'] : null,
-                    'created_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($row->created_at . ' UTC')),
-                    'actor_id' => (int) $row->actor_id];
+                    'created_at' => gmdate('Y-m-d\\TH:i:s\\Z', strtotime($row->created_at . ' UTC')),
+                    'actor_id' => (int) $row->actor_id, 'source' => 'dashboard_api',
+                    'accepted_at' => $acceptedAt, 'projected_message_id' => null];
+                // Native message IDs stay encrypted. Their inbox hash uses its own namespace.
+                if ($row->state === 'ACCEPTED' && in_array($row->kind, ['text', 'audio'], true)
+                    && is_string($row->response_details ?? null)) {
+                    try {
+                        $response = $this->decrypt($row->response_details);
+                        $native = $response['message_id'] ?? null;
+                        if (is_string($native) && preg_match('/\\Awamid\\.[A-Za-z0-9_+\\/=.-]{1,500}\\z/', $native))
+                            $acceptedKeys[$index] = ['key' => hash('sha256', 'whatsapp-message-v1:'
+                                . self::WABA . ':' . self::PHONE . ':' . $native), 'type' => $row->kind];
+                    } catch (\Throwable $error) { /* An unavailable receipt never hides the accepted audit. */ }
+                }
             } catch (\Throwable $error) { /* Cipher failures never reveal stored bytes. */ }
+        }
+        if ($acceptedKeys !== []) {
+            $projected = [];
+            foreach (DB::table('whatsapp_inbox_messages as m')
+                ->join('whatsapp_inbox_conversations as c', 'c.id', '=', 'm.conversation_id')
+                ->where('c.waba_id', self::WABA)->where('c.phone_number_id', self::PHONE)
+                ->where('m.conversation_id', $conversation)->where('m.direction', 'outbound')
+                ->whereIn('m.type', ['text', 'audio'])
+                ->whereIn('m.message_key', array_values(array_unique(array_column($acceptedKeys, 'key'))))
+                ->get(['m.id', 'm.message_key', 'm.type']) as $message) {
+                if ((int) $message->id > 0)
+                    $projected[$message->message_key][$message->type] = (int) $message->id;
+            }
+            foreach ($acceptedKeys as $index => $lookup)
+                $items[$index]['projected_message_id'] = $projected[$lookup['key']][$lookup['type']] ?? null;
         }
         return array_reverse($items);
     }

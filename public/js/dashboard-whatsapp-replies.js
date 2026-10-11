@@ -19,13 +19,14 @@
         var preview = panel.querySelector('[data-wa-voice-preview]'), voiceTime = panel.querySelector('[data-wa-voice-time]');
         var voiceNote = panel.querySelector('[data-wa-voice-status]');
         var audit = panel.querySelector('[data-wa-reply-audit]'), auditList = panel.querySelector('[data-wa-reply-audit-list]');
-        var controllers = new Map(), conversation = 0, generation = 0, closed = false, denied = false;
+        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
         function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
         function clear(reason) {
-            generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
+            if (conversation) publishAcceptedReplies({recent_replies: []}, conversation, generation);
+            generation++; abort(); conversation = 0; inboxGeneration = null; state = null; attempt = null; uncertain = false; sending = false; checking = false;
             clearVoice(); openingMicrophone = false;
             text.value = ''; count.textContent = '0 / 4096'; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
@@ -122,6 +123,20 @@
             });
             audit.hidden = !replies.length;
         }
+        function publishAcceptedReplies(data, selected, current) {
+            if (closed || denied || current !== generation || selected !== conversation || !Number.isSafeInteger(inboxGeneration)
+                || !document.dispatchEvent || typeof CustomEvent === 'undefined') return;
+            var replies = Array.isArray(data.recent_replies) ? data.recent_replies.slice(0, 20).filter(function (reply) {
+                return reply && reply.state === 'ACCEPTED';
+            }).map(function (reply) {
+                return {id: reply.reply_id, kind: reply.kind, text: reply.text, state: reply.state, source: reply.source,
+                    created_at: reply.created_at, accepted_at: reply.accepted_at, projected_message_id: reply.projected_message_id};
+            }) : [];
+            document.dispatchEvent(new CustomEvent('whatsapp:accepted-replies', {detail: {
+                conversation: selected, generation: inboxGeneration, replies: replies,
+                labels: {voice_message: labels.voice_message, accepted: labels.accepted, api_source: labels.api_source}
+            }}));
+        }
         function loadState(preserve) {
             if (!conversation || closed || denied || checking) return Promise.resolve();
             var selected = conversation, current = generation;
@@ -132,6 +147,7 @@
                 if (closed || current !== generation || selected !== conversation) return;
                 state = data;
                 renderAudit(data);
+                publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
                     var accepted = data.request_state === 'ACCEPTED', wasText = attempt.kind === 'text'; uncertain = false; attempt = null;
                     if (accepted && wasText) { text.value = ''; count.textContent = '0 / 4096'; }
@@ -146,7 +162,9 @@
         function choose(event) {
             var id = Number(event && event.detail && event.detail.conversation);
             if (!Number.isSafeInteger(id) || id < 1 || closed || denied || document.hidden || navigator.onLine === false) return;
-            clear(); conversation = id; panel.hidden = false; note(labels.loading); loadState();
+            clear(); conversation = id;
+            inboxGeneration = event && event.detail && Number.isSafeInteger(event.detail.generation) ? event.detail.generation : null;
+            panel.hidden = false; note(labels.loading); loadState();
         }
         function uuid() {
             if (!window.crypto) return null;
@@ -313,9 +331,10 @@
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
             if (active === session) destroy(); else session.destroy();
         });
-        var selected = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selection === 'function'
-            ? window.DashboardWhatsAppInbox.selection() : 0;
-        if (selected) choose({detail: {conversation: selected}});
+        var selection = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selectionState === 'function'
+            ? window.DashboardWhatsAppInbox.selectionState() : {conversation: window.DashboardWhatsAppInbox
+                && typeof window.DashboardWhatsAppInbox.selection === 'function' ? window.DashboardWhatsAppInbox.selection() : 0, generation: null};
+        if (selection.conversation) choose({detail: selection});
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardWhatsAppReplies = {mount: mount, destroy: destroy};
@@ -323,3 +342,4 @@
     document.addEventListener('dashboard:page-mounted', mount);
     mount();
 }());
+

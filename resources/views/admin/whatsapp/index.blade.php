@@ -28,7 +28,7 @@
                 <ol class="wa-inbox-message-list" data-wa-messages></ol>
             </div>
             @include('admin.whatsapp.replies')
-            <footer class="wa-inbox-chat-footer">{{ app()->getLocale() === 'ar' ? 'تظهر الرسائل الصادرة بعد وصول نسخة الرسالة من واتساب.' : 'Outgoing messages appear when a copy arrives from WhatsApp.' }}</footer>
+            <footer class="wa-inbox-chat-footer">{{ app()->getLocale() === 'ar' ? 'الردود المرسلة من الداشبورد تظهر هنا بعد قبول واتساب للإرسال.' : 'Dashboard replies appear here after WhatsApp accepts the send.' }}</footer>
         </section>
     </div>
     @include('admin.whatsapp.orders')

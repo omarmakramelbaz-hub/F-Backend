@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "app/Services/Dashboard/WhatsAppReplyService.php",
+      "before_blob": "2cfc072d8e25c40e2f8de6fec5f8eca5899219bd",
+      "after_blob": "7047caefba93935a25029ea99715dac645d9c24d"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "before_blob": "f079f9ff546e0e338567c6e408845defef279149",
+      "after_blob": "2a7a826839c19a8cd2b532399f5245b2e5e23095"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "before_blob": "d2a0bc0476eb1cc8ddcb62678dda8545398b072e",
+      "after_blob": "5d1ee1a58557f2d52b04a5f8e1f998f10a449861"
+    }
+  ],
+  "views": [
+    {
+      "path": "resources/views/admin/whatsapp/index.blade.php",
+      "name": "admin.whatsapp.index",
+      "replacements": [
+        {
+          "old": "تظهر الرسائل الصادرة بعد وصول نسخة الرسالة من واتساب.",
+          "new": "الردود المرسلة من الداشبورد تظهر هنا بعد قبول واتساب للإرسال."
+        },
+        {
+          "old": "Outgoing messages appear when a copy arrives from WhatsApp.",
+          "new": "Dashboard replies appear here after WhatsApp accepts the send."
+        }
+      ]
+    },
+    {
+      "path": "resources/views/admin/whatsapp/replies.blade.php",
+      "name": "admin.whatsapp.replies",
+      "replacements": [
+        {
+          "old": "'accepted'=>'قُبل الإرسال. ستظهر نسخة الرد في المحادثة عند وصولها من واتساب.',",
+          "new": "'accepted'=>'قُبل الإرسال ويظهر ردك في المحادثة.',\n    'api_source'=>'رد من الداشبورد · قبله واتساب',"
+        },
+        {
+          "old": "'accepted'=>'Sending was accepted. A copy will appear when the WhatsApp webhook arrives.',",
+          "new": "'accepted'=>'WhatsApp accepted the send; your reply appears in the conversation.',\n    'api_source'=>'Dashboard reply · accepted by WhatsApp',"
+        }
+      ]
+    }
+  ]
+}

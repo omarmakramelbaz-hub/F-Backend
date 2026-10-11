@@ -2,7 +2,8 @@
 $waReplyLabels = app()->getLocale() === 'ar' ? [
     'title'=>'الرد على العميل', 'placeholder'=>'اكتب ردًا من حساب فسخانستا…', 'send'=>'إرسال الرد',
     'refresh'=>'مراجعة حالة الإرسال', 'loading'=>'جارٍ التحقق…', 'sending'=>'جارٍ إرسال الرد…',
-    'accepted'=>'قُبل الإرسال. ستظهر نسخة الرد في المحادثة عند وصولها من واتساب.',
+    'accepted'=>'قُبل الإرسال ويظهر ردك في المحادثة.',
+    'api_source'=>'رد من الداشبورد · قبله واتساب',
     'unknown'=>'حالة الإرسال غير مؤكدة. راجع واتساب وحالة الإرسال قبل كتابة رد آخر.',
     'failed'=>'لم يُقبل الإرسال. راجع حالة الخدمة قبل المحاولة مرة أخرى.',
     'unavailable'=>'الرد من الداشبورد غير متاح الآن.', 'expired'=>'انتهت مدة الرد المتاحة. يمكن الرد من واتساب بيزنس.',
@@ -17,7 +18,8 @@ $waReplyLabels = app()->getLocale() === 'ar' ? [
 ] : [
     'title'=>'Reply to customer', 'placeholder'=>'Write a reply from Fasakhansta…', 'send'=>'Send reply',
     'refresh'=>'Check send status', 'loading'=>'Checking…', 'sending'=>'Sending reply…',
-    'accepted'=>'Sending was accepted. A copy will appear when the WhatsApp webhook arrives.',
+    'accepted'=>'WhatsApp accepted the send; your reply appears in the conversation.',
+    'api_source'=>'Dashboard reply · accepted by WhatsApp',
     'unknown'=>'Send status is uncertain. Check WhatsApp and the send status before composing another reply.',
     'failed'=>'Sending was not accepted. Check the service before trying again.',
     'unavailable'=>'Replies from the dashboard are temporarily unavailable.',

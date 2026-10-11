@@ -27,7 +27,7 @@
         var refresh = panel.querySelector('[data-wa-refresh]');
         var back = panel.querySelector('[data-wa-back]');
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
-        var threadMap = new Map(), messageMap = new Map(), controllers = new Map();
+        var threadMap = new Map(), messageMap = new Map(), apiReplyMap = new Map(), controllers = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
         var chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
@@ -51,6 +51,10 @@
             return full ? date.toLocaleString(document.documentElement.lang || 'ar')
                 : date.toLocaleDateString(document.documentElement.lang || 'ar', {day: 'numeric', month: 'short'})
                     + ' · ' + date.toLocaleTimeString(document.documentElement.lang || 'ar', {hour: '2-digit', minute: '2-digit'});
+        }
+        function messageStamp(value) {
+            return typeof value === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/.test(value)
+                ? value.replace(' ', 'T') + 'Z' : value;
         }
         function typeText(type) { return (labels.types || {})[type] || (labels.types || {}).other || ''; }
         function cartNode(cart) {
@@ -86,7 +90,7 @@
                 denied = true; generation++; chosen = 0;
                 clearTimeout(readTimer);
                 emit('whatsapp:private-reset', {reason: 'denied'});
-                threadMap.clear(); messageMap.clear(); threads.textContent = ''; messages.textContent = '';
+                threadMap.clear(); messageMap.clear(); apiReplyMap.clear(); threads.textContent = ''; messages.textContent = '';
                 unreadMap.clear(); readSeen.clear(); readPending.clear();
                 if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
                 title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
@@ -220,9 +224,33 @@
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
             var fragment = document.createDocumentFragment();
-            Array.from(messageMap.values()).sort(function (a, b) {
-                return String(a.sent_at || a.received_at || '').localeCompare(String(b.sent_at || b.received_at || '')) || a.id - b.id;
-            }).forEach(function (message) {
+            var rows = Array.from(messageMap.values()).map(function (message) {
+                return {message: message, stamp: messageStamp(message.sent_at || message.received_at), order: Number(message.id), api: false};
+            });
+            apiReplyMap.forEach(function (reply) {
+                var projected = Number.isSafeInteger(reply.projected_message_id) ? messageMap.get(reply.projected_message_id) : null;
+                // Only a projected copy already loaded in this conversation replaces the API audit bubble.
+                if (projected && projected.direction === 'outbound') return;
+                rows.push({message: reply, stamp: reply.timestamp, order: reply.id, api: true});
+            });
+            rows.sort(function (a, b) {
+                var left = new Date(a.stamp).getTime(), right = new Date(b.stamp).getTime();
+                var byTime = Number.isFinite(left) && Number.isFinite(right) ? left - right
+                    : String(a.stamp || '').localeCompare(String(b.stamp || ''));
+                return byTime || Number(a.api) - Number(b.api) || a.order - b.order;
+            }).forEach(function (row) {
+                var message = row.message;
+                if (row.api) {
+                    var apiItem = node('li', 'wa-inbox-message is-outbound is-api-reply');
+                    apiItem.dataset.waApiReplyId = 'api-reply:' + message.id; apiItem.dataset.waDirection = 'outbound';
+                    var apiBubble = node('article', 'wa-inbox-bubble');
+                    apiBubble.appendChild(node('span', 'wa-inbox-author', labels.business));
+                    apiBubble.appendChild(node('span', 'wa-inbox-message-type', message.source_label));
+                    apiBubble.appendChild(node('p', 'wa-inbox-message-text', message.kind === 'text' ? message.text : message.voice_label));
+                    if (message.accepted_label) apiBubble.appendChild(node('span', 'wa-inbox-message-type', message.accepted_label));
+                    var apiTime = node('time', '', dateText(row.stamp, true)); if (row.stamp) apiTime.dateTime = row.stamp;
+                    apiBubble.appendChild(apiTime); apiItem.appendChild(apiBubble); fragment.appendChild(apiItem); return;
+                }
                 var item = node('li', 'wa-inbox-message ' + (message.direction === 'outbound' ? 'is-outbound' : 'is-inbound'));
                 item.dataset.waMessageId = String(message.id); item.dataset.waDirection = message.direction;
                 var bubble = node('article', 'wa-inbox-bubble');
@@ -237,11 +265,40 @@
                 bubble.appendChild(time); item.appendChild(bubble); fragment.appendChild(item);
             });
             messages.textContent = ''; messages.appendChild(fragment);
-            chatStatus.textContent = messageMap.size ? '' : labels.no_messages;
+            chatStatus.textContent = rows.length ? '' : labels.no_messages;
             if (prepend) scroll.scrollTop = oldTop + scroll.scrollHeight - oldHeight;
             else if (toBottom) scroll.scrollTop = scroll.scrollHeight;
             else scroll.scrollTop = oldTop;
             acknowledgeVisible();
+        }
+        function acceptedReplies(event) {
+            var detail = event && event.detail;
+            if (closed || denied || document.hidden || navigator.onLine === false || !chosen || !detail
+                || detail.conversation !== chosen || detail.generation !== generation || !Array.isArray(detail.replies)) return;
+            var nearBottom = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 90;
+            var language = document.documentElement && document.documentElement.lang || 'ar';
+            var arabic = /^ar(?:-|$)/i.test(language), replyLabels = detail.labels || {};
+            apiReplyMap.clear();
+            detail.replies.slice(0, 20).forEach(function (reply) {
+                if (!reply || !Number.isSafeInteger(reply.id) || reply.id < 1 || reply.state !== 'ACCEPTED'
+                    || reply.source !== 'dashboard_api' || ['text', 'audio', 'voice'].indexOf(reply.kind) === -1
+                    || reply.kind === 'text' && (typeof reply.text !== 'string' || !reply.text)) return;
+                var stamp = messageStamp(reply.accepted_at || reply.created_at);
+                if (!stamp || !Number.isFinite(new Date(stamp).getTime())) return;
+                apiReplyMap.set('api-reply:' + reply.id, {id: reply.id, kind: reply.kind, text: reply.kind === 'text' ? reply.text.slice(0, 4096) : '',
+                    timestamp: new Date(stamp).toISOString(), projected_message_id: Number.isSafeInteger(reply.projected_message_id)
+                        && reply.projected_message_id > 0 ? reply.projected_message_id : null,
+                    source_label: typeof replyLabels.api_source === 'string' && replyLabels.api_source ? replyLabels.api_source
+                        : arabic ? 'رد من الداشبورد' : 'Dashboard reply',
+                    accepted_label: replyLabels.api_source ? '' : typeof replyLabels.accepted === 'string' ? replyLabels.accepted : '',
+                    voice_label: typeof replyLabels.voice_message === 'string' ? replyLabels.voice_message : typeText('audio')});
+            });
+            renderMessages(false, nearBottom);
+        }
+        function resetAcceptedReplies(event) {
+            apiReplyMap.clear();
+            var reason = event && event.detail && event.detail.reason;
+            if (!closed && reason !== 'denied' && reason !== 'closed') renderMessages(false, false);
         }
         function loadMessages(mode) {
             if (!chosen || closed || messageLoading) return Promise.resolve();
@@ -275,8 +332,8 @@
         function choose(id) {
             if (closed || denied || !id) return;
             if (chosen === id) { panel.classList.add('has-selection'); back.hidden = false; return; }
-            generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear();
-            emit('whatsapp:conversation-selected', {conversation: id});
+            generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear(); apiReplyMap.clear();
+            emit('whatsapp:conversation-selected', {conversation: id, generation: generation});
             if (controllers.has('messages')) controllers.get('messages').abort();
             messages.textContent = ''; title.textContent = labels.loading; customer.textContent = '';
             chatStatus.textContent = labels.loading; older.hidden = true;
@@ -309,27 +366,32 @@
         }
         function visibility() {
             if (document.hidden) { clearTimeout(timer); emit('whatsapp:private-reset', {reason: 'hidden'}); }
-            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); acknowledgeVisible(); poll(); }
+            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation}); acknowledgeVisible(); poll(); }
         }
         function online() {
             clearTimeout(timer);
             if (navigator.onLine === false) { emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
-            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); poll(); }
+            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation}); poll(); }
         }
         panel.addEventListener('click', click);
         scroll.addEventListener('scroll', readScroll);
         document.addEventListener('visibilitychange', visibility);
+        document.addEventListener('whatsapp:accepted-replies', acceptedReplies);
+        document.addEventListener('whatsapp:private-reset', resetAcceptedReplies);
         window.addEventListener('offline', online); window.addEventListener('online', online);
-        var session = {panel: panel, selection: function () { return chosen; }, destroy: function () {
+        var session = {panel: panel, selection: function () { return chosen; },
+            selectionState: function () { return {conversation: chosen, generation: generation}; }, destroy: function () {
             if (closed) return; closed = true; generation++; clearTimeout(timer);
             clearTimeout(readTimer);
             emit('whatsapp:private-reset', {reason: 'closed'});
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
             panel.removeEventListener('click', click); document.removeEventListener('visibilitychange', visibility);
+            document.removeEventListener('whatsapp:accepted-replies', acceptedReplies);
+            document.removeEventListener('whatsapp:private-reset', resetAcceptedReplies);
             scroll.removeEventListener('scroll', readScroll);
             window.removeEventListener('offline', online); window.removeEventListener('online', online);
             // No chat cache in browser storage; remove private text when the page leaves the shell.
-            threadMap.clear(); messageMap.clear(); threads.textContent = ''; messages.textContent = '';
+            threadMap.clear(); messageMap.clear(); apiReplyMap.clear(); threads.textContent = ''; messages.textContent = '';
             unreadMap.clear(); readSeen.clear(); readPending.clear();
             if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
             config.csrf = '';
@@ -345,8 +407,10 @@
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardWhatsAppInbox = {mount: mount, destroy: destroy,
-        selection: function () { return active && active.selection ? active.selection() : 0; }};
+        selection: function () { return active && active.selection ? active.selection() : 0; },
+        selectionState: function () { return active && active.selectionState ? active.selectionState() : {conversation: 0, generation: 0}; }};
     document.addEventListener('dashboard:before-unload', destroy);
     document.addEventListener('dashboard:page-mounted', mount);
     mount();
 }());
+
