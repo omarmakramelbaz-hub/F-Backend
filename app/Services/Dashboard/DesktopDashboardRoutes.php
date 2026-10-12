@@ -14,6 +14,7 @@ class DesktopDashboardRoutes
     public const WRITES=[
         'resturants.changeStatus','resturants.changeUnderContract','update_sorting_is_featured',
         'resturant_products.update.status','resturant_products.update.highest_rated',
+        'resturant_products.store','resturant_products.update','resturant_products.destroy',
         'resturant_reviews.destroy',
         'userwishlists.destroy',
         'order-board.menu.availability',

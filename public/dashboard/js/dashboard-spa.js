@@ -31,6 +31,21 @@
     var status;
     var pendingHistory = null;
     var currentDialog = null;
+    var modalPhases = new WeakMap();
+    ['show.bs.modal', 'shown.bs.modal', 'hide.bs.modal', 'hidden.bs.modal'].forEach(function (type, index) {
+        native.add.call(document, type, function (event) {
+            var element = event.target;
+            if (!element || !element.matches || !element.matches('.modal')) return;
+            modalPhases.set(element, { phase: ['showing', 'shown', 'hiding', 'hidden'][index],
+                previous: modalPhase(element), event: event, cancellable: index === 0 || index === 2 });
+        }, true);
+    });
+
+    function modalPhase(element) {
+        var state = modalPhases.get(element);
+        if (state) return state.cancellable && state.event.defaultPrevented ? state.previous : state.phase;
+        return element.classList.contains('show') ? 'shown' : 'hidden';
+    }
 
     function currentScope() {
         if (active) return active;
@@ -488,6 +503,35 @@
         // named callbacks used by existing inline buttons and the Maps SDK.
         scope.run(new Function('scope', 'dashboardSourceText', source + '\n' + exports + '\n//# sourceURL=dashboard-page-inline.js'), window, [scope, source]);
     }
+    async function closeModals(region) {
+        var Modal = window.bootstrap && window.bootstrap.Modal;
+        if (!Modal || typeof Modal.getInstance !== 'function') return;
+        await Promise.all(Array.from(region.querySelectorAll('.modal')).map(function (element) {
+            var instance = Modal.getInstance(element), phase = modalPhase(element);
+            if (!instance || phase === 'hidden') return;
+            // Bootstrap keeps its element and backdrop alive until hidden. Page
+            // disposal must not cancel the timers/listeners that finish that hide.
+            return new Promise(function (resolve, reject) {
+                var timer;
+                function cleanup() {
+                    native.remove.call(element, 'hidden.bs.modal', hidden);
+                    native.remove.call(element, 'shown.bs.modal', shown);
+                    native.clearTimeout(timer);
+                }
+                function hidden() { cleanup(); resolve(); }
+                function shown() {
+                    try { instance.hide(); }
+                    catch (error) { cleanup(); reject(error); }
+                }
+                native.add.call(element, 'hidden.bs.modal', hidden);
+                native.add.call(element, 'shown.bs.modal', shown);
+                timer = native.timeout(function () {
+                    cleanup(); reject(new Error('Dashboard modal could not finish closing.'));
+                }, 2000);
+                if (phase === 'shown') shown();
+            });
+        }));
+    }
     function destroyWidgets(region) {
         var $ = window.jQuery;
         if ($) {
@@ -497,7 +541,7 @@
             if ($.fn.jstree) $(region).find('.jstree').each(function () { var tree = $(this).jstree(true); if (tree) tree.destroy(); });
             $(region).find('select.select2-hidden-accessible').each(function () { try { $(this).select2('destroy'); } catch (_) {} });
             $(region).find('select,input').each(function () { if (this.selectize) this.selectize.destroy(); if (this._flatpickr) this._flatpickr.destroy(); });
-            $(region).find('.modal').each(function () { try { $(this).modal('hide').modal('dispose'); } catch (_) {} });
+            $(region).find('.modal').each(function () { try { $(this).modal('dispose'); } catch (_) {} });
             $(region).find('.note-editor').each(function () { var textarea = $(this).prev(); try { textarea.summernote('destroy'); } catch (_) {} });
             $(region).find('*').addBack().off();
         }
@@ -545,6 +589,9 @@
         // Stage slow styles while the current page and its handlers stay alive.
         // A failed newer navigation must leave that page fully usable.
         var styles = await stageCss(doc, url);
+        if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
+        try { await closeModals(outgoing); }
+        catch (error) { styles.forEach(function (node) { node.remove(); }); throw error; }
         if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
         if (!options.pop) {
             historyKey++;

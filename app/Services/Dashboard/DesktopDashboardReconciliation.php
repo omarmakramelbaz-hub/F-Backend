@@ -21,14 +21,14 @@ class DesktopDashboardReconciliation
         $when=Carbon::parse($v['occurred_at'],'UTC')->setTimezone('UTC');
         abort_unless($when->lte(now('UTC')->addMinutes(5)) && $when->gte(Carbon::parse($device->enrolled_at,'UTC')->subMinutes(5)),422,'وقت العملية خارج فترة ربط الجهاز.');
         $previous=Carbon::getTestNow();
-        try{return DB::transaction(function()use($device,$v,$when){
+        $work=function()use($device,$v,$when){return DB::transaction(function()use($device,$v,$when){
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
-            if(DesktopDashboardRestaurantFlags::handles($v['route_name'])||DesktopDashboardRestaurantProducts::handles($v['route_name'])){
+            if(DesktopDashboardRestaurantFlags::handles($v['route_name'])||DesktopDashboardRestaurantProducts::handles($v['route_name'])||DesktopDashboardRestaurantProductCrud::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403,'حساب الجهاز تغيّر قبل تنفيذ العملية المحلية.');
-                $adapter=app(DesktopDashboardRestaurantFlags::handles($v['route_name'])?DesktopDashboardRestaurantFlags::class:DesktopDashboardRestaurantProducts::class);$adapter->validateReferences($v['payload']);
-                if(DesktopDashboardRestaurantProducts::handles($v['route_name']))
+                $adapter=app(match(true){DesktopDashboardRestaurantFlags::handles($v['route_name'])=>DesktopDashboardRestaurantFlags::class,DesktopDashboardRestaurantProductCrud::handles($v['route_name'])=>DesktopDashboardRestaurantProductCrud::class,default=>DesktopDashboardRestaurantProducts::class});$adapter->validateReferences($v['payload']);
+                if(DesktopDashboardRestaurantProducts::handles($v['route_name'])||DesktopDashboardRestaurantProductCrud::handles($v['route_name']))
                     abort_unless($v['local_references']===$adapter->outputs($v['local_result']),409,'مراجع نتيجة صنف المطعم المحلية غير متطابقة.');
                 $flagPayload=$this->references->resolve($device->id,$v['payload']);
                 $actor=$adapter->authorize($v['route_name'],$flagPayload,$actor,$locked);
@@ -59,7 +59,7 @@ class DesktopDashboardReconciliation
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
-                elseif(!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                elseif(!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
                     $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();
@@ -71,16 +71,22 @@ class DesktopDashboardReconciliation
                 }
                 Carbon::setTestNow($when);
                 try{
+                    $execute=function()use($v,$payload,$actor,$when){
                     $result=$this->commands->execute($v['route_name'],$payload,$actor);
                     if(DesktopDashboardRestaurantFlags::handles($v['route_name']))
                         app(DesktopDashboardRestaurantFlags::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardRestaurantProducts::handles($v['route_name']))
                         app(DesktopDashboardRestaurantProducts::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
+                    if(DesktopDashboardRestaurantProductCrud::handles($v['route_name']))
+                        app(DesktopDashboardRestaurantProductCrud::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if($v['route_name']==='employees.attendance'){
                         $facts=function($row){return array_intersect_key($row,array_flip(['status','checked_in_at','checked_out_at','attendance_rule_snapshot']));};
                         abort_unless($this->journal->fingerprint($facts($result['attendance']??[]))===$this->journal->fingerprint($facts($v['local_result']['attendance']??[])),409,'مواعيد أو خصومات الحضور تغيرت على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
                     }
                     $server=DesktopDashboardMenuAvailability::handles($v['route_name'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):$this->references->outputs($v['route_name'],$result,$payload['values'],(int)$actor->id);
+                    return [$result,$server];
+                    };
+                    [$result,$server]=DesktopDashboardRestaurantProductCrud::handles($v['route_name'])?app(DesktopDashboardRestaurantProductCrud::class)->replayContext($v['route_name'],$v['local_result'],$v['payload'],$when,$execute):$execute();
                 }finally{Carbon::setTestNow($clock);}
                 $local=$v['local_references'];$mapping=[];
                 foreach($local as $entity=>$id){abort_unless(isset($server[$entity]),409,'نتيجة السيرفر لا تطابق مراجع العملية المحلية.');$mapping[]=['entity'=>$entity,'local_id'=>$id,'server_id'=>$server[$entity]];}
@@ -88,6 +94,8 @@ class DesktopDashboardReconciliation
             });
             $this->journal->acknowledge($device->id,$v['command_id'],$receipt);
             return $receipt;
-        });}finally{Carbon::setTestNow($previous);}
+        });};
+        try{return DesktopDashboardRestaurantProductCrud::handles($v['route_name'])?app(DesktopDashboardProductImages::class)->guard(fn()=>app(DesktopDashboardProductEffects::class)->guard($work)):$work();}
+        finally{Carbon::setTestNow($previous);}
     }
 }

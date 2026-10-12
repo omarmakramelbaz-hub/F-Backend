@@ -4,11 +4,22 @@
         if (!window.FasakhanstaDesktop || document.body?.dataset.dashboardRemoteAttempts !== '1') return;
         try { if (!(await window.FasakhanstaDesktop.status()).prepared) return; } catch { return; }
     }
+    const ownedControl = (form, name) => {
+        if (form.elements) return Array.from(form.elements).find(control => control.form === form
+            && control.name === name && !control.disabled && !control.matches?.(':disabled'));
+        const control = form.querySelector('[name="' + name + '"]');
+        return control && (!control.form || control.form === form) && !control.disabled ? control : null;
+    };
+    const effectiveMethod = form => (ownedControl(form, '_method')?.value || form.method).toUpperCase();
+    const productRoute = (path, method) => (method === 'POST' && path === '/admin/resturant_products')
+        || (method === 'PUT' && path === '/admin/resturant_products/update')
+        || (method === 'DELETE' && /^\/admin\/resturant_products\/[1-9][0-9]{0,18}$/.test(path));
     const eligible = form => {
         const url = new URL(form.action, location.href);
-        const method = (form.querySelector('[name="_method"]')?.value || form.method).toUpperCase();
-        return url.origin === location.origin && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+        const method = effectiveMethod(form);
+        return url.origin === location.origin && !url.username && !url.password && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
             && (/^\/admin\/(?:areas|categorys|products|question_answers|features|contracts)(?:\/\d+)?\/?$/.test(url.pathname)
+                || (form.method.toUpperCase() === 'POST' && productRoute(url.pathname, method))
                 ||(method==='POST'&&url.pathname==='/admin/roles')
                 ||(['POST','PUT','PATCH','DELETE'].includes(method)&&/^\/admin\/roles\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(url.pathname))
@@ -41,7 +52,7 @@
             }
             return;
         }
-        if (!(form instanceof HTMLFormElement) || !eligible(form) || form.querySelector('[name="_desktop_command"]')) return;
+        if (!(form instanceof HTMLFormElement) || !eligible(form) || ownedControl(form, '_desktop_command')) return;
         const field = document.createElement('input');
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);
     };
@@ -100,17 +111,18 @@
         const form = event.target;
         prepare(form);
         if (event.defaultPrevented || !(form instanceof HTMLFormElement) || !eligible(form)
-            || !/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(new URL(form.action, location.href).pathname)
+            || !(/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(new URL(form.action, location.href).pathname)
+                || productRoute(new URL(form.action, location.href).pathname, effectiveMethod(form)))
             || form.method.toUpperCase() !== 'POST' || form.hasAttribute('data-spa-off')
             || (form.target && form.target !== '_self') || !window.DashboardSPA
             || typeof window.DashboardSPA.ready !== 'function' || !window.DashboardSPA.ready()
             || !document.querySelector('[data-dashboard-page]')) return;
         const submitter = event.submitter;
+        if (!submitter && productRoute(new URL(form.action, location.href).pathname, effectiveMethod(form))) return;
         if (submitter && (submitter.form !== form || submitter.name
             || ['formaction','formmethod','formtarget','formenctype'].some(name => submitter.hasAttribute(name)))) return;
-        // The original unclosed featured label can nest this form in the DOM. Capture its
-        // natural submit before legacy bubbling handlers and use the same SPA submission
-        // path as the original checkbox's this.form.submit(), retaining its UUID on loss.
+        // Capture these original controls before legacy bubbling handlers. The original
+        // SPA builds their FormData and retains the form, UUID and selected file on loss.
         event.preventDefault();
         // The SPA's later capture listener snapshots after this call disables buttons.
         // Discard that previous in-flight snapshot so every retry restores current controls.

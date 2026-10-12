@@ -36,6 +36,25 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::handles($route)){
+            return app(\App\Services\Dashboard\DesktopDashboardProductImages::class)->guard(fn()=>app(\App\Services\Dashboard\DesktopDashboardProductEffects::class)->guard(fn()=>DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::class);
+                $command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $actor=$adapter->authorize($route,$payload,$actor,$scope);
+                // Effective routing is established; metadata must not reach the original unguarded model.
+                foreach(['_desktop_command','_method'] as $field){$request->request->remove($field);$request->query->remove($field);}
+                $response=null;
+                $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],function()use($adapter,$route,$payload,$actor,$request,$next,&$response){
+                    $guard=auth('admin');$previous=$guard->getUser();
+                    try{$guard->setUser($actor);return $adapter->capture($route,$payload,function()use($request,$next,&$response){return $response=$next($request);});}
+                    finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+                });
+                return $response??$adapter->response($result);
+            })));
+        }
         if(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantProducts::handles($route)){
             return DB::transaction(function()use($request,$next,$actor,$route){
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
