@@ -6,6 +6,31 @@ def run(args, root, capture=False):
     return subprocess.run(args,cwd=root,check=True,text=True,capture_output=capture)
 def git(root,*args): return run(['git',*args],root,True).stdout
 
+def navigation_contents(source):
+    """Change only the native script's priority routes and existing shortcut calls."""
+    priority = re.compile(r"(const priority = node => paths\(node\)\.some\(path => /\\/admin\\/\()([a-z0-9|-]+)(\)\\/\?\$/\.test\(path\)\);)")
+    matches = list(priority.finditer(source))
+    if len(matches) != 1 or source.count('const priority') != 1:
+        raise ValueError('NATIVE_PRIORITY_ANCHOR_REQUIRED')
+    match = matches[0]
+    routes = match[2].split('|')
+    if routes.count('whatsapp') != 1 or routes.count('dashboard') != 1 or routes.count('meta') > 1:
+        raise ValueError('NATIVE_PRIORITY_ROUTES_AMBIGUOUS')
+    if 'meta' not in routes:
+        routes.insert(routes.index('whatsapp') + 1, 'meta')
+        source = source[:match.start(2)] + '|'.join(routes) + source[match.end(2):]
+    whatsapp = re.compile(r"(?m)^([\t ]*)placeShortcut\((['\"])whatsapp\2,[\t ]*(['\"])dashboard\3\);[\t ]*(\r?\n|$)")
+    meta = re.compile(r"(?m)^[\t ]*placeShortcut\((['\"])meta\1,[\t ]*(['\"])whatsapp\2\);[\t ]*(?:\r?\n|$)")
+    if len(whatsapp.findall(source)) != 1 or len(meta.findall(source)) > 1:
+        raise ValueError('NATIVE_SHORTCUT_ANCHOR_REQUIRED')
+    if len(re.findall(r"placeShortcut\s*\(\s*['\"]meta['\"]", source)) != len(meta.findall(source)):
+        raise ValueError('NATIVE_META_SHORTCUT_AMBIGUOUS')
+    source = meta.sub('', source)
+    anchor = whatsapp.search(source)
+    newline = anchor[4] or ('\r\n' if '\r\n' in source else '\n')
+    call = anchor[1] + "placeShortcut('meta', 'whatsapp');" + newline
+    return source[:anchor.end()] + ('' if anchor[4] else newline) + call + source[anchor.end():]
+
 def sidebar_proposals(menu, whatsapp_sidebar):
     """Move only the known Meta include; retain the installed dashboard markup."""
     wa_include = re.compile(br"@include(?:If)?\([ \t]*(['\"])admin\.whatsapp\.sidebar\1[ \t]*\)")
@@ -59,6 +84,16 @@ def main():
         modes[rel]=stat.S_IMODE(path.stat().st_mode)
         sidebar_before[rel]=path.read_bytes()
     sidebar_after=dict(zip((menu_rel,sidebar_rel),sidebar_proposals(sidebar_before[menu_rel],sidebar_before[sidebar_rel])))
+    navigation_rel='public/dashboard/js/dashboard-navigation.js'
+    navigation=root/navigation_rel
+    navigation_before=None;navigation_after=None
+    # Older ungrouped dashboards have no native script; do not create one.
+    if navigation.exists() or navigation.is_symlink():
+        safe_path(navigation)
+        if not navigation.is_file(): raise RuntimeError('REQUIRED_INSTALLATION_FILE: '+navigation_rel)
+        modes[navigation_rel]=stat.S_IMODE(navigation.stat().st_mode)
+        navigation_before=navigation.read_bytes()
+        navigation_after=navigation_contents(navigation_before.decode()).encode()
     for rel in [*manifest['baseline'],*manifest['new_files']]:
         path=root/rel
         safe_path(path)
@@ -85,6 +120,8 @@ def main():
         if marker not in old.decode(): targets[rel]=(old,old+block.encode())
     for rel,target in sidebar_after.items():
         if sidebar_before[rel]!=target: targets[rel]=(sidebar_before[rel],target)
+    if navigation_before is not None and navigation_before!=navigation_after:
+        targets[navigation_rel]=(navigation_before,navigation_after)
     backup_parent=root.parent/'meta-release-backups';safe_path(backup_parent)
     backup_parent.mkdir(mode=0o700,exist_ok=True);os.chmod(backup_parent,0o700)
     backup=pathlib.Path(tempfile.mkdtemp(prefix=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')+'-'+args.release[:8]+'-',dir=backup_parent))
@@ -117,7 +154,7 @@ def main():
         if cached['bootstrap/cache/config.php'] is not None: run([args.php,'artisan','config:cache'],root)
         run([args.php,'artisan','route:clear'],root)
         if cached['bootstrap/cache/routes-v7.php'] is not None: run([args.php,'artisan','route:cache'],root)
-        if any(rel in targets for rel in (menu_rel,sidebar_rel)): run([args.php,'artisan','view:clear'],root)
+        if any(rel in targets for rel in (menu_rel,sidebar_rel,navigation_rel)): run([args.php,'artisan','view:clear'],root)
         phase='verify-meta-routes'
         verification=run([args.php,str(probe_path)],root,True)
         checked=json.loads(verification.stdout)
