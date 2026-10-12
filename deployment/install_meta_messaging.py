@@ -6,6 +6,37 @@ def run(args, root, capture=False):
     return subprocess.run(args,cwd=root,check=True,text=True,capture_output=capture)
 def git(root,*args): return run(['git',*args],root,True).stdout
 
+def sidebar_proposals(menu, whatsapp_sidebar):
+    """Move only the known Meta include; retain the installed dashboard markup."""
+    wa_include = re.compile(br"@include(?:If)?\([ \t]*(['\"])admin\.whatsapp\.sidebar\1[ \t]*\)")
+    if b'admin.whatsapp.sidebar' not in menu:
+        raise RuntimeError('INSTALLED_WHATSAPP_SIDEBAR_REQUIRED')
+    if len(wa_include.findall(menu)) != 1 or menu.count(b'admin.whatsapp.sidebar') != 1:
+        raise RuntimeError('WHATSAPP_SIDEBAR_ANCHOR_AMBIGUOUS')
+    meta_include = br"@include(?:If)?\([ \t]*(['\"])admin\.meta\.sidebar\1[ \t]*\)"
+    # A standalone include's indentation and line ending belong to that hook.
+    # Inline includes lose only the directive, retaining surrounding markup.
+    meta_line = re.compile(br'(?m)^[ \t]*' + meta_include + br'[ \t]*(?:\r?\n|$)')
+    meta_inline = re.compile(meta_include)
+    def remove(content):
+        content = meta_inline.sub(b'', meta_line.sub(b'', content))
+        if b'admin.meta.sidebar' in content:
+            raise RuntimeError('META_SIDEBAR_HOOK_AMBIGUOUS')
+        return content
+    whatsapp_sidebar = remove(whatsapp_sidebar)
+    original_anchor = wa_include.search(menu)
+    canonical = re.match(br"\r?\n[ \t]*@include\([ \t]*(['\"])admin\.meta\.sidebar\1[ \t]*\)", menu[original_anchor.end():])
+    newline = b'\r\n' if b'\r\n' in menu else b'\n'
+    if canonical and len(meta_inline.findall(menu)) == 1 and menu.count(b'admin.meta.sidebar') == 1:
+        return menu if menu.endswith(b'\n') else menu + newline, whatsapp_sidebar
+    menu = remove(menu)
+    anchor = wa_include.search(menu)
+    line_start = menu.rfind(b'\n', 0, anchor.start()) + 1
+    indent = re.match(br'[ \t]*', menu[line_start:anchor.start()]).group()
+    menu = menu[:anchor.end()] + newline + indent + b"@include('admin.meta.sidebar')" + menu[anchor.end():]
+    if not menu.endswith(b'\n'): menu += newline
+    return menu, whatsapp_sidebar
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--root',required=True);parser.add_argument('--release',required=True);parser.add_argument('--php',required=True)
     args=parser.parse_args();root=pathlib.Path(args.root).resolve()
@@ -17,6 +48,17 @@ def main():
     targets={};modes={}
     def safe_path(path):
         if path.is_symlink() or any(p.is_symlink() for p in path.parents): raise RuntimeError('SYMLINK_TARGET')
+    menu_rel='resources/views/admin/layouts/menu.blade.php'
+    sidebar_rel='resources/views/admin/whatsapp/sidebar.blade.php'
+    # Validate the actual installed anchor before publishing any feature files.
+    sidebar_before={}
+    for rel in (menu_rel,sidebar_rel):
+        path=root/rel;safe_path(path)
+        if not path.is_file():
+            raise RuntimeError('INSTALLED_WHATSAPP_SIDEBAR_REQUIRED' if rel==menu_rel else 'REQUIRED_INSTALLATION_FILE: '+rel)
+        modes[rel]=stat.S_IMODE(path.stat().st_mode)
+        sidebar_before[rel]=path.read_bytes()
+    sidebar_after=dict(zip((menu_rel,sidebar_rel),sidebar_proposals(sidebar_before[menu_rel],sidebar_before[sidebar_rel])))
     for rel in [*manifest['baseline'],*manifest['new_files']]:
         path=root/rel
         safe_path(path)
@@ -33,7 +75,6 @@ def main():
     blocks={
       'routes/api.php':("require __DIR__.'/meta_messaging.php';", "\nrequire __DIR__.'/meta_messaging.php';\n"),
       'routes/web.php':("'meta_inbox', 'meta_orders', 'meta_reads', 'meta_replies'", "\nforeach (['meta_inbox', 'meta_orders', 'meta_reads', 'meta_replies'] as $metaRoutes) {\n    require __DIR__.'/'.$metaRoutes.'.php';\n}\n"),
-      'resources/views/admin/whatsapp/sidebar.blade.php':("@include('admin.meta.sidebar')", "\n@include('admin.meta.sidebar')\n"),
     }
     for rel,(marker,block) in blocks.items():
         path=root/rel
@@ -42,8 +83,8 @@ def main():
         modes[rel]=stat.S_IMODE(path.stat().st_mode)
         old=path.read_bytes()
         if marker not in old.decode(): targets[rel]=(old,old+block.encode())
-    menu=root/'resources/views/admin/layouts/menu.blade.php'
-    if not menu.is_file() or b"admin.whatsapp.sidebar" not in menu.read_bytes(): raise RuntimeError('INSTALLED_WHATSAPP_SIDEBAR_REQUIRED')
+    for rel,target in sidebar_after.items():
+        if sidebar_before[rel]!=target: targets[rel]=(sidebar_before[rel],target)
     backup_parent=root.parent/'meta-release-backups';safe_path(backup_parent)
     backup_parent.mkdir(mode=0o700,exist_ok=True);os.chmod(backup_parent,0o700)
     backup=pathlib.Path(tempfile.mkdtemp(prefix=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')+'-'+args.release[:8]+'-',dir=backup_parent))
@@ -76,6 +117,7 @@ def main():
         if cached['bootstrap/cache/config.php'] is not None: run([args.php,'artisan','config:cache'],root)
         run([args.php,'artisan','route:clear'],root)
         if cached['bootstrap/cache/routes-v7.php'] is not None: run([args.php,'artisan','route:cache'],root)
+        if any(rel in targets for rel in (menu_rel,sidebar_rel)): run([args.php,'artisan','view:clear'],root)
         phase='verify-meta-routes'
         verification=run([args.php,str(probe_path)],root,True)
         checked=json.loads(verification.stdout)
