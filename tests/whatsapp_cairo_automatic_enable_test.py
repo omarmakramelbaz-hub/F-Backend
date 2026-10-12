@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -62,7 +63,7 @@ class CairoEnableTests(unittest.TestCase):
         self.legacy['CAPTURE_PINS'] = {r: self.legacy['SOURCE_PINS'][r] for r in LEGACY['CAPTURE_PINS']}
         # guard_sources has a definition-time default; every wrapper call supplies an explicit profile.
         self.app = types.SimpleNamespace(
-            SOURCE_PINS=source_pins, PROTECTED_PATHS=APP.PROTECTED_PATHS,
+            SOURCE_PINS=source_pins, PROTECTED_PATHS=APP.PROTECTED_PATHS, SafeError=APP.SafeError,
             PROTECTED_BLOBS={r: NS['blob'](self.protected[r]) for r in APP.PROTECTED_BLOBS},
             LEGACY_READ_ONLY_MODELS=APP.LEGACY_READ_ONLY_MODELS,
             guarded_snapshot=APP.guarded_snapshot, blob=APP.blob,
@@ -121,6 +122,9 @@ class CairoEnableTests(unittest.TestCase):
             return 0, b'{"status":"AI_CONNECTION_READY","ai_calls":1}'
         if any(pathlib.Path(str(arg)).name == NS['APP_NAME'] for arg in args):
             self.assertEqual(timeout, 300)
+            if self.fault == 'foreign_legacy':
+                self.fault = None
+                raise self.legacy['SafeError']('UNTRUSTED_PRIVATE_CHILD_RESPONSE_MUST_NOT_APPEAR')
             if self.fault == 'app': return 1, b'private-child-error'
             for relative, data in self.targets.items(): self.write(self.root / relative, data)
             if self.fault == 'protected': self.write(self.root / 'public/js/dashboard-whatsapp-inbox.js', b'concurrent-feed-edit')
@@ -148,6 +152,111 @@ class CairoEnableTests(unittest.TestCase):
     def automatic_prior_state(self):
         self.mode = 'auto'; self.states[LEGACY['CAPTURE_TIMER']].update(ActiveState='inactive', UnitFileState='disabled')
         self.states[LEGACY['ORDER_TIMER']].update(ActiveState='active', UnitFileState='enabled')
+
+    def actual_unit_fixture(self):
+        # Keep real unit safety checks and atomic installer publication. Only the
+        # destination is a private root-owned fixture, and systemd commands are inert.
+        temporary = tempfile.TemporaryDirectory(prefix='cairo-unit-fixture-', dir='/root'); self.addCleanup(temporary.cleanup)
+        parent = pathlib.Path(temporary.name); units = parent / 'units'; units.mkdir(mode=0o755)
+        validator = self.legacy['unit_validator'](self.payload / 'deployment')
+        programs = next(cell.cell_contents for cell in validator.__closure__
+                        if isinstance(cell.cell_contents, dict) and set(cell.cell_contents) == {'capture', 'orders'})
+        for kind, program in programs.items():
+            program['UNIT_DIRECTORY'] = units; program['BACKUP_DIRECTORY'] = parent / ('backups-' + kind)
+        for name, data in programs['capture']['UNITS'].items(): self.write(units / name, data)
+        def checked(kind):
+            self.log.append(('real_validate', kind)); validator(kind)
+        def installed(args, timeout=60):
+            if args[0] == '/usr/bin/bash' and args[2] == '--install':
+                self.log.append(tuple(args))
+                try: status, backup = programs['orders']['install'](runner=lambda _args, capture=False: (0, b''))
+                except programs['orders']['SafeError'] as error: return 1, str(error).encode()
+                return 0, (status + ('\nBACKUP=' + str(backup) if backup else '') + '\n').encode()
+            return self.runner(args, timeout)
+        return checked, installed, programs, units
+
+    def test_actual_pinned_unit_validator_allows_absent_orders_only_until_installed(self):
+        validate, runner, programs, units = self.actual_unit_fixture()
+        self.assertFalse((units / programs['orders']['TIMER']).exists())
+        with self.assertRaisesRegex(self.legacy['SafeError'], 'UNIT_BYTES_CHANGED: orders'):
+            validate('orders')
+        self.log.clear()
+        # The orchestrator must validate capture, publish the missing order units,
+        # and only then validate those order bytes through the real helper.
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = NS['orchestrate'](self.payload, 0, runner, validate, self.root, self.legacy, self.app, enable=False)
+        self.assertEqual(result[0], 'WHATSAPP_CAIRO_CAPTURE_INSTALLED_REVIEW_ONLY'); self.assert_capture_available()
+        for name, data in programs['orders']['UNITS'].items(): self.assertEqual((units / name).read_bytes(), data)
+        install_at = next(i for i, a in enumerate(self.log) if a[0] == '/usr/bin/bash' and a[2] == '--install')
+        first_order_validation = next(i for i, a in enumerate(self.log) if a == ('real_validate', 'orders'))
+        self.assertLess(install_at, first_order_validation)
+
+    def test_actual_capture_unit_drift_refuses_before_install_or_pause(self):
+        validate, runner, programs, units = self.actual_unit_fixture()
+        self.write(units / programs['capture']['SERVICE'], b'foreign-capture-unit')
+        with self.assertRaisesRegex(NS['SafeError'], 'INSTALLED_UNIT_NEEDS_REVIEW: capture'):
+            NS['orchestrate'](self.payload, 0, runner, validate, self.root, self.legacy, self.app, enable=False)
+        self.assert_capture_available(); self.assertFalse((units / programs['orders']['TIMER']).exists())
+        self.assertFalse(any(a[:2] == (NS['SYSTEMCTL'], 'stop') for a in self.log))
+
+    def test_actual_order_installer_respects_required_644_despite_umask077(self):
+        validate, runner, programs, units = self.actual_unit_fixture()
+        previous = os.umask(0o077)
+        try:
+            status, backup = programs['orders']['install'](runner=lambda _args, capture=False: (0, b''))
+            programs['orders']['write_private'](backup / 'private-probe', b'private fixture')
+        finally: os.umask(previous)
+        self.assertEqual(status, 'WHATSAPP_AUTOMATIC_TIMER_INSTALLED_NOT_STARTED')
+        self.assertEqual(backup.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((backup / 'private-probe').stat().st_mode & 0o777, 0o600)
+        for name, data in programs['orders']['UNITS'].items():
+            self.assertEqual((units / name).read_bytes(), data)
+            self.assertEqual((units / name).stat().st_mode & 0o777, 0o644)
+        validate('orders')
+
+    def test_actual_foreign_order_unit_is_retained_before_pause(self):
+        validate, runner, programs, units = self.actual_unit_fixture()
+        self.write(units / programs['orders']['SERVICE'], b'foreign-orders-unit')
+        with self.assertRaisesRegex(NS['SafeError'], 'ORDER_UNIT_INSTALL_FAILED'):
+            NS['orchestrate'](self.payload, 0, runner, validate, self.root, self.legacy, self.app, enable=False)
+        self.assert_capture_available(); self.assertEqual((units / programs['orders']['SERVICE']).read_bytes(), b'foreign-orders-unit')
+        self.assertFalse(any(a[:2] == (NS['SYSTEMCTL'], 'stop') for a in self.log))
+
+    def main_failure(self, callback):
+        output = io.StringIO(); error = io.StringIO(); previous = signal.getsignal(signal.SIGTERM)
+        argv = ['cairo-wrapper', '--install-only', '--release', 'a' * 40, '--legacy-helper', str(ROOT / 'deployment/enable_whatsapp_automatic_root.sh')]
+        try:
+            with mock.patch.object(sys, 'argv', argv), mock.patch.object(NS['pwd'], 'getpwnam', return_value=types.SimpleNamespace(pw_uid=0)), \
+                 mock.patch.dict(NS, {'stage_payload': lambda *_: None, 'orchestrate': callback}), \
+                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                code = NS['main']()
+        finally: signal.signal(signal.SIGTERM, previous)
+        self.assertEqual(code, 1); self.assertEqual(output.getvalue(), '')
+        return error.getvalue()
+
+    def test_foreign_app_guard_error_reaches_main_as_only_known_path_and_safe_reason(self):
+        def guarded(*args, **kwargs): raise APP.SafeError('UNTRUSTED_PRIVATE_CHILD_RESPONSE_MUST_NOT_APPEAR')
+        app = types.SimpleNamespace(guarded_snapshot=guarded, SafeError=APP.SafeError)
+        def failed(*args, **kwargs): NS['checked_snapshot'](self.root, 0, app, APP.PHONE_PATH)
+        error = self.main_failure(failed)
+        self.assertEqual(error, 'CAIRO_SOURCE_PROFILE_FAILED: ' + APP.PHONE_PATH + '; REASON=VERIFIED_SNAPSHOT_GUARD_FAILED\n')
+        self.assertNotIn('UNTRUSTED_PRIVATE', error)
+
+    def test_foreign_legacy_guard_error_reaches_main_without_untrusted_message(self):
+        legacy = dict(self.legacy)
+        def guarded(*args, **kwargs): raise legacy['SafeError']('UNTRUSTED_PRIVATE_CHILD_RESPONSE_MUST_NOT_APPEAR')
+        legacy['guard_sources'] = guarded
+        def failed(*args, **kwargs): NS['checked_legacy_sources'](self.root, 0, legacy, legacy['CAPTURE_PINS'])
+        self.assertEqual(self.main_failure(failed), 'CAIRO_IMMUTABLE_SOURCE_PROFILE_FAILED\n')
+
+    def test_unexpected_main_exception_reports_stage_and_class_without_its_message(self):
+        def failed(*args, **kwargs): raise RuntimeError('UNTRUSTED_PRIVATE_CHILD_RESPONSE_MUST_NOT_APPEAR')
+        self.assertEqual(self.main_failure(failed), 'CAIRO_ENABLE_STOPPED_WITHOUT_SECRET_OUTPUT; STAGE=PAYLOAD_STAGING; EXCEPTION_CLASS=RuntimeError\n')
+
+    def test_foreign_error_after_pause_is_sanitized_while_capture_recovers(self):
+        self.fault = 'foreign_legacy'
+        with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_VERIFIED_LEGACY_OPERATION_FAILED.*ORDERS_DISABLED_CAPTURE_ACTIVE') as caught: self.run_wrapper()
+        self.assertNotIn('UNTRUSTED_PRIVATE', str(caught.exception)); self.assert_capture_available()
 
     def test_review_orders_ai_pause_app_activation_start_and_boot_handoff(self):
         self.assertEqual(self.run_wrapper(), ('WHATSAPP_CAIRO_AUTOMATIC_ENABLED', self.app_backup, self.config_backup))

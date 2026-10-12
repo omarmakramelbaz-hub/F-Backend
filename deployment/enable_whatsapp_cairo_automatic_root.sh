@@ -18,7 +18,7 @@ PHP='/opt/cpanel/ea-php82/root/usr/bin/php'
 RUNUSER='/usr/sbin/runuser'
 SYSTEMCTL='/usr/bin/systemctl'
 LEGACY_NAME='enable_whatsapp_automatic_root.sh'
-LEGACY_BLOB='84a6968a178fe975511d21dc1aab62b4659ff7be'
+LEGACY_BLOB='d30c13bd13ca73e5aad54f558a259e18fb95147f'
 APP_NAME='apply_whatsapp_cairo_origins.py'
 MANIFEST_NAME='whatsapp_cairo_origins_manifest.json'
 EXTRA_PINS={LEGACY_NAME:LEGACY_BLOB,APP_NAME:'8139dd86184a610ae28794ed44fde3fdc0194ba3',MANIFEST_NAME:'e79f6c292fcdc6e94681e2b04e12efd908f1e206'}
@@ -37,12 +37,59 @@ HELPER_PINS={
 'rotate_whatsapp_messaging_token.py':'b824ea3c09f0314d5debdb278a0d02d37f41bfce',
 'rotate_whatsapp_catalog_token.py':'eaf40b872ec1dde0cbffa08e507e56a03f62591f',
 'install_whatsapp_inbox.py':'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
-'install_whatsapp_automatic_root.sh':'4ac9bb0426407b349fba7e1ac8fabb830c566617',
+'install_whatsapp_automatic_root.sh':'89662f5e9875355a8e7d629c37320c05ce40b5b5',
 'install_whatsapp_capture_root.sh':'c3571f9cf4ab37171c9d6cbf2fc8ddae9e067316',
 'whatsapp_ai_connection_check.php':'fa0bf7a51bff932c274c34398bddbc6aeed04e30',
 **EXTRA_PINS,
 }
 class SafeError(Exception):pass
+STAGE='STARTUP'
+SNAPSHOT_REASONS=frozenset((
+'UNSAFE_PATH','ANCESTOR_NOT_DIRECTORY_OR_SYMLINK','ANCESTOR_OWNER_NEEDS_REVIEW',
+'REQUIRED_FILE_MISSING','FILE_NOT_READABLE_OR_SYMLINK','FILE_OWNER_OR_TYPE_NEEDS_REVIEW',
+'FILE_TOO_LARGE','FILE_CHANGED_DURING_READ','CAIRO_REQUIRED_FILE_MISSING',
+'CAIRO_FILE_MODE_OR_PAYLOAD_LINK_UNSAFE','CAIRO_FILE_CHANGED_DURING_READ',
+'CAIRO_PAYLOAD_OWNER_UNSAFE','CAIRO_PAYLOAD_TYPE_OR_SIZE_UNSAFE','CAIRO_PAYLOAD_CHANGED_DURING_READ'))
+
+def set_stage(value):
+    global STAGE
+    STAGE=value
+
+def checked_snapshot(root,uid,app,relative,**options):
+    try:return app.guarded_snapshot(root/relative,uid,root,**options)
+    except app.SafeError as error:
+        reason=str(error)if str(error)in SNAPSHOT_REASONS else'VERIFIED_SNAPSHOT_GUARD_FAILED'
+        raise SafeError('CAIRO_SOURCE_PROFILE_FAILED: '+relative+'; REASON='+reason)from None
+
+def checked_legacy_sources(root,uid,legacy,pins):
+    try:return legacy['guard_sources'](root,uid,pins)
+    except legacy['SafeError'] as error:
+        prefix='AUTOMATIC_LIVE_SOURCE_NEEDS_REVIEW: '
+        value=str(error);relative=value[len(prefix):]if value.startswith(prefix)else None
+        if relative in pins:raise SafeError('CAIRO_IMMUTABLE_SOURCE_PROFILE_FAILED: '+relative)from None
+        raise SafeError('CAIRO_IMMUTABLE_SOURCE_PROFILE_FAILED')from None
+
+def safe_legacy_reason(error,legacy):
+    value=str(error)
+    fixed=frozenset(('AUTOMATIC_GUARDED_PARENT_UNSAFE','AUTOMATIC_GUARDED_FILE_UNSAFE',
+    'AUTOMATIC_GUARDED_BLOB_OR_RACE_FAILED','AUTOMATIC_UNIT_HELPER_FORMAT_INVALID',
+    'AUTOMATIC_UNIT_STATE_UNAVAILABLE','AUTOMATIC_ORDER_WORKER_NOT_QUIESCENT',
+    'AUTOMATIC_PRIOR_ENABLED_STATE_REQUIRES_REVIEW','AUTOMATIC_ENABLED_STATE_RESTORE_FAILED'))
+    if value in fixed:return value
+    prefixes={'AUTOMATIC_LIVE_SOURCE_NEEDS_REVIEW: ':legacy['SOURCE_PINS'],
+    'AUTOMATIC_HELPER_PIN_FAILED: ':legacy['HELPER_PINS'],
+    'AUTOMATIC_UNIT_BYTES_CHANGED: ':('capture','orders'),
+    'AUTOMATIC_UNIT_ACTION_FAILED: ':tuple(kind+' '+flag for kind in('capture','orders')for flag in('--install','--start','--stop'))}
+    for prefix,allowed in prefixes.items():
+        if value.startswith(prefix)and value[len(prefix):]in allowed:return value
+    return 'CAIRO_VERIFIED_LEGACY_OPERATION_FAILED'
+
+def checked_validator(callback,legacy):
+    def validate(kind):
+        try:return callback(kind)
+        except legacy['SafeError']:
+            raise SafeError('CAIRO_INSTALLED_UNIT_NEEDS_REVIEW: '+kind)from None
+    return validate
 
 def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
 
@@ -73,7 +120,10 @@ def load_app(payload):
     name='verified_cairo_publisher';module=importlib.util.module_from_spec(importlib.util.spec_from_loader(name,loader=None));module.__file__=str(path);sys.modules[name]=module
     exec(compile(data,str(path),'exec'),module.__dict__)
     if {path:pins[1]for path,pins in module.SOURCE_PINS.items()}!=TARGET_PINS:raise SafeError('CAIRO_APP_SOURCE_PROFILE_MISMATCH')
-    module.load_manifest(payload/'deployment'/MANIFEST_NAME,EXTRA_PINS[MANIFEST_NAME],0);return module
+    try:module.load_manifest(payload/'deployment'/MANIFEST_NAME,EXTRA_PINS[MANIFEST_NAME],0)
+    except module.SafeError:
+        raise SafeError('CAIRO_VERIFIED_MANIFEST_VALIDATION_FAILED')from None
+    return module
 
 def verify_payload(payload):
     for name,digest in HELPER_PINS.items():read_root_payload(payload/'deployment'/name,digest)
@@ -188,17 +238,17 @@ def mode(runner,enable=True):
 
 def profiles(root,uid,app,legacy,current_mode,target=False):
     immutable={path:digest for path,digest in legacy['SOURCE_PINS'].items()if path not in TARGET_PINS and path!=legacy['CART_PATH']}
-    result=legacy['guard_sources'](root,uid,immutable)
-    if current_mode=='review':result.update(legacy['guard_sources'](root,uid,{legacy['CART_PATH']:legacy['SOURCE_PINS'][legacy['CART_PATH']]}))
+    result=checked_legacy_sources(root,uid,legacy,immutable)
+    if current_mode=='review':result.update(checked_legacy_sources(root,uid,legacy,{legacy['CART_PATH']:legacy['SOURCE_PINS'][legacy['CART_PATH']]}))
     for relative,(old,new)in app.SOURCE_PINS.items():
-        item,metadata=app.guarded_snapshot(root/relative,uid,root,absent_ok=old is None)
+        item,metadata=checked_snapshot(root,uid,app,relative,absent_ok=old is None)
         if item is None:
             if target or old is not None:raise SafeError('CAIRO_REQUIRED_RUNTIME_MISSING')
         elif app.blob(item.content)not in((new,)if target else(old,new)):raise SafeError('CAIRO_RUNTIME_SOURCE_NEEDS_REVIEW: '+relative)
         result[relative]=metadata
     for relative in dict.fromkeys(('.env','bootstrap/cache/config.php',*app.PROTECTED_PATHS,*app.PROTECTED_BLOBS)):
         required=relative in ('.env','bootstrap/cache/config.php')or relative in app.PROTECTED_BLOBS
-        item,metadata=app.guarded_snapshot(root/relative,uid,root,absent_ok=not required,legacy_read_only=relative in app.LEGACY_READ_ONLY_MODELS)
+        item,metadata=checked_snapshot(root,uid,app,relative,absent_ok=not required,legacy_read_only=relative in app.LEGACY_READ_ONLY_MODELS)
         if relative in app.PROTECTED_BLOBS and (item is None or app.blob(item.content)!=app.PROTECTED_BLOBS[relative]):raise SafeError('CAIRO_PROTECTED_SOURCE_PROFILE_CHANGED: '+relative)
         result[relative]=metadata
     return result
@@ -208,10 +258,22 @@ def backup_path(output,kind):
     return found[0].decode('ascii')if len(set(found))==1 else None
 
 def orchestrate(payload,uid,runner=None,validate=None,root=ROOT,legacy=None,app=None,enable=False):
-    verify_payload(payload);legacy=legacy or load_legacy(payload);app=app or load_app(payload);runner=runner or legacy['command'];helpers=payload/'deployment'
-    profiles(root,uid,app,legacy,'auto');initial=mode(runner,enable);baseline=profiles(root,uid,app,legacy,initial['mode']);validate=validate or legacy['unit_validator'](helpers)
+    set_stage('PAYLOAD_VERIFICATION');verify_payload(payload)
+    set_stage('LEGACY_LOAD');legacy=legacy or load_legacy(payload)
+    set_stage('APP_LOAD');app=app or load_app(payload);runner=runner or legacy['command'];helpers=payload/'deployment'
+    set_stage('SOURCE_PROFILE');profiles(root,uid,app,legacy,'auto')
+    set_stage('MODE_READINESS');initial=mode(runner,enable)
+    set_stage('SOURCE_PROFILE');baseline=profiles(root,uid,app,legacy,initial['mode'])
+    set_stage('UNIT_VALIDATOR_LOAD')
+    try:validator=validate or legacy['unit_validator'](helpers)
+    except legacy['SafeError']:raise SafeError('CAIRO_VERIFIED_UNIT_HELPER_VALIDATION_FAILED')from None
+    validate=checked_validator(validator,legacy)
+    set_stage('CAPTURE_UNIT_VALIDATION');validate('capture')
+    set_stage('ORDER_UNIT_INSTALL')
+    try:legacy['run_unit'](helpers,'orders','--install',runner)
+    except legacy['SafeError']:raise SafeError('CAIRO_ORDER_UNIT_INSTALL_FAILED')from None
+    set_stage('BOTH_UNIT_VALIDATION')
     for kind in('capture','orders'):validate(kind)
-    legacy['run_unit'](helpers,'orders','--install',runner)
     capture_before=legacy['unit_state'](legacy['CAPTURE_TIMER'],runner);orders_before=legacy['unit_state'](legacy['ORDER_TIMER'],runner)
     if enable:
         native_proof(runner)
@@ -279,7 +341,7 @@ def orchestrate(payload,uid,runner=None,validate=None,root=ROOT,legacy=None,app=
                 code,_=runner([SYSTEMCTL,'start',legacy['CAPTURE_TIMER']])
                 if code!=0 or legacy['unit_state'](legacy['CAPTURE_TIMER'],runner)['ActiveState']!='active':raise SafeError('CAIRO_CAPTURE_RECOVERY_FAILED')
             except BaseException:recovered=False
-        reason=str(error)if isinstance(error,(SafeError,legacy['SafeError']))else'CAIRO_ENABLE_INTERRUPTED'
+        reason=str(error)if isinstance(error,SafeError)else(safe_legacy_reason(error,legacy)if isinstance(error,legacy['SafeError'])else'CAIRO_ENABLE_INTERRUPTED')
         status='ORDERS_DISABLED_CAPTURE_ACTIVE'if recovered else'CAPTURE_RECOVERY_REQUIRES_REVIEW'
         suffix=('; APP_BACKUP='+app_backup if app_backup else'')+('; CONFIG_BACKUP='+config_backup if config_backup else'')
         if published:suffix+='; VERIFIED_APP_EXTENSION_RETAINED'
@@ -287,19 +349,21 @@ def orchestrate(payload,uid,runner=None,validate=None,root=ROOT,legacy=None,app=
 
 def main():
     try:
-        args=sys.argv[1:]
+        set_stage('ARGUMENT_VALIDATION');args=sys.argv[1:]
         if os.geteuid()!=0 or len(args)!=5 or args[0]not in('--install-only','--enable')or args[1]!='--release'or not re.fullmatch('[a-f0-9]{40}',args[2])or args[3]!='--legacy-helper':raise SafeError('RUN_ROOT_CAIRO_INSTALL_ONLY_OR_ENABLE_WITH_PINNED_RELEASE_AND_LEGACY_HELPER')
-        uid=pwd.getpwnam('fasakha').pw_uid;temporary=pathlib.Path('/tmp');info=temporary.lstat()
+        set_stage('OWNER_LOOKUP');uid=pwd.getpwnam('fasakha').pw_uid;temporary=pathlib.Path('/tmp');info=temporary.lstat()
         if not stat.S_ISDIR(info.st_mode)or info.st_uid!=0 or not info.st_mode&stat.S_ISVTX:raise SafeError('CAIRO_STICKY_ROOT_TEMP_UNAVAILABLE')
         signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(SafeError('CAIRO_ENABLE_INTERRUPTED')))
-        legacy=legacy_program(read_root_payload(pathlib.Path(args[4]),LEGACY_BLOB).decode())
+        set_stage('LEGACY_BOOTSTRAP');legacy=legacy_program(read_root_payload(pathlib.Path(args[4]),LEGACY_BLOB).decode())
         with tempfile.TemporaryDirectory(prefix='fasakhansta-whatsapp-cairo-',dir=temporary)as folder:
-            payload=pathlib.Path(folder);payload.chmod(0o755);stage_payload(payload,args[2],legacy['command']);status,app_backup,config_backup=orchestrate(payload,uid,enable=args[0]=='--enable')
+            payload=pathlib.Path(folder);payload.chmod(0o755);set_stage('PAYLOAD_STAGING');stage_payload(payload,args[2],legacy['command']);status,app_backup,config_backup=orchestrate(payload,uid,enable=args[0]=='--enable')
         print(status);print('APP_BACKUP='+app_backup)
         if config_backup:print('CONFIG_BACKUP='+config_backup)
         return 0
     except SafeError as error:print(str(error),file=sys.stderr)
-    except BaseException:print('CAIRO_ENABLE_STOPPED_WITHOUT_SECRET_OUTPUT',file=sys.stderr)
+    except BaseException as error:
+        name=type(error).__name__;name=name if re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,63}',name)else'UNKNOWN'
+        print('CAIRO_ENABLE_STOPPED_WITHOUT_SECRET_OUTPUT; STAGE='+STAGE+'; EXCEPTION_CLASS='+name,file=sys.stderr)
     return 1
 
 if __name__=='__main__':sys.exit(main())

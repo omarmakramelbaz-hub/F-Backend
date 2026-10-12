@@ -28,7 +28,7 @@ HELPER_PINS = {
     'rotate_whatsapp_messaging_token.py':'b824ea3c09f0314d5debdb278a0d02d37f41bfce',
     'rotate_whatsapp_catalog_token.py':'eaf40b872ec1dde0cbffa08e507e56a03f62591f',
     'install_whatsapp_inbox.py':'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
-    'install_whatsapp_automatic_root.sh':'4ac9bb0426407b349fba7e1ac8fabb830c566617',
+    'install_whatsapp_automatic_root.sh':'89662f5e9875355a8e7d629c37320c05ce40b5b5',
     'install_whatsapp_capture_root.sh':'c3571f9cf4ab37171c9d6cbf2fc8ddae9e067316',
     'whatsapp_ai_connection_check.php':'fa0bf7a51bff932c274c34398bddbc6aeed04e30',
 }
@@ -156,6 +156,7 @@ def unit_validator(payload):
     for kind,name in (('capture','install_whatsapp_capture_root.sh'),('orders','install_whatsapp_automatic_root.sh')):
         content=read_guarded(payload/name,0,HELPER_PINS[name],helper=True)[0].decode()
         marker='exec /usr/bin/python3 - "$@" <<\'PY\'\n'
+        content=content.rstrip('\n')+'\n'
         if content.count(marker)!=1 or not content.endswith('\nPY\n'):raise SafeError('AUTOMATIC_UNIT_HELPER_FORMAT_INVALID')
         code=content.split(marker,1)[1][:-len('\nPY\n')]
         namespace={'__name__':'verified_automatic_unit_'+kind,'__file__':str(payload/name)}

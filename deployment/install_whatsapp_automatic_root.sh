@@ -174,6 +174,7 @@ def rename_no_replace(source, destination):
 def write_private(path, content, mode=0o600):
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     with os.fdopen(descriptor, 'wb') as stream:
+        os.fchmod(stream.fileno(), mode)
         stream.write(content); stream.flush(); os.fsync(stream.fileno())
 
 
