@@ -56,6 +56,16 @@ try {
     }
     $meta = WhatsAppAgentWindowDiagnostic::metadata(agentPayload([agentMessage('wamid.PRIVATE_ECHO', true)], 'smb_message_echoes', 'message_echoes'));
     agentCheck($meta['native_echo_records'] === 1 && $meta['directions']['outbound'] === 1, 'scoped_echo_counted'); agentSafe($meta);
+    $wrappedSend = agentMessage('wamid.PRIVATE_WRAPPED', true);
+    $wrappedRecord = ['id' => $wrappedSend['id'], 'timestamp' => $wrappedSend['timestamp']];
+    unset($wrappedSend['id'], $wrappedSend['timestamp'], $wrappedSend['from']);
+    $wrappedSend['messaging_product'] = 'whatsapp'; $wrappedSend['recipient_type'] = 'individual';
+    $wrappedRecord['message'] = $wrappedSend;
+    $wrapped = agentPayload(['message_echoes' => [$wrappedRecord]], 'standby', 'standby');
+    $wrappedMeta = WhatsAppAgentWindowDiagnostic::metadata($wrapped);
+    agentCheck($wrappedMeta['channels']['standby.message_echoes'] === 1
+        && $wrappedMeta['native_echo_records'] === 1 && $wrappedMeta['directions']['outbound'] === 1,
+        'canonical_wrapped_echo_counted_by_actual_protocol'); agentSafe($wrappedMeta);
     $foreign = agentPayload([agentMessage()]); $foreign['entry'][0]['changes'][0]['value']['metadata']['phone_number_id'] = '999999999999';
     agentCheck(WhatsAppAgentWindowDiagnostic::metadata($foreign)['scope_changes'] === 0, 'foreign_phone_not_counted');
     $alternate = WhatsAppAgentWindowDiagnostic::metadata(agentPayload(agentMessage('wamid.PRIVATE_ALT', true), 'standby', 'message_echo'));
@@ -125,12 +135,23 @@ PHP);
     $newMessage = agentMessage('wamid.PRIVATE_LATE'); $newMessage['from'] = '201064464499'; $newMessage['from_user_id'] = 'US.PRIVATE_OTHER';
     $latePayload = agentPayload([$newMessage]); $latePayload['entry'][0]['changes'][0]['value']['contacts'][0]['wa_id'] = '201064464499';
     $lateId = $insert($latePayload, '2026-10-11 07:59:59');
+    $phoneInMessage = agentMessage('wamid.PRIVATE_WRAP_IN'); unset($phoneInMessage['from_user_id']);
+    $phoneIn = agentPayload([$phoneInMessage]);
+    $phoneInId = $insert($phoneIn, '2026-10-10 22:17:00');
+    $wrappedId = $insert($wrapped, '2026-10-10 22:18:00');
     foreach ([7 => $in, 8 => $echo] as $conversationId => $payload) {
         $db::table('whatsapp_inbox_conversations')->insert(['id' => $conversationId, 'waba_id' => '468336579702269', 'phone_number_id' => '515388018324075']);
         $dto = \App\Support\WhatsAppInboxProtocol::messages($payload)[0];
         $db::table('whatsapp_inbox_messages')->insert(['id' => $conversationId, 'conversation_id' => $conversationId,
             'message_key' => hash('sha256', 'whatsapp-message-v1:468336579702269:515388018324075:' . $dto['message_id']),
             'direction' => $dto['direction'], 'source' => $dto['source'], 'type' => $dto['type'], 'content' => $crypt::encryptString(json_encode($dto))]);
+    }
+    foreach ([9 => $phoneIn, 10 => $wrapped] as $messageId => $payload) {
+        $dto = \App\Support\WhatsAppInboxProtocol::messages($payload)[0];
+        $db::table('whatsapp_inbox_messages')->insert(['id' => $messageId, 'conversation_id' => 8,
+            'message_key' => hash('sha256', 'whatsapp-message-v1:468336579702269:515388018324075:' . $dto['message_id']),
+            'direction' => $dto['direction'], 'source' => $dto['source'], 'type' => $dto['type'],
+            'content' => $crypt::encryptString(json_encode($dto))]);
     }
     $repo = realpath(__DIR__ . '/..');
     file_put_contents($root . '/vendor/autoload.php', '<?php require ' . var_export($autoload, true) . '; require '
@@ -160,17 +181,27 @@ PHP);
         return [$result, $exit];
     };
     [$result, $exit] = $run();
-    agentCheck($exit === 0 && $result['status'] === 'READY' && $result['window_events_at_ceiling'] === 95
-        && $result['events_scanned'] === 95 && $result['window_complete'] === true, 'full_exact_morning_window_read');
-    agentCheck($result['summary']['directions'] === ['inbound' => 3, 'outbound' => 1, 'OTHER' => 0]
-        && $result['summary']['normalizer']['statuses'] === 90 && $result['summary']['native_echo_records'] === 1
+    agentCheck($exit === 0 && $result['status'] === 'READY' && $result['window_events_at_ceiling'] === 97
+        && $result['events_scanned'] === 97 && $result['window_complete'] === true, 'full_exact_morning_window_read');
+    agentCheck($result['summary']['directions'] === ['inbound' => 4, 'outbound' => 2, 'OTHER' => 0]
+        && $result['summary']['normalizer']['statuses'] === 90 && $result['summary']['native_echo_records'] === 2
         && $result['summary']['native_cart_records'] === 1, 'full_window_counts_despite_status_only_recent_tail');
     $byId = array_column($result['events'], null, 'event_id');
-    agentCheck(array_keys($byId) === [$lateId, $echoId, $cartId, $inId], 'out_of_order_id_uses_received_at_boundary');
+    agentCheck(array_keys($byId) === [$wrappedId, $phoneInId, $lateId, $echoId, $cartId, $inId], 'out_of_order_id_uses_received_at_boundary');
     $inRecord = $byId[$inId]['changes'][0]['records'][0]; $echoRecord = $byId[$echoId]['changes'][0]['records'][0];
     agentCheck($inRecord['native_identity']['from'] === $echoRecord['native_identity']['to'], 'single_invocation_labels_match_same_native_phone');
     agentCheck($inRecord['projected']['conversation_id'] === 7 && $echoRecord['projected']['conversation_id'] === 8
         && $inRecord['normalized'][0]['peer_namespace'] === 'USER' && $echoRecord['normalized'][0]['peer_namespace'] === 'PHONE', 'native_scope_projection_split_evidence_without_customer_identity');
+    $phoneInRecord = $byId[$phoneInId]['changes'][0]['records'][0];
+    $wrappedDetail = $byId[$wrappedId]['changes'][0]['records'][0];
+    agentCheck($wrappedDetail['message'] !== null && $wrappedDetail['sent_at_utc'] === gmdate('Y-m-d H:i:s', (int) $wrappedRecord['timestamp'])
+        && $wrappedDetail['normalized'][0]['source'] === 'standby' && $wrappedDetail['normalized'][0]['direction'] === 'outbound',
+        'canonical_outer_id_time_survive_verified_window_sibling');
+    agentCheck($phoneInRecord['projected']['status'] === 'FOUND' && $wrappedDetail['projected']['status'] === 'FOUND'
+        && $phoneInRecord['projected']['conversation_id'] === $wrappedDetail['projected']['conversation_id']
+        && $wrappedDetail['projected']['columns_agree'] === true
+        && $phoneInRecord['normalized'][0]['peer_phone'] === $wrappedDetail['normalized'][0]['peer_phone'],
+        'actual_encrypted_projection_proves_same_conversation_without_native_identity_output');
     agentCheck($byId[$cartId]['changes'][0]['records'][0]['cart_shape']['catalog_id'] === '1234567890123', 'older_cart_detail_retained');
     foreach ($invalid as $arguments) {
         $beforeBoot = file_get_contents($temporary . '/boot.log'); [$bad, $exit] = $run($arguments);

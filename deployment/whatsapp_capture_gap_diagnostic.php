@@ -162,16 +162,30 @@ final class WhatsAppCaptureGapDiagnostic
                         if (!is_array($record)) { $out['malformed_envelopes']++; continue; }
                         if ($this->recordCount >= self::RECORD_LIMIT) { $out['records_omitted']++; continue; }
                         $this->recordCount++;
+                        $wrapped = array_key_exists('message', $record);
                         $message = is_array($record['message'] ?? null) ? $record['message'] : $record;
-                        $id = $message['id'] ?? ($message['mid'] ?? null);
+                        // The documented standby send request puts native ID/time outside message.
+                        // A rejected wrapper must not borrow another copy's valid projection by ID.
+                        $id = $wrapped ? ($record['id'] ?? null) : ($message['id'] ?? ($message['mid'] ?? null));
+                        $wrapperValidated = !$wrapped;
+                        if ($wrapped && $source === 'standby' && $channel === 'standby.message_echoes'
+                            && is_string($id) && isset($normalized[$id])) {
+                            $isolatedChange = $change;
+                            $isolatedChange['value']['standby']['message_echoes'] = [$record];
+                            $isolatedEntry = $entry; $isolatedEntry['changes'] = [$isolatedChange];
+                            $isolated = \App\Support\WhatsAppInboxProtocol::report(
+                                ['object' => 'whatsapp_business_account', 'entry' => [$isolatedEntry]], self::WABA, self::PHONE);
+                            $wrapperValidated = $isolated['quarantined_count'] === 0 && count($isolated['messages']) === 1
+                                && $isolated['messages'][0]['message_id'] === $id;
+                        }
                         $label = $this->label('M', $id);
                         $data = ['channel' => $channel, 'kind' => strpos($channel, 'statuses') !== false ? 'STATUS' : 'MESSAGE',
-                            'message' => $label, 'sent_at_utc' => self::timestamp($message['timestamp'] ?? ($record['timestamp'] ?? null)),
+                            'message' => $label, 'sent_at_utc' => self::timestamp($wrapped ? ($record['timestamp'] ?? null) : ($message['timestamp'] ?? null)),
                             'type' => in_array($message['type'] ?? null, self::TYPES, true) ? $message['type'] : 'OTHER',
                             'native_identity' => $this->identity($record), 'nested_message_identity' => $record === $message ? [] : $this->identity($message),
-                            'normalized' => is_string($id) ? array_map(function (array $dto): array { return $this->normalized($dto); }, $normalized[$id] ?? []) : [],
-                            'normalizations_omitted' => is_string($id) ? max(0, ($normalizedCounts[$id] ?? 0) - self::NORMALIZATION_LIMIT) : 0,
-                            'projected' => ['status' => 'NOT_LOOKED_UP']];
+                            'normalized' => $wrapperValidated && is_string($id) ? array_map(function (array $dto): array { return $this->normalized($dto); }, $normalized[$id] ?? []) : [],
+                            'normalizations_omitted' => $wrapperValidated && is_string($id) ? max(0, ($normalizedCounts[$id] ?? 0) - self::NORMALIZATION_LIMIT) : 0,
+                            'projected' => ['status' => $wrapperValidated ? 'NOT_LOOKED_UP' : 'WRAPPED_NOT_VALIDATED']];
                         $out['normalizations_omitted'] += $data['normalizations_omitted'];
                         if ($data['kind'] === 'STATUS') {
                             $data['delivery_status'] = in_array($message['status'] ?? null, ['sent', 'delivered', 'read', 'failed', 'deleted'], true)
@@ -196,7 +210,7 @@ final class WhatsAppCaptureGapDiagnostic
                                 'quantities_valid' => $quantities, 'currency_codes_valid' => $currencies,
                             ];
                         }
-                        if ($label !== null && $this->projection !== null) {
+                        if ($wrapperValidated && $label !== null && $this->projection !== null) {
                             $key = hash('sha256', 'whatsapp-message-v1:' . self::WABA . ':' . self::PHONE . ':' . $id);
                             $data['projected'] = ($this->projection)($key, function (array $dto): array { return $this->normalized($dto); });
                         }

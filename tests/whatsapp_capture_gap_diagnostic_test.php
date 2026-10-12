@@ -85,6 +85,41 @@ try {
     $nestedResult = $diagnostic->inspect($nested);
     captureCheck($nestedResult['scoped_changes'][0]['records'][0]['channel'] === 'standby.message_echoes', 'nested_standby_channel');
     captureCheck($nestedResult['scoped_changes'][0]['records'][0]['normalized'][0]['source'] === 'standby', 'verified_nested_standby_normalized');
+    $flatWrappedMessage = captureMessage(true, false);
+    $wrappedMessage = $flatWrappedMessage;
+    unset($wrappedMessage['id'], $wrappedMessage['timestamp'], $wrappedMessage['from']);
+    $wrappedMessage['messaging_product'] = 'whatsapp'; $wrappedMessage['recipient_type'] = 'individual';
+    $wrappedRecord = ['id' => $flatWrappedMessage['id'], 'timestamp' => $flatWrappedMessage['timestamp'], 'message' => $wrappedMessage];
+    $wrappedPayload = capturePayload(['message_echoes' => [$wrappedRecord]], 'standby', 'standby');
+    $wrappedDto = \App\Support\WhatsAppInboxProtocol::messages($wrappedPayload)[0];
+    $lookups = [];
+    $projection = new WhatsAppCaptureGapDiagnostic(static function (string $key, callable $sanitize) use (&$lookups, $wrappedDto): array {
+        $lookups[] = $key;
+        return ['status' => 'FOUND', 'conversation_id' => 42, 'identity' => $sanitize($wrappedDto), 'columns_agree' => true];
+    });
+    $wrappedResult = $projection->inspect($wrappedPayload);
+    $wrappedDetail = $wrappedResult['scoped_changes'][0]['records'][0];
+    captureCheck($lookups === [hash('sha256', 'whatsapp-message-v1:468336579702269:515388018324075:' . $wrappedRecord['id'])], 'wrapped_outer_id_used_for_actual_scoped_projection_key');
+    captureCheck($wrappedDetail['message'] !== null && $wrappedDetail['sent_at_utc'] === $wrappedDto['sent_at']
+        && $wrappedDetail['normalized'][0]['direction'] === 'outbound' && $wrappedDetail['normalized'][0]['source'] === 'standby'
+        && $wrappedDetail['projected']['conversation_id'] === 42, 'canonical_wrapped_outer_id_time_normalization_and_projection_visible');
+    captureSafe($wrappedResult);
+    $badWrappers = [];
+    $bad = $wrappedRecord; $bad['message']['id'] = 'wamid.PRIVATE_OTHER'; $badWrappers[] = $bad;
+    $bad = $wrappedRecord; $bad['message']['timestamp'] = '1791597001'; $badWrappers[] = $bad;
+    $bad = $wrappedRecord; $bad['to'] = '201064464499'; $badWrappers[] = $bad;
+    $bad = $wrappedRecord; $bad['message']['recipient_id'] = '201064464499'; $badWrappers[] = $bad;
+    foreach ($badWrappers as $badWrapper) {
+        $badPayload = capturePayload(['message_echoes' => [$badWrapper]], 'standby', 'standby');
+        // An unrelated valid flat copy with the same outer ID must not bless a rejected wrapper.
+        $validCopy = capturePayload([$flatWrappedMessage], 'smb_message_echoes', 'message_echoes');
+        $badPayload['entry'][0]['changes'][] = $validCopy['entry'][0]['changes'][0];
+        $before = count($lookups); $badResult = $projection->inspect($badPayload);
+        $badDetail = $badResult['scoped_changes'][0]['records'][0];
+        captureCheck(count($lookups) === $before + 1 && $badDetail['normalized'] === []
+            && $badDetail['projected']['status'] === 'WRAPPED_NOT_VALIDATED', 'rejected_wrapper_does_not_borrow_flat_copy_projection');
+        captureSafe($badResult);
+    }
     $unscoped = capturePayload([captureMessage()]); $unscoped['entry'][0]['standby'] = [captureMessage(true)];
     captureCheck($diagnostic->inspect($unscoped)['unscoped_entry_standby'] === 1, 'unscoped_entry_standby_observed_not_joined');
 

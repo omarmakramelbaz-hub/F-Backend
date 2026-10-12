@@ -8,7 +8,7 @@ final class WhatsAppAgentWindowDiagnostic
     private const ROOT = '/home/fasakha/public_html';
     private const WABA = '468336579702269';
     private const PHONE = '515388018324075';
-    private const GAP_BLOB = 'ee3720ac5d198fe2d49282040ea12f7f98bfb66a';
+    private const GAP_BLOB = '01aa70dc695afca5731c13892ef0e42bf8550d64';
     private const SCAN_LIMIT = 500;
     private const SCAN_BYTES = 33554432;
     private const MAX_BYTES = 4194304;
