@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php",
+      "before_blob": null,
+      "after_blob": "699e9b8f63452f4e8f09f8380f3905406ef9ddbf"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxMessage.php",
+      "before_blob": null,
+      "after_blob": "f88843b6abc227c1697476cd9a6217331070f250"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxMedia.php",
+      "before_blob": null,
+      "after_blob": "998efb85b37cb5e26497d82a2f7816513b6435a7"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppReplyService.php",
+      "before_blob": "7047caefba93935a25029ea99715dac645d9c24d",
+      "after_blob": "87d71d1834d9ca4569b922360ca813653d9a5c85"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxReadState.php",
+      "before_blob": "de6303603d52cc9a4f5777e4265cf984d7b7574b",
+      "after_blob": "d26eb360f5b5576047edff14808c25950592ba30"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php",
+      "before_blob": null,
+      "after_blob": "48af05084619f78480f472e75d30376235e77144"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppReplyController.php",
+      "before_blob": "e8476f95fe51d65fe5868c1f92b14a508bb2e68d",
+      "after_blob": "5077f194a00cb1c107d3d931cd9fba3d9e28e5b3"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxController.php",
+      "before_blob": "cff016f77e6b0191eb2b7fd6295801439bd4a686",
+      "after_blob": "f4756907b0aa199a0a5d3a2ab40a1a2f09321756"
+    },
+    {
+      "path": "routes/whatsapp_replies.php",
+      "before_blob": "7576be95aa1a73f4470382ee83d653c984c3f587",
+      "after_blob": "15230fa1267ba6d9dcd4467b6c6ec4686031b41d"
+    },
+    {
+      "path": "routes/whatsapp_inbox.php",
+      "before_blob": "b05d9e9b982477cf5873f6d60786ef9458e2c336",
+      "after_blob": "524a38faa203d578abdcc6185e48709036d91e82"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "before_blob": "19117235ba454c5e73bbd291920f9f56c84ebea8",
+      "after_blob": "3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "before_blob": "304a0bc6acd2474adb7850664708f30bddbd6a29",
+      "after_blob": "43e059064f450db2a56e9ee6668909ab855cb28b"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-orders.js",
+      "before_blob": "25a41c3f39ec724094de64fab58e4e0477bd44ac",
+      "after_blob": "ad7f78fc490774280c31e01125bc262a92a2cb3d"
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-inbox.css",
+      "before_blob": "d802231fe4ad2fe37be9b932d68e9f842dc583c8",
+      "after_blob": "c9a1f35db8737d268d9f9f64afaf6533a8967fb5"
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-replies.css",
+      "before_blob": "c85a0fe3c407251dd6bbdbd2906ca67645b14e7f",
+      "after_blob": "e957197f0fbb20836dca1743edce0b35d41863ac"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/replies.blade.php",
+      "before_blob": "ac114cfb5524f91a7e8753e75a751d82b43af965",
+      "after_blob": "96ac53c7afb01c4aa1eef4b8417192abc024a2ec"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/index.blade.php",
+      "before_blob": "d56fe43423728bb9d48820cc51b34522cc1ad7cc",
+      "after_blob": "573f95d72e011a814b9b4f13eca256009c50fee8"
+    }
+  ]
+}

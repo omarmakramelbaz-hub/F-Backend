@@ -15,6 +15,7 @@ on:
       - 'app/Services/Dashboard/WhatsAppInbox*'
       - 'app/Console/Commands/ConsumeWhatsAppInbox.php'
       - 'app/Http/Controllers/Dashboard/WhatsAppInboxController.php'
+      - 'app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php'
       - 'routes/whatsapp_inbox.php'
       - 'database/migrations/*whatsapp_inbox*'
       - 'resources/views/admin/whatsapp/**'
@@ -51,6 +52,12 @@ on:
       - 'tests/whatsapp_capture*'
       - 'tests/whatsapp_agent*'
       - 'tests/whatsapp_automatic*'
+      - 'app/Services/Dashboard/WhatsAppMessage*'
+      - 'app/Http/Controllers/Dashboard/WhatsAppMessage*'
+      - 'routes/whatsapp_actions.php'
+      - 'database/migrations/*whatsapp_message*'
+      - 'tests/whatsapp_dashboard*'
+      - 'tests/test_whatsapp_dashboard*'
       - '.github/workflows/whatsapp-webhook-checks.yml'
 
 permissions:
@@ -74,6 +81,8 @@ jobs:
           php -l database/migrations/2026_10_09_200000_create_whatsapp_webhook_events_table.php
           php -l deployment/whatsapp_webhook_setup.php
           php -l tests/whatsapp_webhook_protocol_test.php
+          php -l app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php
+          php -l tests/whatsapp_dashboard_actions_test.php
           for file in app/Support/WhatsAppInboxProtocol.php app/Services/Dashboard/WhatsAppInbox*.php app/Console/Commands/ConsumeWhatsAppInbox.php app/Http/Controllers/Dashboard/WhatsAppInboxController.php routes/whatsapp_inbox.php database/migrations/*whatsapp_inbox* deployment/whatsapp_inbox*.php tests/whatsapp_inbox*.php; do
             php -l "$file"
           done
@@ -92,6 +101,7 @@ jobs:
           bash -n deployment/whatsapp_install_root_wrapper.sh
           bash -n deployment/install_whatsapp_automatic_root.sh
           bash -n deployment/install_whatsapp_capture_root.sh
+          bash -n deployment/apply_whatsapp_dashboard_upgrade_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -145,6 +155,8 @@ jobs:
         run: |
           node --check public/js/dashboard-whatsapp-inbox.js
           node tests/whatsapp_inbox_ui_test.js
+          node tests/whatsapp_inbox_live_test.js
+          node tests/whatsapp_accepted_reply_feed_test.js
           node --check public/js/dashboard-whatsapp-orders.js
           node tests/whatsapp_orders_ui_test.js
           node --check public/js/dashboard-whatsapp-replies.js
@@ -184,3 +196,34 @@ jobs:
           php tests/whatsapp_agent_window_diagnostic_test.php
           php tests/whatsapp_catalog_access_diagnostic_test.php
           php tests/whatsapp_orders_delivery_controller_test.php
+ 
+  dashboard-upgrade:
+    runs-on: ubuntu-latest
+    container: php:8.2-cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the production framework for real dashboard guards
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev curl git unzip python3 nodejs
+          docker-php-ext-install pdo_sqlite mbstring
+          curl -fsS https://getcomposer.org/download/2.8.12/composer.phar -o /usr/local/bin/composer
+          echo 'f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2  /usr/local/bin/composer' | sha256sum -c -
+          chmod 0755 /usr/local/bin/composer
+          mkdir -p /tmp/whatsapp-dashboard-test
+          composer require --working-dir=/tmp/whatsapp-dashboard-test --no-interaction --no-progress laravel/framework:8.83.29 guzzlehttp/guzzle:^7.0.1
+      - name: Verify scoped actions, real middleware, CSRF and media
+        env:
+          WA_INBOX_TEST_VENDOR: /tmp/whatsapp-dashboard-test/vendor/autoload.php
+        run: php tests/whatsapp_dashboard_actions_test.php
+      - name: Verify guarded dashboard publication and Blade compilation
+        env:
+          WA_INBOX_TEST_VENDOR: /tmp/whatsapp-dashboard-test/vendor/autoload.php
+          WHATSAPP_TEST_PHP: php
+        run: |
+          python3 tests/test_whatsapp_dashboard_upgrade.py
+          python3 tests/test_whatsapp_dashboard_upgrade_root.py
+          python3 tests/test_whatsapp_dashboard_activation_compat.py
+          python3 tests/test_whatsapp_dashboard_layout.py

@@ -13,6 +13,7 @@
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
         var panel = host.querySelector('[data-wa-orders]');
         if (!panel) return;
+        var drawer = host.querySelector('[data-wa-order-drawer]');
         var labels = config.labels || {}, fields = {}, controllers = new Map();
         var form = panel.querySelector('[data-wa-order-form]');
         var status = panel.querySelector('[data-wa-order-status]');
@@ -531,7 +532,11 @@
             }
         }
         function submit(event) { event.preventDefault(); }
+        function drawerToggled() {
+            if (!closed && drawer && drawer.open && locationPicker) locationPicker.resize();
+        }
         panel.addEventListener('click', click); form.addEventListener('input', edited); form.addEventListener('change', edited);
+        if (drawer) drawer.addEventListener('toggle', drawerToggled);
         form.addEventListener('submit', submit); picker.addEventListener('change', changedPicker);
         document.addEventListener('whatsapp:conversation-selected', choose);
         document.addEventListener('whatsapp:conversation-updated', updated);
@@ -539,6 +544,7 @@
         var session = {host: host, destroy: function () {
             if (closed) return; clear(); closed = true;
             panel.removeEventListener('click', click); form.removeEventListener('input', edited); form.removeEventListener('change', edited);
+            if (drawer) drawer.removeEventListener('toggle', drawerToggled);
             form.removeEventListener('submit', submit); picker.removeEventListener('change', changedPicker);
             document.removeEventListener('whatsapp:conversation-selected', choose);
             document.removeEventListener('whatsapp:conversation-updated', updated);

@@ -31,6 +31,8 @@ TARGET_PINS={
 'public/dashboard/js/phone-orders.js':'66597844cc01d9371b1952f79b22fb1833bf2ac0',
 'app/Services/Dashboard/WhatsAppOrderWorkflow.php':'6c63b91d7fb70130ae472cea291fa2cee88b27dd',
 }
+DASHBOARD_PINS={'database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php': '699e9b8f63452f4e8f09f8380f3905406ef9ddbf', 'app/Services/Dashboard/WhatsAppInboxMessage.php': 'f88843b6abc227c1697476cd9a6217331070f250', 'app/Services/Dashboard/WhatsAppInboxMedia.php': '998efb85b37cb5e26497d82a2f7816513b6435a7', 'app/Services/Dashboard/WhatsAppReplyService.php': '87d71d1834d9ca4569b922360ca813653d9a5c85', 'app/Services/Dashboard/WhatsAppInboxReadState.php': 'd26eb360f5b5576047edff14808c25950592ba30', 'app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php': '48af05084619f78480f472e75d30376235e77144', 'app/Http/Controllers/Dashboard/WhatsAppReplyController.php': '5077f194a00cb1c107d3d931cd9fba3d9e28e5b3', 'app/Http/Controllers/Dashboard/WhatsAppInboxController.php': 'f4756907b0aa199a0a5d3a2ab40a1a2f09321756', 'routes/whatsapp_replies.php': '15230fa1267ba6d9dcd4467b6c6ec4686031b41d', 'routes/whatsapp_inbox.php': '524a38faa203d578abdcc6185e48709036d91e82', 'public/js/dashboard-whatsapp-inbox.js': '3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc', 'public/js/dashboard-whatsapp-replies.js': '43e059064f450db2a56e9ee6668909ab855cb28b', 'public/js/dashboard-whatsapp-orders.js': 'ad7f78fc490774280c31e01125bc262a92a2cb3d', 'public/css/dashboard-whatsapp-inbox.css': 'c9a1f35db8737d268d9f9f64afaf6533a8967fb5', 'public/css/dashboard-whatsapp-replies.css': 'e957197f0fbb20836dca1743edce0b35d41863ac', 'resources/views/admin/whatsapp/replies.blade.php': '96ac53c7afb01c4aa1eef4b8417192abc024a2ec', 'resources/views/admin/whatsapp/index.blade.php': '573f95d72e011a814b9b4f13eca256009c50fee8'}
+ORIGINAL_DASHBOARD_LEGACY_PINS={'app/Services/Dashboard/WhatsAppReplyService.php': '7047caefba93935a25029ea99715dac645d9c24d', 'public/js/dashboard-whatsapp-inbox.js': '19117235ba454c5e73bbd291920f9f56c84ebea8', 'public/js/dashboard-whatsapp-replies.js': '304a0bc6acd2474adb7850664708f30bddbd6a29', 'resources/views/admin/whatsapp/replies.blade.php': 'ac114cfb5524f91a7e8753e75a751d82b43af965', 'resources/views/admin/whatsapp/index.blade.php': 'd56fe43423728bb9d48820cc51b34522cc1ad7cc'}
 HELPER_PINS={
 'activate_whatsapp_automatic.py':'008fff7a56e4c9d2ff849df6f653dfb6b6427371',
 'configure_whatsapp_orders.py':'a0780b40adc404f81b5bd2b9934b50d13dc0797a',
@@ -111,7 +113,15 @@ def legacy_program(content):
     marker='exec /usr/bin/python3 - "$@" <<\'PY\'\n'
     if content.count(marker)!=1 or not content.endswith('\nPY\n'):raise SafeError('CAIRO_LEGACY_WRAPPER_FORMAT_INVALID')
     ns={'__name__':'verified_cairo_group_control'}
-    exec(compile(content.split(marker,1)[1][:-len('\nPY\n')],LEGACY_NAME,'exec'),ns);return ns
+    exec(compile(content.split(marker,1)[1][:-len('\nPY\n')],LEGACY_NAME,'exec'),ns)
+    if {path:ns['SOURCE_PINS'].get(path)for path in ORIGINAL_DASHBOARD_LEGACY_PINS}!=ORIGINAL_DASHBOARD_LEGACY_PINS:
+        raise SafeError('CAIRO_LEGACY_DASHBOARD_PROFILE_UNEXPECTED')
+    capture=dict(ns['CAPTURE_PINS']);unrelated={path:digest for path,digest in ns['SOURCE_PINS'].items()if path not in ORIGINAL_DASHBOARD_LEGACY_PINS}
+    # Preserve definition-time SOURCE_PINS references by changing only these entries in place.
+    ns['SOURCE_PINS'].update({path:DASHBOARD_PINS[path]for path in ORIGINAL_DASHBOARD_LEGACY_PINS})
+    if capture!=ns['CAPTURE_PINS']or unrelated!={path:digest for path,digest in ns['SOURCE_PINS'].items()if path not in ORIGINAL_DASHBOARD_LEGACY_PINS}:
+        raise SafeError('CAIRO_UNRELATED_LEGACY_PROFILE_CHANGED')
+    return ns
 
 def load_legacy(payload):return legacy_program(read_root_payload(payload/'deployment'/LEGACY_NAME,LEGACY_BLOB).decode())
 
@@ -239,6 +249,10 @@ def mode(runner,enable=True):
 def profiles(root,uid,app,legacy,current_mode,target=False):
     immutable={path:digest for path,digest in legacy['SOURCE_PINS'].items()if path not in TARGET_PINS and path!=legacy['CART_PATH']}
     result=checked_legacy_sources(root,uid,legacy,immutable)
+    for relative,digest in DASHBOARD_PINS.items():
+        item,metadata=checked_snapshot(root,uid,app,relative)
+        if item is None or app.blob(item.content)!=digest:raise SafeError('CAIRO_DASHBOARD_RUNTIME_NEEDS_REVIEW: '+relative)
+        result[relative]=metadata
     if current_mode=='review':result.update(checked_legacy_sources(root,uid,legacy,{legacy['CART_PATH']:legacy['SOURCE_PINS'][legacy['CART_PATH']]}))
     for relative,(old,new)in app.SOURCE_PINS.items():
         item,metadata=checked_snapshot(root,uid,app,relative,absent_ok=old is None)

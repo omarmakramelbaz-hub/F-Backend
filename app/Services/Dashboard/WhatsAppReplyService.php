@@ -20,16 +20,19 @@ class WhatsAppReplyService
     private $clock;
     private ?array $configuration;
     private WhatsAppVoiceMedia $voiceMedia;
+    private WhatsAppInboxMessage $messages;
 
     /** Seams are for isolated fixtures; production always reloads central Owner/Admin access. */
     public function __construct(?callable $transport = null, ?callable $authorizer = null,
-        ?callable $clock = null, ?array $configuration = null, ?WhatsAppVoiceMedia $voiceMedia = null)
+        ?callable $clock = null, ?array $configuration = null, ?WhatsAppVoiceMedia $voiceMedia = null,
+        ?WhatsAppInboxMessage $messages = null)
     {
         $this->transport = $transport;
         $this->authorizer = $authorizer;
         $this->clock = $clock;
         $this->configuration = $configuration;
         $this->voiceMedia = $voiceMedia ?? new WhatsAppVoiceMedia();
+        $this->messages = $messages ?? new WhatsAppInboxMessage($authorizer);
     }
 
     public function state($actor, int $conversation, ?string $clientRequestId = null): array
@@ -43,7 +46,7 @@ class WhatsAppReplyService
         if (!$this->tables()) return $base;
         $thread = $this->thread($conversation);
         if (!$thread) throw new HttpException(404);
-        $base['recent_replies'] = $this->recent($conversation);
+        $base['recent_replies'] = $this->recent($conversation, $fresh);
         if ($clientRequestId !== null) {
             $row = $this->requests($conversation)->where('request_hash',
                 $this->requestHash((int) $fresh->id, $conversation, $clientRequestId))->first();
@@ -70,6 +73,7 @@ class WhatsAppReplyService
     {
         $fresh = $this->actor($actor);
         $request = $this->input($input, false);
+        $request = $this->bindContext($fresh, $conversation, $request);
         return $this->submit($fresh, $conversation, $request, null);
     }
 
@@ -77,6 +81,7 @@ class WhatsAppReplyService
     {
         $fresh = $this->actor($actor);
         $request = $this->input($input, true);
+        $request = $this->bindContext($fresh, $conversation, $request);
         // Digest the actual uploaded bytes, never a browser-provided name/path/MIME.
         if (!$file->isValid() || is_link($file->getPathname()) || !is_file($file->getPathname())
             || $file->getSize() < 1 || $file->getSize() > WhatsAppVoiceMedia::MAX_BYTES) throw new HttpException(422);
@@ -104,6 +109,86 @@ class WhatsAppReplyService
         }
     }
 
+    public function forward($actor, int $conversation, int $message, array $input): array
+    {
+        return $this->forwardFrom($actor, $conversation, $message, $input, 'message');
+    }
+
+    public function history($actor, int $conversation, ?int $beforeReplyId = null, array $knownReplyIds = []): array
+    {
+        $fresh = $this->actor($actor);
+        if (!$this->tables()) throw new HttpException(503);
+        if (!$this->thread($conversation)) throw new HttpException(404);
+        if ($beforeReplyId !== null && $beforeReplyId < 1) throw new HttpException(422);
+        if (!array_is_list($knownReplyIds) || count($knownReplyIds) > 100) throw new HttpException(422);
+        foreach ($knownReplyIds as $id) if (!is_int($id) || $id < 1) throw new HttpException(422);
+        $query = $this->requests($conversation)->where('state', 'ACCEPTED')->whereIn('kind', ['text', 'audio', 'image', 'video', 'document']);
+        if ($beforeReplyId !== null) $query->where('id', '<', $beforeReplyId);
+        $rows = $query->orderByDesc('id')->limit(21)->get(['id']);
+        $more = $rows->count() > 20; $page = $rows->take(20); $last = $page->last();
+        $known = $this->requests($conversation)->where('state', 'ACCEPTED')->whereIn('kind', ['text', 'audio', 'image', 'video', 'document'])
+            ->whereIn('id', array_unique($knownReplyIds))->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if (count($known) !== count(array_unique($knownReplyIds))) throw new HttpException(422);
+        return ['success' => true, 'replies' => $this->recent($conversation, $fresh, $beforeReplyId, true),
+            'next_before_reply_id' => $more && $last ? (int) $last->id : null, 'has_more' => $more,
+            'hidden_reply_ids' => $this->messages->hiddenReplyIds($fresh, $conversation, $known)];
+    }
+    public function forwardReply($actor, int $conversation, int $reply, array $input): array
+    {
+        return $this->forwardFrom($actor, $conversation, $reply, $input, 'reply');
+    }
+    private function forwardFrom($actor, int $conversation, int $id, array $input, string $kind): array
+    {
+        $fresh = $this->actor($actor);
+        if (array_diff(array_keys($input), ['client_request_id', 'expected_inbound_id', 'target_conversation_id'])
+            || !array_key_exists('target_conversation_id', $input)) throw new HttpException(422);
+        $target = filter_var($input['target_conversation_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!is_int($target) || !$this->thread($target)) throw new HttpException(404);
+        $source = $kind === 'reply' ? $this->messages->resolveReply($fresh, $conversation, $id)
+            : $this->messages->resolve($fresh, $conversation, $id);
+        $request = $this->input(['client_request_id' => $input['client_request_id'] ?? null,
+            'expected_inbound_id' => $input['expected_inbound_id'] ?? null, 'text' => 'forward'], false);
+        $request['kind'] = $source['kind']; $request['text'] = $source['text'];
+        $request['source'] = ['kind' => $kind, 'conversation' => $conversation, 'id' => $id, 'fingerprint' => $source['fingerprint']];
+        $request['action'] = 'forward';
+        if ($source['kind'] === 'text') {
+            if (!is_string($request['text']) || trim($request['text']) === '' || mb_strlen($request['text']) > 4096) throw new HttpException(422);
+        } else {
+            $media = $this->messages->media($source);
+            if ($media === null || ($request['text'] !== null && mb_strlen($request['text']) > 1024)) throw new HttpException(422);
+            $request['media'] = $media;
+        }
+        return $this->submit($fresh, $target, $request, null);
+    }
+    public function reaction($actor, int $conversation, int $message, array $input): array
+    {
+        return $this->reactTo($actor, $conversation, $message, $input, 'message');
+    }
+    public function reactionReply($actor, int $conversation, int $reply, array $input): array
+    {
+        return $this->reactTo($actor, $conversation, $reply, $input, 'reply');
+    }
+    private function reactTo($actor, int $conversation, int $id, array $input, string $kind): array
+    {
+        $fresh = $this->actor($actor);
+        if (array_diff(array_keys($input), ['client_request_id', 'expected_inbound_id', 'emoji'])
+            || !is_string($input['emoji'] ?? null) || !in_array($input['emoji'], ['', '👍', '❤️', '😂', '😮', '😢', '🙏', '✅'], true)) throw new HttpException(422);
+        $source = $kind === 'reply' ? $this->messages->resolveReply($fresh, $conversation, $id)
+            : $this->messages->resolve($fresh, $conversation, $id);
+        if (in_array($source['kind'], ['reaction', 'unsupported'], true)
+            || strtotime($source['sent_at'] . ' UTC') < $this->now()->getTimestamp() - 2592000) throw new HttpException(422);
+        $request = $this->input(['client_request_id' => $input['client_request_id'] ?? null,
+            'expected_inbound_id' => $input['expected_inbound_id'] ?? null, 'text' => 'reaction'], false);
+        $request['kind'] = 'reaction'; $request['text'] = null; $request['emoji'] = $input['emoji']; $request['action'] = 'reaction';
+        $request['source'] = ['kind' => $kind, 'conversation' => $conversation, 'id' => $id, 'fingerprint' => $source['fingerprint']];
+        $result = $this->submit($fresh, $conversation, $request, null);
+        if ($result['state'] === 'ACCEPTED') {
+            try { $result['reaction'] = $this->messages->reactions($fresh, $conversation, [$source['native_message_key']])[$source['native_message_key']] ?? null; }
+            catch (\Throwable $error) { $result['reaction'] = null; }
+        }
+        return $result;
+    }
+
     private function submit($actor, int $conversation, array $request, ?array $prepared): array
     {
         if (!$this->tables()) return $this->result('FAILED', false, null, 'REPLIES_UNAVAILABLE');
@@ -124,10 +209,18 @@ class WhatsAppReplyService
                 : ($this->unresolved($conversation, true) ? 'UNKNOWN_PENDING' : $snapshot['reason']);
             if ($reason === null && $snapshot['inbound_id'] !== $request['expected_inbound_id']) $reason = 'STALE_INBOUND';
             if ($reason !== null) return ['result' => $this->result('FAILED', false, null, $reason)];
+            $bindings = $this->bindings($fresh, $conversation, $request, true);
             $stamp = $this->now()->format('Y-m-d H:i:s');
             $audit = ['client_request_id' => strtolower($request['client_request_id']),
                 'text' => $request['text'], 'recipient' => $snapshot['recipient'],
-                'voice_sha256' => $request['voice_sha256'] ?? null];
+                'voice_sha256' => $request['voice_sha256'] ?? null,
+                'reply_to' => $bindings['context'] === null ? null : $this->messages->summary($bindings['context']),
+                'action' => $request['action'] ?? null, 'source' => $request['source'] ?? null,
+                'source_native_key' => $bindings['source']['native_message_key'] ?? null,
+                'source_native_kind' => $bindings['source']['kind'] ?? null,
+                'media' => isset($request['media']) ? ['id' => $request['media']['id'], 'mime_type' => $request['media']['mime'],
+                    'sha256' => $request['media']['sha256']] : null,
+                'caption' => isset($request['media']) ? $request['text'] : null, 'emoji' => $request['emoji'] ?? null];
             $id = DB::table('whatsapp_reply_requests')->insertGetId([
                 'conversation_id' => $conversation, 'actor_id' => (int) $fresh->id,
                 'waba_id' => self::WABA, 'phone_number_id' => self::PHONE,
@@ -142,7 +235,7 @@ class WhatsAppReplyService
         $id = $claim['id'];
         $snapshot = $claim['snapshot'];
         try {
-            $reason = $this->preflight($actor, $conversation, $snapshot);
+            $reason = $this->preflight($actor, $conversation, $snapshot, $request);
             if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['CLAIMED']);
             $payload = ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual',
                 'to' => $snapshot['recipient'], 'type' => $request['kind']];
@@ -155,10 +248,24 @@ class WhatsAppReplyService
                     return $this->finish($id, 'FAILED', 'MEDIA_UPLOAD_FAILED', ['CLAIMED']);
                 }
                 $payload['audio'] = ['id' => $media['id']];
+                $auditRow = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')->first(['audit']);
+                if (!$auditRow) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
+                $audit = $this->decrypt($auditRow->audit);
+                $audit['media'] = ['id' => $media['id'], 'mime_type' => 'audio/ogg', 'sha256' => hash_file('sha256', $prepared['path'])];
+                DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')->update(['audit' => $this->encrypt($audit)]);
+            } elseif ($request['kind'] === 'reaction') {
+                $source = $this->bindings($actor, $conversation, $request)['source'];
+                $payload['reaction'] = ['message_id' => $source['native_id'], 'emoji' => $request['emoji']];
+            } elseif (isset($request['media'])) {
+                $payload[$request['kind']] = ['id' => $request['media']['id']];
+                if (in_array($request['kind'], ['image', 'video', 'document'], true) && $request['text'] !== null)
+                    $payload[$request['kind']]['caption'] = $request['text'];
             } else {
                 $payload['text'] = ['preview_url' => false, 'body' => $request['text']];
             }
-            $reason = $this->preflight($actor, $conversation, $snapshot);
+            $context = $this->bindings($actor, $conversation, $request)['context'];
+            if ($context !== null) $payload['context'] = ['message_id' => $context['native_id']];
+            $reason = $this->preflight($actor, $conversation, $snapshot, $request);
             if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['CLAIMED']);
             // Persist uncertainty BEFORE the customer-facing call. A killed process stays blocked.
             $started = $this->now()->format('Y-m-d H:i:s');
@@ -167,7 +274,7 @@ class WhatsAppReplyService
                     'send_started_at' => $started, 'updated_at' => $started]);
             if ($changed !== 1) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
             // No stale session role can authorize this final network boundary.
-            $reason = $this->preflight($actor, $conversation, $snapshot);
+            $reason = $this->preflight($actor, $conversation, $snapshot, $request);
             if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['UNKNOWN']);
             $response = $this->call('messages', $payload, false);
             $body = $this->decode($response);
@@ -193,7 +300,7 @@ class WhatsAppReplyService
         return $old ? $this->duplicate($old, $this->payloadHash($request)) : null;
     }
 
-    private function preflight($actor, int $conversation, array $snapshot): ?string
+    private function preflight($actor, int $conversation, array $snapshot, array $request = []): ?string
     {
         try {
             $fresh = $this->actor($actor);
@@ -206,6 +313,9 @@ class WhatsAppReplyService
         if ($current['reason'] !== null) return $current['reason'];
         if ($current['inbound_id'] !== $snapshot['inbound_id']
             || $current['recipient'] !== $snapshot['recipient']) return 'STALE_INBOUND';
+        try {
+            $this->bindings($fresh, $conversation, $request);
+        } catch (\Throwable $error) { return 'MESSAGE_UNAVAILABLE'; }
         return null;
     }
 
@@ -251,15 +361,46 @@ class WhatsAppReplyService
     private function input(array $input, bool $voice): array
     {
         $wanted = $voice ? ['client_request_id', 'expected_inbound_id'] : ['client_request_id', 'expected_inbound_id', 'text'];
-        if (array_diff(array_keys($input), $wanted) || array_diff($wanted, array_keys($input))
+        if (array_diff(array_keys($input), array_merge($wanted, ['reply_to_message_id', 'reply_to_reply_id'])) || array_diff($wanted, array_keys($input))
             || !$this->uuid($input['client_request_id'] ?? null)) throw new HttpException(422);
         $expected = filter_var($input['expected_inbound_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if (!is_int($expected)) throw new HttpException(422);
         $text = $voice ? null : $input['text'];
         if (!$voice && (!is_string($text) || !mb_check_encoding($text, 'UTF-8') || trim($text) === ''
             || mb_strlen($text, 'UTF-8') > 4096 || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $text))) throw new HttpException(422);
-        return ['client_request_id' => strtolower($input['client_request_id']),
+        $request = ['client_request_id' => strtolower($input['client_request_id']),
             'expected_inbound_id' => $expected, 'text' => $text, 'kind' => $voice ? 'audio' : 'text'];
+        if (isset($input['reply_to_message_id'], $input['reply_to_reply_id'])) throw new HttpException(422);
+        foreach (['reply_to_message_id', 'reply_to_reply_id'] as $field) if (array_key_exists($field, $input)) {
+            $id = filter_var($input[$field], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if (!is_int($id)) throw new HttpException(422);
+            $request[$field] = $id;
+        }
+        return $request;
+    }
+
+    private function bindings($actor, int $conversation, array $request, bool $lock = false): array
+    {
+        $context = null; $source = null;
+        if (isset($request['reply_to_message_id'])) $context = $this->messages->resolve($actor, $conversation, $request['reply_to_message_id'], $lock);
+        if (isset($request['reply_to_reply_id'])) $context = $this->messages->resolveReply($actor, $conversation, $request['reply_to_reply_id'], $lock);
+        if ($context !== null && in_array($context['kind'], ['unsupported', 'reaction'], true)) throw new HttpException(422);
+        if ($context !== null && isset($request['context_fingerprint'])
+            && !hash_equals($request['context_fingerprint'], $context['fingerprint'])) throw new HttpException(422);
+        if (isset($request['source'])) {
+            $bound = $request['source'];
+            $source = $bound['kind'] === 'reply' ? $this->messages->resolveReply($actor, $bound['conversation'], $bound['id'], $lock)
+                : $this->messages->resolve($actor, $bound['conversation'], $bound['id'], $lock);
+            if (!hash_equals($bound['fingerprint'], $source['fingerprint'])) throw new HttpException(409);
+        }
+        return ['context' => $context, 'source' => $source];
+    }
+
+    private function bindContext($actor, int $conversation, array $request): array
+    {
+        if (isset($request['reply_to_message_id']) || isset($request['reply_to_reply_id']))
+            $request['context_fingerprint'] = $this->bindings($actor, $conversation, $request)['context']['fingerprint'];
+        return $request;
     }
 
     private function accepted(int $status, array $body, string $recipient): ?string
@@ -320,17 +461,36 @@ class WhatsAppReplyService
             $values['remote_message_key'] = hash('sha256', 'whatsapp-reply-message-v1:' . self::WABA . ':' . self::PHONE . ':' . $wamid);
             $values['response_details'] = $this->encrypt(['message_id' => $wamid]);
         }
-        $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->whereIn('state', $from)->update($values);
+        $changed = DB::transaction(function () use ($id, $from, $values, $state) {
+            $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->whereIn('state', $from)->update($values);
+            if ($changed === 1 && $state === 'ACCEPTED' && Schema::hasTable(WhatsAppInboxMessage::INDEX)) {
+                $row = DB::table('whatsapp_reply_requests')->where('id', $id)->lockForUpdate()->first();
+                $this->messages->indexReply($row);
+                $this->messages->indexReaction($row);
+            }
+            return $changed;
+        }, 3);
         return $changed === 1 ? $this->result($state, false, $id, $reason)
             : $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
     }
 
-    private function recent(int $conversation): array
+    private function recent(int $conversation, $actor = null, ?int $beforeReplyId = null, bool $acceptedOnly = false): array
     {
         $items = []; $acceptedKeys = [];
-        foreach ($this->requests($conversation)->orderByDesc('id')->limit(20)->get() as $row) {
+        $query = $this->requests($conversation)->whereIn('kind', ['text', 'audio', 'image', 'video', 'document']);
+        if ($beforeReplyId !== null) $query->where('id', '<', $beforeReplyId);
+        if ($acceptedOnly) $query->where('state', 'ACCEPTED');
+        $rows = $query->orderByDesc('id')->limit(20)->get();
+        $hidden = $actor === null ? [] : $this->messages->hiddenReplyIds($actor, $conversation, $rows->pluck('id')->all());
+        $indexes = $actor !== null && Schema::hasTable(WhatsAppInboxMessage::INDEX) ? DB::table(WhatsAppInboxMessage::INDEX)
+            ->where('conversation_id', $conversation)->whereIn('reply_id', $rows->pluck('id')->all())->get()->keyBy('reply_id') : null;
+        $reactions = $actor !== null && $indexes ? $this->messages->reactions($actor, $conversation,
+            $indexes->filter(fn ($index) => $index->valid)->pluck('message_key')->all()) : [];
+        foreach ($rows as $row) {
+            if (in_array((int) $row->id, $hidden, true) || $row->kind === 'reaction') continue;
             try {
                 $audit = $this->decrypt($row->audit);
+                if ($actor !== null && !$this->uuid($audit['client_request_id'] ?? null)) continue;
                 $acceptedAt = null;
                 if ($row->state === 'ACCEPTED' && is_string($row->completed_at ?? null)) {
                     $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',
@@ -341,12 +501,45 @@ class WhatsAppReplyService
                 $index = count($items);
                 $items[] = ['reply_id' => (int) $row->id, 'client_request_id' => $audit['client_request_id'],
                     'state' => $this->publicState($row->state), 'kind' => $row->kind,
-                    'text' => $row->kind === 'text' ? $audit['text'] : null,
+                    'text' => $row->kind === 'text' ? $audit['text'] : (in_array($row->kind, ['image', 'video', 'document'], true) ? ($audit['caption'] ?? null) : null),
                     'created_at' => gmdate('Y-m-d\\TH:i:s\\Z', strtotime($row->created_at . ' UTC')),
                     'actor_id' => (int) $row->actor_id, 'source' => 'dashboard_api',
                     'accepted_at' => $acceptedAt, 'projected_message_id' => null];
+                if ($actor !== null) {
+                    $items[$index]['reply_to'] = $this->safeSummary($audit['reply_to'] ?? null);
+                    if ($items[$index]['reply_to'] !== null) {
+                        try {
+                            $quoted = $items[$index]['reply_to'];
+                            $source = $quoted['reply_id'] !== null ? $this->messages->resolveReply($actor, $conversation, $quoted['reply_id'])
+                                : $this->messages->resolve($actor, $conversation, $quoted['message_id']);
+                            $items[$index]['reply_to'] = $this->messages->summary($source);
+                        } catch (\Throwable $error) { $items[$index]['reply_to'] = null; }
+                    }
+                    $items[$index]['projection_id'] = $indexes && $indexes->get($row->id) ? (int) $indexes->get($row->id)->id : null;
+                    $mapping = $indexes ? $indexes->get($row->id) : null;
+                    $items[$index]['reaction'] = $mapping && $mapping->valid ? ($reactions[$mapping->message_key] ?? null) : null;
+                    $items[$index]['actions'] = ['reply' => false, 'forward' => false,
+                        'delete' => $row->state === 'ACCEPTED' && $items[$index]['projection_id'] !== null, 'react' => false];
+                    try {
+                        $mapping = $indexes ? $indexes->get($row->id) : null;
+                        if ($row->state === 'ACCEPTED' && $mapping && $mapping->valid && $mapping->kind === $row->kind && $mapping->receipt_hash === hash('sha256',
+                            (string) $row->response_details . ':' . (string) $row->remote_message_key . ':' . $conversation)) {
+                            $nativeSource = ['kind' => $row->kind, 'text' => $row->kind === 'text' ? $audit['text'] : ($audit['caption'] ?? null),
+                                'raw' => [$row->kind => $audit['media'] ?? null], 'sent_at' => $row->completed_at];
+                            $items[$index]['actions']['reply'] = true;
+                            $items[$index]['actions']['react'] = strtotime($nativeSource['sent_at'] . ' UTC') >= $this->now()->getTimestamp() - 2592000;
+                            $nativeMedia = $this->messages->media($nativeSource);
+                            $items[$index]['actions']['forward'] = $nativeSource['kind'] === 'text'
+                                ? is_string($nativeSource['text']) && trim($nativeSource['text']) !== ''
+                                : $nativeMedia !== null && ($nativeSource['text'] === null || (is_string($nativeSource['text']) && mb_strlen($nativeSource['text']) <= 1024));
+                            if ($nativeMedia !== null && $nativeMedia['kind'] === 'image') $items[$index]['media'] = [
+                                'url' => url('/admin/whatsapp/conversations/' . $conversation . '/replies/' . $row->id . '/media'),
+                                'type' => 'image', 'mime_type' => $nativeMedia['mime']];
+                        }
+                    } catch (\Throwable $error) { /* An unavailable native receipt has no network actions. */ }
+                }
                 // Native message IDs stay encrypted. Their inbox hash uses its own namespace.
-                if ($row->state === 'ACCEPTED' && in_array($row->kind, ['text', 'audio'], true)
+                if ($row->state === 'ACCEPTED' && in_array($row->kind, ['text', 'audio', 'image', 'video', 'document'], true)
                     && is_string($row->response_details ?? null)) {
                     try {
                         $response = $this->decrypt($row->response_details);
@@ -364,7 +557,7 @@ class WhatsAppReplyService
                 ->join('whatsapp_inbox_conversations as c', 'c.id', '=', 'm.conversation_id')
                 ->where('c.waba_id', self::WABA)->where('c.phone_number_id', self::PHONE)
                 ->where('m.conversation_id', $conversation)->where('m.direction', 'outbound')
-                ->whereIn('m.type', ['text', 'audio'])
+                ->whereIn('m.type', ['text', 'audio', 'image', 'video', 'document'])
                 ->whereIn('m.message_key', array_values(array_unique(array_column($acceptedKeys, 'key'))))
                 ->get(['m.id', 'm.message_key', 'm.type']) as $message) {
                 if ((int) $message->id > 0)
@@ -462,9 +655,13 @@ class WhatsAppReplyService
 
     private function payloadHash(array $request): string
     {
-        return hash_hmac('sha256', 'whatsapp-reply-payload-v1:' . json_encode([
+        $values = [
             $request['kind'], $request['expected_inbound_id'], $request['text'], $request['voice_sha256'] ?? null,
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $this->key());
+        ];
+        if (isset($request['reply_to_message_id']) || isset($request['reply_to_reply_id']) || isset($request['source']))
+            $values[] = [$request['reply_to_message_id'] ?? null, $request['reply_to_reply_id'] ?? null,
+                $request['source'] ?? null, $request['media'] ?? null, $request['emoji'] ?? null, $request['context_fingerprint'] ?? null];
+        return hash_hmac('sha256', 'whatsapp-reply-payload-v1:' . json_encode($values, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $this->key());
     }
 
     private function encrypt(array $data): string { return Crypt::encryptString(json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)); }
@@ -487,10 +684,21 @@ class WhatsAppReplyService
 
     private function publicState(string $state): string { return in_array($state, ['ACCEPTED', 'FAILED'], true) ? $state : 'UNKNOWN'; }
 
+    private function safeSummary($summary): ?array
+    {
+        if (!is_array($summary) || !in_array($summary['kind'] ?? null, ['text', 'audio', 'image', 'video', 'document', 'location', 'order'], true)
+            || !in_array($summary['direction'] ?? null, ['inbound', 'outbound'], true)) return null;
+        $message = $summary['message_id'] ?? null; $reply = $summary['reply_id'] ?? null;
+        if (($message !== null && (!is_int($message) || $message < 1)) || ($reply !== null && (!is_int($reply) || $reply < 1))
+            || (($message === null) === ($reply === null))) return null;
+        return ['message_id' => $message, 'reply_id' => $reply, 'kind' => $summary['kind'], 'direction' => $summary['direction'],
+            'text' => is_string($summary['text'] ?? null) ? mb_substr($summary['text'], 0, 160) : null];
+    }
+
     private function publicReason(?string $reason): ?string
     {
         return $reason === null ? null : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'INVALID_VOICE',
             'NO_INBOUND', 'RECIPIENT_UNAVAILABLE', 'WINDOW_CLOSED', 'UNKNOWN_PENDING', 'STALE_INBOUND',
-            'ACCESS_REVOKED', 'MEDIA_UPLOAD_FAILED', 'META_REJECTED', 'DELIVERY_UNKNOWN'], true) ? $reason : 'DELIVERY_UNKNOWN');
+            'ACCESS_REVOKED', 'MEDIA_UPLOAD_FAILED', 'META_REJECTED', 'DELIVERY_UNKNOWN', 'MESSAGE_UNAVAILABLE'], true) ? $reason : 'DELIVERY_UNKNOWN');
     }
 }

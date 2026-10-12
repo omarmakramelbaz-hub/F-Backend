@@ -48,6 +48,13 @@ class CairoEnableTests(unittest.TestCase):
             data = ('protected-cutoffs-mappings-and-feed:' + relative).encode()
             self.write(self.root / relative, data, 0o600 if relative == '.env' else 0o644)
             self.protected[relative] = data
+        dashboard_pins = {}
+        for relative in NS['DASHBOARD_PINS']:
+            if relative not in self.protected:
+                data = ('protected-dashboard-upgrade:' + relative).encode()
+                self.write(self.root / relative, data); self.protected[relative] = data
+            dashboard_pins[relative] = NS['blob'](self.protected[relative])
+        patcher = mock.patch.dict(NS['DASHBOARD_PINS'], dashboard_pins, clear=True); patcher.start(); self.addCleanup(patcher.stop)
         helper_pins = {}
         for name in NS['HELPER_PINS']:
             data = (ROOT / 'deployment' / name).read_bytes()
@@ -369,7 +376,7 @@ class CairoEnableTests(unittest.TestCase):
 
     def test_whole_flow_detects_protected_feed_edit_and_retains_concurrent_bytes(self):
         self.fault = 'protected'
-        with self.assertRaisesRegex(NS['SafeError'], 'PROTECTED_SOURCE_CHANGED_AFTER_PUBLICATION'): self.run_wrapper()
+        with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_DASHBOARD_RUNTIME_NEEDS_REVIEW: public/js/dashboard-whatsapp-inbox.js'): self.run_wrapper()
         self.assert_capture_available(); self.assertEqual((self.root / 'public/js/dashboard-whatsapp-inbox.js').read_bytes(), b'concurrent-feed-edit')
 
     def test_auto_cart_source_edit_cannot_hide_behind_unchanged_effective_cache(self):

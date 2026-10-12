@@ -26,6 +26,26 @@ class WhatsAppReplyController extends Controller
         });
     }
 
+    public function history(Request $request, string $conversation, WhatsAppReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            if (array_diff(array_keys($request->query()), ['before_reply_id', 'known_reply_ids'])) throw new HttpException(422);
+            $before = $request->query('before_reply_id');
+            if ($before !== null && !is_string($before)) throw new HttpException(422);
+            $known = $request->query('known_reply_ids', []);
+            if (!is_array($known) || !array_is_list($known) || count($known) > 100) throw new HttpException(422);
+            $ids = [];
+            foreach ($known as $id) {
+                if (!is_string($id) && !is_int($id)) throw new HttpException(422);
+                $number = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if (!is_int($number)) throw new HttpException(422);
+                $ids[] = $number;
+            }
+            return $replies->history(auth('admin')->user(), $this->conversation($conversation),
+                $before === null ? null : $this->conversation($before), $ids);
+        });
+    }
+
     public function voice(Request $request, string $conversation, WhatsAppReplyService $replies)
     {
         return $this->respond(function () use ($request, $conversation, $replies) {
@@ -34,6 +54,27 @@ class WhatsAppReplyController extends Controller
             return $replies->voice(auth('admin')->user(), $this->conversation($conversation),
                 $request->except(['_token', 'audio']), $file);
         });
+    }
+
+    public function forward(Request $request, string $conversation, string $message, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->forward(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($message), $request->except('_token')));
+    }
+    public function forwardReply(Request $request, string $conversation, string $reply, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->forwardReply(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($reply), $request->except('_token')));
+    }
+    public function reaction(Request $request, string $conversation, string $message, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->reaction(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($message), $request->except('_token')));
+    }
+    public function reactionReply(Request $request, string $conversation, string $reply, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->reactionReply(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($reply), $request->except('_token')));
     }
 
     private function respond(callable $operation)

@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\WhatsAppInboxAccess;
 use App\Services\Dashboard\WhatsAppInboxConsumer;
+use App\Services\Dashboard\WhatsAppInboxMessage;
 use App\Support\WhatsAppInboxProtocol;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -27,6 +29,10 @@ class WhatsAppInboxController extends Controller
                 'available' => $available,
                 'conversations_url' => route('whatsapp-inbox.conversations'),
                 'messages_base_url' => url('/admin/whatsapp/conversations'),
+                'actions_base_url' => url('/admin/whatsapp/conversations'),
+                'media_base_url' => url('/admin/whatsapp/conversations'),
+                'reply_history_base_url' => url('/admin/whatsapp/conversations'),
+                'message_updates_base_url' => url('/admin/whatsapp/conversations'),
                 'labels' => $this->labels(),
             ]])->withHeaders($this->privateHeaders());
         } catch (HttpException $error) {
@@ -65,14 +71,17 @@ class WhatsAppInboxController extends Controller
             $previews = [];
             if ($ids) {
                 // One latest-by-sent-time message per conversation; no full histories are loaded.
-                foreach (DB::table('whatsapp_inbox_messages')->whereIn('id', $ids)
-                    ->get(['conversation_id', 'content', 'type', 'direction']) as $message) {
+                $previewRows = DB::table('whatsapp_inbox_messages')->whereIn('id', $ids)
+                    ->get(['id', 'conversation_id', 'message_key', 'content', 'type', 'direction']);
+                $hidden = app(WhatsAppInboxMessage::class)->hiddenProjected(auth('admin')->user(), $previewRows);
+                foreach ($previewRows as $message) {
                     $dto = $this->decrypt($message->content);
                     $previews[(int) $message->conversation_id] = [
-                        'text' => $this->displayText($dto, 160),
+                        'text' => in_array((int) $message->id, $hidden, true) ? null : $this->displayText($dto, 160),
                         'type' => $this->messageType($message->type),
                         'direction' => $message->direction === 'outbound' ? 'outbound' : 'inbound',
                         'unavailable' => $dto === null,
+                        'deleted' => in_array((int) $message->id, $hidden, true),
                     ];
                 }
             }
@@ -99,6 +108,8 @@ class WhatsAppInboxController extends Controller
     public function messages(Request $request, string $conversation, WhatsAppInboxAccess $access)
     {
         return $this->read($access, function () use ($request, $conversation) {
+            $actor = auth('admin')->user();
+            $messageService = app(WhatsAppInboxMessage::class);
             $conversation = filter_var($conversation, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
             abort_unless(is_int($conversation), 404);
             $input = $request->validate([
@@ -107,7 +118,7 @@ class WhatsAppInboxController extends Controller
             ]);
             abort_if(isset($input['before_id'], $input['after_id']), 422);
             $thread = $this->scopedConversations()->where('id', $conversation)
-                ->first(['id', 'customer', 'last_message_at']);
+                ->first(['id', 'customer', 'last_message_at', 'waba_id', 'phone_number_id', 'peer_hash']);
             abort_unless($thread, 404);
             $query = DB::table('whatsapp_inbox_messages')->where('conversation_id', $conversation);
             $newer = isset($input['after_id']);
@@ -115,23 +126,59 @@ class WhatsAppInboxController extends Controller
             if (isset($input['before_id'])) $query->where('id', '<', (int) $input['before_id']);
             $rows = $newer ? $query->orderBy('id') : $query->orderByDesc('id');
             $rows = $rows->limit(self::MESSAGE_LIMIT + 1)
-                ->get(['id', 'content', 'direction', 'type', 'source', 'sent_at', 'created_at']);
+                ->get(['id', 'conversation_id', 'message_key', 'content', 'direction', 'type', 'source', 'sent_at', 'created_at']);
             $more = $rows->count() > self::MESSAGE_LIMIT;
             $rows = $rows->take(self::MESSAGE_LIMIT)->values();
             if (!$newer) $rows = $rows->reverse()->values();
+            $hidden = $messageService->hiddenIds($actor, $conversation, $rows->pluck('id')->all());
+            $quoted = $this->quotedMessages($actor, $conversation, $rows, $messageService);
+            $reactionKeys = $rows->pluck('message_key')->filter(fn ($key) => is_string($key) && preg_match('/\A[a-f0-9]{64}\z/', $key))->all();
+            $reactions = $messageService->reactions($actor, $conversation, $reactionKeys);
+            $indexes = Schema::hasTable(WhatsAppInboxMessage::INDEX) ? DB::table(WhatsAppInboxMessage::INDEX)
+                ->where('conversation_id', $conversation)->where('waba_id', WhatsAppInboxAccess::WABA_ID)
+                ->where('phone_number_id', WhatsAppInboxAccess::PHONE_ID)->where('valid', true)
+                ->whereIn('message_key', $rows->pluck('message_key')->all())->get()->keyBy('message_key') : null;
             $items = [];
             foreach ($rows as $row) {
+                $deleted = in_array((int) $row->id, $hidden, true);
                 $dto = $this->decrypt($row->content);
-                $items[] = [
+                $item = [
                     'id' => (int) $row->id,
                     'direction' => $row->direction === 'outbound' ? 'outbound' : 'inbound',
                     'type' => $this->messageType($row->type),
-                    'text' => $this->displayText($dto, 20000),
-                    'cart' => $this->displayCart($dto),
+                    'text' => $deleted ? null : $this->displayText($dto, 20000),
+                    'cart' => $deleted ? null : $this->displayCart($dto),
                     'sent_at' => $this->timestamp($row->sent_at),
                     'received_at' => $this->timestamp($row->created_at),
                     'unavailable' => $dto === null,
+                    'deleted' => $deleted, 'reply_to' => null,
+                    'api_reply_id' => null, 'api_projection_id' => null,
+                    'reaction' => $deleted ? null : ($reactions[$row->message_key] ?? null),
+                    'actions' => ['reply' => false, 'forward' => false, 'delete' => !$deleted, 'react' => false],
                 ];
+                if (!$deleted) {
+                    try {
+                        $native = $messageService->projected($thread, $row);
+                        $index = $indexes ? $indexes->get($row->message_key) : null;
+                        if ($index && $row->direction === 'outbound' && $index->kind === $row->type) {
+                            $item['api_reply_id'] = (int) $index->reply_id;
+                            $item['api_projection_id'] = (int) $index->id;
+                        }
+                        $item['actions']['reply'] = !in_array($native['kind'], ['unsupported', 'reaction'], true);
+                        $item['actions']['react'] = $item['actions']['reply'] && strtotime($native['sent_at'] . ' UTC') >= time() - 2592000;
+                        $media = $messageService->media($native);
+                        $item['actions']['forward'] = $native['kind'] === 'text'
+                            ? is_string($native['text']) && trim($native['text']) !== '' && mb_strlen($native['text']) <= 4096
+                            : $media !== null && ($native['text'] === null || mb_strlen($native['text']) <= 1024);
+                        if ($media !== null && $media['kind'] === 'image') $item['media'] = [
+                            'url' => url('/admin/whatsapp/conversations/' . $conversation . '/messages/' . $row->id . '/media'),
+                            'type' => 'image', 'mime_type' => $media['mime']];
+                        $context = $native['raw']['context']['id'] ?? null;
+                        if (is_string($context)) $item['reply_to'] = $quoted[hash('sha256', 'whatsapp-message-v1:'
+                            . WhatsAppInboxAccess::WABA_ID . ':' . WhatsAppInboxAccess::PHONE_ID . ':' . $context)] ?? null;
+                    } catch (\Throwable $error) { /* Invalid native binding cannot enable network actions. */ }
+                }
+                $items[] = $item;
             }
             $customer = $this->decrypt($thread->customer);
             return ['success' => true, 'conversation' => [
@@ -142,6 +189,27 @@ class WhatsAppInboxController extends Controller
                 'next_before_id' => !$newer && $more && $rows->first() ? (int) $rows->first()->id : null,
                 'last_id' => $rows->last() ? (int) $rows->last()->id : ($newer ? (int) $input['after_id'] : 0)];
         });
+    }
+
+    private function quotedMessages($actor, int $conversation, $rows, WhatsAppInboxMessage $service): array
+    {
+        $keys = [];
+        foreach ($rows as $row) {
+            $dto = $this->decrypt($row->content); $native = $dto['content']['message']['context']['id'] ?? null;
+            if (is_string($native) && preg_match('/\Awamid\.[A-Za-z0-9_+\/=.-]{1,500}\z/', $native))
+                $keys[] = hash('sha256', 'whatsapp-message-v1:' . WhatsAppInboxAccess::WABA_ID . ':' . WhatsAppInboxAccess::PHONE_ID . ':' . $native);
+        }
+        if (!$keys) return [];
+        $thread = $this->scopedConversations()->where('id', $conversation)->first();
+        $quoted = DB::table('whatsapp_inbox_messages')->where('conversation_id', $conversation)->whereIn('message_key', array_unique($keys))->limit(self::MESSAGE_LIMIT)->get();
+        $hidden = $service->hiddenIds($actor, $conversation, $quoted->pluck('id')->all());
+        $result = [];
+        foreach ($quoted as $row) {
+            if (in_array((int) $row->id, $hidden, true)) continue;
+            try { $result[$row->message_key] = $service->summary($service->projected($thread, $row)); }
+            catch (\Throwable $error) { /* A broken or hidden quoted record exposes no preview. */ }
+        }
+        return $result;
     }
 
     private function read(WhatsAppInboxAccess $access, callable $callback)

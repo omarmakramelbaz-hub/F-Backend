@@ -226,8 +226,8 @@ async function visibilityAndOffline() {
 
 async function unreadVisibility() {
     const test = fixture(true); await settle();
-    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 3');
-    assert(test.elements['[data-wa-thread-list]'].textContent.includes('3'), 'Thread badges include unread counts');
+    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 1', 'The global badge counts unread customer conversations, not messages');
+    assert(test.elements['[data-wa-thread-list]'].textContent.includes('1'), 'Each unread customer has one conversation indicator');
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'Opening the thread list does not mark messages read');
     click(test, 'data-wa-thread', 1); await settle();
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 1);
@@ -276,3 +276,4 @@ async function cartRendering() {
     console.error(error.stack);
     process.exitCode = 1;
 });
+

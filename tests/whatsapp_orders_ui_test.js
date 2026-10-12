@@ -33,8 +33,10 @@ class Element {
     }
 }
 
-function fixture() {
+function fixture(withDrawer = true) {
     const panel = new Element(), host = new Element(), document = new Element(), window = new Element();
+    const drawer = withDrawer ? new Element('details') : null;
+    if (drawer) drawer.open = false;
     const bootstrap = new Element('script'), elements = {}, fields = {};
     const form = new Element('form');
     ['status', 'proposed', 'items', 'quote', 'analyze', 'reload', 'calculate', 'dispatch', 'add', 'search',
@@ -51,7 +53,7 @@ function fixture() {
         fields[name] = element; elements['[data-wa-order-field="' + name + '"]'] = element;
     });
     panel.querySelector = selector => elements[selector];
-    host.querySelector = selector => selector === '[data-wa-orders]' ? panel : null;
+    host.querySelector = selector => selector === '[data-wa-orders]' ? panel : selector === '[data-wa-order-drawer]' ? drawer : null;
     document.getElementById = id => id === 'whatsapp-inbox' ? host : id === 'whatsapp-orders-bootstrap' ? bootstrap : null;
     document.createElement = tag => new Element(tag); document.hidden = false;
     window.location = {href: 'https://example.test/admin/whatsapp'};
@@ -63,7 +65,7 @@ function fixture() {
     window.DashboardLocationPicker = {create: (element, options) => {
         const map = {options, routes: [], pins: [], destroyed: false, clear() { this.pins = []; },
             set(lat, lng) { this.pins.push([lat, lng]); }, route(value) { this.routes.push(value); },
-            invalidate() {}, resize() {}, destroy() { this.destroyed = true; }};
+            invalidate() {}, resizeCount: 0, resize() { this.resizeCount++; }, destroy() { this.destroyed = true; }};
         state.maps.push(map); return map;
     }};
     window.DashboardSPA = {isCurrentPage: () => true, onCleanup: callback => state.cleanup.push(callback)};
@@ -134,7 +136,7 @@ function fixture() {
         fetch, console, CustomEvent: class { constructor(type, details) { this.type = type; this.detail = details.detail; } }};
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public/js/dashboard-whatsapp-orders.js'), 'utf8'), context);
-    return {panel, host, document, window, elements, fields, form, state, context, labels};
+    return {panel, host, document, window, elements, fields, form, drawer, state, context, labels};
 }
 
 async function settle() { for (let index = 0; index < 10; index++) await new Promise(setImmediate); }
@@ -338,8 +340,30 @@ async function serverAutomationReadOnlyRefresh() {
     test.state.cleanup[0](); assert.strictEqual(test.state.timers.size, 0);
 }
 
+async function compactReviewDrawerMap() {
+    const test = fixture();
+    test.drawer.open = true; test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(test.state.calls.length, 0, 'Opening an empty review drawer cannot fetch customer data or analyze orders');
+    test.drawer.open = false;
+    select(test, 1); await settle();
+    assert.strictEqual(test.state.maps.length, 1);
+    const map = test.state.maps[0], count = map.resizeCount, requests = test.state.calls.length;
+    test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count, 'Closing the review drawer does not resize a hidden map');
+    test.drawer.open = true; test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count + 1, 'Opening the compact review drawer repairs the map initialized at zero size');
+    assert.strictEqual(test.state.calls.length, requests, 'A map resize makes no quote, AI or dispatch request');
+    test.state.cleanup[0]();
+    assert.strictEqual(test.drawer.listeners.toggle.length, 0, 'SPA cleanup removes the drawer listener');
+    test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count + 1, 'A detached drawer cannot resize a destroyed map');
+    const legacy = fixture(false); select(legacy, 1); await settle(); legacy.state.cleanup[0]();
+    assert.strictEqual(legacy.state.maps.length, 1, 'The upgrade still mounts the previous layout during atomic publication');
+}
+
 (async () => {
     await quoteAndEdit(); await staleQuoteAndSwitch(); await repeatedDispatchAndNewMessages(); await expiredAndOffline(); await pendingEditAndHidden();
     await savedCustomerMapAndDelivery(); await suggestionAndLateLocationPrivacy(); await serverAutomationReadOnlyRefresh();
-    console.log('WHATSAPP_ORDERS_UI_PASS plain text, quote invalidation, stale privacy, single dispatch, expiry cleanup, shared saved customer map/delivery, pin confirmation, read-only automatic refresh');
+    await compactReviewDrawerMap();
+    console.log('WHATSAPP_ORDERS_UI_PASS plain text, quote invalidation, stale privacy, single dispatch, expiry cleanup, shared saved customer map/delivery, pin confirmation, read-only automatic refresh, compact drawer map resize and cleanup');
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
