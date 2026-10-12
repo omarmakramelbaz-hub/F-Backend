@@ -73,12 +73,13 @@ async function browser(kind = 'store', options = {}) {
   const capture = spa.split('\n').find(line => line.includes("native.add.call(document, 'submit', function (event) { if (event.target instanceof HTMLFormElement)"));
   assert.ok(capture); vm.runInContext(capture, context);
   let footerSubmit, confirm;
-  context.$ = value => value === 'form' ? { submit: callback => { footerSubmit = callback; } }
+  const originalForms = { not: selector => { assert.equal(selector, '[data-wa-reply-form]'); return originalForms; }, submit: callback => { footerSubmit = callback; } };
+  context.$ = value => value === 'form' ? originalForms
     : value === '.show_confirm' ? { click: callback => { confirm = callback; } }
     : value === form.button ? { data: () => undefined, closest: () => ({ submit: () => { footerSubmit.call(form); Form.prototype.submit.call(form); } }) }
     : { find: () => ({ html: value => { form.button.innerHTML = value; } }) };
   context.swal = () => Promise.resolve(context.confirmed);
-  const footerStart = footer.indexOf('    $( "form" ).submit(function() {'), footerEnd = footer.indexOf('    });', footerStart) + 7;
+  const footerStart = footer.indexOf('    $( "form" ).not("[data-wa-reply-form]").submit(function() {'), footerEnd = footer.indexOf('    });', footerStart) + 7;
   assert.ok(footerStart >= 0); vm.runInContext(footer.slice(footerStart, footerEnd).replace("@lang('main.under click')", 'جاري التنفيذ'), context);
   const confirmStart = footer.indexOf("    $('.show_confirm').click(function(event) {"), confirmEnd = footer.indexOf('$(function() {', confirmStart);
   assert.ok(confirmStart >= 0 && confirmEnd > confirmStart); vm.runInContext(footer.slice(confirmStart, confirmEnd), context);

@@ -125,3 +125,7 @@ Route::get('/pay-thanks',[HomeController::class,'paySuccess'])->name('paySuccess
 Route::get('/pay-false',[HomeController::class,'payFailed'])->name('payFailed');
 
 });
+
+foreach (['meta_inbox', 'meta_orders', 'meta_reads', 'meta_replies'] as $metaRoutes) {
+    require __DIR__.'/'.$metaRoutes.'.php';
+}

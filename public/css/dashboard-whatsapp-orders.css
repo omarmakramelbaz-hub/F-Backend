@@ -1,0 +1,39 @@
+.wa-orders { margin-top: 16px; border: 1px solid var(--wa-line, #e4e9e7); border-radius: 16px; background: #fff; padding: 18px; }
+.wa-orders-heading, .wa-orders-actions, .wa-orders-catalog-tools, .wa-orders-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wa-orders-heading { justify-content: space-between; }
+.wa-orders-heading p, .wa-orders-help { font-size: 12px; line-height: 1.8; color: #697d72; margin-top: 6px !important; }
+.wa-orders-primary { color: #fff; background: #167b58; border-color: #167b58; }
+.wa-orders-primary:hover { background: #106646; color: #fff; }
+.wa-orders-status { margin: 14px 0 !important; padding: 10px 12px; background: #f3f7f4; border-radius: 8px; font-size: 13px; white-space: pre-wrap; }
+.wa-orders-status.is-error { background: #fff2e4; color: #85541e; }
+.wa-orders-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.wa-orders label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #476356; }
+.wa-orders input, .wa-orders select { min-width: 0; width: 100%; border: 1px solid #d8e3dc; border-radius: 8px; min-height: 39px; padding: 7px 10px; background: #fff; font: inherit; color: #213a32; }
+.wa-orders input:focus-visible, .wa-orders select:focus-visible { outline: 3px solid #ffa34d; outline-offset: 1px; }
+.wa-orders input:disabled, .wa-orders select:disabled { background: #f5f7f5; opacity: .65; }
+.wa-orders-wide { grid-column: 1 / -1; }
+.wa-orders label.wa-orders-check { flex-direction: row; align-items: center; gap: 8px; }
+.wa-orders-check input { width: 18px; min-height: 18px; }
+.wa-orders-proposed { padding: 12px 14px; margin: 12px 0; background: #fff8ec; border: 1px solid #f1dfc2; border-radius: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wa-orders-proposed ul { margin: 8px 0; padding-inline-start: 20px; }
+.wa-orders-catalog-tools { margin: 18px 0 12px; }
+.wa-orders h3 { margin: 0; font-size: 14px; flex: 1 1 200px; }
+.wa-orders-catalog-tools label { flex: 1 1 180px; }
+.wa-orders-item-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.wa-orders-item { padding: 12px; border: 1px solid #e2eae5; border-radius: 10px; display: grid; grid-template-columns: minmax(170px, 2fr) minmax(130px, 1.4fr) minmax(80px, .7fr) minmax(85px, .8fr) auto; gap: 9px; align-items: end; }
+.wa-orders-item-hint { grid-column: 1 / -1; font-size: 11px; color: #697d72; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wa-orders-quote { padding: 14px; margin-top: 14px; border: 1px solid #d1e7db; background: #edf7f1; border-radius: 10px; font-weight: 700; white-space: pre-wrap; }
+.wa-orders-footer { justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid #e4e9e7; }
+.wa-orders-phone-lookup, .wa-orders-location header { display: flex; align-items: center; gap: 8px; }
+.wa-orders-phone-lookup input { flex: 1; }
+.wa-orders-phone-lookup button { flex: 0 0 auto; font-size: 11px; }
+.wa-orders-location { margin: 16px 0; border: 1px solid #d8e3dc; border-radius: 12px; padding: 12px; }
+.wa-orders-location header { flex-wrap: wrap; justify-content: space-between; }
+.wa-orders-map { min-height: 280px; margin: 10px 0; border-radius: 10px; overflow: hidden; z-index: 0; }
+.wa-orders-address-list { display: flex; flex-direction: column; gap: 7px; margin: 10px 0; max-height: 260px; overflow: auto; }
+.wa-orders-address-list[hidden] { display: none; }
+.wa-orders-address-list button { white-space: normal; text-align: start; overflow-wrap: anywhere; }
+.wa-orders-map-attribution { font-size: 10px; direction: ltr; color: #697d72; }
+.wa-orders-distance { margin: 10px 0 !important; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+@media (max-width: 960px) { .wa-orders-item { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wa-orders-item > button { justify-self: start; } }
+@media (max-width: 600px) { .wa-orders { padding: 13px; } .wa-orders-fields { grid-template-columns: minmax(0, 1fr); } .wa-orders-actions { width: 100%; } .wa-orders-actions button { flex: 1; } .wa-orders-item { padding: 10px; } .wa-orders-item > label:first-of-type { grid-column: 1 / -1; } .wa-orders-footer button { width: 100%; } }

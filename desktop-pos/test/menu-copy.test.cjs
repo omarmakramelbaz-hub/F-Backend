@@ -57,14 +57,15 @@ async function originalCopy(options = {}) {
   const capture = spa.split('\n').find(line => line.includes("native.add.call(document, 'submit', function (event) { if (event.target instanceof HTMLFormElement)"));
   assert.ok(capture); vm.runInContext(capture, context);
   let selectAll, spinner;
+  const originalForms = { not: selector => { assert.equal(selector, '[data-wa-reply-form]'); return originalForms; }, submit: callback => { spinner = callback; } };
   context.$ = value => value === '#master' ? { on: (_type, callback) => { selectAll = callback; } }
     : value === master ? { is: () => master.checked }
     : value === '.sub_chk' ? { prop: (_name, value) => form.fields.filter(field => field.type === 'checkbox').forEach(field => { field.checked = value; }) }
-    : value === 'form' ? { submit: callback => { spinner = callback; } }
+    : value === 'form' ? originalForms
     : { find: () => ({ html: value => { form.button.innerHTML = value; } }) };
   const selectStart = footer.indexOf("        $('#master').on('click', function(e) {"), selectEnd = footer.indexOf('        });', selectStart) + 11;
   assert.ok(selectStart >= 0); vm.runInContext(footer.slice(selectStart, selectEnd), context);
-  const spinStart = footer.indexOf('    $( "form" ).submit(function() {'), spinEnd = footer.indexOf('    });', spinStart) + 7;
+  const spinStart = footer.indexOf('    $( "form" ).not("[data-wa-reply-form]").submit(function() {'), spinEnd = footer.indexOf('    });', spinStart) + 7;
   assert.ok(spinStart >= 0); vm.runInContext(footer.slice(spinStart, spinEnd).replace("@lang('main.under click')", 'جاري التنفيذ'), context);
   const submit = () => {
     const event = { target: form, submitter: options.noSubmitter ? null : options.foreignSubmitter ? { ...form.button, form: {} } : form.button,

@@ -1,0 +1,1226 @@
+{
+  "version": 1,
+  "expected_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
+  "before_source": {
+    "format": 1,
+    "files": 1020,
+    "sha256": "d13287e9e48890f0fd4f83ccb6d10ad48296bc07e63a4a441f5a24263022a2f2",
+    "framework": "8.83.29"
+  },
+  "after_source": {
+    "format": 1,
+    "files": 1148,
+    "sha256": "5a63d33d5c4f53d5ecbdc6ff17e79ed8ff4cdf6175825d7cac6c3f8653e0e11f",
+    "framework": "8.83.29"
+  },
+  "sources": [
+    {
+      "path": "database/migrations/2026_10_08_130000_create_desktop_dashboard_journal.php",
+      "before_blob": null,
+      "after_blob": "cac7b4da0a73e3d100ddabf0c33300fb046485cc",
+      "phase": 0
+    },
+    {
+      "path": "database/migrations/2026_10_08_160000_create_desktop_dashboard_local_state.php",
+      "before_blob": null,
+      "after_blob": "fcc83d8d3bb76cc5ad63a9464e7fa518bccb77fa",
+      "phase": 0
+    },
+    {
+      "path": "database/migrations/2026_10_08_210000_create_desktop_dashboard_archived_commands.php",
+      "before_blob": null,
+      "after_blob": "157df2e84a77814962519fb83e32313c8f3892aa",
+      "phase": 0
+    },
+    {
+      "path": "database/migrations/2026_10_08_210000_create_desktop_dashboard_remote_attempts.php",
+      "before_blob": null,
+      "after_blob": "eba3d5017ad6d789b59d3a26fdba6f43d47cd4e8",
+      "phase": 0
+    },
+    {
+      "path": "database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php",
+      "before_blob": null,
+      "after_blob": "f189c2896d0a60d329b49e8e921521b813edd0a5",
+      "phase": 0
+    },
+    {
+      "path": "database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php",
+      "before_blob": null,
+      "after_blob": "4ddd10d0e52fd7ff82c35c810d8928845682b75e",
+      "phase": 0
+    },
+    {
+      "path": "app/Http/Controllers/Api/DesktopDashboardController.php",
+      "before_blob": null,
+      "after_blob": "f8bb3a5161095f0cc42fd5b49f2b22a5e74f6a2d",
+      "phase": 1
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/DesktopDashboardController.php",
+      "before_blob": null,
+      "after_blob": "89f2e72add0c83806c12686a00433f22364b2d65",
+      "phase": 1
+    },
+    {
+      "path": "app/Http/Middleware/DesktopDashboardJournal.php",
+      "before_blob": null,
+      "after_blob": "97d2034b32bdc60cfb8f48c189eb4553923026df",
+      "phase": 1
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswerRequest.php",
+      "before_blob": null,
+      "after_blob": "b703482c829e051dc0ec38cfe51370198a88b6b0",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/CategoryOrdering.php",
+      "before_blob": null,
+      "after_blob": "b93de001faeb700bd0ff9b9aa4647156b1ae9270",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardArchive.php",
+      "before_blob": null,
+      "after_blob": "e01ceeb822d3ab4765c6241001816a227d05f4c0",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardAssets.php",
+      "before_blob": null,
+      "after_blob": "828e00c4c9601d0c48676821f4c75097a642113f",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardBootstrap.php",
+      "before_blob": null,
+      "after_blob": "d80ef62ef61ae5ef664ea813035c332251ba6843",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardCommands.php",
+      "before_blob": null,
+      "after_blob": "c21534397399b5c9be4a767e86fd382149e87afd",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardData.php",
+      "before_blob": null,
+      "after_blob": "e0d63691649c59398fe56a50d362c353b3a0d3ba",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardDevices.php",
+      "before_blob": null,
+      "after_blob": "44b5d50a8082c92844a466683fd62b81dc52b562",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardExpenseAttachments.php",
+      "before_blob": null,
+      "after_blob": "2649f69a9635631d4887e68bf10070914cedc963",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardGoStoreProfile.php",
+      "before_blob": null,
+      "after_blob": "999e6f539f888068e31f86bf5f5a23553e811838",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardImport.php",
+      "before_blob": null,
+      "after_blob": "43be454c8819e3e9ed70be752d833bff33d66360",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardJournal.php",
+      "before_blob": null,
+      "after_blob": "2094a6e8961c274bada208be3bcaca3b84eae8c8",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardLegacy.php",
+      "before_blob": null,
+      "after_blob": "0e898a712cd4270383e5b006ca4d695fa7e2c99a",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardMedia.php",
+      "before_blob": null,
+      "after_blob": "171f66b8d642bd395d35e832e2f963f0a3082819",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardMenuAvailability.php",
+      "before_blob": null,
+      "after_blob": "d9c0e6454960a192eb10be00289f1168741a6242",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardNotificationReads.php",
+      "before_blob": null,
+      "after_blob": "7b0b5503892ce5bca4ba3f9890817e7b5a67337d",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardProductEffects.php",
+      "before_blob": null,
+      "after_blob": "b069f684491d7ae3ab65ca2fe75203f5953e0f80",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardProductFilesystem.php",
+      "before_blob": null,
+      "after_blob": "6d25a541b9e52202bc46b9298f1da3f49fcebee7",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardProductImages.php",
+      "before_blob": null,
+      "after_blob": "aa87756405416bfe23367384fc27258448195416",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardReconciliation.php",
+      "before_blob": null,
+      "after_blob": "308fe1985a4f52e1414cee48ab550606cd4afe71",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardReferences.php",
+      "before_blob": null,
+      "after_blob": "752433e12cb4407b37f5d88e32a17a7702c77b1f",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRefresh.php",
+      "before_blob": null,
+      "after_blob": "abd01b2dc8442fafb60cefd36cb43417d1cee819",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRemoteAttempts.php",
+      "before_blob": null,
+      "after_blob": "7d85e6ceb2427b9f62db282af2b349ceb08609ba",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRestaurantFlags.php",
+      "before_blob": null,
+      "after_blob": "9baa42fc6e15a7108151657c17018ddfb2bee8f1",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRestaurantMenuCopy.php",
+      "before_blob": null,
+      "after_blob": "579244ae12f1d5a8bba274a19b8b41f9cac3c8fd",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRestaurantProductCrud.php",
+      "before_blob": null,
+      "after_blob": "2987f97b4e789b916bbeff4805867c953020bb45",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRestaurantProducts.php",
+      "before_blob": null,
+      "after_blob": "ecae079731b6d115828270e67cb3884463810f2d",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardReviewDeletion.php",
+      "before_blob": null,
+      "after_blob": "3d4199a0dacdd1468188f0ff62dbdb0689ed7001",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRoleFacts.php",
+      "before_blob": null,
+      "after_blob": "f534b77aa100e0a9aae24213dfe9b558a6ca58ab",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardRoutes.php",
+      "before_blob": null,
+      "after_blob": "0bfe29cf8c07c6cf9707ccfe4445c971efb4b9d0",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardSchema.php",
+      "before_blob": null,
+      "after_blob": "9a019a8066462ace051792956b6bcd662176c265",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardSource.php",
+      "before_blob": null,
+      "after_blob": "fcbfbd40e011f3fd5bbbaed1fe755f6ab6faa399",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardWishlistDeletion.php",
+      "before_blob": null,
+      "after_blob": "aefd7a8a15e2e7858bd4bc454a7d88da1b8b0b81",
+      "phase": 1
+    },
+    {
+      "path": "app/Support/NativeDeleteForm.php",
+      "before_blob": null,
+      "after_blob": "687491a706537c3d696deaeee2b5d8349e64571d",
+      "phase": 1
+    },
+    {
+      "path": "config/desktop_dashboard.php",
+      "before_blob": null,
+      "after_blob": "e611410630ddf73bbd4b448e67b07e7d26523b8f",
+      "phase": 1
+    },
+    {
+      "path": "desktop/archive.php",
+      "before_blob": null,
+      "after_blob": "8ab868e6d158478c2ab36a586d718666e39c05ae",
+      "phase": 1
+    },
+    {
+      "path": "desktop/bootstrap.php",
+      "before_blob": null,
+      "after_blob": "0f74c3f3a2af12f21cb914a9d3408b3d62aad165",
+      "phase": 1
+    },
+    {
+      "path": "desktop/control.php",
+      "before_blob": null,
+      "after_blob": "41c241d930b7ccb153c8688c7ba06a125c663803",
+      "phase": 1
+    },
+    {
+      "path": "desktop/database.php",
+      "before_blob": null,
+      "after_blob": "371082f7b94fcffffd704cfdb0aed078ce32f2df",
+      "phase": 1
+    },
+    {
+      "path": "desktop/import.php",
+      "before_blob": null,
+      "after_blob": "b84b09282831d3fbb44ebf9d28b811ef544f184b",
+      "phase": 1
+    },
+    {
+      "path": "desktop/router.php",
+      "before_blob": null,
+      "after_blob": "2aef211acb71d9c61efbaf65d4679a739718f162",
+      "phase": 1
+    },
+    {
+      "path": "desktop/verify-media.php",
+      "before_blob": null,
+      "after_blob": "54a6cbd9222af8d99442cb38ff3aa6d05e992bdb",
+      "phase": 1
+    },
+    {
+      "path": "desktop/verify.php",
+      "before_blob": null,
+      "after_blob": "67c34357a8afe71fc183be3e6a56044067499b15",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/js/desktop-client.js",
+      "before_blob": null,
+      "after_blob": "2e607f92bd5761daa960918a0c2c3bd87d344f13",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/js/desktop-dashboard.js",
+      "before_blob": null,
+      "after_blob": "76d7ef20a192c48f1343a3642d07593b51f4f0f1",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/build-config.js",
+      "before_blob": null,
+      "after_blob": "6aae4d3e621e0a0e742c95900d8f85f1b0fc5df1",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/ckeditor.js",
+      "before_blob": null,
+      "after_blob": "87bc6bd2deed1217fdfb856ce017c334b8282121",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/config.js",
+      "before_blob": null,
+      "after_blob": "6619e2440004382e69a2c77f94acf607d32c2a4d",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/contents.css",
+      "before_blob": null,
+      "after_blob": "de1167fe9d58d8f4a4f691477e0b58f7dba109b3",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/lang/ar.js",
+      "before_blob": null,
+      "after_blob": "5df54e40f67d50dffe40f44a9a2077bb9b0195fb",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/lang/en.js",
+      "before_blob": null,
+      "after_blob": "18a6881d66739d0545a12fb62d8b56be5d43a967",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/a11yhelp.js",
+      "before_blob": null,
+      "after_blob": "3d14d13a7e4c7aa12c2e60fe9d2722490545dfde",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/ar.js",
+      "before_blob": null,
+      "after_blob": "db794bed922b838d8f5eb35f16880a7bf4fec409",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/en.js",
+      "before_blob": null,
+      "after_blob": "4c48e4f12f2a4f31296ae3b4db40632d1a0495f0",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/about.js",
+      "before_blob": null,
+      "after_blob": "c0072ff0733025ff99bc4e6cdcb4ab5b477c0276",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/clipboard/dialogs/paste.js",
+      "before_blob": null,
+      "after_blob": "43cd1ca22fe0ef1a3260b70513c800e9f0c66bf8",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/dialog/dialogDefinition.js",
+      "before_blob": null,
+      "after_blob": "6c2b0d628973367a34800d21b032bb707beac446",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/dialog/styles/dialog.css",
+      "before_blob": null,
+      "after_blob": "9fbcaba3e5ab5f34273ae5d46f0704f608e11f9a",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/image/dialogs/image.js",
+      "before_blob": null,
+      "after_blob": "15c62b488246aa945900e9cdb4a9f8b0ec42a6cc",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/anchor.js",
+      "before_blob": null,
+      "after_blob": "d28dadac899495e41c949b636e44c63af10fd78c",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/link.js",
+      "before_blob": null,
+      "after_blob": "91214b160a68fb49d0071b0749eaced6bddd4993",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/pastefromgdocs/filter/default.js",
+      "before_blob": null,
+      "after_blob": "eab7cd6e912ac7b57fab9f24fd8c35d9a2346b69",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/pastefromword/filter/default.js",
+      "before_blob": null,
+      "after_blob": "f3b9c99128ff5bc1b9c5e47c5ea3bf78c8be40e8",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/common.js",
+      "before_blob": null,
+      "after_blob": "c2e83385fd3374bae2cb53bb16a77d431d1cdd2b",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/image.js",
+      "before_blob": null,
+      "after_blob": "67648abf1b62824d8870274eafd391bf3af1b857",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/dialog.css",
+      "before_blob": null,
+      "after_blob": "aef75684f8206699a6fea576be9bcecfcb1702fe",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/options.js",
+      "before_blob": null,
+      "after_blob": "e47c97e932544979a1e9fba0a34bcdd3131ef58d",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/toolbar.css",
+      "before_blob": null,
+      "after_blob": "ecabdac9d2d738c4b69bb33d10a95c6bd8ffc152",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/scayt/skins/moono-lisa/scayt.css",
+      "before_blob": null,
+      "after_blob": "8d624be47a60b84b24533890b3cd6d0c3e03eba4",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/ar.js",
+      "before_blob": null,
+      "after_blob": "21b55334e033540f26a05185877da3c00a4445d2",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/en.js",
+      "before_blob": null,
+      "after_blob": "ccafaf61bfaf1b01d13ddfe36a2c79fea94f7a9a",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/specialchar.js",
+      "before_blob": null,
+      "after_blob": "b039d8c0944dcdacc7a0be6f1c8b380f8f1c5e85",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/table/dialogs/table.js",
+      "before_blob": null,
+      "after_blob": "3de3e5321f40668ff4c5cdfac6dad0e1183a49b9",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/tableselection/styles/tableselection.css",
+      "before_blob": null,
+      "after_blob": "1f5481aa551d0ed56a4f1bf7772ca1245a60e207",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/tabletools/dialogs/tableCell.js",
+      "before_blob": null,
+      "after_blob": "b63374dca2eee47e51eb721caebb637722b252fb",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/ciframe.html",
+      "before_blob": null,
+      "after_blob": "8e4e6bc9a5329f7fdea8937a2c1cc206b428d249",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/tmpFrameset.html",
+      "before_blob": null,
+      "after_blob": "38c7540f7737571b0add6750a0b854cdea896044",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.css",
+      "before_blob": null,
+      "after_blob": "2a622f225282d078af8c00a01e54e4cc5bf0767c",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.js",
+      "before_blob": null,
+      "after_blob": "6513a9e71636e77ce2d22509a546437884200d04",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc_ie.js",
+      "before_blob": null,
+      "after_blob": "0292f84f76f78de9b16ccf65cf2b74a0a03f3655",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/plugins/wsc/skins/moono-lisa/wsc.css",
+      "before_blob": null,
+      "after_blob": "d8b20de78f94d73dc996b82389595d11ab4ebbf8",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog.css",
+      "before_blob": null,
+      "after_blob": "61de6a508a02c20bb3a247536e093a634023c246",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie.css",
+      "before_blob": null,
+      "after_blob": "e34c7534578e251fa399787c6e5f5cd531bfb223",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie8.css",
+      "before_blob": null,
+      "after_blob": "f6d8f89b6f5a2615568d4ec721ec0952d8eab8c9",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_iequirks.css",
+      "before_blob": null,
+      "after_blob": "804e5a887473322c0f0160d5ad231a1284134a2f",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor.css",
+      "before_blob": null,
+      "after_blob": "676ed8a90db7ae05590b408114865fb016f2c803",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_gecko.css",
+      "before_blob": null,
+      "after_blob": "869491918c5a31b9ecc597e7cef7c94c60eb5796",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie.css",
+      "before_blob": null,
+      "after_blob": "ac4548fbddc2aa252905a9aec7acc5b35df4ab5e",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie8.css",
+      "before_blob": null,
+      "after_blob": "d1bd02fa8cc3740451547b4bfa1ca4793becfdbf",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_iequirks.css",
+      "before_blob": null,
+      "after_blob": "edfb9f090935042f6952e663f17c2083821a960d",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/styles.js",
+      "before_blob": null,
+      "after_blob": "c7a4b1fc59512db8b51242c7782c2d6e70b47911",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.ckeditor.com/4.14.0/standard/vendor/promise.js",
+      "before_blob": null,
+      "after_blob": "c4d99120dce5191d0e969c6f7911ba968989e525",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css",
+      "before_blob": null,
+      "after_blob": "bb9b857728be9ae68887df391707f4f65521b1cd",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js",
+      "before_blob": null,
+      "after_blob": "640c1c3d6af5987f2530dbf8f0fe7238f8ee2ff4",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js",
+      "before_blob": null,
+      "after_blob": "b58abf2eb08f090629dc1156375db629cfe2a3b6",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js",
+      "before_blob": null,
+      "after_blob": "d7524d10561650af9b8044b4991bc327507846c8",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js",
+      "before_blob": null,
+      "after_blob": "cc9a83f1e2c258b3039b7a7d6b1245c74137950e",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css",
+      "before_blob": null,
+      "after_blob": "089701b7c93681cce81ad92e3fb28625e4e3f5fc",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js",
+      "before_blob": null,
+      "after_blob": "119eaf91349b7daeb228574ad374ab49643c9e89",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css",
+      "before_blob": null,
+      "after_blob": "d89df084e6270375b98197a6454ecae435719a42",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js",
+      "before_blob": null,
+      "after_blob": "5a8ea6e54148499edc2e9b5c6762b6558dd2f9ea",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js",
+      "before_blob": null,
+      "after_blob": "2130e2ab70a46fb412a81158852779f6f1a53e97",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+      "before_blob": null,
+      "after_blob": "45072b309e1482071b68c33d4ba7203bfa837499",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js",
+      "before_blob": null,
+      "after_blob": "30b73e79c79d8a2c2f35fe621f74f106e39fb7ac",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css",
+      "before_blob": null,
+      "after_blob": "a24ff3013629b45122b87552f102cb8f8e31c9a7",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css",
+      "before_blob": null,
+      "after_blob": "5951c8033a52ce38ea65e286f8316509610a54d5",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js",
+      "before_blob": null,
+      "after_blob": "3e5ad010b9b20484b5904f9203e5b57db18243a8",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js",
+      "before_blob": null,
+      "after_blob": "08397067aecd161b391dbc844338d59f27683c3f",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css",
+      "before_blob": null,
+      "after_blob": "841dec15e928a93c4658f2c4052044d8456bf0ee",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/google-fonts/b20ab663aba7748ae6bc94af.css",
+      "before_blob": null,
+      "after_blob": "3f0de9e951dbeae19d7947b0344975c56f6ce09c",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/google-fonts/e9783bfbe451ff70b86b49eb.css",
+      "before_blob": null,
+      "after_blob": "146861adc24fd6bf8b391ac490941dac5ad24193",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/js.pusher.com/8.2.0/pusher.min.js",
+      "before_blob": null,
+      "after_blob": "f93a2919d039c9f5031e6686d7337ae12b61866b",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/manifest.json",
+      "before_blob": null,
+      "after_blob": "1d34c401727108d7f60cf9134f9b144be56913d0",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
+      "before_blob": null,
+      "after_blob": "540440ce89f2a408aa699b65100e18f15e0f09ca",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/unpkg.com/sweetalert/dist/sweetalert.min.js",
+      "before_blob": null,
+      "after_blob": "dc8f5e78ec54fb5870d3c23f5fcc20068be5e550",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/www.gstatic.com/firebasejs/7.9.1/firebase-app.js",
+      "before_blob": null,
+      "after_blob": "9df449daa912fec4bb364d7e661e6cc63cbd34cb",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js",
+      "before_blob": null,
+      "after_blob": "ae5cca4b294fcd8c8f49d2c20ec43c372c502f1a",
+      "phase": 1
+    },
+    {
+      "path": "public/dashboard/vendor/desktop-external/www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js",
+      "before_blob": null,
+      "after_blob": "091dd59dbfdf006252ca8ff5ca629d47e5164d35",
+      "phase": 1
+    },
+    {
+      "path": "app/Exceptions/Handler.php",
+      "before_blob": "abb3f87f51a45220afe8a40f68600ad1a1dfa437",
+      "after_blob": "1d47b49d1f4927bbff0aa813a4e9cdd0a5d8af21",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php",
+      "before_blob": "4b65873a1bbfaf57115dd25129992e490105f44c",
+      "after_blob": "67a790cb2ae0e1dce877fbca6955d8ff85e071dd",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/AreaController.php",
+      "before_blob": "3020ddfae89ee4f5c69ab64fbc2b4f883152d2c4",
+      "after_blob": "d832798455bbdcc8abc136d5c5a0be9d03d9b79c",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/CategoryController.php",
+      "before_blob": "2c999baefdd4c78e08349b5df0ca5a4b3102133a",
+      "after_blob": "0858a9b9926d676c73679a616f177530617ee9eb",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContactController.php",
+      "before_blob": "fcc62bd70f412fff21a1375a38646e848e22eca2",
+      "after_blob": "211be703f188f84d114a8c1619a25e7e2aecae1c",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContractController.php",
+      "before_blob": "0270ca5711fed9a25ef0e6391c10c2abd87fbcc8",
+      "after_blob": "bf4257645d69bfc487b6c3769c1d0f162438ef29",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/FeatureController.php",
+      "before_blob": "ce83b31182d8c23d65588a48069e493d4ef43da4",
+      "after_blob": "73a033a9cca569cc6f161649e8d5ebccebf175f7",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/HomeController.php",
+      "before_blob": "cd08730d675f82eeda767cfa02b4c7d5c9403b96",
+      "after_blob": "70ac437a6228b0d227410bcb5c3babb7270563f2",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ProductController.php",
+      "before_blob": "de5a61ab20cfd2001a22dc40221729f3115ad434",
+      "after_blob": "cb82c0e12005bf4aed468ea7820e9627754d57a8",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/QuestionAnswerController.php",
+      "before_blob": "c35048d306c01af9d119de21f3d349ff17a2fef9",
+      "after_blob": "4b17353c6c019b0548ef68b7043e286b994243f1",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/RolesController.php",
+      "before_blob": "eb905e8ba733432703d2d14da3190408a45bb200",
+      "after_blob": "7019020e48e911cbe73a9779b94fa854e5e52ef6",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Kernel.php",
+      "before_blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
+      "after_blob": "fbda39a3bbbad5c828a9c844eced2ddef2010799",
+      "phase": 2
+    },
+    {
+      "path": "app/Providers/RouteServiceProvider.php",
+      "before_blob": "601bc01df754b568c9e6e7a6bb95b866011cca42",
+      "after_blob": "df3ad6881183e593f6810ebf6308fd9b4d2d2f5e",
+      "phase": 2
+    },
+    {
+      "path": "app/Repositories/ResturantProductRepository.php",
+      "before_blob": "5ea56d86c0d810f33af7a174aeb4a9411282d5c6",
+      "after_blob": "e31ae3cc92dea229f36004ac668f0c808be5af85",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchExpenses.php",
+      "before_blob": "d29f769e4efcf5f1be1570fbad887ba90b8b23ca",
+      "after_blob": "52d6b2a352c4064674d215d68e6bcb6dd0ea844d",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchPayroll.php",
+      "before_blob": "6f2ca6457d3ec00d2ed0af04d0216cf1eb15faf0",
+      "after_blob": "1451c88983c3ba33bce98f20cc925affaf3fb261",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchShiftClosing.php",
+      "before_blob": "2cfe768ca07308a49b758987981a686b1008b3b7",
+      "after_blob": "16152675a530faf5fdd7db830c2e6757ef335bc5",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardMenu.php",
+      "before_blob": "8f1b95828788dbdbc45156935c16e5f1ddd7ab76",
+      "after_blob": "cd174e8e3c9b96baa738924c93b376864d94ecef",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/PhoneMapProvider.php",
+      "before_blob": "bb360aa46868b432a8a1cf5dff48cdc50b62c860",
+      "after_blob": "30ca29a651a1b70b2ee5f8682cd8d41a72c00b05",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/GoStores/Catalog.php",
+      "before_blob": "9dd08877f66cb7288e4fe4f97ee670727b1ecc25",
+      "after_blob": "7b6d8a78ccc29c68c457cea4dbfe801f0c2bd589",
+      "phase": 2
+    },
+    {
+      "path": "config/desktop_pos.php",
+      "before_blob": "a23ba49fd0a45ad9efd6e47771270d9a0fdc8e36",
+      "after_blob": "0d95fd221f1359850bf4056391d08baa97268665",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/css/branch-operations.css",
+      "before_blob": "4490ceb83a57cb6480dc7f1427fef49fbea7da15",
+      "after_blob": "dc6c2d5e41839cd47af2f4292fbda9991325f93f",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/css/phone-orders.css",
+      "before_blob": "0bd7329c568b5d038acc7bc46dfc36a94e02c2eb",
+      "after_blob": "73ccb146880447833ae2b1a4ef900e66714e2f24",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/branch-operations.js",
+      "before_blob": "038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c",
+      "after_blob": "a116c94e68f00d08bebf4390dc2c6d14bd063ac1",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-inbox.js",
+      "before_blob": "2592cf8e1d5b5fd2f8a8539e60b4d0662564a836",
+      "after_blob": "93c189188b544e34048003aa1b2da187879988ab",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-spa.js",
+      "before_blob": "dd699d3dca80ba5a037030213e2345932c2fc064",
+      "after_blob": "28ec997789cfd0da239f69937bcce032eb0e8c88",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-support-chat.js",
+      "before_blob": "cb5df0d5c8e10d14d3fa83cb864adc22a0a94579",
+      "after_blob": "b2e2c025c59e77e7753cff6774b2896c9b5af1d4",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/order-board-menu.js",
+      "before_blob": "2d84fcb7fa51e85635d97ba73b974cd9526ab4b6",
+      "after_blob": "f1ebdcbd8b09f48139d5cab454f90e7c8f918daf",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/phone-address-search.js",
+      "before_blob": "4c55ec1f2ff0e4fae4105a96daf5fdc76f440c93",
+      "after_blob": "6419f50e3fa92c4125017a22e6eea7e145a0f1b5",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/phone-orders.js",
+      "before_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
+      "after_blob": "894bcfad23de57c3a4cc4ca373b6a6c6105038bb",
+      "phase": 2
+    },
+    {
+      "path": "resources/lang/ar/dashboard_inbox.php",
+      "before_blob": "1d3777c16a464ba36a9b5deb41df27bec6f4dcc7",
+      "after_blob": "170bd5f94b23a1b902c61bb7738bebcf7f0a5177",
+      "phase": 2
+    },
+    {
+      "path": "resources/lang/en/dashboard_inbox.php",
+      "before_blob": "e07f82db98e76a50db69633069f233a5544011ef",
+      "after_blob": "f07c12fedba4d04ab23dfb1572a7b5c5b3225f88",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/admins/index.blade.php",
+      "before_blob": "6f98d81e7ca58b0e1a62075e464bb3b5bba749cf",
+      "after_blob": "cd7b0d0c393d4cf993f9e61fce6500e6b8f52394",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/advertisings/index.blade.php",
+      "before_blob": "25148af017478961037abac9b920fc3f11cb4220",
+      "after_blob": "5da704db59dd9708075a07ea6f0c660ca6a97de1",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/areas/index.blade.php",
+      "before_blob": "9aba51aac22b184cd50c83d7e9c9e66cfcc32e99",
+      "after_blob": "f97d0a616f79694d8f7273122121f6fc8cb5c4f7",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/banners/index.blade.php",
+      "before_blob": "f3b22011fa217325bba912df625e4afe6bc40690",
+      "after_blob": "cabea65b58eddcbd0ba90548ee2901f06021c136",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/categorys/index.blade.php",
+      "before_blob": "c05556006b8ce4f81ab831d3892b9027873f52d2",
+      "after_blob": "38562ce0234df696f151cad9b1aabf92213b250b",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/chat.blade.php",
+      "before_blob": "c2bad805f4a8d4a398ae6cc90e2eedd9e1603f1d",
+      "after_blob": "4ce4f6aafc10df05240c225c70de5deb718a496c",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/contacts/index.blade.php",
+      "before_blob": "a1d3d7ef89fb53f41db5146ece83884425b4710b",
+      "after_blob": "e998e486c4ab8619ff6faa7728ceb098e920f0ff",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/contracts/form.blade.php",
+      "before_blob": "83bf9212ad4ab0ce8b3e56670a6ca410f7bb4978",
+      "after_blob": "65f0c45a970b1a31ebec07acc86128e637a9a8a1",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/contracts/index.blade.php",
+      "before_blob": "12acded6f9b0181899fb85e97cb48adbe1623ecd",
+      "after_blob": "37b7452e57aa9f10f1feffdad5bb5a548066fb05",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/index.blade.php",
+      "before_blob": "9e49d8e6f6f2b2d0b0219c834b890041b8536451",
+      "after_blob": "96e6ab8195720c2a461b4dcb0b6bcd1006cf85d0",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/features/index.blade.php",
+      "before_blob": "4c50804e21ddd2744e40d33b0fb6c4fa50e317f1",
+      "after_blob": "66e4bbd6efecd162b08fbd9962f87a5f66255c4b",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/layouts/footer.blade.php",
+      "before_blob": "886f076b7d57dc4d71fd24e63c27bd9fcf34f11e",
+      "after_blob": "7b3996ffc13dea503743be40fbf3d72c4671045b",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/layouts/header.blade.php",
+      "before_blob": "3b753aa0d6855ad325effbc8d9475d50c109d5d6",
+      "after_blob": "06169f02987da7577421af4089cadfd9abaf087f",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/layouts/navbar.blade.php",
+      "before_blob": "1cc09c1bd599f48b01e859c52815233aaebb70b4",
+      "after_blob": "f9a22cf9ba0c326f0db9d8b9f566b14e0d2aaca5",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/login.blade.php",
+      "before_blob": "67373dd4b418a0e8752934bb790e94888c3fd21a",
+      "after_blob": "8217997e7a7b306b51f6b7679c1d1c6e0c705d17",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/notifications.blade.php",
+      "before_blob": "1925bda28220f2c2e8eadf57f51c1181ee7f3198",
+      "after_blob": "539f77201018e36b590e490b3166b75fd23547df",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/orders/applies_card.blade.php",
+      "before_blob": "8e23b061868f18b4125fb45f205069bd3d5c315f",
+      "after_blob": "5818a7f37866435520455f28cbbc68ccd39f73fa",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/index.blade.php",
+      "before_blob": "6a9cb3cb32f211e124ae6ff1ab496fa6268fba8c",
+      "after_blob": "8037f74865fe42d01686abf1b6051bfa17e968d1",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/phone_orders/index.blade.php",
+      "before_blob": "2902da5d8aaab940640646d496a8a6f8670cf6de",
+      "after_blob": "db0cc3ba5af9c87ee71f4dbf409a5228775bbf60",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/products/index.blade.php",
+      "before_blob": "830758bf60f896758f0de0885743f7aea8775b2e",
+      "after_blob": "37a75ba51046c5061c1f6d4d2c4777afde69688e",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/question_answers/index.blade.php",
+      "before_blob": "8542da1d7cfcff077425a1e219c46f761995c2f1",
+      "after_blob": "45c46cbf3b7521d8a49a80c50a61ff6a0f081ec3",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/reports/customers_report.blade.php",
+      "before_blob": "b5b5ba9e553ff3b29c10866a5718d96592c98343",
+      "after_blob": "b7a83ab020951982d25152d560852da00e9a66cc",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/reports/delegates_report.blade.php",
+      "before_blob": "f44470aaecfe03eb3658a53376e8e7540320f8e5",
+      "after_blob": "c126c8284bd994a7d00a53846e56f7ac3f8a1e54",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/reports/orders_report.blade.php",
+      "before_blob": "cb6bb069469959f32a2e2a9088cc714715228c3a",
+      "after_blob": "75e060e617db700bc3cd242d1f201b02fd5da6b2",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/reports/vendors_report.blade.php",
+      "before_blob": "120b48f29fded385487b52c7b8d5719cddfc0bcf",
+      "after_blob": "0725c3a283a139087a94153095c26976b405a1e3",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/resturants/edit-item.blade.php",
+      "before_blob": "b9b45dc72949d4902c6e92a62199ba48480c316a",
+      "after_blob": "0ae3a30dcaffae776944247b7428cb244a0988c7",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/resturants/index.blade.php",
+      "before_blob": "5164f72bd44c2daae347cd3d2049f52c72dc4681",
+      "after_blob": "0fbf62db829681fa6d609a67ca40d9523994bcbf",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/resturants/show.blade.php",
+      "before_blob": "38c51616aba115d95e81fd2e653e635bff11f74c",
+      "after_blob": "6436e8a131d4f3aabcfc9b3858010e5c69b17793",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/roles/index.blade.php",
+      "before_blob": "ec5c63960e1b65928dfb3a6139c31e22be8f7d53",
+      "after_blob": "d045f0d2c60897a76e215f20aaf8bae2f7ace57d",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/slidears/index.blade.php",
+      "before_blob": "63328ee4fe2075c233753ab5acea52f54a9074da",
+      "after_blob": "e01a8aca73efde756e49c038efefae9313694413",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/subscribers/index.blade.php",
+      "before_blob": "f32d3dfde4d3a143051978631f98d8cbd2856c2f",
+      "after_blob": "9c9d8ef1575f828e1295130aca6267d56eab7ee1",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/users/index.blade.php",
+      "before_blob": "e36567c3e065274a740f2727c706cbf727a0dd2c",
+      "after_blob": "01dfd02d9d0d96c980462037cdfbc11269c500e2",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/users/show.blade.php",
+      "before_blob": "fba4ca404df57f92fcb982f1172e083766937042",
+      "after_blob": "dc7e20222ceb47fcb5cdb9fe0c452b6b937c7414",
+      "phase": 2
+    },
+    {
+      "path": "routes/admin.php",
+      "before_blob": "a12740d1b701ce8c50fdbebb944265c227e8c3fe",
+      "after_blob": "f2b5c07c638e529937a153a988d67aad10e0bc60",
+      "phase": 2
+    },
+    {
+      "path": "routes/api.php",
+      "before_blob": "7ac6d63fb29701cc6369199854caca0e13ede66b",
+      "after_blob": "ca18b58825b51bb55906a03a708f0f5791448291",
+      "phase": 2
+    },
+    {
+      "path": "routes/desktop_dashboard.php",
+      "before_blob": null,
+      "after_blob": "b65cb4d3b25230b5e0dd8eb025d5e016ede0a208",
+      "phase": 2
+    }
+  ],
+  "protected": [
+    {
+      "path": "public/dashboard/branding/dashboard-brand.css",
+      "blob": "b338e6d1fdb566b175a6ec875e5c6a2720377279"
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-inbox.css",
+      "blob": "639ac2223b4abcd679329000551d9c735e43b5af"
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-orders.css",
+      "blob": "35d80672c039b1dcbd8fd52457ea8a7078e0421d"
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-replies.css",
+      "blob": "e957197f0fbb20836dca1743edce0b35d41863ac"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "blob": "3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-orders.js",
+      "blob": "ad7f78fc490774280c31e01125bc262a92a2cb3d"
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "blob": "43e059064f450db2a56e9ee6668909ab855cb28b"
+    }
+  ],
+  "migrations": [
+    "database/migrations/2026_10_08_130000_create_desktop_dashboard_journal.php",
+    "database/migrations/2026_10_08_160000_create_desktop_dashboard_local_state.php",
+    "database/migrations/2026_10_08_210000_create_desktop_dashboard_archived_commands.php",
+    "database/migrations/2026_10_08_210000_create_desktop_dashboard_remote_attempts.php",
+    "database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php",
+    "database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php"
+  ]
+}
