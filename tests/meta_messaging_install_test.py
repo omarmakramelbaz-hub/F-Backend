@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,18 @@ spec = importlib.util.spec_from_file_location('meta_installer', pathlib.Path(__f
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 RELEASE = 'a' * 40
+
+
+class AssetReferenceTests(unittest.TestCase):
+    def test_meta_inbox_versioned_assets_exist(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        view = (root / 'resources/views/admin/meta/index.blade.php').read_text()
+        assets = re.findall(r"filemtime\(public_path\(['\"]([^'\"]+)['\"]\)\)", view)
+        self.assertTrue(assets, 'Meta inbox must declare its versioned assets')
+        for asset in assets:
+            with self.subTest(asset=asset):
+                self.assertTrue((root / 'public' / asset).is_file(),
+                                f'Meta inbox filemtime target is missing: {asset}')
 
 
 class InstallerTests(unittest.TestCase):
