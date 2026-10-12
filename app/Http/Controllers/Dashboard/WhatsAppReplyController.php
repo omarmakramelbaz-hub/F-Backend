@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\WhatsAppReplyService;
+use App\Services\Dashboard\WhatsAppInboxMedia;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -56,6 +57,38 @@ class WhatsAppReplyController extends Controller
         });
     }
 
+    public function attachment(Request $request, string $conversation, WhatsAppReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            if ($request->query() !== [] || array_keys($request->allFiles()) !== ['attachment']) throw new HttpException(422);
+            $file = $request->file('attachment');
+            if (!$file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile) throw new HttpException(422);
+            return $replies->attachment(auth('admin')->user(), $this->conversation($conversation),
+                $request->except(['_token', 'attachment']), $file);
+        });
+    }
+
+    public function downloadAttachment(Request $request, string $conversation, string $reply, WhatsAppInboxMedia $media)
+    {
+        try {
+            if ($request->query() !== []) throw new HttpException(422);
+            $file = $media->replyAttachment(auth('admin')->user(), $this->conversation($conversation), $this->conversation($reply));
+            return response($file['bytes'], 200)->withHeaders([
+                'Content-Type' => $file['mime'], 'Content-Length' => (string) strlen($file['bytes']),
+                'Content-Disposition' => \Symfony\Component\HttpFoundation\HeaderUtils::makeDisposition(
+                    'attachment', $file['filename'], $file['mime'] === 'application/pdf' ? 'attachment.pdf' : 'attachment.txt'),
+                'Cache-Control' => 'no-store, private, max-age=0', 'Pragma' => 'no-cache',
+                'X-Content-Type-Options' => 'nosniff', 'Content-Security-Policy' => "default-src 'none'; sandbox",
+                'Referrer-Policy' => 'no-referrer',
+            ]);
+        } catch (\Throwable $error) {
+            $status = $error instanceof HttpException ? $error->getStatusCode() : 503;
+            return response('', $status)->withHeaders([
+                'Cache-Control' => 'no-store, private, max-age=0', 'Pragma' => 'no-cache', 'X-Content-Type-Options' => 'nosniff',
+            ]);
+        }
+    }
+
     public function forward(Request $request, string $conversation, string $message, WhatsAppReplyService $replies)
     {
         return $this->respond(fn () => $replies->forward(auth('admin')->user(), $this->conversation($conversation),
@@ -86,7 +119,7 @@ class WhatsAppReplyController extends Controller
             if (($body['state'] ?? null) === 'FAILED') {
                 $status = in_array($reason, ['STALE_INBOUND', 'WINDOW_CLOSED', 'UNKNOWN_PENDING'], true) ? 409
                     : ($reason === 'ACCESS_REVOKED' ? 403
-                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE'], true) ? 503
+                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'ATTACHMENT_UNAVAILABLE'], true) ? 503
                             : (in_array($reason, ['META_REJECTED', 'MEDIA_UPLOAD_FAILED'], true) ? 502 : 422)));
             }
         } catch (HttpException $error) {

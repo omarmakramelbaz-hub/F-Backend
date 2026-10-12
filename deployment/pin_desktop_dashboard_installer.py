@@ -9,6 +9,7 @@ def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).
 def main(root):
     names={
         'REPLACE_MANIFEST_BLOB':'deployment/desktop_dashboard_server_manifest.json',
+        'REPLACE_ALTERNATIVE_MANIFEST_BLOB':'deployment/desktop_dashboard_server_manifest_attachments.json',
         'REPLACE_APP_BLOB':'deployment/apply_desktop_dashboard_server.py',
         'REPLACE_PHP_BLOB':'deployment/desktop_dashboard_release.php',
     }

@@ -12,6 +12,10 @@ Route::group(['prefix' => 'admin/whatsapp', 'middleware' => ['lang', 'IsAdmin']]
         ->whereNumber('conversation')->name('whatsapp-replies.history');
     Route::post('/conversations/{conversation}/voice', [WhatsAppReplyController::class, 'voice'])
         ->whereNumber('conversation')->name('whatsapp-replies.voice');
+    Route::post('/conversations/{conversation}/attachment', [WhatsAppReplyController::class, 'attachment'])
+        ->whereNumber('conversation')->name('whatsapp-replies.attachment');
+    Route::get('/conversations/{conversation}/replies/{reply}/attachment', [WhatsAppReplyController::class, 'downloadAttachment'])
+        ->whereNumber('conversation')->whereNumber('reply')->name('whatsapp-replies.attachment-download');
     Route::post('/conversations/{conversation}/messages/{message}/forward', [WhatsAppReplyController::class, 'forward'])
         ->whereNumber('conversation')->whereNumber('message')->name('whatsapp-replies.forward');
     Route::post('/conversations/{conversation}/messages/{message}/reaction', [WhatsAppReplyController::class, 'reaction'])

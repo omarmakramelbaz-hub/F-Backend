@@ -352,5 +352,6 @@ try{
 require __DIR__.'/phone.php';
 require __DIR__.'/expense-attachments.php';
 require __DIR__.'/outbox-attachments.php';
+require __DIR__.'/whatsapp-local-unprepared.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;

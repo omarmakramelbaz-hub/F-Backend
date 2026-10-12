@@ -11,7 +11,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -105,6 +105,22 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
   }
   await board(page,1366,768,'ar',1);
   assert(await page.locator('.ph-ticket').first().evaluate(n=>n.getBoundingClientRect().height<65));
+  // Original detail rendering retains the billing store and physical fulfillment branch.
+  const originTicket=ticket(901,'preparing');
+  originTicket.branch={value:'f:301',name:'فرع شبرا'};
+  originTicket.delivery_origin_branch='f:309';
+  originTicket.delivery_location={branch:'f:301',delivery_origin_branch:'f:309',fulfillment_branch:'f:301',
+    delivery_origin:{value:'f:309',id:309,parent_id:301,name:'المقطم ستور'},fulfillment:{value:'f:301',name:'فرع شبرا'}};
+  const originProof=await page.evaluate(t=>{
+    const content=root.querySelector('[data-phone-modal-content]');
+    detailContent(t,content);
+    const label=content.querySelector('.ph-detail-note').textContent;
+    let rejected=false;
+    try{detailContent({...t,branch:{value:'f:100',name:'فرع مختلف'}},content);}catch(error){rejected=true;}
+    return {label,rejected};
+  },originTicket);
+  assert.equal(originProof.label,'الأستور: المقطم ستور · فرع التجهيز: فرع شبرا');
+  assert.equal(originProof.rejected,true);
   await board(page,390,844,'ar');
   await page.screenshot({path:'test-results/phone-delivery/delivery-mobile.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

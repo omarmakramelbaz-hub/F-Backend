@@ -72,6 +72,8 @@ jobs:
           "DESKTOP_TEST_SNAPSHOT_FILE=$env:DESKTOP_TEST_SNAPSHOT_FILE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
+          & php tests/request_autoload_compatibility.php "$bundle/application" 2>&1 | Tee-Object -Variable requestAutoloadOutput
+          if ($LASTEXITCODE -ne 0 -or !(($requestAutoloadOutput -join "`n") -match '(?m)^REQUEST_AUTOLOAD_COMPATIBILITY_COMPLETE 7$')) { throw 'Original request autoload compatibility checks did not complete.' }
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
           & "$bin/mariadb-install-db.exe" "--datadir=$data"
           if ($LASTEXITCODE -ne 0) { throw 'Disposable database initialization failed.' }
@@ -94,6 +96,12 @@ jobs:
               $fixtureExit = $LASTEXITCODE
               $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
+              if ($fixture -eq 'run.php') {
+                $waLine = @(($fixtureOutput -join "`n") -split "`n" | Where-Object { $_ -match '^WHATSAPP_NATIVE_UNPREPARED_COMPLETE ' })
+                if ($waLine.Count -ne 1) { throw 'The original unprepared WhatsApp boundary fixture did not complete.' }
+                $waReceipt = $waLine[0].Substring('WHATSAPP_NATIVE_UNPREPARED_COMPLETE '.Length) | ConvertFrom-Json
+                if ($waReceipt.checks -ne 13 -or !$waReceipt.local404 -or !$waReceipt.authorizationRetained -or !$waReceipt.attachmentGet -or $waReceipt.queries -ne 0 -or $waReceipt.providerCalls -ne 0 -or !$waReceipt.outboxUnchanged -or !$waReceipt.storageUnchanged -or $waReceipt.fullDashboard -ne $false) { throw 'The original unprepared WhatsApp boundary receipt differs.' }
+              }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }

@@ -369,6 +369,26 @@
                 image.src = source.href; wrapper.appendChild(image); return wrapper;
             } catch (error) { return null; }
         }
+        function documentNode(message, api) {
+            var media = message.media, replyId = api ? message.id : message.api_reply_id;
+            if (!media || media.type !== 'document' || message.deleted || message.unavailable
+                || !Number.isSafeInteger(replyId) || replyId < 1
+                || typeof media.url !== 'string' || media.url.length > 2048 || ['application/pdf', 'text/plain'].indexOf(media.mime_type) === -1
+                || typeof media.filename !== 'string' || !media.filename || Array.from(media.filename).length > 120
+                || /[\u0000-\u001f\u007f/\\]/.test(media.filename)
+                || !Number.isSafeInteger(media.size) || media.size < 1 || media.size > 8388608) return null;
+            try {
+                var source = new URL(media.url, window.location.href), base = new URL(config.messages_base_url, window.location.href);
+                var expected = base.pathname.replace(/\/+$/, '') + '/' + chosen + '/replies/' + replyId + '/attachment';
+                if (source.origin !== new URL(window.location.href).origin || base.origin !== source.origin
+                    || source.pathname !== expected || source.search || source.hash || source.username || source.password) return null;
+                var wrapper = node('div', 'wa-media'), link = node('a', 'wa-document-link');
+                link.href = source.href; link.setAttribute('download', media.filename); link.referrerPolicy = 'same-origin';
+                link.appendChild(node('span', '', '📎'));
+                link.appendChild(node('span', '', media.filename + ' · ' + (media.size < 1048576 ? Math.ceil(media.size / 1024) + ' KB' : (media.size / 1048576).toFixed(1) + ' MB')));
+                wrapper.appendChild(link); return wrapper;
+            } catch (error) { return null; }
+        }
         function clientRequestId() {
             if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
             if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') return null;
@@ -670,6 +690,7 @@
                     apiBubble.appendChild(node('span', 'wa-inbox-message-type', message.source_label));
                     var apiQuote = quoted({quote: message.reply_to}); if (apiQuote) apiBubble.appendChild(apiQuote);
                     var apiMedia = imageNode(message, true); if (apiMedia) apiBubble.appendChild(apiMedia);
+                    var apiDocument = documentNode(message, true); if (apiDocument) apiBubble.appendChild(apiDocument);
                     apiBubble.appendChild(node('p', 'wa-inbox-message-text', message.text || (['audio', 'voice'].indexOf(message.kind) !== -1 ? message.voice_label : typeText(message.kind))));
                     if (message.accepted_label) apiBubble.appendChild(node('span', 'wa-inbox-message-type', message.accepted_label));
                     var apiTime = node('time', '', dateText(row.stamp, true)); if (row.stamp) apiTime.dateTime = row.stamp;
@@ -684,6 +705,7 @@
                 if (message.type !== 'text') bubble.appendChild(node('span', 'wa-inbox-message-type', typeText(message.type)));
                 var quote = !message.deleted && quoted(message); if (quote) bubble.appendChild(quote);
                 var media = imageNode(message); if (media) bubble.appendChild(media);
+                var documentMedia = documentNode(message); if (documentMedia) bubble.appendChild(documentMedia);
                 var cart = !message.unavailable && message.type === 'order' ? cartNode(message.cart) : null;
                 if (cart) bubble.appendChild(cart);
                 else bubble.appendChild(node('p', 'wa-inbox-message-text', message.deleted
@@ -739,6 +761,8 @@
             stored.projection_id = Number.isSafeInteger(reply.projection_id) && reply.projection_id > 0 ? reply.projection_id : null;
             stored.media = reply.media && reply.media.type === 'image' && typeof reply.media.url === 'string'
                 ? {type: 'image', url: reply.media.url, mime_type: reply.media.mime_type} : null;
+            if (reply.media && reply.media.type === 'document') stored.media = {type: 'document', url: reply.media.url,
+                mime_type: reply.media.mime_type, filename: reply.media.filename, size: reply.media.size};
             stored.reaction = newestReaction(previous && previous.reaction, reply.reaction);
             return replyHidden(stored) ? null : stored;
         }

@@ -173,6 +173,16 @@ class WhatsAppInboxController extends Controller
                         if ($media !== null && $media['kind'] === 'image') $item['media'] = [
                             'url' => url('/admin/whatsapp/conversations/' . $conversation . '/messages/' . $row->id . '/media'),
                             'type' => 'image', 'mime_type' => $media['mime']];
+                        if ($index && $row->direction === 'outbound' && $index->kind === 'document' && $row->type === 'document') {
+                            $accepted = $messageService->resolveReply($actor, $conversation, (int) $index->reply_id);
+                            $attachment = $messageService->media($accepted);
+                            if ($attachment !== null && $attachment['kind'] === 'document'
+                                && in_array($attachment['mime'], ['application/pdf', 'text/plain'], true)
+                                && isset($attachment['filename'], $attachment['size'])) $item['media'] = [
+                                'url' => url('/admin/whatsapp/conversations/' . $conversation . '/replies/' . $index->reply_id . '/attachment'),
+                                'type' => 'document', 'mime_type' => $attachment['mime'],
+                                'filename' => $attachment['filename'], 'size' => $attachment['size']];
+                        }
                         $context = $native['raw']['context']['id'] ?? null;
                         if (is_string($context)) $item['reply_to'] = $quoted[hash('sha256', 'whatsapp-message-v1:'
                             . WhatsAppInboxAccess::WABA_ID . ':' . WhatsAppInboxAccess::PHONE_ID . ':' . $context)] ?? null;

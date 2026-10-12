@@ -24,6 +24,10 @@
         var cancel = panel.querySelector('[data-wa-voice-cancel]'), voiceSend = panel.querySelector('[data-wa-voice-send]');
         var preview = panel.querySelector('[data-wa-voice-preview]'), voiceTime = panel.querySelector('[data-wa-voice-time]');
         var voiceNote = panel.querySelector('[data-wa-voice-status]');
+        var attach = panel.querySelector('[data-wa-attachment-select]'), fileInput = panel.querySelector('[data-wa-attachment-input]');
+        var fileBox = panel.querySelector('[data-wa-attachment-preview]'), fileImage = panel.querySelector('[data-wa-attachment-image]');
+        var fileName = panel.querySelector('[data-wa-attachment-name]'), fileSize = panel.querySelector('[data-wa-attachment-size]');
+        var fileCancel = panel.querySelector('[data-wa-attachment-cancel]');
         var quoteBox = panel.querySelector('[data-wa-reply-quote]'), quoteText = panel.querySelector('[data-wa-reply-quote-text]');
         var quoteCancel = panel.querySelector('[data-wa-reply-quote-cancel]');
         var emoji = panel.querySelector('[data-wa-reply-emoji]'), emojiPicker = panel.querySelector('[data-wa-reply-emoji-picker]');
@@ -33,6 +37,38 @@
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
         var quoted = null, composing = false, enterHeld = false;
+        var attachment = null, attachmentUrl = null, attachmentDialog = null;
+        var attachmentTypes = ['image/jpeg', 'image/png', 'application/pdf', 'text/plain'];
+        function clearAttachment() {
+            attachment = null; attachmentDialog = null;
+            if (attachmentUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(attachmentUrl);
+            attachmentUrl = null;
+            if (fileInput) fileInput.value = '';
+            if (fileImage) { fileImage.removeAttribute('src'); fileImage.hidden = true; }
+            if (fileName) fileName.textContent = '';
+            if (fileSize) fileSize.textContent = '';
+            if (fileBox) fileBox.hidden = true;
+            text.maxLength = textLimit; text.setAttribute('placeholder', labels.placeholder || '');
+        }
+        function attachmentAllowed() {
+            if (!attachment || !state || state.attachment_ready !== true || !Array.isArray(state.attachment_types)
+                || state.attachment_types.indexOf(attachment.mime) === -1) return false;
+            return attachment.file.size <= attachmentCap(attachment.mime.indexOf('image/') === 0);
+        }
+        function attachmentCap(image) {
+            var limit = state && Number(image ? state.image_max_bytes : state.attachment_max_bytes);
+            return Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, image ? 5242880 : 8388608) : 0;
+        }
+        function limitSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            var unit = bytes < 1048576 ? 1024 : 1048576;
+            return (Math.floor(bytes * 100 / unit) / 100) + (unit === 1024 ? ' KiB' : ' MiB');
+        }
+        function attachmentHelp() {
+            if (!state || state.attachment_ready !== true || !attachmentCap(true) || !attachmentCap(false)) return '';
+            return (labels.attachment_limits || 'JPG/PNG up to {image_limit} · PDF/TXT up to {file_limit}')
+                .replace('{image_limit}', limitSize(attachmentCap(true))).replace('{file_limit}', limitSize(attachmentCap(false)));
+        }
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
         function abort() { controllers.forEach(function (controller) { clearTimeout(controller.replyTimeout); controller.abort(); }); controllers.clear(); }
         function closeEmoji() {
@@ -50,12 +86,50 @@
             text.style.height = 'auto';
             text.style.height = Math.min(120, Math.max(42, text.scrollHeight + 2)) + 'px';
         }
+        function attachmentClick() {
+            if (attach && !attach.disabled && fileInput && typeof fileInput.click === 'function') {
+                attachmentDialog = {generation: generation, conversation: conversation}; fileInput.value = ''; fileInput.click();
+            }
+        }
+        function attachmentChanged() {
+            controls();
+            var selectedDialog = attachmentDialog; attachmentDialog = null;
+            if (!selectedDialog || selectedDialog.generation !== generation || selectedDialog.conversation !== conversation
+                || !attach || attach.disabled || !fileInput || !fileInput.files || !fileInput.files.length) {
+                if (fileInput) fileInput.value = ''; return;
+            }
+            var files = Array.from(fileInput.files); clearAttachment();
+            if (files.length !== 1) { note(labels.attachment_single || 'Choose one file at a time.', true); controls(); return; }
+            var file = files[0], mime = typeof file.type === 'string' ? file.type.toLowerCase() : '';
+            var name = typeof file.name === 'string' ? file.name : '';
+            if (!mime) {
+                var extension = name.split('.').pop().toLowerCase();
+                mime = ({jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf', txt: 'text/plain'})[extension] || '';
+            }
+            var image = mime.indexOf('image/') === 0;
+            var limit = attachmentCap(image);
+            if (attachmentTypes.indexOf(mime) === -1 || !Array.isArray(state.attachment_types) || state.attachment_types.indexOf(mime) === -1
+                || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > limit
+                || !name || Array.from(name).length > 120 || /[\u0000-\u001f\u007f/\\]/.test(name)) {
+                note((labels.attachment_invalid || 'Choose a supported image or file within the allowed size.') + ' ' + attachmentHelp(), true); controls(); return;
+            }
+            attachment = {file: file, mime: mime};
+            if (image && fileImage && typeof URL.createObjectURL === 'function') {
+                try { attachmentUrl = URL.createObjectURL(file); fileImage.src = attachmentUrl; fileImage.hidden = false; } catch (error) {}
+            }
+            if (fileName) fileName.textContent = name;
+            if (fileSize) fileSize.textContent = (file.size < 1024 * 1024 ? Math.ceil(file.size / 1024) + ' KB' : (file.size / (1024 * 1024)).toFixed(1) + ' MB');
+            if (fileBox) fileBox.hidden = false;
+            text.maxLength = 1024; text.setAttribute('placeholder', labels.attachment_caption || 'Add a caption…');
+            closeEmoji(); note(labels.attachment_ready || 'Review the attachment, then send.'); input(); focusText();
+        }
+        function cancelAttachment() { if (!sending && !uncertain) { clearAttachment(); note(state ? reason(state) : ''); input(); focusText(); } }
         function clear(reason) {
             if (conversation) publishAcceptedReplies({recent_replies: []}, conversation, generation);
             generation++; abort(); conversation = 0; inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
             state = null; attempt = null; uncertain = false; sending = false; checking = false;
             composing = false; enterHeld = false; clearQuote(); closeEmoji();
-            clearVoice(); openingMicrophone = false;
+            clearVoice(); clearAttachment(); openingMicrophone = false;
             text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
@@ -66,13 +140,24 @@
             text.disabled = !available || sending || recording || !state || !state.available;
             text.readOnly = uncertain || Boolean(voiceBlob) || Boolean(state && !state.can_reply);
             var readyVoice = Boolean(voiceBlob && state && state.voice_ready);
+            var draftLimit = attachment ? 1024 : textLimit;
             send.disabled = !available || sending || recording || checking || uncertain || !state || !state.available || !state.can_reply
-                || (voiceBlob ? !readyVoice : !text.value.trim() || Array.from(text.value).length > textLimit);
+                || (voiceBlob ? !readyVoice : attachment ? !attachmentAllowed() || Array.from(text.value).length > draftLimit
+                    : !text.value.trim() || Array.from(text.value).length > draftLimit);
             refresh.disabled = !available || checking || sending || recording;
             if (quoteCancel) quoteCancel.disabled = !available || sending || uncertain;
             if (emoji) emoji.disabled = text.disabled || text.readOnly || checking;
+            if (attach) {
+                attach.disabled = !available || sending || recording || checking || uncertain || Boolean(voiceBlob)
+                    || !state || !state.available || !state.can_reply || state.attachment_ready !== true || !attachmentCap(true) || !attachmentCap(false);
+                var help = attachmentHelp(), attachmentLabel = labels.attachment || 'Attach an image or file';
+                var accessibleHelp = attachmentLabel + (help ? ' · ' + help : ' · ' + (labels.attachment_unavailable || 'Attachments are unavailable now.'));
+                attach.setAttribute('title', accessibleHelp); attach.setAttribute('aria-label', accessibleHelp);
+            }
+            if (fileInput) fileInput.disabled = !attach || attach.disabled;
+            if (fileCancel) fileCancel.disabled = !available || sending || uncertain;
             if (record) {
-                record.disabled = !voiceRun && (!available || sending || checking || uncertain || openingMicrophone || Boolean(voiceBlob)
+                record.disabled = !voiceRun && (!available || sending || checking || uncertain || openingMicrophone || Boolean(voiceBlob) || Boolean(attachment)
                     || !state || !state.available || !state.can_reply || !state.voice_ready);
                 record.setAttribute('aria-pressed', String(Boolean(voiceRun)));
                 record.setAttribute('data-recording', String(Boolean(voiceRun)));
@@ -108,7 +193,7 @@
                     if (!response.ok || !data || data.success !== true) {
                         var error = new Error('Unavailable'); error.status = response.status;
                         if (data && data.state === 'FAILED' && data.reply_id === null
-                            && ['STALE_INBOUND', 'WINDOW_CLOSED', 'REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE'].indexOf(data.reason) !== -1) {
+                            && ['STALE_INBOUND', 'WINDOW_CLOSED', 'REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'ATTACHMENT_UNAVAILABLE'].indexOf(data.reason) !== -1) {
                             error.safeFailure = true; error.reason = data.reason;
                         }
                         throw error;
@@ -195,6 +280,22 @@
                         }
                     } catch (error) {}
                 }
+                if (reply.kind === 'document' && Number.isSafeInteger(reply.reply_id) && reply.reply_id > 0
+                    && reply.media && reply.media.type === 'document' && typeof reply.media.url === 'string' && reply.media.url.length <= 2048
+                    && ['application/pdf', 'text/plain'].indexOf(reply.media.mime_type) !== -1
+                    && typeof reply.media.filename === 'string' && reply.media.filename && Array.from(reply.media.filename).length <= 120
+                    && !/[\u0000-\u001f\u007f/\\]/.test(reply.media.filename)
+                    && Number.isSafeInteger(reply.media.size) && reply.media.size > 0 && reply.media.size <= 8388608) {
+                    try {
+                        var documentUrl = new URL(reply.media.url, window.location.href);
+                        var expectedDocument = new URL(namespace + '/' + selected + '/replies/' + reply.reply_id + '/attachment');
+                        if (documentUrl.origin === expectedDocument.origin && documentUrl.pathname === expectedDocument.pathname
+                            && !documentUrl.username && !documentUrl.password && !documentUrl.search && !documentUrl.hash) {
+                            media = {url: documentUrl.href, type: 'document', mime_type: reply.media.mime_type,
+                                filename: reply.media.filename, size: reply.media.size};
+                        }
+                    } catch (error) {}
+                }
                 return {id: reply.reply_id, kind: reply.kind, text: reply.text, state: reply.state, source: reply.source,
                     created_at: reply.created_at, accepted_at: reply.accepted_at, projected_message_id: reply.projected_message_id,
                     projection_id: Number.isSafeInteger(reply.projection_id) && reply.projection_id > 0 ? reply.projection_id : null,
@@ -217,7 +318,7 @@
                 renderAudit(data);
                 publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
-                    var accepted = data.request_state === 'ACCEPTED', wasText = attempt.kind === 'text'; uncertain = false; attempt = null;
+                    var accepted = data.request_state === 'ACCEPTED', wasText = ['text', 'attachment'].indexOf(attempt.kind) !== -1; uncertain = false; attempt = null;
                     if (accepted && wasText) { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     if (accepted) { clearQuote(); resolvedAccepted = true; }
                     note(accepted ? labels.accepted : labels.failed, !accepted);
@@ -252,6 +353,7 @@
             event.preventDefault(); controls();
             if (send.disabled || sending || uncertain || !state) return;
             if (voiceBlob) { sendRecording(); return; }
+            if (attachment) { sendAttachment(); return; }
             var id = uuid(), inbound = Number(state.latest_inbound_id);
             if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
             var selected = conversation, current = generation;
@@ -267,7 +369,7 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
-                    if (kind === 'text') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
+                    if (kind === 'text' || kind === 'attachment') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     clearQuote(); attempt = null; uncertain = false; acceptedSend = true; note(labels.accepted);
                 } else if (data.state === 'FAILED') {
                     attempt = null; uncertain = false; note(labels.failed, true);
@@ -280,6 +382,19 @@
             if (stream && typeof stream.getTracks === 'function') stream.getTracks().forEach(function (track) {
                 if (track.readyState !== 'ended') track.stop();
             });
+        }
+        function sendAttachment() {
+            controls();
+            if (send.disabled || !attachment || sending || uncertain || !state || typeof FormData === 'undefined') return;
+            var id = uuid(), inbound = Number(state.latest_inbound_id), selected = conversation, current = generation;
+            if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
+            var body = new FormData(); body.append('attachment', attachment.file, attachment.file.name);
+            body.append('client_request_id', id); body.append('expected_inbound_id', String(inbound));
+            if (text.value.trim()) body.append('caption', text.value.trim());
+            if (quoted && quoted.messageId) body.append('reply_to_message_id', String(quoted.messageId));
+            if (quoted && quoted.replyId) body.append('reply_to_reply_id', String(quoted.replyId));
+            attempt = {id: id, inbound: inbound, kind: 'attachment', quote: quoted && quoted.messageId, quoteReply: quoted && quoted.replyId};
+            clearAttachment(); closeEmoji(); sendRequest(selected, current, 'attachment', body, 'attachment');
         }
         function clearVoice() {
             microphoneRequest++;
@@ -425,7 +540,7 @@
             var to = Number.isInteger(text.selectionEnd) ? text.selectionEnd : from;
             from = Math.max(0, Math.min(text.value.length, from)); to = Math.max(from, Math.min(text.value.length, to));
             var draft = text.value.slice(0, from) + value + text.value.slice(to);
-            if (Array.from(draft).length > textLimit) return;
+            if (Array.from(draft).length > (attachment ? 1024 : textLimit)) return;
             text.value = draft;
             if (typeof text.setSelectionRange === 'function') text.setSelectionRange(from + value.length, from + value.length);
             input(); closeEmoji(); focusText();
@@ -442,7 +557,7 @@
             submit({preventDefault: function () {}});
         }
         function keyReleased(event) { if (event.key === 'Enter') enterHeld = false; }
-        function input() { sizeText(); count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
+        function input() { sizeText(); count.textContent = Array.from(text.value).length + ' / ' + (attachment ? 1024 : textLimit); controls(); }
         function refreshClick() { if (!refresh.disabled) loadState(false); }
         function reset(event) {
             var reason = event && event.detail && event.detail.reason;
@@ -458,6 +573,9 @@
         if (quoteCancel) quoteCancel.addEventListener('click', removeQuote);
         if (emoji) emoji.addEventListener('click', emojiToggle);
         if (emojiPicker) emojiPicker.addEventListener('click', emojiSelect);
+        if (attach) attach.addEventListener('click', attachmentClick);
+        if (fileInput) fileInput.addEventListener('change', attachmentChanged);
+        if (fileCancel) fileCancel.addEventListener('click', cancelAttachment);
         if (record) {
             record.addEventListener('click', recordClick); stop.addEventListener('click', stopRecording);
             cancel.addEventListener('click', cancelRecording); voiceSend.addEventListener('click', sendRecording);
@@ -474,6 +592,9 @@
             if (quoteCancel) quoteCancel.removeEventListener('click', removeQuote);
             if (emoji) emoji.removeEventListener('click', emojiToggle);
             if (emojiPicker) emojiPicker.removeEventListener('click', emojiSelect);
+            if (attach) attach.removeEventListener('click', attachmentClick);
+            if (fileInput) fileInput.removeEventListener('change', attachmentChanged);
+            if (fileCancel) fileCancel.removeEventListener('click', cancelAttachment);
             if (record) {
                 record.removeEventListener('click', recordClick); stop.removeEventListener('click', stopRecording);
                 cancel.removeEventListener('click', cancelRecording); voiceSend.removeEventListener('click', sendRecording);

@@ -21,6 +21,8 @@ import time
 
 ROOT = Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
+COMPATIBILITY_PATH = 'app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php'
+COMPATIBILITY_CANONICAL_PATH = 'app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswerRequest.php'
 BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 MIGRATIONS = (
     'database/migrations/2026_10_08_130000_create_desktop_dashboard_journal.php',
@@ -119,11 +121,57 @@ def read_manifest(path,pin):
             raise SafeError('DESKTOP_ENTRYPOINT_ORDER_INVALID')
         seen.add(row['path']);phases.append(row['phase'])
     if phases!=sorted(phases) or not set(MIGRATIONS).issubset(seen):raise SafeError('DESKTOP_PUBLICATION_ORDER_INVALID')
+    compatibility=next((row for row in value['sources']if row['path']==COMPATIBILITY_PATH),None)
+    canonical=next((row for row in value['sources']if row['path']==COMPATIBILITY_CANONICAL_PATH),None)
+    if canonical is not None or compatibility is not None:
+        if(compatibility is None or canonical is None or compatibility['phase']!=2 or compatibility['before_blob']is None
+            or canonical['phase']!=1 or canonical['before_blob']is not None):
+            raise SafeError('DESKTOP_REQUEST_COMPATIBILITY_PAIR_INVALID')
     for row in value['protected']:
         if set(row)!={'path','blob'} or not strict_path(row['path']) or row['path'] in seen or not re.fullmatch('[a-f0-9]{40}',row['blob']):
             raise SafeError('DESKTOP_MANIFEST_PROTECTED_INVALID')
         seen.add(row['path'])
     return value
+
+def manifest_target_profile(value):
+    return {**{row['path']:row['after_blob']for row in value['sources']},
+            **{row['path']:row['blob']for row in value['protected']}}
+
+def validate_manifest_pair(primary,alternative):
+    # A baseline chooses which current bytes may be changed, never a different
+    # desired release. Already-current paths are explicit protected rows in the
+    # other manifest, so both final source and external GUI pins must agree.
+    if(any(primary[key]!=alternative[key]for key in('expected_head','after_source','migrations'))
+        or manifest_target_profile(primary)!=manifest_target_profile(alternative)):
+        raise SafeError('DESKTOP_ALTERNATIVE_TARGET_DISAGREES')
+
+def baseline_matches(root,uid,value,head,fingerprint):
+    if head!=value['expected_head']or fingerprint!=value['before_source']:return False
+    for row in value['sources']:
+        path=root/row['path']
+        if row['before_blob']is None:
+            if path.exists()or path.is_symlink():return False
+        else:
+            try:content=read_source(path,root,uid)
+            except FileNotFoundError:return False
+            if blob(content)!=row['before_blob']:return False
+    for row in value['protected']:
+        try:content=read_source(root/row['path'],root,uid)
+        except FileNotFoundError:return False
+        if blob(content)!=row['blob']:return False
+    return True
+
+def select_manifest(root,uid,candidates,runner):
+    # Selection is read only, before creating backup directories or locks.
+    # Mixed or unknown deployments cannot be assembled from per-file choices.
+    code,head=runner(root,['/usr/bin/git','rev-parse','HEAD'],capture=True)
+    if code:raise SafeError('DESKTOP_BASELINE_HEAD_UNAVAILABLE')
+    head=head.strip().decode();fingerprint=source_fingerprint(root,uid)
+    matches=[candidate for candidate in candidates if baseline_matches(root,uid,candidate[2],head,fingerprint)]
+    if len(matches)!=1:
+        raise SafeError('DESKTOP_NO_APPROVED_BASELINE_MATCHES'if not matches else'DESKTOP_APPROVED_BASELINE_AMBIGUOUS')
+    if source_fingerprint(root,uid)!=fingerprint:raise SafeError('DESKTOP_BASELINE_CHANGED_DURING_SELECTION')
+    return matches[0]
 
 def read_source(path,root,uid):
     base.safe_ancestors(path,uid)
@@ -241,11 +289,36 @@ def rollback(root,uid,journal,created):
     # Entrypoints/cache/environment were published last and are restored first.
     # If a peer changed one, retain the remaining dependencies instead of
     # removing code which the peer's current entrypoint may still require.
+    compatibility=journal.get(COMPATIBILITY_PATH)
+    canonical=journal.get(COMPATIBILITY_CANONICAL_PATH)
+    def bridge_unchanged():
+        if compatibility is None:return True
+        try:return base.snapshot(compatibility.path,uid,root,absent_ok=True)in(compatibility.before,compatibility.after)
+        except BaseException:return False
+    def retain_canonical():
+        # A bridge edit can race the canonical withdrawal. The new dependency's
+        # original inode is still held privately; re-link it without replacing
+        # any peer-created path before stopping the rest of the rollback.
+        if canonical is None:return
+        try:
+            retained=base.snapshot(canonical.temporary,uid,root)
+            if(base.snapshot(canonical.path,uid,root,absent_ok=True)is None
+                and(retained.device,retained.inode)==(canonical.after.device,canonical.after.inode)):
+                base.safe_ancestors(canonical.path,uid,root)
+                try:os.link(canonical.temporary,canonical.path,follow_symlinks=False)
+                except FileExistsError:pass
+        except BaseException:pass
     with base.blocked_signals():
+        if not bridge_unchanged():retain_canonical();return False
         for publication in reversed(list(journal.values())):
             try:
-                if not base.recover_publication(publication,root,uid):return False
-            except BaseException:return False
+                if not bridge_unchanged():retain_canonical();return False
+                restored=base.recover_publication(publication,root,uid)
+                if publication is canonical and not bridge_unchanged():retain_canonical();return False
+                if not restored:return False
+            except BaseException:
+                if not bridge_unchanged():retain_canonical()
+                return False
         for directory,inode in reversed(created):
             try:
                 item=directory.lstat()
@@ -334,11 +407,22 @@ def verify_archived_files(path,expected):
                 if data!=content:raise SafeError('DESKTOP_ARCHIVED_FILE_CHANGED')
     except(tarfile.TarError,OSError,KeyError):raise SafeError('DESKTOP_ARCHIVED_FILE_MISSING_OR_INVALID')from None
 
-def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verify_web_auth):
+def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verify_web_auth,
+            alternative_manifest_path=None,alternative_manifest_pin=None):
     global STAGE
     STAGE='MANIFEST';value=read_manifest(manifest_path,manifest_pin)
-    payload=manifest_path.parent.parent;helper=payload/'deployment/desktop_dashboard_release.php'
+    if (alternative_manifest_path is None)!=(alternative_manifest_pin is None):raise SafeError('DESKTOP_ALTERNATIVE_MANIFEST_PAIR_REQUIRED')
     base.validate_root(root,uid)
+    if alternative_manifest_path is not None:
+        if(not manifest_path.is_absolute()or not alternative_manifest_path.is_absolute()
+            or manifest_path.parent!=alternative_manifest_path.parent or manifest_path==alternative_manifest_path):
+            raise SafeError('DESKTOP_ALTERNATIVE_PAYLOAD_SCOPE_INVALID')
+        alternative=read_manifest(alternative_manifest_path,alternative_manifest_pin)
+        validate_manifest_pair(value,alternative)
+        STAGE='SELECTION'
+        manifest_path,manifest_pin,value=select_manifest(root,uid,[(manifest_path,manifest_pin,value),
+            (alternative_manifest_path,alternative_manifest_pin,alternative)],runner)
+    payload=manifest_path.parent.parent;helper=payload/'deployment/desktop_dashboard_release.php'
     parent=root.parent/'desktop-dashboard-release-backups';base.private_parent(parent,uid)
     fd=os.open(parent/'server-install.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
     try:
@@ -398,6 +482,15 @@ def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verif
         def publish(relative,content,original):
             return base.replace_file(root/relative,content,original,uid,root,created,journal=written,relative=relative,private_directory=publications)
         try:
+            # The original misspelled filename declares the canonical class.
+            # A fallback shim must replace that declaration before adding the
+            # canonical file; otherwise a fresh Spatie/Artisan discovery sees
+            # two declarations during the pre-entrypoint migration bootstrap.
+            # This is the sole reviewed early modification of existing source.
+            compatibility=next((row for row in value['sources']if row['path']==COMPATIBILITY_PATH),None)
+            if compatibility is not None:
+                STAGE='COMPATIBILITY'
+                publish(COMPATIBILITY_PATH,proposals[COMPATIBILITY_PATH],before[COMPATIBILITY_PATH])
             STAGE='PUBLICATION'
             for row in value['sources']:
                 if row['phase']==2:continue
@@ -409,6 +502,7 @@ def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verif
             STAGE='ENTRYPOINTS'
             for row in value['sources']:
                 if row['phase']!=2:continue
+                if row['path']==COMPATIBILITY_PATH:continue
                 relative=row['path'];publish(relative,proposals[relative],before[relative])
             if source_fingerprint(root,uid)!=value['after_source']:raise SafeError('DESKTOP_PUBLISHED_SOURCE_MISMATCH')
             STAGE='ENVIRONMENT';publish('.env',patch_env(before['.env'].content),before['.env'])
@@ -457,11 +551,16 @@ def main():
     try:
         args=argparse.ArgumentParser(description=__doc__)
         args.add_argument('--root',required=True);args.add_argument('--manifest',required=True);args.add_argument('--manifest-blob',required=True)
+        args.add_argument('--alternative-manifest');args.add_argument('--alternative-manifest-blob')
         options=args.parse_args()
         if Path(options.root)!=ROOT or os.geteuid()!=pwd.getpwnam('fasakha').pw_uid:raise SafeError('DESKTOP_RUN_AS_FASAKHA_FOR_FIXED_ROOT')
         if not re.fullmatch('[a-f0-9]{40}',options.manifest_blob):raise SafeError('DESKTOP_MANIFEST_PIN_INVALID')
         signal.signal(signal.SIGTERM,lambda *_:(_ for _ in()).throw(SafeError('DESKTOP_INSTALL_INTERRUPTED')))
-        backup,result=install(ROOT,os.geteuid(),Path(options.manifest),options.manifest_blob)
+        if (options.alternative_manifest is None)!=(options.alternative_manifest_blob is None):raise SafeError('DESKTOP_ALTERNATIVE_MANIFEST_PAIR_REQUIRED')
+        if options.alternative_manifest_blob is not None and not re.fullmatch('[a-f0-9]{40}',options.alternative_manifest_blob):raise SafeError('DESKTOP_MANIFEST_PIN_INVALID')
+        backup,result=install(ROOT,os.geteuid(),Path(options.manifest),options.manifest_blob,
+            alternative_manifest_path=Path(options.alternative_manifest)if options.alternative_manifest is not None else None,
+            alternative_manifest_pin=options.alternative_manifest_blob)
         print('DESKTOP_DASHBOARD_SERVER_READY');print('BACKUP='+str(backup));print('SOURCE='+result['source']['sha256'])
         return 0
     except SafeError as error:print(str(error),file=sys.stderr)

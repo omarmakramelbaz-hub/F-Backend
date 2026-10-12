@@ -5,11 +5,13 @@ import hashlib,json,os,pathlib,pwd,re,shutil,signal,stat,subprocess,sys,tempfile
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 MANIFEST='deployment/desktop_dashboard_server_manifest.json'
+ALTERNATIVE_MANIFEST='deployment/desktop_dashboard_server_manifest_attachments.json'
 APP='deployment/apply_desktop_dashboard_server.py'
 # Filled from the final reviewed payload by pin_desktop_dashboard_installer.py.
 HELPER_PINS = {
-    'deployment/desktop_dashboard_server_manifest.json': '1180cea2f49d09d65c70b0c5f92c0424a4468a0f',
-    'deployment/apply_desktop_dashboard_server.py': 'c9ddbc2527e4bc499d36c807f3c853bc1d212f96',
+    'deployment/desktop_dashboard_server_manifest_attachments.json': '9a474acc6a0d463e421b1279cfaa1f80aa4e70b0',
+    'deployment/desktop_dashboard_server_manifest.json': '4e5b9834e0e909355ee799944d937b5b229e7d8f',
+    'deployment/apply_desktop_dashboard_server.py': 'a3e3af323b7d844a317e110ff680478f7fb471c0',
     'deployment/desktop_dashboard_release.php': '1843b8aa98320609af84410016bc8be5cf35d417',
     'deployment/install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
 }
@@ -58,6 +60,12 @@ def source_roster(data):
 def stage(directory,release):
     payload={name:git_file(release,name,pin)for name,pin in HELPER_PINS.items()}
     roster=source_roster(payload[MANIFEST])
+    alternative=None
+    if ALTERNATIVE_MANIFEST in payload:
+        alternative=directory/ALTERNATIVE_MANIFEST
+        for name,pin in source_roster(payload[ALTERNATIVE_MANIFEST]).items():
+            if name in roster and roster[name]!=pin:raise SafeError('DESKTOP_ROOT_ALTERNATIVE_SOURCE_CONFLICT')
+            roster[name]=pin
     for name,pin in roster.items():payload[name]=git_file(release,name,pin)
     for name,data in payload.items():
         path=directory/name;path.parent.mkdir(parents=True,exist_ok=True)
@@ -67,7 +75,7 @@ def stage(directory,release):
                 if not stat.S_ISDIR(item.st_mode)or item.st_uid!=0 or stat.S_IMODE(item.st_mode)!=0o755:raise SafeError('DESKTOP_ROOT_STAGE_DIRECTORY_UNSAFE')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'wb')as stream:stream.write(data);stream.flush();os.fchmod(stream.fileno(),0o644);os.fsync(stream.fileno())
-    return directory/MANIFEST
+    return directory/MANIFEST,alternative
 
 def main():
     directory=None
@@ -88,11 +96,14 @@ def main():
         os.umask(0o077)
         signal.signal(signal.SIGTERM,lambda *_:(_ for _ in()).throw(SafeError('DESKTOP_ROOT_INTERRUPTED')))
         directory=pathlib.Path(tempfile.mkdtemp(prefix='desktop-dashboard-payload-',dir='/tmp'));directory.chmod(0o755)
-        manifest=stage(directory,args[2])
+        manifest,alternative=stage(directory,args[2])
         approved_paths=set(source_roster(manifest.read_bytes()))|{'.env','bootstrap/cache/config.php','bootstrap/cache/routes.php','bootstrap/cache/routes-v7.php','storage/framework/views'}
+        if alternative is not None:approved_paths.update(source_roster(alternative.read_bytes()))
         for name in tuple(approved_paths):approved_paths.update(str(parent)for parent in pathlib.PurePosixPath(name).parents if str(parent)!='.')
-        code,output,error=command(['/usr/sbin/runuser','-u','fasakha','--','/usr/bin/python3','-B',str(directory/APP),
-                             '--root',str(ROOT),'--manifest',str(manifest),'--manifest-blob',HELPER_PINS[MANIFEST]],timeout=3600)
+        arguments=['/usr/sbin/runuser','-u','fasakha','--','/usr/bin/python3','-B',str(directory/APP),
+                   '--root',str(ROOT),'--manifest',str(manifest),'--manifest-blob',HELPER_PINS[MANIFEST]]
+        if alternative is not None:arguments.extend(['--alternative-manifest',str(alternative),'--alternative-manifest-blob',HELPER_PINS[ALTERNATIVE_MANIFEST]])
+        code,output,error=command(arguments,timeout=3600)
         # App diagnostics are captured privately. Only its fixed receipt reaches
         # root output; no framework messages, environment or SQL are repeated.
         try:rows=output.decode('ascii').splitlines()

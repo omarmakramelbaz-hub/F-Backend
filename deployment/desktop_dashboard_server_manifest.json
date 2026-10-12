@@ -10,7 +10,7 @@
   "after_source": {
     "format": 1,
     "files": 1148,
-    "sha256": "5a63d33d5c4f53d5ecbdc6ff17e79ed8ff4cdf6175825d7cac6c3f8653e0e11f",
+    "sha256": "fe411fe0997da80684053a6347b22a22c9d9c5752779869eea6d35e494777555",
     "framework": "8.83.29"
   },
   "sources": [
@@ -843,9 +843,27 @@
       "phase": 2
     },
     {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxController.php",
+      "before_blob": "f4756907b0aa199a0a5d3a2ab40a1a2f09321756",
+      "after_blob": "6f45b964d13504442539ced4c5862dfbbe921381",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppReplyController.php",
+      "before_blob": "5077f194a00cb1c107d3d931cd9fba3d9e28e5b3",
+      "after_blob": "7223022bcf5b9acd374ba501a5e17609d9ad05b8",
+      "phase": 2
+    },
+    {
       "path": "app/Http/Kernel.php",
       "before_blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
       "after_blob": "fbda39a3bbbad5c828a9c844eced2ddef2010799",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php",
+      "before_blob": "b703482c829e051dc0ec38cfe51370198a88b6b0",
+      "after_blob": "50f47b326c36dbc03b8d5e2c826328f5b3d18d18",
       "phase": 2
     },
     {
@@ -891,6 +909,24 @@
       "phase": 2
     },
     {
+      "path": "app/Services/Dashboard/WhatsAppInboxMedia.php",
+      "before_blob": "998efb85b37cb5e26497d82a2f7816513b6435a7",
+      "after_blob": "ae1f6aa4d833de80637ea56b19719c649183456d",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxMessage.php",
+      "before_blob": "f88843b6abc227c1697476cd9a6217331070f250",
+      "after_blob": "3a8ec74d632d73ea59b551a0aa2950e5be7774d8",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppReplyService.php",
+      "before_blob": "87d71d1834d9ca4569b922360ca813653d9a5c85",
+      "after_blob": "cce92c02d4a4400cd133fc1f7631fb94762f54c6",
+      "phase": 2
+    },
+    {
       "path": "app/Services/GoStores/Catalog.php",
       "before_blob": "9dd08877f66cb7288e4fe4f97ee670727b1ecc25",
       "after_blob": "7b6d8a78ccc29c68c457cea4dbfe801f0c2bd589",
@@ -900,6 +936,12 @@
       "path": "config/desktop_pos.php",
       "before_blob": "a23ba49fd0a45ad9efd6e47771270d9a0fdc8e36",
       "after_blob": "0d95fd221f1359850bf4056391d08baa97268665",
+      "phase": 2
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-replies.css",
+      "before_blob": "e957197f0fbb20836dca1743edce0b35d41863ac",
+      "after_blob": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
       "phase": 2
     },
     {
@@ -954,6 +996,18 @@
       "path": "public/dashboard/js/phone-orders.js",
       "before_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
       "after_blob": "894bcfad23de57c3a4cc4ca373b6a6c6105038bb",
+      "phase": 2
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "before_blob": "3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc",
+      "after_blob": "cdcd1fddf21988d876d806ddd25fbd532c8f569e",
+      "phase": 2
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "before_blob": "43e059064f450db2a56e9ee6668909ab855cb28b",
+      "after_blob": "392569e73e951405a5de6ce676922e63377a6b0b",
       "phase": 2
     },
     {
@@ -1167,6 +1221,12 @@
       "phase": 2
     },
     {
+      "path": "resources/views/admin/whatsapp/replies.blade.php",
+      "before_blob": "96ac53c7afb01c4aa1eef4b8417192abc024a2ec",
+      "after_blob": "6386debd6e20836cc1023cefc7868e214ce7f0f0",
+      "phase": 2
+    },
+    {
       "path": "routes/admin.php",
       "before_blob": "a12740d1b701ce8c50fdbebb944265c227e8c3fe",
       "after_blob": "f2b5c07c638e529937a153a988d67aad10e0bc60",
@@ -1183,13 +1243,15 @@
       "before_blob": null,
       "after_blob": "b65cb4d3b25230b5e0dd8eb025d5e016ede0a208",
       "phase": 2
+    },
+    {
+      "path": "routes/whatsapp_replies.php",
+      "before_blob": "15230fa1267ba6d9dcd4467b6c6ec4686031b41d",
+      "after_blob": "61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8",
+      "phase": 2
     }
   ],
   "protected": [
-    {
-      "path": "public/dashboard/branding/dashboard-brand.css",
-      "blob": "b338e6d1fdb566b175a6ec875e5c6a2720377279"
-    },
     {
       "path": "public/css/dashboard-whatsapp-inbox.css",
       "blob": "639ac2223b4abcd679329000551d9c735e43b5af"
@@ -1199,20 +1261,12 @@
       "blob": "35d80672c039b1dcbd8fd52457ea8a7078e0421d"
     },
     {
-      "path": "public/css/dashboard-whatsapp-replies.css",
-      "blob": "e957197f0fbb20836dca1743edce0b35d41863ac"
-    },
-    {
-      "path": "public/js/dashboard-whatsapp-inbox.js",
-      "blob": "3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc"
+      "path": "public/dashboard/branding/dashboard-brand.css",
+      "blob": "b338e6d1fdb566b175a6ec875e5c6a2720377279"
     },
     {
       "path": "public/js/dashboard-whatsapp-orders.js",
       "blob": "ad7f78fc490774280c31e01125bc262a92a2cb3d"
-    },
-    {
-      "path": "public/js/dashboard-whatsapp-replies.js",
-      "blob": "43e059064f450db2a56e9ee6668909ab855cb28b"
     }
   ],
   "migrations": [
