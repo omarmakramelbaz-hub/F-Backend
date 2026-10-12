@@ -162,6 +162,11 @@ function fixture(options = {}) {
     return {panel, elements, document, window, state, context, timers, navigator};
 }
 async function settle() { for (let index = 0; index < 12; index++) await new Promise(setImmediate); }
+async function scheduledPoll(test) {
+    const entry = [...test.timers.entries()].find(([, timer]) => timer.delay === 2000);
+    assert(entry, 'An open connected inbox schedules its next live poll');
+    test.timers.delete(entry[0]); entry[1].callback(); await settle();
+}
 function click(test, element) { assert(element, 'Expected clickable control'); test.panel.dispatchEvent({type: 'click', target: element}); }
 function choose(test, id = 1) { click(test, find(test, 'wa-thread', id)); }
 function action(test, id, value) {
@@ -202,6 +207,45 @@ async function pollingDoesNotOverlap() {
     assert([...test.timers.values()].some(timer => timer.delay === 2000));
     test.document.hidden = true; test.document.dispatchEvent({type: 'visibilitychange'}); assert.strictEqual(test.timers.size, 0);
     test.document.hidden = false; test.document.dispatchEvent({type: 'visibilitychange'}); await settle(); close(test);
+}
+async function autonomousPollFindsNativeMessagesAndCustomers() {
+    const test = fixture(); await settle(); choose(test); await settle();
+    test.state.threads.push({id: 3, name: 'New customer'}); test.state.newer = [message(20)];
+    await scheduledPoll(test);
+    assert(find(test, 'wa-thread', 3), 'A new customer appears without focus or manual refresh');
+    assert(find(test, 'wa-message-id', 20), 'A new native message appears on the scheduled live poll');
+    assert([...test.timers.values()].some(timer => timer.delay === 2000)); close(test);
+}
+async function autonomousPollRefreshesAcceptedRepliesAndRetainsHistory() {
+    const test = fixture({history: true}); test.state.raw = []; test.state.older = []; test.state.nextBefore = null;
+    test.state.apiHistory = Array.from({length: 75}, (_, index) => savedReply(index + 1));
+    await settle(); choose(test); await settle();
+    test.elements.scroll.scrollTop = 0; test.elements.scroll.dispatchEvent({type: 'scroll'}); await settle();
+    assert.strictEqual(test.elements.messages.children.length, 40);
+    const anchor = test.elements.scroll.scrollTop;
+    test.state.apiHistory.push(savedReply(76), {...savedReply(77), state: 'UNKNOWN', text: 'Unconfirmed external reply'});
+    await scheduledPoll(test);
+    assert(find(test, 'wa-api-reply-id', 'api-reply:76'), 'An accepted reply from another operator appears without native echo or manual refresh');
+    assert(!test.elements.messages.textContent.includes('Unconfirmed external reply'), 'An unknown request cannot become an accepted bubble');
+    assert(find(test, 'wa-api-reply-id', 'api-reply:36'), 'Recent polling retains the explicitly loaded older page');
+    assert.strictEqual(test.elements.scroll.scrollTop, anchor, 'Recent accepted replies preserve the history reader anchor');
+    await scheduledPoll(test);
+    assert.strictEqual(walk(test.elements.messages).filter(element => element.dataset.waApiReplyId === 'api-reply:76').length, 1, 'Repeated recent snapshots do not duplicate a receipt');
+    test.elements.scroll.scrollTop = 0; test.elements.scroll.dispatchEvent({type: 'scroll'}); await settle();
+    assert(test.state.calls.some(call => new URL(call.url).searchParams.get('before_reply_id') === '36'), 'Recent polling does not overwrite the older history cursor');
+    assert(find(test, 'wa-api-reply-id', 'api-reply:16')); assert(find(test, 'wa-api-reply-id', 'api-reply:76'));
+    assert.strictEqual(test.state.calls.filter(call => call.request.method === 'POST').length, 0, 'Accepted history polling never sends or retries a reply'); close(test);
+}
+async function delayedRecentPollCannotCrossCustomerScope() {
+    const test = fixture({history: true}); test.state.apiHistory = [savedReply(17)]; await settle(); choose(test); await settle();
+    test.state.delayHistory = true; test.state.apiHistory = [{...savedReply(18), text: 'Private previous customer reply'}];
+    await scheduledPoll(test); assert.strictEqual(test.state.historyResolvers.length, 1);
+    test.state.apiHistory = [{...savedReply(19), text: 'Current customer reply'}]; choose(test, 2); await settle();
+    assert.strictEqual(test.state.historyResolvers.length, 2);
+    test.state.delayHistory = false; test.state.historyResolvers[1](); await settle(); test.state.historyResolvers[0](); await settle();
+    assert(test.elements.messages.textContent.includes('Current customer reply'));
+    assert(!test.elements.messages.textContent.includes('Private previous customer reply'), 'A late recent snapshot is discarded after customer selection changes');
+    assert.strictEqual(test.window.DashboardWhatsAppInbox.selection(), 2); close(test);
 }
 async function unreadCountsCustomers() {
     const test = fixture(); await settle(); assert.strictEqual(test.elements['unread-total'].textContent, 'Unread conversations: 2');
@@ -493,7 +537,8 @@ async function lateHistorySelectionCannotLeak() {
 }
 
 (async () => {
-    const cases = [infiniteThreadsAndCursor, historyAnchoringAndNewIndicator, pollingDoesNotOverlap, unreadCountsCustomers, authenticatedMediaAndStableNodes,
+    const cases = [infiniteThreadsAndCursor, historyAnchoringAndNewIndicator, pollingDoesNotOverlap, autonomousPollFindsNativeMessagesAndCustomers,
+        autonomousPollRefreshesAcceptedRepliesAndRetainsHistory, delayedRecentPollCannotCrossCustomerScope, unreadCountsCustomers, authenticatedMediaAndStableNodes,
         copyQuoteAndReaction, forwardNeedsExplicitTargetAndConfirmation, staleActionsNeverSend, unknownIsNeverRetried, selectionSnapshotExcludesFutureRows,
         individualSelectionAndLifecycle, apiReplyActionsUseScopedAuditIds, singleDeleteIsLocalAndConfirmed, apiImageScopeAndNativeEchoDeduplication,
         delayedOldMessagesNeverLeak, networkUncertaintyNeverResends, selectAllCoversWholeLargeConversation, lateEchoKeepsSnapshotSelectionAndDedupe,

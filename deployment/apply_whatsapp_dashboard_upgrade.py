@@ -45,8 +45,8 @@ SOURCE_PINS = {'database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidd
                                  '61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8'),
  'routes/whatsapp_inbox.php': ('b05d9e9b982477cf5873f6d60786ef9458e2c336',
                                '524a38faa203d578abdcc6185e48709036d91e82'),
- 'public/js/dashboard-whatsapp-inbox.js': ('3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc',
-                                           'cdcd1fddf21988d876d806ddd25fbd532c8f569e'),
+ 'public/js/dashboard-whatsapp-inbox.js': ('cdcd1fddf21988d876d806ddd25fbd532c8f569e',
+                                           '2f6de4626ec6108763f9cb024868233c7266dc36'),
  'public/js/dashboard-whatsapp-replies.js': ('43e059064f450db2a56e9ee6668909ab855cb28b',
                                              '392569e73e951405a5de6ce676922e63377a6b0b'),
  'public/js/dashboard-whatsapp-orders.js': ('25a41c3f39ec724094de64fab58e4e0477bd44ac',
@@ -57,8 +57,8 @@ SOURCE_PINS = {'database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidd
                                                'aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854'),
  'resources/views/admin/whatsapp/replies.blade.php': ('96ac53c7afb01c4aa1eef4b8417192abc024a2ec',
                                                       '6386debd6e20836cc1023cefc7868e214ce7f0f0'),
- 'resources/views/admin/whatsapp/index.blade.php': ('d56fe43423728bb9d48820cc51b34522cc1ad7cc',
-                                                    '573f95d72e011a814b9b4f13eca256009c50fee8')}
+ 'resources/views/admin/whatsapp/index.blade.php': ('573f95d72e011a814b9b4f13eca256009c50fee8',
+                                                    '70d14e0b154934adf636fc18eba3546f3efad34e')}
 PROTECTED_PINS = {'resources/views/admin/layouts/footer.blade.php': '886f076b7d57dc4d71fd24e63c27bd9fcf34f11e',
  'app/Support/WhatsAppInboxProtocol.php': 'ecde67c6a87ca8068bb077892fdbea522d89f217',
  'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '6c63b91d7fb70130ae472cea291fa2cee88b27dd',

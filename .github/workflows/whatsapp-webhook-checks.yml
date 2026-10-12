@@ -159,6 +159,8 @@ jobs:
           node --check public/js/dashboard-whatsapp-inbox.js
           node tests/whatsapp_inbox_ui_test.js
           node tests/whatsapp_inbox_live_test.js
+          node --check tests/whatsapp_inbox_spa_mount_test.js
+          node tests/whatsapp_inbox_spa_mount_test.js
           node tests/whatsapp_accepted_reply_feed_test.js
           node --check public/js/dashboard-whatsapp-orders.js
           node tests/whatsapp_orders_ui_test.js

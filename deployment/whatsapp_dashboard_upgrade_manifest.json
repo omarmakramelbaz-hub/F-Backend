@@ -53,8 +53,8 @@
     },
     {
       "path": "public/js/dashboard-whatsapp-inbox.js",
-      "before_blob": "3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc",
-      "after_blob": "cdcd1fddf21988d876d806ddd25fbd532c8f569e"
+      "before_blob": "cdcd1fddf21988d876d806ddd25fbd532c8f569e",
+      "after_blob": "2f6de4626ec6108763f9cb024868233c7266dc36"
     },
     {
       "path": "public/js/dashboard-whatsapp-replies.js",
@@ -83,8 +83,8 @@
     },
     {
       "path": "resources/views/admin/whatsapp/index.blade.php",
-      "before_blob": "d56fe43423728bb9d48820cc51b34522cc1ad7cc",
-      "after_blob": "573f95d72e011a814b9b4f13eca256009c50fee8"
+      "before_blob": "573f95d72e011a814b9b4f13eca256009c50fee8",
+      "after_blob": "70d14e0b154934adf636fc18eba3546f3efad34e"
     }
   ]
 }

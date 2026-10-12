@@ -15,7 +15,7 @@ import tempfile
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 RUNUSER='/usr/sbin/runuser'
-WRAPPER_BLOB='4a0b02fab7675b54d8b308bbf9fca1ca6aa9fa3f'
+WRAPPER_BLOB='9dcf83839b0d2be58ee24873e3fe488e45eff682'
 LEGACY_BLOB='d30c13bd13ca73e5aad54f558a259e18fb95147f'
 DIAGNOSTIC='diagnose_whatsapp_cairo_install.py'
 DIAGNOSTIC_BLOB='6a48276e4302b5204ff3f238d96f73e11678cb78'

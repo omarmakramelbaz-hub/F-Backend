@@ -6,6 +6,8 @@ The paperclip selects one JPG/PNG image (application limit 5 MiB) or PDF/UTF-8 T
 
 Attachment sends recheck the recipient, authorization, recent inbound window and quoted source before upload and again before messaging. A durable request claim prevents duplicate sends; an uncertain upload or send remains UNKNOWN without an automatic retry. The private temporary file is removed after the operation. Protected downloads validate the saved receipt, conversation, media digest and type; documents are downloaded as attachments rather than executed in the dashboard. Native business echoes retain the accepted API reply's protected media bridge.
 
+The WhatsApp page explicitly mounts the inbox, order panel and reply composer after their assets on each SPA visit. Cached assets remain usable after the previous page's listeners and timers are disposed; the initializer rejects stale page scopes and repeated initialization is idempotent. Live polling refreshes the newest accepted API replies as well as native messages and conversations, while preserving the independently loaded older history cursor and the reader's scroll position. A one-time full reload after deploying changed JavaScript loads the new module implementation.
+
 Hiding affects the operator’s dashboard only. Raw webhook records, encrypted messages, reply audit records, customer records and ERP orders are retained. Native actions require the existing central Owner/Admin authorization, authenticated sessions, CSRF checks, the configured WhatsApp phone and a scoped source/target. Uncertain sends retain the existing durable UNKNOWN state rather than sending again.
 
 ## Deployment

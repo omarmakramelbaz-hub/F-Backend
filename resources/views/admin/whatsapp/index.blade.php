@@ -45,4 +45,16 @@ $waInboxBootstrap = array_merge($waInbox, ['unread_url'=>url('/admin/whatsapp/un
 <script src="{{ asset('js/dashboard-whatsapp-inbox.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-inbox.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-orders.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-orders.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-replies.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-replies.js')) }}"></script>
+<script data-dashboard-page-init>
+(function () {
+    'use strict';
+    var spa = window.DashboardSPA;
+    if (spa && typeof spa.isCurrentPage === 'function' && !spa.isCurrentPage()) return;
+    // The dashboard caches these assets; mount their existing modules for each visit.
+    ['DashboardWhatsAppInbox', 'DashboardWhatsAppOrders', 'DashboardWhatsAppReplies'].forEach(function (name) {
+        var module = window[name];
+        if (module && typeof module.mount === 'function') module.mount();
+    });
+}());
+</script>
 @endpush
