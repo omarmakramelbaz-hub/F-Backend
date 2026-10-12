@@ -29,9 +29,14 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
     $stamp='2020-01-01 00:00:00';$addons=['extra_combo','extra_large','extra_medium','extra_clean','extra_clear','extra_vacuim'];
     $pngA=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=',true);
     $pngB=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZFXsAAAAASUVORK5CYII=',true);
-    foreach([false,true] as $local){$switch($local);$originalBusiness[$local]=$fingerprint();$old[$local]=['actor'=>(array)DB::table('users')->where('id',1)->first(),'target'=>(array)DB::table('resturants')->where('id',100)->first(),'product'=>$product(1)];
+    foreach([false,true] as $local){$switch($local);$originalBusiness[$local]=$fingerprint();$old[$local]=['actor'=>(array)DB::table('users')->where('id',1)->first(),'target'=>(array)DB::table('resturants')->where('id',100)->first(),'product'=>$product(1),
+        'category'=>(array)DB::table('categories')->where('id',1)->first(),'catalog'=>(array)DB::table('products')->where('id',1)->first(),
+        'features'=>DB::table('product_features')->where('product_id',1)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all()];}
+    $baseline=$old[false]['product'];$baseline['price']=json_encode(array_fill_keys($addons,0));$baseline['created_at']=$stamp;$baseline['updated_at']=$stamp;
+    foreach([false,true] as $local){$switch($local);
         DB::table('users')->where('id',1)->update(['account_type'=>'resturant_owner','owner_resturant_id'=>101]);DB::table('resturants')->where('id',100)->update(['parent_id'=>101]);
-        $baseline=$old[$local]['product'];$baseline['price']=json_encode(array_fill_keys($addons,0));$baseline['created_at']=$stamp;$baseline['updated_at']=$stamp;$restore('resturant_products',$baseline);
+        $restore('resturant_products',$baseline);$restore('categories',$old[false]['category']);$restore('products',$old[false]['catalog']);
+        DB::table('product_features')->where('product_id',1)->delete();if($old[false]['features'])DB::table('product_features')->insert($old[false]['features']);
         foreach($catalogIds as $i=>$id)DB::table('products')->insert(['id'=>$id,'added_by'=>1,'category_id'=>1,'name_ar'=>'كتالوج النسخ '.$i,'name_en'=>'Copy catalog '.$i,'status'=>'show','created_at'=>$stamp,'updated_at'=>$stamp]);
         foreach($sourceIds as $i=>$id){$catalog=[1,...$catalogIds,1][$i];DB::table('resturant_products')->insert(['id'=>$id,'added_by'=>11,'resturant_id'=>101,'product_id'=>$catalog,'category_id'=>1,
             'product_name'=>'مصدر النسخ '.$i,'product_description'=>'وصف مصدر النسخ '.$i,'product_price'=>(string)(111*($i+1)),
@@ -54,6 +59,18 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
             \App\Http\Requests\Api\Vendor\CopyMenuRequest::class=>'app/Http/Requests/Api/Vendor/CopyMenuRequest.php',\Spatie\MediaLibrary\MediaCollections\FileAdder::class=>'vendor/spatie/laravel-medialibrary/src/MediaCollections/FileAdder.php'] as $class=>$file)
             verify(realpath((new ReflectionClass($class))->getFileName())===realpath($application.'/'.$file)&&empty(config('jwt.secret'))&&!getenv('JWT_SECRET'),
                 'menu copy uses actual original runtime source without a fixture JWT secret '.$class);
+        // The preceding fixtures deliberately restore distinct local/server originals. This fixture starts from one reviewed baseline.
+        $parity=[];foreach([false,true] as $local){$switch($local);$parity[$local]=DB::transaction(function()use($sourceIds){$states=[];
+            foreach([1,...$sourceIds] as $id)$states[$id]=app(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::class)->menuCopyState($id);return $states;});}
+        if($parity[true]!==$parity[false]){
+            $diff=function($local,$server,string $path='')use(&$diff){if($local===$server)return [];$changes=[];
+                if(is_array($local)&&is_array($server)){foreach(array_unique([...array_keys($local),...array_keys($server)]) as $key){$next=$path===''?(string)$key:$path.'.'.$key;
+                    if(array_key_exists($key,$local)&&array_key_exists($key,$server))$changes=array_merge($changes,$diff($local[$key],$server[$key],$next));
+                    else $changes[]=['path'=>$next,'local'=>$local[$key]??null,'server'=>$server[$key]??null,'localExists'=>array_key_exists($key,$local),'serverExists'=>array_key_exists($key,$server)];}
+                }else $changes[]=['path'=>$path,'local'=>$local,'server'=>$server];return $changes;};
+            echo 'RESTAURANT_MENU_COPY_FIXTURE_PARITY_FAILURE '.json_encode($diff($parity[true],$parity[false]),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
+            throw new RuntimeException('The complete original target/source menu states differ before the clock fixture.');
+        }
         // Advance the real source clock between two updates of the SAME cached target model.
         $switch(true);$clockCommand=(string)Str::uuid();$commands[]=$clockCommand;$actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);
         $probe=Request::create(url('/admin/resturant/copy/items'),'POST',['resturant_id'=>'100','restraunt_product'=>[(string)$sourceIds[0],(string)$sourceIds[4]],'_desktop_command'=>$clockCommand]);
@@ -92,7 +109,7 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
         verify($product(1)===$historic&&$media(1)===$historicImages&&$noopReceipt['result']['after']['products'][0]['row']===$historic,
             'actual reconciliation accepts the current no-op occurrence while retaining the exact historical target row and its old complete image');
         $switch(true);app(DesktopDashboardJournal::class)->acknowledge($ownerDevice,$noopCommand,$noopReceipt);
-        foreach([false,true] as $local){$switch($local);$baseline=$old[$local]['product'];$baseline['price']=json_encode(array_fill_keys($addons,0));$baseline['created_at']=$stamp;$baseline['updated_at']=$stamp;$restore('resturant_products',$baseline);}
+        foreach([false,true] as $local){$switch($local);$restore('resturant_products',$baseline);}
         $switch(true);$baselineProduct=$product(1);$sourceStates=DB::table('resturant_products')->whereIn('id',$sourceIds)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all();$targetMedia=$media(1);
         $business=$fingerprint([1],[]);$localEnv=$env;$localEnv['DB_DATABASE']=$ownerStage;$localEnv['DESKTOP_DASHBOARD_LOCAL']='true';
         $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/menu-copy-local.log','a'],['file',$profile.'/menu-copy-local.log','a']],$pipes,$application,$localEnv);
@@ -195,6 +212,8 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
         if(is_resource($web)){fclose($pipes[0]);proc_terminate($web);proc_close($web);}
         foreach([false,true] as $local){$switch($local);$ids=[...$sourceIds,...$created[$local]];DB::table('media')->whereIn('id',[...$fixtureMedia,...$createdMedia[$local]])->delete();DB::table('resturant_products')->whereIn('id',$ids)->delete();DB::table('resturants')->where('id',$grandchild)->delete();DB::table('products')->whereIn('id',$catalogIds)->delete();
             $restore('users',$old[$local]['actor']);$restore('resturants',$old[$local]['target']);$restore('resturant_products',$old[$local]['product']);
+            $restore('categories',$old[$local]['category']);$restore('products',$old[$local]['catalog']);DB::table('product_features')->where('product_id',1)->delete();
+            if($old[$local]['features'])DB::table('product_features')->insert($old[$local]['features']);
             if($commands)DB::table('desktop_dashboard_commands')->whereIn('command_id',$commands)->delete();
             DB::table('desktop_dashboard_entities')->whereIn('device_id',[$ownerDevice,$remoteDevice->id])->delete();if($entityBaseline[$local])DB::table('desktop_dashboard_entities')->insert($entityBaseline[$local]);}
         foreach($paths as $path=>$bytes)if(is_file($path))unlink($path);
