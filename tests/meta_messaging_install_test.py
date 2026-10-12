@@ -111,13 +111,16 @@ class InstallerTests(unittest.TestCase):
         for rel in ['routes/api.php', 'routes/web.php', 'resources/views/admin/whatsapp/sidebar.blade.php']:
             self.assertTrue((self.root / rel).read_bytes().startswith(self.original[rel]))
             self.assertEqual((self.root / rel).stat().st_mode & 0o777, 0o640)
-        for rel in ['.env', 'resources/views/admin/layouts/menu.blade.php']:
-            self.assertEqual((self.root / rel).read_bytes(), self.original[rel])
+        self.assertEqual((self.root / '.env').read_bytes(), self.original['.env'])
+        menu = self.root / 'resources/views/admin/layouts/menu.blade.php'
+        self.assertEqual(menu.read_bytes(), b"@include('admin.whatsapp.sidebar')\n@include('admin.meta.sidebar')\n")
+        self.assertEqual(menu.stat().st_mode & 0o777, 0o640)
         migrations = [call for call in self.calls if 'migrate' in call]
         self.assertEqual(len(migrations), 1)
         self.assertIn('--path=database/migrations/2026_10_11_160000_create_meta_webhook_events_table.php', migrations[0])
         self.assertFalse(any('migrate:rollback' in call for call in self.calls))
         self.assertFalse(any('route:list' in call for call in self.calls))
+        self.assertTrue(any('view:clear' in call for call in self.calls))
         self.assertIn('META_ROUTES_VERIFIED=20', self.output)
         backup = next((self.root.parent / 'meta-release-backups').iterdir())
         self.assertEqual(backup.stat().st_mode & 0o777, 0o700)
@@ -126,10 +129,101 @@ class InstallerTests(unittest.TestCase):
 
     def test_repeat_keeps_bytes_and_inodes(self):
         self.install()
-        rels = list(self.payloads) + ['routes/api.php', 'routes/web.php']
+        rels = list(self.payloads) + ['routes/api.php', 'routes/web.php',
+                                     'resources/views/admin/layouts/menu.blade.php',
+                                     'resources/views/admin/whatsapp/sidebar.blade.php']
         before = {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino) for rel in rels}
         self.install()
         self.assertEqual(before, {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino) for rel in rels})
+
+    def test_sidebar_link_preserves_native_menu_markup_and_crlf(self):
+        menu_rel = 'resources/views/admin/layouts/menu.blade.php'
+        menu = (b'<ul class="native-dashboard-menu">\r\n\t<li>Home</li>\r\n'
+                b"\t@include('admin.whatsapp.sidebar')\r\n"
+                b'\t<li data-other-feature="kept">Desktop</li>\r\n</ul>\r\n')
+        self.write(menu_rel, menu, 0o640)
+        self.install()
+        self.assertEqual((self.root / menu_rel).read_bytes(),
+                         b'<ul class="native-dashboard-menu">\r\n\t<li>Home</li>\r\n'
+                         b"\t@include('admin.whatsapp.sidebar')\r\n\t@include('admin.meta.sidebar')\r\n"
+                         b'\t<li data-other-feature="kept">Desktop</li>\r\n</ul>\r\n')
+        self.assertEqual((self.root / 'resources/views/admin/whatsapp/sidebar.blade.php').read_bytes(),
+                         self.original['resources/views/admin/whatsapp/sidebar.blade.php'])
+
+    def test_nested_and_misplaced_meta_links_move_without_duplicates(self):
+        menu_rel = 'resources/views/admin/layouts/menu.blade.php'
+        sidebar_rel = 'resources/views/admin/whatsapp/sidebar.blade.php'
+        self.write(menu_rel, b'<ul>\n  @include("admin.meta.sidebar")\n  <li>Home</li>\n'
+                   b"  @include('admin.whatsapp.sidebar')\n"
+                   b"  @includeIf('admin.meta.sidebar')\n  <li>Desktop</li>\n"
+                   b"  @include('admin.meta.sidebar')\n</ul>\n", 0o640)
+        self.write(sidebar_rel, b'<li class="native-wa">WhatsApp</li>\n'
+                   b"@include('admin.meta.sidebar')\n@includeIf('admin.meta.sidebar')\n", 0o640)
+        self.install()
+        self.assertEqual((self.root / menu_rel).read_bytes(),
+                         b'<ul>\n  <li>Home</li>\n'
+                         b"  @include('admin.whatsapp.sidebar')\n  @include('admin.meta.sidebar')\n"
+                         b'  <li>Desktop</li>\n</ul>\n')
+        self.assertEqual((self.root / sidebar_rel).read_bytes(), b'<li class="native-wa">WhatsApp</li>\n')
+        self.assertEqual((self.root / menu_rel).stat().st_mode & 0o777, 0o640)
+        self.assertEqual((self.root / sidebar_rel).stat().st_mode & 0o777, 0o640)
+        before = {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino)
+                  for rel in (menu_rel, sidebar_rel)}
+        self.install()
+        self.assertEqual(before, {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino)
+                                 for rel in (menu_rel, sidebar_rel)})
+
+    def test_inline_meta_hooks_preserve_surrounding_markup_and_stay_idempotent(self):
+        menu = b"<ul>@include('admin.meta.sidebar')<li>Home</li>@include('admin.whatsapp.sidebar')</ul>"
+        sidebar = b"<li>WhatsApp</li><aside>@include('admin.meta.sidebar')</aside>"
+        proposed = installer.sidebar_proposals(menu, sidebar)
+        self.assertEqual(proposed, (b"<ul><li>Home</li>@include('admin.whatsapp.sidebar')\n@include('admin.meta.sidebar')</ul>\n",
+                                    b'<li>WhatsApp</li><aside></aside>'))
+        self.assertEqual(installer.sidebar_proposals(*proposed), proposed)
+
+    def test_no_final_newline_menu_is_canonical_and_idempotent(self):
+        rel = 'resources/views/admin/layouts/menu.blade.php'
+        for menu in (b"@include('admin.whatsapp.sidebar')",
+                     b"@include('admin.whatsapp.sidebar')\n@include('admin.meta.sidebar')",
+                     b"@includeIf('admin.whatsapp.sidebar')"):
+            with self.subTest(menu=menu):
+                self.write(rel, menu, 0o640)
+                self.install()
+                expected = (b"@includeIf('admin.whatsapp.sidebar')" if b'@includeIf' in menu
+                            else b"@include('admin.whatsapp.sidebar')") + b"\n@include('admin.meta.sidebar')\n"
+                self.assertEqual((self.root / rel).read_bytes(), expected)
+                inode = (self.root / rel).stat().st_ino
+                self.install()
+                self.assertEqual((self.root / rel).read_bytes(), expected)
+                self.assertEqual((self.root / rel).stat().st_ino, inode)
+
+    def test_duplicate_whatsapp_anchor_is_rejected_before_publication(self):
+        menu_rel = 'resources/views/admin/layouts/menu.blade.php'
+        menu = b"@include('admin.whatsapp.sidebar')\n@include('admin.whatsapp.sidebar')\n"
+        self.write(menu_rel, menu, 0o640)
+        with self.assertRaisesRegex(RuntimeError, 'WHATSAPP_SIDEBAR_ANCHOR_AMBIGUOUS'):
+            self.install()
+        self.assertEqual((self.root / menu_rel).read_bytes(), menu)
+        self.assertEqual((self.root / 'routes/api.php').read_bytes(), self.original['routes/api.php'])
+        self.assertFalse((self.root / self.manifest['new_files'][0]).exists())
+        self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+        self.assertEqual(self.calls, [])
+
+    def test_missing_whatsapp_partial_and_unknown_meta_hook_are_rejected_before_publication(self):
+        sidebar_rel = 'resources/views/admin/whatsapp/sidebar.blade.php'
+        (self.root / sidebar_rel).unlink()
+        with self.assertRaisesRegex(RuntimeError, 'REQUIRED_INSTALLATION_FILE'):
+            self.install()
+        self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+        self.write(sidebar_rel, self.original[sidebar_rel], 0o640)
+        menu = b"@include('admin.whatsapp.sidebar')\n@include('admin.meta.sidebar', ['custom' => true])\n"
+        self.write('resources/views/admin/layouts/menu.blade.php', menu, 0o640)
+        with self.assertRaisesRegex(RuntimeError, 'META_SIDEBAR_HOOK_AMBIGUOUS'):
+            self.install()
+        self.assertEqual((self.root / 'resources/views/admin/layouts/menu.blade.php').read_bytes(), menu)
+        self.assertEqual((self.root / 'routes/api.php').read_bytes(), self.original['routes/api.php'])
+        self.assertFalse((self.root / self.manifest['new_files'][0]).exists())
+        self.assertFalse((self.root.parent / 'meta-release-backups').exists())
 
     def test_failed_route_cache_restores_code_and_private_caches(self):
         self.fail = lambda args: 'route:cache' in args
