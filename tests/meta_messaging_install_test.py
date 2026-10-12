@@ -18,6 +18,19 @@ spec = importlib.util.spec_from_file_location('meta_installer', pathlib.Path(__f
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 RELEASE = 'a' * 40
+NAVIGATION_REL = 'public/dashboard/js/dashboard-navigation.js'
+NAVIGATION_SOURCE = r'''(function () {
+    const labels = { settings: 'الإعدادات والمالية' };
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|desktop-pos|go-stores)\/?$/.test(path));
+    function placeShortcut(route, afterRoute) { /* existing native implementation */ }
+    placeShortcut('whatsapp', 'dashboard');
+    placeShortcut('desktop-pos', 'go-stores');
+    function groupNavigation() { /* custom grouping stays untouched */ }
+})();
+'''
+NAVIGATION_TARGET = NAVIGATION_SOURCE.replace('dashboard|whatsapp|desktop-pos', 'dashboard|whatsapp|meta|desktop-pos').replace(
+    "    placeShortcut('whatsapp', 'dashboard');\n",
+    "    placeShortcut('whatsapp', 'dashboard');\n    placeShortcut('meta', 'whatsapp');\n")
 
 
 class AssetReferenceTests(unittest.TestCase):
@@ -126,6 +139,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(backup.stat().st_mode & 0o777, 0o700)
         self.assertEqual((backup / 'routes/api.php').stat().st_mode & 0o777, 0o600)
         self.assertEqual((backup / 'verify-meta-routes.php').stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root / NAVIGATION_REL).exists(), 'Ungrouped dashboards must not gain a new script')
 
     def test_repeat_keeps_bytes_and_inodes(self):
         self.install()
@@ -224,6 +238,73 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((self.root / 'routes/api.php').read_bytes(), self.original['routes/api.php'])
         self.assertFalse((self.root / self.manifest['new_files'][0]).exists())
         self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+
+    def test_native_navigation_is_patched_preserved_and_idempotent(self):
+        self.write(NAVIGATION_REL, NAVIGATION_SOURCE.encode(), 0o640)
+        self.install()
+        script = self.root / NAVIGATION_REL
+        self.assertEqual(script.read_bytes(), NAVIGATION_TARGET.encode())
+        self.assertEqual(script.stat().st_mode & 0o777, 0o640)
+        backup = next((self.root.parent / 'meta-release-backups').iterdir())
+        self.assertEqual((backup / NAVIGATION_REL).read_bytes(), NAVIGATION_SOURCE.encode())
+        self.assertEqual((backup / NAVIGATION_REL).stat().st_mode & 0o777, 0o600)
+        before = script.read_bytes(), script.stat().st_ino
+        self.install()
+        self.assertEqual((script.read_bytes(), script.stat().st_ino), before)
+
+    def test_native_script_only_repair_clears_view_cache_without_rewriting_menu(self):
+        menu_rel = 'resources/views/admin/layouts/menu.blade.php'
+        menu = b"@include('admin.whatsapp.sidebar')\n@include('admin.meta.sidebar')\n"
+        self.write(menu_rel, menu, 0o640)
+        self.write(NAVIGATION_REL, NAVIGATION_SOURCE.encode(), 0o640)
+        inode = (self.root / menu_rel).stat().st_ino
+        self.install()
+        self.assertEqual((self.root / menu_rel).read_bytes(), menu)
+        self.assertEqual((self.root / menu_rel).stat().st_ino, inode)
+        self.assertEqual((self.root / NAVIGATION_REL).read_bytes(), NAVIGATION_TARGET.encode())
+        self.assertTrue(any('view:clear' in call for call in self.calls))
+
+    def test_unknown_native_navigation_stops_before_feature_or_sidebar_writes(self):
+        for source, error in (
+                ('unrecognized installed grouping script', 'NATIVE_PRIORITY_ANCHOR_REQUIRED'),
+                (NAVIGATION_SOURCE.replace("    placeShortcut('whatsapp', 'dashboard');\n", ''),
+                 'NATIVE_SHORTCUT_ANCHOR_REQUIRED'),
+                (NAVIGATION_SOURCE.replace('dashboard|whatsapp|desktop-pos', 'dashboard|whatsapp|whatsapp|desktop-pos'),
+                 'NATIVE_PRIORITY_ROUTES_AMBIGUOUS'),
+                (NAVIGATION_SOURCE + "placeShortcut('meta', 'dashboard');\n", 'NATIVE_META_SHORTCUT_AMBIGUOUS')):
+            with self.subTest(error=error):
+                self.write(NAVIGATION_REL, source.encode(), 0o640)
+                with self.assertRaisesRegex(ValueError, error):
+                    self.install()
+                self.assertEqual((self.root / NAVIGATION_REL).read_bytes(), source.encode())
+                self.assertEqual((self.root / 'resources/views/admin/layouts/menu.blade.php').read_bytes(),
+                                 self.original['resources/views/admin/layouts/menu.blade.php'])
+                self.assertEqual((self.root / 'routes/api.php').read_bytes(), self.original['routes/api.php'])
+                self.assertFalse((self.root / self.manifest['new_files'][0]).exists())
+                self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+                self.assertEqual(self.calls, [])
+
+    def test_native_navigation_is_restored_when_later_verification_fails(self):
+        self.write(NAVIGATION_REL, NAVIGATION_SOURCE.encode(), 0o640)
+        self.probe_output = json.dumps({'ok': False})
+        with self.assertRaisesRegex(RuntimeError, 'ROUTE_VERIFICATION_FAILED'):
+            self.install()
+        self.assertEqual((self.root / NAVIGATION_REL).read_bytes(), NAVIGATION_SOURCE.encode())
+        self.assertEqual((self.root / NAVIGATION_REL).stat().st_mode & 0o777, 0o640)
+        self.assertEqual((self.root / 'resources/views/admin/layouts/menu.blade.php').read_bytes(),
+                         self.original['resources/views/admin/layouts/menu.blade.php'])
+
+    def test_native_navigation_symlink_is_rejected_before_publication(self):
+        script = self.root / NAVIGATION_REL
+        script.parent.mkdir(parents=True, exist_ok=True)
+        original = self.root / 'native-navigation-original.js'
+        original.write_bytes(NAVIGATION_SOURCE.encode())
+        script.symlink_to(original)
+        with self.assertRaisesRegex(RuntimeError, 'SYMLINK_TARGET'):
+            self.install()
+        self.assertEqual(original.read_bytes(), NAVIGATION_SOURCE.encode())
+        self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+        self.assertFalse((self.root / self.manifest['new_files'][0]).exists())
 
     def test_failed_route_cache_restores_code_and_private_caches(self):
         self.fail = lambda args: 'route:cache' in args
