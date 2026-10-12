@@ -335,6 +335,7 @@ class PublisherTests(unittest.TestCase):
     def test_actual_blade_compiles_both_final_views_without_global_cache_write(self):
         php=os.environ.get('WHATSAPP_TEST_PHP') or shutil.which('php');vendor=os.environ.get('WA_INBOX_TEST_VENDOR')
         if not php or not vendor:self.skipTest('Actual PHP/Blade fixture vendor unavailable')
+        if pathlib.Path(vendor).is_file():vendor=str(pathlib.Path(vendor).parent)
         program=r'''require $argv[1].'/autoload.php';
         $compiler=new \Illuminate\View\Compilers\BladeCompiler(new \Illuminate\Filesystem\Filesystem,$argv[2]);
         $compiled=$compiler->compileString(file_get_contents($argv[3]));file_put_contents($argv[4],$compiled);'''
@@ -350,6 +351,7 @@ class PublisherTests(unittest.TestCase):
     def test_actual_sqlite_migration_matches_declared_columns_indices_and_fk(self):
         php=os.environ.get('WHATSAPP_TEST_PHP') or shutil.which('php');vendor=os.environ.get('WA_INBOX_TEST_VENDOR')
         if not php or not vendor:self.skipTest('Actual PHP/SQLite fixture vendor unavailable')
+        if pathlib.Path(vendor).is_file():vendor=str(pathlib.Path(vendor).parent)
         program=r"""require $argv[1].'/autoload.php';
         $caps=new \Illuminate\Database\Capsule\Manager;$caps->addConnection(['driver'=>'sqlite','database'=>':memory:']);$caps->setAsGlobal();
         $container=$caps->getContainer();$container->instance('db',$caps->getDatabaseManager());$container->bind('db.schema',fn()=>$caps->getConnection()->getSchemaBuilder());

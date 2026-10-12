@@ -338,10 +338,27 @@ class WhatsAppInboxMessage
             if ($text !== null && (!is_string($text) || !mb_check_encoding($text, 'UTF-8') || mb_strlen($text) > 4096)) throw new \RuntimeException();
             $raw = ['id' => $native, 'type' => $row->kind];
             if (is_array($audit['media'] ?? null)) $raw[$row->kind] = $audit['media'];
+            $attachmentFingerprint = '';
+            if (isset($audit['attachment'])) {
+                $attachment = $audit['attachment']; $media = $audit['media'] ?? null;
+                if (!is_array($attachment) || !is_array($media)
+                    || !in_array($attachment['mime_type'] ?? null, WhatsAppInboxMedia::ATTACHMENT_TYPES, true)
+                    || !is_string($attachment['sha256'] ?? null) || !preg_match('/\A[a-f0-9]{64}\z/', $attachment['sha256'])
+                    || !is_int($attachment['size'] ?? null) || $attachment['size'] < 1
+                    || $attachment['size'] > (str_starts_with($attachment['mime_type'], 'image/') ? WhatsAppInboxMedia::MAX_BYTES : WhatsAppInboxMedia::MAX_ATTACHMENT_BYTES)
+                    || $row->kind !== (str_starts_with($attachment['mime_type'], 'image/') ? 'image' : 'document')
+                    || !is_string($attachment['filename'] ?? null) || !mb_check_encoding($attachment['filename'], 'UTF-8')
+                    || mb_strlen($attachment['filename']) > 120 || preg_match('/[\x00-\x1f\x7f\/\\\\]/', $attachment['filename'])
+                    || ($text !== null && (mb_strlen($text) > 1024 || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $text)))) throw new \RuntimeException();
+                foreach (['sha256', 'mime_type', 'filename', 'size'] as $field)
+                    if (($media[$field] ?? null) !== $attachment[$field]) throw new \RuntimeException();
+                if ($this->media(['kind' => $row->kind, 'raw' => $raw]) === null) throw new \RuntimeException();
+                $attachmentFingerprint = ':' . json_encode([$attachment, $media, $text], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+            }
             return ['id' => $reply, 'conversation_id' => $conversation, 'native_id' => $native, 'direction' => 'outbound',
                 'kind' => $row->kind, 'text' => $text, 'raw' => $raw, 'sent_at' => $row->completed_at,
                 'peer_phone' => $audit['recipient'], 'native_message_key' => $this->replyNativeKey($row), 'source_kind' => 'reply',
-                'fingerprint' => hash('sha256', $row->payload_hash . ':' . $native)];
+                'fingerprint' => hash('sha256', $row->payload_hash . ':' . $native . $attachmentFingerprint)];
         } catch (\Throwable $error) { throw new HttpException(422); }
     }
 
@@ -364,8 +381,14 @@ class WhatsAppInboxMessage
         if (!isset($types[$kind]) || !is_array($media) || !is_string($media['id'] ?? null)
             || !preg_match('/\A[1-9][0-9]{0,31}\z/', $media['id']) || !is_string($media['mime_type'] ?? null)
             || !in_array(strtolower(explode(';', $media['mime_type'])[0]), $types[$kind], true)) return null;
-        return ['id' => $media['id'], 'mime' => strtolower(explode(';', $media['mime_type'])[0]), 'kind' => $kind,
+        $result = ['id' => $media['id'], 'mime' => strtolower(explode(';', $media['mime_type'])[0]), 'kind' => $kind,
             'sha256' => $this->digest($media['sha256'] ?? null)];
+        if (is_int($media['size'] ?? null) && $media['size'] > 0 && $media['size'] <= WhatsAppInboxMedia::MAX_ATTACHMENT_BYTES)
+            $result['size'] = $media['size'];
+        if (is_string($media['filename'] ?? null) && mb_check_encoding($media['filename'], 'UTF-8')
+            && mb_strlen($media['filename']) <= 120 && !preg_match('/[\x00-\x1f\x7f\/\\\\]/', $media['filename']))
+            $result['filename'] = $media['filename'];
+        return $result;
     }
 
     public function digest($value): ?string

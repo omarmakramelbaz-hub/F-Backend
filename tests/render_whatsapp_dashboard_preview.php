@@ -47,7 +47,7 @@ file_put_contents($temp . '/views/admin/index.blade.php', '<!DOCTYPE html><html 
 file_put_contents($temp . '/views/admin/whatsapp/orders.blade.php', '<section class="wa-orders"><h3>ملخص الطلب — مثال فقط</h3><p>بيانات مؤلفة لعرض مكان تحليل الطلب وبيانات العميل وإرساله للفرع. لا يوجد اتصال بالسيرفر.</p></section>');
 $files = new Filesystem(); $compiler = new BladeCompiler($files, $temp . '/cache');
 $resolver = new EngineResolver(); $resolver->register('blade', static fn() => new CompilerEngine($compiler));
-$finder = new FileViewFinder($files, [$repo . '/resources/views', $temp . '/views']);
+$finder = new FileViewFinder($files, [$temp . '/views', $repo . '/resources/views']);
 $view = new Factory($resolver, $finder, new Dispatcher($container)); $view->setContainer($container); $view->share('__env', $view);
 $container->instance('view', $view);
 $labels = ['title' => 'رسائل واتساب', 'subtitle' => 'صندوق فسخانستا — كل المحادثات في مكان واحد', 'loading' => 'جارٍ التحميل…',

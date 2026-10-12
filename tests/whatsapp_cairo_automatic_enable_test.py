@@ -121,7 +121,7 @@ class CairoEnableTests(unittest.TestCase):
                 if args[6] == NS['NATIVE_PROOF_PHP']:
                     self.proof_count += 1
                     if self.fault == 'proof_before' or (self.fault == 'proof_after' and self.proof_count > 1): return 1, b'private-proof-error'
-                    return 0, json.dumps({'status': 'NATIVE_STANDBY_PROJECTION_READY', 'source': 'standby', 'peer_binding': 'EXPLICIT_USER_AND_PHONE',
+                    return 0, json.dumps({'status': 'NATIVE_BUSINESS_PROJECTION_READY', 'source': 'standby', 'peer_binding': 'EXPLICIT_USER_AND_PHONE',
                         'event_id': 1, 'message_id': 2, 'inbound_message_id': 3, 'conversation_id': 4}).encode()
                 self.assertEqual(args[6], NS['MODE_PHP'])
                 return 0, json.dumps({'mode': self.mode, 'fingerprint': self.fingerprint}).encode()
@@ -302,14 +302,14 @@ class CairoEnableTests(unittest.TestCase):
 
     def test_missing_native_proof_refuses_before_paid_ai_call_or_pause(self):
         self.fault = 'proof_before'
-        with self.assertRaisesRegex(NS['SafeError'], 'NATIVE_STANDBY_PROJECTION_PROOF_REQUIRED_PRIOR_PIPELINE_REMAINS_RUNNING'): self.run_wrapper()
+        with self.assertRaisesRegex(NS['SafeError'], 'NATIVE_BUSINESS_PROJECTION_PROOF_REQUIRED_PRIOR_PIPELINE_REMAINS_RUNNING'): self.run_wrapper()
         self.assert_capture_available()
         self.assertFalse(any(any(str(x).endswith('whatsapp_ai_connection_check.php') for x in a) for a in self.log))
         self.assertFalse(any(a[:2] == (NS['SYSTEMCTL'], 'stop') for a in self.log))
 
     def test_native_proof_loss_after_app_refuses_activation_and_recovers_capture(self):
         self.fault = 'proof_after'
-        with self.assertRaisesRegex(NS['SafeError'], 'NATIVE_STANDBY_PROJECTION_PROOF_REQUIRED.*ORDERS_DISABLED_CAPTURE_ACTIVE.*VERIFIED_APP_EXTENSION_RETAINED'): self.run_wrapper()
+        with self.assertRaisesRegex(NS['SafeError'], 'NATIVE_BUSINESS_PROJECTION_PROOF_REQUIRED.*ORDERS_DISABLED_CAPTURE_ACTIVE.*VERIFIED_APP_EXTENSION_RETAINED'): self.run_wrapper()
         self.assert_capture_available()
         self.assertFalse(any(any(str(x).endswith('activate_whatsapp_automatic.py') for x in a) for a in self.log))
 
@@ -452,12 +452,15 @@ class ProductionPinTests(unittest.TestCase):
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z'); self.assertEqual(NS['blob']((ROOT / 'deployment' / name).read_bytes()), pin)
 
     def test_native_gate_rejects_unbound_or_noninteger_evidence_reports(self):
-        valid = {'status': 'NATIVE_STANDBY_PROJECTION_READY', 'source': 'standby', 'peer_binding': 'EXPLICIT_USER_AND_PHONE',
+        valid = {'status': 'NATIVE_BUSINESS_PROJECTION_READY', 'source': 'standby', 'peer_binding': 'EXPLICIT_USER_AND_PHONE',
             'event_id': 1, 'message_id': 2, 'inbound_message_id': 3, 'conversation_id': 4}
         self.assertEqual(NS['native_proof'](lambda args: (0, json.dumps(valid).encode())), valid)
-        for key, bad in (('source', 'smb_message_echoes'), ('peer_binding', 'INFERRED_BUID'), ('event_id', True), ('message_id', '2'), ('conversation_id', 0)):
+        for source in ('standby', 'smb_message_echoes'):
+            accepted = dict(valid, source=source)
+            self.assertEqual(NS['native_proof'](lambda args: (0, json.dumps(accepted).encode())), accepted)
+        for key, bad in (('source', 'messages'), ('status', 'NATIVE_STANDBY_PROJECTION_READY'), ('peer_binding', 'INFERRED_BUID'), ('event_id', True), ('message_id', '2'), ('conversation_id', 0)):
             invalid = dict(valid); invalid[key] = bad
-            with self.subTest(key=key, bad=bad), self.assertRaisesRegex(NS['SafeError'], 'NATIVE_STANDBY_PROJECTION_PROOF_REQUIRED'):
+            with self.subTest(key=key, bad=bad), self.assertRaisesRegex(NS['SafeError'], 'NATIVE_BUSINESS_PROJECTION_PROOF_REQUIRED'):
                 NS['native_proof'](lambda args: (0, json.dumps(invalid).encode()))
 
     def test_child_failure_extraction_accepts_only_fixed_guards_known_paths_units_or_backup(self):
@@ -481,10 +484,14 @@ class ProductionPinTests(unittest.TestCase):
 
 
 class NativeSqliteGateTests(unittest.TestCase):
-    def gate(self, scenario):
+    def gate(self, scenario, source='standby'):
         php = os.getenv('WHATSAPP_TEST_PHP') or '/tmp/wa-workflow-runtime/php'
+        php = php if pathlib.Path(php).is_file() else shutil.which(php)
         vendor = pathlib.Path(os.getenv('WA_INBOX_TEST_VENDOR') or '/tmp/wa-workflow-deps/vendor')
-        if not pathlib.Path(php).is_file() or not (vendor / 'autoload.php').is_file(): self.skipTest('Real Laravel/PHP SQLite runtime required')
+        if vendor.name == 'autoload.php': vendor = vendor.parent
+        if not php or not (vendor / 'autoload.php').is_file():
+            if os.getenv('WHATSAPP_REQUIRE_PHP_TESTS') == '1': self.fail('Real Laravel/PHP SQLite runtime required')
+            self.skipTest('Real Laravel/PHP SQLite runtime required')
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder); (root / 'vendor').mkdir(); (root / 'bootstrap').mkdir()
             (root / 'vendor/autoload.php').write_text("<?php require getenv('WA_GATE_VENDOR').'/autoload.php';\n")
@@ -497,42 +504,126 @@ require getenv('WA_GATE_PROTOCOL');
 if(!extension_loaded('pdo_sqlite'))throw new RuntimeException('SQLITE_REQUIRED');
 $capsule=new Capsule();$capsule->addConnection(['driver'=>'sqlite','database'=>':memory:','prefix'=>'']);$capsule->setAsGlobal();$capsule->bootEloquent();
 $container=$capsule->getContainer();$container->instance('db',$capsule->getDatabaseManager());$container->instance('db.schema',$capsule->getConnection()->getSchemaBuilder());
+$container['config']['app.key']='base64:'.base64_encode(str_repeat('x',32));
+\Illuminate\Container\Container::setInstance($container);
 $container->instance('encrypter',new \Illuminate\Encryption\Encrypter(str_repeat('x',32),'AES-256-CBC'));\Illuminate\Support\Facades\Facade::setFacadeApplication($container);
-Schema::create('whatsapp_webhook_events',function($t){$t->integer('id')->primary();$t->text('payload');$t->string('received_at');$t->string('processed_at')->nullable();});
+Schema::create('whatsapp_webhook_events',function($t){$t->integer('id')->primary();$t->text('payload');$t->string('payload_hash');$t->string('received_at');$t->string('processed_at')->nullable();});
 Schema::create('whatsapp_inbox_ingestion_failures',function($t){$t->integer('event_id')->primary();});
-Schema::create('whatsapp_inbox_conversations',function($t){$t->integer('id')->primary();$t->string('waba_id');$t->string('phone_number_id');});
+Schema::create('whatsapp_inbox_conversations',function($t){$t->integer('id')->primary();$t->string('waba_id');$t->string('phone_number_id');$t->string('peer_hash');});
 Schema::create('whatsapp_inbox_messages',function($t){$t->integer('id')->primary();$t->integer('conversation_id');$t->string('message_key')->nullable();$t->string('direction');$t->string('source');$t->string('type');$t->string('sent_at');$t->text('content');});
-$scenario=getenv('WA_GATE_SCENARIO');$waba='468336579702269';$phone='515388018324075';$sent=time()-60;
+$scenario=getenv('WA_GATE_SCENARIO');$source=getenv('WA_GATE_SOURCE');$waba='468336579702269';$phone='515388018324075';$sent=time()-60;
 $echo=['id'=>'wamid.gate.synthetic','timestamp'=>(string)$sent,'message'=>[
  'messaging_product'=>'whatsapp','recipient_type'=>'individual','to'=>'201000000001','to_user_id'=>'US.GATE',
  'type'=>'text','text'=>['body'=>'Synthetic native business reply']]];
 $value=['messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>$phone,'display_phone_number'=>'201285545554'],
  'standby'=>['message_echoes'=>[$echo]]];
-$raw=['object'=>'whatsapp_business_account','entry'=>[['id'=>$waba,'changes'=>[['field'=>'standby','value'=>$value]]]]];
+$outContactUser=in_array($scenario,['outbound_contact_user','both_contact_users','contact_user_absent','contact_user_wrong',
+ 'contact_saved_user_conflict','contact_saved_no_peer'],true);
+$outContactPhone=in_array($scenario,['outbound_contact_phone','contact_phone_absent','contact_phone_wrong','contact_saved_phone_conflict'],true);
+if($outContactUser)unset($echo['message']['to_user_id']);
+if($outContactPhone)unset($echo['message']['to']);
+if($outContactUser||$outContactPhone||in_array($scenario,['contact_user_conflict','contact_phone_conflict'],true)){
+ $value['contacts']=[['wa_id'=>'201000000001','user_id'=>'US.GATE']];
+ $value['standby']['message_echoes']=[$echo];
+}
+if($source==='smb_message_echoes'){
+ unset($value['standby']);$value['message_echoes']=[$echo['message']+['id'=>$echo['id'],'timestamp'=>$echo['timestamp']]];
+}
+$raw=['object'=>'whatsapp_business_account','entry'=>[['id'=>$waba,'changes'=>[['field'=>$source,'value'=>$value]]]]];
 $dto=\App\Support\WhatsAppInboxProtocol::messages($raw,$waba,$phone)[0];$stored=$dto;
-$incoming=['direction'=>'inbound','source'=>'messages','type'=>'text','peer_user_id'=>'US.GATE','peer_phone'=>'201000000001','text'=>'Synthetic customer message'];
-$received=gmdate('Y-m-d H:i:s');$projectedSource='standby';$conversation=4;$processed=$received;
-if($scenario==='phone_only')unset($raw['entry'][0]['changes'][0]['value']['standby']['message_echoes'][0]['message']['to_user_id']);
+$incomingMessage=['id'=>'wamid.customer.synthetic','timestamp'=>(string)(time()-120),'from'=>'201000000001',
+ 'from_user_id'=>'US.GATE','type'=>'text','text'=>['body'=>'Synthetic customer message']];
+if($scenario==='user_only_inbound')unset($incomingMessage['from']);
+$inContactUser=in_array($scenario,['inbound_contact_user','both_contact_users','inbound_contact_user_absent','inbound_contact_saved_user_conflict'],true);
+$inContactPhone=$scenario==='inbound_contact_phone';
+if($inContactUser)unset($incomingMessage['from_user_id']);
+if($inContactPhone)unset($incomingMessage['from']);
+if($scenario==='inbound_after_business')$incomingMessage['timestamp']=(string)($sent+30);
+if($scenario==='inbound_old')$incomingMessage['timestamp']=(string)(time()-10800);
+$incomingRaw=['object'=>'whatsapp_business_account','entry'=>[['id'=>$waba,'changes'=>[['field'=>'messages','value'=>[
+ 'messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>$phone,'display_phone_number'=>'201285545554'],
+ 'messages'=>[$incomingMessage]]]]]]];
+if($inContactUser||$inContactPhone)$incomingRaw['entry'][0]['changes'][0]['value']['contacts']=[['wa_id'=>'201000000001','user_id'=>'US.GATE']];
+if($scenario==='standby_inbound'){
+ $incomingRaw['entry'][0]['changes'][0]['field']='standby';
+ $incomingValue=&$incomingRaw['entry'][0]['changes'][0]['value'];
+ $incomingValue['standby']=['messages'=>$incomingValue['messages']];unset($incomingValue['messages']);
+}
+$incoming=\App\Support\WhatsAppInboxProtocol::messages($incomingRaw,$waba,$phone)[0];
+if($scenario==='inbound_contact_user_absent')unset($incomingRaw['entry'][0]['changes'][0]['value']['contacts'][0]['user_id']);
+if($scenario==='inbound_namespace')$incomingRaw['object']='page';
+if($scenario==='inbound_raw_scope')$incomingRaw['entry'][0]['id']='111111111111';
+$received=gmdate('Y-m-d H:i:s');$projectedSource=$source;$conversation=4;$processed=$received;
+if($source==='standby'){
+ $nativeMessage=&$raw['entry'][0]['changes'][0]['value']['standby']['message_echoes'][0]['message'];
+ $nativeTime=&$raw['entry'][0]['changes'][0]['value']['standby']['message_echoes'][0]['timestamp'];
+}else{
+ $nativeMessage=&$raw['entry'][0]['changes'][0]['value']['message_echoes'][0];$nativeTime=&$nativeMessage['timestamp'];
+}
+if($scenario==='phone_only')unset($nativeMessage['to_user_id']);
 if($scenario==='unrelated_user')$incoming['peer_user_id']='US.UNRELATED';
 if($scenario==='different_phone')$incoming['peer_phone']='201000000002';
 if($scenario==='projected_text')$stored['text']='Different projected body';
-if($scenario==='projected_dto_source')$stored['source']='smb_message_echoes';
-if($scenario==='projected_row_source')$projectedSource='smb_message_echoes';
+if($scenario==='projected_dto_source')$stored['source']=$source==='standby'?'smb_message_echoes':'standby';
+if($scenario==='projected_row_source')$projectedSource=$source==='standby'?'smb_message_echoes':'standby';
+if($scenario==='projected_dto_time')$stored['sent_at']=gmdate('Y-m-d H:i:s',time()-90);
+if($scenario==='projected_native_time')$stored['content']['message']['timestamp']=(string)(time()-90);
+if($scenario==='projected_identity')$stored['peer_identity']='user:US.UNRELATED';
+if($scenario==='projected_native_user')$stored['content']['message']['to_user_id']='US.UNRELATED';
+if($scenario==='projected_native_phone')$stored['content']['message']['to']='201000000002';
+if($scenario==='projected_native_user_missing')unset($stored['content']['message']['to_user_id']);
+if($scenario==='contact_saved_user_conflict')$stored['content']['message']['to_user_id']='US.UNRELATED';
+if($scenario==='contact_saved_phone_conflict')$stored['content']['message']['to']='201000000002';
+if($scenario==='contact_saved_no_peer'){unset($stored['content']['message']['to']);unset($stored['content']['message']['to_user_id']);}
+if($scenario==='contact_user_conflict')$raw['entry'][0]['changes'][0]['value']['contacts'][0]['user_id']='US.UNRELATED';
+if($scenario==='contact_phone_conflict')$raw['entry'][0]['changes'][0]['value']['contacts'][0]['wa_id']='201000000002';
+if($scenario==='contact_user_absent')unset($raw['entry'][0]['changes'][0]['value']['contacts'][0]['user_id']);
+if($scenario==='contact_phone_absent')unset($raw['entry'][0]['changes'][0]['value']['contacts'][0]['wa_id']);
+if($scenario==='contact_user_wrong')$raw['entry'][0]['changes'][0]['value']['contacts'][0]['user_id']='US.UNRELATED';
+if($scenario==='contact_phone_wrong')$raw['entry'][0]['changes'][0]['value']['contacts'][0]['wa_id']='201000000002';
 if($scenario==='old_received')$received=gmdate('Y-m-d H:i:s',time()-10800);
-if($scenario==='old_native_time')$raw['entry'][0]['changes'][0]['value']['standby']['message_echoes'][0]['timestamp']=(string)(time()-10800);
-if($scenario==='future_native_time')$raw['entry'][0]['changes'][0]['value']['standby']['message_echoes'][0]['timestamp']=(string)(time()+30);
+if($scenario==='future_received')$received=gmdate('Y-m-d H:i:s',time()+30);
+if($scenario==='old_native_time')$nativeTime=(string)(time()-10800);
+if($scenario==='future_native_time')$nativeTime=(string)(time()+30);
 if($scenario==='wrong_raw_scope')$raw['entry'][0]['id']='111111111111';
-if($scenario==='status_only')$raw['entry'][0]['changes'][0]['value']['standby']=['statuses'=>[['id'=>'wamid.gate.synthetic','status'=>'read','timestamp'=>(string)$sent]]];
+if($scenario==='wrong_phone_scope')$raw['entry'][0]['changes'][0]['value']['metadata']['phone_number_id']='111111111111';
+if($scenario==='unknown_raw_source')$raw['entry'][0]['changes'][0]['field']='unknown';
+if($scenario==='messenger_namespace')$raw['object']='page';
+if($scenario==='status_only')$raw['entry'][0]['changes'][0]['value']=['messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>$phone],
+ 'statuses'=>[['id'=>'wamid.gate.synthetic','status'=>'read','timestamp'=>(string)$sent]]];
 if($scenario==='unprocessed')$processed=null;
 $encode=static fn($v)=>Crypt::encryptString(json_encode($v,JSON_THROW_ON_ERROR));
-DB::table('whatsapp_webhook_events')->insert(['id'=>1,'payload'=>$encode($raw),'received_at'=>$received,'processed_at'=>$processed]);
+$businessEventId=in_array($scenario,['bounded_events','bounded_bytes'],true)?1000:1;
+DB::table('whatsapp_webhook_events')->insert(['id'=>$businessEventId,'payload'=>$encode($raw),'payload_hash'=>$scenario==='bad_payload_hash'?str_repeat('0',64):hash('sha256',json_encode($raw,JSON_THROW_ON_ERROR)),
+ 'received_at'=>$received,'processed_at'=>$processed]);
+if($scenario!=='inbound_raw_missing')DB::table('whatsapp_webhook_events')->insert(['id'=>2,'payload'=>$encode($incomingRaw),
+ 'payload_hash'=>$scenario==='inbound_bad_payload_hash'?str_repeat('0',64):hash('sha256',json_encode($incomingRaw,JSON_THROW_ON_ERROR)),
+ 'received_at'=>gmdate('Y-m-d H:i:s',time()-120),'processed_at'=>$scenario==='inbound_unprocessed'?null:gmdate('Y-m-d H:i:s')]);
+if(in_array($scenario,['bounded_events','bounded_bytes'],true)){
+ $noise=$incomingRaw;$noiseValue=&$noise['entry'][0]['changes'][0]['value'];unset($noiseValue['messages']);
+ $noiseValue['statuses']=[['id'=>'wamid.status.synthetic','status'=>'read','timestamp'=>(string)$sent]];
+ if($scenario==='bounded_bytes')$noiseValue['metadata']['fixture_padding']=str_repeat('x',500000);
+ $noiseCipher=$encode($noise);$noiseHash=hash('sha256',json_encode($noise,JSON_THROW_ON_ERROR));
+ $noiseCount=$scenario==='bounded_events'?199:36;
+ for($i=0;$i<$noiseCount;$i++)DB::table('whatsapp_webhook_events')->insert(['id'=>10+$i,
+  'payload'=>$noiseCipher,'payload_hash'=>$noiseHash,'received_at'=>gmdate('Y-m-d H:i:s'),'processed_at'=>gmdate('Y-m-d H:i:s')]);
+}
 if($scenario==='quarantine')DB::table('whatsapp_inbox_ingestion_failures')->insert(['event_id'=>1]);
-DB::table('whatsapp_inbox_conversations')->insert(['id'=>4,'waba_id'=>$scenario==='wrong_projected_scope'?'111111111111':$waba,'phone_number_id'=>$phone]);
+if($scenario==='inbound_quarantine')DB::table('whatsapp_inbox_ingestion_failures')->insert(['event_id'=>2]);
+DB::table('whatsapp_inbox_conversations')->insert(['id'=>4,'waba_id'=>$scenario==='wrong_projected_scope'?'111111111111':$waba,'phone_number_id'=>$phone,
+ 'peer_hash'=>$scenario==='wrong_peer_hash'?str_repeat('0',64):hash_hmac('sha256','whatsapp-peer-v1:'.$waba.':'.$phone.':user:US.GATE',str_repeat('x',32))]);
 if($scenario!=='raw_only')DB::table('whatsapp_inbox_messages')->insert(['id'=>2,'conversation_id'=>4,
- 'message_key'=>hash('sha256','whatsapp-message-v1:'.$waba.':'.$phone.':'.$dto['message_id']),
- 'direction'=>'outbound','source'=>$projectedSource,'type'=>'text','sent_at'=>$dto['sent_at'],'content'=>$encode($stored)]);
-DB::table('whatsapp_inbox_messages')->insert(['id'=>3,'conversation_id'=>$scenario==='different_conversation'?5:4,'message_key'=>null,
- 'direction'=>'inbound','source'=>'messages','type'=>'text','sent_at'=>gmdate('Y-m-d H:i:s',time()-120),'content'=>$encode($incoming)]);
+ 'message_key'=>$scenario==='wrong_message_key'?str_repeat('0',64):hash('sha256','whatsapp-message-v1:'.$waba.':'.$phone.':'.$dto['message_id']),
+ 'direction'=>'outbound','source'=>$projectedSource,'type'=>'text',
+ 'sent_at'=>$scenario==='projected_row_time'?gmdate('Y-m-d H:i:s',time()-90):$dto['sent_at'],'content'=>$encode($stored)]);
+if($scenario==='inbound_projected_native')$incoming['content']['message']['text']['body']='Different incoming body';
+if($scenario==='inbound_projected_user')$incoming['content']['message']['from_user_id']='US.UNRELATED';
+if($scenario==='inbound_projected_phone')$incoming['content']['message']['from']='201000000002';
+if($scenario==='inbound_contact_saved_user_conflict')$incoming['content']['message']['from_user_id']='US.UNRELATED';
+DB::table('whatsapp_inbox_messages')->insert(['id'=>3,'conversation_id'=>$scenario==='different_conversation'?5:4,
+ 'message_key'=>$scenario==='inbound_wrong_message_key'?str_repeat('0',64):hash('sha256','whatsapp-message-v1:'.$waba.':'.$phone.':'.$incoming['message_id']),
+ 'direction'=>'inbound','source'=>$incoming['source'],'type'=>'text',
+ 'sent_at'=>$scenario==='inbound_projected_row_time'?gmdate('Y-m-d H:i:s',time()-110):$incoming['sent_at'],'content'=>$encode($incoming)]);
 if($scenario==='broken_cipher')DB::table('whatsapp_webhook_events')->where('id',1)->update(['payload'=>'invalid ciphertext']);
 $connection=$capsule->getConnection();$connection->enableQueryLog();
 register_shutdown_function(static function()use($connection){foreach($connection->getQueryLog()as$q){
@@ -540,22 +631,36 @@ register_shutdown_function(static function()use($connection){foreach($connection
 }});
 return new class {function make($class){return new class {function bootstrap(){}};}};
 ''')
-            env = os.environ.copy(); env.update(WA_GATE_VENDOR=str(vendor), WA_GATE_PROTOCOL=str(ROOT / 'app/Support/WhatsAppInboxProtocol.php'), WA_GATE_SCENARIO=scenario)
+            env = os.environ.copy(); env.update(WA_GATE_VENDOR=str(vendor), WA_GATE_PROTOCOL=str(ROOT / 'app/Support/WhatsAppInboxProtocol.php'), WA_GATE_SCENARIO=scenario, WA_GATE_SOURCE=source)
             return subprocess.run([php, '-r', NS['NATIVE_PROOF_PHP']], cwd=root, env=env, capture_output=True)
 
     def test_real_sqlite_crypt_and_protocol_require_matching_raw_projected_business_and_inbound(self):
-        result = self.gate('valid')
-        self.assertEqual(result.returncode, 0, result.stderr.decode()); self.assertEqual(result.stderr, b'')
-        self.assertEqual(json.loads(result.stdout), {'status':'NATIVE_STANDBY_PROJECTION_READY','source':'standby','peer_binding':'EXPLICIT_USER_AND_PHONE',
-            'event_id':1,'message_id':2,'inbound_message_id':3,'conversation_id':4})
+        for source in ('standby', 'smb_message_echoes'):
+            for scenario in ('valid', 'user_only_inbound', 'standby_inbound','outbound_contact_user','outbound_contact_phone',
+                             'inbound_contact_user','inbound_contact_phone','both_contact_users','projected_native_user_missing'):
+                with self.subTest(source=source, scenario=scenario):
+                    result = self.gate(scenario, source)
+                    self.assertEqual(result.returncode, 0, result.stderr.decode()); self.assertEqual(result.stderr, b'')
+                    self.assertEqual(json.loads(result.stdout), {'status':'NATIVE_BUSINESS_PROJECTION_READY','source':source,'peer_binding':'EXPLICIT_USER_AND_PHONE',
+                        'event_id':1,'message_id':2,'inbound_message_id':3,'conversation_id':4})
 
     def test_real_gate_refuses_unbound_stale_quarantined_unprojected_or_conflicting_evidence(self):
         for scenario in ('phone_only','unrelated_user','different_phone','projected_text','projected_dto_source','projected_row_source',
                          'old_received','old_native_time','future_native_time','wrong_raw_scope','wrong_projected_scope','status_only',
-                         'unprocessed','quarantine','raw_only','different_conversation','broken_cipher'):
-            with self.subTest(scenario=scenario):
-                result = self.gate(scenario)
-                self.assertEqual(result.returncode, 1, result.stderr.decode()); self.assertEqual(result.stdout, b''); self.assertEqual(result.stderr, b'')
+                         'unprocessed','quarantine','raw_only','different_conversation','broken_cipher','projected_row_time','projected_dto_time',
+                         'projected_native_time','projected_identity','projected_native_user','projected_native_phone',
+                         'future_received','wrong_phone_scope','unknown_raw_source',
+                         'messenger_namespace','bad_payload_hash','wrong_peer_hash','wrong_message_key','inbound_raw_missing',
+                         'inbound_bad_payload_hash','inbound_unprocessed','inbound_quarantine','inbound_wrong_message_key',
+                         'inbound_projected_native','inbound_projected_row_time','inbound_projected_user','inbound_projected_phone',
+                         'bounded_events','bounded_bytes','inbound_after_business','inbound_old','inbound_namespace','inbound_raw_scope',
+                         'contact_user_conflict','contact_phone_conflict','contact_user_absent','contact_phone_absent','contact_user_wrong',
+                         'contact_phone_wrong','contact_saved_user_conflict','contact_saved_phone_conflict','contact_saved_no_peer',
+                         'inbound_contact_user_absent','inbound_contact_saved_user_conflict'):
+            for source in ('standby', 'smb_message_echoes'):
+                with self.subTest(scenario=scenario, source=source):
+                    result = self.gate(scenario, source)
+                    self.assertEqual(result.returncode, 1, result.stderr.decode()); self.assertEqual(result.stdout, b''); self.assertEqual(result.stderr, b'')
 
 
 if __name__ == '__main__': unittest.main()

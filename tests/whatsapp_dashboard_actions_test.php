@@ -427,6 +427,7 @@ $cacheDirectory = sys_get_temp_dir() . '/wa-dashboard-actions-' . bin2hex(random
 if (!mkdir($cacheDirectory, 0700)) throw new RuntimeException('Private fixture cache unavailable');
 register_shutdown_function(static function () use ($cacheDirectory) {
     foreach (glob($cacheDirectory . '/*') ?: [] as $path) if (is_file($path) || is_link($path)) unlink($path);
+    if (is_file($cacheDirectory . '/.cache.lock')) unlink($cacheDirectory . '/.cache.lock');
     rmdir($cacheDirectory);
 });
 $media = new WhatsAppInboxMedia($mediaTransport, $configuration, $cacheDirectory, $messages);
@@ -954,11 +955,11 @@ $router->aliasMiddleware('lang', \App\Http\Middleware\lang::class);
 $router->group(['middleware' => 'web'], static function () use ($source) {
     require $source . '/routes/whatsapp_inbox.php'; require $source . '/routes/whatsapp_replies.php';
 });
-function actionRoute(string $method, string $path, array $parameters = [], ?string $csrfHeader = null)
+function actionRoute(string $method, string $path, array $parameters = [], ?string $csrfHeader = null, array $files = [])
 {
     global $router, $container, $sessionStore;
     $server = $csrfHeader === null ? [] : ['HTTP_X_CSRF_TOKEN' => $csrfHeader];
-    $request = \Illuminate\Http\Request::create('http://localhost' . $path, $method, $parameters, [], [], $server);
+    $request = \Illuminate\Http\Request::create('http://localhost' . $path, $method, $parameters, [], $files, $server);
     $request->setLaravelSession($sessionStore); $container->instance('request', $request);
     return $router->dispatch($request);
 }
@@ -1024,5 +1025,7 @@ $callsBefore = count($httpCalls); DB::table('users')->where('id', 1)->update(['a
 $response = actionRoute('GET', $historyPath);
 actionCheck($response->getStatusCode() === 403 && count($httpCalls) === $callsBefore,
     'read-only API history reloads persisted central actor authorization');
+
+require __DIR__ . '/whatsapp_dashboard_attachments_test.php';
 
 echo 'WHATSAPP_DASHBOARD_ACTION_CHECKS=' . $checks . "\n";

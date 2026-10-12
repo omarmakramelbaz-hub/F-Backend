@@ -7,8 +7,8 @@ ROOT = pathlib.Path('/home/fasakha/public_html')
 APP = 'deployment/apply_whatsapp_dashboard_upgrade.py'
 MANIFEST = 'deployment/whatsapp_dashboard_upgrade_manifest.json'
 HELPER_PINS = {
-    APP: 'd88b554f9b1cad72770623f1470a77d9dd67d1be',
-    MANIFEST: 'a0f201f6dbfd3b4c1f9084e80400cdcecc087309',
+    APP: 'fc4f7d7e47fed00da2d6649d5b918542608dadea',
+    MANIFEST: 'f8cd3c532f606c9e5619feeba218575a877ed61a',
     'deployment/install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
 }
 

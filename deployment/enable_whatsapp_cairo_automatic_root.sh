@@ -31,7 +31,7 @@ TARGET_PINS={
 'public/dashboard/js/phone-orders.js':'66597844cc01d9371b1952f79b22fb1833bf2ac0',
 'app/Services/Dashboard/WhatsAppOrderWorkflow.php':'6c63b91d7fb70130ae472cea291fa2cee88b27dd',
 }
-DASHBOARD_PINS={'database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php': '699e9b8f63452f4e8f09f8380f3905406ef9ddbf', 'app/Services/Dashboard/WhatsAppInboxMessage.php': 'f88843b6abc227c1697476cd9a6217331070f250', 'app/Services/Dashboard/WhatsAppInboxMedia.php': '998efb85b37cb5e26497d82a2f7816513b6435a7', 'app/Services/Dashboard/WhatsAppReplyService.php': '87d71d1834d9ca4569b922360ca813653d9a5c85', 'app/Services/Dashboard/WhatsAppInboxReadState.php': 'd26eb360f5b5576047edff14808c25950592ba30', 'app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php': '48af05084619f78480f472e75d30376235e77144', 'app/Http/Controllers/Dashboard/WhatsAppReplyController.php': '5077f194a00cb1c107d3d931cd9fba3d9e28e5b3', 'app/Http/Controllers/Dashboard/WhatsAppInboxController.php': 'f4756907b0aa199a0a5d3a2ab40a1a2f09321756', 'routes/whatsapp_replies.php': '15230fa1267ba6d9dcd4467b6c6ec4686031b41d', 'routes/whatsapp_inbox.php': '524a38faa203d578abdcc6185e48709036d91e82', 'public/js/dashboard-whatsapp-inbox.js': '3fb1d2f66a1c648a6d2ba2e6df0a9e91c8614ebc', 'public/js/dashboard-whatsapp-replies.js': '43e059064f450db2a56e9ee6668909ab855cb28b', 'public/js/dashboard-whatsapp-orders.js': 'ad7f78fc490774280c31e01125bc262a92a2cb3d', 'public/css/dashboard-whatsapp-inbox.css': '639ac2223b4abcd679329000551d9c735e43b5af', 'public/css/dashboard-whatsapp-replies.css': 'e957197f0fbb20836dca1743edce0b35d41863ac', 'resources/views/admin/whatsapp/replies.blade.php': '96ac53c7afb01c4aa1eef4b8417192abc024a2ec', 'resources/views/admin/whatsapp/index.blade.php': '573f95d72e011a814b9b4f13eca256009c50fee8'}
+DASHBOARD_PINS={'database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php': '699e9b8f63452f4e8f09f8380f3905406ef9ddbf', 'app/Services/Dashboard/WhatsAppInboxMessage.php': '087cdbdf51dd87c411da3ed0cfa33980474b593f', 'app/Services/Dashboard/WhatsAppInboxMedia.php': 'ae1f6aa4d833de80637ea56b19719c649183456d', 'app/Services/Dashboard/WhatsAppReplyService.php': 'cce92c02d4a4400cd133fc1f7631fb94762f54c6', 'app/Services/Dashboard/WhatsAppInboxReadState.php': 'd26eb360f5b5576047edff14808c25950592ba30', 'app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php': '48af05084619f78480f472e75d30376235e77144', 'app/Http/Controllers/Dashboard/WhatsAppReplyController.php': '7223022bcf5b9acd374ba501a5e17609d9ad05b8', 'app/Http/Controllers/Dashboard/WhatsAppInboxController.php': '6f45b964d13504442539ced4c5862dfbbe921381', 'routes/whatsapp_replies.php': '61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8', 'routes/whatsapp_inbox.php': '524a38faa203d578abdcc6185e48709036d91e82', 'public/js/dashboard-whatsapp-inbox.js': 'cdcd1fddf21988d876d806ddd25fbd532c8f569e', 'public/js/dashboard-whatsapp-replies.js': '392569e73e951405a5de6ce676922e63377a6b0b', 'public/js/dashboard-whatsapp-orders.js': 'ad7f78fc490774280c31e01125bc262a92a2cb3d', 'public/css/dashboard-whatsapp-inbox.css': '639ac2223b4abcd679329000551d9c735e43b5af', 'public/css/dashboard-whatsapp-replies.css': 'aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854', 'resources/views/admin/whatsapp/replies.blade.php': '6386debd6e20836cc1023cefc7868e214ce7f0f0', 'resources/views/admin/whatsapp/index.blade.php': '573f95d72e011a814b9b4f13eca256009c50fee8'}
 ORIGINAL_DASHBOARD_LEGACY_PINS={'app/Services/Dashboard/WhatsAppReplyService.php': '7047caefba93935a25029ea99715dac645d9c24d', 'public/js/dashboard-whatsapp-inbox.js': '19117235ba454c5e73bbd291920f9f56c84ebea8', 'public/js/dashboard-whatsapp-replies.js': '304a0bc6acd2474adb7850664708f30bddbd6a29', 'resources/views/admin/whatsapp/replies.blade.php': 'ac114cfb5524f91a7e8753e75a751d82b43af965', 'resources/views/admin/whatsapp/index.blade.php': 'd56fe43423728bb9d48820cc51b34522cc1ad7cc'}
 HELPER_PINS={
 'activate_whatsapp_automatic.py':'008fff7a56e4c9d2ff849df6f653dfb6b6427371',
@@ -164,43 +164,74 @@ ini_set('display_errors','0');ini_set('log_errors','0');ob_start();
 try {
  require 'vendor/autoload.php';$app=require 'bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
  $db=\Illuminate\Support\Facades\DB::class;$crypt=\Illuminate\Support\Facades\Crypt::class;
- $waba='468336579702269';$phone='515388018324075';$since=gmdate('Y-m-d H:i:s',time()-7200);$bytes=0;
+ $waba='468336579702269';$phone='515388018324075';$since=gmdate('Y-m-d H:i:s',time()-7200);$until=gmdate('Y-m-d H:i:s',time()+5);$bytes=0;
+ $hashKey=config('app.key');if(is_string($hashKey)&&strpos($hashKey,'base64:')===0)$hashKey=base64_decode(substr($hashKey,7),true);
+ if(!is_string($hashKey)||strlen($hashKey)<16)throw new \RuntimeException();
  $decode=static function($cipher)use($crypt){
   if(!is_string($cipher)||strlen($cipher)>4194304)throw new \RuntimeException();
   $plain=$crypt::decryptString($cipher);if(strlen($plain)>1048576)throw new \RuntimeException();
-  $value=json_decode($plain,true,256,JSON_THROW_ON_ERROR);if(!is_array($value))throw new \RuntimeException();return [$value,strlen($plain)];
+  $value=json_decode($plain,true,256,JSON_THROW_ON_ERROR);if(!is_array($value))throw new \RuntimeException();return [$value,strlen($plain),hash('sha256',$plain)];
  };
- $events=$db::table('whatsapp_webhook_events')->where('received_at','>=',$since)->whereNotNull('processed_at')->orderByDesc('id')->limit(200)->get(['id','payload']);
+ $projected=static function($dto)use($db,$decode,$waba,$phone,$hashKey){
+  $scope=$waba.':'.$phone.':';$key=hash('sha256','whatsapp-message-v1:'.$scope.$dto['message_id']);
+  $peer=hash_hmac('sha256','whatsapp-peer-v1:'.$scope.$dto['peer_identity'],$hashKey);
+  $message=$db::table('whatsapp_inbox_messages as m')->join('whatsapp_inbox_conversations as c','c.id','=','m.conversation_id')
+   ->where('c.waba_id',$waba)->where('c.phone_number_id',$phone)->where('c.peer_hash',$peer)->where('m.message_key',$key)
+   ->where('m.direction',$dto['direction'])->where('m.source',$dto['source'])->where('m.type',$dto['type'])
+   ->where('m.sent_at',$dto['sent_at'])->first(['m.id','m.conversation_id','m.content']);
+  if(!$message)return null;
+  try{[$saved]=$decode($message->content);}catch(\Throwable$e){return null;}
+  foreach(['message_id','peer_identity','direction','source','type','text','sent_at','peer_user_id','peer_phone']as$field)
+   if(($saved[$field]??null)!==($dto[$field]??null))return null;
+  $raw=$saved['content']['message']??null;$native=$dto['content']['message']??null;
+  if(!is_array($raw)||!is_array($native)||($raw['id']??null)!==$dto['message_id']||($raw['type']??null)!==$dto['type']
+   ||(string)($raw['timestamp']??'')!==(string)($native['timestamp']??'')||($raw['text']['body']??null)!==$dto['text'])return null;
+  $peerField=$dto['direction']==='inbound'?'from':'to';$userField=$dto['direction']==='inbound'?'from_user_id':'to_user_id';
+  // Missing fields may be supplied by the authenticated protocol's explicit
+  // contacts pair. Present native fields must agree; never infer a peer here.
+  foreach([$native,$raw]as$original){
+   if(array_key_exists($userField,$original)&&$original[$userField]!==$dto['peer_user_id'])return null;
+   if(array_key_exists($peerField,$original)&&(!is_string($original[$peerField])||ltrim($original[$peerField],'+')!==$dto['peer_phone']))return null;
+   if(!array_key_exists($peerField,$original)&&!array_key_exists($userField,$original))return null;
+  }
+  return $message;
+ };
+ $inbound=[];$outbound=[];
+ $events=$db::table('whatsapp_webhook_events')->where('received_at','>=',$since)->where('received_at','<=',$until)
+  ->whereNotNull('processed_at')->orderByDesc('id')->limit(200)->get(['id','payload','payload_hash']);
  foreach($events as$event){
   if($db::table('whatsapp_inbox_ingestion_failures')->where('event_id',$event->id)->exists())continue;
-  try{[$raw,$length]=$decode($event->payload);}catch(\Throwable$e){continue;}
+  try{[$raw,$length,$hash]=$decode($event->payload);}catch(\Throwable$e){continue;}
   $bytes+=$length;if($bytes>16777216)break;
+  if(!is_string($event->payload_hash)||!hash_equals($event->payload_hash,$hash))continue;
   $report=\App\Support\WhatsAppInboxProtocol::report($raw,$waba,$phone);
   if(($report['quarantined_count']??1)!==0)continue;
   foreach($report['messages']as$dto){
-   if(($dto['source']??null)!=='standby'||($dto['direction']??null)!=='outbound'||($dto['type']??null)!=='text'
+   if(($dto['type']??null)!=='text'
     ||!is_string($dto['text']??null)||trim($dto['text'])===''||!is_string($dto['message_id']??null)
-    ||!is_string($dto['peer_user_id']??null)||$dto['peer_user_id']===''||!is_string($dto['peer_phone']??null)||$dto['peer_phone']===''
-    ||!is_string($dto['sent_at']??null)||$dto['sent_at']<$since||$dto['sent_at']>gmdate('Y-m-d H:i:s',time()+5))continue;
-   $key=hash('sha256','whatsapp-message-v1:'.$waba.':'.$phone.':'.$dto['message_id']);
-   $message=$db::table('whatsapp_inbox_messages as m')->join('whatsapp_inbox_conversations as c','c.id','=','m.conversation_id')
-    ->where('c.waba_id',$waba)->where('c.phone_number_id',$phone)->where('m.message_key',$key)
-    ->where('m.direction','outbound')->where('m.source','standby')->where('m.type','text')
-    ->where('m.sent_at','>=',$since)->first(['m.id','m.conversation_id','m.content']);
+    ||!is_string($dto['peer_user_id']??null)||$dto['peer_user_id']===''
+    ||($dto['peer_identity']??null)!=='user:'.$dto['peer_user_id']
+    ||!is_string($dto['sent_at']??null)||$dto['sent_at']<$since||$dto['sent_at']>$until)continue;
+   $source=$dto['source']??null;$direction=$dto['direction']??null;
+   if($direction==='inbound'&&in_array($source,['messages','standby'],true)){
+    $message=$projected($dto);if($message)$inbound[(int)$message->conversation_id][]=['message'=>$message,'dto'=>$dto];continue;
+   }
+   if($direction!=='outbound'||!in_array($source,['standby','smb_message_echoes'],true)
+    ||!is_string($dto['peer_phone']??null)||$dto['peer_phone']==='')continue;
+   $message=$projected($dto);
    if(!$message)continue;
-   try{[$saved]=$decode($message->content);}catch(\Throwable$e){continue;}
-   foreach(['message_id','direction','source','type','text','peer_user_id','peer_phone']as$field)
-    if(($saved[$field]??null)!==($dto[$field]??null))continue 2;
-   $inbound=$db::table('whatsapp_inbox_messages')->where('conversation_id',$message->conversation_id)->where('direction','inbound')
-    ->where('type','text')->where('sent_at','>=',$since)->where('sent_at','<=',$dto['sent_at'])->orderByDesc('id')->limit(20)->get(['id','content']);
-   foreach($inbound as$incoming){
-    try{[$peer]=$decode($incoming->content);}catch(\Throwable$e){continue;}
-    if(($peer['direction']??null)!=='inbound'||($peer['peer_user_id']??null)!==$dto['peer_user_id']
+   $outbound[]=['event_id'=>(int)$event->id,'message'=>$message,'dto'=>$dto];
+  }
+ }
+ foreach($outbound as$business){
+  $message=$business['message'];$dto=$business['dto'];
+  foreach($inbound[(int)$message->conversation_id]??[]as$prior){
+    $incoming=$prior['message'];$peer=$prior['dto'];
+    if($peer['sent_at']>$dto['sent_at']||$peer['peer_user_id']!==$dto['peer_user_id']
      ||(($peer['peer_phone']??null)!==null&&$peer['peer_phone']!==$dto['peer_phone']))continue;
     while(ob_get_level()>0)ob_end_clean();
-    echo json_encode(['status'=>'NATIVE_STANDBY_PROJECTION_READY','source'=>'standby','peer_binding'=>'EXPLICIT_USER_AND_PHONE',
-     'event_id'=>(int)$event->id,'message_id'=>(int)$message->id,'inbound_message_id'=>(int)$incoming->id,'conversation_id'=>(int)$message->conversation_id],JSON_THROW_ON_ERROR);exit(0);
-   }
+    echo json_encode(['status'=>'NATIVE_BUSINESS_PROJECTION_READY','source'=>$dto['source'],'peer_binding'=>'EXPLICIT_USER_AND_PHONE',
+     'event_id'=>$business['event_id'],'message_id'=>(int)$message->id,'inbound_message_id'=>(int)$incoming->id,'conversation_id'=>(int)$message->conversation_id],JSON_THROW_ON_ERROR);exit(0);
   }
  }
 }catch(\Throwable$e){}
@@ -213,10 +244,10 @@ def native_proof(runner):
     try:value=json.loads(output)if code==0 else None
     except(TypeError,ValueError):value=None
     fields={'status','source','peer_binding','event_id','message_id','inbound_message_id','conversation_id'}
-    if (not isinstance(value,dict)or set(value)!=fields or value['status']!='NATIVE_STANDBY_PROJECTION_READY'
-            or value['source']!='standby'or value['peer_binding']!='EXPLICIT_USER_AND_PHONE'
+    if (not isinstance(value,dict)or set(value)!=fields or value['status']!='NATIVE_BUSINESS_PROJECTION_READY'
+            or value['source']not in('standby','smb_message_echoes')or value['peer_binding']!='EXPLICIT_USER_AND_PHONE'
             or any(type(value[key])is not int or value[key]<1 for key in ('event_id','message_id','inbound_message_id','conversation_id'))):
-        raise SafeError('CAIRO_NATIVE_STANDBY_PROJECTION_PROOF_REQUIRED_PRIOR_PIPELINE_REMAINS_RUNNING')
+        raise SafeError('CAIRO_NATIVE_BUSINESS_PROJECTION_PROOF_REQUIRED_PRIOR_PIPELINE_REMAINS_RUNNING')
     return value
 
 

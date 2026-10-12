@@ -21,11 +21,12 @@ class WhatsAppReplyService
     private ?array $configuration;
     private WhatsAppVoiceMedia $voiceMedia;
     private WhatsAppInboxMessage $messages;
+    private WhatsAppInboxMedia $attachmentMedia;
 
     /** Seams are for isolated fixtures; production always reloads central Owner/Admin access. */
     public function __construct(?callable $transport = null, ?callable $authorizer = null,
         ?callable $clock = null, ?array $configuration = null, ?WhatsAppVoiceMedia $voiceMedia = null,
-        ?WhatsAppInboxMessage $messages = null)
+        ?WhatsAppInboxMessage $messages = null, ?WhatsAppInboxMedia $attachmentMedia = null)
     {
         $this->transport = $transport;
         $this->authorizer = $authorizer;
@@ -33,15 +34,19 @@ class WhatsAppReplyService
         $this->configuration = $configuration;
         $this->voiceMedia = $voiceMedia ?? new WhatsAppVoiceMedia();
         $this->messages = $messages ?? new WhatsAppInboxMessage($authorizer);
+        $this->attachmentMedia = $attachmentMedia ?? new WhatsAppInboxMedia(null, null, null, $this->messages);
     }
 
     public function state($actor, int $conversation, ?string $clientRequestId = null): array
     {
         $fresh = $this->actor($actor);
         if ($clientRequestId !== null && !$this->uuid($clientRequestId)) throw new HttpException(422);
+        $attachmentLimits = $this->attachmentMedia->attachmentLimits();
         $base = ['success' => true, 'available' => false, 'can_reply' => false,
             'reason' => 'REPLIES_UNAVAILABLE', 'window_expires_at' => null, 'latest_inbound_id' => null,
             'voice_ready' => false, 'voice_mime_types' => [], 'request_state' => null,
+            'attachment_ready' => false, 'attachment_types' => [],
+            'attachment_max_bytes' => $attachmentLimits['attachment_max_bytes'], 'image_max_bytes' => $attachmentLimits['image_max_bytes'],
             'request_reason' => null, 'reply_id' => null, 'recent_replies' => []];
         if (!$this->tables()) return $base;
         $thread = $this->thread($conversation);
@@ -63,6 +68,8 @@ class WhatsAppReplyService
         $base['voice_ready'] = $base['available'] && $this->voiceMedia->available();
         $base['voice_mime_types'] = $base['voice_ready']
             ? ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus'] : [];
+        $base['attachment_ready'] = $base['available'] && $this->attachmentMedia->attachmentsAvailable();
+        $base['attachment_types'] = $base['attachment_ready'] ? WhatsAppInboxMedia::ATTACHMENT_TYPES : [];
         $base['reason'] = !$base['available'] ? 'REPLIES_UNAVAILABLE'
             : ($this->unresolved($conversation) ? 'UNKNOWN_PENDING' : $snapshot['reason']);
         $base['can_reply'] = $base['reason'] === null;
@@ -112,6 +119,32 @@ class WhatsAppReplyService
     public function forward($actor, int $conversation, int $message, array $input): array
     {
         return $this->forwardFrom($actor, $conversation, $message, $input, 'message');
+    }
+
+    public function attachment($actor, int $conversation, array $input, UploadedFile $file): array
+    {
+        $fresh = $this->actor($actor);
+        if (array_diff(array_keys($input), ['client_request_id', 'expected_inbound_id', 'caption', 'reply_to_message_id', 'reply_to_reply_id']))
+            throw new HttpException(422);
+        $caption = $input['caption'] ?? null;
+        if ($caption !== null && (!is_string($caption) || !mb_check_encoding($caption, 'UTF-8') || mb_strlen($caption, 'UTF-8') > 1024
+            || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $caption))) throw new HttpException(422);
+        unset($input['caption']);
+        $request = $this->bindContext($fresh, $conversation, $this->input($input, true));
+        if (!$this->attachmentMedia->attachmentsAvailable()) return $this->result('FAILED', false, null, 'ATTACHMENT_UNAVAILABLE');
+        $prepared = null;
+        try {
+            $prepared = $this->attachmentMedia->prepareAttachment($file);
+            $request['kind'] = $prepared['kind']; $request['text'] = $caption === '' ? null : $caption;
+            $request['attachment'] = ['sha256' => $prepared['input_sha256'], 'mime_type' => $prepared['mime'],
+                'filename' => $prepared['filename'], 'size' => $prepared['size']];
+            // The exact UUID resolves before a provider upload, including UNKNOWN attempts.
+            $replay = $this->replay($fresh, $conversation, $request);
+            if ($replay !== null) return $replay;
+            return $this->submit($fresh, $conversation, $request, $prepared);
+        } finally {
+            if (is_array($prepared) && is_string($prepared['path'] ?? null)) $this->attachmentMedia->cleanupAttachment($prepared['path']);
+        }
     }
 
     public function history($actor, int $conversation, ?int $beforeReplyId = null, array $knownReplyIds = []): array
@@ -214,13 +247,16 @@ class WhatsAppReplyService
             $audit = ['client_request_id' => strtolower($request['client_request_id']),
                 'text' => $request['text'], 'recipient' => $snapshot['recipient'],
                 'voice_sha256' => $request['voice_sha256'] ?? null,
+                'attachment' => $request['attachment'] ?? null,
                 'reply_to' => $bindings['context'] === null ? null : $this->messages->summary($bindings['context']),
                 'action' => $request['action'] ?? null, 'source' => $request['source'] ?? null,
                 'source_native_key' => $bindings['source']['native_message_key'] ?? null,
                 'source_native_kind' => $bindings['source']['kind'] ?? null,
                 'media' => isset($request['media']) ? ['id' => $request['media']['id'], 'mime_type' => $request['media']['mime'],
                     'sha256' => $request['media']['sha256']] : null,
-                'caption' => isset($request['media']) ? $request['text'] : null, 'emoji' => $request['emoji'] ?? null];
+                'caption' => isset($request['media']) || isset($request['attachment']) ? $request['text'] : null, 'emoji' => $request['emoji'] ?? null];
+            if (isset($request['media']['filename'])) $audit['media']['filename'] = $request['media']['filename'];
+            if (isset($request['media']['size'])) $audit['media']['size'] = $request['media']['size'];
             $id = DB::table('whatsapp_reply_requests')->insertGetId([
                 'conversation_id' => $conversation, 'actor_id' => (int) $fresh->id,
                 'waba_id' => self::WABA, 'phone_number_id' => self::PHONE,
@@ -239,20 +275,47 @@ class WhatsAppReplyService
             if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['CLAIMED']);
             $payload = ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual',
                 'to' => $snapshot['recipient'], 'type' => $request['kind']];
+            $uploadState = 'CLAIMED';
             if ($prepared !== null) {
-                $upload = $this->call('media', ['messaging_product' => 'whatsapp', 'type' => 'audio/ogg',
+                $attachment = isset($request['attachment']);
+                $mime = $attachment ? $prepared['mime'] : 'audio/ogg';
+                if ($attachment) {
+                    if (!$this->attachmentMedia->preparedAttachmentValid($prepared)) return $this->finish($id, 'FAILED', 'INVALID_ATTACHMENT', ['CLAIMED']);
+                    // Even an uncertain upload is never repeated automatically after a crash.
+                    $stamp = $this->now()->format('Y-m-d H:i:s');
+                    $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')
+                        ->whereNull('send_started_at')->update(['state' => 'UNKNOWN', 'reason' => 'DELIVERY_UNKNOWN', 'updated_at' => $stamp]);
+                    if ($changed !== 1) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
+                    $uploadState = 'UNKNOWN';
+                    $reason = $this->preflight($actor, $conversation, $snapshot, $request);
+                    if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['UNKNOWN']);
+                }
+                $upload = $this->call('media', ['messaging_product' => 'whatsapp', 'type' => $mime,
                     'file' => $prepared], true);
                 $media = $this->decode($upload);
                 if ($upload['status'] !== 200 || isset($media['error']) || !is_string($media['id'] ?? null)
-                    || !preg_match('/\A[0-9]{1,32}\z/', $media['id'])) {
-                    return $this->finish($id, 'FAILED', 'MEDIA_UPLOAD_FAILED', ['CLAIMED']);
+                    || !preg_match('/\A[1-9][0-9]{0,31}\z/', $media['id'])) {
+                    if ($attachment && !(in_array($upload['status'], [400, 401, 403, 404, 405, 409, 410, 413, 415, 422, 429], true)
+                        && is_int($media['error']['code'] ?? null) && !isset($media['id']))) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
+                    return $this->finish($id, 'FAILED', 'MEDIA_UPLOAD_FAILED', [$uploadState]);
                 }
-                $payload['audio'] = ['id' => $media['id']];
-                $auditRow = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')->first(['audit']);
+                $payload[$request['kind']] = ['id' => $media['id']];
+                if ($attachment) {
+                    if ($request['text'] !== null) $payload[$request['kind']]['caption'] = $request['text'];
+                    if ($request['kind'] === 'document') $payload['document']['filename'] = $prepared['filename'];
+                }
+                $auditRow = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', $uploadState)->first(['audit']);
                 if (!$auditRow) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
                 $audit = $this->decrypt($auditRow->audit);
-                $audit['media'] = ['id' => $media['id'], 'mime_type' => 'audio/ogg', 'sha256' => hash_file('sha256', $prepared['path'])];
-                DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')->update(['audit' => $this->encrypt($audit)]);
+                $audit['media'] = ['id' => $media['id'], 'mime_type' => $mime,
+                    'sha256' => $attachment ? $prepared['input_sha256'] : hash_file('sha256', $prepared['path'])];
+                if ($attachment) {
+                    if (!$this->attachmentMedia->preparedAttachmentValid($prepared)) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
+                    $audit['media']['filename'] = $prepared['filename']; $audit['media']['size'] = $prepared['size'];
+                }
+                $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', $uploadState)
+                    ->whereNull('send_started_at')->update(['audit' => $this->encrypt($audit)]);
+                if ($changed !== 1) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
             } elseif ($request['kind'] === 'reaction') {
                 $source = $this->bindings($actor, $conversation, $request)['source'];
                 $payload['reaction'] = ['message_id' => $source['native_id'], 'emoji' => $request['emoji']];
@@ -260,16 +323,20 @@ class WhatsAppReplyService
                 $payload[$request['kind']] = ['id' => $request['media']['id']];
                 if (in_array($request['kind'], ['image', 'video', 'document'], true) && $request['text'] !== null)
                     $payload[$request['kind']]['caption'] = $request['text'];
+                if ($request['kind'] === 'document' && isset($request['media']['filename']))
+                    $payload['document']['filename'] = $request['media']['filename'];
             } else {
                 $payload['text'] = ['preview_url' => false, 'body' => $request['text']];
             }
+            $reason = $this->preflight($actor, $conversation, $snapshot, $request);
+            if ($reason !== null) return $this->finish($id, 'FAILED', $reason, [$uploadState]);
             $context = $this->bindings($actor, $conversation, $request)['context'];
             if ($context !== null) $payload['context'] = ['message_id' => $context['native_id']];
             $reason = $this->preflight($actor, $conversation, $snapshot, $request);
-            if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['CLAIMED']);
+            if ($reason !== null) return $this->finish($id, 'FAILED', $reason, [$uploadState]);
             // Persist uncertainty BEFORE the customer-facing call. A killed process stays blocked.
             $started = $this->now()->format('Y-m-d H:i:s');
-            $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', 'CLAIMED')
+            $changed = DB::table('whatsapp_reply_requests')->where('id', $id)->where('state', $uploadState)
                 ->whereNull('send_started_at')->update(['state' => 'UNKNOWN', 'reason' => 'DELIVERY_UNKNOWN',
                     'send_started_at' => $started, 'updated_at' => $started]);
             if ($changed !== 1) return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
@@ -535,6 +602,12 @@ class WhatsAppReplyService
                             if ($nativeMedia !== null && $nativeMedia['kind'] === 'image') $items[$index]['media'] = [
                                 'url' => url('/admin/whatsapp/conversations/' . $conversation . '/replies/' . $row->id . '/media'),
                                 'type' => 'image', 'mime_type' => $nativeMedia['mime']];
+                            if ($nativeMedia !== null && $nativeMedia['kind'] === 'document'
+                                && in_array($nativeMedia['mime'], ['application/pdf', 'text/plain'], true)
+                                && isset($nativeMedia['filename'], $nativeMedia['size'])) $items[$index]['media'] = [
+                                'url' => url('/admin/whatsapp/conversations/' . $conversation . '/replies/' . $row->id . '/attachment'),
+                                'type' => 'document', 'mime_type' => $nativeMedia['mime'],
+                                'filename' => $nativeMedia['filename'], 'size' => $nativeMedia['size']];
                         }
                     } catch (\Throwable $error) { /* An unavailable native receipt has no network actions. */ }
                 }
@@ -661,6 +734,7 @@ class WhatsAppReplyService
         if (isset($request['reply_to_message_id']) || isset($request['reply_to_reply_id']) || isset($request['source']))
             $values[] = [$request['reply_to_message_id'] ?? null, $request['reply_to_reply_id'] ?? null,
                 $request['source'] ?? null, $request['media'] ?? null, $request['emoji'] ?? null, $request['context_fingerprint'] ?? null];
+        if (isset($request['attachment'])) $values[] = $request['attachment'];
         return hash_hmac('sha256', 'whatsapp-reply-payload-v1:' . json_encode($values, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $this->key());
     }
 
@@ -697,7 +771,7 @@ class WhatsAppReplyService
 
     private function publicReason(?string $reason): ?string
     {
-        return $reason === null ? null : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'INVALID_VOICE',
+        return $reason === null ? null : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'INVALID_VOICE', 'ATTACHMENT_UNAVAILABLE', 'INVALID_ATTACHMENT',
             'NO_INBOUND', 'RECIPIENT_UNAVAILABLE', 'WINDOW_CLOSED', 'UNKNOWN_PENDING', 'STALE_INBOUND',
             'ACCESS_REVOKED', 'MEDIA_UPLOAD_FAILED', 'META_REJECTED', 'DELIVERY_UNKNOWN', 'MESSAGE_UNAVAILABLE'], true) ? $reason : 'DELIVERY_UNKNOWN');
     }

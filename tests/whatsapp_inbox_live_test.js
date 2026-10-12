@@ -435,6 +435,54 @@ async function visibleMetadataUpdatesOlderNativeAndApi() {
     assert(!walk(find(test, 'wa-api-reply-id', 'api-reply:17')).some(element => element.className === 'wa-message-reaction'));
     assert.strictEqual(test.state.calls.filter(call => call.request.method === 'POST').length, 0, 'Refreshing reaction/hide metadata does not send or mark unviewed history'); close(test);
 }
+async function protectedDocumentLinksStayInScope() {
+    const test = fixture(); await settle(); choose(test); await settle();
+    const row = {...savedReply(17), id: 17, kind: 'document', text: 'Attached menu caption',
+        media: {type: 'document', url: '/admin/whatsapp/conversations/1/replies/17/attachment', mime_type: 'application/pdf', filename: '<menu>.pdf', size: 512},
+        actions: {reply: true, react: true, delete: true, forward: false}};
+    publish(test, [row]); let links = walk(test.elements.messages).filter(element => element.tag === 'a');
+    assert.strictEqual(links.length, 1); assert.strictEqual(links[0].href, 'https://example.test/admin/whatsapp/conversations/1/replies/17/attachment');
+    assert.strictEqual(links[0].attributes.download, '<menu>.pdf'); assert(links[0].textContent.includes('<menu>.pdf'));
+    assert.strictEqual(test.state.calls.filter(call => call.pathname.endsWith('/attachment')).length, 0, 'A document is downloaded only by the operator, never on each poll');
+    action(test, 'api-reply:17', 'copy'); await settle(); assert.deepStrictEqual(test.state.clipboard, ['Attached menu caption']);
+    let quoted; test.document.addEventListener('whatsapp:reply-context', event => { quoted = event.detail; });
+    action(test, 'api-reply:17', 'reply'); assert.strictEqual(quoted.reply_id, 17); assert.strictEqual(quoted.kind, 'document');
+    for (const bad of [{url: '/admin/whatsapp/conversations/2/replies/17/attachment'}, {url: '/admin/whatsapp/conversations/1/replies/18/attachment'},
+        {url: 'https://foreign.test/attachment'}, {url: '/admin/whatsapp/conversations/1/replies/17/attachment?token=x'},
+        {url: '/admin/whatsapp/conversations/1/replies/17/attachment#fragment'}, {url: 'javascript:alert(1)'},
+        {mime_type: 'text/html'}, {filename: '../secret.pdf'}, {filename: 'x'.repeat(121)}, {size: 8388609}, {size: '512'}]) {
+        publish(test, [{...row, media: {...row.media, ...bad}}]);
+        assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 0, 'Invalid/foreign document metadata never creates a link');
+    }
+    publish(test, [row]); action(test, 'api-reply:17', 'delete'); click(test, find(test, 'wa-action', 'delete-confirm')); await settle();
+    assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 0, 'Local hiding removes the protected link'); close(test);
+}
+async function documentNativeEchoKeepsDownloadAndDedupe() {
+    const test = fixture(); await settle(); choose(test); await settle();
+    const media = {type: 'document', url: '/admin/whatsapp/conversations/1/replies/17/attachment', mime_type: 'text/plain', filename: 'note.txt', size: 16};
+    publish(test, [{...savedReply(17), id: 17, kind: 'document', text: 'Order notes', media}]);
+    assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 1);
+    test.state.newer = [message(21, {direction: 'outbound', type: 'document', text: 'Order notes', api_reply_id: 17, api_projection_id: 17, media})];
+    test.window.dispatchEvent({type: 'focus'}); await settle();
+    assert.strictEqual(find(test, 'wa-api-reply-id', 'api-reply:17'), undefined, 'Native echo replaces its accepted API placeholder');
+    const links = walk(test.elements.messages).filter(element => element.tag === 'a'); assert.strictEqual(links.length, 1);
+    assert.strictEqual(links[0].href, 'https://example.test/admin/whatsapp/conversations/1/replies/17/attachment', 'The verified API bridge retains the outgoing document download');
+    test.state.newer = [message(22, {direction: 'outbound', type: 'document', media})];
+    test.window.dispatchEvent({type: 'focus'}); await settle();
+    assert.strictEqual(walk(find(test, 'wa-message-id', 22)).filter(element => element.tag === 'a').length, 0, 'Unbridged native rows cannot borrow a receipt document link'); close(test);
+}
+async function olderDocumentHistoryUsesProtectedReceipt() {
+    const test = fixture({history: true}); test.state.raw = []; test.state.older = []; test.state.nextBefore = null;
+    test.state.apiHistory = Array.from({length: 30}, (_, index) => savedReply(index + 1));
+    test.state.apiHistory[0] = {...savedReply(1), kind: 'document', text: 'Old caption',
+        media: {type: 'document', url: '/admin/whatsapp/conversations/1/replies/1/attachment', mime_type: 'application/pdf', filename: 'old-menu.pdf', size: 512}};
+    await settle(); choose(test); await settle(); assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 0);
+    test.elements.scroll.scrollTop = 0; test.elements.scroll.dispatchEvent({type: 'scroll'}); await settle();
+    assert.strictEqual(test.elements.messages.children.length, 30);
+    assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 1);
+    publish(test, test.state.apiHistory.slice(-20).map(reply => ({...reply, id: reply.reply_id})));
+    assert.strictEqual(walk(test.elements.messages).filter(element => element.tag === 'a').length, 1, 'Recent polls preserve loaded older attachment metadata'); close(test);
+}
 async function lateHistorySelectionCannotLeak() {
     const test = fixture({history: true}); test.state.delayHistory = true; test.state.apiHistory = [{...savedReply(17), text: 'Private old customer receipt'}];
     await settle(); choose(test, 1); await settle(); test.state.apiHistory = [{...savedReply(18), text: 'Current customer receipt'}]; choose(test, 2); await settle();
@@ -450,7 +498,9 @@ async function lateHistorySelectionCannotLeak() {
         individualSelectionAndLifecycle, apiReplyActionsUseScopedAuditIds, singleDeleteIsLocalAndConfirmed, apiImageScopeAndNativeEchoDeduplication,
         delayedOldMessagesNeverLeak, networkUncertaintyNeverResends, selectAllCoversWholeLargeConversation, lateEchoKeepsSnapshotSelectionAndDedupe,
         allModeAndManualLimitAreExplicit, oldClaimAcceptedAfterSnapshotIsNotSelected, apiOnlyHistoryPagesBeyondTwenty, cachedOlderApiHidesCannotReappear,
-        acceptedReactionRendersReloadsAndClears, visibleMetadataUpdatesOlderNativeAndApi, lateHistorySelectionCannotLeak];
+        acceptedReactionRendersReloadsAndClears, visibleMetadataUpdatesOlderNativeAndApi, lateHistorySelectionCannotLeak,
+        protectedDocumentLinksStayInScope, documentNativeEchoKeepsDownloadAndDedupe, olderDocumentHistoryUsesProtectedReceipt];
     for (const check of cases) await check();
     console.log('WHATSAPP_INBOX_LIVE_TESTS=' + cases.length + ' PASS');
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
+
