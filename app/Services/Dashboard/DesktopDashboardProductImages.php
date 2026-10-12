@@ -26,6 +26,10 @@ class DesktopDashboardProductImages
     private ?array $replayMediaTimes=null;
     private ?array $upload=null;
     private bool $copied=false;
+    private ?array $copies=null;
+    private string $slot='product_image:0';
+    private ?int $copyDestination=null;
+    private ?string $copyName=null;
 
     /** Root callers wrap their entire DB transaction, including after-facts and outcome writes. */
     public function guard(callable $work)
@@ -41,14 +45,14 @@ class DesktopDashboardProductImages
         // A custom filesystem has unreviewed copy/deletion behavior.
         abort_unless(get_class($original)===Filesystem::class,409,'طريقة حفظ صور المنتجات غير مدعومة في هذه المعاينة.');
         $this->depth=1;$this->protected=[];$this->allowed=[];
-        $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;
+        $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;
         try{
             $app->instance(self::class,$this);
             $app->instance(Filesystem::class,new DesktopDashboardProductFilesystem($app->make(Factory::class),$this));
             return $work();
         }finally{
             $this->depth=0;$this->protected=[];$this->allowed=[];
-            $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;
+            $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;
             foreach(array_reverse($classes) as $class){
                 $app->forgetInstance($class);$previous=$saved[$class];
                 if($previous['binding'])$app->bind($class,$previous['binding']['concrete'],$previous['binding']['shared']);
@@ -68,8 +72,14 @@ class DesktopDashboardProductImages
     /** Trusted adapter validates replay clocks and the new source-generated order before calling. */
     public function configureUpload(string $command,?array $replayMediaTimes=null): void
     {
-        abort_unless($this->depth>0&&DB::transactionLevel()>0&&$this->allowed&&$this->upload===null,409);
+        abort_unless($this->depth>0&&DB::transactionLevel()>0&&$this->allowed&&$this->upload===null&&$this->copies===null,409);
         Validator::make(['command'=>$command],['command'=>'required|uuid'])->validate();
+        $this->replayTimes($replayMediaTimes);
+        $this->command=strtolower($command);$this->replayMediaTimes=$replayMediaTimes;$this->copied=false;$this->slot='product_image:0';
+    }
+
+    private function replayTimes(?array $replayMediaTimes): void
+    {
         if($replayMediaTimes!==null){
             abort_unless(array_keys($replayMediaTimes)===['created_at','updated_at','order_column']
                 &&$replayMediaTimes['created_at']===$replayMediaTimes['updated_at']
@@ -82,7 +92,74 @@ class DesktopDashboardProductImages
                 abort_unless($parsed&&(!$errors||(!$errors['warning_count']&&!$errors['error_count'])),422);
             }
         }
-        $this->command=strtolower($command);$this->replayMediaTimes=$replayMediaTimes;$this->copied=false;
+    }
+
+    /** Ordered, trusted copy slots bind each new media row to the actual selected source bytes. */
+    public function configureCopies(string $command,array $plan): void
+    {
+        abort_unless($this->depth>0&&DB::transactionLevel()>0&&$this->allowed&&$this->command===null
+            &&$this->upload===null&&$this->copies===null&&array_is_list($plan)&&count($plan)<=100,409);
+        Validator::make(['command'=>$command],['command'=>'required|uuid'])->validate();
+        $copies=[];$previous=-1;$total=0;
+        foreach($plan as $entry){
+            abort_unless(is_array($entry)&&array_keys($entry)===['selection','source_product','image','replay']
+                &&is_int($entry['selection'])&&$entry['selection']>$previous&&$entry['selection']<100
+                &&is_int($entry['source_product'])&&$entry['source_product']>0&&is_array($entry['image'])
+                &&($entry['replay']===null||is_array($entry['replay'])),409);
+            $previous=$entry['selection'];$image=$entry['image'];$this->validateFacts([$image]);$row=$image['row'];
+            abort_unless((int)$row['model_id']===$entry['source_product']&&$row['collection_name']==='product_image'
+                &&is_string($row['name'])&&mb_strlen($row['name'])<=255
+                &&$this->fileName($row['file_name'])===$row['file_name']
+                &&(self::MIMES[strtolower(pathinfo($row['file_name'],PATHINFO_EXTENSION))]??null)===$row['mime_type'],409,
+                'اسم الصورة أو نوعها يحتاج مراجعة قبل نسخ المنيو.');
+            $generated=json_decode((string)$row['generated_conversions'],true);
+            abort_unless(json_last_error()===JSON_ERROR_NONE&&is_array($generated)&&!($generated['thumb']??false),409,
+                'نسخ صورة مصغرة مولدة يحتاج مراجعة قبل المزامنة.');
+            $primary=array_values(array_filter($image['files'],fn($file)=>$file['relative']===$row['id'].'/'.$row['file_name']))[0];
+            abort_unless($primary['bytes']<=self::MAX_FILE,413);$total+=$primary['bytes'];
+            abort_if($total>50*1024*1024,413,'صور المنيو تتجاوز حد المعاينة؛ انسخ مجموعة أصغر.');
+            $this->replayTimes($entry['replay']);$copies[$entry['selection']]=$entry;
+        }
+        $this->command=strtolower($command);$this->copies=$copies;
+    }
+
+    /** Ordinary online copy uses FileAdder directly; the desktop guard verifies the exact planned source. */
+    public function withMenuCopy(int $selection,\App\Models\ResturantProduct $source,\App\Models\ResturantProduct $destination,callable $work)
+    {
+        if(!$this->depth)return $work();
+        $entry=$this->copies[$selection]??null;
+        abort_unless(DB::transactionLevel()>0&&$entry&&$this->upload===null&&$this->command!==null
+            &&$source->exists&&$destination->exists&&$destination->wasRecentlyCreated
+            &&(int)$source->getKey()===$entry['source_product']&&(int)$source->getKey()!==(int)$destination->getKey(),409);
+        $sourceRow=DB::table('resturant_products')->where('id',$source->getKey())->lockForUpdate()->first();
+        $destinationRow=DB::table('resturant_products')->where('id',$destination->getKey())->lockForUpdate()->first();
+        abort_unless($sourceRow&&$destinationRow
+            &&($this->allowed[(int)$sourceRow->resturant_id][(string)$sourceRow->id]??false)
+            &&($this->allowed[(int)$destinationRow->resturant_id]['new']??false),403);
+        abort_if(DB::table('media')->where('model_type',self::MODEL)->where('model_id',$destination->getKey())->exists(),409);
+        $image=$entry['image'];$row=$image['row'];$this->verifyFacts([$image]);
+        $selected=$source->getFirstMedia('product_image');
+        $actual=DB::table('media')->where('id',$row['id'])->lockForUpdate()->first();
+        abort_unless($selected&&get_class($selected)===Media::class&&(int)$selected->getKey()===(int)$row['id']
+            &&$actual&&app(DesktopDashboardJournal::class)->fingerprint((array)$actual)===app(DesktopDashboardJournal::class)->fingerprint($row),409);
+        $path=$source->getFirstMediaPath('product_image','thumb');$canonical=$this->root().'/'.$row['id'].'/'.$row['file_name'];
+        abort_unless(is_string($path)&&realpath($path)===realpath($canonical)&&!is_link($path),409);
+        $bytes=file_get_contents($path,false,null,0,self::MAX_FILE+1);
+        $primary=array_values(array_filter($image['files'],fn($file)=>$file['relative']===$row['id'].'/'.$row['file_name']))[0];
+        abort_unless(is_string($bytes)&&strlen($bytes)===$primary['bytes']&&hash_equals($primary['sha256'],hash('sha256',$bytes)),503);
+        $this->image($row['file_name'],$row['mime_type'],$bytes);
+        $this->upload=['name'=>$row['file_name'],'mime'=>$row['mime_type'],'sha256'=>$primary['sha256']];
+        $this->replayMediaTimes=$entry['replay'];$this->slot='menu_copy:'.$selection.':product_image:0';$this->copied=false;
+        $this->copyDestination=(int)$destination->getKey();$this->copyName=$row['name'];
+        try{
+            $result=$work();abort_unless($this->copied,409,'الصورة المختارة لم تُنسخ كاملة.');
+            unset($this->copies[$selection]);return $result;
+        }finally{$this->upload=null;$this->replayMediaTimes=null;$this->slot='product_image:0';$this->copied=false;$this->copyDestination=null;$this->copyName=null;}
+    }
+
+    public function assertCopiesComplete(): void
+    {
+        abort_unless($this->depth>0&&$this->copies!==null&&$this->copies===[],409,'صور المنيو لم تُنسخ كاملة.');
     }
 
     public function files(Request $request): array
@@ -128,6 +205,7 @@ class DesktopDashboardProductImages
     /** FileAdder may unlink its upload. Each attempt receives a disposable copy of immutable bytes. */
     public function withUploads(array $files,callable $work)
     {
+        abort_unless($this->copies===null,409);
         if(!$files)return $work([]);
         [$a,$bytes]=$this->decoded($files);$root=storage_path('private/desktop-product-uploads');
         $this->directory($root,storage_path('private'));
@@ -238,6 +316,7 @@ class DesktopDashboardProductImages
         $product=DB::table('resturant_products')->where('id',$media->model_id)->first();
         abort_unless($product&&(($this->allowed[(int)$product->resturant_id][(string)$product->id]??false)
             ||($this->allowed[(int)$product->resturant_id]['new']??false)),403);
+        if($this->copies!==null)abort_unless((int)$media->model_id===$this->copyDestination&&$media->name===$this->copyName,409);
         $name=$target?:pathinfo($source,PATHINFO_BASENAME);abort_unless($name===$media->file_name&&$name===$this->fileName($this->upload['name']),409);
         $bytes=file_get_contents($source,false,null,0,self::MAX_FILE+1);
         abort_unless(is_string($bytes)&&strlen($bytes)>0&&strlen($bytes)<=self::MAX_FILE&&(int)$media->size===strlen($bytes),503);
@@ -335,7 +414,7 @@ class DesktopDashboardProductImages
     {
         $namespace=hex2bin(str_replace('-','',$this->command));
         abort_unless(is_string($namespace)&&strlen($namespace)===16,422);
-        $bytes=substr(sha1($namespace.'product_image:0',true),0,16);
+        $bytes=substr(sha1($namespace.$this->slot,true),0,16);
         $bytes[6]=chr((ord($bytes[6])&0x0f)|0x50);$bytes[8]=chr((ord($bytes[8])&0x3f)|0x80);
         $hex=bin2hex($bytes);$uuid=substr($hex,0,8).'-'.substr($hex,8,4).'-'.substr($hex,12,4).'-'.substr($hex,16,4).'-'.substr($hex,20,12);
         $values=['uuid'=>$uuid];if($this->replayMediaTimes!==null)$values+=$this->replayMediaTimes;

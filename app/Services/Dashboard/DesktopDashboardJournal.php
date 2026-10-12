@@ -50,20 +50,26 @@ class DesktopDashboardJournal
                 $result=$this->saved($old->local_result_cipher)['result'];
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+                if(DesktopDashboardRestaurantMenuCopy::handles($route))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($result);
                 return $result;
             }
             foreach ($dependencies as $dependency) {
                 abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$dependency)->exists(),409,'العملية السابقة لم تُحفظ؛ لا يمكن حفظ عملية تابعة لها.');
             }
+            $started=now('UTC');
             $result = $work();
             if (!is_array($result)) throw new \LogicException('A journaled business operation must return its persisted result.');
             // Collections and date objects must have the same JSON representation on first reply and replay.
             $result=json_decode($this->json($result),true,512,JSON_THROW_ON_ERROR);
             if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
             if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+            if(DesktopDashboardRestaurantMenuCopy::handles($route))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($result);
             $references=$this->references->capture($device,$command,$route,$result,$payload,$actor);
             $now = now('UTC');
             $occurred=$now;
+            // A menu-copy can be a genuine no-op with historical product timestamps.
+            // Its occurrence is the accepted batch start, independently of copied/updated rows.
+            if(config('desktop_dashboard.local')&&DesktopDashboardRestaurantMenuCopy::handles($route))$occurred=$started;
             if(config('desktop_dashboard.local')&&DesktopDashboardRestaurantProductCrud::handles($route)&&isset($result['after']['product']['row']['updated_at'])){
                 // Original Eloquent DATETIME values use the source app timezone. Record the
                 // business write time, rather than time spent hashing its complete image facts.

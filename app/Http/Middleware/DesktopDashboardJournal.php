@@ -36,11 +36,11 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
-        if(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::handles($route)){
+        if(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantMenuCopy::handles($route)){
             return app(\App\Services\Dashboard\DesktopDashboardProductImages::class)->guard(fn()=>app(\App\Services\Dashboard\DesktopDashboardProductEffects::class)->guard(fn()=>DB::transaction(function()use($request,$next,$actor,$route){
                 $device=(string)config('desktop_dashboard.device_id');
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
-                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::class);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantMenuCopy::handles($route)?\App\Services\Dashboard\DesktopDashboardRestaurantMenuCopy::class:\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::class);
                 $command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
                 $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
                 $actor=$adapter->authorize($route,$payload,$actor,$scope);

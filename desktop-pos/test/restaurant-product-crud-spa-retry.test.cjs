@@ -152,7 +152,7 @@ test('CRUD preparation uses only enabled controls owned by the actual form, incl
 test('product capture leaves foreign, overridden, inactive and unreviewed original forms alone', async () => {
   const scenarios = [
     { path: 'https://other.example/admin/resturant_products' }, { path: 'https://user:pass@dashboard.example/admin/resturant_products' },
-    { path: '/admin/resturant/copy/items' }, { path: '/admin/resturants/20' }, { path: '/admin/resturant_products/' },
+    { path: '/admin/resturant/copy/items/' }, { path: '/admin/resturants/20' }, { path: '/admin/resturant_products/' },
     { path: '/admin/resturant_products/0', kind: 'destroy' }, { path: '/admin/resturant_products/01', kind: 'destroy' },
     { path: '/admin/resturant_products/99999999999999999999', kind: 'destroy' },
     { method: 'get' }, { kind: 'update', overrideMethod: 'PATCH' }, { kind: 'destroy', overrideMethod: 'PUT' },

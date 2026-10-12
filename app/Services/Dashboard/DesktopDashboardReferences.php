@@ -32,6 +32,7 @@ class DesktopDashboardReferences
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->outputs($result);
         if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->outputs($result);
         if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->outputs($result);
+        if(DesktopDashboardRestaurantMenuCopy::handles($route))return app(DesktopDashboardRestaurantMenuCopy::class)->outputs($result);
         if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
         $outputs=[];
         if($route==='branch-expenses.categorySave'&&preg_match('/^custom_([1-9][0-9]*)$/D',$result['category']['key']??'',$category))
@@ -82,6 +83,7 @@ class DesktopDashboardReferences
         if(DesktopDashboardRestaurantFlags::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantFlags::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProducts::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProducts::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProductCrud::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProductCrud::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantMenuCopy::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantMenuCopy::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardReviewDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardReviewDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardWishlistDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardWishlistDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
