@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Place the installed Meta inbox directly after WhatsApp without replacing the menu."""
+"""Keep the installed Meta inbox below WhatsApp in the native menu and grouping script."""
 import argparse
 import os
 import pathlib
@@ -10,6 +10,32 @@ import tempfile
 
 WA_LINK = re.compile(r"@include(?:If)?\(\s*(['\"])admin\.whatsapp\.sidebar\1\s*\)")
 META_LINE = re.compile(r"(?m)^[\t ]*@include(?:If)?\(\s*(['\"])admin\.meta\.sidebar\1\s*\)[\t ]*(?:\r?\n|$)")
+
+
+def navigation_contents(source):
+    """Change only the native script's priority routes and existing shortcut calls."""
+    priority = re.compile(r"(const priority = node => paths\(node\)\.some\(path => /\\/admin\\/\()([a-z0-9|-]+)(\)\\/\?\$/\.test\(path\)\);)")
+    matches = list(priority.finditer(source))
+    if len(matches) != 1 or source.count('const priority') != 1:
+        raise ValueError('NATIVE_PRIORITY_ANCHOR_REQUIRED')
+    match = matches[0]
+    routes = match[2].split('|')
+    if routes.count('whatsapp') != 1 or routes.count('dashboard') != 1 or routes.count('meta') > 1:
+        raise ValueError('NATIVE_PRIORITY_ROUTES_AMBIGUOUS')
+    if 'meta' not in routes:
+        routes.insert(routes.index('whatsapp') + 1, 'meta')
+        source = source[:match.start(2)] + '|'.join(routes) + source[match.end(2):]
+    whatsapp = re.compile(r"(?m)^([\t ]*)placeShortcut\((['\"])whatsapp\2,[\t ]*(['\"])dashboard\3\);[\t ]*(\r?\n|$)")
+    meta = re.compile(r"(?m)^[\t ]*placeShortcut\((['\"])meta\1,[\t ]*(['\"])whatsapp\2\);[\t ]*(?:\r?\n|$)")
+    if len(whatsapp.findall(source)) != 1 or len(meta.findall(source)) > 1:
+        raise ValueError('NATIVE_SHORTCUT_ANCHOR_REQUIRED')
+    if len(re.findall(r"placeShortcut\s*\(\s*['\"]meta['\"]", source)) != len(meta.findall(source)):
+        raise ValueError('NATIVE_META_SHORTCUT_AMBIGUOUS')
+    source = meta.sub('', source)
+    anchor = whatsapp.search(source)
+    newline = anchor[4] or ('\r\n' if '\r\n' in source else '\n')
+    call = anchor[1] + "placeShortcut('meta', 'whatsapp');" + newline
+    return source[:anchor.end()] + ('' if anchor[4] else newline) + call + source[anchor.end():]
 
 
 def sidebar_contents(menu, whatsapp):
@@ -60,6 +86,13 @@ def main():
             raise ValueError('INSTALLED_SIDEBAR_FILE_REQUIRED')
     old = [p.read_bytes() for p in paths]
     target = [s.encode() for s in sidebar_contents(*(s.decode() for s in old))]
+    navigation = root / 'public/dashboard/js/dashboard-navigation.js'
+    if navigation.exists() or navigation.is_symlink():
+        if not navigation.is_file() or navigation.is_symlink() or any(p.is_symlink() for p in navigation.parents):
+            raise ValueError('INSTALLED_NAVIGATION_FILE_REQUIRED')
+        paths.append(navigation)
+        old.append(navigation.read_bytes())
+        target.append(navigation_contents(old[-1].decode()).encode())
     changes = [(p, before, after, stat.S_IMODE(p.stat().st_mode))
                for p, before, after in zip(paths, old, target) if before != after]
     if changes:
@@ -87,6 +120,8 @@ def main():
                 if path.read_bytes() == after:
                     atomic(path, before, mode)
             raise
+    if navigation in paths:
+        print('META_NATIVE_SIDEBAR_READY')
     print('META_SIDEBAR_READY')
 
 
