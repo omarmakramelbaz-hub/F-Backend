@@ -86,6 +86,7 @@ use Illuminate\Support\Str;
         $sourceMedia=DB::table('media')->whereIn('id',$fixtureMediaIds)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all();
         $copyRoute=app('router')->getRoutes()->getByName('copy_menu');
         verify(count($report['tables'])===106&&count($existing)===13&&array_unique(array_map('count',$sourceRows))===[13]&&array_unique(array_map('count',$sourceMedia))===[18]
+            &&empty(config('jwt.secret'))&&!getenv('JWT_SECRET')
             &&DB::table('users')->where('id',1)->value('account_type')==='resturant_owner'&&$copyRoute->uri()==='admin/resturant/copy/items'&&$copyRoute->methods()===['POST']
             &&$copyRoute->getActionName()==='App\\Http\\Controllers\\Api\\V1\\Vendor\\ResturantProductController@copy_menu'
             &&realpath((new ReflectionClass(\App\Http\Controllers\Api\V1\Vendor\ResturantProductController::class))->getFileName())===realpath(base_path('app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php')),

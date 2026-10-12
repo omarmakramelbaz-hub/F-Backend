@@ -347,7 +347,6 @@ class DesktopDashboardRestaurantMenuCopy
     {
         $started=self::$replay['result']['after']['started_at']??now('UTC')->toIso8601String();$before=$this->facts($name,$payload);$this->assertBefore($before);$plan=$this->plan($before);
         abort_if(request()->wantsJson(),501,'مزامنة نسخ المنيو تدعم نموذج الداشبورد الأصلي.');
-        $api=auth('api')->user();abort_if($api&&((int)$api->id!==$this->id($before['actor']['id'])),403);
         $this->images()->allowProduct($this->id($before['target']['row']['id']),null);
         foreach($before['sources'] as $source)$this->images()->allowProduct($this->id($source['branch']['id']),$this->id($source['row']['id']));
         $replay=$this->prepareReplay($before,$plan);$copyPlan=[];

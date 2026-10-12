@@ -52,7 +52,8 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
     try{
         foreach([\App\Http\Controllers\Api\V1\Vendor\ResturantProductController::class=>'app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php',
             \App\Http\Requests\Api\Vendor\CopyMenuRequest::class=>'app/Http/Requests/Api/Vendor/CopyMenuRequest.php',\Spatie\MediaLibrary\MediaCollections\FileAdder::class=>'vendor/spatie/laravel-medialibrary/src/MediaCollections/FileAdder.php'] as $class=>$file)
-            verify(realpath((new ReflectionClass($class))->getFileName())===realpath($application.'/'.$file),'menu copy uses actual original runtime source '.$class);
+            verify(realpath((new ReflectionClass($class))->getFileName())===realpath($application.'/'.$file)&&empty(config('jwt.secret'))&&!getenv('JWT_SECRET'),
+                'menu copy uses actual original runtime source without a fixture JWT secret '.$class);
         // Advance the real source clock between two updates of the SAME cached target model.
         $switch(true);$clockCommand=(string)Str::uuid();$commands[]=$clockCommand;$actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);
         $probe=Request::create(url('/admin/resturant/copy/items'),'POST',['resturant_id'=>'100','restraunt_product'=>[(string)$sourceIds[0],(string)$sourceIds[4]],'_desktop_command'=>$clockCommand]);
@@ -110,8 +111,9 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
         [$status,$body,$headers]=$request($form);$first=$saved($command);$after=$first['local_result']['after'];$steps=$after['steps'];
         $created[true]=array_values(array_unique(array_column(array_filter($steps,fn($step)=>$step['mode']==='create'),'target_product')));$createdMedia[true]=array_values(array_filter(array_column($steps,'new_media')));
         verify($status===302&&in_array('Location: '.$origin.'/admin/resturants/100?'.$query,$headers,true)&&array_column($steps,'mode')===['create','create','create','price','create']
-            &&count($created[true])===4&&count($createdMedia[true])===3&&$steps[0]['target_product']!==$steps[2]['target_product'],
-            'the same actual HTML batch retries after rollback and retains ordered duplicate absent-catalog creates, existing price-only and no-image semantics');
+            &&count($created[true])===4&&count($createdMedia[true])===3&&$steps[0]['target_product']!==$steps[2]['target_product']
+            &&empty(config('jwt.secret'))&&!getenv('JWT_SECRET')&&DB::table('resturant_products')->whereIn('id',$created[true])->pluck('added_by')->map(fn($id)=>(int)$id)->all()===[1,1,1,1],
+            'the same original HTML batch copies with its signed-in admin actor without any JWT secret and retains duplicate, price-only and no-image semantics');
         verify($request($form)[1]===$body&&$saved($command)===$first&&DB::table('resturant_products')->where('resturant_id',100)->count()===5,
             'an original lost copy redirect retries its exact result without another clone or image allocation');
         $changed=$form;$changed['restraunt_product']=array_reverse($form['restraunt_product']);verify($request($changed)[0]===409,'a saved UUID cannot accept the same selection values in another order');

@@ -72,7 +72,7 @@ class ResturantProductController extends Controller {
                 if(!$resturant_productt){
                     $product=$mainproduct->replicate();
                     $product->resturant_id = $request->resturant_id;
-                    $product->added_by=auth('api')->check()? auth('api')->user()->id : auth('admin')->user()->id;
+                    $product->added_by=$request->is('api/*') ? auth('api')->user()->id : auth('admin')->user()->id;
                     $product->save();
                     // Resolve the same first image through its original media disk.
                     // A temporary basename loses the source name and image extension.

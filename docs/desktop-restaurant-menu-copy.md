@@ -6,7 +6,7 @@ This supports the original HTML parent-to-child form. Every selected source prod
 
 ## Source behavior retained
 
-The original action inherits `web`, `lang` and `IsAdmin`. Its API controller has no additional permission middleware, and `CopyMenuRequest::authorize()` returns true. The desktop adapter adds the existing current enrollment/account/branch boundaries before a write or saved outcome. It checks the original scoped destination model and rejects an unrelated authenticated API principal rather than allowing that principal to replace the recorded creator.
+The original action inherits `web`, `lang` and `IsAdmin`. Its API controller has no additional permission middleware, and `CopyMenuRequest::authorize()` returns true. The desktop adapter adds the existing current enrollment/account/branch boundaries before a write or saved outcome. It checks the original scoped destination model and uses its freshly authorized admin actor as the recorded creator. This prepared HTML path does not initialize the API JWT guard or require an API signing secret; the desktop runtime intentionally has no local API JWT secret. Vendor API copying remains outside this adapter and retains its API actor.
 
 The controller reads the destination's `resturant_products` relationship once, ordered by `category_id`. For each submitted source ID, it finds the source and checks that cached destination collection for the source `product_id`:
 
