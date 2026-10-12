@@ -355,9 +355,9 @@ class DesktopDashboardRestaurantMenuCopy
         $request=request();$body=$request->request->all();$query=$request->query->all();$files=$request->files->all();
         try{
             $values=$payload['values'];unset($values['idempotency_key']);if(isset($body['_token']))$values['_token']=$body['_token'];$request->request->replace($values);$request->query->replace([]);$request->files->replace([]);
-            $response=$work();$this->images()->assertCopiesComplete();$status=$response->getStatusCode();
+            $response=$work();$status=$response->getStatusCode();
             if($status>=400||$request->hasSession()&&in_array('errors',$request->session()->get('_flash.new',[]),true))throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
-            abort_unless(in_array($status,[302,303],true)&&strlen($response->getContent())<=1024*1024,409);$parts=parse_url($response->headers->get('Location')??'');abort_unless(is_array($parts),409);$this->support()->menuCopySameOrigin($parts);
+            abort_unless(in_array($status,[302,303],true)&&strlen($response->getContent())<=1024*1024,409);$this->images()->assertCopiesComplete();$parts=parse_url($response->headers->get('Location')??'');abort_unless(is_array($parts),409);$this->support()->menuCopySameOrigin($parts);
             $return=$this->support()->menuCopyReturnQuery($payload['facts']['restaurant_menu_copy_return']);$location='/admin/resturants/'.$this->id($before['target']['row']['id']);
             abort_unless(($parts['path']??'')===$location&&($parts['query']??'')===$return,409,'رابط العودة خارج صفحة فرع المنيو.');if($return!=='')$location.='?'.$return;
             $products=[];$images=[];$steps=[];$new=0;
