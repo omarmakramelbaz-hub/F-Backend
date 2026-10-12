@@ -9,6 +9,8 @@ on:
       - 'app/Services/Dashboard/CategoryOrdering.php'
       - 'app/Repositories/ResturantProductRepository.php'
       - 'app/Http/Controllers/Dashboard/CategoryController.php'
+      - 'app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php'
+      - 'app/Http/Requests/Api/Vendor/CopyMenuRequest.php'
       - 'routes/admin.php'
       - 'app/Http/Middleware/DesktopDashboardJournal.php'
       - 'app/Exceptions/Handler.php'
@@ -16,6 +18,7 @@ on:
       - 'desktop-pos/**'
       - 'tests/desktop_dashboard_runtime/**'
       - 'public/dashboard/js/desktop-dashboard.js'
+      - 'public/dashboard/js/dashboard-spa.js'
       - 'public/dashboard/vendor/desktop-external/**'
       - 'resources/views/admin/**'
       - '.gitattributes'
@@ -95,6 +98,19 @@ jobs:
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_COMPLETE ') -or !(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '))) { throw 'Both original product CRUD acceptance modules must complete.' }
+              if ($fixture -eq 'legacy.php') {
+                foreach ($module in @(@{ marker = 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE'; checks = 42 }, @{ marker = 'RESTAURANT_MENU_COPY_REMOTE_COMPLETE'; checks = 42 })) {
+                  $match = [regex]::Matches(($fixtureOutput -join "`n"), ('(?m)^' + $module.marker + ' (\{[^\r\n]+\})$'))
+                  if ($match.Count -ne 1) { throw "Original menu-copy acceptance must complete exactly once: $($module.marker)" }
+                  $copyModule = $match[0].Groups[1].Value | ConvertFrom-Json
+                  if ($copyModule.checks -ne $module.checks -or $copyModule.schemaInventory -ne 106 -or $copyModule.productColumns -ne 13 -or $copyModule.mediaColumns -ne 18 -or $copyModule.fullDashboard -ne $false) { throw "Original menu-copy acceptance count or scope differs: $($module.marker)" }
+                  foreach ($field in @('originalMultipart','originalController','fullImagesCopied','sourceImagesPreserved','sourceAndTargetRevocation')) {
+                    if ($copyModule.$field -ne $true) { throw "Original menu-copy acceptance is incomplete: $($module.marker).$field" }
+                  }
+                  $copyFields = if ($module.marker -eq 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE') { @('orderedDuplicates','rollbackAtomic','mappedServerIdentities','repeatedPriceClock','historicalNoopOccurrence','typedProducerConsumerChain') } else { @('nativeCancellation') }
+                  foreach ($field in $copyFields) { if ($copyModule.$field -ne $true) { throw "Original menu-copy acceptance did not exercise: $($module.marker).$field" } }
+                }
+              }
             }
             $reviewProofDirectory = "$env:RUNNER_TEMP/review-delete-browser"
             New-Item -ItemType Directory -Path $reviewProofDirectory -Force | Out-Null
@@ -139,6 +155,23 @@ jobs:
               if ($crudProof.$field -ne $true) { throw "Original CRUD browser proof did not exercise: $field" }
             }
             if ($crudReceipt.originalBusinessTablesBefore.tables -ne 106 -or $crudReceipt.originalBusinessTablesAfter.tables -ne 106 -or $crudReceipt.originalBusinessTablesBefore.sha256 -ne $crudReceipt.originalBusinessTablesAfter.sha256 -or $crudReceipt.vendorBefore.sha256 -ne $crudReceipt.vendorAfter.sha256 -or $crudReceipt.vendorBefore.files -ne $crudReceipt.vendorAfter.files -or $crudReceipt.installedGraphBefore.sha256 -ne $crudReceipt.installedGraphAfter.sha256 -or $crudReceipt.installedGraphBefore.packages -ne $crudReceipt.installedGraphAfter.packages) { throw 'Original CRUD immutable business or dependency inventories differ.' }
+            $menuProofDirectory = "$env:RUNNER_TEMP/restaurant-menu-copy-browser"
+            New-Item -ItemType Directory -Path $menuProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/restaurant-menu-copy-browser-http.php "$bundle/application" $port $menuProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable menuProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($menuProofOutput -join "`n") -match '(?m)^ORIGINAL_RESTAURANT_MENU_COPY_BROWSER_COMPLETE ')) { throw 'Original restaurant menu-copy Edge fixture did not complete.' }
+            $menuReceipt = Get-Content "$menuProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            if ($menuReceipt.format -ne 1 -or $menuReceipt.kind -ne 'original-restaurant-menu-copy-browser' -or $menuReceipt.sourceRevision -ne $env:GITHUB_SHA -or $menuReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $menuReceipt.schemaInventory -ne 106 -or $menuReceipt.importedSnapshotTables -ne 106 -or $menuReceipt.targetColumnCount -ne 29 -or $menuReceipt.productColumnCount -ne 13 -or $menuReceipt.mediaColumnCount -ne 18 -or $menuReceipt.reflectionBindings -ne 9 -or $menuReceipt.checks -ne 30 -or $menuReceipt.commands -ne 2 -or $menuReceipt.copiedProducts -ne 3 -or $menuReceipt.copiedImages -ne 2 -or $menuReceipt.sourceImagesImported -ne 4 -or $menuReceipt.fullDashboard -ne $false -or $menuReceipt.applicationValidated -ne $false -or $menuReceipt.providersReplaced -ne $false) { throw 'Original menu-copy receipt source, schema, bindings or bounded coverage differs.' }
+            foreach ($field in @('completed','verifiedImport','privateDatabasesDropped','httpStopped','browserStopped','sourceVerifiedAfter','fixturesVerifiedAfter','vendorUnchanged','installedGraphUnchanged','originalBusinessTablesUnchanged','sourceImagesPreserved','fullImagesCopied','originalForm')) {
+              if ($menuReceipt.$field -ne $true) { throw "Original menu-copy receipt is incomplete: $field" }
+            }
+            $menuProof = $menuReceipt.browserProof
+            if ($menuReceipt.browserExitCode -ne 0 -or $menuProof.browser -ne 'Windows Edge' -or $menuProof.browserPlatform -ne 'win32' -or $menuProof.sourceCommit -ne $env:GITHUB_SHA -or $menuProof.fixtureRevision -ne $env:GITHUB_SHA -or $menuProof.newPageErrors -ne 0 -or $menuProof.force -ne $false -or $menuProof.domInjection -ne $false -or @($menuProof.operations).Count -ne 2 -or @($menuProof.formDiagnostics).Count -ne 2 -or @($menuProof.imageResponses).Count -ne 2 -or @($menuProof.visibleIds).Count -ne 3 -or @($menuReceipt.mediaFiles).Count -ne 2) { throw 'Original menu-copy browser proof differs from this complete fixture.' }
+            foreach ($field in @('originalForm','originalChooseAddWay','originalCopyModal','actualAssociatedFormControls','exactSerializedCsrfAndUuid','originalCheckboxOrder','fullImagesCopied','existingPriceOnly','noImageClone','freshUuidOnlyAfterAcceptedNavigation')) {
+              if ($menuProof.$field -ne $true) { throw "Original menu-copy browser proof did not exercise: $field" }
+            }
+            $menuRetry = $menuProof.retry
+            if (!$menuRetry.committedResponseLost -or $menuRetry.changedSameUuidStatus -ne 409 -or $menuRetry.originalSelectionSameUuidStatus -ne 302 -or !$menuRetry.originalFormRetained -or !$menuRetry.originalCheckboxes -or $menuRetry.resourceType -ne 'fetch' -or $menuRetry.isNavigationRequest -ne $false -or $menuRetry.command -ne $menuProof.operations[0].command -or $menuProof.operations[0].command -eq $menuProof.operations[1].command) { throw 'Original menu-copy lost-response retry must retain the actual ordered form and UUID through lost302, changed409 and exact302.' }
+            if ($menuReceipt.originalBusinessTablesBefore.tables -ne 106 -or $menuReceipt.originalBusinessTablesAfter.tables -ne 106 -or $menuReceipt.originalBusinessTablesBefore.sha256 -ne $menuReceipt.originalBusinessTablesAfter.sha256 -or $menuReceipt.vendorBefore.sha256 -ne $menuReceipt.vendorAfter.sha256 -or $menuReceipt.vendorBefore.files -ne $menuReceipt.vendorAfter.files -or $menuReceipt.installedGraphBefore.sha256 -ne $menuReceipt.installedGraphAfter.sha256 -or $menuReceipt.installedGraphBefore.packages -ne $menuReceipt.installedGraphAfter.packages) { throw 'Original menu-copy immutable business or dependency inventories differ.' }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
@@ -176,6 +209,14 @@ jobs:
         with:
           name: original-restaurant-product-crud-browser
           path: ${{ runner.temp }}/restaurant-product-crud-browser
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original restaurant menu-copy Edge receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-restaurant-menu-copy-browser
+          path: ${{ runner.temp }}/restaurant-menu-copy-browser
           if-no-files-found: error
           retention-days: 14
       - name: Verify native dashboard preparation and restart recovery
