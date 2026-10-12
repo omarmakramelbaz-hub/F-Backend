@@ -14,6 +14,8 @@ bash /absolute/private/path/apply_whatsapp_dashboard_upgrade_root.sh --release P
 
 The root loader reads only pinned Git blobs as `fasakha`, verifies the exact helper/manifest/runtime hashes, stages root-owned directories at 0755 and files at 0644, then runs the publisher as `fasakha`. It never checks out a branch or runs Composer. The publisher refuses unknown live file changes with a named path before bootstrapping the application.
 
+The reviewed production inbox CSS preimage is `d4e1f32b816da1219b32de856ea484f07cecd1fa`: the original 8,036-byte stylesheet plus the exact 261-byte Meta channel controls addition reported by the read-only diagnostic. That addition is retained unchanged at the end of the new stylesheet. This is an exact, reviewed preimage; other live edits still stop publication before PHP or database work.
+
 Publication is dependency-first and uses atomic exchanges. Known hardlinked files are supported: immutable, separate copies preserve their original bytes, while publication replaces only the selected path. The two templates publish last. Each candidate PHP file is linted with the server PHP 8.2 binary; both templates are compiled privately and linted. Node syntax checks run when Node is available. Compiled production views expire through the changed source timestamps; no global cache clear is used.
 
 The `.env`, effective configuration cache, installed Cairo/native/order code, other dashboard dependencies and actual live footer `886f076b7d57dc4d71fd24e63c27bd9fcf34f11e` retain their bytes and metadata. Capture and order services/timers are not controlled by this installer. Installing the dashboard does not activate automatic orders or alter confirmation floors, branch routing, prices or delivery settings.

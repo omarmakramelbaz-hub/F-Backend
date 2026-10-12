@@ -159,3 +159,5 @@
 }
 @media (pointer: coarse) { .wa-inbox .wa-bubble-action-trigger { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .wa-inbox * { scroll-behavior: auto; transition: none !important; } }
+
+.meta-inbox-channels {display:flex;gap:8px;padding:0 14px 12px;flex-wrap:wrap}.meta-inbox-channels [aria-pressed="true"] {background:#f58220;color:#fff;border-color:#f58220}.wa-inbox-channel-label {display:block;font-size:11px;color:#9b4b0b;margin-bottom:4px}

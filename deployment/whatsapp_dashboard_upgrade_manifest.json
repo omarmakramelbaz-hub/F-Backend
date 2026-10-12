@@ -68,8 +68,8 @@
     },
     {
       "path": "public/css/dashboard-whatsapp-inbox.css",
-      "before_blob": "d802231fe4ad2fe37be9b932d68e9f842dc583c8",
-      "after_blob": "c9a1f35db8737d268d9f9f64afaf6533a8967fb5"
+      "before_blob": "d4e1f32b816da1219b32de856ea484f07cecd1fa",
+      "after_blob": "639ac2223b4abcd679329000551d9c735e43b5af"
     },
     {
       "path": "public/css/dashboard-whatsapp-replies.css",

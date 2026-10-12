@@ -110,6 +110,30 @@ class PublisherTests(unittest.TestCase):
         p='public/js/dashboard-whatsapp-inbox.js';(self.f.root/p).write_bytes(b'unknown')
         with self.assertRaisesRegex(app.SafeError,'DASHBOARD_LIVE_HASH_NEEDS_REVIEW: '+p):self.f.install()
         self.assertEqual(self.f.calls,[])
+    def reviewed_meta_channels_css(self):
+        relative='public/css/dashboard-whatsapp-inbox.css'
+        baseline=(ROOT/'tests/fixtures/whatsapp-inbox-before-meta-channels.css').read_bytes()
+        target=(ROOT/relative).read_bytes()
+        self.assertEqual(app.blob(baseline),'d4e1f32b816da1219b32de856ea484f07cecd1fa')
+        self.assertEqual(app.SOURCE_PINS[relative],(app.blob(baseline),app.blob(target)))
+        self.f.before[relative]=baseline;self.f.pins[relative]=app.SOURCE_PINS[relative]
+        self.f.write(self.f.root/relative,baseline);self.f.write(self.f.payload/relative,target)
+        self.f.write(self.f.manifest,(json.dumps({'version':1,'sources':[{'path':p,'before_blob':a,'after_blob':b} for p,(a,b) in self.f.pins.items()]})+'\n').encode())
+        self.f.manifest_pin=app.blob(self.f.manifest.read_bytes())
+        return relative,baseline,target
+    def test_reviewed_meta_channels_css_installs_and_backup_preserves_preimage(self):
+        relative,baseline,target=self.reviewed_meta_channels_css()
+        status,backup,_=self.f.install()
+        self.assertEqual(status,'WHATSAPP_DASHBOARD_UPGRADE_READY')
+        self.assertEqual((self.f.root/relative).read_bytes(),target)
+        self.assertEqual((backup/('before-'+str(list(app.SOURCE_PINS).index(relative)))).read_bytes(),baseline)
+        addition=baseline[8036:]
+        self.assertEqual(len(addition),261);self.assertTrue(target.endswith(addition))
+    def test_unreviewed_meta_channels_css_edit_stops_before_php(self):
+        relative,baseline,_=self.reviewed_meta_channels_css()
+        self.f.write(self.f.root/relative,baseline+b'.unexpected{color:red}\n')
+        with self.assertRaisesRegex(app.SafeError,'DASHBOARD_LIVE_HASH_NEEDS_REVIEW: '+relative):self.f.install()
+        self.assertEqual(self.f.calls,[]);self.assertEqual(len(self.f.migrations),1)
     def test_payload_hash_rejects_before_bootstrap(self):
         (self.f.payload/app.MESSAGE).write_bytes(b'unknown')
         with self.assertRaisesRegex(app.SafeError,'DASHBOARD_PAYLOAD_HASH_MISMATCH'):self.f.install()
