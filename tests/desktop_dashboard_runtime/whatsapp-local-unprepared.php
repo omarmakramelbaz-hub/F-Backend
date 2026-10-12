@@ -8,7 +8,7 @@
         $checks++;
     };
     $rows = fn () => [
-        'commands' => \Illuminate\Support\Facades\DB::table('desktop_dashboard_commands')->orderBy('id')->get()->toJson(),
+        'commands' => \Illuminate\Support\Facades\DB::table('desktop_dashboard_commands')->orderBy('sequence')->get()->toJson(),
         'entities' => \Illuminate\Support\Facades\DB::table('desktop_dashboard_entities')->orderBy('id')->get()->toJson(),
     ];
     $storage = function () use ($profile) {

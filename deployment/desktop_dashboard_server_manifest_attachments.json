@@ -777,9 +777,117 @@
       "phase": 1
     },
     {
-      "path": "app/Exceptions/Handler.php",
-      "before_blob": "abb3f87f51a45220afe8a40f68600ad1a1dfa437",
-      "after_blob": "1d47b49d1f4927bbff0aa813a4e9cdd0a5d8af21",
+      "path": "config/desktop_pos.php",
+      "before_blob": "a23ba49fd0a45ad9efd6e47771270d9a0fdc8e36",
+      "after_blob": "0d95fd221f1359850bf4056391d08baa97268665",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchExpenses.php",
+      "before_blob": "d29f769e4efcf5f1be1570fbad887ba90b8b23ca",
+      "after_blob": "52d6b2a352c4064674d215d68e6bcb6dd0ea844d",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchPayroll.php",
+      "before_blob": "6f2ca6457d3ec00d2ed0af04d0216cf1eb15faf0",
+      "after_blob": "1451c88983c3ba33bce98f20cc925affaf3fb261",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/BranchShiftClosing.php",
+      "before_blob": "2cfe768ca07308a49b758987981a686b1008b3b7",
+      "after_blob": "16152675a530faf5fdd7db830c2e6757ef335bc5",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardMenu.php",
+      "before_blob": "8f1b95828788dbdbc45156935c16e5f1ddd7ab76",
+      "after_blob": "cd174e8e3c9b96baa738924c93b376864d94ecef",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/PhoneMapProvider.php",
+      "before_blob": "bb360aa46868b432a8a1cf5dff48cdc50b62c860",
+      "after_blob": "30ca29a651a1b70b2ee5f8682cd8d41a72c00b05",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxMessage.php",
+      "before_blob": "087cdbdf51dd87c411da3ed0cfa33980474b593f",
+      "after_blob": "3a8ec74d632d73ea59b551a0aa2950e5be7774d8",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/GoStores/Catalog.php",
+      "before_blob": "9dd08877f66cb7288e4fe4f97ee670727b1ecc25",
+      "after_blob": "7b6d8a78ccc29c68c457cea4dbfe801f0c2bd589",
+      "phase": 2
+    },
+    {
+      "path": "app/Repositories/ResturantProductRepository.php",
+      "before_blob": "5ea56d86c0d810f33af7a174aeb4a9411282d5c6",
+      "after_blob": "e31ae3cc92dea229f36004ac668f0c808be5af85",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php",
+      "before_blob": "b703482c829e051dc0ec38cfe51370198a88b6b0",
+      "after_blob": "50f47b326c36dbc03b8d5e2c826328f5b3d18d18",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/css/branch-operations.css",
+      "before_blob": "4490ceb83a57cb6480dc7f1427fef49fbea7da15",
+      "after_blob": "dc6c2d5e41839cd47af2f4292fbda9991325f93f",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/css/phone-orders.css",
+      "before_blob": "0bd7329c568b5d038acc7bc46dfc36a94e02c2eb",
+      "after_blob": "73ccb146880447833ae2b1a4ef900e66714e2f24",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/branch-operations.js",
+      "before_blob": "038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c",
+      "after_blob": "a116c94e68f00d08bebf4390dc2c6d14bd063ac1",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-inbox.js",
+      "before_blob": "2592cf8e1d5b5fd2f8a8539e60b4d0662564a836",
+      "after_blob": "93c189188b544e34048003aa1b2da187879988ab",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-spa.js",
+      "before_blob": "dd699d3dca80ba5a037030213e2345932c2fc064",
+      "after_blob": "28ec997789cfd0da239f69937bcce032eb0e8c88",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/dashboard-support-chat.js",
+      "before_blob": "cb5df0d5c8e10d14d3fa83cb864adc22a0a94579",
+      "after_blob": "b2e2c025c59e77e7753cff6774b2896c9b5af1d4",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/order-board-menu.js",
+      "before_blob": "2d84fcb7fa51e85635d97ba73b974cd9526ab4b6",
+      "after_blob": "f1ebdcbd8b09f48139d5cab454f90e7c8f918daf",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/phone-address-search.js",
+      "before_blob": "4c55ec1f2ff0e4fae4105a96daf5fdc76f440c93",
+      "after_blob": "6419f50e3fa92c4125017a22e6eea7e145a0f1b5",
+      "phase": 2
+    },
+    {
+      "path": "public/dashboard/js/phone-orders.js",
+      "before_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
+      "after_blob": "894bcfad23de57c3a4cc4ca373b6a6c6105038bb",
       "phase": 2
     },
     {
@@ -843,129 +951,21 @@
       "phase": 2
     },
     {
+      "path": "app/Exceptions/Handler.php",
+      "before_blob": "abb3f87f51a45220afe8a40f68600ad1a1dfa437",
+      "after_blob": "1d47b49d1f4927bbff0aa813a4e9cdd0a5d8af21",
+      "phase": 2
+    },
+    {
       "path": "app/Http/Kernel.php",
       "before_blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
       "after_blob": "fbda39a3bbbad5c828a9c844eced2ddef2010799",
       "phase": 2
     },
     {
-      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php",
-      "before_blob": "b703482c829e051dc0ec38cfe51370198a88b6b0",
-      "after_blob": "50f47b326c36dbc03b8d5e2c826328f5b3d18d18",
-      "phase": 2
-    },
-    {
       "path": "app/Providers/RouteServiceProvider.php",
       "before_blob": "601bc01df754b568c9e6e7a6bb95b866011cca42",
       "after_blob": "df3ad6881183e593f6810ebf6308fd9b4d2d2f5e",
-      "phase": 2
-    },
-    {
-      "path": "app/Repositories/ResturantProductRepository.php",
-      "before_blob": "5ea56d86c0d810f33af7a174aeb4a9411282d5c6",
-      "after_blob": "e31ae3cc92dea229f36004ac668f0c808be5af85",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/BranchExpenses.php",
-      "before_blob": "d29f769e4efcf5f1be1570fbad887ba90b8b23ca",
-      "after_blob": "52d6b2a352c4064674d215d68e6bcb6dd0ea844d",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/BranchPayroll.php",
-      "before_blob": "6f2ca6457d3ec00d2ed0af04d0216cf1eb15faf0",
-      "after_blob": "1451c88983c3ba33bce98f20cc925affaf3fb261",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/BranchShiftClosing.php",
-      "before_blob": "2cfe768ca07308a49b758987981a686b1008b3b7",
-      "after_blob": "16152675a530faf5fdd7db830c2e6757ef335bc5",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/OrderBoardMenu.php",
-      "before_blob": "8f1b95828788dbdbc45156935c16e5f1ddd7ab76",
-      "after_blob": "cd174e8e3c9b96baa738924c93b376864d94ecef",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/PhoneMapProvider.php",
-      "before_blob": "bb360aa46868b432a8a1cf5dff48cdc50b62c860",
-      "after_blob": "30ca29a651a1b70b2ee5f8682cd8d41a72c00b05",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/Dashboard/WhatsAppInboxMessage.php",
-      "before_blob": "087cdbdf51dd87c411da3ed0cfa33980474b593f",
-      "after_blob": "3a8ec74d632d73ea59b551a0aa2950e5be7774d8",
-      "phase": 2
-    },
-    {
-      "path": "app/Services/GoStores/Catalog.php",
-      "before_blob": "9dd08877f66cb7288e4fe4f97ee670727b1ecc25",
-      "after_blob": "7b6d8a78ccc29c68c457cea4dbfe801f0c2bd589",
-      "phase": 2
-    },
-    {
-      "path": "config/desktop_pos.php",
-      "before_blob": "a23ba49fd0a45ad9efd6e47771270d9a0fdc8e36",
-      "after_blob": "0d95fd221f1359850bf4056391d08baa97268665",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/css/branch-operations.css",
-      "before_blob": "4490ceb83a57cb6480dc7f1427fef49fbea7da15",
-      "after_blob": "dc6c2d5e41839cd47af2f4292fbda9991325f93f",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/css/phone-orders.css",
-      "before_blob": "0bd7329c568b5d038acc7bc46dfc36a94e02c2eb",
-      "after_blob": "73ccb146880447833ae2b1a4ef900e66714e2f24",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/branch-operations.js",
-      "before_blob": "038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c",
-      "after_blob": "a116c94e68f00d08bebf4390dc2c6d14bd063ac1",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/dashboard-inbox.js",
-      "before_blob": "2592cf8e1d5b5fd2f8a8539e60b4d0662564a836",
-      "after_blob": "93c189188b544e34048003aa1b2da187879988ab",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/dashboard-spa.js",
-      "before_blob": "dd699d3dca80ba5a037030213e2345932c2fc064",
-      "after_blob": "28ec997789cfd0da239f69937bcce032eb0e8c88",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/dashboard-support-chat.js",
-      "before_blob": "cb5df0d5c8e10d14d3fa83cb864adc22a0a94579",
-      "after_blob": "b2e2c025c59e77e7753cff6774b2896c9b5af1d4",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/order-board-menu.js",
-      "before_blob": "2d84fcb7fa51e85635d97ba73b974cd9526ab4b6",
-      "after_blob": "f1ebdcbd8b09f48139d5cab454f90e7c8f918daf",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/phone-address-search.js",
-      "before_blob": "4c55ec1f2ff0e4fae4105a96daf5fdc76f440c93",
-      "after_blob": "6419f50e3fa92c4125017a22e6eea7e145a0f1b5",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/phone-orders.js",
-      "before_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
-      "after_blob": "894bcfad23de57c3a4cc4ca373b6a6c6105038bb",
       "phase": 2
     },
     {
@@ -978,6 +978,24 @@
       "path": "resources/lang/en/dashboard_inbox.php",
       "before_blob": "e07f82db98e76a50db69633069f233a5544011ef",
       "after_blob": "f07c12fedba4d04ab23dfb1572a7b5c5b3225f88",
+      "phase": 2
+    },
+    {
+      "path": "routes/admin.php",
+      "before_blob": "a12740d1b701ce8c50fdbebb944265c227e8c3fe",
+      "after_blob": "f2b5c07c638e529937a153a988d67aad10e0bc60",
+      "phase": 2
+    },
+    {
+      "path": "routes/api.php",
+      "before_blob": "7ac6d63fb29701cc6369199854caca0e13ede66b",
+      "after_blob": "ca18b58825b51bb55906a03a708f0f5791448291",
+      "phase": 2
+    },
+    {
+      "path": "routes/desktop_dashboard.php",
+      "before_blob": null,
+      "after_blob": "b65cb4d3b25230b5e0dd8eb025d5e016ede0a208",
       "phase": 2
     },
     {
@@ -1176,24 +1194,6 @@
       "path": "resources/views/admin/users/show.blade.php",
       "before_blob": "fba4ca404df57f92fcb982f1172e083766937042",
       "after_blob": "dc7e20222ceb47fcb5cdb9fe0c452b6b937c7414",
-      "phase": 2
-    },
-    {
-      "path": "routes/admin.php",
-      "before_blob": "a12740d1b701ce8c50fdbebb944265c227e8c3fe",
-      "after_blob": "f2b5c07c638e529937a153a988d67aad10e0bc60",
-      "phase": 2
-    },
-    {
-      "path": "routes/api.php",
-      "before_blob": "7ac6d63fb29701cc6369199854caca0e13ede66b",
-      "after_blob": "ca18b58825b51bb55906a03a708f0f5791448291",
-      "phase": 2
-    },
-    {
-      "path": "routes/desktop_dashboard.php",
-      "before_blob": null,
-      "after_blob": "b65cb4d3b25230b5e0dd8eb025d5e016ede0a208",
       "phase": 2
     }
   ],
