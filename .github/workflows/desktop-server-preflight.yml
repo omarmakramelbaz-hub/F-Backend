@@ -1,0 +1,40 @@
+name: Read-only dashboard server preflight
+on:
+  push:
+    branches: ['codex/dashboard-server-preflight-20261012']
+    paths:
+      - 'deployment/desktop_dashboard_server*'
+      - 'deployment/inspect_desktop_dashboard_server_root.sh'
+      - '.github/workflows/desktop-server-preflight.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Validate PHP metadata readers
+        run: |
+          php -l deployment/desktop_dashboard_server_metadata.php
+          php -l deployment/desktop_dashboard_inspect.php
+          bash -n deployment/inspect_desktop_dashboard_server_root.sh
+      - name: Verify the published preview fingerprint
+        run: |
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('preflight', 'deployment/desktop_dashboard_server_preflight.py')
+          preflight = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(preflight)
+          source = preflight.preview_source(Path.cwd())
+          live = preflight.live_source(Path.cwd())
+          assert preflight.digest(source) == preflight.digest(live)
+          print('VERIFIED_PREVIEW_FINGERPRINT', preflight.digest(live))
+          PY
