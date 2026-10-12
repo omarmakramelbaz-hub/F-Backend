@@ -9,7 +9,15 @@ $remoteEnv=$env;$remoteEnv['DB_DATABASE']=$database;$remoteEnv['DESKTOP_TEST_APP
 $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,__DIR__.'/server-router.php'],[['pipe','r'],['file',$profile.'/remote-attempts.log','a'],['file',$profile.'/remote-attempts.log','a']],$pipes,$application,$remoteEnv);
 $cookies=[];
 $decide=function(array $attempt,string $action='reserve')use($http,$ownerLink){
-    [$status,$body]=$http('/api/desktop-dashboard/remote-attempts',['action'=>$action]+$attempt,['Authorization: Bearer '.$ownerLink['token'],'Accept: application/json']);
+    $values=['action'=>$action]+$attempt;$headers=['Authorization: Bearer '.$ownerLink['token'],'Accept: application/json'];
+    [$status,$body,$responseHeaders]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
+    if($status===429){
+        $retryAfter=[];foreach($responseHeaders as $header)if(preg_match('/^Retry-After:(.*)$/iD',$header,$match))$retryAfter[]=trim($match[1]);
+        if(count($retryAfter)===1&&preg_match('/^(?:[1-9]|[1-5][0-9]|60)$/D',$retryAfter[0])){
+            $seconds=(int)$retryAfter[0];echo 'DESKTOP_NATIVE_API_RATE_WAIT '.json_encode(['seconds'=>$seconds,'retry'=>1]).PHP_EOL;
+            sleep($seconds);[$status,$body]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
+        }
+    }
     return [$status,json_decode($body,true)];
 };
 $proof=fn($reply)=>['X-Fasakhansta-Remote-Attempt: '.$reply['id'],'X-Fasakhansta-Remote-Capability: '.$reply['capability']];
