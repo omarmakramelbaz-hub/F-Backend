@@ -122,7 +122,7 @@ namespace App\Services\Dashboard {
             \abort_unless($fulfillment==='f:301'&&self::isConfiguredOrigin($origin),422,'INVALID_DELIVERY_ORIGIN');
             $m=[null,substr($origin,2)];
             $q=DB::table('resturants')->where('id',(int)$m[1]);if($lock)$q->lockForUpdate();$row=$q->first();
-            \abort_unless($row&&in_array((int)($row->parent_id??0),[0,301],true)&&self::matchesRegisteredName($origin,$row->name)&&$row->control==='show',422,'INVALID_DELIVERY_ORIGIN');
+            \abort_unless($row&&in_array((int)($row->parent_id??0),[0,301],true)&&self::matchesRegisteredName($origin,$row->name),422,'INVALID_DELIVERY_ORIGIN');
             return ['value'=>$origin,'id'=>(int)$row->id,'kind'=>'f','name'=>$row->name,'parent_id'=>$row->parent_id===null?null:(int)$row->parent_id,
                 'latitude'=>(float)$row->lat,'longitude'=>(float)$row->lng,'km_price'=>$row->km_price];
         }
@@ -687,10 +687,10 @@ namespace {
     function originSetup(): void {
         resetFlow();DB::table('resturants')->delete();DB::table('test_branches')->where('id','>=',301)->delete();
         DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:2","f:301","f:309","f:311"]']);
-        DB::table('test_branches')->insert([['id'=>301,'name'=>'فرع شبرا','status'=>'opened'],['id'=>309,'name'=>'المقطم ستور','status'=>'opened'],['id'=>311,'name'=>'التجمع ستور','status'=>'opened']]);
+        DB::table('test_branches')->insert([['id'=>301,'name'=>'فرع شبرا','status'=>'opened'],['id'=>309,'name'=>'المقطم ستور','status'=>'closed'],['id'=>311,'name'=>'التجمع ستور','status'=>'closed']]);
         DB::table('resturants')->insert([['id'=>301,'parent_id'=>null,'name'=>'فرع شبرا','control'=>'show','lat'=>'30.10','lng'=>'31.20','km_price'=>'10.00'],
-            ['id'=>309,'parent_id'=>null,'name'=>'المقطم ستور','control'=>'show','lat'=>'30.01','lng'=>'31.30','km_price'=>'11.00'],
-            ['id'=>311,'parent_id'=>null,'name'=>'التجمع ستور','control'=>'show','lat'=>'30.02','lng'=>'31.50','km_price'=>'12.00']]);
+            ['id'=>309,'parent_id'=>null,'name'=>'المقطم ستور','control'=>'hide','lat'=>'30.01','lng'=>'31.30','km_price'=>'11.00'],
+            ['id'=>311,'parent_id'=>null,'name'=>'التجمع ستور','control'=>'hide','lat'=>'30.02','lng'=>'31.50','km_price'=>'12.00']]);
         app('config')->set('whatsapp_orders.allowed_branch_ids',['1','301']);app('config')->set('whatsapp_orders.mode','auto');
         app('config')->set('whatsapp_cart.branch_aliases',['301'=>['شبرا'],'309'=>['المقطم'],'311'=>['التجمع']]);
     }
@@ -702,8 +702,10 @@ namespace {
         Ai::$data=extractionData();Ai::$data['branch_hint']=$hint;Ai::$data['customer']['area']=$area;return $c;
     }
     originSetup();$c=originThread();$p=$workflow->process();
-    expectFlow($p['dispatched']===1&&$p['errors']===0,'registered Cairo store with live null parent dispatches through Shubra');
+    expectFlow($p['dispatched']===1&&$p['errors']===0,'hidden closed registered Cairo billing origin dispatches through open Shubra');
     expectFlow(DB::table('resturants')->where('id',309)->value('parent_id')===null,'explicit Cairo delivery policy does not rewrite ownership hierarchy');
+    expectFlow(DB::table('resturants')->where('id',309)->value('control')==='hide'
+        &&DB::table('test_branches')->where('id',309)->value('status')==='closed','routing does not change storefront visibility or status');
     $draft=DB::table('whatsapp_order_drafts')->first();$sealed=json_decode(Crypt::decryptString($draft->sealed_payload),true);
     expectFlow($sealed['review']['branch']==='f:301'&&$sealed['review']['delivery_origin_branch']==='f:309','store origin and fulfillment remain separately sealed');
     expectFlow($sealed['delivery']['delivery_origin_branch']==='f:309'&&$sealed['delivery']['fulfillment_branch']==='f:301','delivery quote records the store origin');
@@ -758,12 +760,15 @@ namespace {
     expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'unknown future child301 is not classified as a Cairo origin or fulfillment');
     blocked(fn()=>app(\App\Services\Dashboard\FasakhanstaDeliveryOrigin::class)->check('f:500','f:301',$actor),422,
         'parent301 alone cannot authorize an unknown future origin');
-    originSetup();$c=originThread();DB::table('test_branches')->where('id',309)->update(['status'=>'closed']);$p=$workflow->process();
-    expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='BRANCH_CLOSED'&&DB::table('test_tickets')->count()===0,'closed origin store cannot automatically dispatch');
+    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['control'=>'show']);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['branch']==='f:301'&&Pos::$lastPayload['delivery_origin_branch']==='f:309','closed visible billing origin keeps delivery routing to open Shubra');
     originSetup();$c=originThread();DB::table('test_branches')->where('id',301)->update(['status'=>'closed']);$p=$workflow->process();
     expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='BRANCH_CLOSED'&&DB::table('test_tickets')->count()===0,'closed physical fulfillment branch cannot automatically dispatch');
-    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['control'=>'hide']);$p=$workflow->process();
-    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'hidden live origin fails closed');
+    expectFlow(DB::table('branch_customers')->count()===0&&DB::table('test_print')->count()===0,'closed Shubra creates no customer or print request for a hidden closed origin');
+    originSetup();$c=originThread();DB::table('test_branches')->where('id',309)->update(['status'=>'opened']);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','hidden open billing origin keeps delivery routing to open Shubra');
+    originSetup();$c=originThread();DB::table('test_users')->where('id',7)->update(['can_checkout'=>0]);$p=$workflow->process();
+    expectFlow($p['disabled']===1&&Ai::$calls===0&&DB::table('branch_customers')->count()===0&&DB::table('test_tickets')->count()===0,'hidden closed origin never bypasses physical checkout permission');
     originSetup();$c=originThread();app('config')->set('whatsapp_orders.allowed_branch_ids',['1']);$p=$workflow->process();
     expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'origin route needs authorized allowed Shubra fulfillment');
     originSetup();$c=originThread();DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:301","f:311"]']);$p=$workflow->process();
@@ -771,6 +776,9 @@ namespace {
 
     originSetup();$c=originThread();PhoneDelivery::$callback=function(){DB::table('resturants')->where('id',309)->update(['parent_id'=>94]);};$p=$workflow->process();
     expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'origin parent changing from live null to94 between quote and locked sealing blocks all ERP writes');
+    originSetup();$c=originThread();PhoneDelivery::$callback=function(){DB::table('test_branches')->where('id',301)->update(['status'=>'closed']);};$p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
+        &&DB::table('test_print')->count()===0,'Shubra closing after quote is rechecked before locked automatic dispatch');
     originSetup();$c=originThread();app('config')->set('whatsapp_orders.mode','review');$a=$workflow->analyze($c,$actor);
     $v=reviewData($a['draft']['revision']);$v['branch']='f:301';$v['delivery_origin_branch']='f:309';$v['area']='المقطم';
     $q=$workflow->quote($a['draft']['id'],$v,$actor);$v=$q['draft']['review'];$v['expected_revision']=$q['draft']['revision'];

@@ -334,9 +334,8 @@ class WhatsAppOrderWorkflow
         if (!$this->branchOpen($fulfillment,$reason,$lock)) return null;
         $origin=$resolved['value']!==$branch?$resolved['value']:null;
         if ($origin!==null) {
-            try { $originBranch=app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
+            try { app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
             catch (\Throwable $error) { $reason='BRANCH_UNRESOLVED'; return null; }
-            if (!$this->branchOpen($originBranch,$reason,$lock)) return null;
         }
         $customer=$data['customer']??[];
         foreach (['name','phone','address'] as $k) if (!is_string($customer[$k]??null)||trim($customer[$k])==='') { $reason='REVIEW_REQUIRED'; return null; }
@@ -706,8 +705,7 @@ class WhatsAppOrderWorkflow
     private function deliveryOrigin(array $review,$actor,bool $lock=false): void
     {
         if (!isset($review['delivery_origin_branch'])) return;
-        $origin=app(FasakhanstaDeliveryOrigin::class)->check($review['delivery_origin_branch'],$review['branch'],$actor,$lock);
-        $reason=null; abort_unless($this->branchOpen($origin,$reason,$lock),422,$reason??'BRANCH_POLICY_UNAVAILABLE');
+        app(FasakhanstaDeliveryOrigin::class)->check($review['delivery_origin_branch'],$review['branch'],$actor,$lock);
     }
     private function storedDeliveryOrigin(object $row,array $review): array
     {

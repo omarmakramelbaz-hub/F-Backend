@@ -27,13 +27,13 @@ CONTROLLER_PATH = 'app/Http/Controllers/Dashboard/PhoneOrdersController.php'
 UI_PATH = 'public/dashboard/js/phone-orders.js'
 # Dependency first, workflow last. Target pins are frozen after backend tests pass.
 SOURCE_PINS = {
-    ORIGIN_PATH: (None, 'cdfdf44d5b01db6b9c78bb97b585e2a6463cd137'),
+    ORIGIN_PATH: (None, '1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f'),
     PROTOCOL_PATH: ('7a2f342c86e0838fb920bfdea53d6542b01cd008', 'ecde67c6a87ca8068bb077892fdbea522d89f217'),
     PHONE_PATH: ('cd4f5daddbf1ed462d04f7fa24b4966cb94608c9', '227027cfdcd68720b74220e3ecd0abb9e156a5d7'),
     POS_PATH: ('87b24fb862d5d6fbc4be7a62f437bb50aba03be7', 'ef4c7b6f4a1276c122634aafabb2d510926aaeef'),
     CONTROLLER_PATH: ('f3c5ec3bf1a147fe8e998cff1a9f4d5297cace53', '478776e72edf67d9eaaf00abd49d97a2fa4720c8'),
     UI_PATH: ('9a8e6d959c7bc59766f9b0075f79413e2e2e530d', '66597844cc01d9371b1952f79b22fb1833bf2ac0'),
-    WORKFLOW_PATH: ('76af7b3eb0f5d70ec0c35e524e74ac5cb141b126', '1b9d13a63187fa91db975e597b382fe79a9a5aa8'),
+    WORKFLOW_PATH: ('76af7b3eb0f5d70ec0c35e524e74ac5cb141b126', '6c63b91d7fb70130ae472cea291fa2cee88b27dd'),
 }
 PROTECTED_PATHS = (
     '.env', 'bootstrap/cache/config.php', 'config/whatsapp.php',
@@ -203,7 +203,6 @@ try {
             || $nameKey($row->name)!==$nameKey($expected[$id])) exit(1);
         $seen[$id]=true;
         if ($row->parent_id!==null && !in_array((string)$row->parent_id,['0','301'],true)) exit(1);
-        if (in_array('control',$selected,true) && $row->control!=='show') exit(1);
         if (!is_numeric($row->lat) || !is_numeric($row->lng)
             || abs((float)$row->lat)>90 || abs((float)$row->lng)>180
             || ((float)$row->lat===0.0 && (float)$row->lng===0.0)) exit(1);

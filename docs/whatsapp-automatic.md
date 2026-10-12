@@ -30,7 +30,7 @@ The review screen uses the existing location picker, saved addresses, Photon sug
 
 For a registered Cairo store, `delivery_origin_branch` identifies the store whose saved pin and kilometer rate calculate the store-to-customer route and delivery charge. Fulfillment remains `f:301`: Shubra owns the customer record, product catalog, canonical item pricing, unpaid POS ticket, kitchen receipt and branch print job. The origin and fulfillment identities are stored separately in the canonical delivery snapshot and sealed review. The phone-order map uses the store origin while the ticket remains visible to Shubra staff.
 
-The inspected inventory has null `parent_id` values. This policy does not write ownership links. A registered origin permits a live null, zero or 301 parent; another parent, changed name, hidden or closed origin, invalid pin/rate, closed fulfillment branch or changed quote blocks automatic dispatch. Exact public store names, their approved trailing `ستور`/`استور`/`store` suffix removal, and configured whole-label aliases can resolve an origin. Conflicting or duplicate labels remain for review; addresses are not searched for a nearest store or an inferred geographic match.
+The inspected inventory has null `parent_id` values. This policy does not write ownership links. A registered origin permits a live null, zero or 301 parent; another parent, changed name, invalid pin/rate, closed fulfillment branch or changed quote blocks automatic dispatch. Storefront visibility and open/closed status do not gate a registered virtual store used only as a delivery billing origin, and routing does not change those flags. Shubra's existing access, opening hours and effective availability still govern automatic fulfillment. Exact public store names, their approved trailing `ستور`/`استور`/`store` suffix removal, and configured whole-label aliases can resolve an origin. Conflicting or duplicate labels remain for review; addresses are not searched for a nearest store or an inferred geographic match.
 
 Omitting an origin from a legacy form retains the trusted sealed origin when fulfillment is unchanged. Changing or removing it cannot reuse an existing dispatch confirmation; a new canonical quote and dispatch confirmation are required. Existing ticket corrections retain their saved origin, and dispatch rechecks current origin identity, rate and quote hashes before any ERP write.
 
@@ -98,6 +98,16 @@ The entry point starts the dedicated order timer only after native projection pr
 
 PHP/SQLite fixtures cover grounded extraction, complete cart mapping, canonical pricing, customer revisions, trustworthy pins, activation boundaries, background retries and idempotency. UI fixtures exercise cart escaping and map state invalidation. Python fixtures cover pinned publication, cached and uncached configuration, private backups, guarded rollback, concurrent edits, historical drain and dedicated timer lifecycle.
 
-The frozen extension passed 22 publisher tests, 32 root-wrapper tests, 531 workflow checks, 156 backend delivery/POS/printing checks, 55 phone-order UI checks, 65 Standby parser checks and nine Standby projection/replay checks. Browser launch was blocked by environment `EPERM`; the UI fixtures do not establish live browser/map acceptance.
+The frozen extension passed 22 publisher tests, 36 root-wrapper tests, 541 workflow checks, 212 backend delivery/POS/printing checks, 55 phone-order UI checks, 65 Standby parser checks and nine Standby projection/replay checks. Browser launch was blocked by environment `EPERM`; the UI fixtures do not establish live browser/map acceptance.
+
+The focused POS fixtures use verified copies of the existing access, money and live printing services in `test-fixtures/cairo-pos-core`. From the repository root, run them with:
+
+```sh
+WA_POS_SOURCE_ROOT="$PWD/test-fixtures/cairo-pos-core" \
+WA_POS_PRINTING_SOURCE="$PWD/test-fixtures/cairo-pos-core/app/Services/Dashboard/PosBranchPrinting.php" \
+php tests/whatsapp_cairo_delivery_origin_test.php
+```
+
+Set `WA_INBOX_TEST_VENDOR` when the Laravel test dependencies are installed outside the repository's `vendor` directory.
 
 After enabling, one fresh complete delivery order must still prove live AI extraction, a genuine customer commitment and matching native business confirmation, scoped customer creation, dispatch exactly once to the correct fulfillment branch, the selected store-to-customer delivery origin and the branch print queue. Historical messages, a synthetic customer-only confirmation or an unrelated generic acceptance cannot establish this result. Avoid a `WA-####` test marker in this acceptance order because marked transcripts are classified as tests. A pending print job does not prove that a physical printer completed it. Catalog permissions and mappings remain a separate acceptance item for cart orders. Synthetic AI connectivity proves the model/API schema only. Existing red per-user unread badges and central text/voice reply behavior remain intact.

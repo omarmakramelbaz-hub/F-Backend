@@ -14,12 +14,12 @@ import sys
 import tempfile
 
 APP_ROOT = pathlib.Path('/home/fasakha/public_html')
-APP_BLOB = '8139dd86184a610ae28794ed44fde3fdc0194ba3'
-MANIFEST_BLOB = 'e79f6c292fcdc6e94681e2b04e12efd908f1e206'
+APP_BLOB = 'bf4111db00dbc042c1aa2b23bdb1eb739240e261'
+MANIFEST_BLOB = '5e51cdfd8b922cb00de84df0c33804eb85a7bc22'
 READINESS_CHECKS = (
     'CACHED_CONFIG_PATH', 'MODE', 'PARENT_SCHEMA', 'REGISTRY_SIZE',
     'REQUIRED_COLUMNS', 'REGISTRY_ROW_COUNT', 'REGISTERED_NAME',
-    'REGISTERED_PARENT', 'CONTROL_SHOW', 'ORIGIN_PIN', 'RATE_FORMAT',
+    'REGISTERED_PARENT', 'ORIGIN_PIN', 'RATE_FORMAT',
     'SOURCE_CLASS_PATH', 'TARGET_ORIGIN_CONTRACT', 'TARGET_REGISTERED_ORIGIN',
     'TARGET_UNKNOWN_ORIGIN', 'TARGET_SOURCE_HOOK', 'TARGET_CONTROLLER_PATH',
 )
@@ -87,7 +87,7 @@ $failed=static function($reason,$origin=null)use(&$diagStage){
         raise RuntimeError()
     # Patch the frozen source before adding the callback's own exit statement.
     for reason in READINESS_CHECKS:
-        argument = ',$id' if reason in ('REGISTERED_NAME', 'REGISTERED_PARENT', 'CONTROL_SHOW', 'ORIGIN_PIN', 'RATE_FORMAT') else ''
+        argument = ',$id' if reason in ('REGISTERED_NAME', 'REGISTERED_PARENT', 'ORIGIN_PIN', 'RATE_FORMAT') else ''
         php = php.replace('exit(1);', "$failed('" + reason + "'" + argument + ');', 1)
     php = php.replace('exit(1);', "$failed('READINESS_EXCEPTION');", 1)
     php = php.replace(needle, 'ob_start();\n' + header + 'try {', 1)

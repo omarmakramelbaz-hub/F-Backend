@@ -67,7 +67,6 @@ class FasakhanstaDeliveryOrigin
         $row = $query->first();
         abort_unless($row && in_array((int) ($row->parent_id ?? 0), [0, 301], true)
             && self::matchesRegisteredName($origin, (string) ($row->name ?? '')), 422, 'متجر بداية التوصيل غير مرتبط بفرع التنفيذ.');
-        abort_unless(!$this->access->has('resturants', 'control') || ($row->control ?? null) === 'show', 422, 'متجر بداية التوصيل غير متاح.');
         return ['value' => $origin, 'id' => (int) $row->id, 'kind' => 'f', 'name' => (string) ($row->name ?? ''),
             'label' => (string) ($row->name ?? ''), 'address' => (string) ($row->address ?? ''), 'phone' => (string) ($row->phone ?? ''),
             'latitude' => $row->lat ?? ($row->latitude ?? null), 'longitude' => $row->lng ?? ($row->longitude ?? null),

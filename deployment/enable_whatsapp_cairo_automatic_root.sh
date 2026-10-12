@@ -21,15 +21,15 @@ LEGACY_NAME='enable_whatsapp_automatic_root.sh'
 LEGACY_BLOB='d30c13bd13ca73e5aad54f558a259e18fb95147f'
 APP_NAME='apply_whatsapp_cairo_origins.py'
 MANIFEST_NAME='whatsapp_cairo_origins_manifest.json'
-EXTRA_PINS={LEGACY_NAME:LEGACY_BLOB,APP_NAME:'8139dd86184a610ae28794ed44fde3fdc0194ba3',MANIFEST_NAME:'e79f6c292fcdc6e94681e2b04e12efd908f1e206'}
+EXTRA_PINS={LEGACY_NAME:LEGACY_BLOB,APP_NAME:'bf4111db00dbc042c1aa2b23bdb1eb739240e261',MANIFEST_NAME:'5e51cdfd8b922cb00de84df0c33804eb85a7bc22'}
 TARGET_PINS={
 'app/Support/WhatsAppInboxProtocol.php':'ecde67c6a87ca8068bb077892fdbea522d89f217',
-'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php':'cdfdf44d5b01db6b9c78bb97b585e2a6463cd137',
+'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php':'1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f',
 'app/Services/Dashboard/PhoneDelivery.php':'227027cfdcd68720b74220e3ecd0abb9e156a5d7',
 'app/Services/Dashboard/PosServiceTicket.php':'ef4c7b6f4a1276c122634aafabb2d510926aaeef',
 'app/Http/Controllers/Dashboard/PhoneOrdersController.php':'478776e72edf67d9eaaf00abd49d97a2fa4720c8',
 'public/dashboard/js/phone-orders.js':'66597844cc01d9371b1952f79b22fb1833bf2ac0',
-'app/Services/Dashboard/WhatsAppOrderWorkflow.php':'1b9d13a63187fa91db975e597b382fe79a9a5aa8',
+'app/Services/Dashboard/WhatsAppOrderWorkflow.php':'6c63b91d7fb70130ae472cea291fa2cee88b27dd',
 }
 HELPER_PINS={
 'activate_whatsapp_automatic.py':'008fff7a56e4c9d2ff849df6f653dfb6b6427371',
@@ -257,6 +257,32 @@ def backup_path(output,kind):
     found=re.findall(rb'BACKUP=(/home/fasakha/whatsapp-release-backups/'+kind+rb'-[A-Za-z0-9_-]+)',output)
     return found[0].decode('ascii')if len(set(found))==1 else None
 
+def app_failure_status(output,app):
+    if not isinstance(output,bytes)or not output or len(output)>4096:return 'UNRECOGNIZED'
+    try:value=output.rstrip(b'\r\n').decode('ascii')
+    except UnicodeError:return 'UNRECOGNIZED'
+    fixed=frozenset(('CAIRO_BASE_HELPER_VERIFICATION_FAILED','CAIRO_INSTALL_STOPPED_WITHOUT_SECRET_OUTPUT',
+    'USAGE_RUN_AS_FASAKHA_ROOT_MANIFEST_MANIFEST_BLOB','CAIRO_INSTALL_INTERRUPTED',
+    'CAIRO_MANIFEST_ARGUMENT_INVALID','CAIRO_MANIFEST_HASH_MISMATCH','CAIRO_MANIFEST_SCOPE_INVALID',
+    'CAIRO_PAYLOAD_REQUIRES_PRIVATE_EXTERNAL_DIRECTORY','CAIRO_INSTALL_LOCK_UNSAFE',
+    'CAIRO_ANOTHER_INSTALL_OR_CONFIGURATION_RUNNING','CAIRO_BACKUP_REQUIRES_SAME_FILESYSTEM',
+    'CAIRO_READ_ONLY_READINESS_FAILED','CAIRO_EFFECTIVE_CONFIGURATION_CHANGED',
+    'PROJECT_ROOT_OWNER_OR_TYPE_NEEDS_REVIEW','GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'PRIVATE_BACKUP_DIRECTORY_NEEDS_REVIEW','PROJECT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'ATOMIC_RENAME_UNAVAILABLE','ATOMIC_RENAME_FAILED','ATOMIC_EXCHANGE_CHECK_FAILED',
+    'FILE_CHANGED_CONCURRENTLY','FILE_CHANGED_DURING_ATOMIC_EXCHANGE',*SNAPSHOT_REASONS))
+    if value in fixed:return value
+    paths=set(app.SOURCE_PINS)|set(app.PROTECTED_PATHS)|set(app.PROTECTED_BLOBS)
+    for prefix in('CAIRO_PAYLOAD_HASH_MISMATCH: ','CAIRO_REQUIRED_SOURCE_MISSING: ',
+    'CAIRO_LIVE_HASH_NEEDS_REVIEW: ','CAIRO_PROTECTED_SOURCE_PROFILE_CHANGED: ',
+    'CAIRO_PROTECTED_FILE_CHANGED: ','CAIRO_SOURCE_CHANGED_CONCURRENTLY: ',
+    'CAIRO_CANDIDATE_LINT_OR_STAGING_FAILED: '):
+        if value.startswith(prefix)and value[len(prefix):]in paths:return value
+    prefix='CAIRO_WORKERS_MUST_BE_PAUSED_AND_QUIESCENT: '
+    if value.startswith(prefix)and value[len(prefix):]in app.QUIET_UNITS:return value
+    if re.fullmatch(r'CAIRO_(?:ORIGIN_FILES_RESTORED|ROLLBACK_STOPPED_CONCURRENT_FILES_RETAINED); BACKUP=/home/fasakha/whatsapp-release-backups/cairo-origins-[A-Za-z0-9_-]+',value):return value
+    return 'UNRECOGNIZED'
+
 def orchestrate(payload,uid,runner=None,validate=None,root=ROOT,legacy=None,app=None,enable=False):
     set_stage('PAYLOAD_VERIFICATION');verify_payload(payload)
     set_stage('LEGACY_LOAD');legacy=legacy or load_legacy(payload)
@@ -294,7 +320,7 @@ def orchestrate(payload,uid,runner=None,validate=None,root=ROOT,legacy=None,app=
         verify_payload(payload)
         code,output=runner([RUNUSER,'-u','fasakha','--','/usr/bin/python3','-B',str(helpers/APP_NAME),'--root',str(ROOT),'--manifest',str(helpers/MANIFEST_NAME),'--manifest-blob',EXTRA_PINS[MANIFEST_NAME]],timeout=300)
         app_backup=backup_path(output,b'cairo-origins')
-        if code!=0 or not output.startswith(b'WHATSAPP_CAIRO_DELIVERY_ORIGINS_READY\n')or app_backup is None:raise SafeError('CAIRO_APP_PUBLICATION_FAILED')
+        if code!=0 or not output.startswith(b'WHATSAPP_CAIRO_DELIVERY_ORIGINS_READY\n')or app_backup is None:raise SafeError('CAIRO_APP_PUBLICATION_FAILED; APP_STATUS='+app_failure_status(output,app))
         published=True
         if mode(runner,enable)!=initial:raise SafeError('CAIRO_CONFIGURATION_CHANGED_DURING_APP_PUBLICATION')
         after=profiles(root,uid,app,legacy,initial['mode'],target=True);protected={path:value for path,value in baseline.items()if path not in TARGET_PINS}

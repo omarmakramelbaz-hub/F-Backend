@@ -56,25 +56,32 @@ $app->booted(static function(){
   if($scenario!=='parent_schema')$t->integer('parent_id')->nullable();
   $t->string('lat');$t->string('lng');
   if($scenario!=='required_column')$t->string('km_price');
-  $t->string('control');
+  $t->string('control');$t->string('status');
  });
  $expected=json_decode(file_get_contents(getenv('WA_CAIRO_REGISTRY')),true,4,JSON_THROW_ON_ERROR);
  foreach($expected as$id=>$name){
   if($scenario==='row_count'&&(int)$id===309)continue;
-  $row=['id'=>(int)$id,'name'=>$name,'lat'=>'30.1111','lng'=>'31.2222','control'=>'show'];
+  $row=['id'=>(int)$id,'name'=>$name,'lat'=>'30.1111','lng'=>'31.2222',
+   'control'=>$scenario==='billing_origins'?'hide':'show','status'=>$scenario==='billing_origins'?'closed':'open'];
   if($scenario!=='parent_schema')$row['parent_id']=null;
   if($scenario!=='required_column')$row['km_price']='10.00';
   if((int)$id===309){
    if($scenario==='name')$row['name']='Wrong registered store';
    if($scenario==='parent')$row['parent_id']=94;
-   if($scenario==='control')$row['control']='hide';
    if($scenario==='coordinates')$row['lat']='91';
    if($scenario==='rate')$row['km_price']='10.123';
   }
   DB::table('resturants')->insert($row);
  }
+ if($scenario==='billing_origins'&&DB::table('resturants')->where('control','hide')->where('status','closed')->count()!==27)
+  throw new RuntimeException('ALL_27_HIDDEN_CLOSED_ORIGINS_REQUIRED');
+ $visibility=DB::table('resturants')->orderBy('id')->get(['id','control','status'])->toJson();
  $connection=DB::connection();$connection->enableQueryLog();
- register_shutdown_function(static function()use($connection){foreach($connection->getQueryLog()as$q){
+ register_shutdown_function(static function()use($connection,$visibility){
+  if(DB::table('resturants')->orderBy('id')->get(['id','control','status'])->toJson()!==$visibility){
+   fwrite(STDERR,"READINESS_CHANGED_PUBLIC_SETTINGS\n");exit(79);
+  }
+  foreach($connection->getQueryLog()as$q){
   if(!preg_match('/\A\s*(select\b|pragma\b)/i',$q['query'])){
    fwrite(STDERR,"READINESS_WROTE_DATABASE\n");exit(78);
   }
@@ -125,9 +132,18 @@ return $app;
                 self.assertEqual(json.loads(result.stdout),
                     {'status': 'FAILED', 'stage': stage, 'reason': reason, 'origin_id': None})
 
+    def test_real_readiness_accepts_all_27_hidden_closed_billing_origins_and_preserves_public_settings(self):
+        result = self.php_fixture('billing_origins')
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stderr, b'')
+        value = json.loads(result.stdout)
+        self.assertEqual(set(value), {'mode', 'config_fingerprint'})
+        self.assertEqual(value['mode'], 'review')
+        self.assertRegex(value['config_fingerprint'], r'\A[a-f0-9]{64}\Z')
+
     def test_real_registry_failures_only_report_the_fixed_origin_id(self):
         for scenario, reason in (('name', 'REGISTERED_NAME'), ('parent', 'REGISTERED_PARENT'),
-                ('control', 'CONTROL_SHOW'), ('coordinates', 'ORIGIN_PIN'), ('rate', 'RATE_FORMAT')):
+                ('coordinates', 'ORIGIN_PIN'), ('rate', 'RATE_FORMAT')):
             with self.subTest(scenario=scenario):
                 result = self.php_fixture(scenario)
                 self.assertEqual(result.returncode, 1, result.stderr.decode())

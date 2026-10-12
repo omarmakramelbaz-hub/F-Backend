@@ -15,10 +15,10 @@ import tempfile
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 RUNUSER='/usr/sbin/runuser'
-WRAPPER_BLOB='2e2d399eac9c05999971d21c89a225f756814b8d'
+WRAPPER_BLOB='6c0bdcb9a5e749a70c47665248c3096a07f84961'
 LEGACY_BLOB='d30c13bd13ca73e5aad54f558a259e18fb95147f'
 DIAGNOSTIC='diagnose_whatsapp_cairo_install.py'
-DIAGNOSTIC_BLOB='c5e942ad8b01256056cce0cfdd7c79a655b57466'
+DIAGNOSTIC_BLOB='6a48276e4302b5204ff3f238d96f73e11678cb78'
 STAGE='ARGUMENTS'
 class SafeError(Exception):pass
 

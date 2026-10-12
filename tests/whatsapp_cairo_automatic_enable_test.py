@@ -66,6 +66,7 @@ class CairoEnableTests(unittest.TestCase):
             SOURCE_PINS=source_pins, PROTECTED_PATHS=APP.PROTECTED_PATHS, SafeError=APP.SafeError,
             PROTECTED_BLOBS={r: NS['blob'](self.protected[r]) for r in APP.PROTECTED_BLOBS},
             LEGACY_READ_ONLY_MODELS=APP.LEGACY_READ_ONLY_MODELS,
+            QUIET_UNITS=APP.QUIET_UNITS,
             guarded_snapshot=APP.guarded_snapshot, blob=APP.blob,
             assert_workers_quiet=APP.assert_workers_quiet)
         self.mode = 'review'; self.fingerprint = 'a' * 64; self.fault = None; self.log = []; self.proof_count = 0
@@ -125,6 +126,7 @@ class CairoEnableTests(unittest.TestCase):
             if self.fault == 'foreign_legacy':
                 self.fault = None
                 raise self.legacy['SafeError']('UNTRUSTED_PRIVATE_CHILD_RESPONSE_MUST_NOT_APPEAR')
+            if self.fault == 'app_status': return 1, b'GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW\n'
             if self.fault == 'app': return 1, b'private-child-error'
             for relative, data in self.targets.items(): self.write(self.root / relative, data)
             if self.fault == 'protected': self.write(self.root / 'public/js/dashboard-whatsapp-inbox.js', b'concurrent-feed-edit')
@@ -257,6 +259,16 @@ class CairoEnableTests(unittest.TestCase):
         self.fault = 'foreign_legacy'
         with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_VERIFIED_LEGACY_OPERATION_FAILED.*ORDERS_DISABLED_CAPTURE_ACTIVE') as caught: self.run_wrapper()
         self.assertNotIn('UNTRUSTED_PRIVATE', str(caught.exception)); self.assert_capture_available()
+
+    def test_known_child_failure_is_reported_without_changing_recovery_behavior(self):
+        self.fault = 'app_status'
+        with self.assertRaisesRegex(NS['SafeError'], 'APP_PUBLICATION_FAILED; APP_STATUS=GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW.*ORDERS_DISABLED_CAPTURE_ACTIVE'): self.run_wrapper(enable=False)
+        self.assert_capture_available()
+
+    def test_private_child_failure_becomes_unrecognized_without_leaking_output(self):
+        self.fault = 'app'
+        with self.assertRaisesRegex(NS['SafeError'], 'APP_PUBLICATION_FAILED; APP_STATUS=UNRECOGNIZED.*ORDERS_DISABLED_CAPTURE_ACTIVE') as caught: self.run_wrapper(enable=False)
+        self.assertNotIn('private-child-error', str(caught.exception)); self.assert_capture_available()
 
     def test_review_orders_ai_pause_app_activation_start_and_boot_handoff(self):
         self.assertEqual(self.run_wrapper(), ('WHATSAPP_CAIRO_AUTOMATIC_ENABLED', self.app_backup, self.config_backup))
@@ -440,6 +452,25 @@ class ProductionPinTests(unittest.TestCase):
             invalid = dict(valid); invalid[key] = bad
             with self.subTest(key=key, bad=bad), self.assertRaisesRegex(NS['SafeError'], 'NATIVE_STANDBY_PROJECTION_PROOF_REQUIRED'):
                 NS['native_proof'](lambda args: (0, json.dumps(invalid).encode()))
+
+    def test_child_failure_extraction_accepts_only_fixed_guards_known_paths_units_or_backup(self):
+        allowed = ['GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW', 'CAIRO_READ_ONLY_READINESS_FAILED',
+            'CAIRO_CANDIDATE_LINT_OR_STAGING_FAILED: ' + APP.UI_PATH,
+            'CAIRO_PROTECTED_FILE_CHANGED: .env',
+            'CAIRO_WORKERS_MUST_BE_PAUSED_AND_QUIESCENT: ' + APP.QUIET_UNITS[0],
+            'CAIRO_ORIGIN_FILES_RESTORED; BACKUP=/home/fasakha/whatsapp-release-backups/cairo-origins-safe123']
+        for value in allowed:
+            with self.subTest(value=value): self.assertEqual(NS['app_failure_status']((value + '\n').encode(), APP), value)
+
+    def test_child_failure_extraction_rejects_unknown_multiline_oversized_or_private_reports(self):
+        disallowed = [b'', None, 'GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW', b'x' * 4097,
+            b'CAIRO_READ_ONLY_READINESS_FAILED\nPRIVATE_RESPONSE', b'PRIVATE_RESPONSE', b'\xff',
+            b'CAIRO_PROTECTED_FILE_CHANGED: /home/fasakha/private-token.json',
+            b'CAIRO_WORKERS_MUST_BE_PAUSED_AND_QUIESCENT: unrelated.service',
+            b'CAIRO_ORIGIN_FILES_RESTORED; BACKUP=/etc/private',
+            b'CAIRO_ORIGIN_FILES_RESTORED; BACKUP=/home/fasakha/whatsapp-release-backups/cairo-origins-../../private']
+        for value in disallowed:
+            with self.subTest(value=value): self.assertEqual(NS['app_failure_status'](value, APP), 'UNRECOGNIZED')
 
 
 class NativeSqliteGateTests(unittest.TestCase):
