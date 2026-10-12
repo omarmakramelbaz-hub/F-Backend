@@ -17,7 +17,7 @@
     const paths = node => Array.from(node.querySelectorAll('a[href]')).filter(link => !link.getAttribute('href').startsWith('#')).map(link => {
         try { return new URL(link.href, location.href).pathname; } catch (error) { return ''; }
     });
-    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|meta|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
     // Move only links rendered by the server's existing access checks.
     function placeShortcut(route, afterRoute) {
         const find = value => rootNodes.find(node => paths(node).some(path => path.replace(/\/$/, '') === '/admin/' + value));
@@ -26,6 +26,7 @@
         if (shortcut && anchor) anchor.after(shortcut);
     }
     placeShortcut('whatsapp', 'dashboard');
+    placeShortcut('meta', 'whatsapp');
     placeShortcut('desktop-pos', 'go-stores');
     function section(node) {
         const routes = paths(node).join(' ');

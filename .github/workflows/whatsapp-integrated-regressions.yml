@@ -11,6 +11,7 @@ on:
       - 'config/whatsapp*'
       - 'routes/whatsapp*'
       - 'public/js/dashboard-whatsapp*.js'
+      - 'resources/views/admin/whatsapp/**'
       - 'tests/whatsapp*.php'
       - 'tests/whatsapp*.js'
       - '.github/workflows/whatsapp-integrated-regressions.yml'
@@ -31,6 +32,7 @@ jobs:
         run: |
           node tests/whatsapp_inbox_ui_test.js
           node tests/whatsapp_inbox_live_test.js
+          node tests/whatsapp_inbox_spa_mount_test.js
           node tests/whatsapp_replies_ui_test.js
           node tests/whatsapp_accepted_reply_feed_test.js
 

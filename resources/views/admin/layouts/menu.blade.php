@@ -100,6 +100,7 @@
                 <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
                 @endif
                 @include('admin.whatsapp.sidebar')
+                @include('admin.meta.sidebar')
 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
                     <li class="nav-item">

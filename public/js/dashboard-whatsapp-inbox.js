@@ -800,6 +800,7 @@
         function loadReplyHistory(mode) {
             if (!config.reply_history_base_url || !chosen || selectedChannel !== 'whatsapp' || closed || denied || document.hidden || navigator.onLine === false) return Promise.resolve();
             if (historyJob) return historyJob;
+            if (mode === 'recent' && !apiHistoryStarted) mode = 'initial';
             if (mode === 'older' && (!apiHistoryStarted || !apiHistoryBefore)) return Promise.resolve();
             if (mode === 'initial' && apiHistoryStarted) return Promise.resolve();
             var selection = chosen, current = generation, epoch = historyEpoch, before = mode === 'older' ? apiHistoryBefore : null;
@@ -814,7 +815,9 @@
                 (data.hidden_reply_ids || []).forEach(function (id) { if (known.indexOf(id) !== -1) removeReply(id); });
                 data.replies.forEach(function (reply) { var stored = normalizedReply(reply); if (stored) { var key = 'api-reply:' + stored.id; apiHistoryKeys.add(key); apiReplyMap.set(key, stored); } });
                 apiHistoryStarted = true;
-                apiHistoryBefore = data.has_more === true && Number.isSafeInteger(data.next_before_reply_id) && data.next_before_reply_id > 0
+                // A fresh receipt can arrive from another operator without a native echo.
+                // Poll its newest page while retaining the separately paged history cursor.
+                if (mode !== 'recent') apiHistoryBefore = data.has_more === true && Number.isSafeInteger(data.next_before_reply_id) && data.next_before_reply_id > 0
                     && (!before || data.next_before_reply_id < before) ? data.next_before_reply_id : null;
                 renderMessages(mode === 'older', mode !== 'older' && bottom);
             }).finally(function () {
@@ -958,7 +961,7 @@
             if (pollBusy) { pollAgain = true; return; }
             if (closed || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
             pollBusy = true; refresh.disabled = true;
-            Promise.all([loadThreads(false), loadMessages(chosen && messageStarted ? 'newer' : 'initial'), loadReplyHistory('initial')])
+            Promise.all([loadThreads(false), loadMessages(chosen && messageStarted ? 'newer' : 'initial'), loadReplyHistory('recent')])
                 .then(loadVisibleUpdates).then(loadUnread).then(success).catch(unavailable)
                 .finally(function () {
                     pollBusy = false; if (!closed) refresh.disabled = false;

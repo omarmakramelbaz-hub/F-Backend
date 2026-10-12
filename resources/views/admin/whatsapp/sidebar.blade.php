@@ -7,4 +7,3 @@
 </li>
 @endif
 
-@include('admin.meta.sidebar')

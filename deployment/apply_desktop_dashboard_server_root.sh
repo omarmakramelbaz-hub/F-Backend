@@ -9,8 +9,7 @@ ALTERNATIVE_MANIFEST='deployment/desktop_dashboard_server_manifest_attachments.j
 APP='deployment/apply_desktop_dashboard_server.py'
 # Filled from the final reviewed payload by pin_desktop_dashboard_installer.py.
 HELPER_PINS = {
-    'deployment/desktop_dashboard_server_manifest_attachments.json': 'a5e4af59de8141d0bb1a616fda063a609c869b91',
-    'deployment/desktop_dashboard_server_manifest.json': 'd5004affa55123f35eedc64411ca663e308d5e3a',
+    'deployment/desktop_dashboard_server_manifest.json': '08e935e2173efd79c8ee3d555d6c2c7cb0f09b5c',
     'deployment/apply_desktop_dashboard_server.py': 'a3e3af323b7d844a317e110ff680478f7fb471c0',
     'deployment/desktop_dashboard_release.php': '1843b8aa98320609af84410016bc8be5cf35d417',
     'deployment/install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
@@ -18,6 +17,10 @@ HELPER_PINS = {
 class SafeError(Exception):pass
 
 def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+
+def failure_status(failure):
+    if failure=='DESKTOP_NO_APPROVED_BASELINE_MATCHES':return 'DESKTOP_ROOT_PRECHECK_FAILED_NO_APPLICATION_CHANGES'
+    return 'DESKTOP_ROOT_INSTALL_FAILED_REVIEW_PRIVATE_BACKUPS'
 
 def command(args,timeout=120):
     process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
@@ -121,7 +124,7 @@ def main():
                 print(failure,file=sys.stderr)
             elif re.fullmatch(r'DESKTOP_[A-Z_]+(?:; STAGE=[A-Z_]+)?',failure):
                 print(failure,file=sys.stderr)
-            raise SafeError('DESKTOP_ROOT_INSTALL_FAILED_REVIEW_PRIVATE_BACKUPS')
+            raise SafeError(failure_status(failure))
         for row in rows:print(row)
         return 0
     except SafeError as error:print(str(error),file=sys.stderr)

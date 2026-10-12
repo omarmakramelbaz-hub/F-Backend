@@ -364,6 +364,12 @@ class PairedRootStagingTests(unittest.TestCase):
             and isinstance(node.value.func,ast.Attribute)and node.value.func.attr=='exit')]
         namespace={'__name__':'verified_root_staging_test'};exec(compile(tree,'verified-root-staging','exec'),namespace)
         return namespace
+    def test_only_exact_preselection_failure_claims_no_application_changes(self):
+        status=self.loader()['failure_status']
+        self.assertEqual(status('DESKTOP_NO_APPROVED_BASELINE_MATCHES'),'DESKTOP_ROOT_PRECHECK_FAILED_NO_APPLICATION_CHANGES')
+        for failure in ('DESKTOP_BEFORE_SOURCE_MISMATCH','DESKTOP_PRIVATE_CHECK_FAILED',
+                        'DESKTOP_NO_APPROVED_BASELINE_MATCHES; STAGE=ACTIVATION','untrusted private output'):
+            self.assertEqual(status(failure),'DESKTOP_ROOT_INSTALL_FAILED_REVIEW_PRIVATE_BACKUPS')
     def test_union_payload_stages_both_manifests_and_shared_target_once(self):
         ns=self.loader();folder=Path(tempfile.mkdtemp(prefix='desktop-root-paired-stage-'))
         try:
