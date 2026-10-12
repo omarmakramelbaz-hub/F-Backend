@@ -1,7 +1,7 @@
 @extends('admin.index')
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-inbox.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-inbox.css')) }}">
-<link rel="stylesheet" href="{{ asset('css/dashboard-meta-orders.css') }}?v={{ filemtime(public_path('css/dashboard-meta-orders.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-orders.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-orders.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-replies.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-replies.css')) }}">
 @endpush
 @section('content')
@@ -44,6 +44,6 @@ $waInboxBootstrap = array_merge($waInbox, ['unread_url'=>url('/admin/meta/unread
 @endphp
 <script type="application/json" id="whatsapp-inbox-bootstrap">@json($waInboxBootstrap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
 <script src="{{ asset('js/dashboard-whatsapp-inbox.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-inbox.js')) }}"></script>
-<script src="{{ asset('js/dashboard-meta-orders.js') }}?v={{ filemtime(public_path('js/dashboard-meta-orders.js')) }}"></script>
+<script src="{{ asset('js/dashboard-whatsapp-orders.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-orders.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-replies.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-replies.js')) }}"></script>
 @endpush
