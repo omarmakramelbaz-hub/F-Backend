@@ -50,6 +50,19 @@ use Illuminate\Support\Str;
     $pngA=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=',true);
     $pngB=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZFXsAAAAASUVORK5CYII=',true);
     $sourcesIntact=function()use(&$sourceFiles){foreach($sourceFiles as $filename=>$bytes)if(!is_file($filename)||file_get_contents($filename)!==$bytes)return false;return true;};
+    $logOffset=function()use($profile){$file=$profile.'/logs/laravel.log';clearstatcache(true,$file);return is_file($file)?filesize($file):0;};
+    $logDelta=function(int $offset)use($profile){$file=$profile.'/logs/laravel.log';if(!is_file($file))return '';$stream=fopen($file,'rb');if(!$stream)return '';
+        try{fseek($stream,$offset);return (string)stream_get_contents($stream,12288);}finally{fclose($stream);}};
+    $reportFailure=function(string $stage,array $reply,array $context,string $delta,array $capabilities=[])use($serverCsrf,$profile,&$cookies){
+        $secrets=array_filter([$serverCsrf[1],...$capabilities,getenv('DESKTOP_DASHBOARD_TOKEN'),getenv('DESKTOP_DASHBOARD_CONTROL_TOKEN'),getenv('APP_KEY'),...array_values($cookies)],fn($value)=>is_string($value)&&$value!=='');
+        $redact=function(string $value)use($secrets){return preg_replace('/\b[a-f0-9]{64}\b/i','[redacted64hex]',str_replace($secrets,'[redacted]',$value));};
+        $tail=function(string $file,int $limit)use($redact){if(!is_file($file))return null;$stream=fopen($file,'rb');if(!$stream)return null;
+            try{clearstatcache(true,$file);fseek($stream,max(0,filesize($file)-$limit));return $redact((string)stream_get_contents($stream,$limit));}finally{fclose($stream);}};
+        echo 'RESTAURANT_MENU_COPY_NATIVE_FAILURE '.json_encode(['stage'=>$stage,'httpStatus'=>$reply[0],
+            'locations'=>array_values(array_filter($reply[2],fn($header)=>str_starts_with(strtolower($header),'location:'))),...$context,
+            'replyBody'=>$redact(substr((string)$reply[1],0,4096)),'laravelLogDelta'=>$redact($delta),'laravelLogTail'=>$tail($profile.'/logs/laravel.log',12288),
+            'serverLogTail'=>$tail($profile.'/remote-attempts.log',4096)],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE).PHP_EOL;
+    };
     try{
         DB::table('users')->where('id',1)->update(['account_type'=>'resturant_owner','owner_resturant_id'=>101]);
         DB::table('resturants')->where('id',100)->update(['parent_id'=>101]);DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['branches'=>json_encode(['f:100','f:101'])]);
@@ -82,28 +95,40 @@ use Illuminate\Support\Str;
         $secondImage=$reserve();[$status,$secondReady]=$decide($secondImage);verify($status===200&&$secondReady['status']==='ready','native reservation accepts only the original parent-menu POST');
         $secondName=$sourceMedia[4]['file_name'];$quoted=DB::connection()->getPdo()->quote($secondName);
         DB::unprepared("CREATE TRIGGER reject_native_menu_second_image BEFORE INSERT ON media FOR EACH ROW BEGIN IF NEW.file_name=".$quoted." THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture native second copied image failure'; END IF; END");
-        try{verify($request($failureForm,$proof($secondReady))[0]===500&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia&&$sourcesIntact()
-            &&DB::table('desktop_dashboard_remote_attempts')->where('id',$secondImage['id'])->value('status')==='ready',
-            'failure on the second original copied image rolls back every clone/media row and preserves all source image bytes');}
+        try{$offset=$logOffset();$reply=$request($failureForm,$proof($secondReady));$delta=$logDelta($offset);$marker='fixture native second copied image failure';
+            $complete=$reply[0]===500&&str_contains($delta,$marker)&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia&&$sourcesIntact()
+                &&DB::table('desktop_dashboard_remote_attempts')->where('id',$secondImage['id'])->value('status')==='ready';
+            if(!$complete)$reportFailure('forced-second-image',$reply,['expectedExceptionMarker'=>$marker,'exceptionMarkerObserved'=>str_contains($delta,$marker),
+                'targetRowsRestored'=>$targetRows()===$beforeRows,'targetMediaRestored'=>$targetMedia()===$beforeMedia,'sourceBytesPreserved'=>$sourcesIntact()],$delta,[$secondReady['capability']??'']);
+            verify($complete,'failure on the second original copied image rolls back every clone/media row and preserves all source image bytes');}
         finally{DB::unprepared('DROP TRIGGER reject_native_menu_second_image');}
         verify($decide($secondImage,'settle')[1]['status']==='cancelled','a fully rolled-back copied-image batch can be terminally cancelled');
         $outer=$reserve();[, $outerReady]=$decide($outer);$failureForm['_desktop_command']=$uuid();
         DB::unprepared("CREATE TRIGGER reject_native_menu_outcome BEFORE UPDATE ON desktop_dashboard_remote_attempts FOR EACH ROW BEGIN IF NEW.operation_id='".$failureForm['_desktop_command']."' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture native menu outcome failure'; END IF; END");
-        try{verify($request($failureForm,$proof($outerReady))[0]===500&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia&&$sourcesIntact()
-            &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('status')==='ready'
-            &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('response_cipher')===null,
-            'failure saving the outer native outcome rolls back the complete original copy batch without damaging its source files');}
+        try{$offset=$logOffset();$reply=$request($failureForm,$proof($outerReady));$delta=$logDelta($offset);$marker='fixture native menu outcome failure';
+            $complete=$reply[0]===500&&str_contains($delta,$marker)&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia&&$sourcesIntact()
+                &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('status')==='ready'
+                &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('response_cipher')===null;
+            if(!$complete)$reportFailure('forced-outer-outcome',$reply,['expectedExceptionMarker'=>$marker,'exceptionMarkerObserved'=>str_contains($delta,$marker),
+                'targetRowsRestored'=>$targetRows()===$beforeRows,'targetMediaRestored'=>$targetMedia()===$beforeMedia,'sourceBytesPreserved'=>$sourcesIntact()],$delta,[$outerReady['capability']??'']);
+            verify($complete,'failure saving the outer native outcome rolls back the complete original copy batch without damaging its source files');}
         finally{DB::unprepared('DROP TRIGGER reject_native_menu_outcome');}
         verify($decide($outer,'settle')[1]['status']==='cancelled','native recovery cancels an original copy whose outer outcome never committed');
         $late=$reserve();[, $lateReady]=$decide($late);verify($decide($late,'settle')[1]['status']==='cancelled','native recovery terminally cancels a copy form that never arrived');
         $failureForm['_desktop_command']=$uuid();verify($request($failureForm,[...$proof($lateReady),'Accept: application/json'])[0]===409&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia,
             'a delayed genuine original multipart copy cannot write after terminal cancellation');
         $selection=[$sourceIds[0],$sourceIds[1],$sourceIds[2],$sourceIds[1],$sourceIds[3]];
-        $form=['_token'=>$serverCsrf[1],'resturant_id'=>'100','restraunt_product'=>array_map('strval',$selection),'_desktop_command'=>$uuid()];$copy=$reserve();[, $ready]=$decide($copy);
-        [$status,$body,$headers]=$request($form,$proof($ready));$afterRows=$targetRows();$afterMedia=$targetMedia();
+        $form=['_token'=>$serverCsrf[1],'resturant_id'=>'100','restraunt_product'=>array_map('strval',$selection),'_desktop_command'=>$uuid()];$copy=$reserve();[$reserveStatus, $ready]=$decide($copy);
+        $offset=$logOffset();[$status,$body,$headers]=$request($form,$proof($ready));$delta=$logDelta($offset);$afterRows=$targetRows();$afterMedia=$targetMedia();
         $created=array_values(array_diff(array_column($afterRows,'id'),array_column($beforeRows,'id')));$newMedia=array_values(array_diff(array_column($afterMedia,'id'),array_column($beforeMedia,'id')));
-        verify($status===302&&in_array('Location: '.$origin.'/admin/resturants/100?'.$query,$headers,true)&&count($created)===4&&count($newMedia)===3
-            &&$decide($copy,'settle')[1]['status']==='committed','the native original checkbox batch commits four clones and three complete images with its exact original redirect');
+        $storedBeforeSettle=DB::table('desktop_dashboard_remote_attempts')->where('id',$copy['id'])->value('status');[$settleStatus,$settled]=$decide($copy,'settle');
+        $complete=$status===302&&in_array('Location: '.$origin.'/admin/resturants/100?'.$query,$headers,true)&&count($created)===4&&count($newMedia)===3&&($settled['status']??null)==='committed';
+        if(!$complete)$reportFailure('original-success-batch',[$status,$body,$headers],['reserveHttpStatus'=>$reserveStatus,'reserveStatus'=>$ready['status']??null,
+                'expectedLocation'=>'Location: '.$origin.'/admin/resturants/100?'.$query,
+                'createdProductCount'=>count($created),'createdProductIds'=>$created,'newMediaCount'=>count($newMedia),'newMediaIds'=>$newMedia,
+                'targetProductCountBefore'=>count($beforeRows),'targetProductCountAfter'=>count($afterRows),'targetMediaCountBefore'=>count($beforeMedia),'targetMediaCountAfter'=>count($afterMedia),
+                'storedAttemptStatusBeforeSettle'=>$storedBeforeSettle,'settleHttpStatus'=>$settleStatus,'settleStatus'=>$settled['status']??null],$delta,[$ready['capability']??'']);
+        verify($complete,'the native original checkbox batch commits four clones and three complete images with its exact original redirect');
         $saved=$outcome($copy);$result=$saved['restaurant_menu_copy_result'];$after=$result['after'];$payload=$saved['restaurant_menu_copy_payload'];
         verify($saved['restaurant_menu_copy_route']==='copy_menu'&&$saved['restaurant_menu_copy_facts']===$payload['facts']&&$saved['restaurant_menu_copy_after']===$after
             &&$saved['restaurant_menu_copy_success']===$result['success']&&$result['success']===__('main.menue copied successfully')
