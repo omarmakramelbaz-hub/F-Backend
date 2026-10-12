@@ -19,7 +19,8 @@ declare -A pins=(
 )
 for name in desktop_dashboard_server_preflight.py desktop_dashboard_server_metadata.php desktop_dashboard_inspect.php; do
   runuser -u fasakha -- git -C "$project" show "$release:deployment/$name" > "$directory/$name"
-  [[ $(git hash-object --no-filters "$directory/$name") == "${pins[$name]}" ]] || { echo 'Pinned preflight reader does not match' >&2; exit 1; }
+  actual=$(/usr/bin/python3 -B -c 'import hashlib,pathlib,sys; data=pathlib.Path(sys.argv[1]).read_bytes(); print(hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest())' "$directory/$name")
+  [[ $actual == "${pins[$name]}" ]] || { echo 'Pinned preflight reader does not match' >&2; exit 1; }
   chmod 600 "$directory/$name"
 done
 chown -R fasakha:fasakha "$directory"
