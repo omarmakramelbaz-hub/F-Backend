@@ -365,11 +365,34 @@ try {
 BACKFILL_PHP = r'''
 ini_set('display_errors','0');ini_set('log_errors','0');ob_start();
 try {
- require 'vendor/autoload.php';$app=require 'bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+ if(count($argv)!==5)exit(1);
  $class=\App\Services\Dashboard\WhatsAppInboxMessage::class;
- if(!class_exists($class,false))require_once $argv[1];
- $reflection=new \ReflectionClass($class);$bytes=file_get_contents($reflection->getFileName());
- if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$argv[2])exit(1);
+ $candidates=[$class=>[$argv[1],$argv[2]],\App\Services\Dashboard\WhatsAppInboxMedia::class=>[$argv[3],$argv[4]]];
+ // Verify the complete dependency pair before loading either candidate or bootstrapping Laravel.
+ foreach($candidates as[$path,$digest]){
+  $info=lstat($path);
+  if(!$info||($info['mode']&0170000)!==0100000||is_link($path)||realpath($path)!==$path
+   ||$info['size']<1||$info['size']>8388608||!preg_match('/\A[a-f0-9]{40}\z/',$digest))exit(1);
+  $bytes=file_get_contents($path);
+  if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$digest)exit(1);
+ }
+ $verified=static function()use($candidates){
+  foreach($candidates as$name=>[$path,$digest]){
+   if(!class_exists($name,false))throw new \RuntimeException();
+   $reflection=new \ReflectionClass($name);
+   if(realpath($reflection->getFileName())!==$path)throw new \RuntimeException();
+   $bytes=file_get_contents($path);
+   if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$digest)throw new \RuntimeException();
+  }
+ };
+ require 'vendor/autoload.php';
+ foreach($candidates as$name=>[$path,$digest]){
+  if(class_exists($name,false)&&realpath((new \ReflectionClass($name))->getFileName())!==$path)exit(1);
+ }
+ foreach($candidates as$name=>[$path,$digest])if(!class_exists($name,false))require_once $path;
+ $verified();
+ $app=require 'bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+ $verified();
  $result=(new $class)->backfillProjectionIndex(200);
  while(ob_get_level()>0)ob_end_clean();echo json_encode($result,JSON_THROW_ON_ERROR);
 }catch(\Throwable $e){exit(1);}
@@ -498,7 +521,8 @@ def readiness(root, runner):
 def backfill(root, payload, runner):
     totals = {'processed': 0, 'valid': 0, 'invalid': 0}
     for _ in range(1000):
-        code, output = runner(root, [PHP, '-r', BACKFILL_PHP, str(payload / MESSAGE), SOURCE_PINS[MESSAGE][1]], capture=True)
+        code, output = runner(root, [PHP, '-r', BACKFILL_PHP, str(payload / MESSAGE), SOURCE_PINS[MESSAGE][1],
+                                    str(payload / MEDIA), SOURCE_PINS[MEDIA][1]], capture=True)
         try:
             value = json.loads(output)
             if (code != 0 or set(value) != {'processed', 'valid', 'invalid', 'remaining', 'complete'}

@@ -44,6 +44,8 @@ require __DIR__ . '/../app/Support/WhatsAppInboxProtocol.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxConsumer.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppVoiceMedia.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMessage.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMedia.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppReplyService.php';
 require __DIR__ . '/../database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';
 require __DIR__ . '/../database/migrations/2026_10_10_000003_create_whatsapp_reply_requests.php';

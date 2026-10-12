@@ -72,6 +72,7 @@ namespace {
     $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
     Facade::setFacadeApplication($container);
     require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxAccess.php';
+    require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMessage.php';
     require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxReadState.php';
     require __DIR__ . '/../database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';
     require __DIR__ . '/../database/migrations/2026_10_10_000004_create_whatsapp_inbox_reads.php';

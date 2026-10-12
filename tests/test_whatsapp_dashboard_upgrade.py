@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Real-filesystem transactions; database/network work is confined to backend tests."""
+"""Real-filesystem transactions and private Laravel/SQLite derived metadata regressions."""
 import copy
 import importlib.util
 import json
 import os
 import pathlib
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -383,6 +384,208 @@ class PublisherTests(unittest.TestCase):
         self.f.install();flat=' '.join(str(v) for call in self.f.calls for v in call)
         for forbidden in ('systemctl','config:clear','cache:clear','migrate:rollback','queue:restart','whatsapp:process-orders','route:cache'):
             self.assertNotIn(forbidden,flat)
+
+
+class ActualBackfillFixture:
+    """A real Laravel console bootstrap with old App PSR-4 mappings and private SQLite."""
+    def __init__(self, php, vendor, populated=False, autoload=None, mutate=None, identical_old=False):
+        self.php=php;self.temp=tempfile.TemporaryDirectory(prefix='wa-backfill-loader-')
+        self.home=pathlib.Path(self.temp.name);self.root=self.home/'public_html';self.payload=self.home/'payload'
+        self.db=self.home/'fixture.sqlite';self.db.touch();self.candidates=[];self.pins=[]
+        for relative in ('vendor','bootstrap/cache','config','storage/framework','app/Services/Dashboard'):
+            (self.root/relative).mkdir(parents=True,exist_ok=True)
+        self.payload.mkdir();self.payload.chmod(0o755)
+        for label,relative in (('MESSAGE',app.MESSAGE),('MEDIA',app.MEDIA)):
+            data=(ROOT/relative).read_bytes();candidate=self.payload/pathlib.Path(relative).name
+            candidate.write_bytes(data);candidate.chmod(0o644);self.candidates.append(candidate);self.pins.append(app.blob(data))
+            old_path=os.environ.get('WA_BACKFILL_OLD_'+label)
+            old=pathlib.Path(old_path).read_bytes() if old_path else data+b'\n/* Previously deployed PSR-4 copy, distinct from the staged candidate. */\n'
+            if old_path:
+                expected={'MESSAGE':'f88843b6abc227c1697476cd9a6217331070f250',
+                    'MEDIA':'998efb85b37cb5e26497d82a2f7816513b6435a7'}[label]
+                if app.blob(old)!=expected:raise AssertionError('Unverified previously deployed '+label+' fixture')
+            (self.root/relative).write_bytes(data if identical_old else old)
+        (self.root/'app/Services/Dashboard/WhatsAppInboxAccess.php').write_bytes((ROOT/'app/Services/Dashboard/WhatsAppInboxAccess.php').read_bytes())
+        external=str(pathlib.Path(vendor).parent) if pathlib.Path(vendor).is_file() else vendor
+        vendor_php=r'''<?php
+file_put_contents(dirname(__DIR__).'/vendor-started', 'yes');
+$loader=require __EXTERNAL__.'/autoload.php';
+$loader->addPsr4('App\\', dirname(__DIR__).'/app', true);
+__PRELOAD__
+return $loader;
+'''.replace('__EXTERNAL__',self.literal(external)).replace('__PRELOAD__',
+            "class_exists('App\\\\Services\\\\Dashboard\\\\WhatsAppInbox"+autoload+"');" if autoload else '')
+        (self.root/'vendor/autoload.php').write_text(vendor_php)
+        app_config={'name':'Backfill fixture','env':'testing','debug':False,'url':'http://localhost',
+            'timezone':'UTC','cipher':'AES-256-CBC'}
+        # Use a stable valid 32-byte key; no production configuration is read.
+        app_config['key']='base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+        providers=r'''[\Illuminate\Database\DatabaseServiceProvider::class,
+\Illuminate\Encryption\EncryptionServiceProvider::class, BackfillFixtureProvider::class]'''
+        (self.root/'config/app.php').write_text('<?php return '+self.array(app_config)[:-1]+",'providers'=>"+providers+'];')
+        (self.root/'config/database.php').write_text("<?php return ['default'=>'sqlite','connections'=>['sqlite'=>['driver'=>'sqlite','database'=>"+self.literal(str(self.db))+",'prefix'=>'','foreign_key_constraints'=>true]]];")
+        mutation=''
+        if mutate is not None:mutation="file_put_contents("+self.literal(str(self.candidates[mutate]))+", '\\n/* concurrent candidate replacement */', FILE_APPEND);"
+        bootstrap=r'''<?php
+class BackfillFixtureProvider extends \Illuminate\Support\ServiceProvider {
+ public function boot() {
+  class_exists(\App\Services\Dashboard\WhatsAppInboxMessage::class);
+  class_exists(\App\Services\Dashboard\WhatsAppInboxMedia::class);
+  $paths=[];
+  foreach([\App\Services\Dashboard\WhatsAppInboxMessage::class,\App\Services\Dashboard\WhatsAppInboxMedia::class] as $class)
+   $paths[]=(new \ReflectionClass($class))->getFileName();
+  file_put_contents(__ROOT__.'/bootstrap-started',json_encode($paths,JSON_THROW_ON_ERROR));
+  \Illuminate\Support\Facades\DB::listen(function($event){
+   if(preg_match('/\A\s*(?:insert|update|delete|replace|create|drop|alter)\b/i',$event->sql))
+    file_put_contents(__ROOT__.'/metadata-writes',$event->sql."\n",FILE_APPEND);
+  });
+  __MUTATE__
+ }
+}
+$app=new \Illuminate\Foundation\Application(dirname(__DIR__));
+$app->singleton(\Illuminate\Contracts\Console\Kernel::class,\Illuminate\Foundation\Console\Kernel::class);
+return $app;
+'''.replace('__ROOT__',self.literal(str(self.root))).replace('__MUTATE__',mutation)
+        (self.root/'bootstrap/app.php').write_text(bootstrap)
+        setup=r'''require $argv[1].'/autoload.php';
+$caps=new \Illuminate\Database\Capsule\Manager;
+$caps->addConnection(['driver'=>'sqlite','database'=>$argv[2],'foreign_key_constraints'=>true]);$caps->setAsGlobal();
+$container=$caps->getContainer();$container->instance('db',$caps->getDatabaseManager());
+$container->bind('db.schema',fn()=>$caps->getConnection()->getSchemaBuilder());
+$container->instance('encrypter',new \Illuminate\Encryption\Encrypter('0123456789abcdef0123456789abcdef','AES-256-CBC'));
+\Illuminate\Support\Facades\Facade::setFacadeApplication($container);$schema=$caps->getConnection()->getSchemaBuilder();
+$schema->create('whatsapp_inbox_conversations',function($t){$t->bigIncrements('id');$t->string('waba_id',32);$t->string('phone_number_id',32);});
+$schema->create('whatsapp_inbox_messages',function($t){$t->bigIncrements('id');});
+$schema->create('whatsapp_reply_requests',function($t){
+ $t->bigIncrements('id');$t->unsignedBigInteger('conversation_id');$t->string('waba_id',32);$t->string('phone_number_id',32);
+ $t->string('kind',16);$t->string('state',16);$t->char('remote_message_key',64)->nullable();$t->text('response_details')->nullable();
+ $t->char('payload_hash',64);$t->text('audit')->nullable();$t->unsignedBigInteger('actor_id');$t->timestamp('completed_at')->nullable();
+});
+require $argv[3];(new CreateWhatsAppInboxHiddenMessages)->up();
+if($argv[4]==='populated'){
+ $waba='468336579702269';$phone='515388018324075';$native='wamid.fixture_reply';$payload=str_repeat('a',64);
+ $encrypt=fn($v)=>\Illuminate\Support\Facades\Crypt::encryptString(json_encode($v,JSON_THROW_ON_ERROR));
+ $remote=fn($id)=>hash('sha256','whatsapp-reply-message-v1:'.$waba.':'.$phone.':'.$id);
+ \Illuminate\Support\Facades\DB::table('whatsapp_inbox_conversations')->insert(['id'=>1,'waba_id'=>$waba,'phone_number_id'=>$phone]);
+ $base=['conversation_id'=>1,'waba_id'=>$waba,'phone_number_id'=>$phone,'state'=>'ACCEPTED','actor_id'=>1,
+  'payload_hash'=>$payload,'completed_at'=>'2026-10-12 17:00:00'];
+ \Illuminate\Support\Facades\DB::table('whatsapp_reply_requests')->insert($base+['id'=>1,'kind'=>'text',
+  'remote_message_key'=>$remote($native),'response_details'=>$encrypt(['message_id'=>$native]),'audit'=>null]);
+ $key=hash('sha256','whatsapp-message-v1:'.$waba.':'.$phone.':'.$native);
+ $audit=['source'=>['conversation'=>1,'kind'=>'reply','id'=>1,'fingerprint'=>hash('sha256',$payload.':'.$native)],
+  'source_native_key'=>$key,'source_native_kind'=>'text','emoji'=>'👍'];
+ \Illuminate\Support\Facades\DB::table('whatsapp_reply_requests')->insert($base+['id'=>2,'kind'=>'reaction',
+  'remote_message_key'=>$remote('wamid.fixture_reaction'),'response_details'=>$encrypt(['message_id'=>'wamid.fixture_reaction']),
+  'audit'=>$encrypt($audit)]);
+}'''
+        result=subprocess.run([php,'-r',setup,external,str(self.db),str(ROOT/app.MIGRATION),
+            'populated' if populated else 'empty'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+        if result.returncode:raise AssertionError('Real fixture schema/receipt setup failed: '+result.stderr.decode(errors='replace')[:2000])
+
+    @staticmethod
+    def literal(value):return "'"+value.replace('\\','\\\\').replace("'","\\'")+"'"
+    @classmethod
+    def array(cls,value):
+        return '['+','.join(cls.literal(k)+'=>'+('true' if v is True else 'false' if v is False else cls.literal(v)) for k,v in value.items())+']'
+    def run(self,pins=None,paths=None):
+        candidates=paths or self.candidates;digests=pins or self.pins
+        return subprocess.run([self.php,'-r',app.BACKFILL_PHP,str(candidates[0]),digests[0],str(candidates[1]),digests[1]],
+            cwd=self.root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+    def rows(self):
+        with sqlite3.connect(self.db) as db:
+            db.row_factory=sqlite3.Row
+            return {name:[dict(row) for row in db.execute('SELECT * FROM '+name+' ORDER BY 1').fetchall()] for name in
+                ('whatsapp_reply_requests','whatsapp_reply_projection_keys','whatsapp_reply_reaction_targets')}
+    def cleanup(self):self.temp.cleanup()
+
+
+class ActualBackfillLoaderTests(unittest.TestCase):
+    def fixture(self,**kwargs):
+        php=os.environ.get('WHATSAPP_TEST_PHP') or shutil.which('php');vendor=os.environ.get('WA_INBOX_TEST_VENDOR')
+        if not php or not vendor:
+            if os.environ.get('WHATSAPP_REQUIRE_PHP_TESTS')=='1':self.fail('Actual PHP/Laravel backfill fixture dependencies required')
+            self.skipTest('Actual PHP/Laravel backfill fixture dependencies unavailable')
+        f=ActualBackfillFixture(php,vendor,**kwargs);self.addCleanup(f.cleanup);return f
+    def no_writes(self,f,before):
+        self.assertEqual(f.rows(),before)
+        self.assertFalse((f.root/'metadata-writes').exists())
+    def test_previous_bootstrap_first_loader_reproduces_production_failure_without_writes(self):
+        f=self.fixture();before=f.rows()
+        previous=r'''ini_set('display_errors','0');ini_set('log_errors','0');ob_start();
+try {
+ require 'vendor/autoload.php';$app=require 'bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+ $class=\App\Services\Dashboard\WhatsAppInboxMessage::class;
+ if(!class_exists($class,false))require_once $argv[1];
+ $reflection=new \ReflectionClass($class);$bytes=file_get_contents($reflection->getFileName());
+ if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$argv[2])exit(1);
+ $result=(new $class)->backfillProjectionIndex(200);
+ while(ob_get_level()>0)ob_end_clean();echo json_encode($result,JSON_THROW_ON_ERROR);
+}catch(\Throwable $e){exit(1);}'''
+        result=subprocess.run([f.php,'-r',previous,str(f.candidates[0]),f.pins[0]],
+            cwd=f.root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+        self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
+        self.assertEqual(json.loads((f.root/'bootstrap-started').read_text()),
+            [str(f.root/relative) for relative in (app.MESSAGE,app.MEDIA)])
+        self.no_writes(f,before)
+    def test_bootstrap_psr4_old_classes_cannot_displace_verified_candidates_zero_pending(self):
+        f=self.fixture();before=f.rows();result=f.run()
+        self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        self.assertEqual(json.loads(result.stdout),{'processed':0,'valid':0,'invalid':0,'remaining':0,'complete':True})
+        self.assertEqual(json.loads((f.root/'bootstrap-started').read_text()),[str(p) for p in f.candidates])
+        self.no_writes(f,before)
+    def test_real_encrypted_reply_and_reaction_backfill_then_idempotent_second_pass(self):
+        f=self.fixture(populated=True);before=f.rows();result=f.run()
+        self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        self.assertEqual(json.loads(result.stdout),{'processed':2,'valid':2,'invalid':0,'remaining':0,'complete':True})
+        self.assertEqual(json.loads((f.root/'bootstrap-started').read_text()),[str(p) for p in f.candidates])
+        after=f.rows();self.assertEqual(after['whatsapp_reply_requests'],before['whatsapp_reply_requests'])
+        self.assertEqual(len(after['whatsapp_reply_projection_keys']),1)
+        self.assertEqual(len(after['whatsapp_reply_reaction_targets']),1)
+        self.assertEqual(after['whatsapp_reply_projection_keys'][0]['valid'],1)
+        self.assertEqual(after['whatsapp_reply_reaction_targets'][0]['valid'],1)
+        (f.root/'metadata-writes').unlink();result=f.run()
+        self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        self.assertEqual(json.loads(result.stdout),{'processed':0,'valid':0,'invalid':0,'remaining':0,'complete':True})
+        self.no_writes(f,after)
+    def test_both_candidate_hashes_verified_before_any_candidate_vendor_or_bootstrap_execution(self):
+        for bad in (0,1):
+            with self.subTest(candidate=bad):
+                f=self.fixture(populated=True);before=f.rows()
+                for candidate in f.candidates:
+                    candidate.write_bytes(candidate.read_bytes()+b'\nfile_put_contents(__DIR__."/candidate-executed", "yes");\n')
+                pins=[app.blob(p.read_bytes()) for p in f.candidates];pins[bad]='0'*40
+                result=f.run(pins=pins)
+                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
+                self.assertFalse((f.payload/'candidate-executed').exists())
+                self.assertFalse((f.root/'vendor-started').exists());self.assertFalse((f.root/'bootstrap-started').exists())
+                self.no_writes(f,before)
+    def test_composer_autoload_preloaded_old_class_is_rejected_without_bootstrap_or_writes(self):
+        for label in ('Message','Media'):
+            with self.subTest(class_name=label):
+                f=self.fixture(populated=True,autoload=label);before=f.rows();result=f.run()
+                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
+                self.assertTrue((f.root/'vendor-started').exists());self.assertFalse((f.root/'bootstrap-started').exists())
+                self.no_writes(f,before)
+    def test_identical_bytes_preloaded_from_other_path_are_rejected_without_writes(self):
+        for label in ('Message','Media'):
+            with self.subTest(class_name=label):
+                f=self.fixture(populated=True,autoload=label,identical_old=True);before=f.rows();result=f.run()
+                self.assertNotEqual(result.returncode,0);self.assertFalse((f.root/'bootstrap-started').exists())
+                self.no_writes(f,before)
+    def test_candidate_replacement_during_bootstrap_is_rejected_before_metadata_writes(self):
+        for changed in (0,1):
+            with self.subTest(candidate=changed):
+                f=self.fixture(populated=True,mutate=changed);before=f.rows();result=f.run()
+                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
+                self.assertTrue((f.root/'bootstrap-started').exists());self.no_writes(f,before)
+    def test_symlink_candidate_is_rejected_before_execution_even_when_bytes_match(self):
+        for linked in (0,1):
+            with self.subTest(candidate=linked):
+                f=self.fixture(populated=True);before=f.rows();paths=list(f.candidates)
+                alias=f.payload/('linked-'+str(linked)+'.php');alias.symlink_to(paths[linked]);paths[linked]=alias
+                result=f.run(paths=paths)
+                self.assertNotEqual(result.returncode,0);self.assertFalse((f.root/'vendor-started').exists())
+                self.assertFalse((f.root/'bootstrap-started').exists());self.no_writes(f,before)
 
 
 if __name__=='__main__':unittest.main()

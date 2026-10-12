@@ -221,7 +221,12 @@ jobs:
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-dashboard-test/vendor/autoload.php
         run: php tests/whatsapp_dashboard_actions_test.php
+      - name: Stage guarded dashboard fixtures under the test runner's ownership
+        run: |
+          mkdir -m 0700 /tmp/whatsapp-dashboard-fixtures
+          cp -R app config database deployment public resources routes tests /tmp/whatsapp-dashboard-fixtures/
       - name: Verify guarded dashboard publication and Blade compilation
+        working-directory: /tmp/whatsapp-dashboard-fixtures
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-dashboard-test/vendor/autoload.php
           WHATSAPP_TEST_PHP: php
