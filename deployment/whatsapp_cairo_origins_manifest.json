@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "app/Services/Dashboard/FasakhanstaDeliveryOrigin.php",
+      "before_blob": null,
+      "after_blob": "cdfdf44d5b01db6b9c78bb97b585e2a6463cd137"
+    },
+    {
+      "path": "app/Support/WhatsAppInboxProtocol.php",
+      "before_blob": "7a2f342c86e0838fb920bfdea53d6542b01cd008",
+      "after_blob": "ecde67c6a87ca8068bb077892fdbea522d89f217"
+    },
+    {
+      "path": "app/Services/Dashboard/PhoneDelivery.php",
+      "before_blob": "cd4f5daddbf1ed462d04f7fa24b4966cb94608c9",
+      "after_blob": "227027cfdcd68720b74220e3ecd0abb9e156a5d7"
+    },
+    {
+      "path": "app/Services/Dashboard/PosServiceTicket.php",
+      "before_blob": "87b24fb862d5d6fbc4be7a62f437bb50aba03be7",
+      "after_blob": "ef4c7b6f4a1276c122634aafabb2d510926aaeef"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/PhoneOrdersController.php",
+      "before_blob": "f3c5ec3bf1a147fe8e998cff1a9f4d5297cace53",
+      "after_blob": "478776e72edf67d9eaaf00abd49d97a2fa4720c8"
+    },
+    {
+      "path": "public/dashboard/js/phone-orders.js",
+      "before_blob": "9a8e6d959c7bc59766f9b0075f79413e2e2e530d",
+      "after_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderWorkflow.php",
+      "before_blob": "76af7b3eb0f5d70ec0c35e524e74ac5cb141b126",
+      "after_blob": "1b9d13a63187fa91db975e597b382fe79a9a5aa8"
+    }
+  ]
+}

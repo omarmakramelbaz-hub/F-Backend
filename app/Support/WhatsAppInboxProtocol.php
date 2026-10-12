@@ -153,6 +153,7 @@ final class WhatsAppInboxProtocol
     private static function value(array $value, string $source, array &$report): void
     {
         $channel = $value;
+        $nestedStandby = $source === 'standby' && array_key_exists('standby', $value);
         if ($source === 'standby' && array_key_exists('standby', $value)) {
             if (!is_array($value['standby'])) {
                 $report['quarantined_count']++;
@@ -171,6 +172,20 @@ final class WhatsAppInboxProtocol
             }
         }
         if ($source !== 'standby' && array_key_exists('standby', $value)) {
+            $report['quarantined_count']++;
+            return;
+        }
+        // The documented standby echo wraps the send request in an outer ID/time.
+        // Only this explicitly scoped envelope may use that additional layer.
+        $wrappedEcho = false;
+        foreach (is_array($channel['message_echoes'] ?? null) ? $channel['message_echoes'] : [] as $record) {
+            if (is_array($record) && array_key_exists('message', $record)) $wrappedEcho = true;
+        }
+        if ($wrappedEcho && (!$nestedStandby
+            || array_diff(array_keys($value), ['messaging_product', 'metadata', 'standby', 'contacts'])
+            || array_diff(array_keys($channel), ['message_echoes', 'metadata', 'messaging_product', 'contacts'])
+            || (array_key_exists('contacts', $channel) && array_key_exists('contacts', $value)
+                && $channel['contacts'] !== $value['contacts']))) {
             $report['quarantined_count']++;
             return;
         }
@@ -237,6 +252,10 @@ final class WhatsAppInboxProtocol
             }
             $direction = $key === 'message_echoes' ? 'outbound' : 'inbound';
             foreach ($channel[$key] as $message) {
+                if (is_array($message) && array_key_exists('message', $message)) {
+                    $message = $nestedStandby && $key === 'message_echoes'
+                        ? self::standbyEcho($message, $businessPhone) : null;
+                }
                 $parsed = is_array($message) ? self::message($message, $direction, $source, $normalizedContacts, $businessPhone) : null;
                 if ($parsed === null) {
                     $report['quarantined_count']++;
@@ -248,6 +267,42 @@ final class WhatsAppInboxProtocol
         if (!$seen) {
             $report['quarantined_count']++;
         }
+    }
+
+    /** One documented layer only; never infer a peer or render a template. */
+    private static function standbyEcho(array $record, ?string $businessPhone): ?array
+    {
+        $encoded = json_encode($record);
+        if (!is_string($encoded) || strlen($encoded) > 262144
+            || array_diff(array_keys($record), ['id', 'timestamp', 'message'])
+            || !self::identifier($record['id'] ?? null, 512)
+            || !is_array($record['message'] ?? null) || self::isList($record['message'])) return null;
+        $message = $record['message'];
+        if (($message['messaging_product'] ?? null) !== 'whatsapp'
+            || ($message['type'] ?? null) !== 'text'
+            || (array_key_exists('recipient_type', $message) && $message['recipient_type'] !== 'individual')) return null;
+        // Unrecognized aliases or envelope fields must not override the native recipient.
+        foreach (['message', 'messages', 'message_echoes', 'message_echo', 'statuses', 'standby', 'metadata',
+            'entry', 'object', 'recipient_id', 'recipient_user_id', 'user_id', 'wa_id', 'sender', 'recipient', 'from_user_id'] as $key) {
+            if (array_key_exists($key, $message)) return null;
+        }
+        if (array_key_exists('from', $message)
+            && ($businessPhone === null || self::phone($message['from']) !== $businessPhone)) return null;
+        $type = $message['type'] ?? null;
+        foreach (['text', 'image', 'audio', 'video', 'document', 'sticker', 'location', 'contacts', 'interactive',
+            'button', 'reaction', 'order', 'system', 'referral', 'edit', 'revoke', 'unsupported', 'unknown', 'template', 'flow'] as $key) {
+            if (array_key_exists($key, $message) && $key !== $type) return null;
+        }
+        if (array_key_exists('id', $message) && $message['id'] !== $record['id']) return null;
+        $timestamp = $record['timestamp'] ?? null;
+        if ((!is_string($timestamp) && !is_int($timestamp))
+            || !preg_match('/\A[0-9]{1,10}\z/', (string) $timestamp)) return null;
+        if (array_key_exists('timestamp', $message)
+            && ((!is_string($message['timestamp']) && !is_int($message['timestamp']))
+                || (string) $message['timestamp'] !== (string) $timestamp)) return null;
+        $message['id'] = $record['id'];
+        $message['timestamp'] = $timestamp;
+        return $message;
     }
 
     private static function message(array $message, string $direction, string $source, array $contacts, ?string $businessPhone): ?array

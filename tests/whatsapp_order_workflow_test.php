@@ -93,16 +93,42 @@ namespace App\Services\Dashboard {
         }
     }
     class PhoneDelivery {
-        public static $drift=0;
+        public static $drift=0; public static $callback;
         public function quote(array $v,$actor): array {
             \app(TakeawayAccess::class)->branch($v['branch'],$actor);
             \abort_unless($v['location_confirmed']&&isset($v['latitude'],$v['longitude']),422,'PIN_CONTRACT');
+            if (isset($v['delivery_origin_branch'])) {
+                $origin=\app(FasakhanstaDeliveryOrigin::class)->check($v['delivery_origin_branch'],$v['branch'],$actor);
+                if (self::$callback) (self::$callback)();
+                return ['delivery'=>['delivery_quote_hash'=>PosServiceTicket::fingerprint([$v['branch'],$origin,$v['latitude'],$v['longitude'],self::$drift]),
+                    'delivery_origin_branch'=>$origin['value'],'delivery_origin'=>$origin,'fulfillment_branch'=>$v['branch'],
+                    'delivery_fee'=>'50.00','distance_km'=>'1.000','method'=>'fixture']];
+            }
             return ['delivery'=>['delivery_quote_hash'=>PosServiceTicket::fingerprint([$v['branch'],$v['latitude'],$v['longitude'],self::$drift]),
                 'delivery_fee'=>'50.00','distance_km'=>'1.000','method'=>'fixture']];
         }
     }
+    class FasakhanstaDeliveryOrigin {
+        public const CAIRO_ORIGINS = [309=>'المقطم ستور',311=>'التجمع ستور'];
+        public static function isConfiguredOrigin(string $value): bool {
+            return preg_match('/\Af:([1-9][0-9]*)\z/',$value,$m)&&array_key_exists((int)$m[1],self::CAIRO_ORIGINS);
+        }
+        public static function matchesRegisteredName(string $value,string $name): bool {
+            if (!self::isConfiguredOrigin($value)) return false;
+            return trim(preg_replace('/\s+/u',' ',$name))===self::CAIRO_ORIGINS[(int)substr($value,2)];
+        }
+        public function check(string $origin,string $fulfillment,$actor,bool $lock=false): array {
+            \app(TakeawayAccess::class)->branch($fulfillment,$actor,$lock);
+            \abort_unless($fulfillment==='f:301'&&self::isConfiguredOrigin($origin),422,'INVALID_DELIVERY_ORIGIN');
+            $m=[null,substr($origin,2)];
+            $q=DB::table('resturants')->where('id',(int)$m[1]);if($lock)$q->lockForUpdate();$row=$q->first();
+            \abort_unless($row&&in_array((int)($row->parent_id??0),[0,301],true)&&self::matchesRegisteredName($origin,$row->name)&&$row->control==='show',422,'INVALID_DELIVERY_ORIGIN');
+            return ['value'=>$origin,'id'=>(int)$row->id,'kind'=>'f','name'=>$row->name,'parent_id'=>$row->parent_id===null?null:(int)$row->parent_id,
+                'latitude'=>(float)$row->lat,'longitude'=>(float)$row->lng,'km_price'=>$row->km_price];
+        }
+    }
     class PosServiceTicket {
-        public static $drift=0; public static $failAfterWrite=false; public static $saveCalls=0;
+        public static $drift=0; public static $failAfterWrite=false; public static $saveCalls=0; public static $lastPayload;
         public static function fingerprint(array $v): string {
             $sort=function($a)use(&$sort){if(!is_array($a))return $a;if(!array_is_list($a))ksort($a);foreach($a as $k=>$x)$a[$k]=$sort($x);return $a;};
             return hash('sha256',json_encode($sort($v),JSON_UNESCAPED_UNICODE));
@@ -115,7 +141,7 @@ namespace App\Services\Dashboard {
             return ['quote_hash'=>self::fingerprint([$v['branch'],$v['items'],$total]),'total'=>number_format($total/100,2,'.',''),'total_cents'=>$total];
         }
         public function save($channel,array $v,$actor): array {
-            self::$saveCalls++;
+            self::$saveCalls++; self::$lastPayload=$v;
             \abort_unless($channel==='phone'&&$v['send_to_kitchen']===true&&$v['discount']==='0.00',422,'UNPAID_CONTRACT');
             \abort_unless(!isset($v['ticket_id'])&&!isset($v['actor_id'])&&!isset($v['payment_status']),422,'INJECTED_COMMAND');
             $q=$this->quote($channel,$v,$actor); \abort_unless($q['quote_hash']===$v['quote_hash'],409,'QUOTE_DRIFT');
@@ -187,7 +213,7 @@ namespace {
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
         foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','pos_service_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
-        Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Pos::$drift=0; Pos::$failAfterWrite=false; Pos::$saveCalls=0; PhoneDelivery::$drift=0; BranchCustomers::$calls=0;
+        Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Pos::$drift=0; Pos::$failAfterWrite=false; Pos::$saveCalls=0; Pos::$lastPayload=null; PhoneDelivery::$drift=0; PhoneDelivery::$callback=null; BranchCustomers::$calls=0;
         \App\Services\Dashboard\TakeawayCatalog::$ambiguous=false; \App\Services\Dashboard\TakeawayCatalog::$mode='weight'; \App\Services\Dashboard\TakeawayCatalog::$options=[];
         \App\Services\Dashboard\PosServicePhone::$items=[]; \App\Services\Dashboard\PosServicePhone::$calls=0; \App\Services\Dashboard\PosServicePhone::$callback=null;
         DB::table('test_users')->where('id',7)->update(['active'=>1,'can_checkout'=>1,'owner_resturant_id'=>null]);
@@ -653,6 +679,125 @@ namespace {
     resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
     insertCartMessage($c,'later-cart-same-second',4,[['product_retailer_id'=>'half-fish','quantity'=>3,'item_price'=>'45.00','currency'=>'EGP']]); $p=$workflow->process();
     expectFlow($p['dispatched']===0&&DB::table('test_tickets')->count()===0,'later same-second cart invalidates earlier confirmation');
+
+    // Cairo store origins are separate from the physical branch that owns customers,
+    // menu prices, unpaid tickets, kitchen receipts and branch printing.
+    Schema::create('resturants',function(Blueprint $t){$t->unsignedInteger('id')->primary();$t->unsignedInteger('parent_id')->nullable();
+        $t->string('name');$t->string('control');$t->string('lat');$t->string('lng');$t->string('km_price');});
+    function originSetup(): void {
+        resetFlow();DB::table('resturants')->delete();DB::table('test_branches')->where('id','>=',301)->delete();
+        DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:2","f:301","f:309","f:311"]']);
+        DB::table('test_branches')->insert([['id'=>301,'name'=>'فرع شبرا','status'=>'opened'],['id'=>309,'name'=>'المقطم ستور','status'=>'opened'],['id'=>311,'name'=>'التجمع ستور','status'=>'opened']]);
+        DB::table('resturants')->insert([['id'=>301,'parent_id'=>null,'name'=>'فرع شبرا','control'=>'show','lat'=>'30.10','lng'=>'31.20','km_price'=>'10.00'],
+            ['id'=>309,'parent_id'=>null,'name'=>'المقطم ستور','control'=>'show','lat'=>'30.01','lng'=>'31.30','km_price'=>'11.00'],
+            ['id'=>311,'parent_id'=>null,'name'=>'التجمع ستور','control'=>'show','lat'=>'30.02','lng'=>'31.50','km_price'=>'12.00']]);
+        app('config')->set('whatsapp_orders.allowed_branch_ids',['1','301']);app('config')->set('whatsapp_orders.mode','auto');
+        app('config')->set('whatsapp_cart.branch_aliases',['301'=>['شبرا'],'309'=>['المقطم'],'311'=>['التجمع']]);
+    }
+    function originThread(string $hint='المقطم ستور',string $area='المقطم'): int {
+        $c=addConversation();
+        insertMessage($c,'origin-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في '.$area.'. عايز 1 كيلو فسيخ من '.$hint.'.',1);
+        insertMessage($c,'origin-pin','inbound','',2,['lat'=>30.03,'long'=>31.32]);
+        insertMessage($c,'origin-summary','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من '.$hint.' إلى شارع البحر في '.$area.'، الإجمالي 100.00 جنيه.',3);
+        Ai::$data=extractionData();Ai::$data['branch_hint']=$hint;Ai::$data['customer']['area']=$area;return $c;
+    }
+    originSetup();$c=originThread();$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&$p['errors']===0,'registered Cairo store with live null parent dispatches through Shubra');
+    expectFlow(DB::table('resturants')->where('id',309)->value('parent_id')===null,'explicit Cairo delivery policy does not rewrite ownership hierarchy');
+    $draft=DB::table('whatsapp_order_drafts')->first();$sealed=json_decode(Crypt::decryptString($draft->sealed_payload),true);
+    expectFlow($sealed['review']['branch']==='f:301'&&$sealed['review']['delivery_origin_branch']==='f:309','store origin and fulfillment remain separately sealed');
+    expectFlow($sealed['delivery']['delivery_origin_branch']==='f:309'&&$sealed['delivery']['fulfillment_branch']==='f:301','delivery quote records the store origin');
+    expectFlow(DB::table('branch_customers')->first()->branch==='f:301'&&DB::table('test_tickets')->first()->branch==='f:301'
+        &&DB::table('test_print')->first()->branch==='f:301'&&DB::table('test_kitchen')->count()===1,'customer ticket kitchen and printer all belong to Shubra');
+    expectFlow(Pos::$lastPayload['delivery_origin_branch']==='f:309'&&Pos::$lastPayload['send_to_kitchen']===true,'origin survives the final ERP payload');
+    $review=$sealed['review'];$review['expected_revision']=(int)$draft->revision;
+    expectFlow($workflow->dispatch((int)$draft->id,$review,$actor)['replayed']===true&&DB::table('test_tickets')->count()===1,'origin receipt replay creates no duplicate order');
+    $omitted=$review;unset($omitted['delivery_origin_branch']);
+    expectFlow($workflow->dispatch((int)$draft->id,$omitted,$actor)['replayed']===true&&DB::table('test_tickets')->count()===1,'legacy form omission preserves the trusted dispatched origin');
+    $nullOrigin=$review;$nullOrigin['delivery_origin_branch']=null;
+    blocked(fn()=>$workflow->dispatch((int)$draft->id,$nullOrigin,$actor),409,'explicit origin removal cannot bypass the sealed confirmation');
+    $changed=$review;$changed['delivery_origin_branch']='f:311';
+    blocked(fn()=>$workflow->dispatch((int)$draft->id,$changed,$actor),409,'another origin cannot reuse the dispatched confirmation');
+    $workflow->process();expectFlow(Ai::$calls===1&&DB::table('test_tickets')->count()===1,'pipeline replay preserves one confirmed order and one AI call');
+
+    originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','literal approved area alias resolves one store origin');
+    originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];
+    app('config')->set('whatsapp_cart.branch_aliases',[]);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','whole public store label without approved suffix needs no geographic guess or configured alias');
+    originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];
+    app('config')->set('whatsapp_cart.branch_aliases',['311'=>['المقطم']]);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'duplicate stripped public labels never choose a store');
+    originSetup();$c=originThread();app('config')->set('whatsapp_orders.allowed_branch_ids',['1','301','309']);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['branch']==='f:301'&&Pos::$lastPayload['delivery_origin_branch']==='f:309','a listed child store still cannot become its own fulfillment branch');
+    originSetup();DB::table('test_branches')->insert(['id'=>94,'name'=>'فرع المحلة','status'=>'opened']);
+    DB::table('resturants')->insert(['id'=>94,'parent_id'=>301,'name'=>'فرع المحلة','control'=>'show','lat'=>'30.97','lng'=>'31.16','km_price'=>'10.00']);
+    DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:2","f:94","f:301","f:309","f:311"]']);
+    app('config')->set('whatsapp_orders.allowed_branch_ids',['94','301']);app('config')->set('whatsapp_cart.branch_aliases',['94'=>['المحلة']]);
+    $c=originThread('فرع المحلة','المحلة');$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['branch']==='f:94'&&!isset(Pos::$lastPayload['delivery_origin_branch']),
+        'approved physical branch94 keeps its own fulfillment despite parent301 ownership');
+    expectFlow(DB::table('branch_customers')->first()->branch==='f:94'&&DB::table('test_print')->first()->branch==='f:94',
+        'physical ownership hierarchy cannot reroute its customer or printer to Shubra');
+    blocked(fn()=>app(\App\Services\Dashboard\FasakhanstaDeliveryOrigin::class)->check('f:94','f:301',$actor),422,
+        'physical branch94 is never a Cairo store origin');
+    originSetup();$c=originThread('المقطم ستور','التجمع');$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'conflicting exact store and area never choose one origin');
+    originSetup();$c=originThread();app('config')->set('whatsapp_cart.branch_aliases.311',['المقطم ستور']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'duplicate exact public aliases require review');
+    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['parent_id'=>363]);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'store reparented away from Shubra cannot automatically route');
+    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['parent_id'=>0]);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','registered zero-parent origin uses explicit policy without a hierarchy mutation');
+    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['name'=>'متجر أعيدت تسميته']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'registered ID with mismatched live public name cannot automatically route');
+    originSetup();DB::table('test_branches')->insert(['id'=>500,'name'=>'رأس البر','status'=>'opened']);
+    DB::table('resturants')->insert(['id'=>500,'parent_id'=>301,'name'=>'رأس البر','control'=>'show','lat'=>'31.51','lng'=>'31.82','km_price'=>'10.00']);
+    DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:301","f:309","f:311","f:500"]']);
+    app('config')->set('whatsapp_orders.allowed_branch_ids',['301','500']);$c=originThread('رأس البر','رأس البر');$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'unknown future child301 is not classified as a Cairo origin or fulfillment');
+    blocked(fn()=>app(\App\Services\Dashboard\FasakhanstaDeliveryOrigin::class)->check('f:500','f:301',$actor),422,
+        'parent301 alone cannot authorize an unknown future origin');
+    originSetup();$c=originThread();DB::table('test_branches')->where('id',309)->update(['status'=>'closed']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='BRANCH_CLOSED'&&DB::table('test_tickets')->count()===0,'closed origin store cannot automatically dispatch');
+    originSetup();$c=originThread();DB::table('test_branches')->where('id',301)->update(['status'=>'closed']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('whatsapp_order_drafts')->first()->reason==='BRANCH_CLOSED'&&DB::table('test_tickets')->count()===0,'closed physical fulfillment branch cannot automatically dispatch');
+    originSetup();$c=originThread();DB::table('resturants')->where('id',309)->update(['control'=>'hide']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'hidden live origin fails closed');
+    originSetup();$c=originThread();app('config')->set('whatsapp_orders.allowed_branch_ids',['1']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'origin route needs authorized allowed Shubra fulfillment');
+    originSetup();$c=originThread();DB::table('test_users')->where('id',7)->update(['branches'=>'["f:1","f:301","f:311"]']);$p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'unauthorized source store cannot be selected by the automatic actor');
+
+    originSetup();$c=originThread();PhoneDelivery::$callback=function(){DB::table('resturants')->where('id',309)->update(['parent_id'=>94]);};$p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'origin parent changing from live null to94 between quote and locked sealing blocks all ERP writes');
+    originSetup();$c=originThread();app('config')->set('whatsapp_orders.mode','review');$a=$workflow->analyze($c,$actor);
+    $v=reviewData($a['draft']['revision']);$v['branch']='f:301';$v['delivery_origin_branch']='f:309';$v['area']='المقطم';
+    $q=$workflow->quote($a['draft']['id'],$v,$actor);$v=$q['draft']['review'];$v['expected_revision']=$q['draft']['revision'];
+    $omitted=$v;unset($omitted['delivery_origin_branch']);$requote=$workflow->quote($q['draft']['id'],$omitted,$actor);
+    expectFlow($requote['draft']['review']['delivery_origin_branch']==='f:309','legacy form requote preserves the trusted origin for unchanged fulfillment');
+    $v=$requote['draft']['review'];$v['expected_revision']=$requote['draft']['revision'];
+    DB::table('resturants')->where('id',309)->update(['km_price'=>'99.00']);
+    blocked(fn()=>$workflow->dispatch($q['draft']['id'],$v,$actor),409,'origin rate drift invalidates the canonical delivery quote');
+    expectFlow(DB::table('branch_customers')->count()===0&&DB::table('test_tickets')->count()===0,'changed origin quote never partially saves customer or ticket');
+    DB::table('resturants')->where('id',309)->update(['parent_id'=>363]);
+    blocked(fn()=>$workflow->dispatch($q['draft']['id'],$v,$actor),422,'locked dispatch refuses reparented origin');
+    $v['delivery_origin_branch']='gs:309';
+    try { $workflow->quote($q['draft']['id'],$v,$actor);throw new \RuntimeException('GO_ORIGIN_NOT_REJECTED'); }
+    catch (\Illuminate\Validation\ValidationException $error) {
+        expectFlow($error->validator->errors()->has('delivery_origin_branch'),'GO store identity is not a Fasakhansta origin');
+    }
+
+    originSetup();$c=originThread();Pos::$failAfterWrite=true;$p=$workflow->process();
+    expectFlow($p['errors']===1&&DB::table('test_tickets')->count()===0&&DB::table('whatsapp_order_drafts')->first()->status==='READY','failed origin dispatch retains only its prepared review');
+    Pos::$failAfterWrite=false;DB::table('whatsapp_order_scans')->update(['next_attempt_at'=>now('UTC')->subSecond()]);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&Ai::$calls===1&&DB::table('test_tickets')->count()===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','cached store review resumes once with its origin and no repeated AI extraction');
+
+    originSetup();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','review');$a=$workflow->analyze($c,$actor);
+    $v=reviewData($a['draft']['revision']);$v['delivery_origin_branch']='f:1';$q=$workflow->quote($a['draft']['id'],$v,$actor);
+    expectFlow(!array_key_exists('delivery_origin_branch',$q['draft']['review']),'same-branch origin retains the legacy sealed review shape');
+    $v=$q['draft']['review'];$v['expected_revision']=$q['draft']['revision'];$sent=$workflow->dispatch($q['draft']['id'],$v,$actor);
+    expectFlow($sent['ticket_id']>0&&!array_key_exists('delivery_origin_branch',Pos::$lastPayload),'ordinary branches preserve the original ERP payload contract');
 
     fwrite(STDOUT,'whatsapp-order-workflow: '.$checks." checks passed\n");
 }
