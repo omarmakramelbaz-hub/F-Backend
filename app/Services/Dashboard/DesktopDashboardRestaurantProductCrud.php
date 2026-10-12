@@ -127,6 +127,14 @@ class DesktopDashboardRestaurantProductCrud
         foreach(['category_id'=>'category','product_id'=>'catalog'] as $field=>$kind)abort_unless(isset($row[$field])?is_array($state[$kind])&&$this->id($row[$field])===$this->id($state[$kind]['id']):$state[$kind]===null,409);
         $this->validateMedia($state['media'],$this->id($row['id']));
     }
+
+    /** The original menu-copy adapter shares these reviewed full-row and transport contracts. */
+    public function menuCopyState(int $id,bool $replay=false): array {return $this->state($id,$replay);}
+    public function menuCopyValidateState(array $state): void {$this->validateState($state);}
+    public function menuCopyTransactionalTables(): void {$this->transactionalTables();}
+    public function menuCopyReturnContext(Request $request,int $branch): array {return $this->returnContext($request,$branch);}
+    public function menuCopyReturnQuery(array $context): string {return $this->returnQuery($context);}
+    public function menuCopySameOrigin(array $parts): void {$this->sameOrigin($parts);}
     private function deleteRules(): array
     {
         $rows=DB::select('SELECT k.TABLE_NAME AS table_name,k.COLUMN_NAME AS column_name,r.DELETE_RULE AS delete_rule,r.UPDATE_RULE AS update_rule FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND r.TABLE_NAME=k.TABLE_NAME AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME WHERE k.REFERENCED_TABLE_SCHEMA=DATABASE() AND k.REFERENCED_TABLE_NAME=? ORDER BY k.TABLE_NAME,k.COLUMN_NAME',['resturant_products']);

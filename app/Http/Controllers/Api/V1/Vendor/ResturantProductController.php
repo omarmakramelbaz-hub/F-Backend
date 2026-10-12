@@ -66,41 +66,29 @@ class ResturantProductController extends Controller {
   
  public function copy_menu(CopyMenuRequest $request){
         $resturant=Resturant::find($request->resturant_id);
-          foreach($request->restraunt_product as $restraunt_product){
+          foreach(array_values($request->restraunt_product) as $selectionIndex => $restraunt_product){
             $mainproduct=ResturantProduct::find($restraunt_product);
             $resturant_productt=$resturant->resturant_products->where('product_id',$mainproduct->product_id)->first();
                 if(!$resturant_productt){
                     $product=$mainproduct->replicate();
                     $product->resturant_id = $request->resturant_id;
-                    $product->added_by=auth('api')->check()? auth('api')->user()->id : auth('admin')->user()->id;
+                    $product->added_by=$request->is('api/*') ? auth('api')->user()->id : auth('admin')->user()->id;
                     $product->save();
-                    
-
-// Step 2: Copy media associated with the main product
-$mediaUrl = $mainproduct->getFirstMediaUrl('product_image', 'thumb'); // Replace 'product_image' and 'thumb' with your collection and conversion names
-
-if ($mediaUrl) {
-    // Get the relative file path from the URL (without the base storage path)
-    $mediaPath = str_replace('/storage/', '', parse_url($mediaUrl, PHP_URL_PATH));
-
-    // Check if the file exists in the storage
-    if (Storage::disk('public')->exists($mediaPath)) {
-        // Download the file to a temporary location
-        $tempFile = tempnam(sys_get_temp_dir(), 'media');
-        file_put_contents($tempFile, Storage::disk('public')->get($mediaPath));
-
-        // Add the file to the new product
-        $product->addMedia($tempFile)
-            ->preservingOriginal()
-            ->toMediaCollection('product_image', 'products'); // Replace with your collection name
-
-        // Cleanup temporary file
-        unlink($tempFile);
-    } else {
-        throw new \Exception('Media file does not exist: ' . $mediaPath);
-    }
-}
-
+                    // Resolve the same first image through its original media disk.
+                    // A temporary basename loses the source name and image extension.
+                    $media = $mainproduct->getFirstMedia('product_image');
+                    if ($media) {
+                        app(\App\Services\Dashboard\DesktopDashboardProductImages::class)->withMenuCopy(
+                            $selectionIndex, $mainproduct, $product, function () use ($mainproduct, $product, $media) {
+                                $mediaPath = $mainproduct->getFirstMediaPath('product_image', 'thumb');
+                                return $product->addMedia($mediaPath)
+                                    ->preservingOriginal()
+                                    ->usingName($media->name)
+                                    ->usingFileName(basename($mediaPath))
+                                    ->toMediaCollection('product_image', 'products');
+                            }
+                        );
+                    }
                 }
                 else{
                    $resturant_productt->update([

@@ -48,7 +48,7 @@ use Illuminate\Support\Str;
             verify($get($path,[$field=>$value])[0]===302&&$row()[$field]===$value,'ordinary online product '.$field.' GET links keep their original behavior without a native UUID');
         }
         verify($related()===$beforeRelated,'native product links preserve every original catalog/media/branch and financial row');
-        verify($decide(['id'=>(string)Str::uuid(),'method'=>'POST','path'=>'/admin/resturant/copy/items'])[0]===422,'product coverage does not advertise unreviewed copying');
+        verify($decide(['id'=>(string)Str::uuid(),'method'=>'GET','path'=>'/admin/resturant/copy/items'])[0]===422,'native menu-copy coverage rejects the unsupported GET method on its exact original POST endpoint');
         echo 'Restaurant product original native GET outcomes completed'.PHP_EOL;
     }finally{$restore($original);}
 })();

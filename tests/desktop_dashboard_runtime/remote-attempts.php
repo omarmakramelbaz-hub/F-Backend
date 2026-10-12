@@ -9,7 +9,15 @@ $remoteEnv=$env;$remoteEnv['DB_DATABASE']=$database;$remoteEnv['DESKTOP_TEST_APP
 $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,__DIR__.'/server-router.php'],[['pipe','r'],['file',$profile.'/remote-attempts.log','a'],['file',$profile.'/remote-attempts.log','a']],$pipes,$application,$remoteEnv);
 $cookies=[];
 $decide=function(array $attempt,string $action='reserve')use($http,$ownerLink){
-    [$status,$body]=$http('/api/desktop-dashboard/remote-attempts',['action'=>$action]+$attempt,['Authorization: Bearer '.$ownerLink['token'],'Accept: application/json']);
+    $values=['action'=>$action]+$attempt;$headers=['Authorization: Bearer '.$ownerLink['token'],'Accept: application/json'];
+    [$status,$body,$responseHeaders]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
+    if($status===429){
+        $retryAfter=[];foreach($responseHeaders as $header)if(preg_match('/^Retry-After:(.*)$/iD',$header,$match))$retryAfter[]=trim($match[1]);
+        if(count($retryAfter)===1&&preg_match('/^(?:[1-9]|[1-5][0-9]|60)$/D',$retryAfter[0])){
+            $seconds=(int)$retryAfter[0];echo 'DESKTOP_NATIVE_API_RATE_WAIT '.json_encode(['seconds'=>$seconds,'retry'=>1]).PHP_EOL;
+            sleep($seconds);[$status,$body]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
+        }
+    }
     return [$status,json_decode($body,true)];
 };
 $proof=fn($reply)=>['X-Fasakhansta-Remote-Attempt: '.$reply['id'],'X-Fasakhansta-Remote-Capability: '.$reply['capability']];
@@ -215,6 +223,7 @@ try{
     require __DIR__.'/restaurant-flags-remote.php';
 require __DIR__.'/restaurant-products-remote.php';
 require __DIR__.'/restaurant-product-crud-remote.php';
+require __DIR__.'/restaurant-menu-copy-remote.php';
     foreach([86001,86002,86003] as $id)DB::table('contacts')->insert(['id'=>$id,'user_id'=>20,'name'=>'رسالة نتيجة السيرفر '.$id,'email'=>'outcome@test.invalid','message'=>'محتوى رسالة نتيجة السيرفر '.$id]);
     $contactForm=['_token'=>$serverCsrf[1],'_desktop_command'=>(string)Str::uuid(),'_method'=>'DELETE'];
     $contactAttempt=$attempt('/admin/contacts/86001');[, $contactProof]=$decide($contactAttempt);

@@ -82,7 +82,7 @@ use Illuminate\Support\Str;
         $late=$reserve('/admin/resturant_products');[, $lateReady]=$decide($late);verify($decide($late,'settle')[1]['status']==='cancelled','recovery terminally cancels a multipart product create that never reached the original controller');
         $lateForm=$base;$lateForm['_desktop_command']=(string)Str::uuid();$lateForm['product_name']='رفع صورة وصل بعد الإلغاء';verify($request($late['path'],$lateForm,['product_image'=>$imageA],[...$proof($lateReady),'Accept: application/json'])[0]===409
             &&!DB::table('resturant_products')->where('product_name',$lateForm['product_name'])->exists(),'a delayed genuine multipart image request cannot write after native cancellation');
-        foreach([['HEAD','/admin/resturant_products'],['DELETE','/admin/resturant_products/update'],['PUT','/admin/resturant_products/0'],['POST','/admin/resturant/copy/items']] as [$method,$path])
+        foreach([['HEAD','/admin/resturant_products'],['DELETE','/admin/resturant_products/update'],['PUT','/admin/resturant_products/0'],['POST','/admin/resturant/copy/items/']] as [$method,$path])
             verify($decide($reserve($path,$method))[0]===422,'native image CRUD coverage rejects an unreviewed path or method: '.$method.' '.$path);
         verify($fingerprint($created,$mediaIds)===$beforeBusiness,'all106 original business tables outside the native product/image effect scope are unchanged, including orders, wallets and catalog images');
         echo 'RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '.json_encode(['schemaInventory'=>106,'productColumns'=>13,'mediaColumns'=>18,'originalMultipart'=>true,'originalController'=>true,

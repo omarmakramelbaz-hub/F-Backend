@@ -16,6 +16,7 @@ class DashboardRemoteAttempts {
     if(method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='GET'&&/^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(path))return true;
+    if(method==='POST'&&path==='/admin/resturant/copy/items')return true;
     // Original multipart forms use POST with a server-validated PUT/DELETE override.
     // Reserve the physical request; Chromium keeps its original body and file bytes.
     if((method==='POST'&&path==='/admin/resturant_products')

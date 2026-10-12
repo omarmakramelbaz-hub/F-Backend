@@ -12,6 +12,7 @@
     };
     const effectiveMethod = form => (ownedControl(form, '_method')?.value || form.method).toUpperCase();
     const productRoute = (path, method) => (method === 'POST' && path === '/admin/resturant_products')
+        || (method === 'POST' && path === '/admin/resturant/copy/items')
         || (method === 'PUT' && path === '/admin/resturant_products/update')
         || (method === 'DELETE' && /^\/admin\/resturant_products\/[1-9][0-9]{0,18}$/.test(path));
     const eligible = form => {
