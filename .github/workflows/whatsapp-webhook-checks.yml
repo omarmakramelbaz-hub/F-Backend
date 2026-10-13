@@ -36,6 +36,7 @@ on:
       - 'public/css/dashboard-whatsapp-orders.css'
       - 'tests/whatsapp_order*'
       - 'tests/test_whatsapp_order*'
+      - 'tests/test_whatsapp_forward*'
       - 'app/Services/Dashboard/WhatsAppReplyService.php'
       - 'app/Services/Dashboard/WhatsAppVoiceMedia.php'
       - 'app/Services/Dashboard/WhatsAppInboxReadState.php'
@@ -286,4 +287,5 @@ jobs:
           python3 tests/test_whatsapp_cairo_install_root_diagnostic.py
           python3 tests/test_whatsapp_order_semantic_recovery_php.py
           python3 tests/test_whatsapp_order_semantic_forward_php.py
+          python3 tests/test_whatsapp_forward_transition_diagnostic.py
           python3 tests/test_whatsapp_order_semantic_recovery_diagnostic.py
