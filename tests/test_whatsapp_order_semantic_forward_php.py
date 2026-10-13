@@ -19,14 +19,23 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 COORDINATOR=ROOT/'deployment/whatsapp_order_semantic_forward_recovery.py'
 BASELINE_HELPER_BLOB='f2ee72b55d9fd27478f5da852cc3533dbb6de747'
 BASELINE_PROTOCOL_BLOB='ecde67c6a87ca8068bb077892fdbea522d89f217'
+LEGACY_TARGET_HELPER_BLOB='89b98259217e02d300bc7aa5c70c7b58eb0dfbff'
+LEGACY_TARGET_HELPER=ROOT/'tests/fixtures/whatsapp_forward_v1/app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php'
 METRICS={'events_seen':14,'events_processed':14,'events_skipped':0,'messages_inserted':0,
          'messages_replayed':0,'messages_hydrated':13,'quarantined_events':0,
          'ignored_records':0,'status_records':1,'errors':0}
 
 
+def legacy_target_helper():
+    helper=LEGACY_TARGET_HELPER.read_bytes()
+    if fixtures.blob(helper)!=LEGACY_TARGET_HELPER_BLOB:
+        raise AssertionError('The published scalar forward Helper fixture must remain exact')
+    return helper
+
+
 def exact_baseline_pair():
     # Independently pin reconstructed old bytes; no CI dependency on scratch or network.
-    helper=(ROOT/(fixtures.PREFIX+'WhatsAppNativePlaceholderHydration.php')).read_text()
+    helper=legacy_target_helper().decode()
     helper=helper.replace("foreach (['from','from_user_id','to','to_user_id','context'] as $field)",
                           "foreach (['from','from_user_id','to','to_user_id','context','referral'] as $field)")
     helper=helper.replace('            if (!self::referralTransition($raw,$full)) return false;\n','')
@@ -114,8 +123,12 @@ def file_identity(path):
 
 
 class ForwardFixture:
-    def __init__(self,directory,advance_clock=False,beforeimage_budget=False):
+    def __init__(self,directory,advance_clock=False,beforeimage_budget=False,helper_bytes=None):
         self.f=fixtures.RecoveryFixture(directory,advance_clock=advance_clock)
+        helper=legacy_target_helper()if helper_bytes is None else helper_bytes
+        if not isinstance(helper,bytes):raise AssertionError('Explicit test Helper must be immutable bytes')
+        path=fixtures.PREFIX+'WhatsAppNativePlaceholderHydration.php'
+        self.f.write(path,helper);self.f.pins[path]=fixtures.blob(helper)
         self.mutate('authentic_referrals');self.mutate('played')
         if beforeimage_budget:
             boot=self.f.root/'bootstrap/app.php'

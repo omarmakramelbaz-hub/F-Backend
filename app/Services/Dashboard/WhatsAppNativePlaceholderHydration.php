@@ -65,7 +65,11 @@ final class WhatsAppNativePlaceholderHydration
             $oldPlain=Crypt::decryptString($marker['before_ciphertext']); $json=Crypt::decryptString($rawEvent->payload);
             if (strlen($oldPlain)>4194304||strlen($json)>4194304||!hash_equals($marker['raw_payload_hash'],hash('sha256',$json))) return false;
             $before=json_decode($oldPlain,true,512,JSON_THROW_ON_ERROR); $payload=json_decode($json,true,512,JSON_THROW_ON_ERROR);
-            if (!is_array($before)||!is_array($payload)||self::canonical($before)!==self::canonical($marker['before'])) return false;
+            if (!is_array($before)||!is_array($payload)||!is_array($marker['before'])
+                ||!self::boundedReferral($before['content']['message']['referral']??null)
+                ||!self::boundedReferral($marker['before']['content']['message']['referral']??null)
+                ||!self::boundedReferral($dto['content']['message']['referral']??null)
+                ||self::canonical($before)!==self::canonical($marker['before'])) return false;
             $report=WhatsAppInboxProtocol::report($payload,WhatsAppInboxConsumer::WABA_ID,WhatsAppInboxConsumer::PHONE_ID);
             if ($report['quarantined_count']!==0||count($report['messages'])<1||count($report['messages'])>500) return false;
             $matching=[];
@@ -96,22 +100,23 @@ final class WhatsAppNativePlaceholderHydration
     /** An unavailable-content notification may omit the later authenticated ad metadata. */
     private static function referralTransition(array $before,array $incoming): bool
     {
-        if (self::canonical($before['referral']??null)===self::canonical($incoming['referral']??null)) return true;
+        $prior=$before['referral']??null; $next=$incoming['referral']??null;
+        // Bound traversal before canonical comparison, including malformed/cyclic PHP input.
+        if (!self::boundedReferral($prior) || !self::boundedReferral($next)) return false;
+        if (self::canonical($prior)===self::canonical($next)) return true;
         // Existing referral facts are never replaced, merged, removed or reinterpreted.
         if (array_key_exists('referral',$before) && $before['referral']!==null) return false;
         $referral=$incoming['referral']??null;
         if (!is_array($referral) || $referral===[] || array_is_list($referral) || count($referral)>16) return false;
+        $enrichmentNodes=0;
+        if (!self::opaqueReferralValue($referral,0,$enrichmentNodes,true)) return false;
         $reserved=['from','from_user_id','to','to_user_id','peer_identity','peer_phone','peer_user_id','waba_id','phone_number_id',
             'conversation_id','message_id','timestamp','context','errors','type','order','customer','customer_name','customer_phone',
             'name','phone','address','branch','items','quantity','price','amount','total','role','system','prompt','instruction','instructions','tool','tools'];
         foreach ($referral as $key=>$value) {
             if (!is_string($key) || !preg_match('/\A[a-z][a-z0-9_]{0,63}\z/',$key) || in_array($key,$reserved,true)) return false;
-            if (is_string($value)) {
-                if (strlen($value)>4096 || !mb_check_encoding($value,'UTF-8') || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$value)) return false;
-            } elseif ($value!==null && !is_bool($value) && !(is_int($value) && $value>=0)) return false;
         }
-        if (strlen(json_encode($referral,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE))>24576
-            || !in_array($referral['source_type']??null,['ad','post'],true)
+        if (!in_array($referral['source_type']??null,['ad','post'],true)
             || !is_string($referral['source_id']??null) || !preg_match('/\A[1-9][0-9]{0,31}\z/',$referral['source_id'])
             || !self::referralUrl($referral['source_url']??null)) return false;
         foreach (['headline','body','ctwa_clid'] as $field)
@@ -120,9 +125,41 @@ final class WhatsAppNativePlaceholderHydration
             && (!is_string($referral['media_type']) || !in_array(strtolower($referral['media_type']),['image','video'],true))) return false;
         foreach (['image_url','video_url','thumbnail_url'] as $field)
             if (array_key_exists($field,$referral) && $referral[$field]!==null && !self::referralUrl($referral[$field])) return false;
-        // Values and opaque scalar extensions stay exact encrypted metadata. No URL is fetched
+        // Values and bounded opaque JSON extensions stay exact encrypted metadata. No URL is fetched
         // and no referral prose, identifier or extension becomes customer/order evidence.
         return true;
+    }
+
+    private static function boundedReferral($value): bool
+    {
+        $nodes=0;
+        return self::opaqueReferralValue($value,0,$nodes,false)
+            && strlen(json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE))<=24576;
+    }
+
+    /** Bounded JSON metadata only; never flatten it into evidence, routing or authorization. */
+    private static function opaqueReferralValue($value,int $depth,int &$nodes,bool $enrichment): bool
+    {
+        if (++$nodes>128) return false;
+        if (is_array($value)) {
+            // Referral root is depth zero; at most four nested container levels beneath it.
+            if ($depth>4 || count($value)>32) return false;
+            foreach ($value as $key=>$child) {
+                // Numeric object keys become integers when JSON is decoded associatively.
+                if (!is_int($key) && !is_string($key)) return false;
+                $name=(string)$key;
+                if (strlen($name)>128 || !mb_check_encoding($name,'UTF-8') || preg_match('/[\x00-\x1f\x7f]/',$name)) return false;
+                if (!self::opaqueReferralValue($child,$depth+1,$nodes,$enrichment)) return false;
+            }
+            return true;
+        }
+        if (is_string($value)) return strlen($value)<=4096 && mb_check_encoding($value,'UTF-8')
+            && !preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$value);
+        if ($value===null || is_bool($value)) return true;
+        if (is_int($value)) return !$enrichment || $value>=0;
+        // Preserve legacy equality for ordinary finite JSON numbers. New enrichment excludes
+        // floats because the existing serialization can lose their exact type (e.g. 1.0).
+        return !$enrichment && is_float($value) && is_finite($value);
     }
 
     private static function referralUrl($value): bool

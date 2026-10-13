@@ -2,9 +2,11 @@
 // Real provider/extraction/failure sanitization with private fake HTTP; no bootstrap, DB or network.
 define('WHATSAPP_ORDER_AI_READ_ONLY_PROBE_TEST_ONLY', true);
 $probeVariant = $argv[1] ?? 'legacy';
-if (!in_array($probeVariant, ['legacy', 'forward'], true)) throw new RuntimeException('Invalid probe fixture');
-$probeFile = dirname(__DIR__) . '/deployment/' . ($probeVariant === 'forward'
-    ? 'whatsapp_order_ai_forward_read_only_probe.php' : 'whatsapp_order_ai_read_only_probe.php');
+$probeFiles = ['legacy' => 'whatsapp_order_ai_read_only_probe.php',
+    'forward' => 'whatsapp_order_ai_forward_read_only_probe.php',
+    'nested' => 'whatsapp_order_ai_nested_forward_read_only_probe.php'];
+if (!array_key_exists($probeVariant, $probeFiles)) throw new RuntimeException('Invalid probe fixture');
+$probeFile = dirname(__DIR__) . '/deployment/' . $probeFiles[$probeVariant];
 require $probeFile;
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
@@ -166,8 +168,12 @@ probeExpect(str_contains($source,'->lockForUpdate('),false,'probe does not acqui
 probeExpect(substr_count($source,'->extract('),1,'one production provider extraction call site');
 probeExpect(str_contains($source,'$snapshot->invoke($workflow, $cid, $floor, $ceiling, false)'),true,'explicit read-only snapshot invocation');
 probeExpect(str_contains($source,'->where(\'id\', 7215)'),true,'status observation fixed to requested event');
-if ($probeVariant === 'forward') foreach (P::SOURCE_PINS as [$path, $expected]) {
-    $bytes = file_get_contents(dirname(__DIR__) . '/' . $path);
-    probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, 'forward guard matches the reviewed runtime ' . $path);
+if ($probeVariant !== 'legacy') foreach (P::SOURCE_PINS as [$path, $expected]) {
+    // The original forward probe intentionally refuses the newer nested helper.
+    // Its immutable source contract is tested against the exact reviewed v1 fixture.
+    $sourcePath = $probeVariant === 'forward' && $path === 'app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php'
+        ? 'tests/fixtures/whatsapp_forward_v1/' . $path : $path;
+    $bytes = file_get_contents(dirname(__DIR__) . '/' . $sourcePath);
+    probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, $probeVariant . ' guard matches the reviewed runtime ' . $path);
 }
 echo 'WHATSAPP_ORDER_AI_READ_ONLY_PROBE_CHECKS='.$checks."\n";
