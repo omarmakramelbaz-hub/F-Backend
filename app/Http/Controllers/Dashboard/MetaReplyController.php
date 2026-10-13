@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\MetaReplyService;
+use App\Services\Dashboard\MetaUploadMedia;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -36,6 +37,39 @@ class MetaReplyController extends Controller
         });
     }
 
+    public function attachment(Request $request, string $conversation, MetaReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            $file = $request->file('attachment');
+            if (!$file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile) throw new HttpException(422);
+            return $replies->attachment(auth('admin')->user(), $this->conversation($conversation),
+                $request->except(['_token', 'attachment']), $file);
+        });
+    }
+
+    public function forward(Request $request, string $conversation, MetaReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            return $replies->forward(auth('admin')->user(), $this->conversation($conversation), $request->except('_token'));
+        });
+    }
+
+    /** Meta fetches a ten-minute upload capability; this endpoint has no user session or arbitrary source URL. */
+    public function temporaryMedia(Request $request, string $ticket, MetaUploadMedia $media)
+    {
+        try {
+            if ($request->query()) throw new HttpException(404);
+            $file = $media->temporary($ticket);
+            return response()->file($file['path'], ['Content-Type' => $file['mime'],
+                'Content-Disposition' => 'attachment; filename="' . $file['filename'] . '"',
+                'Cache-Control' => 'no-store, private, max-age=0', 'Pragma' => 'no-cache',
+                'X-Content-Type-Options' => 'nosniff', 'Content-Security-Policy' => "default-src 'none'; sandbox",
+                'Referrer-Policy' => 'no-referrer']);
+        } catch (\Throwable $e) {
+            return response('', 404)->withHeaders(['Cache-Control' => 'no-store, private, max-age=0', 'X-Content-Type-Options' => 'nosniff']);
+        }
+    }
+
     private function respond(callable $operation)
     {
         try {
@@ -45,7 +79,7 @@ class MetaReplyController extends Controller
             if (($body['state'] ?? null) === 'FAILED') {
                 $status = in_array($reason, ['STALE_INBOUND', 'WINDOW_CLOSED', 'UNKNOWN_PENDING'], true) ? 409
                     : ($reason === 'ACCESS_REVOKED' ? 403
-                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE'], true) ? 503
+                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'MEDIA_UNAVAILABLE'], true) ? 503
                             : (in_array($reason, ['META_REJECTED', 'MEDIA_UPLOAD_FAILED'], true) ? 502 : 422)));
             }
         } catch (HttpException $error) {

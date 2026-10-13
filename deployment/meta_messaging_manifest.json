@@ -36,6 +36,86 @@
     "routes/meta_messaging.php",
     "routes/meta_orders.php",
     "routes/meta_reads.php",
-    "routes/meta_replies.php"
-  ]
+    "routes/meta_replies.php",
+    "app/Services/Dashboard/MetaProfileService.php",
+    "app/Console/Commands/RefreshMetaProfiles.php",
+    "app/Services/Dashboard/MetaMediaService.php",
+    "app/Services/Dashboard/MetaUploadMedia.php",
+    "app/Http/Controllers/Dashboard/MetaMessageActionsController.php",
+    "database/migrations/2026_10_13_160000_create_meta_message_hides.php",
+    "public/js/dashboard-meta-inbox.js",
+    "public/js/dashboard-meta-replies.js",
+    "public/css/dashboard-meta-inbox.css"
+  ],
+  "accepted_previous": {
+    "app/Console/Commands/ProcessMetaMessages.php": [
+      "c28b29c0f90be955b3d6d2ff5d82b88179550189"
+    ],
+    "app/Http/Controllers/Dashboard/MetaInboxController.php": [
+      "a653e998340e300dc507c19a2e0f2ac5339f7184"
+    ],
+    "app/Http/Controllers/Dashboard/MetaReplyController.php": [
+      "e11f2df8814066a60e068cdc2aefded5c57809d2"
+    ],
+    "app/Services/Dashboard/MetaReplyService.php": [
+      "785bafa1400b13e428ddb9b251ff54fd9e9aab4e"
+    ],
+    "resources/views/admin/meta/index.blade.php": [
+      "0e9b0161e89cae455f17bd230b6f7af4bfa0a077"
+    ],
+    "resources/views/admin/meta/replies.blade.php": [
+      "6e119d9cd1680c8cf6af48d2671926989e093bc0"
+    ],
+    "routes/meta_inbox.php": [
+      "bd76343572c00defa9af163735ecc51726cbdcbc"
+    ],
+    "routes/meta_replies.php": [
+      "5f4fc1c2940fd6880cbcb11f53be85ec10ed6c11"
+    ],
+    "routes/meta_messaging.php": [
+      "3b4ee1f87e6265efd8585f7a30149c15e01ed7ee"
+    ]
+  },
+  "live_upgrade": {
+    "app/Console/Commands/ProcessMetaMessages.php": [
+      "c28b29c0f90be955b3d6d2ff5d82b88179550189"
+    ],
+    "app/Http/Controllers/Dashboard/MetaInboxController.php": [
+      "a653e998340e300dc507c19a2e0f2ac5339f7184"
+    ],
+    "app/Http/Controllers/Dashboard/MetaReplyController.php": [
+      "e11f2df8814066a60e068cdc2aefded5c57809d2"
+    ],
+    "app/Services/Dashboard/MetaReplyService.php": [
+      "785bafa1400b13e428ddb9b251ff54fd9e9aab4e"
+    ],
+    "resources/views/admin/meta/index.blade.php": [
+      "0e9b0161e89cae455f17bd230b6f7af4bfa0a077"
+    ],
+    "resources/views/admin/meta/replies.blade.php": [
+      "6e119d9cd1680c8cf6af48d2671926989e093bc0"
+    ],
+    "routes/meta_inbox.php": [
+      "bd76343572c00defa9af163735ecc51726cbdcbc"
+    ],
+    "routes/meta_replies.php": [
+      "5f4fc1c2940fd6880cbcb11f53be85ec10ed6c11"
+    ],
+    "routes/meta_messaging.php": [
+      "3b4ee1f87e6265efd8585f7a30149c15e01ed7ee"
+    ],
+    "app/Console/Commands/RefreshMetaProfiles.php": [],
+    "app/Services/Dashboard/MetaProfileService.php": [],
+    "app/Services/Dashboard/MetaMediaService.php": [],
+    "app/Services/Dashboard/MetaUploadMedia.php": [],
+    "app/Http/Controllers/Dashboard/MetaMessageActionsController.php": [],
+    "database/migrations/2026_10_13_160000_create_meta_message_hides.php": [],
+    "public/js/dashboard-meta-inbox.js": [],
+    "public/js/dashboard-meta-replies.js": [],
+    "public/css/dashboard-meta-inbox.css": []
+  },
+  "upgrade_migrations": [
+    "database/migrations/2026_10_13_160000_create_meta_message_hides.php"
+  ],
+  "verified_routes": 25
 }

@@ -6,9 +6,12 @@ final class MetaMessagingRouteCheck
     public const CONTRACTS = [
         'meta-messaging.webhook.verify' => ['GET', 'api/meta/messaging/webhook', 'Api\\V1\\MetaMessagingWebhookController', 'verify'],
         'meta-messaging.webhook.receive' => ['POST', 'api/meta/messaging/webhook', 'Api\\V1\\MetaMessagingWebhookController', 'receive'],
+        'meta-replies.temporary-media' => ['GET', 'api/meta/messaging/media/{ticket}', 'Dashboard\\MetaReplyController', 'temporaryMedia'],
         'meta-inbox.index' => ['GET', 'admin/meta', 'Dashboard\\MetaInboxController', 'index'],
         'meta-inbox.conversations' => ['GET', 'admin/meta/conversations', 'Dashboard\\MetaInboxController', 'conversations'],
         'meta-inbox.messages' => ['GET', 'admin/meta/conversations/{conversation}/messages', 'Dashboard\\MetaInboxController', 'messages'],
+        'meta-inbox.media' => ['GET', 'admin/meta/conversations/{conversation}/messages/{message}/media/{index}', 'Dashboard\\MetaMessageActionsController', 'media'],
+        'meta-inbox.hide' => ['POST', 'admin/meta/conversations/{conversation}/messages/{message}/hide', 'Dashboard\\MetaMessageActionsController', 'hide'],
         'meta-orders.meta' => ['GET', 'admin/meta/orders/meta', 'Dashboard\\MetaOrderController', 'meta'],
         'meta-orders.catalog' => ['GET', 'admin/meta/orders/catalog', 'Dashboard\\MetaOrderController', 'catalog'],
         'meta-orders.customers' => ['GET', 'admin/meta/orders/customers', 'Dashboard\\MetaOrderController', 'customers'],
@@ -24,15 +27,37 @@ final class MetaMessagingRouteCheck
         'meta-replies.state' => ['GET', 'admin/meta/conversations/{conversation}/reply-state', 'Dashboard\\MetaReplyController', 'state'],
         'meta-replies.send' => ['POST', 'admin/meta/conversations/{conversation}/replies', 'Dashboard\\MetaReplyController', 'send'],
         'meta-replies.voice' => ['POST', 'admin/meta/conversations/{conversation}/voice', 'Dashboard\\MetaReplyController', 'voice'],
+        'meta-replies.attachment' => ['POST', 'admin/meta/conversations/{conversation}/attachments', 'Dashboard\\MetaReplyController', 'attachment'],
+        'meta-replies.forward' => ['POST', 'admin/meta/conversations/{conversation}/forward', 'Dashboard\\MetaReplyController', 'forward'],
     ];
 
     public static function verify($router): array
     {
         $routes = $router->getRoutes();
+        // A newly added feature endpoint must declare its complete authentication and HTTP contract here.
+        $seen = [];
+        foreach ($routes->getRoutes() as $route) {
+            $uri = trim($route->uri(), '/');
+            if ($uri === 'admin/meta' || strpos($uri, 'admin/meta/') === 0 || strpos($uri, 'api/meta/messaging/') === 0) {
+                self::assertContract(is_string($route->getName()) && isset(self::CONTRACTS[$route->getName()]),
+                    'UNEXPECTED_META_ROUTE', 'UNREGISTERED_META_ROUTE');
+                self::assertContract(!isset($seen[$route->getName()]), 'DUPLICATE_META_ROUTE', $route->getName());
+                $seen[$route->getName()] = true;
+            }
+        }
         foreach (self::CONTRACTS as $name => [$method, $uri, $controller, $action]) {
             $route = $routes->getByName($name);
             self::assertContract($route !== null, 'MISSING_ROUTE', $name);
             self::assertContract(trim($route->uri(), '/') === $uri && in_array($method, $route->methods(), true), 'ROUTE_CONTRACT', $name);
+            $expectedMethods = $method === 'GET' ? ['GET', 'HEAD'] : [$method];
+            $actualMethods = $route->methods(); sort($expectedMethods); sort($actualMethods);
+            self::assertContract($actualMethods === $expectedMethods, 'ROUTE_METHODS', $name);
+            foreach (['conversation', 'draft', 'message', 'index'] as $parameter) {
+                if (strpos($uri, '{'.$parameter.'}') !== false)
+                    self::assertContract(($route->wheres[$parameter] ?? null) === '[0-9]+', 'ROUTE_PARAMETER_CONSTRAINT', $name);
+            }
+            if ($name === 'meta-replies.temporary-media') self::assertContract(($route->wheres['ticket'] ?? null)
+                === '[0-9a-f]{48}\\.[1-9][0-9]{9}\\.[0-9a-f]{64}', 'ROUTE_PARAMETER_CONSTRAINT', $name);
             $controller = 'App\\Http\\Controllers\\'.$controller;
             self::assertContract($route->getActionName() === $controller.'@'.$action
                 && $route->getAction('uses') === $controller.'@'.$action, 'CONTROLLER_CONTRACT', $name);
@@ -40,7 +65,7 @@ final class MetaMessagingRouteCheck
                 && (new ReflectionMethod($controller, $action))->isPublic(), 'CONTROLLER_UNAVAILABLE', $name);
             // Only Meta controllers are inspected; legacy broken routes are never resolved.
             $middleware = $route->gatherMiddleware();
-            if (strpos($name, 'meta-messaging.') === 0) {
+            if (strpos($uri, 'api/meta/messaging/') === 0) {
                 self::assertContract(in_array('api', $middleware, true) && !in_array('IsAdmin', $middleware, true)
                     && !in_array('web', $middleware, true), 'CALLBACK_MIDDLEWARE', $name);
                 self::assertContract(in_array('App\\Http\\Middleware\\EnsureGoSchema', $route->excludedMiddleware(), true), 'CALLBACK_SCHEMA_EXCLUSION', $name);
@@ -51,7 +76,8 @@ final class MetaMessagingRouteCheck
                     'App\\Http\\Middleware\\IsAdmin', 'App\\Http\\Middleware\\lang',
                     'App\\Http\\Middleware\\VerifyCsrfToken', 'Illuminate\\Session\\Middleware\\StartSession']), 'ADMIN_MIDDLEWARE_EXCLUDED', $name);
             }
-            $path = preg_replace('/\{(?:conversation|draft)\}/', '1', $uri);
+            $path = preg_replace('/\{(?:conversation|draft|message|index)\}/', '1', $uri);
+            $path = str_replace('{ticket}', str_repeat('a', 48).'.'.(time()+600).'.'.str_repeat('b', 64), $path);
             $matched = $routes->match(Illuminate\Http\Request::create('/'.$path, $method));
             self::assertContract($matched->getName() === $name, 'ROUTE_SHADOWED', $name);
         }

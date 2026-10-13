@@ -45,7 +45,7 @@ namespace {
     $c->instance('db',$db->getDatabaseManager());$c->instance('db.schema',$db->getConnection()->getSchemaBuilder());
     $c->instance('encrypter',new Encrypter($key,'AES-256-CBC'));Facade::setFacadeApplication($c);
     foreach (['Support/WhatsAppWebhookProtocol','Support/MetaMessagingProtocol','Services/Dashboard/WhatsAppInboxAccess','Services/Dashboard/MetaInboxAccess',
-        'Services/Dashboard/MetaInvalidEvent','Services/Dashboard/MetaInboxConsumer','Services/Dashboard/MetaInboxReadState','Services/Dashboard/MetaReplyService',
+        'Services/Dashboard/MetaInvalidEvent','Services/Dashboard/MetaInboxConsumer','Services/Dashboard/MetaInboxReadState','Services/Dashboard/MetaUploadMedia','Services/Dashboard/MetaReplyService',
         'Services/Dashboard/WhatsAppOrderWorkflow','Services/Dashboard/MetaOrderWorkflow'] as $file) require __DIR__.'/../app/'.$file.'.php';
     foreach (glob(__DIR__.'/../database/migrations/2026_10_11_*create_meta*.php') as $file) require $file;
     foreach (['CreateMetaWebhookEventsTable','CreateMetaInboxTables','CreateMetaOrderDrafts','CreateMetaReplyRequests','CreateMetaInboxReads'] as $klass) (new $klass)->up();
@@ -105,5 +105,15 @@ namespace {
     check(Protocol::report($voice,$accounts)['messages'][0]['type']==='audio','incoming voice supported');
     $location=$voice;$location['entry'][0]['messaging'][0]['message']['attachments']=[['type'=>'location','payload'=>['coordinates'=>['lat'=>31.0,'long'=>31.4]]]];
     $dto=Protocol::report($location,$accounts)['messages'][0];check($dto['content']['message']['location']['latitude']===31.0,'native location normalized');
+    // An echo may arrive first; later customer traffic must join that exact native peer.
+    capture(event('page','101','901','echo-first','رد الموظف',true));
+    check($consumer->consume()['messages_inserted']===1,'echo-first stored');
+    $echoThread=DB::table('meta_inbox_conversations')->where('phone_number_id','101')->orderByDesc('id')->first();
+    $echoState=$replies->state($actor,(int)$echoThread->id);
+    check(!$echoState['can_reply']&&$echoState['reason']==='NO_INBOUND','business echo alone never opens reply window');
+    capture(event('page','101','901','incoming-after-echo','رسالة العميل'));
+    check($consumer->consume()['messages_inserted']===1,'incoming after echo stored');
+    check(DB::table('meta_inbox_messages')->where('conversation_id',$echoThread->id)->count()===2,'incoming and echo share native conversation');
+    check($replies->state($actor,(int)$echoThread->id)['can_reply'],'real incoming message opens response window');
     echo "meta-messaging: $checks checks passed\n";
 }

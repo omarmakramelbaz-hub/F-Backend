@@ -69,6 +69,14 @@ def main():
     if os.geteuid()==0: raise RuntimeError('RUN_AS_APPLICATION_USER')
     if not (root/'vendor/autoload.php').is_file(): raise RuntimeError('APPLICATION_RUNTIME_MISSING')
     manifest=json.loads(git(root,'show',args.release+':deployment/meta_messaging_manifest.json'))
+    expected_routes=manifest.get('verified_routes',20)
+    if type(expected_routes) is not int or expected_routes<1 or expected_routes>100: raise RuntimeError('INVALID_VERIFIED_ROUTES')
+    accepted_previous=manifest.get('accepted_previous',{})
+    if not isinstance(accepted_previous,dict) or any(
+        rel not in manifest['new_files'] or not isinstance(blobs,list) or not blobs
+        or any(not isinstance(blob,str) or not re.fullmatch('[a-f0-9]{40}',blob) for blob in blobs)
+        for rel,blobs in accepted_previous.items()
+    ): raise RuntimeError('INVALID_ACCEPTED_PREVIOUS')
     route_probe=git(root,'show',args.release+':deployment/meta_messaging_route_check.php').encode()
     targets={};modes={}
     def safe_path(path):
@@ -105,7 +113,11 @@ def main():
             # Git blob SHA over exact installed bytes, including newline.
             blob=hashlib.sha1(b'blob '+str(len(old or b'')).encode()+b'\0'+(old or b'')).hexdigest()
             if blob!=manifest['baseline'][rel]: raise RuntimeError('UNEXPECTED_INSTALLED_FILE: '+rel)
-        elif old is not None: raise RuntimeError('EXISTING_META_FILE_DIFFERS: '+rel)
+        elif old is not None:
+            # Feature upgrades may replace only an explicitly pinned previous blob.
+            # Every target is validated before any backup or publication starts.
+            blob=hashlib.sha1(b'blob '+str(len(old)).encode()+b'\0'+old).hexdigest()
+            if blob not in accepted_previous.get(rel,[]): raise RuntimeError('EXISTING_META_FILE_DIFFERS: '+rel)
         targets[rel]=(old,target)
     blocks={
       'routes/api.php':("require __DIR__.'/meta_messaging.php';", "\nrequire __DIR__.'/meta_messaging.php';\n"),
@@ -158,8 +170,8 @@ def main():
         phase='verify-meta-routes'
         verification=run([args.php,str(probe_path)],root,True)
         checked=json.loads(verification.stdout)
-        if checked!={'ok':True,'verified_routes':20}: raise RuntimeError('ROUTE_VERIFICATION_FAILED')
-        print('META_ROUTES_VERIFIED=20')
+        if checked!={'ok':True,'verified_routes':expected_routes}: raise RuntimeError('ROUTE_VERIFICATION_FAILED')
+        print('META_ROUTES_VERIFIED='+str(expected_routes))
         print('META_MESSAGING_INSTALLED');print('BACKUP='+str(backup))
         # Configuration remains separate; no token, business Agent or automatic order changes during installation.
     except Exception as error:

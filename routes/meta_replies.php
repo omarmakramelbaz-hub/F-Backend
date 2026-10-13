@@ -10,4 +10,8 @@ Route::group(['prefix' => 'admin/meta', 'middleware' => ['lang', 'IsAdmin']], fu
         ->whereNumber('conversation')->name('meta-replies.send');
     Route::post('/conversations/{conversation}/voice', [MetaReplyController::class, 'voice'])
         ->whereNumber('conversation')->name('meta-replies.voice');
+    Route::post('/conversations/{conversation}/attachments', [MetaReplyController::class, 'attachment'])
+        ->whereNumber('conversation')->name('meta-replies.attachment');
+    Route::post('/conversations/{conversation}/forward', [MetaReplyController::class, 'forward'])
+        ->whereNumber('conversation')->name('meta-replies.forward');
 });

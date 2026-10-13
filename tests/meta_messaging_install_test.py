@@ -18,6 +18,7 @@ spec = importlib.util.spec_from_file_location('meta_installer', pathlib.Path(__f
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 RELEASE = 'a' * 40
+PROCESS_REL = 'app/Console/Commands/ProcessMetaMessages.php'
 NAVIGATION_REL = 'public/dashboard/js/dashboard-navigation.js'
 NAVIGATION_SOURCE = r'''(function () {
     const labels = { settings: 'الإعدادات والمالية' };
@@ -119,6 +120,21 @@ class InstallerTests(unittest.TestCase):
             finally:
                 self.output = output.getvalue()
 
+    def installed_previous_release(self):
+        self.payloads[PROCESS_REL] = '<?php // previously installed Meta processor\n'
+        self.manifest['new_files'].append(PROCESS_REL)
+        self.install()
+        previous = (self.root / PROCESS_REL).read_bytes()
+        blob = hashlib.sha1(b'blob ' + str(len(previous)).encode() + b'\0' + previous).hexdigest()
+        self.payloads[PROCESS_REL] = '<?php // Meta processor with customer profiles\n'
+        self.manifest['accepted_previous'] = {PROCESS_REL: [blob]}
+        self.calls.clear()
+        return previous
+
+    def file_snapshot(self):
+        return {str(path.relative_to(self.root)): (path.read_bytes(), path.stat().st_mode & 0o777)
+                for path in self.root.rglob('*') if path.is_file()}
+
     def test_additive_install_preserves_routes_credentials_and_permissions(self):
         self.install()
         for rel in ['routes/api.php', 'routes/web.php', 'resources/views/admin/whatsapp/sidebar.blade.php']:
@@ -149,6 +165,85 @@ class InstallerTests(unittest.TestCase):
         before = {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino) for rel in rels}
         self.install()
         self.assertEqual(before, {rel: ((self.root / rel).read_bytes(), (self.root / rel).stat().st_ino) for rel in rels})
+
+    def test_route_verification_uses_the_pinned_manifest_count(self):
+        self.manifest['verified_routes'] = 25
+        self.probe_output = json.dumps({'ok': True, 'verified_routes': 25})
+        self.install()
+        self.assertIn('META_ROUTES_VERIFIED=25', self.output)
+
+    def test_upgrade_replaces_only_explicitly_accepted_previous_feature_blob(self):
+        previous = self.installed_previous_release()
+        self.write(PROCESS_REL, previous, 0o640)
+        before = self.file_snapshot()
+        inodes = {rel: (self.root / rel).stat().st_ino for rel in before}
+        backups = set((self.root.parent / 'meta-release-backups').iterdir())
+        self.install()
+        expected = dict(before)
+        expected[PROCESS_REL] = (self.payloads[PROCESS_REL].encode(), 0o640)
+        self.assertEqual(self.file_snapshot(), expected)
+        for rel in before:
+            if rel not in (PROCESS_REL, 'bootstrap/cache/config.php', 'bootstrap/cache/routes-v7.php'):
+                self.assertEqual((self.root / rel).stat().st_ino, inodes[rel], rel)
+        backup, = set((self.root.parent / 'meta-release-backups').iterdir()) - backups
+        self.assertEqual((backup / PROCESS_REL).read_bytes(), previous)
+        self.assertEqual((backup / PROCESS_REL).stat().st_mode & 0o777, 0o600)
+        self.assertIn('META_MESSAGING_INSTALLED', self.output)
+        current_inode = (self.root / PROCESS_REL).stat().st_ino
+        self.install()
+        self.assertEqual((self.root / PROCESS_REL).stat().st_ino, current_inode)
+
+    def test_upgrade_unknown_previous_blob_stops_before_any_mutation(self):
+        self.installed_previous_release()
+        self.write(PROCESS_REL, b'<?php // unknown local processor changes\n', 0o640)
+        profile_rel = 'app/Services/Dashboard/MetaCustomerProfile.php'
+        self.payloads[profile_rel] = '<?php // new customer profile service\n'
+        self.manifest['new_files'].append(profile_rel)
+        before = self.file_snapshot()
+        backups = set((self.root.parent / 'meta-release-backups').iterdir())
+        with self.assertRaisesRegex(RuntimeError, 'EXISTING_META_FILE_DIFFERS: ' + PROCESS_REL):
+            self.install()
+        self.assertEqual(self.file_snapshot(), before)
+        self.assertEqual(set((self.root.parent / 'meta-release-backups').iterdir()), backups)
+        self.assertFalse((self.root / profile_rel).exists())
+        self.assertEqual(self.calls, [])
+
+    def test_failed_upgrade_restores_previous_feature_and_removes_new_service(self):
+        previous = self.installed_previous_release()
+        self.write(PROCESS_REL, previous, 0o640)
+        before = self.file_snapshot()
+        profile_rel = 'app/Services/Dashboard/MetaCustomerProfile.php'
+        self.payloads[profile_rel] = '<?php // new customer profile service\n'
+        self.manifest['new_files'].append(profile_rel)
+        self.probe_output = json.dumps({'ok': False})
+        with self.assertRaisesRegex(RuntimeError, 'ROUTE_VERIFICATION_FAILED'):
+            self.install()
+        self.assertEqual(self.file_snapshot(), before)
+        self.assertFalse((self.root / profile_rel).exists())
+        self.assertIn('CODE_RESTORED', self.output)
+        self.assertFalse(any('migrate:rollback' in call or 'migrate:fresh' in call for call in self.calls))
+
+    def test_previous_feature_allowlist_cannot_bypass_shared_file_baseline(self):
+        shared = next(iter(self.manifest['baseline']))
+        self.manifest['accepted_previous'] = {shared: ['a' * 40]}
+        with self.assertRaisesRegex(RuntimeError, 'INVALID_ACCEPTED_PREVIOUS'):
+            self.install()
+        self.assertEqual(self.file_snapshot(),
+                         {rel: (content, 0o640) for rel, content in self.original.items()})
+        self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+        self.assertEqual(self.calls, [])
+
+    def test_malformed_previous_feature_allowlist_is_rejected_before_mutation(self):
+        feature = self.manifest['new_files'][0]
+        for accepted in ([], {feature: 'a' * 40}, {feature: []}, {feature: ['unknown']}, {feature: [None]}):
+            with self.subTest(accepted=accepted):
+                self.manifest['accepted_previous'] = accepted
+                with self.assertRaisesRegex(RuntimeError, 'INVALID_ACCEPTED_PREVIOUS'):
+                    self.install()
+                self.assertEqual(self.file_snapshot(),
+                                 {rel: (content, 0o640) for rel, content in self.original.items()})
+                self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+                self.assertEqual(self.calls, [])
 
     def test_sidebar_link_preserves_native_menu_markup_and_crlf(self):
         menu_rel = 'resources/views/admin/layouts/menu.blade.php'

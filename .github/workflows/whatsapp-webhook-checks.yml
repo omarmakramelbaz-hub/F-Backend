@@ -2,7 +2,7 @@ name: WhatsApp webhook checks
 
 on:
   push:
-    branches: [codex/whatsapp-webhook-20261009, codex/meta-messages-20261011]
+    branches: [codex/whatsapp-webhook-20261009, codex/meta-messages-20261011, codex/meta-inbound-names-20261013]
   pull_request:
     paths:
       - 'app/**/Meta*.php'
@@ -13,7 +13,10 @@ on:
       - 'resources/views/admin/meta/**'
       - 'database/migrations/*create_meta*'
       - 'deployment/*meta_messaging*'
-      - 'tests/meta_messaging*'
+      - 'tests/meta_*'
+      - 'deployment/*meta*'
+      - 'public/js/dashboard-meta*'
+      - 'public/css/dashboard-meta*'
       - 'app/Support/WhatsAppWebhookProtocol.php'
       - 'app/Http/Controllers/Api/V1/WhatsAppWebhookController.php'
       - 'config/whatsapp.php'
@@ -133,6 +136,10 @@ jobs:
         run: python3 tests/whatsapp_inbox_install_test.py
       - name: Verify Meta installation preservation and rollback
         run: python3 tests/meta_messaging_install_test.py
+      - name: Verify narrow Meta chat and profile upgrades
+        run: |
+          python3 tests/meta_profiles_update_test.py
+          python3 tests/meta_chat_update_test.py
       - name: Stage helpers under the test runner's ownership
         run: |
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
@@ -159,6 +166,9 @@ jobs:
           node tests/whatsapp_orders_ui_test.js
           node --check public/js/dashboard-whatsapp-replies.js
           node tests/whatsapp_replies_ui_test.js
+          node --check public/js/dashboard-meta-inbox.js
+          node --check public/js/dashboard-meta-replies.js
+          node tests/meta_chat_ui_test.js
 
   inbox-database:
     runs-on: ubuntu-latest
@@ -185,6 +195,10 @@ jobs:
           php tests/whatsapp_inbox_diagnostic_test.php
           php tests/whatsapp_order_workflow_test.php
           php tests/meta_messaging_test.php
+          php tests/meta_profile_service_test.php
+          php tests/meta_inbound_diagnostic_test.php
+          php tests/meta_media_actions_test.php
+          php tests/meta_reply_media_test.php
           php tests/meta_messaging_routes_test.php
           php tests/whatsapp_inbox_reads_test.php
           php tests/whatsapp_reply_service_test.php
