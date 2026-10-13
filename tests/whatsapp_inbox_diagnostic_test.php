@@ -67,7 +67,8 @@ file_put_contents($temporary . '/setup.php', $setup);
 require $temporary . '/setup.php';
 $repo = realpath(__DIR__ . '/..');
 foreach (['app/Support/WhatsAppInboxProtocol.php', 'app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php',
-    'app/Services/Dashboard/WhatsAppInboxConsumer.php', 'database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php'] as $file) {
+    'app/Services/Dashboard/WhatsAppInboxConsumer.php', 'app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php',
+    'database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php'] as $file) {
     require $repo . '/' . $file;
 }
 $settings = ['database' => $temporary . '/fixture.sqlite', 'key' => base64_encode(random_bytes(32)), 'mode' => 'READY'];
