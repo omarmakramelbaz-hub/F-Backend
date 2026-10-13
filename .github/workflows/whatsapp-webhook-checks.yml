@@ -159,7 +159,9 @@ jobs:
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
           cp -R deployment tests /tmp/whatsapp-terminal-fixtures/
           mkdir -p /tmp/whatsapp-terminal-fixtures/app/Services/Dashboard
-          cp app/Services/Dashboard/WhatsAppInboxConsumer.php /tmp/whatsapp-terminal-fixtures/app/Services/Dashboard/
+          cp app/Services/Dashboard/WhatsAppInboxConsumer.php app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php /tmp/whatsapp-terminal-fixtures/app/Services/Dashboard/
+          mkdir -p /tmp/whatsapp-terminal-fixtures/app/Support
+          cp app/Support/WhatsAppInboxProtocol.php /tmp/whatsapp-terminal-fixtures/app/Support/
           mkdir /tmp/whatsapp-terminal-fixtures/config
           cp config/whatsapp_cart.php /tmp/whatsapp-terminal-fixtures/config/
       - name: Verify additive order installation and rollback
