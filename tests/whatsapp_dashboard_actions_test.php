@@ -274,7 +274,22 @@ actionCheck($service->send($actor, $fixture['conversation'], $input)['replayed']
 $auditRow = DB::table('whatsapp_reply_requests')->first();
 actionCheck(strpos($auditRow->audit, $fixture['native']) === false && strpos($auditRow->audit, $input['text']) === false,
     'quote audit keeps private message data encrypted');
-actionCheck(actionProtectedSnapshot() === $protected, 'quoted send does not mutate raw history customers or orders');
+$afterProjection = actionProtectedSnapshot();
+$apiEvidence = DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->get();
+actionCheck($apiEvidence->count() === 1 && $apiEvidence->first()->direction === 'outbound'
+    && $apiEvidence->first()->type === 'text', 'quoted acceptance creates one explicit receipt evidence row');
+$afterProjection['whatsapp_inbox_messages'] = DB::table('whatsapp_inbox_messages')
+    ->where('source','!=','dashboard_api')->orderBy('id')->get()->toJson();
+$beforeThreads = json_decode($protected['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
+$afterThreads = json_decode($afterProjection['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
+foreach ($beforeThreads as &$thread) unset($thread['last_message_at'],$thread['updated_at']);
+unset($thread);
+foreach ($afterThreads as &$thread) unset($thread['last_message_at'],$thread['updated_at']);
+unset($thread);
+actionCheck($afterThreads === $beforeThreads, 'receipt projection preserves conversation identity and encrypted customer data');
+$afterProjection['whatsapp_inbox_conversations'] = $protected['whatsapp_inbox_conversations'];
+actionCheck($afterProjection === $protected,
+    'quoted send preserves existing native rows raw webhook history read markers customers and orders');
 $bad = actionTextInput($fixture); $bad['reply_to_message_id'] = 'wamid.client-chosen';
 actionRefuses(fn () => $service->send($actor, $fixture['conversation'], $bad), 422,
     'browser cannot inject a native quoted ID');

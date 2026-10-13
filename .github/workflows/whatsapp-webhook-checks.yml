@@ -220,6 +220,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install the production framework for real dashboard guards
+        id: framework
         run: |
           apt-get update
           apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev curl git unzip python3 nodejs
@@ -233,6 +234,13 @@ jobs:
         env:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-dashboard-test/vendor/autoload.php
         run: php tests/whatsapp_dashboard_actions_test.php
+      - name: Preserve isolated dependencies only for failed regression investigation
+        if: failure() && steps.framework.conclusion == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-order-evidence-regression-vendor
+          path: /tmp/whatsapp-dashboard-test/vendor
+          retention-days: 1
       - name: Stage guarded dashboard fixtures under the test runner's ownership
         run: |
           mkdir -m 0700 /tmp/whatsapp-dashboard-fixtures
