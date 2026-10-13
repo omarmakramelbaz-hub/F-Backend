@@ -221,6 +221,134 @@ class RepairPublicationTests(unittest.TestCase):
         f.originals(self)
 
 
+@unittest.skipUnless(os.geteuid()==0,'Observed root-owned configuration fixtures require root')
+class RootReadOnlyConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.f=Fixture(self.temp.name)
+        for p in repair.ROOT_READ_ONLY_CONFIGURATION:
+            self.f.write(p,('ROOT_CONFIG_FIXTURE_PRIVATE:'+p+'\n').encode(),0o644)
+        self.f.config=repair.configuration_snapshot(self.f.root,self.f.uid)
+    def tearDown(self):self.temp.cleanup()
+
+    def test_exact_four_root_owned_files_preserved_through_publication_and_idempotence(self):
+        f=self.f;expected={p:((f.root/p).read_bytes(),repair.metadata(f.root/p)) for p in repair.ROOT_READ_ONLY_CONFIGURATION}
+        original=repair.base.snapshot
+        def strict_ordinary_reader(path,*args,**kwargs):
+            try:relative=str(path.relative_to(f.root))
+            except ValueError:relative=None
+            self.assertNotIn(relative,repair.ROOT_READ_ONLY_CONFIGURATION)
+            return original(path,*args,**kwargs)
+        with mock.patch.object(repair.base,'snapshot',strict_ordinary_reader):
+            result=f.apply();self.assertIn('REPAIR_READY',result['status']);f.unchanged_config(self)
+            self.assertIn('ALREADY_CURRENT',f.apply()['status'])
+        for p,value in expected.items():
+            self.assertEqual(((f.root/p).read_bytes(),repair.metadata(f.root/p)),value)
+            item,_=repair.guarded_snapshot(f.root/p,f.uid,f.root,configuration=True)
+            self.assertEqual(item.uid,0);self.assertEqual(item.mode,0o644)
+        for path in pathlib.Path(result['backup']).rglob('*'):
+            if path.is_file():self.assertNotIn(b'ROOT_CONFIG_FIXTURE_PRIVATE',path.read_bytes())
+
+    def test_read_only_preflight_with_root_owned_configs_never_publishes_or_changes_workers(self):
+        f=self.f;result=f.apply(True);self.assertIn('PREFLIGHT',result['status']);f.originals(self);f.unchanged_config(self)
+        self.assertFalse(any(args[0]=='/usr/bin/systemctl' for args in f.calls))
+
+    def test_root_config_content_race_during_lint_blocks_publication(self):
+        f=self.f;changed=[False]
+        def hook(args):
+            if args[:2]==[repair.PHP,'-l'] and not changed[0]:
+                changed[0]=True;f.write('config/mail.php',b'CONCURRENT_ROOT_CONFIG\n',0o644)
+        f.hook=hook
+        with self.assertRaisesRegex(repair.SafeError,'CONFIGURATION_CHANGED'):f.apply()
+        f.originals(self);self.assertEqual((f.root/'config/mail.php').read_bytes(),b'CONCURRENT_ROOT_CONFIG\n')
+
+    def test_root_config_content_race_after_first_publication_retains_foreign_values_and_rolls_back_runtime(self):
+        f=self.f;original=repair.base.replace_file;changed=[False]
+        def publish(*args,**kwargs):
+            result=original(*args,**kwargs)
+            if not changed[0]:changed[0]=True;f.write('config/jwt.php',b'CONCURRENT_JWT_CONFIG\n',0o644)
+            return result
+        with mock.patch.object(repair.base,'replace_file',publish):
+            with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self);self.assertEqual((f.root/'config/jwt.php').read_bytes(),b'CONCURRENT_JWT_CONFIG\n')
+
+    def test_root_configuration_reader_whitelist_is_exact_and_unlisted_roots_remain_strict(self):
+        f=self.f
+        self.assertEqual(repair.ROOT_READ_ONLY_CONFIGURATION,frozenset((
+            'config/go_services.php','config/jwt.php','config/mail.php','config/partner_auth.php')))
+        for p in ('.env','bootstrap/cache/config.php','config/other.php',list(f.pins)[-1],'app/Support/Immutable.php'):
+            with self.subTest(path=p),self.assertRaisesRegex(repair.SafeError,'SCOPE_INVALID'):
+                repair.root_configuration_snapshot(f.root/p,f.uid,f.root,repair.metadata(f.root/p))
+            # Supply a distinct application UID at the existing base-reader
+            # boundary, without depending on unmapped container chown support.
+            with self.subTest(path=p),mock.patch.object(repair.base,'safe_ancestors'),self.assertRaisesRegex(repair.SafeError,'FILE_OWNER_OR_TYPE'):
+                repair.guarded_snapshot(f.root/p,1001,f.root,configuration=True)
+        with mock.patch.object(repair.base,'safe_ancestors'),self.assertRaisesRegex(repair.SafeError,'FILE_OWNER_OR_TYPE'):
+            repair.guarded_snapshot(f.root/'config/mail.php',1001,f.root,configuration=False)
+
+    def test_changed_root_configuration_mode_or_hardlinks_rejected_before_any_release_operation(self):
+        f=self.f;path=f.root/'config/mail.php'
+        for mode in (0o600,0o640,0o755,0o664):
+            path.chmod(mode);f.calls.clear()
+            with self.subTest(mode=mode),self.assertRaises(repair.SafeError):f.apply()
+            self.assertEqual(f.calls,[])
+        path.chmod(0o644);alias=f.root.parent/'root-config-alias';os.link(path,alias)
+        with self.assertRaisesRegex(repair.SafeError,'ROOT_CONFIGURATION_PROFILE'):f.apply()
+        f.originals(self)
+
+    def test_root_configuration_symlink_or_nonregular_type_is_refused_without_following(self):
+        f=self.f;path=f.root/'config/mail.php';target=f.root/'config/other.php';target_before=repair.metadata(target)
+        path.unlink();path.symlink_to(target)
+        with self.assertRaises(repair.SafeError):f.apply()
+        self.assertTrue(path.is_symlink());self.assertEqual(repair.metadata(target),target_before)
+        path.unlink();os.mkfifo(path,0o644)
+        with self.assertRaisesRegex(repair.SafeError,'ROOT_CONFIGURATION_PROFILE'):f.apply()
+        self.assertTrue(stat.S_ISFIFO(path.lstat().st_mode))
+
+    def test_root_configuration_foreign_or_null_uid_at_fd_boundary_is_refused(self):
+        f=self.f;path=f.root/'config/mail.php';inode=path.stat().st_ino;original=os.fstat
+        for bad_uid in (None,1,1001):
+            def owner(fd):
+                info=original(fd)
+                if info.st_ino!=inode:return info
+                values={name:getattr(info,name) for name in (
+                    'st_uid','st_gid','st_mode','st_dev','st_ino','st_nlink','st_size','st_mtime_ns','st_ctime_ns')}
+                values['st_uid']=bad_uid;return types.SimpleNamespace(**values)
+            with self.subTest(uid=bad_uid),mock.patch.object(repair.os,'fstat',owner),self.assertRaisesRegex(repair.SafeError,'ROOT_CONFIGURATION_PROFILE'):
+                repair.guarded_snapshot(path,f.uid,f.root,configuration=True)
+
+    def test_root_configuration_fd_swap_between_outer_lstat_and_open_is_rejected_even_when_path_restored(self):
+        f=self.f;path=f.root/'config/mail.php';original_path=f.root/'config/mail-original.tmp';replacement=f.root/'config/mail-replacement.tmp'
+        replacement.write_bytes(b'FOREIGN_ROOT_CONFIG\n');replacement.chmod(0o644);expected=repair.metadata(path);original_open=os.open;original_metadata=repair.metadata;swapped=[False]
+        def swap(name,*args,**kwargs):
+            if pathlib.Path(name)==path and not swapped[0]:
+                swapped[0]=True;path.rename(original_path);replacement.rename(path)
+                fd=original_open(name,*args,**kwargs)
+                path.rename(replacement);original_path.rename(path)
+                return fd
+            return original_open(name,*args,**kwargs)
+        # Keep the outer path observations at A's original signature so this
+        # regression specifically requires binding the opened B descriptor to A.
+        def restored_path_metadata(name):
+            return expected if pathlib.Path(name)==path else original_metadata(name)
+        with mock.patch.object(repair.os,'open',swap),mock.patch.object(repair,'metadata',restored_path_metadata),self.assertRaisesRegex(repair.SafeError,'ROOT_CONFIGURATION_CHANGED'):
+            repair.guarded_snapshot(path,f.uid,f.root,configuration=True)
+        self.assertEqual(path.stat().st_ino,expected[4]);self.assertEqual(path.read_bytes(),b'ROOT_CONFIG_FIXTURE_PRIVATE:config/mail.php\n')
+
+    def test_root_configuration_ancestor_owner_rule_and_size_bound_remain_enforced(self):
+        f=self.f;path=f.root/'config/mail.php'
+        with self.assertRaisesRegex(repair.SafeError,'ANCESTOR_OWNER'):
+            repair.guarded_snapshot(path,1001,f.root,configuration=True)
+        original=os.fstat;inode=path.stat().st_ino
+        def oversized(fd):
+            info=original(fd)
+            if info.st_ino!=inode:return info
+            values={name:getattr(info,name) for name in (
+                'st_uid','st_gid','st_mode','st_dev','st_ino','st_nlink','st_size','st_mtime_ns','st_ctime_ns')}
+            values['st_size']=8388609;return types.SimpleNamespace(**values)
+        with mock.patch.object(repair.os,'fstat',oversized),self.assertRaisesRegex(repair.SafeError,'ROOT_CONFIGURATION_PROFILE'):
+            repair.guarded_snapshot(path,f.uid,f.root,configuration=True)
+
+
 class Workers:
     def __init__(self):
         self.states={name:'inactive' for name in wrapper.UNITS};self.states[wrapper.UNITS[2]]='active'

@@ -38,6 +38,11 @@ PROTECTED_PINS = {
     PREFIX+'PhoneDelivery.php': '227027cfdcd68720b74220e3ecd0abb9e156a5d7',
     PREFIX+'PosServiceTicket.php': 'ef4c7b6f4a1276c122634aafabb2d510926aaeef',
 }
+# Observed existing root-owned configuration, read only. These files are never
+# publication targets, backups of configuration contents, or ownership changes.
+ROOT_READ_ONLY_CONFIGURATION = frozenset((
+    'config/go_services.php','config/jwt.php','config/mail.php','config/partner_auth.php',
+))
 
 
 def blob(content):
@@ -81,6 +86,30 @@ def metadata(path):
             info.st_ino, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+def root_configuration_snapshot(path, uid, root, expected_metadata):
+    if path not in (root/name for name in ROOT_READ_ONLY_CONFIGURATION):
+        raise SafeError('ORDER_REPAIR_ROOT_CONFIGURATION_SCOPE_INVALID')
+    base.safe_ancestors(path,uid,root)
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        info=os.fstat(fd)
+        def signature(value):
+            return (value.st_uid,value.st_gid,stat.S_IMODE(value.st_mode),value.st_dev,
+                    value.st_ino,value.st_nlink,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1
+                or stat.S_IMODE(info.st_mode)!=0o644 or info.st_size>8388608):
+            raise SafeError('ORDER_REPAIR_ROOT_CONFIGURATION_PROFILE_NEEDS_REVIEW')
+        if signature(info)!=expected_metadata or metadata(path)!=expected_metadata:
+            raise SafeError('ORDER_REPAIR_ROOT_CONFIGURATION_CHANGED_DURING_READ')
+        with os.fdopen(fd,'rb',closefd=False) as stream:
+            content=stream.read(8388609)
+        if (len(content)>8388608 or signature(os.fstat(fd))!=expected_metadata
+                or metadata(path)!=expected_metadata):
+            raise SafeError('ORDER_REPAIR_ROOT_CONFIGURATION_CHANGED_DURING_READ')
+        return base.Snapshot(content,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_dev,info.st_ino)
+    finally:os.close(fd)
+
+
 def guarded_snapshot(path, uid, root, absent_ok=False, configuration=False):
     try:
         before = metadata(path)
@@ -93,7 +122,10 @@ def guarded_snapshot(path, uid, root, absent_ok=False, configuration=False):
     private = configuration and path in (root/'.env',root/'bootstrap/cache/config.php')
     if before[2] & 0o022 or (private and (before[5] != 1 or before[2] & 0o077)):
         raise SafeError('ORDER_REPAIR_MODE_OR_CONFIGURATION_LINK_UNSAFE')
-    item = base.snapshot(path, uid, root)
+    if configuration and before[0]==0 and path in (root/name for name in ROOT_READ_ONLY_CONFIGURATION):
+        item=root_configuration_snapshot(path,uid,root,before)
+    else:
+        item = base.snapshot(path, uid, root)
     if metadata(path) != before:
         raise SafeError('ORDER_REPAIR_FILE_CHANGED_DURING_READ')
     return item, before

@@ -21,7 +21,7 @@ import time
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 SYSTEMCTL='/usr/bin/systemctl'
-PUBLISHER_BLOB='6ad0c1ab651fac6199d2692ea6a14b7b997c7510'
+PUBLISHER_BLOB='96285a482da3b6f44d69e468c95bb5fbfed8fcf8'
 BASE_BLOB='f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 HELPERS={'apply_whatsapp_order_evidence_repair.py':PUBLISHER_BLOB,'install_whatsapp_inbox.py':BASE_BLOB}
 UNITS=tuple('fasakhansta-whatsapp-'+v for v in ('capture.timer','capture.service','orders.timer','orders.service'))
