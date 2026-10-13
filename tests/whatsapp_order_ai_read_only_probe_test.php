@@ -1,21 +1,29 @@
 <?php
 // Real provider/extraction/failure sanitization with private fake HTTP; no bootstrap, DB or network.
 define('WHATSAPP_ORDER_AI_READ_ONLY_PROBE_TEST_ONLY', true);
+define('WHATSAPP_ORDER_FRAGMENTED_READ_ONLY_PROBE_TEST_ONLY', true);
 $probeVariant = $argv[1] ?? 'legacy';
 $probeFiles = ['legacy' => 'whatsapp_order_ai_read_only_probe.php',
     'forward' => 'whatsapp_order_ai_forward_read_only_probe.php',
-    'nested' => 'whatsapp_order_ai_nested_forward_read_only_probe.php'];
+    'nested' => 'whatsapp_order_ai_nested_forward_read_only_probe.php',
+    'fragmented' => 'whatsapp_order_fragmented_read_only_probe.php'];
 if (!array_key_exists($probeVariant, $probeFiles)) throw new RuntimeException('Invalid probe fixture');
 $probeFile = dirname(__DIR__) . '/deployment/' . $probeFiles[$probeVariant];
 require $probeFile;
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
-require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+// These immutable production probes intentionally bind the pre-fragmented runtime.
+$preFragmented = $probeVariant === 'fragmented' ? dirname(__DIR__) . '/'
+    : dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_fragmented/';
+if ($probeVariant === 'fragmented')
+    require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
+require $preFragmented . 'app/Support/WhatsAppOrderExtraction.php';
+require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderAiProvider.php';
+require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
     return false;
 });
+if ($probeVariant === 'fragmented') class_alias(WhatsAppOrderFragmentedReadOnlyProbe::class, 'WhatsAppOrderAiReadOnlyProbe');
 use WhatsAppOrderAiReadOnlyProbe as P;
 use App\Services\Dashboard\WhatsAppOrderAiProvider as Provider;
 use App\Services\Dashboard\WhatsAppOrderWorkflow as Workflow;
@@ -173,6 +181,9 @@ if ($probeVariant !== 'legacy') foreach (P::SOURCE_PINS as [$path, $expected]) {
     // Its immutable source contract is tested against the exact reviewed v1 fixture.
     $sourcePath = $probeVariant === 'forward' && $path === 'app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php'
         ? 'tests/fixtures/whatsapp_forward_v1/' . $path : $path;
+    if ($probeVariant !== 'fragmented' && in_array($path, ['app/Support/WhatsAppOrderExtraction.php',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'], true))
+        $sourcePath = 'tests/fixtures/whatsapp_order_pre_fragmented/' . $path;
     $bytes = file_get_contents(dirname(__DIR__) . '/' . $sourcePath);
     probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, $probeVariant . ' guard matches the reviewed runtime ' . $path);
 }

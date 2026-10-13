@@ -39,6 +39,7 @@ namespace {
         if (!defined($name)) define($name, 10000 + $i);
     }
     require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
+    require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
     require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
     require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 

@@ -1,12 +1,13 @@
 <?php
-// Current provider/validator, isolated private fake HTTP: no bootstrap, DB or network.
+// Frozen pre-fragmented provider/validator, isolated fake HTTP: no bootstrap, DB or network.
 define('WHATSAPP_ORDER_ITEM_GROUNDING_READ_ONLY_PROBE_TEST_ONLY', true);
 $probeFile = dirname(__DIR__) . '/deployment/whatsapp_order_item_grounding_read_only_probe.php';
 require $probeFile;
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
-require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+$preFragmented = dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_fragmented/';
+require $preFragmented . 'app/Support/WhatsAppOrderExtraction.php';
+require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderAiProvider.php';
+require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
     return false;
@@ -331,7 +332,10 @@ itemProbeExpect(str_contains($source,'flock('),false,'no filesystem write locks'
 itemProbeExpect(substr_count($source,'->extract('),1,'one current-provider extraction call site');
 itemProbeExpect(str_contains($source,'$snapshot->invoke($workflow, $cid, $floor, $ceiling, false)'),true,'explicit read-only production snapshot');
 foreach(P::SOURCE_PINS as[$path,$expected]) {
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $sourcePath = in_array($path, ['app/Support/WhatsAppOrderExtraction.php',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'], true)
+        ? 'tests/fixtures/whatsapp_order_pre_fragmented/'.$path : $path;
+    $bytes=file_get_contents(dirname(__DIR__).'/'.$sourcePath);
     itemProbeExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'reviewed production source pin '.$path);
 }
 echo 'WHATSAPP_ORDER_ITEM_GROUNDING_READ_ONLY_PROBE_CHECKS='.$checks."\n";

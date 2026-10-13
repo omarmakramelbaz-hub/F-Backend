@@ -192,6 +192,7 @@ namespace {
     $translator=new \Illuminate\Translation\Translator(new \Illuminate\Translation\ArrayLoader,'en');
     $container->instance('validator',new \Illuminate\Validation\Factory($translator,$container)); Facade::setFacadeApplication($container);
     require dirname(__DIR__).'/app/Support/WhatsAppInboxProtocol.php';
+    require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
     require dirname(__DIR__).'/app/Support/WhatsAppOrderExtraction.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
     require dirname(__DIR__).'/database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';

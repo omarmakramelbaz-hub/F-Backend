@@ -404,6 +404,8 @@ class WhatsAppOrderWorkflow
             if ($m['speaker']==='business' && in_array($m['id'],$data['evidence']['confirmation_ids']??[],true)
                 && is_string($m['text']) && strpos($m['text'],$customer['address'])!==false) $summaryAddress=true;
         }
+        if (!$summaryAddress && WhatsAppOrderConversationEvidence::addressAcknowledged($data,
+                array_column($snapshot['transcript'],null,'id'))) $summaryAddress=true;
         if (!$addressTime || !$summaryAddress) { $reason='LOCATION_UNCONFIRMED'; return null; }
         if ($lastLocation!==null) {
             // A newer native pin cannot be replaced by an older saved customer address.
@@ -433,7 +435,7 @@ class WhatsAppOrderWorkflow
             $matches=array_values(array_filter($catalog,fn($p)=>($p['available']??false)&&$this->name($p['name'])===$this->name($item['name'])));
             if (count($matches)!==1 || !is_string($item['quantity']??null) || !in_array($item['quantity_mode'],['piece','weight'],true)
                 || !in_array($matches[0]['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) { $reason='CATALOG_UNRESOLVED'; return null; }
-            $p=$matches[0]; $option=$this->catalogOption($item,$data['items'],$summaryTexts,$p);
+            $p=$matches[0]; $option=$this->catalogOption($item,$data['items'],$summaryTexts,$p,$data,$snapshot['transcript']);
             if ($option===null) { $reason='CATALOG_UNRESOLVED'; return null; }
             $items[]=['product_id'=>$p['id'],'quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode'],'option_id'=>$option];
         }
@@ -622,7 +624,8 @@ class WhatsAppOrderWorkflow
     }
 
     /** A base/default choice cannot omit a literal live sale option in the final item clause. */
-    private function catalogOption(array $item,array $allItems,array $summaryTexts,array $product): ?string
+    private function catalogOption(array $item,array $allItems,array $summaryTexts,array $product,
+        ?array $conversation=null,array $transcript=[]): ?string
     {
         $options=$product['options']??[]; if (!is_array($options)) return null;
         $labels=[];
@@ -634,7 +637,10 @@ class WhatsAppOrderWorkflow
             if (($item['quantity_mode']??null)==='weight'&&!preg_match('/(?:وجبة|وجبات|علبة|عبوة|ساندوتش|سندوتش|ميكس|\b(?:meal|pack|package|box|sandwich)\b)/iu',$product['name'])&&(($portion==='نصف'&&$quantity===500)||($portion==='ربع'&&$quantity===250))) continue;
             $labels[]=$option['label'];
         }
-        $proof=WhatsAppOrderExtraction::optionClauseLabels($item,$allItems,$summaryTexts,$labels);
+        $proof=($item['conversation_reference']??null)!==null
+            ? ($conversation===null?null:WhatsAppOrderConversationEvidence::catalogOptionLabels(
+                $item,$conversation,array_column($transcript,null,'id'),$labels))
+            : WhatsAppOrderExtraction::optionClauseLabels($item,$allItems,$summaryTexts,$labels);
         if ($proof===null) return null;
         $hint=$item['option_hint']??null;
         if ($hint!==null&&(!is_string($hint)||trim($hint)==='')) return null;

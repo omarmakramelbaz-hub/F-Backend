@@ -220,7 +220,8 @@ class RecoveryFixture:
         self.pins = {}
         for name in SOURCES:
             if name.endswith(('WhatsAppNativePlaceholderHydration.php','WhatsAppInboxMessage.php','WhatsAppInboxConsumer.php','WhatsAppOrderWorkflow.php')):
-                data = (ROOT/name).read_bytes()
+                source = ROOT/'tests/fixtures/whatsapp_order_pre_fragmented'/name if name.endswith('WhatsAppOrderWorkflow.php') else ROOT/name
+                data = source.read_bytes()
             else:
                 namespace = 'App\\'+str(pathlib.PurePosixPath(name).parent)[4:].replace('/','\\')
                 cls = pathlib.PurePosixPath(name).stem

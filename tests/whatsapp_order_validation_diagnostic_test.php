@@ -1,6 +1,7 @@
 <?php
 // Predicate observations only. Real validators and workflow sanitizer; no network or state writes.
 require dirname(__DIR__).'/app/Support/WhatsAppInboxProtocol.php';
+require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require dirname(__DIR__).'/app/Support/WhatsAppOrderExtraction.php';
 require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
