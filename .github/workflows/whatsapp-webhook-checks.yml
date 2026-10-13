@@ -170,7 +170,10 @@ jobs:
       - name: Verify semantic repair publication and one-window recovery orchestration
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_semantic_repair_install.py
       - name: Verify forward recovery lifecycle and capture guard refresh
+        env:
+          WHATSAPP_CAPTURE_TEST_TMP: /var/lib/whatsapp-capture-tests
         run: |
+          mkdir -m 0700 /var/lib/whatsapp-capture-tests
           python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_semantic_forward_root.py
           python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_capture_guard_refresh.py
       - name: Verify limited configuration permission correction and concurrent-change guards

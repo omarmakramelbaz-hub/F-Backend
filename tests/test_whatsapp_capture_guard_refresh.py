@@ -50,7 +50,8 @@ class ConsumeWhatsAppInbox extends Command
 
 class CaptureGuardTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='wa-capture-guard-test-', dir=pathlib.Path.home())
+        fixture_base = pathlib.Path(os.environ.get('WHATSAPP_CAPTURE_TEST_TMP', str(pathlib.Path.home())))
+        self.temp = tempfile.TemporaryDirectory(prefix='wa-capture-guard-test-', dir=fixture_base)
         self.addCleanup(self.temp.cleanup)
         self.base = pathlib.Path(self.temp.name)
         self.base.chmod(0o700)
