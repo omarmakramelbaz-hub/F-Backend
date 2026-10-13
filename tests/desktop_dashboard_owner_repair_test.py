@@ -54,8 +54,42 @@ class Fixture(unittest.TestCase):
         self.addCleanup(setattr,subject,'CATALOG_BLOB',self.previous_blob)
         self.addCleanup(shutil.rmtree,self.folder)
 
+class JournalParentCases:
+    def assert_private_journal(self,parent_mode):
+        self.journals.chmod(parent_mode);parent=facts(self.journals)[:5]
+        journal,records=self.repair()
+        self.assertEqual(facts(self.journals)[:5],parent)
+        self.assertEqual(stat.S_IMODE(journal.stat().st_mode),0o700);self.assertEqual(journal.stat().st_uid,0)
+        self.assertEqual({row['path']for row in records},{str(subject.DIRECTORY),str(subject.CATALOG)})
+        self.assertEqual(self.catalog.read_bytes(),DATA)
+        for name in ['before.json','after.json']:
+            value=(journal/name).stat();self.assertEqual(value.st_uid,0);self.assertEqual(stat.S_IMODE(value.st_mode),0o600)
+    def assert_rejected_journal_parent(self,parent_mode):
+        self.journals.chmod(parent_mode);directory=subject.identity(self.directory.stat());catalog=subject.identity(self.catalog.stat())
+        with self.assertRaisesRegex(subject.ReviewRequired,'JOURNAL_PARENT_UNSAFE'):self.repair()
+        self.assertEqual(subject.identity(self.directory.stat()),directory);self.assertEqual(subject.identity(self.catalog.stat()),catalog)
+        self.assertEqual(stat.S_IMODE(self.journals.stat().st_mode),parent_mode);self.assertEqual(list(self.journals.iterdir()),[])
+    def test_journal_parent0750_retains_mode_with_private_child_and_records(self):self.assert_private_journal(0o750)
+    def test_journal_parent0755_retains_mode_with_private_child_and_records(self):self.assert_private_journal(0o755)
+    def test_journal_parent0770_rejected_before_owner_changes(self):self.assert_rejected_journal_parent(0o770)
+    def test_journal_parent0777_rejected_before_owner_changes(self):self.assert_rejected_journal_parent(0o777)
+    def test_symlinked_journal_parent_rejected_before_owner_changes(self):
+        original=self.journals.with_name('journals-original');self.journals.rename(original);self.journals.symlink_to(original,target_is_directory=True)
+        directory=subject.identity(self.directory.stat());catalog=subject.identity(self.catalog.stat())
+        with self.assertRaises((subject.ReviewRequired,OSError)):self.repair()
+        self.assertEqual(subject.identity(self.directory.stat()),directory);self.assertEqual(subject.identity(self.catalog.stat()),catalog)
+        self.assertEqual(list(original.iterdir()),[]);self.assertTrue(self.journals.is_symlink())
+    def test_unexpected_child_mode_rejected_before_owner_changes_or_records(self):
+        directory=subject.identity(self.directory.stat());catalog=subject.identity(self.catalog.stat());real_mkdtemp=tempfile.mkdtemp
+        def unsafe_child(*args,**kwargs):
+            path=real_mkdtemp(*args,**kwargs);Path(path).chmod(0o755);return path
+        with patch.object(subject.tempfile,'mkdtemp',side_effect=unsafe_child):
+            with self.assertRaisesRegex(subject.ReviewRequired,'JOURNAL_DIRECTORY_UNSAFE'):self.repair()
+        self.assertEqual(subject.identity(self.directory.stat()),directory);self.assertEqual(subject.identity(self.catalog.stat()),catalog)
+        children=list(self.journals.iterdir());self.assertEqual(len(children),1);self.assertEqual(list(children[0].iterdir()),[])
+
 @unittest.skipUnless(REAL_OWNERS,'Real root ownership fixtures require mapped UID60001/GID60002')
-class OwnershipRepairTests(Fixture):
+class OwnershipRepairTests(JournalParentCases,Fixture):
     def setUp(self):
         super().setUp()
         for path in [self.root,*self.root.rglob('*')]:os.chown(path,UID,GID)
@@ -201,6 +235,12 @@ class OwnershipRepairTests(Fixture):
         self.assertTrue(injected);self.assertEqual(self.directory.stat().st_uid,0)
         self.assertEqual((self.catalog.stat().st_uid,self.catalog.stat().st_gid),(UID,GID));self.assertEqual(self.catalog.read_bytes(),DATA)
         stopped=next(self.journals.glob('*/stopped.json'));self.assertFalse(json.loads(stopped.read_text())['owner_changes_restored_or_not_started'])
+
+@unittest.skipUnless(os.geteuid()==0,'Journal policy checks require root')
+class JournalPolicyTests(JournalParentCases,Fixture):
+    # UID0 is sufficient to exercise the journal permission policy locally.
+    # Ownership transitions remain covered separately by the real UID60001 tests.
+    def repair(self,**kwargs):return subject.repair(self.root,0,0,{0},self.journals,**kwargs)
 
 class ReadOnlyInventoryTests(Fixture):
     def test_supported_publication_metadata_has_no_blockers(self):

@@ -138,13 +138,41 @@ def repair(root, uid, gid, groups, journal_parent, before_change=None,
         if not plans:
             return None, []
         # Both reviewed objects are validated before any ownership change.
-        journal_descriptors, _ = open_directories(journal_parent, root, uid)
+        journal_descriptors, journal_states = open_directories(journal_parent, root, uid)
         try:
             item = os.fstat(journal_descriptors[-1])
-            if item.st_uid != 0 or stat.S_IMODE(item.st_mode) & 0o077:
+            # Privacy belongs to the new 0700 child, not its parent. Root-owned
+            # 0750/0755 parents are safe when other users cannot modify entries.
+            if item.st_uid != 0 or stat.S_IMODE(item.st_mode) & 0o022:
                 raise ReviewRequired('DESKTOP_OWNER_REPAIR_JOURNAL_PARENT_UNSAFE')
-            journal = Path(tempfile.mkdtemp(prefix='desktop-dashboard-owner-repair-',
-                                          dir=journal_parent))
+            candidate = Path(tempfile.mkdtemp(prefix='desktop-dashboard-owner-repair-',
+                                            dir=journal_parent))
+            child_fd = os.open(candidate.name,
+                               os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                               dir_fd=journal_descriptors[-1])
+            try:
+                child = os.fstat(child_fd)
+                named = candidate.lstat()
+                if (child.st_uid != 0 or stat.S_IMODE(child.st_mode) != 0o700
+                        or not stat.S_ISDIR(named.st_mode)
+                        or (child.st_dev, child.st_ino) != (named.st_dev, named.st_ino)):
+                    raise ReviewRequired('DESKTOP_OWNER_REPAIR_JOURNAL_DIRECTORY_UNSAFE')
+                fresh, _ = open_directories(journal_parent, root, uid)
+                try:
+                    # Child creation changes parent timestamps and link count;
+                    # its identity, ownership and permissions must remain fixed.
+                    stable = lambda value: (value.st_dev, value.st_ino, value.st_mode,
+                                            value.st_uid, value.st_gid)
+                    if [stable(os.fstat(fd)) for fd in fresh[1:]] != [
+                            value[:5] for value in journal_states]:
+                        raise ReviewRequired('DESKTOP_OWNER_REPAIR_JOURNAL_PARENT_CHANGED')
+                finally:
+                    for fd in reversed(fresh):
+                        os.close(fd)
+                # No metadata records may be written before privacy is verified.
+                journal = candidate
+            finally:
+                os.close(child_fd)
         finally:
             for fd in reversed(journal_descriptors):
                 os.close(fd)
