@@ -121,6 +121,7 @@ jobs:
         run: |
           php tests/whatsapp_order_extraction_test.php
           php tests/whatsapp_order_provider_failure_test.php
+          php tests/whatsapp_order_capture_conflict_diagnostic_test.php
 
   terminal-handoff:
     runs-on: ubuntu-latest
