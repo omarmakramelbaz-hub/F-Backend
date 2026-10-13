@@ -99,7 +99,9 @@
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
                 <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
                 @endif
-                <!-- الاعدادات -->
+                @include('admin.whatsapp.sidebar')
+                @include('admin.meta.sidebar')
+<!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
                     <li class="nav-item">
                         <a href="{{ url('/admin/settings') }}"

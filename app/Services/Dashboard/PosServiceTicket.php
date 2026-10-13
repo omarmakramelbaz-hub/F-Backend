@@ -34,6 +34,7 @@ class PosServiceTicket
             $row=$this->row($channel,(int)$values['ticket_id'],$branch['value']);abort_unless($row->status!=='cancelled',409);
             return json_decode($row->quote_snapshot,true)+['ticket_id'=>(int)$row->id,'revision'=>(int)$row->revision];
         }
+        if($channel==='phone')$values=$this->inheritDeliveryOrigin($values,$actor);
         $delivery=$channel==='phone'?$this->delivery($values,$actor)['cents']:0;
         return $this->sales->quote($values,$actor,$this->pricingContext($channel,$branch['value'],$delivery));
     }
@@ -60,7 +61,8 @@ class PosServiceTicket
             'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
         $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
             ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','delivery_fee_manual'=>'nullable|boolean','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
-        $v=Validator::make($values,$rules)->validate();foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
+        if($channel==='phone')$rules['delivery_origin_branch']=['nullable','string','regex:/^f:[1-9][0-9]{0,18}$/D'];
+        $v=Validator::make($values,$rules)->validate();if($channel==='phone')$v=$this->inheritDeliveryOrigin($v,$actor);foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
         $delivery=0;
         $phoneKey=$channel==='phone'?BranchCustomers::phoneKey($v['customer_phone']):null;if($channel==='phone')abort_unless(preg_match('/^\+?[0-9]{6,20}$/D',$phoneKey),422,'رقم الهاتف غير صالح.');
@@ -70,7 +72,7 @@ class PosServiceTicket
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
             $deliveryData=null;$company=null;
             if($channel==='phone'){
-                app(BranchOperations::class)->ready();$deliveryData=$this->delivery($v,$actor);$delivery=$deliveryData['cents'];
+                app(BranchOperations::class)->ready();$deliveryData=$this->delivery($v,$actor,true);$delivery=$deliveryData['cents'];
                 $company=app(DeliveryCompanies::class)->snapshot($v['delivery_company_id']??null,$v['branch']);
                 if(!empty($v['customer_id']))abort_unless(DB::table('branch_customers')->where('branch',$v['branch'])->where('id',$v['customer_id'])->where('phone_key',$phoneKey)->exists(),422,'اختر بيانات العميل من الفرع الحالي.');
             }
@@ -86,7 +88,9 @@ class PosServiceTicket
             $context=$this->pricingContext($channel,$branch['value'],$delivery,true);
             if(count($v['items'])){
                 $savedCart=$row?json_decode($row->cart_snapshot,true):null;
-                $same=$row&&count($savedCart['items'])>0&&!(bool)($v['reprice']??false)&&$delivery===(int)$row->delivery_cents
+                $savedDelivery=$row?json_decode($row->delivery_snapshot??'null',true):null;
+                $sameOrigin=$channel!=='phone'||($v['delivery_origin_branch']??$v['branch'])===($savedDelivery['delivery_origin_branch']??$v['branch']);
+                $same=$row&&$sameOrigin&&count($savedCart['items'])>0&&!(bool)($v['reprice']??false)&&$delivery===(int)$row->delivery_cents
                     &&self::fingerprint($this->sales->canonicalCart($v))===self::fingerprint($this->sales->canonicalCart($savedCart));
                 if($same)$q=$this->sales->quote($savedCart,$actor,['channel'=>$channel,'ticket_id'=>(int)$row->id,'saved_quote'=>json_decode($row->quote_snapshot,true)]);
                 else{$q=$this->sales->quote($v,$actor,$context,true);abort_unless(!empty($v['quote_hash'])&&hash_equals($q['quote_hash'],$v['quote_hash']),409,'تغير السعر أو الإعداد. راجع الإجمالي.');}
@@ -206,9 +210,20 @@ class PosServiceTicket
         DB::table('pos_service_tickets')->where('id',$id)->update(['last_kitchen_id'=>$kitchenId]);
         app(PosBranchPrinting::class)->enqueue($branch,$id,$kitchenId);
     }
-    private function delivery(array $values,$actor): array
+    private function inheritDeliveryOrigin(array $values,$actor): array
     {
-        $snapshot=app(PhoneDelivery::class)->quote($values,$actor)['delivery'];
+        if(empty($values['ticket_id'])||array_key_exists('delivery_origin_branch',$values))return $values;
+        $this->access->branch((string)($values['branch']??''),$actor);
+        $row=$this->row('phone',(int)$values['ticket_id'],(string)$values['branch']);$snapshot=json_decode($row->delivery_snapshot??'null',true);
+        if(is_array($snapshot)&&array_key_exists('delivery_origin_branch',$snapshot)){
+            abort_unless(is_string($snapshot['delivery_origin_branch']),409,'بيانات بداية التوصيل المحفوظة غير صالحة.');
+            $values['delivery_origin_branch']=$snapshot['delivery_origin_branch'];
+        }
+        return $values;
+    }
+    private function delivery(array $values,$actor,bool $lock=false): array
+    {
+        $snapshot=app(PhoneDelivery::class)->quote($values,$actor,$lock)['delivery'];
         abort_unless(!empty($values['delivery_quote_hash'])&&hash_equals($snapshot['delivery_quote_hash'],$values['delivery_quote_hash']),409,'موقع العميل أو سعر التوصيل تغير. أكد الدبوس وراجع الخدمة.');
         $manual=Validator::make($values,['delivery_fee_manual'=>'nullable|boolean','delivery_fee'=>'required_if:delivery_fee_manual,1,true|nullable|string|max:14'])->validate();
         if($manual['delivery_fee_manual']??false){

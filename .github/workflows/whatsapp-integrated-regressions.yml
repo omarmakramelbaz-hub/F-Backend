@@ -1,0 +1,93 @@
+name: Integrated messaging regressions
+
+on:
+  push:
+    branches: ['codex/dashboard-server-integration-20261012']
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/WhatsApp*'
+      - 'app/Http/Controllers/Dashboard/WhatsApp*'
+      - 'database/migrations/*whatsapp*'
+      - 'config/whatsapp*'
+      - 'routes/whatsapp*'
+      - 'public/js/dashboard-whatsapp*.js'
+      - 'resources/views/admin/whatsapp/**'
+      - 'tests/whatsapp*.php'
+      - 'tests/whatsapp*.js'
+      - 'app/Services/Dashboard/Meta*'
+      - 'app/Http/Controllers/Dashboard/Meta*'
+      - 'app/Console/Commands/*Meta*'
+      - 'database/migrations/*meta*'
+      - 'config/meta*'
+      - 'routes/meta*'
+      - 'public/js/dashboard-meta*.js'
+      - 'public/css/dashboard-meta*.css'
+      - 'resources/views/admin/meta/**'
+      - 'tests/meta*.php'
+      - 'tests/meta*.js'
+      - 'deployment/meta_messaging_route_check.php'
+      - '.github/workflows/whatsapp-integrated-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify original scoped inbox and attachment interactions
+        run: |
+          node tests/whatsapp_inbox_ui_test.js
+          node tests/whatsapp_inbox_live_test.js
+          node tests/whatsapp_inbox_spa_mount_test.js
+          node tests/whatsapp_replies_ui_test.js
+          node tests/whatsapp_accepted_reply_feed_test.js
+          node tests/meta_chat_ui_test.js
+
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring, fileinfo, posix, curl
+          ini-values: upload_max_filesize=10M, post_max_size=12M
+          tools: composer:2.8.12
+          coverage: none
+      - name: Install and verify native voice conversion tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+          test -x /usr/bin/ffmpeg
+          test -x /usr/bin/ffprobe
+          php -r 'if (!function_exists("proc_open") || !function_exists("posix_geteuid")) { fwrite(STDERR, "Native media process support is required.\n"); exit(1); }'
+          /usr/bin/ffmpeg -version
+          /usr/bin/ffprobe -version
+      - name: Install isolated production-framework test dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/whatsapp-integrated-vendor"
+          composer require --working-dir="$RUNNER_TEMP/whatsapp-integrated-vendor" --no-interaction --no-progress --no-scripts laravel/framework:8.83.29 guzzlehttp/guzzle:7.9.3
+      - name: Verify original SQL, CSRF, private attachments and uncertain replies
+        env:
+          WA_INBOX_TEST_VENDOR: ${{ runner.temp }}/whatsapp-integrated-vendor/vendor/autoload.php
+          WHATSAPP_TEST_PHP: php
+        run: |
+          php tests/whatsapp_inbox_reads_test.php
+          php tests/whatsapp_reply_service_test.php
+          php tests/whatsapp_dashboard_actions_test.php
+          php tests/whatsapp_accepted_reply_evidence_test.php
+          php tests/whatsapp_order_provider_failure_test.php
+          php tests/whatsapp_inbox_consumer_test.php
+          php tests/whatsapp_order_workflow_test.php
+          php tests/meta_messaging_test.php
+          php tests/meta_messaging_routes_test.php
+          php tests/meta_profile_service_test.php
+          php tests/meta_media_actions_test.php
+          php tests/meta_reply_media_test.php

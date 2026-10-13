@@ -258,3 +258,11 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
 
     });
 });
+
+require __DIR__.'/whatsapp_inbox.php';
+
+require __DIR__.'/whatsapp_orders.php';
+
+require __DIR__.'/whatsapp_replies.php';
+
+require __DIR__.'/whatsapp_reads.php';

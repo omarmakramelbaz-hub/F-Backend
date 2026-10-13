@@ -293,3 +293,8 @@ Route::post('/pusher/auth', function (Request $request) {
     });
     // Insert your Api Here End //
 });
+
+// WhatsApp webhook integration
+require __DIR__.'/whatsapp.php';
+
+require __DIR__.'/meta_messaging.php';

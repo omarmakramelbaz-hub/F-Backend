@@ -5,6 +5,7 @@ use Closure;
 use Illuminate\Support\Facades\{DB,Schema};
 use App\Services\Dashboard\DesktopDashboardJournal as Journal;
 use App\Services\Dashboard\DesktopDashboardRoutes;
+use App\Services\Dashboard\MetaInboxAccess;
 
 class DesktopDashboardJournal
 {
@@ -14,6 +15,14 @@ class DesktopDashboardJournal
             if($request->hasHeader('X-Fasakhansta-Remote-Attempt')||$request->hasHeader('X-Fasakhansta-Remote-Capability'))
                 return app(\App\Services\Dashboard\DesktopDashboardRemoteAttempts::class)->handle($request,$next);
             return $next($request);
+        }
+        $metaAdmin=$request->is('admin/meta','admin/meta/*');
+        if ($metaAdmin||$request->is('api/meta/messaging/*')) {
+            if($metaAdmin)app(MetaInboxAccess::class)->actor(auth('admin')->user());
+            // Meta capture and media stay on the server; the scoped desktop database
+            // has no Meta tables or media capability files.
+            return response('',404)->withHeaders(['Cache-Control'=>'private, no-store, max-age=0',
+                'Pragma'=>'no-cache','X-Content-Type-Options'=>'nosniff']);
         }
         $route=$request->route()?->getName();
         if (!DesktopDashboardRoutes::journaled($route)) {

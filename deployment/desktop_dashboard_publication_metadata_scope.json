@@ -1,0 +1,540 @@
+{
+  "version": 2,
+  "manifest_blob": "35827afdfa613ebd944847062c2cd5c9b3c96c56",
+  "uid": 1001,
+  "gid": 1003,
+  "rows": [
+    {
+      "path": "app/Exceptions/Handler.php",
+      "blob": "abb3f87f51a45220afe8a40f68600ad1a1dfa437",
+      "before": [
+        0,
+        0,
+        "0644"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0644"
+      ]
+    },
+    {
+      "path": "app/Http/Kernel.php",
+      "blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
+      "before": [
+        0,
+        0,
+        "0755"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Repositories/ResturantProductRepository.php",
+      "blob": "5ea56d86c0d810f33af7a174aeb4a9411282d5c6",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/AreaController.php",
+      "blob": "3020ddfae89ee4f5c69ab64fbc2b4f883152d2c4",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/CategoryController.php",
+      "blob": "2c999baefdd4c78e08349b5df0ca5a4b3102133a",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContactController.php",
+      "blob": "fcc62bd70f412fff21a1375a38646e848e22eca2",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContractController.php",
+      "blob": "0270ca5711fed9a25ef0e6391c10c2abd87fbcc8",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/FeatureController.php",
+      "blob": "ce83b31182d8c23d65588a48069e493d4ef43da4",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ProductController.php",
+      "blob": "de5a61ab20cfd2001a22dc40221729f3115ad434",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/QuestionAnswerController.php",
+      "blob": "c35048d306c01af9d119de21f3d349ff17a2fef9",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/RolesController.php",
+      "blob": "eb905e8ba733432703d2d14da3190408a45bb200",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/admins/index.blade.php",
+      "blob": "6f98d81e7ca58b0e1a62075e464bb3b5bba749cf",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/advertisings/index.blade.php",
+      "blob": "25148af017478961037abac9b920fc3f11cb4220",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/areas/index.blade.php",
+      "blob": "9aba51aac22b184cd50c83d7e9c9e66cfcc32e99",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/banners/index.blade.php",
+      "blob": "f3b22011fa217325bba912df625e4afe6bc40690",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/categorys/index.blade.php",
+      "blob": "c05556006b8ce4f81ab831d3892b9027873f52d2",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contacts/index.blade.php",
+      "blob": "a1d3d7ef89fb53f41db5146ece83884425b4710b",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contracts/form.blade.php",
+      "blob": "83bf9212ad4ab0ce8b3e56670a6ca410f7bb4978",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contracts/index.blade.php",
+      "blob": "12acded6f9b0181899fb85e97cb48adbe1623ecd",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/index.blade.php",
+      "blob": "9e49d8e6f6f2b2d0b0219c834b890041b8536451",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/features/index.blade.php",
+      "blob": "4c50804e21ddd2744e40d33b0fb6c4fa50e317f1",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/index.blade.php",
+      "blob": "6a9cb3cb32f211e124ae6ff1ab496fa6268fba8c",
+      "before": [
+        0,
+        0,
+        "0755"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/products/index.blade.php",
+      "blob": "830758bf60f896758f0de0885743f7aea8775b2e",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/question_answers/index.blade.php",
+      "blob": "8542da1d7cfcff077425a1e219c46f761995c2f1",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/customers_report.blade.php",
+      "blob": "b5b5ba9e553ff3b29c10866a5718d96592c98343",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/delegates_report.blade.php",
+      "blob": "f44470aaecfe03eb3658a53376e8e7540320f8e5",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/orders_report.blade.php",
+      "blob": "cb6bb069469959f32a2e2a9088cc714715228c3a",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/vendors_report.blade.php",
+      "blob": "120b48f29fded385487b52c7b8d5719cddfc0bcf",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/edit-item.blade.php",
+      "blob": "b9b45dc72949d4902c6e92a62199ba48480c316a",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/index.blade.php",
+      "blob": "5164f72bd44c2daae347cd3d2049f52c72dc4681",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/show.blade.php",
+      "blob": "38c51616aba115d95e81fd2e653e635bff11f74c",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/roles/index.blade.php",
+      "blob": "ec5c63960e1b65928dfb3a6139c31e22be8f7d53",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/slidears/index.blade.php",
+      "blob": "63328ee4fe2075c233753ab5acea52f54a9074da",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/subscribers/index.blade.php",
+      "blob": "f32d3dfde4d3a143051978631f98d8cbd2856c2f",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/users/index.blade.php",
+      "blob": "e36567c3e065274a740f2727c706cbf727a0dd2c",
+      "before": [
+        0,
+        0,
+        "0755"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "resources/views/admin/users/show.blade.php",
+      "blob": "fba4ca404df57f92fcb982f1172e083766937042",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php",
+      "blob": "b703482c829e051dc0ec38cfe51370198a88b6b0",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php",
+      "blob": "4b65873a1bbfaf57115dd25129992e490105f44c",
+      "before": [
+        1001,
+        1003,
+        "0775"
+      ],
+      "after": [
+        1001,
+        1003,
+        "0755"
+      ]
+    }
+  ]
+}
