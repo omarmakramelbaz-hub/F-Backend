@@ -467,9 +467,17 @@ class ProductionPinTests(unittest.TestCase):
         semantic = importlib.util.module_from_spec(semantic_spec)
         sys.modules[semantic_spec.name] = semantic; semantic_spec.loader.exec_module(semantic)
         self.assertEqual(semantic.SOURCE_PINS[workflow], (repaired_blob, semantic_blob))
+        fragment_spec = importlib.util.spec_from_file_location('cairo_fragmented_repair_pin_fixture',
+            ROOT / 'deployment/apply_whatsapp_order_fragmented_repair.py')
+        fragmented = importlib.util.module_from_spec(fragment_spec)
+        sys.modules[fragment_spec.name] = fragmented; fragment_spec.loader.exec_module(fragmented)
+        fragmented_blob = 'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d'
+        self.assertEqual(fragmented.SOURCE_PINS[workflow], (semantic_blob, fragmented_blob))
+        baseline = ROOT / 'tests/fixtures/whatsapp_order_pre_fragmented' / workflow
+        self.assertEqual(NS['blob'](baseline.read_bytes()), semantic_blob)
         for relative, pin in NS['TARGET_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z')
-            reviewed = {workflow: semantic_blob, protocol: forward_protocol_blob}.get(relative, pin)
+            reviewed = {workflow: fragmented_blob, protocol: forward_protocol_blob}.get(relative, pin)
             self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), reviewed)
         for name, pin in NS['HELPER_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z'); self.assertEqual(NS['blob']((ROOT / 'deployment' / name).read_bytes()), pin)
@@ -479,7 +487,7 @@ class ProductionPinTests(unittest.TestCase):
         workflow = 'app/Services/Dashboard/WhatsAppOrderWorkflow.php'
         self.assertEqual(NS['TARGET_PINS'][workflow], '6c63b91d7fb70130ae472cea291fa2cee88b27dd')
         current = (ROOT / workflow).read_bytes()
-        self.assertEqual(NS['blob'](current), 'e87d94154e5f9871c959c23c8c9868f53b5dd5d0')
+        self.assertEqual(NS['blob'](current), 'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d')
         protocol = 'app/Support/WhatsAppInboxProtocol.php'
         baseline_protocol = (ROOT / 'tests/fixtures/whatsapp_forward_before' / protocol).read_bytes()
         self.assertEqual(NS['blob'](baseline_protocol), NS['TARGET_PINS'][protocol])
