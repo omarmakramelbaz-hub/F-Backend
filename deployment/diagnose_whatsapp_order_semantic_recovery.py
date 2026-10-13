@@ -21,6 +21,8 @@ PUBLISHER_BLOB = 'ad881bc4529ce112890f1e73f1c323ab6664ea60'
 ROOT_BLOB = 'be981e4cf3bda3e4d45aad591a8d0e5dace16f62'
 BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 ACCESS_BLOB = '186789d42113e81818de8d82a2327e3ee9d8d0b5'
+PROBE_BLOB = 'c9305aef1cb4c827bc96d0d839b02cf6a20a3c38'
+MAX_METADATA_OUTPUT = 262144
 IDS = [5945,6135,6182,6436,6514,6515,6827,6837,6902,6989,7141,7182,7338]
 UNITS = tuple('fasakhansta-whatsapp-'+v for v in ('capture.timer','capture.service','orders.timer','orders.service'))
 METRICS = ('events_seen','events_processed','events_skipped','messages_inserted','messages_replayed',
@@ -102,8 +104,36 @@ ROW_DIAGNOSTICS = r'''
    }catch(\Throwable$e){$s=method_exists($e,'getStatusCode')?$e->getStatusCode():null;
     $projectedStatus=is_int($s)&&$s>=400&&$s<=599?$s:null;}
    $old=$saved['content']['message']??[];$full=$dto['content']['message']??[];
-   $route=true;foreach(['from','from_user_id','to','to_user_id','context','referral']as$f)
-    if(\App\Services\Dashboard\PosServiceTicket::fingerprint([$old[$f]??null])!==\App\Services\Dashboard\PosServiceTicket::fingerprint([$full[$f]??null]))$route=false;
+   $canonical=static function($value)use(&$canonical){if(!is_array($value))return $value;
+    foreach($value as$k=>$v)$value[$k]=$canonical($v);if(!array_is_list($value))ksort($value,SORT_STRING);return $value;};
+   $field=static function(array$a,array$b,string$k)use($canonical):array{
+    $type=static function(array$v,string$k):string{if(!array_key_exists($k,$v))return 'MISSING';$x=$v[$k];
+     if($x===null)return 'NULL';if(is_string($x))return 'STRING';if(is_bool($x))return 'BOOLEAN';
+     if(is_int($x))return 'INTEGER';if(is_float($x))return 'NUMBER';if(is_array($x))return 'ARRAY';return 'OTHER';};
+    return ['old_present'=>array_key_exists($k,$a),'incoming_present'=>array_key_exists($k,$b),
+     'old_type'=>$type($a,$k),'incoming_type'=>$type($b,$k),
+     'old_empty_array'=>array_key_exists($k,$a)&&$a[$k]===[],'incoming_empty_array'=>array_key_exists($k,$b)&&$b[$k]===[],
+     'old_empty_string'=>array_key_exists($k,$a)&&$a[$k]==='','incoming_empty_string'=>array_key_exists($k,$b)&&$b[$k]==='',
+     'old_zero_scalar'=>array_key_exists($k,$a)&&in_array($a[$k],[0,0.0],true),
+     'incoming_zero_scalar'=>array_key_exists($k,$b)&&in_array($b[$k],[0,0.0],true),
+     'equal_as_proof'=>$canonical($a[$k]??null)===$canonical($b[$k]??null)];
+   };
+   $subfields=static function($a,$b,array$names)use($field):array{
+    $oldArray=is_array($a);$fullArray=is_array($b);$a=$oldArray?$a:[];$b=$fullArray?$b:[];$out=[];
+    foreach($names as$n)$out[$n]=$field($a,$b,$n);
+    $ac=count(array_diff(array_keys($a),$names));$bc=count(array_diff(array_keys($b),$names));
+    return ['old_array'=>$oldArray,'incoming_array'=>$fullArray,'fields'=>$out,
+     'old_unknown_key_count'=>min(64,$ac),'incoming_unknown_key_count'=>min(64,$bc),
+     'old_unknown_key_overflow'=>$ac>64,'incoming_unknown_key_overflow'=>$bc>64];
+   };
+   $route=true;$routingFields=[];foreach(['from','from_user_id','to','to_user_id','context','referral']as$f){
+    $routingFields[$f]=$field($old,$full,$f);if(!$routingFields[$f]['equal_as_proof'])$route=false;}
+   $contextFields=$subfields($old['context']??null,$full['context']??null,
+    ['id','from','from_user_id','to','to_user_id','forwarded','frequently_forwarded','referred_product','referred_message','expiration','catalog_id','product_retailer_id']);
+   $contextFields['referred_product_fields']=$subfields($old['context']['referred_product']??null,$full['context']['referred_product']??null,
+    ['catalog_id','product_retailer_id']);
+   $referralFields=$subfields($old['referral']??null,$full['referral']??null,
+    ['source_url','source_type','source_id','headline','body','media_type','image_url','video_url','thumbnail_url','ctwa_clid','referrer_id','ref','type']);
    $oldAllowed=['id','from','from_user_id','to','to_user_id','timestamp','type','errors','unsupported','context','referral'];
    $fullAllowed=['id','from','from_user_id','to','to_user_id','timestamp','type','text','context','referral'];
    $a=strtotime(($saved['sent_at']??'').' UTC');$b=strtotime(($dto['sent_at']??'').' UTC');
@@ -115,6 +145,7 @@ ROW_DIAGNOSTICS = r'''
     'old_native_key_count'=>is_array($old)?count($old):null,
     'incoming_native_keys_allowed'=>is_array($full)&&!array_diff(array_keys($full),$fullAllowed),
     'incoming_native_key_count'=>is_array($full)?count($full):null,'routing_context_matches'=>$route,
+    'routing_fields'=>$routingFields,'context_fields'=>$contextFields,'referral_fields'=>$referralFields,
     'native_delta_seconds'=>$a!==false&&$b!==false&&abs($b-$a)<=86400?$b-$a:null,
     'old_dto_time_matches_column'=>($saved['sent_at']??null)===$message->sent_at,
     'old_native_time_matches_dto'=>isset($old['timestamp'])&&ctype_digit((string)$old['timestamp'])&&gmdate('Y-m-d H:i:s',(int)$old['timestamp'])===($saved['sent_at']??null),
@@ -127,7 +158,79 @@ ROW_DIAGNOSTICS = r'''
 '''
 
 
-def diagnostic_php(original):
+def status_metadata_php(source):
+    """Reuse only frozen pure status metadata helpers, never the probe entrypoint."""
+    text=source.decode('utf-8') if isinstance(source,bytes) else source
+    start='    private static function kind(';end='    private static function same('
+    if text.count(start)!=1 or text.count(end)!=1:raise ValueError('STATUS_METADATA_TEMPLATE')
+    methods=text.split(start,1)[1].split(end,1)[0]
+    return "final class WARecoveryStatusMetadata { public const WABA='468336579702269';public const PHONE='515388018324075';\n"+start+methods+'}\n'
+
+
+STATUS_EVENT_DIAGNOSTICS = r'''
+ $statusEvent=['event_id'=>7215,'status'=>'UNREADABLE','processed'=>null,'quarantined'=>null,'raw_hash_valid'=>false];
+ try{
+  $r=$db::table('whatsapp_webhook_events')->where('id',7215)->select(['id','payload_hash','processed_at'])
+   ->selectRaw('CASE WHEN LENGTH(payload) <= 8388608 THEN payload ELSE NULL END AS payload')->first();
+  if(!$r){$statusEvent['status']='ABSENT';}else{
+   $statusEvent['processed']=$r->processed_at!==null;
+   $statusEvent['quarantined']=$db::table('whatsapp_inbox_ingestion_failures')->where('event_id',7215)->exists();
+   if(!is_string($r->payload)||strlen($r->payload)>8388608){$statusEvent['status']='PAYLOAD_LIMIT';}
+   elseif(!is_string($r->payload_hash)||preg_match('/\A[a-f0-9]{64}\z/',$r->payload_hash)!==1){$statusEvent['status']='RAW_HASH';}
+   else{
+    $p=$crypt::decryptString($r->payload);
+    if(strlen($p)>4194304||!hash_equals($r->payload_hash,hash('sha256',$p))){$statusEvent['status']='RAW_HASH';}
+    else{
+     $statusEvent['raw_hash_valid']=true;$payload=json_decode($p,true,512,JSON_THROW_ON_ERROR);
+     if(!is_array($payload)){$statusEvent['status']='JSON_SHAPE';}else{
+      $meta=WARecoveryStatusMetadata::statusMetadata($payload);$count=$meta['statuses_count'];
+      $meta['statuses_count']=min(125,$count);$meta['truncated']=$meta['truncated']||$count>125;
+      $contacts=[];$contactCount=0;$contactTruncated=false;$channels=[];
+      $kind=static function($v):string{return $v===null?'NULL':(is_array($v)?'ARRAY':(is_string($v)?'STRING':
+       (is_int($v)?'INT':(is_bool($v)?'BOOL':(is_float($v)?'FLOAT':'OTHER')))));};
+      $entries=is_array($payload['entry']??null)?$payload['entry']:[];
+      foreach(array_slice($entries,0,5)as$e){
+       if(!is_array($e)||($e['id']??null)!=='468336579702269')continue;
+       $changes=is_array($e['changes']??null)?$e['changes']:[];
+       foreach(array_slice($changes,0,5)as$c){
+        $v=is_array($c)?($c['value']??null):null;
+        if(!is_array($v)||($v['metadata']['phone_number_id']??null)!=='515388018324075'
+         ||($v['messaging_product']??null)!=='whatsapp'||($c['field']??null)!=='messages')continue;
+        $cc=$v['contacts']??null;$list=is_array($cc)&&array_is_list($cc);
+        if(count($channels)<5)$channels[]=['source'=>'messages','contacts_present'=>array_key_exists('contacts',$v),
+          'contacts_type'=>array_key_exists('contacts',$v)?$kind($cc):'MISSING','contacts_is_list'=>$list,
+          'messages_present'=>array_key_exists('messages',$v),'message_echoes_present'=>array_key_exists('message_echoes',$v),
+          'statuses_present'=>array_key_exists('statuses',$v)];
+        else $contactTruncated=true;
+        if(!$list)continue;$contactCount+=count($cc);if(count($cc)>5)$contactTruncated=true;
+        foreach(array_slice($cc,0,5)as$contact){
+         if(count($contacts)>=5){$contactTruncated=true;break;}
+         $a=is_array($contact)?$contact:[];$profile=$a['profile']??null;$profileArray=is_array($profile)?$profile:[];
+         $contacts[]=['contact_type'=>$kind($contact),'wa_id_present'=>array_key_exists('wa_id',$a),
+          'wa_id_type'=>array_key_exists('wa_id',$a)?$kind($a['wa_id']):'MISSING',
+          'user_id_present'=>array_key_exists('user_id',$a),'user_id_type'=>array_key_exists('user_id',$a)?$kind($a['user_id']):'MISSING',
+          'profile_present'=>array_key_exists('profile',$a),'profile_type'=>array_key_exists('profile',$a)?$kind($profile):'MISSING',
+          'profile_name_present'=>array_key_exists('name',$profileArray),
+          'profile_name_type'=>array_key_exists('name',$profileArray)?$kind($profileArray['name']):'MISSING',
+          'profile_unknown_key_count'=>min(64,count(array_diff(array_keys($profileArray),['name'])))];
+        }
+       }
+      }
+      $report=\App\Support\WhatsAppInboxProtocol::report($payload,'468336579702269','515388018324075');
+      $statusEvent+=['metadata'=>$meta,'channels'=>$channels,'contacts'=>$contacts,'contacts_count'=>min(125,$contactCount),
+        'contacts_truncated'=>$contactTruncated||count($entries)>5||$contactCount>125,
+        'protocol_quarantined_count'=>min(500,(int)($report['quarantined_count']??0)),
+        'protocol_status_count'=>min(500,(int)($report['status_count']??0)),
+        'protocol_message_count'=>min(500,count($report['messages']??[]))];$statusEvent['status']='READY';
+     }
+    }
+   }
+  }
+ }catch(\Throwable$ignore){}
+'''
+
+
+def diagnostic_php(original, probe_source):
     # Exact frozen preflight only: no recover branch, Consumer call or DB write.
     body=original.split(" if($phase==='preflight'){",1)[0]
     needle=r'throw new \RuntimeException();'
@@ -141,7 +244,7 @@ def diagnostic_php(original):
     body=body.replace('($lock?$q->lockForUpdate():$q)','$q')
     hook=" $db=\\Illuminate\\Support\\Facades\\DB::class;$crypt=\\Illuminate\\Support\\Facades\\Crypt::class;"
     if body.count(hook)!=1:raise ValueError('DIAGNOSTIC_BOOTSTRAP_MARKER')
-    body=body.replace(hook,hook+r'''
+    body=body.replace(hook,hook+'\n'+status_metadata_php(probe_source)+r'''
  $GLOBALS['wa_diag_rows']=[];$GLOBALS['wa_diag_event']=null;$GLOBALS['wa_diag_classes']=[];
  $db::listen(static function($q){if(!preg_match('/\A\s*(SELECT|SHOW|PRAGMA)\b/i',$q->sql))throw new \RuntimeException('READ_ONLY_QUERY_GUARD');});
  $proofPins=json_decode($argv[7]??'{}',true,16,JSON_THROW_ON_ERROR);
@@ -156,7 +259,7 @@ def diagnostic_php(original):
   if(!$ok||!$match)throw new \RuntimeException('LOADED_CLASS_MISMATCH');
  }
 ''',1)
-    return body+r'''
+    return body+STATUS_EVENT_DIAGNOSTICS+r'''
  $v=$gather(false);$scans=[];$activation=config('whatsapp_orders.activation_message_id');
  $digits=is_int($activation)||is_string($activation)?(string)$activation:'';$max=(string)PHP_INT_MAX;
  $activationValid=preg_match('/\A(?:0|[1-9][0-9]*)\z/',$digits)===1&&strlen($digits)<=strlen($max)
@@ -168,13 +271,13 @@ def diagnostic_php(original):
  $out=['diagnostic'=>'READ_ONLY_FAILED_SEMANTIC_RECOVERY','status'=>'SCOPED_PREFLIGHT_READY','pending'=>$v['pending'],
   'total'=>13,'scope_matches_original_quiescent'=>preg_match('/\A[a-f0-9]{64}\z/',$expected)===1&&hash_equals($expected,$v['scope_hash']),
   'automatic_mode'=>config('whatsapp_orders.mode')==='auto','activation_message_id_valid'=>$activationValid,
-  'rows'=>$GLOBALS['wa_diag_rows'],'scans'=>$scans,'classes'=>$GLOBALS['wa_diag_classes'],'writes'=>0,'ai_calls'=>0,'orders_created'=>0];
+  'rows'=>$GLOBALS['wa_diag_rows'],'scans'=>$scans,'classes'=>$GLOBALS['wa_diag_classes'],'status_event_7215'=>$statusEvent,'writes'=>0,'ai_calls'=>0,'orders_created'=>0];
  while(ob_get_level()>0)ob_end_clean();echo json_encode($out,JSON_THROW_ON_ERROR);
 }catch(\Throwable$e){while(ob_get_level()>0)ob_end_clean();
  $allowed=json_decode($argv[6]??'[]',true);$r=in_array($e->getMessage(),$allowed,true)?$e->getMessage():'DECRYPT_SCHEMA_BOOTSTRAP_OR_READ_ONLY_CHECK';
  echo json_encode(['diagnostic'=>'READ_ONLY_FAILED_SEMANTIC_RECOVERY','status'=>'SCOPED_PREFLIGHT_NOT_READY',
   'first_failed_check'=>$r,'event_id'=>$GLOBALS['wa_diag_event']??null,'rows'=>$GLOBALS['wa_diag_rows']??[],
-  'classes'=>$GLOBALS['wa_diag_classes']??[],'writes'=>0,'ai_calls'=>0,'orders_created'=>0],JSON_THROW_ON_ERROR);}
+  'classes'=>$GLOBALS['wa_diag_classes']??[],'status_event_7215'=>$statusEvent??null,'writes'=>0,'ai_calls'=>0,'orders_created'=>0],JSON_THROW_ON_ERROR);}
 '''
 
 
@@ -190,6 +293,22 @@ def safe_metrics(value):
     if (not isinstance(value,dict) or set(value)!=set(METRICS)
             or any(type(x)is not int or not 0<=x<=13 for x in value.values())):raise ValueError('METRIC_SHAPE')
     return value
+
+
+def capture_service_result(runner):
+    """Read two fixed service properties, never journal logs or error strings."""
+    unknown={'result':'UNKNOWN','exec_main_status':None,'status_readable':False}
+    code,output=runner(['/usr/bin/systemctl','show','--no-pager','--property=Result','--property=ExecMainStatus',UNITS[1]])
+    try:
+        if code or len(output)>4096:return unknown
+        lines=output.decode('ascii').strip().splitlines();values=dict(line.split('=',1)for line in lines)
+        if len(lines)!=2 or set(values)!={'Result','ExecMainStatus'}:return unknown
+        result=values['Result'];allowed={'success','exit-code','signal','core-dump','watchdog','timeout','resources',
+            'start-limit-hit','oom-kill','protocol','exec-condition','assert','condition'}
+        status=values['ExecMainStatus']
+        if not re.fullmatch('[0-9]{1,3}',status) or int(status)>255:return unknown
+        return {'result':result if result in allowed else 'UNKNOWN','exec_main_status':int(status),'status_readable':True}
+    except (ValueError,UnicodeError):return unknown
 
 
 def pipeline_summary(entries):
@@ -220,6 +339,7 @@ def main():
         publisher=verified_source(args.release,'deployment/apply_whatsapp_order_semantic_repair.py',PUBLISHER_BLOB)
         base=verified_source(args.release,'deployment/install_whatsapp_inbox.py',BASE_BLOB)
         wrapper=verified_source(args.release,'deployment/apply_whatsapp_order_semantic_repair_root.sh',ROOT_BLOB)
+        probe=verified_source(args.release,'deployment/whatsapp_order_ai_read_only_probe.php',PROBE_BLOB)
         guards=readonly_guards(publisher,base)
         root_program=wrapper.split(b"exec /usr/bin/python3 - \"$@\" <<'PY'\n",1)[1][:-len(b'\nPY\n')]
         root_ns={'pathlib':pathlib,'os':os,'stat':stat,'hashlib':hashlib,'re':re,'subprocess':subprocess,'SYSTEMCTL':'/usr/bin/systemctl'}
@@ -248,16 +368,17 @@ def main():
         summary['unit_profiles_match']=all(list(root_ns['unit_profile'](name))==prior['profiles'][name]for name in UNITS)
         summary['current_units']={name:{'active_state':root_ns['unit_state'](name)['ActiveState'],
             'main_pid_zero':root_ns['unit_state'](name).get('MainPID','0')=='0'}for name in UNITS}
+        summary['capture_service_result']=capture_service_result(root_ns['command'])
         config=guards['configuration_snapshot'](ROOT,uid)
         summary['configuration_matches_original']=guards['configuration_fingerprint'](config)==prior['configuration_fingerprint']
         proof_pins={**pins,**guards['PROTECTED_PINS'],'app/Services/Dashboard/WhatsAppInboxAccess.php':ACCESS_BLOB}
         for p,target in proof_pins.items():
             if blob(guards['guarded_snapshot'](ROOT/p,uid,ROOT)[0].content)!=target:raise ValueError('LIVE_CODE_PIN')
-        program=diagnostic_php(guards['RECOVERY_PHP'])
+        program=diagnostic_php(guards['RECOVERY_PHP'],probe)
         result=subprocess.run(['/sbin/runuser','-u','fasakha','--',PHP,'-r',program,'preflight',json.dumps(pins),json.dumps(IDS),'',
             quiet['recovery_scope'],json.dumps(list(REASONS)+['READ_ONLY_QUERY_GUARD','LOADED_CLASS_MISMATCH']),json.dumps(proof_pins)],cwd=ROOT,
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60)
-        if result.returncode or len(result.stdout)>131072:raise ValueError('READ_ONLY_PHP')
+        if result.returncode or len(result.stdout)>MAX_METADATA_OUTPUT:raise ValueError('READ_ONLY_PHP')
         value=json.loads(result.stdout)
         if value.get('writes')!=0 or value.get('ai_calls')!=0 or value.get('orders_created')!=0:raise ValueError('READ_ONLY_RESULT')
         if private_file(pipeline/'journal.jsonl',0,1048576,ancestry_uid=uid)[0]!=pipeline_raw:
