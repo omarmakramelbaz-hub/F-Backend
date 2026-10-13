@@ -84,9 +84,11 @@ final class MetaInboundDiagnostic
     {
         return ['events' => 0, 'processed_events' => 0, 'pending_events' => 0, 'quarantined_events' => 0,
             'quarantine_categories' => [], 'raw' => ['inbound' => 0, 'outbound' => 0, 'standby_messages' => 0,
+                'admin_notifications' => 0,
                 'routing_mismatch' => 0, 'malformed_records' => 0, 'non_message_events' => 0, 'records_omitted' => 0,
                 'latest_inbound_at_utc' => null, 'latest_outbound_at_utc' => null],
             'normalized' => ['inbound' => 0, 'outbound' => 0, 'standby_messages' => 0, 'ignored' => 0,
+                'admin_notifications' => 0,
                 'invalid_events' => 0, 'categories' => [], 'latest_inbound_at_utc' => null, 'latest_outbound_at_utc' => null],
             'latest_received_at_utc' => null];
     }
@@ -118,7 +120,6 @@ final class MetaInboundDiagnostic
                 foreach (array_slice($events, 0, 1000) as $event) {
                     if (!is_array($event)) { $out['raw']['malformed_records']++; continue; }
                     if (!isset($event['message'])) { $out['raw']['non_message_events']++; continue; }
-                    if ($source === 'standby') $out['raw']['standby_messages']++;
                     $sender = $event['sender']['id'] ?? null; $recipient = $event['recipient']['id'] ?? null;
                     if (!is_array($event['message']) || !self::id($sender) || !self::id($recipient)) {
                         $out['raw']['malformed_records']++; continue;
@@ -126,6 +127,11 @@ final class MetaInboundDiagnostic
                     $direction = $sender === $entry['id'] && $recipient !== $entry['id'] ? 'outbound'
                         : ($recipient === $entry['id'] && $sender !== $entry['id'] ? 'inbound' : null);
                     if ($direction === null) { $out['raw']['routing_mismatch']++; continue; }
+                    $rawMessage = $event['message'];
+                    if (count($rawMessage) === 1 && array_key_exists('admin_text', $rawMessage)) {
+                        $out['raw']['admin_notifications']++; continue;
+                    }
+                    if ($source === 'standby') $out['raw']['standby_messages']++;
                     $out['raw'][$direction]++;
                     self::latest($out['raw'], 'latest_'.$direction.'_at_utc', self::stamp($event['timestamp'] ?? null));
                 }
@@ -148,6 +154,7 @@ final class MetaInboundDiagnostic
                 $scoped = ['object' => $payload['object'], 'entry' => array_values(array_filter($payload['entry'],
                     static fn ($entry) => is_array($entry) && ($entry['id'] ?? null) === substr($key, strpos($key, ':') + 1)))];
                 $out['normalized']['ignored'] = \App\Support\MetaMessagingProtocol::report($scoped, array_values($this->accounts))['ignored_count'];
+                $out['normalized']['admin_notifications'] = $out['raw']['admin_notifications'];
             }
             unset($out);
         } catch (\Throwable $error) {
@@ -155,6 +162,7 @@ final class MetaInboundDiagnostic
                 ? $error->getMessage() : 'NORMALIZER_UNAVAILABLE';
             foreach ($result['accounts'] as &$out) {
                 $out['normalized']['inbound'] = $out['normalized']['outbound'] = $out['normalized']['standby_messages'] = 0;
+                $out['normalized']['admin_notifications'] = 0;
                 $out['normalized']['latest_inbound_at_utc'] = $out['normalized']['latest_outbound_at_utc'] = null;
                 $out['normalized']['invalid_events']++;
                 $out['normalized']['categories'][$category] = 1;

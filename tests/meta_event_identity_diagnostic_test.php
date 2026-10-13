@@ -57,6 +57,14 @@ try {
     metaIdentityCheck($shape['peer_digits'] === 12 && $shape['field_types']['text'] === 'string'
         && $shape['field_types']['attachments'] === 'ABSENT', 'types_lengths_only');
     metaIdentitySafe($incoming);
+    $adminNotice = $payload;
+    $adminNotice['entry'][0]['messaging'][0]['message'] = ['admin_text' => 'PRIVATE_TEXT'];
+    $adminShape = $diagnostic->inspect($adminNotice)['message_shapes'][0];
+    metaIdentityCheck($adminShape['extra_field_candidates']['admin_text'] === [
+        'type' => 'string', 'value_bytes' => 12, 'value_json_object' => false]
+        && $adminShape['mid']['present'] === false && $adminShape['unrecognized_field_shapes'] === [],
+        'confirmed_admin_field_identified_without_content_or_native_identity');
+    metaIdentitySafe($adminShape);
 
     $alternate = $payload;
     $alternate['entry'][0]['messaging'][0]['message'] += ['id' => 'PRIVATE_MID', 'message_id' => 77,

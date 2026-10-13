@@ -65,6 +65,32 @@ try {
     $foreign = $diagnostic->inspect(metaDiagnosticPayload('page', '887766554433'));
     metaDiagnosticCheck($foreign['unscoped_entries'] === 1 && $foreign['accounts'] === [], 'unknown_account_excluded');
     metaDiagnosticSafe($foreign);
+    $admin = $payload;
+    $admin['entry'][0]['messaging'][0]['message'] = ['admin_text' => 'PRIVATE_TEXT PRIVATE_CUSTOMER'];
+    $adminScope = $diagnostic->inspect($admin)['accounts']['messenger:101'];
+    metaDiagnosticCheck($adminScope['raw']['inbound'] === 0 && $adminScope['raw']['admin_notifications'] === 1
+        && $adminScope['raw']['latest_inbound_at_utc'] === null
+        && $adminScope['normalized']['inbound'] === 0 && $adminScope['normalized']['admin_notifications'] === 1
+        && $adminScope['normalized']['ignored'] === 1 && $adminScope['normalized']['invalid_events'] === 0,
+        'admin_handoff_notice_separate_from_customer_message');
+    metaDiagnosticSafe($adminScope);
+    $adminStandby = $admin;
+    $adminStandby['entry'][0]['standby'] = $adminStandby['entry'][0]['messaging'];
+    unset($adminStandby['entry'][0]['messaging']);
+    $adminScope = $diagnostic->inspect($adminStandby)['accounts']['messenger:101'];
+    metaDiagnosticCheck($adminScope['raw']['standby_messages'] === 0 && $adminScope['normalized']['standby_messages'] === 0
+        && $adminScope['normalized']['admin_notifications'] === 1, 'admin_standby_not_customer_message');
+    $invalidAdmin = $admin;
+    $invalidAdmin['entry'][0]['messaging'][0]['message']['admin_text'] = '';
+    $invalidScope = $diagnostic->inspect($invalidAdmin)['accounts']['messenger:101'];
+    metaDiagnosticCheck($invalidScope['raw']['admin_notifications'] === 1
+        && $invalidScope['normalized']['admin_notifications'] === 0
+        && $invalidScope['normalized']['categories'] === ['MESSAGE' => 1], 'malformed_admin_marker_not_validated_notice');
+    $mixedAdmin = $payload;
+    $mixedAdmin['entry'][0]['messaging'][0]['message']['admin_text'] = 'PRIVATE_TEXT';
+    $mixedScope = $diagnostic->inspect($mixedAdmin)['accounts']['messenger:101'];
+    metaDiagnosticCheck($mixedScope['raw']['inbound'] === 1 && $mixedScope['raw']['admin_notifications'] === 0
+        && $mixedScope['normalized']['inbound'] === 1, 'native_message_with_admin_context_remains_message');
     $bad = $payload;
     $bad['entry'][0]['messaging'][] = $payload['entry'][0]['messaging'][0];
     $bad['entry'][0]['messaging'][1]['recipient']['id'] = '887766554433';

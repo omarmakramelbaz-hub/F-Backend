@@ -19,7 +19,7 @@ final class MetaEventIdentityDiagnostic
     // Diagnostic candidates only. Their presence does not establish a supported message format.
     private const EXTRA_MESSAGE_FIELDS = ['seq', 'sticker_id', 'nlp', 'is_redacted', 'redacted',
         'is_unavailable', 'unavailable', 'is_e2ee', 'is_encrypted', 'encrypted', 'is_limited',
-        'is_removed', 'is_restricted', 'unsupported', 'is_unsupported_message', 'type',
+        'is_removed', 'is_restricted', 'unsupported', 'is_unsupported_message', 'type', 'admin_text',
         'message', 'payload', 'data', 'content', 'value', 'error', 'errors',
         'ciphertext', 'attachment', 'encryption', 'content_id', 'session_id', 'request_id',
         'plain_text', 'message-id', 'rawMessage', 'jsonString'];
