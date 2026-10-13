@@ -20,7 +20,9 @@ final class MetaEventIdentityDiagnostic
     private const EXTRA_MESSAGE_FIELDS = ['seq', 'sticker_id', 'nlp', 'is_redacted', 'redacted',
         'is_unavailable', 'unavailable', 'is_e2ee', 'is_encrypted', 'encrypted', 'is_limited',
         'is_removed', 'is_restricted', 'unsupported', 'is_unsupported_message', 'type',
-        'message', 'payload', 'data', 'content', 'value', 'error', 'errors'];
+        'message', 'payload', 'data', 'content', 'value', 'error', 'errors',
+        'ciphertext', 'attachment', 'encryption', 'content_id', 'session_id', 'request_id',
+        'plain_text', 'message-id', 'rawMessage', 'jsonString'];
     private $accounts;
     private $transport;
     private $started;
@@ -106,6 +108,16 @@ final class MetaEventIdentityDiagnostic
                             if (in_array($field, ['mid', 'id', 'message_id', 'text', 'attachments', 'is_echo', 'is_deleted',
                                 'is_unsupported', 'metadata', 'quick_reply', 'reply_to', 'referral', 'app_id'], true)) continue;
                             $detail = ['type' => get_debug_type($value)];
+                            if (is_string($value)) {
+                                $detail['value_bytes'] = strlen($value);
+                                try {
+                                    $decoded = json_decode($value, false, 16, JSON_THROW_ON_ERROR);
+                                    $detail['value_json_object'] = $decoded instanceof \stdClass;
+                                    if ($decoded instanceof \stdClass) foreach (['mid', 'id', 'message_id', 'text', 'attachments'] as $nested)
+                                        $detail['nested_field_types'][$nested] = property_exists($decoded, $nested)
+                                            ? get_debug_type($decoded->$nested) : 'ABSENT';
+                                } catch (\Throwable $e) { $detail['value_json_object'] = false; }
+                            }
                             if (is_bool($value)) $detail['boolean'] = $value;
                             if (is_array($value)) {
                                 $detail['array_count'] = count($value);
@@ -116,7 +128,8 @@ final class MetaEventIdentityDiagnostic
                                 $shape['extra_field_candidates'][$field] = $detail;
                             elseif (count($shape['unrecognized_field_shapes']) < 8)
                                 $shape['unrecognized_field_shapes'][] = ['key_bytes' => is_string($field) ? strlen($field) : null,
-                                    'type' => get_debug_type($value)];
+                                    'key_sha256' => hash('sha256', (string) $field), 'type' => get_debug_type($value),
+                                    'value_bytes' => is_string($value) ? strlen($value) : null];
                             else $shape['unrecognized_fields_omitted']++;
                         }
                         // Fixed comparison to a common test string; never return any customer text.

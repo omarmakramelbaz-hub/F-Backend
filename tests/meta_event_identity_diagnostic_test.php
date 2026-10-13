@@ -17,6 +17,8 @@ function metaIdentitySafe(array $report): void
         'PRIVATE_SCOPE', 'PRIVATE_TYPE', 'PRIVATE_APP', 'PRIVATE_SECRET'] as $secret) {
         metaIdentityCheck(strpos($json, $secret) === false, 'private_value_redacted');
     }
+    foreach (['PRIVATE_TEXT', 'PRIVATE_TOKEN', 'PRIVATE_MID', '998877665544'] as $secret)
+        metaIdentityCheck(strpos($json, hash('sha256', $secret)) === false, 'private_value_fingerprint_not_exposed');
 }
 function metaIdentityPayload(string $object = 'page', string $account = '101', string $source = 'messaging'): array
 {
@@ -94,18 +96,68 @@ try {
         && $candidateShape['extra_field_candidates']['redacted'] === ['type' => 'bool', 'boolean' => false]
         && $candidateShape['extra_field_candidates']['is_limited'] === ['type' => 'null'], 'fixed_candidate_boolean_types_preserved');
     metaIdentityCheck($candidateShape['extra_field_candidates']['seq'] === ['type' => 'int']
-        && $candidateShape['extra_field_candidates']['sticker_id'] === ['type' => 'string']
-        && $candidateShape['extra_field_candidates']['type'] === ['type' => 'string'], 'candidate_scalar_identifiers_never_returned');
+        && $candidateShape['extra_field_candidates']['sticker_id'] === ['type' => 'string', 'value_bytes' => 11, 'value_json_object' => false]
+        && $candidateShape['extra_field_candidates']['type'] === ['type' => 'string', 'value_bytes' => 12, 'value_json_object' => false],
+        'candidate_scalar_identifiers_never_returned');
     $nestedTypes = $candidateShape['extra_field_candidates']['payload']['nested_field_types'];
     metaIdentityCheck($candidateShape['extra_field_candidates']['payload']['array_count'] === 9
         && $nestedTypes === ['mid' => 'string', 'id' => 'string', 'message_id' => 'string', 'text' => 'string',
             'attachments' => 'array', 'message' => 'array', 'error' => 'array', 'code' => 'int'], 'nested_fixed_field_types_without_content');
     metaIdentityCheck($candidateShape['unrecognized_field_shapes'] === [
-        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_NAME'), 'type' => 'bool'],
-        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_ADDRESS'), 'type' => 'array'],
+        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_NAME'), 'key_sha256' => hash('sha256', 'PRIVATE_KEY_PRIVATE_NAME'),
+            'type' => 'bool', 'value_bytes' => null],
+        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_ADDRESS'), 'key_sha256' => hash('sha256', 'PRIVATE_KEY_PRIVATE_ADDRESS'),
+            'type' => 'array', 'value_bytes' => null],
     ], 'arbitrary_field_names_values_nested_details_redacted');
     metaIdentityCheck($candidateShape['unknown_message_key_count'] === 12, 'all_extra_keys_counted_without_schema_assumption');
     metaIdentitySafe($candidateReport);
+    $wrappers = $payload;
+    $privateJson = json_encode(['mid' => 'PRIVATE_MID', 'id' => '998877665544', 'message_id' => '887766554433',
+        'text' => 'PRIVATE_TEXT PRIVATE_NAME', 'attachments' => [['payload' => ['url' => 'PRIVATE_URL']]],
+        'PRIVATE_KEY' => ['PRIVATE_CUSTOMER' => 'PRIVATE_TOKEN']], JSON_THROW_ON_ERROR);
+    $nullJson = json_encode(['mid' => null, 'attachments' => [], 'PRIVATE_KEY' => 'PRIVATE_TEXT'], JSON_THROW_ON_ERROR);
+    $wrappers['entry'][0]['messaging'][0]['message'] = [
+        'ciphertext' => 'PRIVATE_TOKEN', 'jsonString' => $privateJson, 'rawMessage' => $nullJson,
+        'plain_text' => '{INVALID_JSON_PRIVATE_TEXT', 'message-id' => 'PRIVATE_MID',
+        'content_id' => '"PRIVATE_MID"', 'request_id' => '["PRIVATE_TEXT"]', 'encryption' => '{}',
+    ];
+    $wrapperReport = $diagnostic->inspect($wrappers); $wrapperShape = $wrapperReport['message_shapes'][0];
+    metaIdentityCheck($wrapperShape['extra_field_candidates']['ciphertext'] === ['type' => 'string', 'value_bytes' => 13, 'value_json_object' => false]
+        && $wrapperShape['unknown_message_key_count'] === 8 && $wrapperShape['unrecognized_field_shapes'] === [],
+        'new_exact_candidates_classified_without_encryption_claim');
+    metaIdentityCheck($wrapperShape['extra_field_candidates']['jsonString']['value_json_object'] === true
+        && $wrapperShape['extra_field_candidates']['jsonString']['value_bytes'] === strlen($privateJson)
+        && $wrapperShape['extra_field_candidates']['jsonString']['nested_field_types'] === [
+            'mid' => 'string', 'id' => 'string', 'message_id' => 'string', 'text' => 'string', 'attachments' => 'array'],
+        'json_wrapper_native_content_only_fixed_types');
+    metaIdentityCheck($wrapperShape['extra_field_candidates']['rawMessage']['nested_field_types'] === [
+        'mid' => 'null', 'id' => 'ABSENT', 'message_id' => 'ABSENT', 'text' => 'ABSENT', 'attachments' => 'array'],
+        'json_wrapper_missing_fields_distinct_from_null');
+    metaIdentityCheck($wrapperShape['extra_field_candidates']['plain_text']['value_json_object'] === false
+        && $wrapperShape['extra_field_candidates']['content_id']['value_json_object'] === false
+        && $wrapperShape['extra_field_candidates']['request_id']['value_json_object'] === false,
+        'malformed_json_scalar_and_list_not_object');
+    metaIdentityCheck($wrapperShape['extra_field_candidates']['encryption']['value_json_object'] === true
+        && $wrapperShape['extra_field_candidates']['encryption']['nested_field_types']['mid'] === 'ABSENT'
+        && $wrapperShape['mid']['present'] === false && $wrapperShape['id']['present'] === false
+        && $wrapperShape['message_id']['present'] === false, 'json_and_dash_candidates_never_promote_mid');
+    metaIdentitySafe($wrapperReport);
+    $fingerprints = $payload; $fingerprints['entry'][0]['messaging'][0]['message'] = ['opaqueSlot' => 'PRIVATE_TEXT'];
+    $firstFingerprintReport = $diagnostic->inspect($fingerprints);
+    $firstFingerprint = $firstFingerprintReport['message_shapes'][0]['unrecognized_field_shapes'][0];
+    $fingerprints['entry'][0]['messaging'][0]['message'] = ['opaqueSlot' => 'PRIVATE_TOKEN', 'opaqueSloT' => 'PRIVATE_TOKEN'];
+    $secondFingerprintReport = $diagnostic->inspect($fingerprints);
+    $secondFingerprints = $secondFingerprintReport['message_shapes'][0]['unrecognized_field_shapes'];
+    metaIdentityCheck($firstFingerprint === ['key_bytes' => 10, 'key_sha256' => hash('sha256', 'opaqueSlot'),
+            'type' => 'string', 'value_bytes' => 12]
+        && $secondFingerprints[0]['key_sha256'] === $firstFingerprint['key_sha256']
+        && $secondFingerprints[0]['value_bytes'] === 13 && $secondFingerprints[1]['key_sha256'] !== $firstFingerprint['key_sha256'],
+        'fingerprint_depends_on_key_only_and_is_case_sensitive');
+    metaIdentityCheck(strpos(json_encode($secondFingerprintReport), 'opaqueSlot') === false
+        && strpos(json_encode($secondFingerprintReport), 'opaqueSloT') === false
+        && !in_array(hash('sha256', 'PRIVATE_TOKEN'), array_column($secondFingerprints, 'key_sha256'), true),
+        'unrecognized_name_and_value_fingerprint_never_returned');
+    metaIdentitySafe($firstFingerprintReport); metaIdentitySafe($secondFingerprintReport);
     $unknownFields = $payload;
     $unknownFields['entry'][0]['messaging'][0]['message'] = [];
     for ($i = 0; $i < 30; $i++) $unknownFields['entry'][0]['messaging'][0]['message']['PRIVATE_KEY_'.$i] = 'PRIVATE_TEXT';
@@ -113,7 +165,9 @@ try {
     $unknownFieldsShape = $unknownFieldsReport['message_shapes'][0];
     metaIdentityCheck($unknownFieldsShape['unknown_message_key_count'] === 30
         && count($unknownFieldsShape['unrecognized_field_shapes']) === 8
-        && $unknownFieldsShape['unrecognized_fields_omitted'] === 22, 'unknown_field_output_cap_explicit');
+        && $unknownFieldsShape['unrecognized_fields_omitted'] === 22
+        && $unknownFieldsShape['unrecognized_field_shapes'][0]['key_sha256'] === hash('sha256', 'PRIVATE_KEY_0')
+        && $unknownFieldsShape['unrecognized_field_shapes'][0]['value_bytes'] === 12, 'unknown_field_output_cap_explicit');
     metaIdentitySafe($unknownFieldsReport);
     $summarySource = ['through_event' => 7, 'events_in_range' => 7, 'events_read' => 6, 'unreadable_events' => 1,
         'sample_complete' => false, 'kinds' => $candidateReport['kinds'], 'changes' => ['instagram:202:comments' => 12],
