@@ -271,3 +271,4 @@ jobs:
           python3 tests/whatsapp_cairo_automatic_enable_test.py
           python3 tests/test_whatsapp_cairo_install_root_diagnostic.py
           python3 tests/test_whatsapp_order_semantic_recovery_php.py
+          python3 tests/test_whatsapp_order_semantic_recovery_diagnostic.py

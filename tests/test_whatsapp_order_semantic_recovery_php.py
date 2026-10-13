@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Execute the publisher's current recovery PHP with real Laravel, SQLite and Crypt.
 
-Only noteProjectionRevision is stubbed, as a bounded metadata operation. No order,
-AI, provider, HTTP, worker or production application is invoked by these fixtures.
+The genuine Workflow noteProjectionRevision callback and protected ticket
+fingerprint are exercised. No order, AI, provider, HTTP, worker or production
+application is invoked by these fixtures.
 """
 import ast
 import hashlib
@@ -74,25 +75,21 @@ spl_autoload_register(static function($class){
  if(str_starts_with($class,'App\\')){$file=getcwd().'/app/'.str_replace('\\','/',substr($class,4)).'.php';if(is_file($file))require $file;}
 });
 Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys=ON');
+if(getenv('WA_FIXTURE_ADVANCE_CLOCK')==='1'){
+ $clockPath=getcwd().'/fixture-clock.txt';
+ $clock=is_file($clockPath)?(int)file_get_contents($clockPath):1791892800;
+ \Carbon\Carbon::setTestNow(\Carbon\Carbon::createFromTimestampUTC($clock));
+}
 Illuminate\Support\Facades\DB::listen(static function($query){
  file_put_contents(getcwd().'/query-log.jsonl',json_encode(['sql'=>$query->sql])."\n",FILE_APPEND);
+ if(getenv('WA_FIXTURE_ADVANCE_CLOCK')==='1'){
+  $clockPath=getcwd().'/fixture-clock.txt';
+  $clock=is_file($clockPath)?(int)file_get_contents($clockPath):1791892800;
+  $clock++;file_put_contents($clockPath,(string)$clock);
+  \Carbon\Carbon::setTestNow(\Carbon\Carbon::createFromTimestampUTC($clock));
+ }
 });
 return $app;
-'''
-
-WORKFLOW = r'''<?php
-namespace App\Services\Dashboard;
-final class WhatsAppOrderWorkflow {
- public function noteProjectionRevision(int $conversation,int $message):bool {
-  $db=\Illuminate\Support\Facades\DB::class;
-  $scan=$db::table('whatsapp_order_scans')->where('conversation_id',$conversation)->lockForUpdate()->first();
-  if($scan&&is_string($scan->lease_until)&&$scan->lease_until>now('UTC')->format('Y-m-d H:i:s'))return false;
-  if($scan)$db::table('whatsapp_order_scans')->where('conversation_id',$conversation)->update([
-   'analyzed_ceiling'=>min((int)$scan->analyzed_ceiling,$message-1),'updated_at'=>now('UTC')]);
-  return true;
- }
- public function __call($method,$args){throw new \RuntimeException('ORDER_ACTION_FORBIDDEN_IN_FIXTURE');}
-}
 '''
 
 CONTROL = r'''
@@ -162,6 +159,20 @@ if($action==='setup'){
  echo json_encode($checks,JSON_THROW_ON_ERROR);
 }elseif($action==='decrypt'){echo Crypt::decryptString(file_get_contents($argv[2]));
 }elseif($action==='recover_first'){echo json_encode((new WhatsAppInboxConsumer())->recoverUnavailableMessages([$ids[0]]),JSON_THROW_ON_ERROR);
+}elseif($action==='probe_real_callback'){
+ // Invoke the authentic consumer path while exposing a bounded exception code.
+ // Always roll this isolated probe's metadata back; never change runtime code.
+ DB::beginTransaction();
+ try{
+  $event=DB::table('whatsapp_webhook_events')->where('id',$ids[0])->first();
+  $dto=WhatsAppInboxProtocol::report(json_decode(Crypt::decryptString($event->payload),true,512,JSON_THROW_ON_ERROR),'468336579702269','515388018324075')['messages'][0];
+  $method=new ReflectionMethod(WhatsAppInboxConsumer::class,'persist');$method->setAccessible(true);
+  $result=$method->invoke(new WhatsAppInboxConsumer(),$dto,Crypt::getKey(),$ids[0],$event->payload_hash,true);
+  $out=['status'=>'CALLBACK_READY','result'=>$result,'ai_calls'=>0,'orders_created'=>0];
+ }catch(Throwable$e){$code=$e->getMessage();$out=['status'=>'CALLBACK_FAILED','exception'=>get_class($e),
+  'code'=>preg_match('/\A[A-Z_]{1,64}\z/',$code)?$code:'OTHER','ai_calls'=>0,'orders_created'=>0];
+ }finally{DB::rollBack();}
+ echo json_encode($out,JSON_THROW_ON_ERROR);
 }elseif($action==='trigger_late'){
  DB::unprepared("CREATE TRIGGER fixture_late_failure BEFORE UPDATE OF type ON whatsapp_inbox_messages WHEN NEW.id=1013 BEGIN SELECT RAISE(ABORT,'fixture late write'); END");echo '{}';
 }elseif($action==='busy_late'){
@@ -202,22 +213,21 @@ if($action==='setup'){
 
 
 class RecoveryFixture:
-    def __init__(self, directory):
+    def __init__(self, directory, advance_clock=False):
         self.root = pathlib.Path(directory)/'app'
         self.root.mkdir(mode=0o700)
+        self.advance_clock = advance_clock
         self.pins = {}
         for name in SOURCES:
-            if name.endswith(('WhatsAppNativePlaceholderHydration.php','WhatsAppInboxMessage.php','WhatsAppInboxConsumer.php')):
+            if name.endswith(('WhatsAppNativePlaceholderHydration.php','WhatsAppInboxMessage.php','WhatsAppInboxConsumer.php','WhatsAppOrderWorkflow.php')):
                 data = (ROOT/name).read_bytes()
-            elif name.endswith('WhatsAppOrderWorkflow.php'):
-                data = WORKFLOW.encode()
             else:
                 namespace = 'App\\'+str(pathlib.PurePosixPath(name).parent)[4:].replace('/','\\')
                 cls = pathlib.PurePosixPath(name).stem
                 data = ('<?php namespace '+namespace+'; final class '+cls+' { public function __call($m,$a){throw new \\RuntimeException("UNEXPECTED_ACTION");} }\n').encode()
             self.write(name,data)
             self.pins[name] = blob(data)
-        for name in ('app/Support/WhatsAppInboxProtocol.php', PREFIX+'WhatsAppInboxAccess.php', PREFIX+'WhatsAppInboxQuarantinedEvent.php'):
+        for name in ('app/Support/WhatsAppInboxProtocol.php', PREFIX+'WhatsAppInboxAccess.php', PREFIX+'WhatsAppInboxQuarantinedEvent.php', PREFIX+'PosServiceTicket.php'):
             self.write(name,(ROOT/name).read_bytes())
         self.write('migrations/inbox.php',(ROOT/'database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php').read_bytes())
         self.write('migrations/orders.php',(ROOT/'database/migrations/2026_10_10_000002_create_whatsapp_order_drafts.php').read_bytes())
@@ -245,8 +255,10 @@ class RecoveryFixture:
         path.write_bytes(data);path.chmod(mode)
 
     def run_php(self,program,args,expect_success=True):
+        env=os.environ.copy()
+        env['WA_FIXTURE_ADVANCE_CLOCK']='1' if self.advance_clock else '0'
         result=subprocess.run([PHP,'-r',program,*map(str,args)],cwd=self.root,
-            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30,env=env)
         if expect_success and result.returncode:
             raise AssertionError('Fixture PHP failed: '+result.stdout.decode(errors='replace')+' '+result.stderr.decode(errors='replace'))
         return result
@@ -304,6 +316,31 @@ class SemanticRecoveryPhpTests(unittest.TestCase):
         self.assertRegex(value['scope_hash'],r'\A[a-f0-9]{64}\Z')
         self.assertEqual(self.f.control('dump'),before)
         self.assertEqual(list(self.f.backup.iterdir()),[])
+
+    def test_real_workflow_callback_has_no_hidden_exception_and_probe_rolls_back(self):
+        before=self.f.control('dump')
+        self.assertEqual(self.f.control('probe_real_callback'),{
+            'status':'CALLBACK_READY','result':'hydrated','ai_calls':0,'orders_created':0})
+        self.assertEqual(self.f.control('dump'),before)
+        self.assertEqual(self.f.configuration_snapshot(),self.f.config)
+
+    def test_real_workflow_recovery_preserves_proof_while_clock_advances_per_sql_query(self):
+        with tempfile.TemporaryDirectory(prefix='wa-semantic-clock-') as t:
+            f=RecoveryFixture(t,advance_clock=True)
+            before=f.control('dump');pre=f.preflight()
+            clock_before=int(f.root.joinpath('fixture-clock.txt').read_text())
+            value=f.recover(pre['scope_hash'])
+            clock_after=int(f.root.joinpath('fixture-clock.txt').read_text())
+            self.assertGreater(clock_after-clock_before,100)
+            self.assertEqual(value['metrics']['messages_hydrated'],13)
+            self.assertEqual(value['metrics']['errors'],0)
+            proofs=f.control('prove');self.assertTrue(all(p['proof'] for p in proofs))
+            after=f.control('dump');raw={r['id']:r for r in after['whatsapp_webhook_events']}
+            for proof in proofs:
+                self.assertEqual(raw[proof['event_id']]['processed_at'],proof['message']['content']['hydration']['at_utc'])
+            self.assertEqual(after['fixture_orders'],before['fixture_orders'])
+            self.assertEqual(after['fixture_ai_calls'],before['fixture_ai_calls'])
+            self.assertEqual(f.configuration_snapshot(),f.config)
 
     def test_recovers_exact_13_authentic_placeholders_with_encrypted_before_images(self):
         before=self.f.control('dump');value=self.f.recover(self.f.preflight()['scope_hash']);after=self.f.control('dump')
