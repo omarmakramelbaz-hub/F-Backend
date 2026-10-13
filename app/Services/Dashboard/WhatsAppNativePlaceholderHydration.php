@@ -35,8 +35,9 @@ final class WhatsAppNativePlaceholderHydration
                 if (!is_array($body)||array_diff(array_keys($body),['type','raw_type'])) return false;
                 foreach ($body as $value) if (!in_array($value,['unknown','unsupported'],true)) return false;
             }
-            foreach (['from','from_user_id','to','to_user_id','context','referral'] as $field)
+            foreach (['from','from_user_id','to','to_user_id','context'] as $field)
                 if (self::canonical($raw[$field]??null)!==self::canonical($full[$field]??null)) return false;
+            if (!self::referralTransition($raw,$full)) return false;
             $old=self::time($existing->sent_at); $new=self::time($incoming['sent_at']??null);
             if ($old===null||$new===null||$new<$old||$new->getTimestamp()-$old->getTimestamp()>3600) return false;
             $proved=(new WhatsAppInboxMessage())->projected($thread,$existing);
@@ -90,6 +91,48 @@ final class WhatsAppNativePlaceholderHydration
         foreach ($value as $key=>$item) $value[$key]=self::canonical($item);
         if (!array_is_list($value)) ksort($value,SORT_STRING);
         return $value;
+    }
+
+    /** An unavailable-content notification may omit the later authenticated ad metadata. */
+    private static function referralTransition(array $before,array $incoming): bool
+    {
+        if (self::canonical($before['referral']??null)===self::canonical($incoming['referral']??null)) return true;
+        // Existing referral facts are never replaced, merged, removed or reinterpreted.
+        if (array_key_exists('referral',$before) && $before['referral']!==null) return false;
+        $referral=$incoming['referral']??null;
+        if (!is_array($referral) || $referral===[] || array_is_list($referral) || count($referral)>16) return false;
+        $reserved=['from','from_user_id','to','to_user_id','peer_identity','peer_phone','peer_user_id','waba_id','phone_number_id',
+            'conversation_id','message_id','timestamp','context','errors','type','order','customer','customer_name','customer_phone',
+            'name','phone','address','branch','items','quantity','price','amount','total','role','system','prompt','instruction','instructions','tool','tools'];
+        foreach ($referral as $key=>$value) {
+            if (!is_string($key) || !preg_match('/\A[a-z][a-z0-9_]{0,63}\z/',$key) || in_array($key,$reserved,true)) return false;
+            if (is_string($value)) {
+                if (strlen($value)>4096 || !mb_check_encoding($value,'UTF-8') || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$value)) return false;
+            } elseif ($value!==null && !is_bool($value) && !(is_int($value) && $value>=0)) return false;
+        }
+        if (strlen(json_encode($referral,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE))>24576
+            || !in_array($referral['source_type']??null,['ad','post'],true)
+            || !is_string($referral['source_id']??null) || !preg_match('/\A[1-9][0-9]{0,31}\z/',$referral['source_id'])
+            || !self::referralUrl($referral['source_url']??null)) return false;
+        foreach (['headline','body','ctwa_clid'] as $field)
+            if (array_key_exists($field,$referral) && !is_string($referral[$field])) return false;
+        if (array_key_exists('media_type',$referral)
+            && (!is_string($referral['media_type']) || !in_array(strtolower($referral['media_type']),['image','video'],true))) return false;
+        foreach (['image_url','video_url','thumbnail_url'] as $field)
+            if (array_key_exists($field,$referral) && $referral[$field]!==null && !self::referralUrl($referral[$field])) return false;
+        // Values and opaque scalar extensions stay exact encrypted metadata. No URL is fetched
+        // and no referral prose, identifier or extension becomes customer/order evidence.
+        return true;
+    }
+
+    private static function referralUrl($value): bool
+    {
+        if (!is_string($value) || $value==='' || strlen($value)>4096 || preg_match('/[\x00-\x20\x7f]/',$value)) return false;
+        $url=parse_url($value);
+        return is_array($url) && in_array(strtolower($url['scheme']??''),['http','https'],true)
+            && is_string($url['host']??null) && $url['host']!=='' && strlen($url['host'])<=253
+            && !array_key_exists('user',$url) && !array_key_exists('pass',$url)
+            && filter_var($value,FILTER_VALIDATE_URL)!==false;
     }
     private static function time($value): ?\DateTimeImmutable
     {

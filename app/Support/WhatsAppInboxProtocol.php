@@ -233,8 +233,15 @@ final class WhatsAppInboxProtocol
                     $report['quarantined_count']++;
                     continue;
                 }
+                // Coexistence can emit a played receipt without message content.
+                // Count only the scoped status-only channel; it is never a message.
+                $playedReceipt = $source === 'messages'
+                    && !array_key_exists('messages', $channel)
+                    && !array_key_exists('message_echoes', $channel);
                 foreach ($channel[$key] as $status) {
-                    if (is_array($status) && self::identifier($status['id'] ?? null, 512) && in_array($status['status'] ?? null, ['sent', 'delivered', 'read', 'failed', 'deleted'], true)) {
+                    if (is_array($status) && self::identifier($status['id'] ?? null, 512)
+                        && (in_array($status['status'] ?? null, ['sent', 'delivered', 'read', 'failed', 'deleted'], true)
+                            || ($playedReceipt && ($status['status'] ?? null) === 'played'))) {
                         $report['status_count']++;
                     } else {
                         $report['quarantined_count']++;

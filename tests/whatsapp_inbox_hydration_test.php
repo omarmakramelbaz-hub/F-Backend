@@ -152,6 +152,85 @@ namespace {
     hExpect((array)DB::table('whatsapp_order_scans')->where('conversation_id',$f['cid'])->first(),$scanBefore,'early semantic wake/counters roll back on later conflict');
     hExpect(DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$batch)->exists(),true,'only failed batch has new quarantine metadata');
 
+    // Referral facts omitted from an unavailable-content notification may arrive with
+    // authentic same-ID text. They remain encrypted ad attribution, never order evidence.
+    $ad=['source_type'=>'ad','source_id'=>'120200000000001','source_url'=>'https://fb.me/example-ad',
+        'headline'=>'عرض إعلان','body'=>'REFERRAL_ORDER_ONLY: تأكيد طلب فسيخ لعميل إعلان بسعر 999 جنيه',
+        'media_type'=>'video','video_url'=>'https://cdn.example.com/ad.mp4','thumbnail_url'=>'https://cdn.example.com/thumbnail.jpg',
+        'ctwa_clid'=>'fixture-click-id','opaque_attribute'=>true];
+    foreach([[],['referral'=>null]] as $beforePatch){
+        $f=hFixture($beforePatch,['referral'=>$ad]);$oldCipher=$f['row']->content;
+        $originalRaw=DB::table('whatsapp_webhook_events')->where('id',$f['event'])->first();$r=hRecover($f);
+        hExpect($r['messages_hydrated'],1,'absent or null old referral accepts bounded authentic ad attribution');
+        $row=DB::table('whatsapp_inbox_messages')->where('id',$f['row']->id)->first();$dto=hDecode($row->content);
+        $raw=DB::table('whatsapp_webhook_events')->where('id',$f['event'])->first();$thread=DB::table('whatsapp_inbox_conversations')->where('id',$f['cid'])->first();
+        hExpect($dto['content']['message']['referral'],$ad,'entire incoming referral including opaque scalar preserved exactly');
+        hExpect($dto['content']['hydration']['before_ciphertext'],$oldCipher,'ad enrichment retains original encrypted unavailable beforeimage');
+        hExpect($dto['content']['hydration']['before'],hDecode($oldCipher),'ad enrichment retains absent/null referral distinction in exact beforeimage');
+        hExpect($raw->payload,$originalRaw->payload,'referral recovery never rewrites original authenticated raw ciphertext');
+        hExpect($raw->payload_hash,$originalRaw->payload_hash,'referral recovery preserves signed-body hash');
+        hExpect(Proof::prove($thread,$row,$dto,$raw,false),true,'added referral is fully revalidated against authentic raw and beforeimage');
+        $method=new \ReflectionMethod(\App\Services\Dashboard\WhatsAppOrderWorkflow::class,'snapshot');$method->setAccessible(true);
+        $snapshot=$method->invoke(new \App\Services\Dashboard\WhatsAppOrderWorkflow(),$f['cid'],0,(int)$row->id,false);
+        hExpect($snapshot['transcript'][0]['text'],$f['full']['text']['body'],'only actual native customer body enters order extraction');
+        hExpect(strpos(json_encode($snapshot['transcript'],JSON_UNESCAPED_UNICODE),'REFERRAL_ORDER_ONLY'),false,'ad headline/body/opaque attribution never become order evidence');
+        hExpect(DB::table('whatsapp_order_drafts')->where('id',$f['draft'])->value('status'),'NONE','metadata enrichment alone does not analyze or authorize an order');
+        $bad=$dto;$bad['content']['message']['referral']['body']='changed attribution';
+        hExpect(Proof::prove($thread,$row,$bad,$raw,false),false,'changed incoming referral cannot pass raw-backed proof');
+    }
+    $f=hFixture(['referral'=>$ad],['referral'=>$ad]);hExpect(hRecover($f)['messages_hydrated'],1,'existing nonempty referral accepts exact unchanged attribution only');
+    $post=['source_type'=>'post','source_id'=>'120200000000002','source_url'=>'https://www.facebook.com/example/posts/120200000000002',
+        'opaque_counter'=>PHP_INT_MAX,'opaque_flag'=>false,'opaque_optional'=>null];
+    $f=hFixture([],['referral'=>$post]);hExpect(hRecover($f)['messages_hydrated'],1,'documented post attribution and bounded unused scalar extensions remain metadata');
+
+    foreach([
+        ['existing_referral_change',['referral'=>$ad],['referral'=>array_replace($ad,['source_id'=>'120200000000003'])]],
+        ['existing_referral_body_change',['referral'=>$ad],['referral'=>array_replace($ad,['body'=>'different'])]],
+        ['existing_referral_removal',['referral'=>$ad],[]],
+        ['existing_referral_null',['referral'=>$ad],['referral'=>null]],
+        ['empty_old_referral_not_missing',['referral'=>[]],['referral'=>$ad]],
+        ['empty_old_scalar_not_missing',['referral'=>''],['referral'=>$ad]],
+        ['referral_cannot_override_context',[],['referral'=>$ad,'context'=>['id'=>'wamid.changed-context']]],
+        ['referral_cannot_override_routing',[],['referral'=>$ad,'from_user_id'=>'US.other']],
+    ] as [$label,$oldPatch,$newPatch]){
+        $f=hFixture($oldPatch,$newPatch);hExpect(hRecover($f)['messages_hydrated'],0,$label.' stays unresolved');hPreserved($f,$label);
+    }
+
+    $f=hFixture();$thread=DB::table('whatsapp_inbox_conversations')->where('id',$f['cid'])->first();$before=hDecode($f['row']->content);
+    $incoming=\App\Support\WhatsAppInboxProtocol::report(hPayload([$f['full']]),Consumer::WABA_ID,Consumer::PHONE_ID)['messages'][0];
+    $invalidReferrals=[
+        'empty'=>[], 'list'=>[$ad], 'scalar'=>'ad metadata',
+        'missing_type'=>array_diff_key($ad,['source_type'=>true]),'wrong_type'=>array_replace($ad,['source_type'=>'customer']),
+        'missing_id'=>array_diff_key($ad,['source_id'=>true]),'numeric_id'=>array_replace($ad,['source_id'=>123]),
+        'zero_id'=>array_replace($ad,['source_id'=>'0']),'negative_id'=>array_replace($ad,['source_id'=>'-1']),
+        'oversized_id'=>array_replace($ad,['source_id'=>str_repeat('1',33)]),
+        'missing_url'=>array_diff_key($ad,['source_url'=>true]),'relative_url'=>array_replace($ad,['source_url'=>'/ad']),
+        'script_url'=>array_replace($ad,['source_url'=>'javascript:alert(1)']),
+        'credential_url'=>array_replace($ad,['source_url'=>'https://user:password@example.com/ad']),
+        'url_controls'=>array_replace($ad,['source_url'=>"https://example.com/ad\n"]),
+        'nested'=>array_replace($ad,['opaque_attribute'=>['nested'=>true]]),
+        'object'=>array_replace($ad,['opaque_attribute'=>(object)['nested'=>true]]),
+        'float'=>array_replace($ad,['opaque_attribute'=>1.5]),'negative_extension'=>array_replace($ad,['opaque_attribute'=>-1]),
+        'body_array'=>array_replace($ad,['body'=>['text'=>'not a string']]),'body_null'=>array_replace($ad,['body'=>null]),
+        'invalid_media'=>array_replace($ad,['media_type'=>'document']),
+        'invalid_media_url'=>array_replace($ad,['video_url'=>'file:///etc/passwd']),
+        'oversized_string'=>array_replace($ad,['body'=>str_repeat('a',4097)]),
+        'control_string'=>array_replace($ad,['body'=>"contains\0control"]),
+        'invalid_utf8'=>array_replace($ad,['body'=>"\xff"]),
+        'oversized_key'=>array_replace($ad,[str_repeat('a',65)=>true]),
+        'invalid_key'=>array_replace($ad,['UpperCaseKey'=>true]),
+    ];
+    $tooMany=$ad;for($i=0;$i<7;$i++)$tooMany['opaque_field_'.$i]=true;$invalidReferrals['too_many_keys']=$tooMany;
+    $tooLarge=$ad;foreach(['headline','body','ctwa_clid','opaque_a','opaque_b','opaque_c','opaque_d'] as $field)$tooLarge[$field]=str_repeat('a',4096);
+    $invalidReferrals['too_many_bytes']=$tooLarge;
+    foreach(['from','to','from_user_id','to_user_id','peer_identity','peer_phone','waba_id','phone_number_id','conversation_id','message_id',
+        'timestamp','context','errors','type','order','customer','customer_name','customer_phone','address','branch','items','quantity','price',
+        'amount','total','role','system','prompt','instruction','instructions','tool','tools'] as $reserved)
+        $invalidReferrals['reserved_'.$reserved]=array_replace($ad,[$reserved=>'never authoritative']);
+    foreach($invalidReferrals as $label=>$referral){$bad=$incoming;$bad['content']['message']['referral']=$referral;
+        hExpect(Proof::transition($thread,$f['row'],$before,$bad),false,'malformed or authoritative referral extension rejected: '.$label);}
+    hExpect(DB::table('whatsapp_inbox_messages')->where('id',$f['row']->id)->value('content'),$f['row']->content,'pure referral checks make no projection writes');
+
     foreach([[],[0],[1,1],range(1,21),['1']] as $invalid){try{(new Consumer())->recoverUnavailableMessages($invalid);throw new \RuntimeException('unexpected accepted IDs');}catch(\InvalidArgumentException $e){hExpect(true,true,'invalid explicit recovery list rejected');}}
     echo 'WHATSAPP_INBOX_HYDRATION_CHECKS='.$checks."\n";
 }

@@ -1,7 +1,11 @@
 <?php
 // Real provider/extraction/failure sanitization with private fake HTTP; no bootstrap, DB or network.
 define('WHATSAPP_ORDER_AI_READ_ONLY_PROBE_TEST_ONLY', true);
-require dirname(__DIR__) . '/deployment/whatsapp_order_ai_read_only_probe.php';
+$probeVariant = $argv[1] ?? 'legacy';
+if (!in_array($probeVariant, ['legacy', 'forward'], true)) throw new RuntimeException('Invalid probe fixture');
+$probeFile = dirname(__DIR__) . '/deployment/' . ($probeVariant === 'forward'
+    ? 'whatsapp_order_ai_forward_read_only_probe.php' : 'whatsapp_order_ai_read_only_probe.php');
+require $probeFile;
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
@@ -156,10 +160,14 @@ probeExpect(P::statusMetadata($wrongScope)['scope_matches'],false,'foreign accou
 $serialized=json_encode([$ready,$denied,$prechanged,$recheckFail,$rejected,$fakeSuccess,$failure,$status,$statusArray,$statusMany],JSON_THROW_ON_ERROR);
 foreach (['201000000001','31.04','31.38','عميل تجريبي','شارع التجربة','SECRET_','sk-probe-test-key-private-only','m1','m2','m3','<script>'] as $secret)
     probeExpect(str_contains($serialized,$secret),false,'result contains no private value '.$secret);
-$source=file_get_contents(dirname(__DIR__).'/deployment/whatsapp_order_ai_read_only_probe.php');
+$source=file_get_contents($probeFile);
 probeExpect(preg_match('/(?:->|::)(?:consume|process|projectPending|projectAcceptedReply|analyze|dispatch|insert|update|delete|save)\s*\(/',$source),0,'no write or processing paths');
 probeExpect(str_contains($source,'->lockForUpdate('),false,'probe does not acquire write locks');
 probeExpect(substr_count($source,'->extract('),1,'one production provider extraction call site');
 probeExpect(str_contains($source,'$snapshot->invoke($workflow, $cid, $floor, $ceiling, false)'),true,'explicit read-only snapshot invocation');
 probeExpect(str_contains($source,'->where(\'id\', 7215)'),true,'status observation fixed to requested event');
+if ($probeVariant === 'forward') foreach (P::SOURCE_PINS as [$path, $expected]) {
+    $bytes = file_get_contents(dirname(__DIR__) . '/' . $path);
+    probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, 'forward guard matches the reviewed runtime ' . $path);
+}
 echo 'WHATSAPP_ORDER_AI_READ_ONLY_PROBE_CHECKS='.$checks."\n";
