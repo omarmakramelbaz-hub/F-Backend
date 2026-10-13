@@ -447,11 +447,15 @@ class ProductionPinTests(unittest.TestCase):
         self.assertEqual({row['path']: row['after_blob'] for row in manifest['sources']}, NS['TARGET_PINS'])
         self.assertEqual({path: pins[1] for path, pins in APP.SOURCE_PINS.items()}, NS['TARGET_PINS'])
         # Cairo's original publisher remains a frozen release contract. The
-        # separately pinned evidence repair advances only this shared source.
+        # separately pinned repairs advance these shared sources; they never
+        # alter the original Cairo publisher's release contract.
         workflow = 'app/Services/Dashboard/WhatsAppOrderWorkflow.php'
         legacy_blob = '6c63b91d7fb70130ae472cea291fa2cee88b27dd'
         repaired_blob = 'b30f25cf6dfc4a84061a58316db583f892a439a4'
         semantic_blob = 'e87d94154e5f9871c959c23c8c9868f53b5dd5d0'
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        forward_protocol_blob = 'c64f8cf89437bb7822fc767202f7cf5112bfd7fd'
+        self.assertEqual(NS['TARGET_PINS'][protocol], 'ecde67c6a87ca8068bb077892fdbea522d89f217')
         repair_spec = importlib.util.spec_from_file_location('cairo_evidence_repair_pin_fixture',
             ROOT / 'deployment/apply_whatsapp_order_evidence_repair.py')
         repair = importlib.util.module_from_spec(repair_spec)
@@ -465,7 +469,8 @@ class ProductionPinTests(unittest.TestCase):
         self.assertEqual(semantic.SOURCE_PINS[workflow], (repaired_blob, semantic_blob))
         for relative, pin in NS['TARGET_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z')
-            self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), semantic_blob if relative == workflow else pin)
+            reviewed = {workflow: semantic_blob, protocol: forward_protocol_blob}.get(relative, pin)
+            self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), reviewed)
         for name, pin in NS['HELPER_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z'); self.assertEqual(NS['blob']((ROOT / 'deployment' / name).read_bytes()), pin)
 
@@ -475,6 +480,9 @@ class ProductionPinTests(unittest.TestCase):
         self.assertEqual(NS['TARGET_PINS'][workflow], '6c63b91d7fb70130ae472cea291fa2cee88b27dd')
         current = (ROOT / workflow).read_bytes()
         self.assertEqual(NS['blob'](current), 'e87d94154e5f9871c959c23c8c9868f53b5dd5d0')
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        baseline_protocol = (ROOT / 'tests/fixtures/whatsapp_forward_before' / protocol).read_bytes()
+        self.assertEqual(NS['blob'](baseline_protocol), NS['TARGET_PINS'][protocol])
         calls = []
         def runner(args):
             calls.append(tuple(args))
@@ -484,13 +492,33 @@ class ProductionPinTests(unittest.TestCase):
                 return 0, b'commit\n'
             self.assertEqual(args[7], 'show')
             relative = args[8].split(':', 1)[1]
-            return 0, (ROOT / relative).read_bytes()
+            return 0, baseline_protocol if relative == protocol else (ROOT / relative).read_bytes()
         with tempfile.TemporaryDirectory() as folder:
             payload = pathlib.Path(folder)
             with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_PINNED_RELEASE_FILE_FAILED: ' + workflow):
                 NS['stage_payload'](payload, 'a' * 40, runner)
             self.assertFalse((payload / workflow).exists())
         self.assertEqual(calls[-1][-1], 'a' * 40 + ':' + workflow)
+        self.assertFalse(any(NS['SYSTEMCTL'] in args or '--enable' in args or '--install' in args for args in calls))
+
+    @unittest.skipUnless(os.geteuid() == 0, 'Original Cairo staging requires a root-owned fixture')
+    def test_original_cairo_stager_refuses_forward_protocol_before_worker_actions(self):
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        self.assertEqual(NS['blob']((ROOT / protocol).read_bytes()), 'c64f8cf89437bb7822fc767202f7cf5112bfd7fd')
+        calls = []
+        def runner(args):
+            calls.append(tuple(args))
+            self.assertEqual(args[:7], [NS['RUNUSER'], '-u', 'fasakha', '--', 'git', '-C', str(NS['ROOT'])])
+            if args[7:9] == ['cat-file', '-t']:
+                return 0, b'commit\n'
+            self.assertEqual(args[7], 'show')
+            return 0, (ROOT / args[8].split(':', 1)[1]).read_bytes()
+        with tempfile.TemporaryDirectory() as folder:
+            payload = pathlib.Path(folder)
+            with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_PINNED_RELEASE_FILE_FAILED: ' + protocol):
+                NS['stage_payload'](payload, 'a' * 40, runner)
+            self.assertFalse((payload / protocol).exists())
+        self.assertEqual(calls[-1][-1], 'a' * 40 + ':' + protocol)
         self.assertFalse(any(NS['SYSTEMCTL'] in args or '--enable' in args or '--install' in args for args in calls))
 
     def test_native_gate_rejects_unbound_or_noninteger_evidence_reports(self):
