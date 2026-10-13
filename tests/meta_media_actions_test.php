@@ -148,7 +148,9 @@ namespace {
     $m4a = pack('N', 32) . 'ftypM4A ' . pack('N', 0) . 'M4A mp42isom' . pack('N', 0);
     $voiceM4a = new MetaMediaService(fn () => ['status' => 200, 'content_type' => 'audio/mp4', 'body' => $m4a]);
     check($voiceM4a->fetch($media->source($tid, $mid, 1, $one))['mime'] === 'audio/mp4', 'verified M4A MIME alias accepted');
-    $zip = base64_decode('UEsDBBQAAAAAAM+gTV0j3W60DwAAAA8AAAAMAAAAZG9jdW1lbnQudHh0bWV0YSBhdHRhY2htZW50UEsBAhQDFAAAAAAAz6BNXSPdbrQPAAAADwAAAAwAAAAAAAAAAAAAAIABAAAAAGRvY3VtZW50LnR4dFBLBQYAAAAAAQABADoAAAA5AAAAAAA=');
+    // A complete stored ZIP with a 541-byte member also exercises PHP 8.2's buffer
+    // MIME detector, which labels the previous tiny archive application/octet-stream.
+    $zip = base64_decode('UEsDBBQAAAAAAAAATV1L8F3UHQIAAB0CAAAMAAAAZG9jdW1lbnQudHh0VmVyaWZpZWQgYXR0YWNobWVudCBmaXh0dXJlLiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYVBLAQIUAxQAAAAAAAAATV1L8F3UHQIAAB0CAAAMAAAAAAAAAAAAAACAAQAAAABkb2N1bWVudC50eHRQSwUGAAAAAAEAAQA6AAAARwIAAAAA');
     $office = new MetaMediaService(fn () => ['status' => 200, 'content_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'body' => $zip]);
     $officeFile = $office->fetch($media->source($tid, $mid, 2, $one));
     check($officeFile['mime'] === 'application/zip' && $officeFile['inline'] === false, 'Office claimed subtype served as verified container download');
