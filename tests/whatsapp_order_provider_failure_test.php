@@ -41,9 +41,11 @@ namespace {
     require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
     require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
     require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
+    require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
     require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 
     use App\Services\Dashboard\WhatsAppOrderAiProvider as Provider;
+    use App\Services\Dashboard\WhatsAppOrderSourceSelection as SourceSelection;
     use App\Support\WhatsAppOrderExtraction as Extraction;
 
     $checks = 0;
@@ -149,7 +151,9 @@ namespace {
         providerExpect($request['stream'], false, 'partial response never applied');
         providerExpect(isset($request['tools']), false, 'no model tools');
         providerExpect($request['text']['format']['strict'], true, 'strict schema retained');
-        providerExpect($request['text']['format']['schema'], Extraction::schema(), 'schema unchanged');
+        $sourcePlan=SourceSelection::build($rows);
+        providerExpect($sourcePlan['ok'],true,'source selection plan valid for exact qualified transcript');
+        providerExpect($request['text']['format']['schema'], $sourcePlan['data']['schema'], 'strict source selection schema matches exact compiled transcript choices');
         providerExpect(strpos($request['instructions'], 'separate customer rows') !== false, true, 'prompt requires separated customer details to be cited');
         providerExpect(strpos($request['instructions'], 'every cited request_id must precede') !== false, true, 'prompt matches strict request chronology');
         providerExpect(json_decode($request['input'][0]['content'], true)['transcript'], $rows, 'transcript intact');

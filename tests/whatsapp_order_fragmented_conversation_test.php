@@ -3,6 +3,7 @@
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
+require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);

@@ -25,7 +25,9 @@ final class WhatsAppOrderExtraction
         'ITEM_SUMMARY_NAME', 'ITEM_REQUEST_OPTION', 'ITEM_SUMMARY_OPTION', 'ITEM_REQUEST_QUANTITY',
         'ITEM_SUMMARY_QUANTITY', 'SUMMARY_PHONE_CONFLICT', 'CART_LINE_UNACCOUNTED', 'MULTIPLE_CARTS',
         'LATER_PENDING_HANDOFF', 'LATER_CART', 'LATER_NEGATIVE_SUMMARY', 'LATER_CUSTOMER_CHANGE',
-        'CUSTOMER_COMMITMENT_MISSING', 'CONTEXT_REFERENCE_INVALID',
+        'CUSTOMER_COMMITMENT_MISSING', 'CONTEXT_REFERENCE_INVALID', 'SOURCE_REFERENCE_INVALID',
+        'CONVERSATION_REFERENCE_INVALID', 'CONVERSATION_ITEM_UNGROUNDED', 'CONVERSATION_AMBIGUOUS_ITEM',
+        'CONVERSATION_DATA_UNACKNOWLEDGED', 'CONVERSATION_EPISODE_UNCONFIRMED',
     ];
     public const VALIDATION_FIELDS = ['TRANSCRIPT', 'ROOT', 'ISSUES', 'ITEM', 'REQUEST_IDS', 'CONFIRMATION_IDS',
         'CUSTOMER_ACCEPTANCE_IDS', 'CART_REFERENCE', 'LOCATION_ID', 'CUSTOMER_NAME', 'CUSTOMER_PHONE',
@@ -355,8 +357,13 @@ final class WhatsAppOrderExtraction
         foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null) $contextual=true;
         if ($contextual) {
             $proof=WhatsAppOrderConversationEvidence::prove($data,array_values($rows));
-            if (($proof['ok']??null)!==true)
-                return self::notConfirmed($category,$field,'CONTEXT_REFERENCE_INVALID','ITEM');
+            if (($proof['ok']??null)!==true) {
+                $why = in_array($proof['reason'] ?? null, ['CONVERSATION_REFERENCE_INVALID',
+                    'CONVERSATION_ITEM_UNGROUNDED', 'CONVERSATION_AMBIGUOUS_ITEM',
+                    'CONVERSATION_DATA_UNACKNOWLEDGED', 'CONVERSATION_EPISODE_UNCONFIRMED'], true)
+                    ? $proof['reason'] : 'CONTEXT_REFERENCE_INVALID';
+                return self::notConfirmed($category,$field,$why,'ITEM');
+            }
             foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null)
                 $contextQuantityIds[]=$item['conversation_reference']['customer_quantity_id'];
         }

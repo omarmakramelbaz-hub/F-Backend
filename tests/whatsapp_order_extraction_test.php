@@ -3,6 +3,7 @@
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
+require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 
 use App\Support\WhatsAppOrderExtraction as Extraction;

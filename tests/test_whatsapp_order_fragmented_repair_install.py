@@ -615,9 +615,10 @@ class RepairRootRecoveryTests(unittest.TestCase):
             self.assertEqual(json.loads((receipt.path/'phase-01.json').read_text()),{'phase':'RESTORED'})
             with self.assertRaisesRegex(wrapper.SafeError,'PHASE_INVALID'):receipt.mark('PRIVATE_ERROR_BODY')
 
-    def test_published_candidates_and_root_publisher_binding_match_exact_real_bytes(self):
+    def test_frozen_published_candidates_and_root_publisher_binding_match_exact_real_bytes(self):
+        fixture_root=ROOT/'tests/fixtures/whatsapp_order_pre_source_selection'
         for relative,(_,target) in repair.SOURCE_PINS.items():
-            with self.subTest(path=relative):self.assertEqual(repair.blob((ROOT/relative).read_bytes()),target)
+            with self.subTest(path=relative):self.assertEqual(repair.blob((fixture_root/relative).read_bytes()),target)
         publisher=ROOT/'deployment/apply_whatsapp_order_fragmented_repair.py'
         self.assertEqual(wrapper.PUBLISHER_BLOB,repair.blob(publisher.read_bytes()))
         self.assertEqual(set(wrapper.HELPERS),{'apply_whatsapp_order_fragmented_repair.py','install_whatsapp_inbox.py'})
