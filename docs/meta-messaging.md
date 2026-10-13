@@ -60,7 +60,11 @@ When the capture lacks `message.mid` or profile lookup returns `100/33`, run `de
 
 Missing native message IDs must remain quarantined until their origin is understood. Do not generate message IDs, substitute unrelated fields, or replay incomplete evidence into replies or automatic orders. `100/33` alone does not establish which permission, token or peer identity caused the profile rejection.
 
+For an object containing only an unrecognized field, `meta_event_identity_diagnostic.php --message-flags` returns a compact local-only report, without Graph calls. A fixed list of extra field candidates is classified by type, safe boolean values and fixed nested field types. These candidates are diagnostic checks, not supported message formats or permission diagnoses. Other fields expose only key length/type, capped at eight per message with an omitted count; arbitrary key names, text, identifiers and nested values remain hidden.
+
 The separate `deployment/whatsapp_order_file_metadata.py --root /home/fasakha/public_html` diagnostic identifies owner/type blockers for the frozen WhatsApp order-evidence repair `425ccb37`. Run it as `fasakha`. It only reads filesystem metadata for that repair's fixed candidate paths and bounded direct config entries, rejects symlink traversal, and prints no file contents. It does not apply either WhatsApp or Meta updates. Diagnose the reported path before changing any ownership.
+
+After the live diagnostic confirms `config/go_services.php`, `config/jwt.php`, `config/mail.php` and `config/partner_auth.php` are regular `0644` files owned by root, the root-only `repair_whatsapp_order_config_owners_root.py --root /home/fasakha/public_html` repairs only their owner/group to the application account. It validates every target before changes, holds the existing installer locks, preserves bytes/mode, creates a private metadata/hash journal and guards rollback against concurrent changes. Already-correct files are unchanged. Then retry the original frozen WhatsApp order-evidence repair; no Meta parser or subscription change is implied by the owner repair.
 
 Profile implementation references: [Messenger user profile](https://developers.facebook.com/docs/messenger-platform/identity/user-profile/), [Instagram user profile](https://developers.facebook.com/docs/messenger-platform/instagram/features/user-profile).
 

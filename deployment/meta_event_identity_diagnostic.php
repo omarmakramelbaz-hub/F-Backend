@@ -16,6 +16,11 @@ final class MetaEventIdentityDiagnostic
         'optin', 'account_linking', 'pass_thread_control', 'take_thread_control', 'request_thread_control'];
     private const CHANGE_FIELDS = ['comments', 'live_comments', 'mentions', 'messages',
         'message_reactions', 'messaging_seen', 'messaging_postbacks', 'messaging_optins', 'standby'];
+    // Diagnostic candidates only. Their presence does not establish a supported message format.
+    private const EXTRA_MESSAGE_FIELDS = ['seq', 'sticker_id', 'nlp', 'is_redacted', 'redacted',
+        'is_unavailable', 'unavailable', 'is_e2ee', 'is_encrypted', 'encrypted', 'is_limited',
+        'is_removed', 'is_restricted', 'unsupported', 'is_unsupported_message', 'type',
+        'message', 'payload', 'data', 'content', 'value', 'error', 'errors'];
     private $accounts;
     private $transport;
     private $started;
@@ -94,6 +99,26 @@ final class MetaEventIdentityDiagnostic
                         $shape['unknown_message_key_count'] = count(array_diff(array_keys($m),
                             ['mid', 'id', 'message_id', 'text', 'attachments', 'is_echo', 'is_deleted',
                                 'is_unsupported', 'metadata', 'quick_reply', 'reply_to', 'referral', 'app_id']));
+                        $shape['extra_field_candidates'] = [];
+                        $shape['unrecognized_field_shapes'] = [];
+                        $shape['unrecognized_fields_omitted'] = 0;
+                        foreach ($m as $field => $value) {
+                            if (in_array($field, ['mid', 'id', 'message_id', 'text', 'attachments', 'is_echo', 'is_deleted',
+                                'is_unsupported', 'metadata', 'quick_reply', 'reply_to', 'referral', 'app_id'], true)) continue;
+                            $detail = ['type' => get_debug_type($value)];
+                            if (is_bool($value)) $detail['boolean'] = $value;
+                            if (is_array($value)) {
+                                $detail['array_count'] = count($value);
+                                foreach (['mid', 'id', 'message_id', 'text', 'attachments', 'message', 'payload', 'error', 'code'] as $nested)
+                                    if (array_key_exists($nested, $value)) $detail['nested_field_types'][$nested] = get_debug_type($value[$nested]);
+                            }
+                            if (is_string($field) && in_array($field, self::EXTRA_MESSAGE_FIELDS, true))
+                                $shape['extra_field_candidates'][$field] = $detail;
+                            elseif (count($shape['unrecognized_field_shapes']) < 8)
+                                $shape['unrecognized_field_shapes'][] = ['key_bytes' => is_string($field) ? strlen($field) : null,
+                                    'type' => get_debug_type($value)];
+                            else $shape['unrecognized_fields_omitted']++;
+                        }
                         // Fixed comparison to a common test string; never return any customer text.
                         $shape['text_matches_hello_world'] = ($m['text'] ?? null) === 'Hello world';
                         $shape['text_utf8_valid'] = is_string($m['text'] ?? null) && function_exists('mb_check_encoding')
@@ -286,15 +311,39 @@ final class MetaEventIdentityDiagnostic
         return $out;
     }
 
+    public static function messageFlags(array $local): array
+    {
+        $out = ['diagnostic' => 'READ_ONLY_META_MESSAGE_FLAGS', 'writes' => 0];
+        foreach (['through_event', 'events_in_range', 'events_read', 'unreadable_events', 'sample_complete',
+            'kinds', 'changes', 'shapes_omitted'] as $key) $out[$key] = $local[$key];
+        $out['message_shapes'] = [];
+        foreach ($local['message_shapes'] as $s) $out['message_shapes'][] = [
+            'event_id' => $s['event_id'], 'quarantined' => $s['quarantined'], 'account' => $s['account'],
+            'direction' => $s['direction'], 'message_array' => $s['message_array'], 'mid' => $s['mid'] ?? null,
+            'text_type' => $s['field_types']['text'] ?? null, 'attachment_count' => $s['attachment_count'] ?? null,
+            'extra_field_candidates' => $s['extra_field_candidates'] ?? [],
+            'unrecognized_field_shapes' => $s['unrecognized_field_shapes'] ?? [],
+            'unrecognized_fields_omitted' => $s['unrecognized_fields_omitted'] ?? 0];
+        return $out;
+    }
+
+    public static function arguments(array $args): bool
+    {
+        if ($args === []) return false;
+        if ($args === ['--message-flags']) return true;
+        throw new \InvalidArgumentException();
+    }
+
     public static function run(): array
     {
-        if (count($_SERVER['argv'] ?? []) !== 1) throw new \InvalidArgumentException();
+        $flagsOnly = self::arguments(array_slice($_SERVER['argv'] ?? [], 1));
         $root = getcwd();
         if (!is_string($root) || !is_file($root.'/vendor/autoload.php') || !is_file($root.'/bootstrap/app.php')) throw new \RuntimeException();
         require $root.'/vendor/autoload.php'; $app = require $root.'/bootstrap/app.php';
         $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
         $d = new self(\App\Services\Dashboard\MetaInboxAccess::accounts());
         $local = $d->local();
+        if ($flagsOnly) return self::messageFlags($local);
         $secret = config('meta_messaging.app_secret', ''); $version = config('meta_messaging.api_version', 'v25.0');
         $graph = $d->graph(is_string($secret) ? $secret : '', is_string($version) ? $version : '');
         return ['diagnostic' => 'READ_ONLY_META_EVENT_IDENTITY', 'writes' => 0, 'local' => $local, 'graph' => $graph];

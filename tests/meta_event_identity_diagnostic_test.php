@@ -40,6 +40,11 @@ try {
         ['channel' => 'instagram', 'account_id' => '303', 'access_token' => 'PRIVATE_TOKEN_FACEBOOK', 'login' => 'facebook'],
     ];
     $diagnostic = new MetaEventIdentityDiagnostic($accounts);
+    metaIdentityCheck(MetaEventIdentityDiagnostic::arguments([]) === false, 'default_identity_mode');
+    metaIdentityCheck(MetaEventIdentityDiagnostic::arguments(['--message-flags']) === true, 'explicit_local_flags_mode');
+    foreach ([['--message-flags', '--message-flags'], ['--message-flags=1'], ['--message-flags', '--token=PRIVATE_TOKEN'],
+        ['--token=PRIVATE_TOKEN'], ['--message-flags;PRIVATE_ERROR'], ['--message-flags '], [1], ['--'], ['--help']] as $args)
+        metaIdentityReject(static fn () => MetaEventIdentityDiagnostic::arguments($args), 'unknown_duplicate_or_nonliteral_cli_argument_rejected');
     $payload = metaIdentityPayload();
     $incoming = $diagnostic->inspect($payload);
     $shape = $incoming['message_shapes'][0];
@@ -62,6 +67,71 @@ try {
     metaIdentityCheck($shape['unknown_message_key_count'] === 1 && $shape['field_types']['metadata'] === 'array'
         && $shape['field_types']['attachments'] === 'array', 'unknown_keys_counted_not_returned');
     metaIdentitySafe($alternateReport);
+    $candidates = $payload;
+    $candidates['entry'][0]['messaging'][0]['id'] = 'PRIVATE_MID';
+    $candidates['entry'][0]['messaging'][0]['message_id'] = 'PRIVATE_CUSTOMER';
+    $candidates['entry'][0]['messaging'][0]['message'] = [
+        'is_redacted' => true, 'redacted' => false, 'is_limited' => null,
+        'seq' => 998877665544, 'sticker_id' => 'PRIVATE_MID', 'type' => 'PRIVATE_TYPE',
+        'nlp' => ['PRIVATE_CUSTOMER' => ['PRIVATE_TEXT' => 'PRIVATE_NAME']],
+        'payload' => ['mid' => 'PRIVATE_MID', 'id' => '998877665544', 'message_id' => '887766554433',
+            'text' => 'PRIVATE_TEXT', 'attachments' => [['payload' => ['url' => 'PRIVATE_URL']]],
+            'message' => ['text' => 'PRIVATE_NAME', 'payload' => ['PRIVATE_KEY' => 'PRIVATE_TOKEN']],
+            'error' => ['message' => 'PRIVATE_ERROR'], 'code' => 998877665544,
+            'PRIVATE_KEY_PRIVATE_CUSTOMER' => 'PRIVATE_ADDRESS'],
+        'error' => ['code' => 887766554433, 'message' => 'PRIVATE_ERROR PRIVATE_TOKEN'],
+        'errors' => [['code' => 998877665544, 'message' => 'PRIVATE_ERROR']],
+        'PRIVATE_KEY_PRIVATE_NAME' => true,
+        'PRIVATE_KEY_PRIVATE_ADDRESS' => ['mid' => 'PRIVATE_MID', 'text' => 'PRIVATE_TEXT'],
+    ];
+    $candidateReport = $diagnostic->inspect($candidates);
+    $candidateShape = $candidateReport['message_shapes'][0];
+    metaIdentityCheck($candidateShape['mid']['present'] === false && $candidateShape['id']['present'] === false
+        && $candidateShape['message_id']['present'] === false, 'extra_candidates_never_promote_native_identity');
+    metaIdentityCheck($candidateShape['event_identifier_fields']['id'] === ['present' => true, 'type' => 'string', 'bytes' => 11]
+        && $candidateShape['event_identifier_fields']['message_id']['type'] === 'string', 'event_identifiers_shape_only');
+    metaIdentityCheck($candidateShape['extra_field_candidates']['is_redacted'] === ['type' => 'bool', 'boolean' => true]
+        && $candidateShape['extra_field_candidates']['redacted'] === ['type' => 'bool', 'boolean' => false]
+        && $candidateShape['extra_field_candidates']['is_limited'] === ['type' => 'null'], 'fixed_candidate_boolean_types_preserved');
+    metaIdentityCheck($candidateShape['extra_field_candidates']['seq'] === ['type' => 'int']
+        && $candidateShape['extra_field_candidates']['sticker_id'] === ['type' => 'string']
+        && $candidateShape['extra_field_candidates']['type'] === ['type' => 'string'], 'candidate_scalar_identifiers_never_returned');
+    $nestedTypes = $candidateShape['extra_field_candidates']['payload']['nested_field_types'];
+    metaIdentityCheck($candidateShape['extra_field_candidates']['payload']['array_count'] === 9
+        && $nestedTypes === ['mid' => 'string', 'id' => 'string', 'message_id' => 'string', 'text' => 'string',
+            'attachments' => 'array', 'message' => 'array', 'error' => 'array', 'code' => 'int'], 'nested_fixed_field_types_without_content');
+    metaIdentityCheck($candidateShape['unrecognized_field_shapes'] === [
+        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_NAME'), 'type' => 'bool'],
+        ['key_bytes' => strlen('PRIVATE_KEY_PRIVATE_ADDRESS'), 'type' => 'array'],
+    ], 'arbitrary_field_names_values_nested_details_redacted');
+    metaIdentityCheck($candidateShape['unknown_message_key_count'] === 12, 'all_extra_keys_counted_without_schema_assumption');
+    metaIdentitySafe($candidateReport);
+    $unknownFields = $payload;
+    $unknownFields['entry'][0]['messaging'][0]['message'] = [];
+    for ($i = 0; $i < 30; $i++) $unknownFields['entry'][0]['messaging'][0]['message']['PRIVATE_KEY_'.$i] = 'PRIVATE_TEXT';
+    $unknownFieldsReport = $diagnostic->inspect($unknownFields);
+    $unknownFieldsShape = $unknownFieldsReport['message_shapes'][0];
+    metaIdentityCheck($unknownFieldsShape['unknown_message_key_count'] === 30
+        && count($unknownFieldsShape['unrecognized_field_shapes']) === 8
+        && $unknownFieldsShape['unrecognized_fields_omitted'] === 22, 'unknown_field_output_cap_explicit');
+    metaIdentitySafe($unknownFieldsReport);
+    $summarySource = ['through_event' => 7, 'events_in_range' => 7, 'events_read' => 6, 'unreadable_events' => 1,
+        'sample_complete' => false, 'kinds' => $candidateReport['kinds'], 'changes' => ['instagram:202:comments' => 12],
+        'shapes_omitted' => 2, 'message_shapes' => [$candidateShape + ['event_id' => 5, 'quarantined' => true],
+            $unknownFieldsShape + ['event_id' => 7, 'quarantined' => false]],
+        'graph' => ['PRIVATE_TOKEN' => 'PRIVATE_ERROR'], 'PRIVATE_KEY' => 'PRIVATE_CUSTOMER'];
+    $summary = MetaEventIdentityDiagnostic::messageFlags($summarySource);
+    metaIdentityCheck($summary['diagnostic'] === 'READ_ONLY_META_MESSAGE_FLAGS' && $summary['writes'] === 0
+        && !array_key_exists('graph', $summary) && !array_key_exists('PRIVATE_KEY', $summary), 'flags_summary_selects_local_report_only');
+    metaIdentityCheck($summary['through_event'] === 7 && $summary['events_in_range'] === 7 && $summary['events_read'] === 6
+        && $summary['unreadable_events'] === 1 && $summary['sample_complete'] === false
+        && $summary['changes'] === ['instagram:202:comments' => 12] && $summary['shapes_omitted'] === 2, 'flags_summary_preserves_capture_bounds_and_counters');
+    metaIdentityCheck($summary['message_shapes'][0]['event_id'] === 5 && $summary['message_shapes'][0]['quarantined'] === true
+        && $summary['message_shapes'][0]['mid']['present'] === false
+        && $summary['message_shapes'][0]['extra_field_candidates'] === $candidateShape['extra_field_candidates']
+        && $summary['message_shapes'][1]['unrecognized_field_shapes'] === $unknownFieldsShape['unrecognized_field_shapes']
+        && $summary['message_shapes'][1]['unrecognized_fields_omitted'] === 22, 'flags_summary_preserves_candidate_and_unknown_shapes');
+    metaIdentitySafe($summary);
     $nullMid = $payload; $nullMid['entry'][0]['messaging'][0]['message']['mid'] = null;
     metaIdentityCheck($diagnostic->inspect($nullMid)['message_shapes'][0]['mid']['present'] === true, 'missing_distinct_from_present_null');
     $hello = $payload; $hello['entry'][0]['messaging'][0]['message']['text'] = 'Hello world';
@@ -246,6 +316,59 @@ try {
             && $local['projected_peer_samples']['instagram:202']['conversations'] === 0
             && $local['projected_peer_samples']['instagram:202']['complete'] === true, 'projected_peer_sample_counts_scoped');
         metaIdentitySafe($local);
+        $flagsOnly = MetaEventIdentityDiagnostic::messageFlags($local);
+        metaIdentityCheck($flagsOnly['events_read'] === 4 && $flagsOnly['unreadable_events'] === 1
+            && $flagsOnly['message_shapes'][2]['event_id'] === 1 && $flagsOnly['message_shapes'][2]['quarantined'] === true
+            && $flagsOnly['message_shapes'][0]['unrecognized_field_shapes'][0]['type'] === 'string', 'flags_summary_from_encrypted_local_fixture');
+        metaIdentityCheck($before === $snapshot(), 'summary_does_not_write_local_fixture');
+        metaIdentitySafe($flagsOnly);
+        // Execute the actual local-only CLI branch with a fake application bootstrap and a config tripwire.
+        $fixtureRoot = sys_get_temp_dir().'/meta-identity-flags-'.bin2hex(random_bytes(6));
+        $previousCwd = getcwd(); $previousArgv = $_SERVER['argv'];
+        $GLOBALS['metaIdentityRunAccounts'] = $accounts;
+        $GLOBALS['metaIdentityRunConfigReads'] = 0; $GLOBALS['metaIdentityRunBootstraps'] = 0;
+        $before = $snapshot();
+        try {
+            mkdir($fixtureRoot, 0700); mkdir($fixtureRoot.'/vendor', 0700); mkdir($fixtureRoot.'/bootstrap', 0700);
+            file_put_contents($fixtureRoot.'/vendor/autoload.php', <<<'PHP'
+<?php
+if (!function_exists('config')) {
+    function config($name, $default = null) {
+        $GLOBALS['metaIdentityRunConfigReads']++;
+        throw new \RuntimeException('IDENTITY_FLAGS_GRAPH_CONFIG_ACCESSED');
+    }
+}
+PHP
+            );
+            file_put_contents($fixtureRoot.'/bootstrap/app.php', <<<'PHP'
+<?php
+namespace App\Services\Dashboard;
+class MetaInboxAccess {
+    public static function accounts(): array { return $GLOBALS['metaIdentityRunAccounts']; }
+}
+return new class {
+    public function make($name) {
+        return new class {
+            public function bootstrap(): void { $GLOBALS['metaIdentityRunBootstraps']++; }
+        };
+    }
+};
+PHP
+            );
+            chdir($fixtureRoot); $_SERVER['argv'] = ['identity.php', '--message-flags'];
+            $runFlags = MetaEventIdentityDiagnostic::run();
+            metaIdentityCheck($runFlags === $flagsOnly && $GLOBALS['metaIdentityRunBootstraps'] === 1,
+                'actual_cli_flags_branch_returns_compact_local_report');
+            metaIdentityCheck($GLOBALS['metaIdentityRunConfigReads'] === 0 && !array_key_exists('graph', $runFlags),
+                'actual_cli_flags_branch_never_reads_graph_credentials');
+            metaIdentityCheck($before === $snapshot(), 'actual_cli_flags_branch_no_database_writes');
+            metaIdentitySafe($runFlags);
+        } finally {
+            chdir($previousCwd); $_SERVER['argv'] = $previousArgv;
+            foreach (['vendor/autoload.php', 'bootstrap/app.php'] as $file) if (is_file($fixtureRoot.'/'.$file)) unlink($fixtureRoot.'/'.$file);
+            foreach (['vendor', 'bootstrap', ''] as $dir) if (is_dir($fixtureRoot.'/'. $dir)) rmdir($fixtureRoot.'/'. $dir);
+            unset($GLOBALS['metaIdentityRunAccounts'], $GLOBALS['metaIdentityRunConfigReads'], $GLOBALS['metaIdentityRunBootstraps']);
+        }
         for ($i = 0; $i < 52; $i++) $facade::table('meta_webhook_events')->insert(['payload' => $crypt::encryptString(json_encode($payload))]);
         $before = $snapshot(); $boundedLocal = $diagnostic->local();
         metaIdentityCheck($boundedLocal['events_in_range'] === 56 && $boundedLocal['events_read'] === 50

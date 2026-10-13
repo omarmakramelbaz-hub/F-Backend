@@ -142,6 +142,8 @@ jobs:
           python3 tests/meta_chat_update_test.py
       - name: Verify read-only order file metadata diagnostic
         run: python3 -B tests/test_whatsapp_order_file_metadata.py
+      - name: Verify exact order config owner repair
+        run: python3 -B tests/test_whatsapp_order_config_owner_repair.py
       - name: Stage helpers under the test runner's ownership
         run: |
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
