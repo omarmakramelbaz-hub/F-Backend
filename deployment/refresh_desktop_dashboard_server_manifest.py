@@ -111,6 +111,7 @@ def generate(root,before,diagnosis):
               'sources':sorted(rows,key=publication_order),'protected':protected,'migrations':list(MIGRATIONS)}
     fixture={'version':1,'expected_head':diagnosis['actual_head'],'source':digest(before),'files':before,'gui':gui,
              'measured_source_differences':{row['path']:row['actual']for row in diagnosis['source_differences']}}
+    if 'provenance'in diagnosis:fixture['provenance']=diagnosis['provenance']
     return manifest,fixture
 def main():
     parser=argparse.ArgumentParser(description=__doc__)

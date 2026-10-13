@@ -1,4 +1,4 @@
-name: Integrated WhatsApp regressions
+name: Integrated messaging regressions
 
 on:
   push:
@@ -14,6 +14,18 @@ on:
       - 'resources/views/admin/whatsapp/**'
       - 'tests/whatsapp*.php'
       - 'tests/whatsapp*.js'
+      - 'app/Services/Dashboard/Meta*'
+      - 'app/Http/Controllers/Dashboard/Meta*'
+      - 'app/Console/Commands/*Meta*'
+      - 'database/migrations/*meta*'
+      - 'config/meta*'
+      - 'routes/meta*'
+      - 'public/js/dashboard-meta*.js'
+      - 'public/css/dashboard-meta*.css'
+      - 'resources/views/admin/meta/**'
+      - 'tests/meta*.php'
+      - 'tests/meta*.js'
+      - 'deployment/meta_messaging_route_check.php'
       - '.github/workflows/whatsapp-integrated-regressions.yml'
   workflow_dispatch:
 
@@ -35,6 +47,7 @@ jobs:
           node tests/whatsapp_inbox_spa_mount_test.js
           node tests/whatsapp_replies_ui_test.js
           node tests/whatsapp_accepted_reply_feed_test.js
+          node tests/meta_chat_ui_test.js
 
   runtime:
     runs-on: ubuntu-latest
@@ -60,3 +73,12 @@ jobs:
           php tests/whatsapp_inbox_reads_test.php
           php tests/whatsapp_reply_service_test.php
           php tests/whatsapp_dashboard_actions_test.php
+          php tests/whatsapp_accepted_reply_evidence_test.php
+          php tests/whatsapp_order_provider_failure_test.php
+          php tests/whatsapp_inbox_consumer_test.php
+          php tests/whatsapp_order_workflow_test.php
+          php tests/meta_messaging_test.php
+          php tests/meta_messaging_routes_test.php
+          php tests/meta_profile_service_test.php
+          php tests/meta_media_actions_test.php
+          php tests/meta_reply_media_test.php

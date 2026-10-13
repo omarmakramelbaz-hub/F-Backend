@@ -44,6 +44,7 @@ require __DIR__ . '/../app/Support/WhatsAppInboxProtocol.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxConsumer.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppVoiceMedia.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMessage.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMedia.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppReplyService.php';
@@ -367,4 +368,3 @@ try {
 } finally { unlink($voicePath); }
 
 echo "WHATSAPP_REPLY_SERVICE_TESTS=$count PASS\n";
-

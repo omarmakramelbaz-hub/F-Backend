@@ -3,13 +3,14 @@ namespace App\Console\Commands;
 
 use App\Services\Dashboard\MetaInboxConsumer;
 use App\Services\Dashboard\MetaOrderWorkflow;
+use App\Services\Dashboard\MetaProfileService;
 use Illuminate\Console\Command;
 
 class ProcessMetaMessages extends Command
 {
     protected $signature='meta:process-messages {--limit=10}';
     protected $description='Project Meta messages and process newly confirmed orders using configured channel boundaries.';
-    public function handle(MetaInboxConsumer $inbox,MetaOrderWorkflow $orders)
+    public function handle(MetaInboxConsumer $inbox,MetaOrderWorkflow $orders,MetaProfileService $profiles)
     {
         $limit=(string)$this->option('limit');
         if (!ctype_digit($limit)||(int)$limit<1||(int)$limit>20) { $this->line('{"error":"INVALID_LIMIT"}'); return 1; }
@@ -21,7 +22,10 @@ class ProcessMetaMessages extends Command
             try {
                 $capture=$inbox->consume(500);
                 $result=$capture['errors']>0?['capture_failed'=>1]:$orders->process((int)$limit);
-                $this->line(json_encode(['capture'=>$capture,'orders'=>$result],JSON_THROW_ON_ERROR));
+                // Profiles are optional and follow order processing; Graph failures cannot stop either flow.
+                try { $profileResult=$profiles->refresh(10); }
+                catch (\Throwable $error) { $profileResult=['errors'=>1]; }
+                $this->line(json_encode(['capture'=>$capture,'orders'=>$result,'profiles'=>$profileResult],JSON_THROW_ON_ERROR));
                 return $capture['errors']>0||($result['errors']??0)>0?1:0;
             } finally { flock($lock,LOCK_UN); fclose($lock); }
         } catch (\Throwable $error) { $this->line('{"error":"META_PROCESS_FAILED"}'); return 1; }

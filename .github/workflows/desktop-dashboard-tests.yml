@@ -101,6 +101,10 @@ jobs:
                 if ($waLine.Count -ne 1) { throw 'The original unprepared WhatsApp boundary fixture did not complete.' }
                 $waReceipt = $waLine[0].Substring('WHATSAPP_NATIVE_UNPREPARED_COMPLETE '.Length) | ConvertFrom-Json
                 if ($waReceipt.checks -ne 13 -or !$waReceipt.local404 -or !$waReceipt.authorizationRetained -or !$waReceipt.attachmentGet -or $waReceipt.queries -ne 0 -or $waReceipt.providerCalls -ne 0 -or !$waReceipt.outboxUnchanged -or !$waReceipt.storageUnchanged -or $waReceipt.fullDashboard -ne $false) { throw 'The original unprepared WhatsApp boundary receipt differs.' }
+                $metaLine = @(($fixtureOutput -join "`n") -split "`n" | Where-Object { $_ -match '^META_NATIVE_UNPREPARED_COMPLETE ' })
+                if ($metaLine.Count -ne 1) { throw 'The original unprepared Meta boundary fixture did not complete.' }
+                $metaReceipt = $metaLine[0].Substring('META_NATIVE_UNPREPARED_COMPLETE '.Length) | ConvertFrom-Json
+                if ($metaReceipt.checks -ne 45 -or $metaReceipt.routes -ne 15 -or $metaReceipt.httpKernelRoutes -ne 5 -or !$metaReceipt.local404 -or !$metaReceipt.authorizationRetained -or !$metaReceipt.serverOnlyTablesExcluded -or $metaReceipt.queries -ne 0 -or $metaReceipt.providerCalls -ne 0 -or $metaReceipt.callbacks -ne 0 -or !$metaReceipt.outboxUnchanged -or !$metaReceipt.privateStorageUnchanged -or !$metaReceipt.profileWorkerUnavailable -or $metaReceipt.fullDashboard -ne $false) { throw 'The original unprepared Meta boundary receipt differs.' }
               }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }

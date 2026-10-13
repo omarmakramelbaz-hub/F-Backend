@@ -9,7 +9,7 @@ ALTERNATIVE_MANIFEST='deployment/desktop_dashboard_server_manifest_attachments.j
 APP='deployment/apply_desktop_dashboard_server.py'
 # Filled from the final reviewed payload by pin_desktop_dashboard_installer.py.
 HELPER_PINS = {
-    'deployment/desktop_dashboard_server_manifest.json': '08e935e2173efd79c8ee3d555d6c2c7cb0f09b5c',
+    'deployment/desktop_dashboard_server_manifest.json': '35827afdfa613ebd944847062c2cd5c9b3c96c56',
     'deployment/apply_desktop_dashboard_server.py': 'a3e3af323b7d844a317e110ff680478f7fb471c0',
     'deployment/desktop_dashboard_release.php': '1843b8aa98320609af84410016bc8be5cf35d417',
     'deployment/install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',

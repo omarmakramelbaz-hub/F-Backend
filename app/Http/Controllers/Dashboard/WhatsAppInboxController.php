@@ -186,6 +186,20 @@ class WhatsAppInboxController extends Controller
                         $context = $native['raw']['context']['id'] ?? null;
                         if (is_string($context)) $item['reply_to'] = $quoted[hash('sha256', 'whatsapp-message-v1:'
                             . WhatsAppInboxAccess::WABA_ID . ':' . WhatsAppInboxAccess::PHONE_ID . ':' . $context)] ?? null;
+                        // Receipt evidence carries a signed quote pointer, not a native webhook context.
+                        // Resolve it under this operator's current access and hidden-message rules.
+                        $quote = $row->source === 'dashboard_api' ? ($native['quote_source'] ?? null) : null;
+                        if (is_array($quote)) {
+                            try {
+                                $actor = auth('admin')->user();
+                                $target = $quote['message_id'] !== null
+                                    ? $messageService->resolve($actor, $conversation, $quote['message_id'])
+                                    : $messageService->resolveReply($actor, $conversation, $quote['reply_id']);
+                                $item['reply_to'] = $messageService->summary($target);
+                            } catch (\Throwable $error) {
+                                $item['reply_to'] = null;
+                            }
+                        }
                     } catch (\Throwable $error) { /* Invalid native binding cannot enable network actions. */ }
                 }
                 $items[] = $item;

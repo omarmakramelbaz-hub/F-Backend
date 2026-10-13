@@ -3,14 +3,14 @@
   "expected_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
   "before_source": {
     "format": 1,
-    "files": 1020,
-    "sha256": "dc731529de802c50bdb266fd52c6361d8e460587143a894b077539da811cc47e",
+    "files": 1027,
+    "sha256": "13ee9a3f712646d9d1b2e1c850142929e1c137d68fc7d451fc7ea83cfd63eca2",
     "framework": "8.83.29"
   },
   "after_source": {
     "format": 1,
-    "files": 1148,
-    "sha256": "88243fa9f0000da74baf70993a63d0a672e862736a83f0d1bbfe37ff686a77b1",
+    "files": 1155,
+    "sha256": "cf22993ff8846a41e374a62e166513c723f8d86c50f316a68e40dc388f25c5a3",
     "framework": "8.83.29"
   },
   "sources": [
@@ -65,7 +65,7 @@
     {
       "path": "app/Http/Middleware/DesktopDashboardJournal.php",
       "before_blob": null,
-      "after_blob": "97d2034b32bdc60cfb8f48c189eb4553923026df",
+      "after_blob": "a0c9c2abb8f0b62a59adab1ef7d487661ecbec91",
       "phase": 1
     },
     {
@@ -820,8 +820,8 @@
     },
     {
       "path": "app/Services/Dashboard/WhatsAppInboxMessage.php",
-      "before_blob": "087cdbdf51dd87c411da3ed0cfa33980474b593f",
-      "after_blob": "3a8ec74d632d73ea59b551a0aa2950e5be7774d8",
+      "before_blob": "bedd91db5266d83bdce84a04836e988518891728",
+      "after_blob": "d131bdae335eee071f0f451578b1b71101b25f4a",
       "phase": 2
     },
     {
@@ -1205,6 +1205,10 @@
   ],
   "protected": [
     {
+      "path": "public/css/dashboard-meta-inbox.css",
+      "blob": "ab4beecd1580769d917e3ddfe3b4139123d9dbbe"
+    },
+    {
       "path": "public/css/dashboard-whatsapp-inbox.css",
       "blob": "639ac2223b4abcd679329000551d9c735e43b5af"
     },
@@ -1219,6 +1223,14 @@
     {
       "path": "public/dashboard/branding/dashboard-brand.css",
       "blob": "b338e6d1fdb566b175a6ec875e5c6a2720377279"
+    },
+    {
+      "path": "public/js/dashboard-meta-inbox.js",
+      "blob": "6c6d56d2942554960ddf692641432179103fa70f"
+    },
+    {
+      "path": "public/js/dashboard-meta-replies.js",
+      "blob": "ec89061d647a11548dd7930cd7d573cfdf68783b"
     },
     {
       "path": "public/js/dashboard-whatsapp-inbox.js",

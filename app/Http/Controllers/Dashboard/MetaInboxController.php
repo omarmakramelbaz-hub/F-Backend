@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\MetaInboxAccess;
 use App\Services\Dashboard\MetaInboxConsumer;
+use App\Services\Dashboard\MetaMediaService;
 use App\Support\WhatsAppInboxProtocol;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ class MetaInboxController extends Controller
 
     public function conversations(Request $request, MetaInboxAccess $access)
     {
-        return $this->read($access, function () use ($request) {
+        return $this->read($access, function ($actor) use ($request) {
             $input = $request->validate(['cursor' => 'nullable|string|max:1500']);
             $query = $this->scopedConversations();
             $channel = $request->query('channel');
@@ -65,17 +66,19 @@ class MetaInboxController extends Controller
             $more = $rows->count() > self::THREAD_LIMIT;
             $rows = $rows->take(self::THREAD_LIMIT)->values();
             $ids = $rows->pluck('preview_message_id')->filter()->all();
+            $hiddenIds = app(MetaMediaService::class)->hiddenIds($actor, $ids);
             $previews = [];
             if ($ids) {
                 // One latest-by-sent-time message per conversation; no full histories are loaded.
                 foreach (DB::table('meta_inbox_messages')->whereIn('id', $ids)
-                    ->get(['conversation_id', 'content', 'type', 'direction']) as $message) {
-                    $dto = $this->decrypt($message->content);
+                    ->get(['id', 'conversation_id', 'content', 'type', 'direction']) as $message) {
+                    $hidden = in_array((int) $message->id, $hiddenIds, true);
+                    $dto = $hidden ? null : $this->decrypt($message->content);
                     $previews[(int) $message->conversation_id] = [
-                        'text' => $this->displayText($dto, 160),
-                        'type' => $this->messageType($message->type),
+                        'text' => $hidden ? $this->hiddenText() : $this->displayText($dto, 160),
+                        'type' => $hidden ? 'system' : $this->messageType($message->type),
                         'direction' => $message->direction === 'outbound' ? 'outbound' : 'inbound',
-                        'unavailable' => $dto === null,
+                        'unavailable' => !$hidden && $dto === null, 'hidden' => $hidden,
                     ];
                 }
             }
@@ -85,6 +88,7 @@ class MetaInboxController extends Controller
                 $items[] = [
                     'id' => (int) $row->id,
                     'channel' => $row->waba_id, 'account_label' => MetaInboxAccess::label($row->waba_id, $row->phone_number_id),
+                    'account_key' => hash('sha256', $row->waba_id . ':' . $row->phone_number_id),
                     'name' => $this->safeText($customer['name'] ?? null, 100),
                     'phone' => $this->phone($customer['phone'] ?? null),
                     'last_message_at' => $this->timestamp($row->last_message_at),
@@ -102,7 +106,7 @@ class MetaInboxController extends Controller
 
     public function messages(Request $request, string $conversation, MetaInboxAccess $access)
     {
-        return $this->read($access, function () use ($request, $conversation) {
+        return $this->read($access, function ($actor) use ($request, $conversation) {
             $conversation = filter_var($conversation, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
             abort_unless(is_int($conversation), 404);
             $input = $request->validate([
@@ -111,7 +115,7 @@ class MetaInboxController extends Controller
             ]);
             abort_if(isset($input['before_id'], $input['after_id']), 422);
             $thread = $this->scopedConversations()->where('id', $conversation)
-                ->first(['id', 'customer', 'last_message_at', 'waba_id', 'phone_number_id']);
+                ->first(['id', 'customer', 'peer_hash', 'last_message_at', 'waba_id', 'phone_number_id']);
             abort_unless($thread, 404);
             $query = DB::table('meta_inbox_messages')->where('conversation_id', $conversation);
             $newer = isset($input['after_id']);
@@ -119,28 +123,34 @@ class MetaInboxController extends Controller
             if (isset($input['before_id'])) $query->where('id', '<', (int) $input['before_id']);
             $rows = $newer ? $query->orderBy('id') : $query->orderByDesc('id');
             $rows = $rows->limit(self::MESSAGE_LIMIT + 1)
-                ->get(['id', 'content', 'direction', 'type', 'source', 'sent_at', 'created_at']);
+                ->get(['id', 'conversation_id', 'message_key', 'content', 'direction', 'type', 'source', 'sent_at', 'created_at']);
             $more = $rows->count() > self::MESSAGE_LIMIT;
             $rows = $rows->take(self::MESSAGE_LIMIT)->values();
             if (!$newer) $rows = $rows->reverse()->values();
+            $media = app(MetaMediaService::class);
+            $hiddenIds = $media->hiddenIds($actor, $rows->pluck('id')->all());
             $items = [];
             foreach ($rows as $row) {
-                $dto = $this->decrypt($row->content);
+                $hidden = in_array((int) $row->id, $hiddenIds, true);
+                $dto = $hidden ? null : $this->decrypt($row->content);
                 $items[] = [
                     'id' => (int) $row->id,
                     'direction' => $row->direction === 'outbound' ? 'outbound' : 'inbound',
-                    'type' => $this->messageType($row->type),
-                    'text' => $this->displayText($dto, 20000),
+                    'type' => $hidden ? 'system' : $this->messageType($row->type),
+                    'text' => $hidden ? $this->hiddenText() : $this->displayText($dto, 20000),
                     'cart' => $this->displayCart($dto),
+                    'media' => $hidden ? [] : $media->descriptors($thread, $row, $dto),
+                    'hidden' => $hidden,
                     'sent_at' => $this->timestamp($row->sent_at),
                     'received_at' => $this->timestamp($row->created_at),
-                    'unavailable' => $dto === null,
+                    'unavailable' => !$hidden && $dto === null,
                 ];
             }
             $customer = $this->decrypt($thread->customer);
             return ['success' => true, 'conversation' => [
                 'id' => (int) $thread->id,
                 'channel' => $thread->waba_id, 'account_label' => MetaInboxAccess::label($thread->waba_id, $thread->phone_number_id),
+                'account_key' => hash('sha256', $thread->waba_id . ':' . $thread->phone_number_id),
                 'name' => $this->safeText($customer['name'] ?? null, 100),
                 'phone' => $this->phone($customer['phone'] ?? null),
             ], 'messages' => $items, 'has_more' => $more,
@@ -152,7 +162,7 @@ class MetaInboxController extends Controller
     private function read(MetaInboxAccess $access, callable $callback)
     {
         try {
-            $access->actor(auth('admin')->user());
+            $actor = $access->actor(auth('admin')->user());
             abort_unless($access->available(), 503);
             // Bounded local projection keeps the open inbox current without a background-worker assumption.
             // This only materializes received encrypted events; it never sends messages or creates orders.
@@ -163,7 +173,7 @@ class MetaInboxController extends Controller
             } catch (\Throwable $error) {
                 $warning = true;
             }
-            $result = $callback();
+            $result = $callback($actor);
             $result['projection_warning'] = $warning;
             return response()->json($result)->withHeaders($this->privateHeaders());
         } catch (ValidationException $error) {
@@ -305,6 +315,11 @@ class MetaInboxController extends Controller
     {
         return ['Cache-Control' => 'private, no-store, max-age=0', 'Pragma' => 'no-cache',
             'X-Content-Type-Options' => 'nosniff'];
+    }
+
+    private function hiddenText(): string
+    {
+        return app()->getLocale() === 'ar' ? 'تم حذف هذه الرسالة من لوحتك.' : 'This message was deleted from your dashboard.';
     }
 
     private function labels(): array

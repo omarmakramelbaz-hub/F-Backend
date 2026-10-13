@@ -62,8 +62,8 @@
       "sha256": "a00bf816a1cf9edc59a47f50e2c19710c27d7f5bbda8849142ec6979c8f0a655"
     },
     "app/Console/Commands/ProcessMetaMessages.php": {
-      "blob": "c28b29c0f90be955b3d6d2ff5d82b88179550189",
-      "sha256": "94e3c5ebcc7cc23ebd1052524c1289a4bb2f232936f0ec04d5bdd5e561ffa90f"
+      "blob": "14b354fe2167b5679cb9976da1ceb51a21f6ea81",
+      "sha256": "3a8a4098a7251ad2d10969dcbdff37484340532792fd11bc1309a5d378ef52ff"
     },
     "app/Console/Commands/ProcessWhatsAppOrders.php": {
       "blob": "b7b18533efe8eb608315e0efbc6740080b25e1a7",
@@ -72,6 +72,10 @@
     "app/Console/Commands/PruneGoStoreSignupUploads.php": {
       "blob": "d322ea9af2a39e7218bdc006b0313e1eca772f9b",
       "sha256": "85685237c2736113d683c9bea479bf569801a6381e5e650ffd016ffa19062bcd"
+    },
+    "app/Console/Commands/RefreshMetaProfiles.php": {
+      "blob": "a3460199727e193ea60d6e4cfe4a8ff14b02a381",
+      "sha256": "67a0c1baef7bc0d062bd36054fba2c6ceae065e9f235dfab71e04a1b9b11532c"
     },
     "app/Console/Commands/ResetOrderNumbers.php": {
       "blob": "6301192a1016a059875bd97311f689f2c76e9644",
@@ -414,20 +418,24 @@
       "sha256": "73bff70fc9287bdeac40b57687ab3e271f329e7590075e06cc073b243742ea01"
     },
     "app/Http/Controllers/Dashboard/MetaInboxController.php": {
-      "blob": "a653e998340e300dc507c19a2e0f2ac5339f7184",
-      "sha256": "0d3f6811bd088ecb72aaec76c72ad169177f61095fb55a7518d03336a90fe3e9"
+      "blob": "e3183d9bd1bbb6ded01cb51a9d8bd29bdb9fca91",
+      "sha256": "06ffa8fa672c99121586e23bb948b97e90b0e2d241f6010f9bba8fe9faed46be"
     },
     "app/Http/Controllers/Dashboard/MetaInboxReadController.php": {
       "blob": "aa45fef645c2a5efd735bfa91b59b382e6675b21",
       "sha256": "29b1367b2ab2a0dbaac575f8249155e246d8f5f804d00d22636b78e2d1a54e38"
+    },
+    "app/Http/Controllers/Dashboard/MetaMessageActionsController.php": {
+      "blob": "4865633b11675f44863564c05829a4bc75d5568c",
+      "sha256": "5bd152a4113121a76719943794278d943645efb56f5654bc94fd41669952a40c"
     },
     "app/Http/Controllers/Dashboard/MetaOrderController.php": {
       "blob": "c44b3ad41ad00a137bd2de4be4155cb09b1d2c06",
       "sha256": "d22dcb38f5b4434b597785a768812682f2eb63a2d543e8ee4fcf5bcf7328cfbf"
     },
     "app/Http/Controllers/Dashboard/MetaReplyController.php": {
-      "blob": "e11f2df8814066a60e068cdc2aefded5c57809d2",
-      "sha256": "4252a7de921acb59fe90dc02b8ab8b5e6a29c496430063a04292e783d9198cbf"
+      "blob": "7b600e4bd37924b85cf786e3beccb289be4cef19",
+      "sha256": "4e327ced74181bf854da56b7dd3f7d70d9e6cb824e59e36bba47fba647a958ee"
     },
     "app/Http/Controllers/Dashboard/OrderBoardController.php": {
       "blob": "0b4ea3a318661833c5b5bfdba52775bf35240c40",
@@ -506,8 +514,8 @@
       "sha256": "53a9ba0e3a79ae0a4ede75e567f02c85b108c9178a69c25be3012057de0b29c7"
     },
     "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": {
-      "blob": "6f45b964d13504442539ced4c5862dfbbe921381",
-      "sha256": "beda01e1d74895e9367d8e1fc3ad07f49fff268ed42d3d54f4188ef1d61571ba"
+      "blob": "7ce48a97f115eab4e1f2308c411d0dbc7f5d5f3a",
+      "sha256": "d93e3c28010ac2aabc3ade2fe0019df23bd903283e6e87c7d0a706b6a78fae4c"
     },
     "app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php": {
       "blob": "48af05084619f78480f472e75d30376235e77144",
@@ -1581,13 +1589,25 @@
       "blob": "bf5af67cd9126ef1c4bfc939e340853731049bba",
       "sha256": "104df0eddcba0ba05e629c87f6887dd51ac2663999d0bf1870d3e399dfabcada"
     },
+    "app/Services/Dashboard/MetaMediaService.php": {
+      "blob": "8f0f0390e5aabad792595f6901e12a6784e25cbc",
+      "sha256": "e4b3d7a269311849bc39e9ee17718250318a490a395fab956d825c47bb920276"
+    },
     "app/Services/Dashboard/MetaOrderWorkflow.php": {
       "blob": "e13362de65706f9ee5e5dab8acc24220bca5cdb0",
       "sha256": "c992647efaa1457712719f24ce8d810ab66d191835b2f1aac03e2212e0db5af0"
     },
+    "app/Services/Dashboard/MetaProfileService.php": {
+      "blob": "e0e309cc0ee61566165f9283f658f41b0862789a",
+      "sha256": "2d26d0064d114b7b55f78619d8b5ce4fab2e8ddf687af5c518e4e3e89ada828b"
+    },
     "app/Services/Dashboard/MetaReplyService.php": {
-      "blob": "785bafa1400b13e428ddb9b251ff54fd9e9aab4e",
-      "sha256": "1fae3375be8109016f1eeebd2df2d10449260f1008d77dc201b18deb4431abe3"
+      "blob": "84c686bba5acc0dd3696015f09854aae3f8c4448",
+      "sha256": "5965a869e0799d105cb69e8747bd727ea333f8725ef322338b9d9249ee8c17f2"
+    },
+    "app/Services/Dashboard/MetaUploadMedia.php": {
+      "blob": "dff1ee0d6d2670fc3b96abccd0a0dcdd9775ea2f",
+      "sha256": "a1a717409b8286274d2dcf413b9e28af192fd25634ffa480d69a38667a1c748f"
     },
     "app/Services/Dashboard/OperatingDay.php": {
       "blob": "c25c9f2208b25bd108883ca59ee069a62b1741c3",
@@ -1657,21 +1677,25 @@
       "blob": "92c2fb071461787b2d8c7080518466588a7a2cee",
       "sha256": "6dd103286f89d97b9e027fe1e9dc208238108124449a8c7a9629d9f3bd302d01"
     },
+    "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": {
+      "blob": "4b571f7f4a5cef9257c414886dba515c06dae2a1",
+      "sha256": "dcaca0e711faa409c9bfbc70857779089d4bdb2e8f6ee5b1cd417eeb8213263e"
+    },
     "app/Services/Dashboard/WhatsAppInboxAccess.php": {
       "blob": "186789d42113e81818de8d82a2327e3ee9d8d0b5",
       "sha256": "f5d58a94821c35f8ddbb707a6beabec3f18b506d26939253c22054e2b49a2bf1"
     },
     "app/Services/Dashboard/WhatsAppInboxConsumer.php": {
-      "blob": "f993ff1eebc9c2a7be3b0bec93ab02732b96a46d",
-      "sha256": "80253a13accf7a712130d99d73322e9d01ca73cd6f83c68db6cf5f0cd282948c"
+      "blob": "e54715313901be8baefb551566b7bb88f4afe45b",
+      "sha256": "660941e98338ac38cfea389d6a5bbf3389e5da443bcca0ba163715a2ef6b40d4"
     },
     "app/Services/Dashboard/WhatsAppInboxMedia.php": {
       "blob": "ae1f6aa4d833de80637ea56b19719c649183456d",
       "sha256": "bdd768eab6eb2dc9de892b50f0ef631abfd7ef088a8387a0c149a798720313fa"
     },
     "app/Services/Dashboard/WhatsAppInboxMessage.php": {
-      "blob": "087cdbdf51dd87c411da3ed0cfa33980474b593f",
-      "sha256": "7d34851cdd5531fd852e9885f9bc9fccad3dd135942dcf00d7501f852b88e242"
+      "blob": "bedd91db5266d83bdce84a04836e988518891728",
+      "sha256": "b6da56fd71c015237e909b07aab39c1da6ff76afb1d97b86a3722e21746940da"
     },
     "app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php": {
       "blob": "8313e710d55d99de5861a87605a335fc4493a187",
@@ -1682,16 +1706,16 @@
       "sha256": "f1aee0eb60ba866dbb9b074935017f148ea7057fd7ee0cab878538f65a237e5f"
     },
     "app/Services/Dashboard/WhatsAppOrderAiProvider.php": {
-      "blob": "afac5b86bb3076a6caaea85c4a22d097a22e16b8",
-      "sha256": "aed7338e9acc0fab9b2d63f67ea968b9439e8263ac2106fa158d5ef6eeecafb1"
+      "blob": "65b9ce193991ae404e287ea62091ec48595bc530",
+      "sha256": "99e8b19c5f15936f81a0e92cbe7a2b52f437147896403dc20b7b5ecc53485261"
     },
     "app/Services/Dashboard/WhatsAppOrderWorkflow.php": {
-      "blob": "6c63b91d7fb70130ae472cea291fa2cee88b27dd",
-      "sha256": "84e84205bb72c271fe6c80a69b0c546363fbf65896ebfe6679fd7ba33580e19f"
+      "blob": "b30f25cf6dfc4a84061a58316db583f892a439a4",
+      "sha256": "4d592dc74cb646da662a0eb6cce8438952fed86c1e0f2c9f7271022b9675c515"
     },
     "app/Services/Dashboard/WhatsAppReplyService.php": {
-      "blob": "cce92c02d4a4400cd133fc1f7631fb94762f54c6",
-      "sha256": "41fff7a7090ae280a4835a59faf2ab9d775a6336110f9e2407814e4971ee1a08"
+      "blob": "1ef23df825287f8d3dedafcdb5d70ffeac7f1f29",
+      "sha256": "564ff9aee5ab78872a4d826ea52dc69d01f658929ac201f2bb089b54179c0313"
     },
     "app/Services/Dashboard/WhatsAppVoiceMedia.php": {
       "blob": "5a6d67a69dbbef185a783680dfe46a1730318380",
@@ -2284,6 +2308,10 @@
     "database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php": {
       "blob": "699e9b8f63452f4e8f09f8380f3905406ef9ddbf",
       "sha256": "21b094c2094c00645ae0d95c255351097b31857972669dcbeca52b36232dd569"
+    },
+    "database/migrations/2026_10_13_160000_create_meta_message_hides.php": {
+      "blob": "477cb142e41fe41255aa484a47df7d586d7c2a8e",
+      "sha256": "3269aac021ab0580d9ddbbfe1b369e87128ee276989b5b352adb19530268de08"
     },
     "database/seeders/AdminSeeder.php": {
       "blob": "c932605c54b2fcd5ee95dab49270d69aad8fbd0c",
@@ -3394,16 +3422,16 @@
       "sha256": "22a1e7803ed4ba4fabfcb2aeb131c0434c7cad8bb7229082751180d5f4acefc8"
     },
     "resources/views/admin/meta/index.blade.php": {
-      "blob": "0e9b0161e89cae455f17bd230b6f7af4bfa0a077",
-      "sha256": "f3352d08ccd47032b2033df06b6593206b906994c4b38f738da9feca4df0bb62"
+      "blob": "79f6d85da843ec69a98c36728fc095c6eb22d645",
+      "sha256": "2dbfba75b6e2b2979af4a29570f2de5977af7e296e8819a813e4f62fa780ab88"
     },
     "resources/views/admin/meta/orders.blade.php": {
       "blob": "2ea32304cab378634e9aa1b5f107d993370f5f67",
       "sha256": "1663ea3506861803caf89a58fcb970eb3d9b2d51d4dbf93d135f5f54598ddfe9"
     },
     "resources/views/admin/meta/replies.blade.php": {
-      "blob": "6e119d9cd1680c8cf6af48d2671926989e093bc0",
-      "sha256": "07f905b29eb075e78589a822f88202e0a67d2e22801fd1b4e450a7d3969c4732"
+      "blob": "9c27ce0a501ef3926dbd1c53503d607ff353ca5a",
+      "sha256": "7fef14b9c5348d7d8a78abc9d1b36a01c61ad418162ebf9fae210ff228d90417"
     },
     "resources/views/admin/meta/sidebar.blade.php": {
       "blob": "34917f3199bf2ebeaad2f326d078191b4c4cfd1a",
@@ -4026,12 +4054,12 @@
       "sha256": "7e01e46b0ae5fc2ec50b7196fafa731f6c058f815c304226b3c7e3c5511b2ef6"
     },
     "routes/meta_inbox.php": {
-      "blob": "bd76343572c00defa9af163735ecc51726cbdcbc",
-      "sha256": "9329cb27622471f31bb15d589026f0320ad561e6d3c853a5da5cb76326b78700"
+      "blob": "646634ef68604636bf05e07fc619ae722d6a5f02",
+      "sha256": "2075256916e58c27adf4a2190ea14a6c9e35847e58c89a28793c894179d14746"
     },
     "routes/meta_messaging.php": {
-      "blob": "3b4ee1f87e6265efd8585f7a30149c15e01ed7ee",
-      "sha256": "458dcfd263ce9a9262b6d70d470974fdb387aca31eadbc9003c6fd1375facc60"
+      "blob": "169390308048ef05f4d08e2619874d2040d574d9",
+      "sha256": "feccc647f9288de6f24046eae42a844c56f8d95ca466bb84735ee9957546dcc4"
     },
     "routes/meta_orders.php": {
       "blob": "b6414b7cf2e7cece0af3a4d38565bff0f677bb28",
@@ -4042,8 +4070,8 @@
       "sha256": "d878533e0bf4305d48b205af1f7a9b9d76195bf14969a173680ed678b1d46c94"
     },
     "routes/meta_replies.php": {
-      "blob": "5f4fc1c2940fd6880cbcb11f53be85ec10ed6c11",
-      "sha256": "d83af4f1d26d865f69d8157371e2a4cda39a52ddb2cd08114c686caadb7faec5"
+      "blob": "bf46f2b1f94f32d9e4e0c96daa41279d9daf8df6",
+      "sha256": "bbacfa547ef5bec5b0b1888f834c8bcabe9cae6cd6a56109beb37a7c77588411"
     },
     "routes/order_board.php": {
       "blob": "cb6f4d2af6f71d69146ecf4dbcfd8e90aa77758b",
@@ -4083,35 +4111,69 @@
     }
   },
   "gui": {
+    "public/css/dashboard-meta-inbox.css": "ab4beecd1580769d917e3ddfe3b4139123d9dbbe",
     "public/css/dashboard-whatsapp-inbox.css": "639ac2223b4abcd679329000551d9c735e43b5af",
     "public/css/dashboard-whatsapp-orders.css": "35d80672c039b1dcbd8fd52457ea8a7078e0421d",
     "public/css/dashboard-whatsapp-replies.css": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
     "public/dashboard/branding/dashboard-brand.css": "b338e6d1fdb566b175a6ec875e5c6a2720377279",
+    "public/js/dashboard-meta-inbox.js": "6c6d56d2942554960ddf692641432179103fa70f",
+    "public/js/dashboard-meta-replies.js": "ec89061d647a11548dd7930cd7d573cfdf68783b",
     "public/js/dashboard-whatsapp-inbox.js": "2f6de4626ec6108763f9cb024868233c7266dc36",
     "public/js/dashboard-whatsapp-orders.js": "ad7f78fc490774280c31e01125bc262a92a2cb3d",
     "public/js/dashboard-whatsapp-replies.js": "392569e73e951405a5de6ce676922e63377a6b0b"
   },
   "measured_source_differences": {
-    "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": "6f45b964d13504442539ced4c5862dfbbe921381",
+    "app/Console/Commands/ProcessMetaMessages.php": "14b354fe2167b5679cb9976da1ceb51a21f6ea81",
+    "app/Console/Commands/RefreshMetaProfiles.php": "a3460199727e193ea60d6e4cfe4a8ff14b02a381",
+    "app/Http/Controllers/Dashboard/MetaInboxController.php": "e3183d9bd1bbb6ded01cb51a9d8bd29bdb9fca91",
+    "app/Http/Controllers/Dashboard/MetaMessageActionsController.php": "4865633b11675f44863564c05829a4bc75d5568c",
+    "app/Http/Controllers/Dashboard/MetaReplyController.php": "7b600e4bd37924b85cf786e3beccb289be4cef19",
+    "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": "7ce48a97f115eab4e1f2308c411d0dbc7f5d5f3a",
     "app/Http/Controllers/Dashboard/WhatsAppReplyController.php": "7223022bcf5b9acd374ba501a5e17609d9ad05b8",
+    "app/Services/Dashboard/MetaMediaService.php": "8f0f0390e5aabad792595f6901e12a6784e25cbc",
+    "app/Services/Dashboard/MetaProfileService.php": "e0e309cc0ee61566165f9283f658f41b0862789a",
+    "app/Services/Dashboard/MetaReplyService.php": "84c686bba5acc0dd3696015f09854aae3f8c4448",
+    "app/Services/Dashboard/MetaUploadMedia.php": "dff1ee0d6d2670fc3b96abccd0a0dcdd9775ea2f",
+    "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": "4b571f7f4a5cef9257c414886dba515c06dae2a1",
+    "app/Services/Dashboard/WhatsAppInboxConsumer.php": "e54715313901be8baefb551566b7bb88f4afe45b",
     "app/Services/Dashboard/WhatsAppInboxMedia.php": "ae1f6aa4d833de80637ea56b19719c649183456d",
-    "app/Services/Dashboard/WhatsAppInboxMessage.php": "087cdbdf51dd87c411da3ed0cfa33980474b593f",
-    "app/Services/Dashboard/WhatsAppReplyService.php": "cce92c02d4a4400cd133fc1f7631fb94762f54c6",
+    "app/Services/Dashboard/WhatsAppInboxMessage.php": "bedd91db5266d83bdce84a04836e988518891728",
+    "app/Services/Dashboard/WhatsAppOrderAiProvider.php": "65b9ce193991ae404e287ea62091ec48595bc530",
+    "app/Services/Dashboard/WhatsAppOrderWorkflow.php": "b30f25cf6dfc4a84061a58316db583f892a439a4",
+    "app/Services/Dashboard/WhatsAppReplyService.php": "1ef23df825287f8d3dedafcdb5d70ffeac7f1f29",
     "bootstrap/app.php": "7494037bd99a873c333c3d530e40ab0f2b544c3d",
     "config/whatsapp_cart.php": "a40fd3c834734ebbf5f52410e1b0641657605750",
+    "database/migrations/2026_10_13_160000_create_meta_message_hides.php": "477cb142e41fe41255aa484a47df7d586d7c2a8e",
     "public/dashboard/js/dashboard-navigation.js": "2a85711ce081381bcef881a8b573b383cb006a78",
     "resources/views/admin/layouts/menu.blade.php": "ce7958880c9515eae87366eade7476386000fa29",
-    "resources/views/admin/meta/index.blade.php": "0e9b0161e89cae455f17bd230b6f7af4bfa0a077",
+    "resources/views/admin/meta/index.blade.php": "79f6d85da843ec69a98c36728fc095c6eb22d645",
+    "resources/views/admin/meta/replies.blade.php": "9c27ce0a501ef3926dbd1c53503d607ff353ca5a",
     "resources/views/admin/whatsapp/index.blade.php": "70d14e0b154934adf636fc18eba3546f3efad34e",
     "resources/views/admin/whatsapp/replies.blade.php": "6386debd6e20836cc1023cefc7868e214ce7f0f0",
     "resources/views/admin/whatsapp/sidebar.blade.php": "140d63fb48d45b128cc13f49fe16bf34d7d70e15",
+    "routes/meta_inbox.php": "646634ef68604636bf05e07fc619ae722d6a5f02",
+    "routes/meta_messaging.php": "169390308048ef05f4d08e2619874d2040d574d9",
+    "routes/meta_replies.php": "bf46f2b1f94f32d9e4e0c96daa41279d9daf8df6",
     "routes/whatsapp_replies.php": "61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8"
   },
+  "provenance": {
+    "new_gui_count": 3,
+    "new_source_difference_count": 22,
+    "prior_source": {
+      "files": 1020,
+      "format": 1,
+      "framework": "8.83.29",
+      "sha256": "dc731529de802c50bdb266fd52c6361d8e460587143a894b077539da811cc47e"
+    },
+    "reported_hardlinks": {
+      "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": 2
+    }
+  },
   "source": {
-    "files": 1020,
+    "files": 1027,
     "format": 1,
     "framework": "8.83.29",
-    "sha256": "dc731529de802c50bdb266fd52c6361d8e460587143a894b077539da811cc47e"
+    "sha256": "13ee9a3f712646d9d1b2e1c850142929e1c137d68fc7d451fc7ea83cfd63eca2"
   },
   "version": 1
 }
