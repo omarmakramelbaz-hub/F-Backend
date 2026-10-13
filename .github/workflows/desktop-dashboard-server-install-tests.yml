@@ -2,9 +2,9 @@ name: Dashboard server installer safety
 on:
   push:
     branches: ['codex/dashboard-server-integration-20261012', 'codex/dashboard-owner-repair-20261013']
-    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
+    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
   pull_request:
-    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
+    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
 permissions:
   contents: read
 jobs:
@@ -27,6 +27,8 @@ jobs:
         run: python3 -B tests/desktop_dashboard_actual_baseline_test.py
       - name: Exercise scoped ownership repair as real root
         run: sudo python3 -B tests/desktop_dashboard_owner_repair_test.py --require-real-owners
+      - name: Exercise exact38 publication metadata repairs as real root
+        run: sudo python3 -B tests/desktop_dashboard_publication_metadata_test.py --require-real-owners
       - name: Check immutable helper and source manifest pins
         run: |
           python3 -B - <<'PY'
