@@ -54,22 +54,24 @@ final class WhatsAppOrderSourceSelection
                 }
             }
             $base=WhatsAppOrderExtraction::schema(); $properties=$base['properties']['items']['items']['properties'];
-            $common=array_intersect_key($properties,array_flip(['quantity','quantity_mode','option_hint']));
+            $common=array_intersect_key($properties,array_flip(['quantity','quantity_mode']));
             $choices=[];
             if ($sources!==[]) $choices[]=self::object(['name_source'=>self::nameSource($sources)]+$common+
+                ['option_source'=>self::optionalSource($sources)]+
                 ['cart_reference'=>['type'=>'null'],'conversation_reference'=>['type'=>'null']]);
             if ($customerSources!==[] && $businessText!==[] && $clauses!==[]) {
                 $context=self::object([
                     'business_offer_id'=>self::labels($businessText),
                     'customer_quantity_id'=>self::labels($customerText),'summary_clause_id'=>self::labels(array_keys($clauses)),
-                    'customer_option_id'=>['type'=>['string','null'],'enum'=>array_merge($customerText,[null])],
                 ]);
                 $choices[]=self::object(['name_source'=>self::nameSource($customerSources)]+$common+
+                    ['option_source'=>self::optionalSource($customerSources)]+
                     ['cart_reference'=>['type'=>'null'],'conversation_reference'=>$context]);
             }
             if ($sources!==[] && $carts!==[] && $retailers!==[]) {
                 $cart=self::object(['message_id'=>self::labels($carts),'product_retailer_id'=>self::labels(array_values(array_unique($retailers)))]);
                 $choices[]=self::object(['name_source'=>self::nameSource($sources)]+$common+
+                    ['option_source'=>self::optionalSource($sources)]+
                     ['cart_reference'=>$cart,'conversation_reference'=>['type'=>'null']]);
             }
             if ($choices===[]) return self::result(false,'INVALID_INPUT');
@@ -96,42 +98,39 @@ final class WhatsAppOrderSourceSelection
                 // Legacy fixture/provider replies retain their original contract. The new
                 // request schema never permits a free-form item name.
                 if (!is_array($item) || !array_key_exists('name_source',$item)) continue;
-                if (!self::keys($item,['name_source','quantity','quantity_mode','option_hint','cart_reference','conversation_reference']))
-                    return self::sourceFailure('ITEM');
-                $source=$item['name_source'];
-                if (!is_array($source) || !self::keys($source,['message_id','source','first_token','last_token'])
-                    || !is_string($source['message_id']) || !in_array($source['source'],['text','cart_text'],true)
-                    || !is_int($source['first_token']) || !is_int($source['last_token'])
-                    || $source['first_token']<0 || $source['last_token']<$source['first_token']) return self::sourceFailure('ITEM_NAME');
-                $row=$plan['sources'][$source['message_id'].':'.$source['source']]??null;
-                $first=is_array($row)?($row['tokens'][$source['first_token']]??null):null;
-                $last=is_array($row)?($row['tokens'][$source['last_token']]??null):null;
-                if (!is_array($row) || !is_array($first) || !is_array($last) || !is_string($row['text']??null)
-                    || !in_array($row['speaker']??null,['customer','business'],true)) return self::sourceFailure('ITEM_NAME');
+                if (!self::keys($item,['name_source','quantity','quantity_mode','option_source','cart_reference','conversation_reference']))
+                    return self::sourceFailure(array_key_exists('option_hint',$item)?'ITEM_OPTION':'ITEM');
+                $name=self::copiedSource($item['name_source'],$plan);
+                if ($name===null) return self::sourceFailure('ITEM_NAME');
+                $source=$item['name_source']; $row=$name['row'];
+                $option=$item['option_source']===null?null:self::copiedSource($item['option_source'],$plan);
+                if ($item['option_source']!==null && $option===null) return self::sourceFailure('ITEM_OPTION');
+                if ($option!==null && !self::cited($option['message_id'],$wire,['request_ids','confirmation_ids']))
+                    return self::sourceFailure('ITEM_OPTION');
                 $reference=$item['conversation_reference'];
                 if ($reference!==null) {
                     if ($item['cart_reference']!==null || !is_array($reference)
-                        || !self::keys($reference,['business_offer_id','customer_quantity_id','summary_clause_id','customer_option_id']))
+                        || !self::keys($reference,['business_offer_id','customer_quantity_id','summary_clause_id']))
                         return self::sourceFailure('ITEM');
-                    foreach (['business_offer_id'=>'business','customer_quantity_id'=>'customer','customer_option_id'=>'customer'] as $key=>$speaker) {
+                    foreach (['business_offer_id'=>'business','customer_quantity_id'=>'customer'] as $key=>$speaker) {
                         $id=$reference[$key];
-                        if ($key==='customer_option_id' && $id===null) continue;
                         $target=is_string($id)?($plan['sources'][$id.':text']??null):null;
                         if (!is_array($target) || $target['speaker']!==$speaker || $target['source']!=='text') return self::sourceFailure('ITEM');
                     }
                     if ($row['speaker']!=='customer' || $row['source']!=='text'
                         || !is_array($wire['evidence']['request_ids']??null)
                         || !in_array($source['message_id'],$wire['evidence']['request_ids'],true)) return self::sourceFailure('ITEM_NAME');
+                    if ($option!==null && ($option['row']['speaker']!=='customer' || $option['row']['source']!=='text'
+                        || !self::cited($option['message_id'],$wire,['request_ids']))) return self::sourceFailure('ITEM_OPTION');
                     $choice=is_string($reference['summary_clause_id'])?($plan['clauses'][$reference['summary_clause_id']]??null):null;
                     if (!is_array($choice)) return self::sourceFailure('ITEM');
                     $reference=['name_anchor_id'=>$source['message_id'],'business_offer_id'=>$reference['business_offer_id'],
                         'customer_quantity_id'=>$reference['customer_quantity_id'],'business_summary_id'=>$choice['message_id'],
-                        'summary_clause_index'=>$choice['clause_index'],'customer_option_id'=>$reference['customer_option_id']];
+                        'summary_clause_index'=>$choice['clause_index'],'customer_option_id'=>$option===null?null:$option['message_id']];
                 }
-                $name=substr($row['text'],$first['start'],$last['end']-$first['start']);
-                if ($name==='' || preg_match('//u',$name)!==1 || self::length($name)>200) return self::sourceFailure('ITEM_NAME');
-                unset($normal['items'][$index]['name_source']);
-                $normal['items'][$index]['name']=$name;
+                unset($normal['items'][$index]['name_source'],$normal['items'][$index]['option_source']);
+                $normal['items'][$index]['name']=$name['text'];
+                $normal['items'][$index]['option_hint']=$option===null?null:$option['text'];
                 $normal['items'][$index]['conversation_reference']=$reference;
             }
             return self::result(true,null,$normal);
@@ -162,6 +161,35 @@ final class WhatsAppOrderSourceSelection
                 'last_token'=>['type'=>'integer','minimum'=>0,'maximum'=>$maximum]]);
         }
         return ['anyOf'=>$choices];
+    }
+    private static function optionalSource(array $sources): array
+    {
+        return ['anyOf'=>array_merge([['type'=>'null']],self::nameSource($sources)['anyOf'])];
+    }
+    /** Copy one exact original field span; no normalization, aliases or field joins. */
+    private static function copiedSource($source,array $plan): ?array
+    {
+        if (!is_array($source) || !self::keys($source,['message_id','source','first_token','last_token'])
+            || !is_string($source['message_id']) || !in_array($source['source'],['text','cart_text'],true)
+            || !is_int($source['first_token']) || !is_int($source['last_token'])
+            || $source['first_token']<0 || $source['last_token']<$source['first_token']) return null;
+        $row=$plan['sources'][$source['message_id'].':'.$source['source']]??null;
+        $first=is_array($row)?($row['tokens'][$source['first_token']]??null):null;
+        $last=is_array($row)?($row['tokens'][$source['last_token']]??null):null;
+        if (!is_array($row) || !is_array($first) || !is_array($last) || !is_string($row['text']??null)
+            || ($row['message_id']??null)!==$source['message_id'] || ($row['source']??null)!==$source['source']
+            || !in_array($row['speaker']??null,['customer','business'],true)) return null;
+        $text=substr($row['text'],$first['start'],$last['end']-$first['start']);
+        if ($text==='' || preg_match('//u',$text)!==1 || self::length($text)>200) return null;
+        return ['text'=>$text,'row'=>$row,'message_id'=>$source['message_id']];
+    }
+    private static function cited(string $id,array $wire,array $fields): bool
+    {
+        foreach ($fields as $field) {
+            $ids=$wire['evidence'][$field]??null;
+            if (is_array($ids) && in_array($id,$ids,true)) return true;
+        }
+        return false;
     }
     private static function idList(array $ids): array
     {

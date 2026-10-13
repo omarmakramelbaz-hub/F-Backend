@@ -3,26 +3,29 @@
 define('WHATSAPP_ORDER_AI_READ_ONLY_PROBE_TEST_ONLY', true);
 define('WHATSAPP_ORDER_FRAGMENTED_READ_ONLY_PROBE_TEST_ONLY', true);
 define('WHATSAPP_ORDER_SOURCE_SELECTION_READ_ONLY_PROBE_TEST_ONLY', true);
+define('WHATSAPP_ORDER_OPTION_SOURCE_READ_ONLY_PROBE_TEST_ONLY', true);
 $probeVariant = $argv[1] ?? 'legacy';
 $probeFiles = ['legacy' => 'whatsapp_order_ai_read_only_probe.php',
     'forward' => 'whatsapp_order_ai_forward_read_only_probe.php',
     'nested' => 'whatsapp_order_ai_nested_forward_read_only_probe.php',
     'fragmented' => 'whatsapp_order_fragmented_read_only_probe.php',
-    'source-selection' => 'whatsapp_order_source_selection_read_only_probe.php'];
+    'source-selection' => 'whatsapp_order_source_selection_read_only_probe.php',
+    'option-source' => 'whatsapp_order_option_source_read_only_probe.php'];
 if (!array_key_exists($probeVariant, $probeFiles)) throw new RuntimeException('Invalid probe fixture');
 $probeFile = dirname(__DIR__) . '/deployment/' . $probeFiles[$probeVariant];
 require $probeFile;
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 // Immutable production probes keep their exact reviewed application bytes.
-$preFragmented = $probeVariant === 'source-selection' ? dirname(__DIR__) . '/'
+$preFragmented = in_array($probeVariant,['source-selection','option-source'],true) ? dirname(__DIR__) . '/'
     : ($probeVariant === 'fragmented' ? dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_source_selection/'
         : dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_fragmented/');
-if (in_array($probeVariant,['fragmented','source-selection'],true))
+if (in_array($probeVariant,['fragmented','source-selection','option-source'],true))
     require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require $preFragmented . 'app/Support/WhatsAppOrderExtraction.php';
-if ($probeVariant === 'source-selection')
-    require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
-require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderAiProvider.php';
+$selectionRuntime=$probeVariant==='source-selection' ? dirname(__DIR__).'/tests/fixtures/whatsapp_order_pre_option_source/' : $preFragmented;
+if (in_array($probeVariant,['source-selection','option-source'],true))
+    require $selectionRuntime . 'app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
+require $selectionRuntime . 'app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
@@ -30,6 +33,7 @@ set_error_handler(static function ($severity, $message, $file, $line) {
 });
 if ($probeVariant === 'fragmented') class_alias(WhatsAppOrderFragmentedReadOnlyProbe::class, 'WhatsAppOrderAiReadOnlyProbe');
 if ($probeVariant === 'source-selection') class_alias(WhatsAppOrderSourceSelectionReadOnlyProbe::class, 'WhatsAppOrderAiReadOnlyProbe');
+if ($probeVariant === 'option-source') class_alias(WhatsAppOrderOptionSourceReadOnlyProbe::class, 'WhatsAppOrderAiReadOnlyProbe');
 use WhatsAppOrderAiReadOnlyProbe as P;
 use App\Services\Dashboard\WhatsAppOrderAiProvider as Provider;
 use App\Services\Dashboard\WhatsAppOrderWorkflow as Workflow;
@@ -187,13 +191,16 @@ if ($probeVariant !== 'legacy') foreach (P::SOURCE_PINS as [$path, $expected]) {
     // Its immutable source contract is tested against the exact reviewed v1 fixture.
     $sourcePath = $probeVariant === 'forward' && $path === 'app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php'
         ? 'tests/fixtures/whatsapp_forward_v1/' . $path : $path;
-    if (!in_array($probeVariant,['fragmented','source-selection'],true) && in_array($path, ['app/Support/WhatsAppOrderExtraction.php',
+    if (!in_array($probeVariant,['fragmented','source-selection','option-source'],true) && in_array($path, ['app/Support/WhatsAppOrderExtraction.php',
         'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'], true))
         $sourcePath = 'tests/fixtures/whatsapp_order_pre_fragmented/' . $path;
     if ($probeVariant === 'fragmented' && in_array($path, ['app/Support/WhatsAppOrderExtraction.php',
         'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php',
         'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php'], true))
         $sourcePath = 'tests/fixtures/whatsapp_order_pre_source_selection/' . $path;
+    if ($probeVariant==='source-selection' && in_array($path,['app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'],true))
+        $sourcePath='tests/fixtures/whatsapp_order_pre_option_source/'.$path;
     $bytes = file_get_contents(dirname(__DIR__) . '/' . $sourcePath);
     probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, $probeVariant . ' guard matches the reviewed runtime ' . $path);
 }
