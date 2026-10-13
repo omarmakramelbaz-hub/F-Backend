@@ -35,6 +35,7 @@ on:
       - 'public/js/dashboard-whatsapp-orders.js'
       - 'public/css/dashboard-whatsapp-orders.css'
       - 'tests/whatsapp_order*'
+      - 'tests/test_whatsapp_order*'
       - 'app/Services/Dashboard/WhatsAppReplyService.php'
       - 'app/Services/Dashboard/WhatsAppVoiceMedia.php'
       - 'app/Services/Dashboard/WhatsAppInboxReadState.php'
@@ -51,6 +52,7 @@ on:
       - 'tests/whatsapp_cart*'
       - 'tests/whatsapp_catalog*'
       - 'tests/whatsapp_capture*'
+      - 'tests/test_whatsapp_capture*'
       - 'tests/whatsapp_agent*'
       - 'tests/whatsapp_automatic*'
       - 'app/Services/Dashboard/WhatsAppMessage*'
@@ -167,6 +169,10 @@ jobs:
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_evidence_repair_install.py
       - name: Verify semantic repair publication and one-window recovery orchestration
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_semantic_repair_install.py
+      - name: Verify forward recovery lifecycle and capture guard refresh
+        run: |
+          python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_semantic_forward_root.py
+          python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_capture_guard_refresh.py
       - name: Verify limited configuration permission correction and concurrent-change guards
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_config_modes.py
       - name: Verify automatic runtime and isolated timer installation
@@ -274,4 +280,5 @@ jobs:
           python3 tests/whatsapp_cairo_automatic_enable_test.py
           python3 tests/test_whatsapp_cairo_install_root_diagnostic.py
           python3 tests/test_whatsapp_order_semantic_recovery_php.py
+          python3 tests/test_whatsapp_order_semantic_forward_php.py
           python3 tests/test_whatsapp_order_semantic_recovery_diagnostic.py
