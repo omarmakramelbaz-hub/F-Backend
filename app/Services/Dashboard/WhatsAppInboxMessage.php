@@ -268,6 +268,16 @@ class WhatsAppInboxMessage
             || ($thread->phone_number_id ?? null) !== WhatsAppInboxAccess::PHONE_ID
             || (int) ($row->conversation_id ?? 0) !== $conversation) throw new HttpException(422);
         try {
+            if ($row->source === 'dashboard_api') {
+                $accepted = (new WhatsAppAcceptedReplyEvidence())->unwrap($thread, $row);
+                return ['id' => $message, 'conversation_id' => $conversation, 'native_id' => $accepted['native_id'],
+                    'direction' => 'outbound', 'kind' => 'text', 'text' => $accepted['text'],
+                    // Presentation identity only: no synthetic native webhook payload is stored.
+                    'raw' => ['id' => $accepted['native_id'], 'type' => 'text'],
+                    'sent_at' => $accepted['sent_at'], 'peer_phone' => $accepted['peer_phone'],
+                    'native_message_key' => $accepted['native_message_key'], 'source_kind' => 'message',
+                    'quote_source' => $accepted['quote_source'], 'fingerprint' => $accepted['fingerprint']];
+            }
             if (!is_string($row->content) || strlen($row->content) > 8388608) throw new \RuntimeException();
             $plain = Crypt::decryptString($row->content);
             if (strlen($plain) > 4194304) throw new \RuntimeException();

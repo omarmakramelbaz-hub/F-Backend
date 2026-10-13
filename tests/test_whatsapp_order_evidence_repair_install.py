@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""Pinned repair publication and worker recovery fixtures; no network or real workers."""
+import hashlib
+import importlib.util
+import json
+import os
+import pathlib
+import stat
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+SPEC=importlib.util.spec_from_file_location('order_evidence_repair_install_tested',ROOT/'deployment/apply_whatsapp_order_evidence_repair.py')
+repair=importlib.util.module_from_spec(SPEC);sys.modules[SPEC.name]=repair;SPEC.loader.exec_module(repair)
+wrapper=types.ModuleType('order_evidence_repair_root_tested');wrapper.__file__=str(ROOT/'deployment/apply_whatsapp_order_evidence_repair_root.sh')
+source=pathlib.Path(wrapper.__file__).read_text().split("<<'PY'\n",1)[1].rsplit('\nPY\n',1)[0]
+exec(compile(source,wrapper.__file__,'exec'),wrapper.__dict__)
+RELEASE='a'*40
+
+
+class Fixture:
+    def __init__(self,directory,cached=True):
+        self.root=pathlib.Path(directory)/'app';self.root.mkdir(mode=0o700);(self.root/'.git').mkdir(mode=0o700)
+        self.uid=os.geteuid();self.calls=[];self.hook=None;self.fail_lint=False;self.fail_target=False;self.tree_mode=b'100644';self.rollback_compatible=True
+        self.pins={};self.targets={};self.old={}
+        for index,relative in enumerate(repair.SOURCE_PINS):
+            old=None if index==0 else ('<?php /* original '+str(index)+' */\n').encode()
+            new=('<?php /* reviewed '+str(index)+' */\n').encode()
+            self.old[relative]=old;self.targets[relative]=new
+            self.pins[relative]=(None if old is None else repair.blob(old),repair.blob(new))
+            if old is not None:self.write(relative,old,0o640)
+        self.protected={'app/Support/Immutable.php':repair.blob(b'<?php /* immutable */\n')}
+        self.write('app/Support/Immutable.php',b'<?php /* immutable */\n',0o644)
+        self.write('.env',b'WHATSAPP_ORDERS_MODE=auto\nACTIVATION_ID=500\n',0o600)
+        self.write('config/whatsapp_orders.php',b'<?php return ["enabled"=>true,"mode"=>"auto"];\n',0o644)
+        self.write('config/other.php',b'<?php return ["important"=>7];\n',0o644)
+        if cached:self.write('bootstrap/cache/config.php',b'<?php return ["cached"=>true];\n',0o600)
+        else:(self.root/'bootstrap/cache').mkdir(parents=True)
+        self.config=repair.configuration_snapshot(self.root,self.uid)
+
+    def write(self,relative,content,mode=0o644):
+        path=self.root/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content);path.chmod(mode)
+
+    def runner(self,root,args,capture=False,timeout=60):
+        self.calls.append(tuple(args))
+        if self.hook:self.hook(args)
+        if args[:3]==['git','cat-file','-t']:return 0,b'commit\n'
+        if args[:3]==['git','ls-tree','-z']:
+            p=args[-1];return 0,self.tree_mode+b' blob '+self.pins[p][1].encode()+b'\t'+p.encode()+b'\0'
+        if args[:2]==['git','show']:return 0,self.targets[args[-1].split(':',1)[1]]
+        if args[:2]==[repair.PHP,'-l']:return (1 if self.fail_lint else 0),b''
+        if args[:3]==[repair.PHP,'-r',repair.READINESS_PHP]:
+            pins=json.loads(args[-1]);target=all(pins[p]==self.pins[p][1] for p in self.pins)
+            if target and self.fail_target:return 1,b'secret-error-must-not-escape'
+            return 0,json.dumps({'mode':'auto','fingerprint':hashlib.sha256(b'effective-stable').hexdigest()}).encode()
+        if args[:3]==[repair.PHP,'-r',repair.ROLLBACK_COMPATIBILITY_PHP]:return 0,json.dumps({'compatible':self.rollback_compatible}).encode()
+        if args[:2]==['/usr/bin/systemctl','show']:
+            p=args[-1];value='LoadState=loaded\nActiveState=inactive\n'
+            if p.endswith('.service'):value+='MainPID=0\n'
+            return 0,value.encode()
+        raise AssertionError('Unexpected repair command '+repr(args[:2]))
+
+    def apply(self,check=False,expected=None):
+        with mock.patch.object(repair,'PROTECTED_PINS',self.protected):
+            return repair.apply(self.root,self.uid,RELEASE,check,runner=self.runner,pins=self.pins,expected_configuration=expected)
+
+    def unchanged_config(self,case):case.assertEqual(repair.configuration_snapshot(self.root,self.uid),self.config)
+    def originals(self,case):
+        for p,old in self.old.items():
+            if old is None:case.assertFalse((self.root/p).exists())
+            else:case.assertEqual((self.root/p).read_bytes(),old)
+
+
+class RepairPublicationTests(unittest.TestCase):
+    def setUp(self):self.temp=tempfile.TemporaryDirectory();self.f=Fixture(self.temp.name)
+    def tearDown(self):self.temp.cleanup()
+
+    def test_publish_seven_pinned_sources_and_preserve_all_configuration_bytes_and_metadata(self):
+        f=self.f;before={p:repair.base.snapshot(f.root/p,f.uid,f.root,True) for p in f.pins}
+        result=f.apply();self.assertEqual(result['status'],'WHATSAPP_ORDER_EVIDENCE_REPAIR_READY')
+        for p,data in f.targets.items():
+            self.assertEqual((f.root/p).read_bytes(),data)
+            after=repair.base.snapshot(f.root/p,f.uid,f.root)
+            if before[p]:self.assertEqual((after.uid,after.gid,after.mode),(before[p].uid,before[p].gid,before[p].mode))
+        f.unchanged_config(self)
+        self.assertEqual(stat.S_IMODE(pathlib.Path(result['backup']).stat().st_mode),0o700)
+        self.assertFalse(any(a[0]!='git' and a[0] not in (repair.PHP,'/usr/bin/systemctl') for a in f.calls))
+        self.assertFalse(any(word in a for a in f.calls for word in ('artisan','migrate','pull','reset','checkout','whatsapp:process-orders','whatsapp:consume-inbox')))
+
+    def test_preflight_does_not_publish_or_operate_workers(self):
+        f=self.f;r=f.apply(True);self.assertTrue(r['changed']);self.assertIn('PREFLIGHT',r['status']);f.originals(self);f.unchanged_config(self)
+        self.assertFalse(any(a[0]=='/usr/bin/systemctl' for a in f.calls))
+        self.assertFalse(list((f.root.parent/'whatsapp-release-backups').glob('order-evidence-*')))
+
+    def test_already_current_repeat_preserves_inodes_and_has_no_second_backup(self):
+        f=self.f;f.apply();before={p:repair.metadata(f.root/p) for p in f.pins}
+        backups=list((f.root.parent/'whatsapp-release-backups').iterdir());result=f.apply()
+        self.assertIn('ALREADY_CURRENT',result['status']);self.assertIsNone(result['backup'])
+        self.assertEqual(before,{p:repair.metadata(f.root/p) for p in f.pins})
+        self.assertEqual(backups,list((f.root.parent/'whatsapp-release-backups').iterdir()))
+
+    def test_uncached_config_remains_absent(self):
+        with tempfile.TemporaryDirectory() as t:
+            f=Fixture(t,False);f.apply();f.unchanged_config(self)
+
+    def test_existing_private_config_hardlinks_preserved(self):
+        f=self.f;path=f.root/'config/whatsapp_orders.php';alias=f.root.parent/'config-private-copy';os.link(path,alias)
+        f.config=repair.configuration_snapshot(f.root,f.uid);before=repair.metadata(alias);f.apply();f.unchanged_config(self)
+        self.assertEqual(repair.metadata(alias),before)
+
+    def test_unknown_live_source_rejected_before_smoke(self):
+        f=self.f;p=list(f.pins)[-1];f.write(p,b'<?php /* foreign */\n')
+        with self.assertRaises(repair.SafeError):f.apply()
+        self.assertEqual(f.calls,[])
+
+    def test_source_symlink_rejected(self):
+        f=self.f;p=list(f.pins)[-1];path=f.root/p;path.unlink();path.symlink_to(f.root/'config/other.php')
+        with self.assertRaises(repair.SafeError):f.apply()
+        self.assertTrue(path.is_symlink())
+
+    def test_wrong_git_tree_mode_rejected_before_publication(self):
+        f=self.f;f.tree_mode=b'120000'
+        with self.assertRaises(repair.SafeError):f.apply()
+        f.originals(self);f.unchanged_config(self)
+
+    def test_wrong_git_blob_bytes_rejected_before_publication(self):
+        f=self.f;p=list(f.targets)[0];f.targets[p]+=b'changed'
+        with self.assertRaises(repair.SafeError):f.apply()
+        f.originals(self)
+
+    def test_lint_failure_preserves_app_and_config(self):
+        f=self.f;f.fail_lint=True
+        with self.assertRaises(repair.SafeError):f.apply()
+        f.originals(self);f.unchanged_config(self)
+
+    def test_target_bootstrap_failure_rolls_back_same_original_inodes(self):
+        f=self.f;before={p:repair.base.snapshot(f.root/p,f.uid,f.root,True) for p in f.pins};f.fail_target=True
+        with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self);f.unchanged_config(self)
+        for p,item in before.items():self.assertEqual(repair.base.snapshot(f.root/p,f.uid,f.root,True),item)
+
+    def test_existing_new_dependency_collision_never_overwritten(self):
+        f=self.f;p=list(f.pins)[0];f.write(p,b'<?php /* different helper */\n')
+        with self.assertRaises(repair.SafeError):f.apply()
+        self.assertEqual((f.root/p).read_bytes(),b'<?php /* different helper */\n')
+
+    def test_new_evidence_created_by_web_request_blocks_resuming_restored_baseline(self):
+        f=self.f;f.fail_target=True;f.rollback_compatible=False
+        with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self);f.unchanged_config(self)
+
+    def test_empty_current_evidence_does_not_excuse_inflight_http_compatibility_race(self):
+        f=self.f;f.fail_target=True;f.rollback_compatible=True
+        with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self)
+
+    def test_configuration_changed_between_preflight_and_quiesce_rejects(self):
+        f=self.f;pre=f.apply(True);f.write('config/other.php',b'<?php return ["important"=>8];\n')
+        with self.assertRaisesRegex(repair.SafeError,'CHANGED_SINCE_PREFLIGHT'):f.apply(expected=pre['configuration_fingerprint'])
+        f.originals(self)
+
+    def test_configuration_race_after_first_atomic_publish_rolls_back_files_and_retains_new_config(self):
+        f=self.f;original=repair.base.replace_file;count=[0]
+        def publish(*a,**kw):
+            result=original(*a,**kw);count[0]+=1
+            if count[0]==1:f.write('config/other.php',b'<?php /* concurrent config */\n')
+            return result
+        with mock.patch.object(repair.base,'replace_file',publish):
+            with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self);self.assertEqual((f.root/'config/other.php').read_bytes(),b'<?php /* concurrent config */\n')
+
+    def test_postpublication_foreign_entrypoint_preserved_with_its_dependencies(self):
+        f=self.f;p=list(f.pins)[-1];original=repair.readiness
+        def smoke(root,runner,pins):
+            result=original(root,runner,pins)
+            if all(pins[k]==f.pins[k][1] for k in pins):f.write(p,b'<?php /* newer external entrypoint */\n')
+            return result
+        with mock.patch.object(repair,'readiness',smoke):
+            with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        self.assertEqual((f.root/p).read_bytes(),b'<?php /* newer external entrypoint */\n')
+        self.assertEqual((f.root/list(f.pins)[0]).read_bytes(),f.targets[list(f.pins)[0]])
+
+    def test_atomic_exchange_exception_after_syscall_is_recoverable(self):
+        f=self.f;original=repair.base.atomic_exchange;count=[0]
+        def interrupted(a,b):
+            original(a,b);count[0]+=1
+            if count[0]==2:raise InterruptedError()
+        with mock.patch.object(repair.base,'atomic_exchange',interrupted):
+            with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):f.apply()
+        f.originals(self);f.unchanged_config(self)
+
+    def test_protected_erp_pin_mismatch_blocks_before_release_commands(self):
+        f=self.f;f.write('app/Support/Immutable.php',b'<?php /* different ERP */\n')
+        with self.assertRaisesRegex(repair.SafeError,'PROTECTED_SOURCE_MISMATCH'):f.apply()
+        self.assertEqual(f.calls,[])
+
+    def test_workers_with_nonzero_pid_block_publication(self):
+        f=self.f;old=f.runner
+        def runner(root,args,**kw):
+            code,value=old(root,args,**kw)
+            if args[0]=='/usr/bin/systemctl' and args[-1].endswith('.service'):value=value.replace(b'MainPID=0',b'MainPID=99')
+            return code,value
+        f.runner=runner
+        with self.assertRaisesRegex(repair.SafeError,'NOT_QUIESCENT'):f.apply()
+        f.originals(self)
+
+    def test_private_config_multilink_rejected(self):
+        f=self.f;os.link(f.root/'.env',f.root.parent/'env-alias')
+        with self.assertRaisesRegex(repair.SafeError,'CONFIGURATION_LINK_UNSAFE'):f.apply()
+        f.originals(self)
+
+    def test_config_file_addition_during_lint_blocks_publication(self):
+        f=self.f
+        def hook(args):
+            if args[:2]==[repair.PHP,'-l']:f.write('config/new.php',b'<?php /* concurrent */\n')
+        f.hook=hook
+        with self.assertRaisesRegex(repair.SafeError,'CONFIGURATION_CHANGED'):f.apply()
+        f.originals(self)
+
+
+class Workers:
+    def __init__(self):
+        self.states={name:'inactive' for name in wrapper.UNITS};self.states[wrapper.UNITS[2]]='active'
+        self.calls=[];self.fail_order_start=False;self.changed=False;self.child_calls=[];self.publish_fail=None
+    def profile(self,name):return (name,'changed' if self.changed else 'stable')
+    def runner(self,args,timeout=60):
+        self.calls.append(tuple(args))
+        if args[1]=='show':
+            name=args[-1];result='LoadState=loaded\nActiveState='+self.states[name]+'\nFragmentPath=/etc/systemd/system/'+name+'\n'
+            if name.endswith('.service'):result+='MainPID='+('45' if self.states[name]=='active' else '0')+'\n'
+            return 0,result.encode()
+        if args[1]=='stop':
+            for name in args[2:]:self.states[name]='inactive'
+            return 0,b''
+        if args[1]=='start':
+            name=args[-1]
+            if self.fail_order_start and name==wrapper.UNITS[2]:return 1,b'private-systemd-error'
+            self.states[name]='active';return 0,b''
+        raise AssertionError(args)
+    def child(self,directory,release,uid,gid,held,check,expected=None):
+        self.child_calls.append((check,expected))
+        if check:return {'ok':True,'result':{'status':'WHATSAPP_ORDER_EVIDENCE_PREFLIGHT_READY','changed':True,'configuration_fingerprint':'b'*64}}
+        if self.publish_fail:return {'ok':False,'status':self.publish_fail}
+        return {'ok':True,'result':{'status':'WHATSAPP_ORDER_EVIDENCE_REPAIR_READY','backup':'fixture-only','configuration_fingerprint':'b'*64}}
+    def run(self):return wrapper.orchestrate(pathlib.Path('/fixture'),RELEASE,1,1,[5,6],self.runner,self.child,self.profile)
+
+
+class RepairRootRecoveryTests(unittest.TestCase):
+    def test_preflight_precedes_worker_pause_and_restores_only_original_active_pipeline(self):
+        w=Workers();result=w.run();self.assertIn('REPAIR_READY',result['status']);self.assertEqual(w.child_calls,[(True,None),(False,'b'*64)])
+        self.assertEqual(w.states[wrapper.UNITS[2]],'active');self.assertEqual(w.states[wrapper.UNITS[0]],'inactive')
+        self.assertEqual([a[-1] for a in w.calls if a[1]=='start'],[wrapper.UNITS[2]])
+
+    def test_already_current_preflight_does_not_stop_or_start_any_unit(self):
+        w=Workers();old=w.child
+        def child(*a,**kw):
+            result=old(*a,**kw);result['result']['changed']=False;return result
+        w.child=child;self.assertIn('ALREADY_CURRENT',w.run()['status']);self.assertEqual(w.calls,[])
+
+    def test_unsafe_source_preflight_causes_no_worker_actions(self):
+        w=Workers();w.child=lambda *a,**kw:{'ok':False,'status':'ORDER_REPAIR_LIVE_SOURCE_NEEDS_REVIEW'}
+        with self.assertRaisesRegex(wrapper.SafeError,'LIVE_SOURCE'):w.run()
+        self.assertEqual(w.calls,[])
+
+    def test_confirmed_file_rollback_restores_prior_pipeline(self):
+        w=Workers();w.publish_fail='ORDER_REPAIR_FILES_RESTORED; BACKUP=/home/fasakha/whatsapp-release-backups/order-evidence-fixture'
+        with self.assertRaisesRegex(wrapper.SafeError,'FILES_RESTORED'):w.run()
+        self.assertEqual(w.states[wrapper.UNITS[2]],'active');self.assertEqual(w.states[wrapper.UNITS[0]],'inactive')
+
+    def test_uncertain_rollback_keeps_orders_paused_and_capture_active(self):
+        w=Workers();w.publish_fail='ORDER_REPAIR_ROLLBACK_REVIEW_REQUIRED'
+        with self.assertRaisesRegex(wrapper.SafeError,'ORDERS_PAUSED_CAPTURE_ACTIVE'):w.run()
+        self.assertEqual(w.states[wrapper.UNITS[2]],'inactive');self.assertEqual(w.states[wrapper.UNITS[3]],'inactive');self.assertEqual(w.states[wrapper.UNITS[0]],'active')
+
+    def test_failed_order_timer_restore_recovers_capture_without_starting_order_service(self):
+        w=Workers();w.fail_order_start=True
+        with self.assertRaisesRegex(wrapper.SafeError,'ORDERS_PAUSED_CAPTURE_ACTIVE'):w.run()
+        self.assertEqual(w.states[wrapper.UNITS[2]],'inactive');self.assertEqual(w.states[wrapper.UNITS[0]],'active')
+        self.assertFalse(any(a[1]=='start' and a[-1].endswith('.service') for a in w.calls))
+
+    def test_changed_root_unit_is_stopped_but_never_started_during_recovery(self):
+        w=Workers();old=w.child
+        def child(*a,**kw):
+            result=old(*a,**kw)
+            if a[5] is False:w.changed=True
+            return result
+        w.child=child
+        with self.assertRaisesRegex(wrapper.SafeError,'RECOVERY_NEEDS_REVIEW'):w.run()
+        self.assertTrue(all(value=='inactive' for value in w.states.values()))
+        self.assertFalse(any(a[1]=='start' for a in w.calls))
+
+    def test_manual_service_without_timer_refused_before_pause(self):
+        w=Workers();w.states[wrapper.UNITS[2]]='inactive';w.states[wrapper.UNITS[3]]='active'
+        with self.assertRaisesRegex(wrapper.SafeError,'MANUAL_WORKER'):w.run()
+        self.assertFalse(any(a[1] in ('stop','start') for a in w.calls))
+
+    def test_real_pins_roster_has_exact_seven_files_without_configuration(self):
+        self.assertEqual(len(repair.SOURCE_PINS),7)
+        self.assertTrue(all((p.startswith('app/Services/Dashboard/') or
+            p=='app/Http/Controllers/Dashboard/WhatsAppInboxController.php') and p.endswith('.php') for p in repair.SOURCE_PINS))
+        self.assertNotIn('projectPending(',repair.READINESS_PHP);self.assertNotIn('extract(',repair.READINESS_PHP)
+        self.assertNotIn('->process(',repair.READINESS_PHP);self.assertNotIn('->consume(',repair.READINESS_PHP)
+        self.assertIn("'whatsapp_reply_requests'",repair.READINESS_PHP);self.assertIn("'whatsapp_reply_projection_keys'",repair.READINESS_PHP)
+
+
+if __name__=='__main__':unittest.main()

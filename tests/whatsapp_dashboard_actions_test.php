@@ -51,6 +51,7 @@ foreach (['Support/WhatsAppInboxProtocol.php', 'Services/Dashboard/WhatsAppInbox
     'Services/Dashboard/WhatsAppInboxConsumer.php', 'Services/Dashboard/WhatsAppInboxAccess.php',
     'Services/Dashboard/WhatsAppVoiceMedia.php',
     'Services/Dashboard/WhatsAppInboxReadState.php',
+    'Services/Dashboard/WhatsAppAcceptedReplyEvidence.php',
     'Services/Dashboard/WhatsAppInboxMessage.php', 'Services/Dashboard/WhatsAppInboxMedia.php',
     'Services/Dashboard/WhatsAppReplyService.php'] as $relative) require $source . '/app/' . $relative;
 foreach (['2026_10_10_000001_create_whatsapp_inbox_tables.php',

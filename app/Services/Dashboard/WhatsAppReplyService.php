@@ -246,6 +246,7 @@ class WhatsAppReplyService
             $stamp = $this->now()->format('Y-m-d H:i:s');
             $audit = ['client_request_id' => strtolower($request['client_request_id']),
                 'text' => $request['text'], 'recipient' => $snapshot['recipient'],
+                'payload_values' => $this->payloadValues($request),
                 'voice_sha256' => $request['voice_sha256'] ?? null,
                 'attachment' => $request['attachment'] ?? null,
                 'reply_to' => $bindings['context'] === null ? null : $this->messages->summary($bindings['context']),
@@ -537,6 +538,14 @@ class WhatsAppReplyService
             }
             return $changed;
         }, 3);
+        // Commit ACCEPTED before independent evidence work. A projection deadlock must never
+        // roll back provider acceptance or make the client resend an already accepted message.
+        if ($changed === 1 && $state === 'ACCEPTED') {
+            try {
+                $accepted = DB::table('whatsapp_reply_requests')->where('id', $id)->first();
+                if ($accepted && $accepted->kind === 'text') (new WhatsAppAcceptedReplyEvidence())->projectAcceptedReply($accepted);
+            } catch (\Throwable $error) { /* Bounded worker projection retries the durable receipt. */ }
+        }
         return $changed === 1 ? $this->result($state, false, $id, $reason)
             : $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
     }
@@ -728,6 +737,11 @@ class WhatsAppReplyService
 
     private function payloadHash(array $request): string
     {
+        return hash_hmac('sha256', 'whatsapp-reply-payload-v1:' . json_encode($this->payloadValues($request), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $this->key());
+    }
+
+    private function payloadValues(array $request): array
+    {
         $values = [
             $request['kind'], $request['expected_inbound_id'], $request['text'], $request['voice_sha256'] ?? null,
         ];
@@ -735,7 +749,7 @@ class WhatsAppReplyService
             $values[] = [$request['reply_to_message_id'] ?? null, $request['reply_to_reply_id'] ?? null,
                 $request['source'] ?? null, $request['media'] ?? null, $request['emoji'] ?? null, $request['context_fingerprint'] ?? null];
         if (isset($request['attachment'])) $values[] = $request['attachment'];
-        return hash_hmac('sha256', 'whatsapp-reply-payload-v1:' . json_encode($values, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $this->key());
+        return $values;
     }
 
     private function encrypt(array $data): string { return Crypt::encryptString(json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)); }

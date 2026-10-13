@@ -409,13 +409,15 @@ try {
         ob_start();
         $result = $failed->extract($rows);
         $printed = ob_get_clean();
-        orderExpect($result, ['ok' => false, 'reason' => $fixture['reason'], 'data' => null], 'fixed private failure');
+        orderExpect(array_intersect_key($result, ['ok'=>true,'reason'=>true,'data'=>true]),
+            ['ok' => false, 'reason' => $fixture['reason'], 'data' => null], 'fixed private failure');
         orderExpect($printed, '', 'API errors/refusals never printed');
     }
     $throwing = new Provider(static function () {
         throw new RuntimeException('sk-fixture-secret-never-print private customer');
     }, orderConfig());
-    orderExpect($throwing->extract($rows), ['ok' => false, 'reason' => 'TRANSPORT_ERROR', 'data' => null], 'exception details stay private');
+    orderExpect(array_intersect_key($throwing->extract($rows), ['ok'=>true,'reason'=>true,'data'=>true]),
+        ['ok' => false, 'reason' => 'TRANSPORT_ERROR', 'data' => null], 'exception details stay private');
     echo 'WHATSAPP_ORDER_EXTRACTION_TESTS=' . $checks . " PASS\n";
 } catch (Throwable $error) {
     echo 'WHATSAPP_ORDER_EXTRACTION_TESTS_FAILED=' . $error->getMessage() . "\n";

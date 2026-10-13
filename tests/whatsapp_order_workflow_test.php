@@ -57,11 +57,12 @@ namespace App\Services\Dashboard {
     }
     class WhatsAppOrderAiProvider {
         public static $data; public static $calls=0; public static $callback; public static $failure=false; public static $lastTranscript;
+        public static $failureReason='TRANSPORT_ERROR'; public static $failureDiagnostic=[];
         public function extract(array $transcript): array {
             self::$calls++; self::$lastTranscript=$transcript;
             \abort_unless(DB::connection()->transactionLevel()===0,500,'NETWORK_LOCK');
             if (self::$callback) (self::$callback)();
-            return self::$failure?['ok'=>false,'reason'=>'TRANSPORT_ERROR','data'=>null]:['ok'=>true,'reason'=>null,'data'=>self::$data];
+            return self::$failure?['ok'=>false,'reason'=>self::$failureReason,'data'=>null,'diagnostic'=>self::$failureDiagnostic]:['ok'=>true,'reason'=>null,'data'=>self::$data];
         }
     }
     class BranchCustomers {
@@ -212,8 +213,10 @@ namespace {
     function expectFlow($condition,$label) { global $checks; $checks++; if(!$condition)throw new \RuntimeException('FAILED:'.$label); }
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
+        foreach (['whatsapp_reply_projection_keys','whatsapp_reply_requests'] as $t) if (Schema::hasTable($t)) DB::table($t)->delete();
         foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','pos_service_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
-        Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Pos::$drift=0; Pos::$failAfterWrite=false; Pos::$saveCalls=0; Pos::$lastPayload=null; PhoneDelivery::$drift=0; PhoneDelivery::$callback=null; BranchCustomers::$calls=0;
+        Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Ai::$failureReason='TRANSPORT_ERROR'; Ai::$failureDiagnostic=[];
+        Pos::$drift=0; Pos::$failAfterWrite=false; Pos::$saveCalls=0; Pos::$lastPayload=null; PhoneDelivery::$drift=0; PhoneDelivery::$callback=null; BranchCustomers::$calls=0;
         \App\Services\Dashboard\TakeawayCatalog::$ambiguous=false; \App\Services\Dashboard\TakeawayCatalog::$mode='weight'; \App\Services\Dashboard\TakeawayCatalog::$options=[];
         \App\Services\Dashboard\PosServicePhone::$items=[]; \App\Services\Dashboard\PosServicePhone::$calls=0; \App\Services\Dashboard\PosServicePhone::$callback=null;
         DB::table('test_users')->where('id',7)->update(['active'=>1,'can_checkout'=>1,'owner_resturant_id'=>null]);
@@ -806,6 +809,157 @@ namespace {
     expectFlow(!array_key_exists('delivery_origin_branch',$q['draft']['review']),'same-branch origin retains the legacy sealed review shape');
     $v=$q['draft']['review'];$v['expected_revision']=$q['draft']['revision'];$sent=$workflow->dispatch($q['draft']['id'],$v,$actor);
     expectFlow($sent['ticket_id']>0&&!array_key_exists('delivery_origin_branch',Pos::$lastPayload),'ordinary branches preserve the original ERP payload contract');
+
+    // A manual click in an active automatic session uses the same fresh lower bound.
+    // Historical probe text must not turn a fresh confirmed order into NONE/TEST_MESSAGE.
+    resetFlow(); $c=addConversation();
+    insertMessage($c,'old-probe','inbound','WA-0101',-86400); $cutover=(int)DB::table('whatsapp_inbox_messages')->max('id');
+    insertMessage($c,'new-manual-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
+    insertMessage($c,'new-manual-pin','inbound','',2,['lat'=>31.04,'long'=>31.37]);
+    insertMessage($c,'new-manual-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',3);
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none('TEST_MESSAGE'); $a=$workflow->analyze($c,$actor);
+    $old=DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first();
+    expectFlow($old->status==='NONE'&&(int)$old->evidence_floor===0&&count(Ai::$lastTranscript)===4,'historical review preserves explicit probe rejection');
+    $rawBefore=DB::table('whatsapp_inbox_messages')->orderBy('id')->get()->toJson();
+    app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_orders.activation_message_id',$cutover);
+    DB::table('whatsapp_order_scans')->update(['auto_floor'=>$cutover,'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
+    Ai::$data=extractionData(); $b=$workflow->analyze($c,$actor);
+    $fresh=DB::table('whatsapp_order_drafts')->where('id',$old->id)->first();
+    expectFlow($b['draft']['status']==='REVIEW'&&$b['draft']['data']['decision']==='CONFIRMED'&&Ai::$calls===2,'manual active session recomputes cached old NONE without forced click');
+    expectFlow((int)$fresh->evidence_floor===$cutover&&(int)$fresh->revision===2&&count(Ai::$lastTranscript)===3
+        &&!\App\Support\WhatsAppOrderExtraction::hasProbe(Ai::$lastTranscript),'fresh manual slice excludes historical test marker');
+    expectFlow($fresh->ticket_command_key===$old->ticket_command_key&&$fresh->customer_command_key===$old->customer_command_key
+        &&DB::table('whatsapp_inbox_messages')->orderBy('id')->get()->toJson()===$rawBefore,'manual reanalysis preserves durable command keys and source messages');
+    expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0,'manual analysis performs no ERP write');
+    $p=$workflow->process(); expectFlow($p['dispatched']===1&&Ai::$calls===2&&DB::table('test_tickets')->count()===1,'same fresh manual confirmation dispatches once without repeat AI');
+
+    resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');$latest=(int)DB::table('whatsapp_inbox_messages')->max('id');
+    app('config')->set('whatsapp_orders.activation_message_id',$latest);
+    blocked(fn()=>$workflow->analyze($c,$actor,true),409,'manual force cannot bypass current activation floor');
+    expectFlow(Ai::$calls===0&&DB::table('whatsapp_order_drafts')->count()===0,'historical-only forced analysis spends no AI in active auto mode');
+
+    resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');
+    Ai::$callback=function(){app('config')->set('whatsapp_orders.activation_event_id',1);};
+    blocked(fn()=>$workflow->analyze($c,$actor),409,'manual active-session extraction still checks cutover CAS');
+    expectFlow(DB::table('whatsapp_order_drafts')->count()===0&&DB::table('whatsapp_order_scans')->first()->claim_nonce===null,'manual cutover race releases only its lease');
+    app('config')->set('whatsapp_orders.activation_event_id',0);
+
+    // Provider failures are durable fixed diagnostics, never counterfeit extracted orders.
+    resetFlow();$c=fixtureThread();Ai::$failure=true;Ai::$failureReason='INCOMPLETE';
+    Ai::$failureDiagnostic=['stage'=>'RESPONSE','http_status'=>200,'transport_category'=>'NONE','curl_errno'=>0,
+        'elapsed_ms'=>60001,'response_status'=>'incomplete','incomplete_reason'=>'max_output_tokens',
+        'input_tokens'=>300,'output_tokens'=>8192,'reasoning_tokens'=>8000,'raw_response'=>'secret-provider-response'];
+    $a=$workflow->analyze($c,$actor); $stored=DB::table('whatsapp_order_drafts')->first();
+    $failure=json_decode(Crypt::decryptString($stored->extraction),true)['analysis_failure'];
+    expectFlow($a['draft']['reason']==='AI_UNAVAILABLE'&&$a['draft']['data']===null&&$failure===$a['draft']['analysis_failure'],'encrypted provider failure is exposed separately from extraction');
+    expectFlow($failure['reason']==='INCOMPLETE'&&$failure['diagnostic']['output_tokens']===8192
+        &&$failure['diagnostic']['incomplete_reason']==='max_output_tokens'&&!isset($failure['diagnostic']['raw_response']),'safe diagnostics retain budget cause without response prose');
+    expectFlow(strpos($stored->extraction,'max_output_tokens')===false&&strpos(json_encode($a),'secret-provider-response')===false,'provider diagnostics remain encrypted and redact unknown fields');
+    $failureMethod=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'safeAnalysisFailure');$failureMethod->setAccessible(true);
+    $unsafe=$failureMethod->invoke($workflow,['reason'=>'secret','diagnostic'=>['stage'=>'SECRET','http_status'=>'200','curl_errno'=>-1,
+        'input_tokens'=>1000000001,'response_status'=>'provider-secret','incomplete_reason'=>'provider-secret','raw_response'=>'secret']]);
+    expectFlow($unsafe['reason']==='UNKNOWN'&&array_filter($unsafe['diagnostic'],fn($v)=>$v!==null)===[],'failure sanitizer rejects arbitrary strings numeric coercion and unbounded counts');
+    $state=$workflow->state($c,$actor);expectFlow($state['drafts'][0]['analysis_failure']===$failure&&Ai::$calls===1,'read-only state preserves safe failure details without retry');
+
+    // Real encrypted ACCEPTED receipts and projection schema, with no fake native echo.
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxMessage.php';
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php';
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php';
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxConsumer.php';
+    require dirname(__DIR__).'/database/migrations/2026_10_10_000003_create_whatsapp_reply_requests.php';
+    require dirname(__DIR__).'/database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php';
+    (new \CreateWhatsAppReplyRequests)->up(); (new \CreateWhatsAppInboxHiddenMessages)->up();
+    Schema::table('whatsapp_webhook_events',function(Blueprint $t){$t->string('payload_hash',64)->nullable();$t->longText('payload')->nullable();$t->timestamp('received_at')->nullable();});
+    function apiRequestThread(string $suffix=''): array {
+        $peer='US.fixture'.$suffix;$c=addConversation($peer);
+        $request=insertMessage($c,'wamid.api-request'.$suffix,'inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1,null,$peer);
+        insertMessage($c,'wamid.api-pin'.$suffix,'inbound','',2,['lat'=>31.04,'long'=>31.37],$peer);
+        return [$c,$request];
+    }
+    function acceptedApiReply(int $c,int $request,string $id='wamid.api-confirm',int $second=3): int {
+        $uuid='00000000-0000-4000-8000-'.str_pad((string)(DB::table('whatsapp_reply_requests')->max('id')+1),12,'0',STR_PAD_LEFT);
+        $text='تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.';
+        $values=['text',$request,$text,null];
+        $audit=['client_request_id'=>$uuid,'text'=>$text,'recipient'=>'201000000001','payload_values'=>$values];
+        $response=Crypt::encryptString(json_encode(['message_id'=>$id]));
+        $at=gmdate('Y-m-d H:i:s',strtotime('2026-10-09 22:00:00 UTC')+$second);
+        $r=DB::table('whatsapp_reply_requests')->insertGetId(['conversation_id'=>$c,'actor_id'=>7,'waba_id'=>'468336579702269','phone_number_id'=>'515388018324075',
+            'request_hash'=>hash_hmac('sha256','whatsapp-reply-request-v1:7:'.$c.':'.$uuid,Crypt::getKey()),
+            'payload_hash'=>hash_hmac('sha256','whatsapp-reply-payload-v1:'.json_encode($values,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),Crypt::getKey()),
+            'inbound_message_id'=>$request,'kind'=>'text','state'=>'ACCEPTED','audit'=>Crypt::encryptString(json_encode($audit)),
+            'response_details'=>$response,'remote_message_key'=>hash('sha256','whatsapp-reply-message-v1:468336579702269:515388018324075:'.$id),
+            'claimed_at'=>'2026-10-09 22:00:02','send_started_at'=>$at,'completed_at'=>$at,'created_at'=>$at,'updated_at'=>$at]);
+        expectFlow((new \App\Services\Dashboard\WhatsAppInboxMessage)->indexReply(DB::table('whatsapp_reply_requests')->where('id',$r)->first()),'actual API native-key index');
+        return $r;
+    }
+    resetFlow();[$c,$request]=apiRequestThread();app('config')->set('whatsapp_orders.mode','auto');
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$before=$workflow->process();$ceiling=(int)DB::table('whatsapp_inbox_messages')->max('id');
+    expectFlow($before['dispatched']===0&&DB::table('whatsapp_order_drafts')->first()->status==='NONE','preconfirmation ceiling contains no finalized order');
+    $receipt=acceptedApiReply($c,$request);Ai::$data=extractionData();$p=$workflow->process();
+    $projected=DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->first();
+    $draft=DB::table('whatsapp_order_drafts')->where('status','DISPATCHED')->first();
+    expectFlow($p['dispatched']===1&&Ai::$calls===2&&(int)$projected->id>$ceiling&&count(Ai::$lastTranscript)===3,'accepted API confirmation advances existing cursor and wakes automatic analysis');
+    expectFlow(Ai::$lastTranscript[2]['speaker']==='business'&&Ai::$lastTranscript[2]['text']==='تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.','receipt contributes validated business text to extraction');
+    $envelope=json_decode(Crypt::decryptString($projected->content),true);
+    expectFlow($envelope['schema']==='whatsapp-accepted-reply-evidence-v1'&&!isset($envelope['content']['message']),'receipt evidence retains honest provenance without invented native payload');
+    expectFlow(DB::table('test_tickets')->count()===1&&DB::table('test_print')->count()===1&&$draft->confirmation_key!==null,'accepted API order creates one ticket and one print');
+    $originalHash=$draft->evidence_hash;$originalKey=$draft->confirmation_key;$originalRow=(array)$projected;
+    $message=['id'=>'wamid.api-confirm','timestamp'=>(string)strtotime('2026-10-09 22:00:03 UTC'),'type'=>'text',
+        'from'=>'201285545554','to'=>'201000000001','to_user_id'=>'US.fixture','text'=>['body'=>Ai::$lastTranscript[2]['text']]];
+    $payload=['object'=>'whatsapp_business_account','entry'=>[['id'=>'468336579702269','changes'=>[['field'=>'smb_message_echoes','value'=>[
+        'messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>'515388018324075'],'message_echoes'=>[$message]]]]]]];
+    $json=json_encode($payload,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
+    $event=DB::table('whatsapp_webhook_events')->insertGetId(['payload_hash'=>hash('sha256',$json),'payload'=>Crypt::encryptString($json),'received_at'=>now('UTC'),'processed_at'=>null]);
+    $echo=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1);$after=$workflow->process();
+    $snapshotMethod=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'snapshot');$snapshotMethod->setAccessible(true);
+    $confirmationMethod=new \ReflectionMethod(WhatsAppOrderWorkflow::class,'confirmationKey');$confirmationMethod->setAccessible(true);
+    $snap=$snapshotMethod->invoke($workflow,$c,(int)$draft->evidence_floor,(int)$draft->evidence_ceiling);
+    expectFlow($echo['messages_replayed']===1&&$echo['messages_inserted']===0&&$echo['quarantined_events']===0,'actual native echo replays the accepted API canonical message');
+    expectFlow((array)DB::table('whatsapp_inbox_messages')->where('id',$projected->id)->first()===$originalRow
+        &&$snap['hash']===$originalHash&&$confirmationMethod->invoke($workflow,$draft)===$originalKey,'echo preserves receipt timestamp source hash and shared confirmation key');
+    expectFlow(DB::table('test_tickets')->count()===1&&Ai::$calls===2&&$after['dispatched']===0,'late echo produces no duplicate ERP order or AI extraction');
+
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);$a=$workflow->analyze($c,$actor);
+    expectFlow($a['draft']['data']['decision']==='CONFIRMED'&&count(Ai::$lastTranscript)===3,'manual analysis also includes accepted API confirmation');
+    $projection=DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->first();
+    $oldAudit=DB::table('whatsapp_reply_requests')->first()->audit;$audit=json_decode(Crypt::decryptString($oldAudit),true);$audit['recipient']='201000000002';
+    DB::table('whatsapp_reply_requests')->update(['audit'=>Crypt::encryptString(json_encode($audit))]);
+    try{$workflow->analyze($c,$actor,true);throw new \RuntimeException('TAMPERED_RECEIPT_ACCEPTED');}catch(\RuntimeException $e){expectFlow($e->getMessage()==='INVALID_ACCEPTED_REPLY','altered accepted recipient fails fresh receipt validation');}
+    expectFlow(Ai::$calls===1&&DB::table('test_tickets')->count()===0,'invalid durable receipt is never sent to AI or ERP');
+
+    // A bad known conversation does not prevent an unrelated fresh order from being processed.
+    resetFlow();[$bad,$request]=apiRequestThread('bad');$rid=acceptedApiReply($bad,$request,'wamid.api-bad');
+    DB::table('whatsapp_reply_requests')->where('id',$rid)->update(['payload_hash'=>str_repeat('0',64)]);
+    $good=fixtureThread('good');app('config')->set('whatsapp_orders.mode','auto');$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&$p['capture_pending']===1&&Ai::$calls===1
+        &&DB::table('whatsapp_order_drafts')->where('conversation_id',$bad)->count()===0,'invalid API evidence blocks its conversation while unrelated native order proceeds');
+    expectFlow(DB::table('test_tickets')->count()===1&&DB::table('whatsapp_reply_requests')->where('id',$rid)->value('payload_hash')===str_repeat('0',64),'bad receipt remains intact and no implicit recovery or source rewrite occurs');
+
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request,'wamid.api-old',3);
+    app('config')->set('whatsapp_orders.mode','auto');app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:04');
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$p=$workflow->process();
+    expectFlow(DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->count()===0
+        &&count(Ai::$lastTranscript)===2&&$p['dispatched']===0,'global and scoped backfill exclude accepted confirmations predating current activation');
+
+    // A newly inserted receipt can retain an old send time; ids alone cannot make it fresh.
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request,'wamid.api-late',3);
+    (new \App\Services\Dashboard\WhatsAppAcceptedReplyEvidence)->projectPending(100,$c,null);
+    app('config')->set('whatsapp_orders.mode','auto');app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:04');
+    $p=$workflow->process();
+    expectFlow($p['dispatched']===0&&DB::table('whatsapp_order_drafts')->first()->reason==='STALE_TRANSCRIPT'
+        &&DB::table('test_tickets')->count()===0,'late receipt projection cannot bypass automatic evidence timestamp guard');
+
+    resetFlow();[$c,$request]=apiRequestThread();Ai::$data=\App\Support\WhatsAppOrderExtraction::none();
+    Ai::$callback=function()use($c,$request){acceptedApiReply($c,$request,'wamid.api-during-ai');};
+    blocked(fn()=>$workflow->analyze($c,$actor),409,'accepted API reply during extraction invalidates message ceiling CAS');
+    expectFlow(Ai::$calls===1&&DB::table('whatsapp_order_drafts')->count()===0&&DB::table('whatsapp_order_scans')->first()->claim_nonce===null
+        &&DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->count()===1,'in-flight API confirmation cannot persist false NONE and releases only its lease');
+
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);[$id,$v]=prepared($workflow,$actor,$c);
+    acceptedApiReply($c,$request,'wamid.api-after-quote',4);
+    blocked(fn()=>$workflow->dispatch($id,$v,$actor),409,'unprojected accepted API reply invalidates existing READY quote before ERP write');
+    expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
+        &&DB::table('whatsapp_order_drafts')->where('id',$id)->value('status')==='READY','receipt arrival after quote leaves no partial order or customer');
 
     fwrite(STDOUT,'whatsapp-order-workflow: '.$checks." checks passed\n");
 }

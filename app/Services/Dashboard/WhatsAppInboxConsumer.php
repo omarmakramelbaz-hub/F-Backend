@@ -228,6 +228,13 @@ class WhatsAppInboxConsumer
                 || $existing->direction !== $message['direction'] || $existing->type !== $message['type']) {
                 throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
             }
+            if ($existing->source === 'dashboard_api') {
+                // API acceptance and a later genuine echo share the native ID, not a timestamp.
+                // Validate both facts without rewriting immutable receipt evidence or its cursor.
+                if (!(new WhatsAppAcceptedReplyEvidence())->matchesNativeEcho($conversation, $existing, $message, true))
+                    throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
+                return 'replayed';
+            }
             try {
                 $saved = json_decode(Crypt::decryptString($existing->content), true, 512, JSON_THROW_ON_ERROR);
             } catch (DecryptException | \JsonException $error) {
