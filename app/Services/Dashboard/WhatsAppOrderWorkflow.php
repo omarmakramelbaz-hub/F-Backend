@@ -22,7 +22,8 @@ class WhatsAppOrderWorkflow
     private const REASONS = ['CONTEXT_INCOMPLETE', 'AI_UNAVAILABLE', 'INVALID_EXTRACTION', 'STALE_TRANSCRIPT',
         'NO_ORDER', 'CUSTOMER_CANCELLED', 'REVIEW_REQUIRED', 'PICKUP_REQUIRES_REVIEW', 'BRANCH_UNRESOLVED',
         'CATALOG_UNRESOLVED', 'LOCATION_UNCONFIRMED', 'PRICE_REQUIRES_REVIEW', 'CUSTOMER_CHANGE',
-        'BRANCH_CLOSED', 'BRANCH_POLICY_UNAVAILABLE', 'AUTO_NOT_CONFIGURED', 'PROCESS_FAILED','CAPTURE_REVIEW_REQUIRED'];
+        'BRANCH_CLOSED', 'BRANCH_POLICY_UNAVAILABLE', 'AUTO_NOT_CONFIGURED', 'PROCESS_FAILED','CAPTURE_REVIEW_REQUIRED',
+        'RECOVERED_HISTORY_REVIEW'];
 
     public function available(): bool
     {
@@ -49,6 +50,37 @@ class WhatsAppOrderWorkflow
     public function analyze(int $conversation, $actor, bool $force = false): array
     {
         return $this->analyzeInternal($conversation, $this->actor($actor), $force, false);
+    }
+
+    /** Consumer only: a proven native correction starts a new semantic attempt sequence. */
+    public function noteProjectionRevision(int $conversation,int $message): bool
+    {
+        abort_unless($conversation>0 && $message>0,422,'INVALID_PROJECTION_REVISION');
+        if (!Schema::hasTable(static::SCANS)) return true;
+        abort_unless(Schema::hasTable(static::DRAFTS),503,'WHATSAPP_ORDERS_UNAVAILABLE');
+        return DB::transaction(function () use ($conversation,$message) {
+            $thread=$this->conversation($conversation,true);
+            $row=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$conversation)->where('id',$message)->first();
+            abort_unless($row && $row->direction==='inbound' && $row->type==='text'
+                && $this->nativeHydration($this->decode($row->content)??[],$thread,$row)!==null,500,'INVALID_PROJECTION_REVISION');
+            $scan=DB::table(static::SCANS)->where('conversation_id',$conversation)->lockForUpdate()->first();
+            if (!$scan) return true;
+            $floor=$this->dispatchedCeiling($conversation,true);
+            if ($this->mode()==='auto') {
+                $activation=$this->activationBoundary('activation_message_id');
+                abort_unless($activation!==null,403,'AUTO_NOT_CONFIGURED');
+                $floor=max($floor,$activation,(int)($scan->auto_floor??0));
+            }
+            if ($message<=$floor) return true;
+            // The consumer must roll its correction back and retry after the current holder.
+            // Never clear or reset another holder's nonce, lease, counters or backoff.
+            if ($scan->claim_nonce && $scan->lease_until>=now('UTC')->format('Y-m-d H:i:s')) return false;
+            DB::table(static::SCANS)->where('conversation_id',$conversation)->update([
+                'analyzed_ceiling'=>0,'claimed_ceiling'=>0,'attempts'=>0,
+                'next_attempt_at'=>$this->debounceSeconds()>0?now('UTC')->addSeconds($this->debounceSeconds()):null,
+                'updated_at'=>now('UTC')]);
+            return true;
+        },3);
     }
 
     public function quote(int $draft, array $review, $actor): array
@@ -119,7 +151,7 @@ class WhatsAppOrderWorkflow
             ->havingRaw('MAX(m.created_at) <= ?', [$this->settledBefore()])
             ->havingRaw('MAX(m.id) > ?',[$activation])
             ->havingRaw('MAX(m.id) > COALESCE(s.auto_floor, 0)')
-            ->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.static::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?))))', ['REVIEW','READY'])
+            ->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.static::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?) AND COALESCE(d.reason, ?) NOT IN (?, ?))))', ['REVIEW','READY','','INVALID_EXTRACTION','CONTEXT_INCOMPLETE'])
             ->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3 OR s.auto_floor IS NULL OR s.auto_floor < ?)',[$activation])
             ->orderBy('c.id')->limit($limit)->get();
         foreach ($rows as $thread) {
@@ -130,7 +162,7 @@ class WhatsAppOrderWorkflow
                 $draft = $this->draft((int)$result['draft']['id']);
                 if ($draft->status==='DISPATCHED') { $metrics['replayed']++; continue; }
                 if (in_array($draft->status,['NONE','CANCELLED'],true)) continue;
-                if ($draft->reason==='AI_UNAVAILABLE') { $metrics['review_required']++; continue; }
+                if (in_array($draft->reason,['AI_UNAVAILABLE','INVALID_EXTRACTION','CONTEXT_INCOMPLETE'],true)) { $metrics['review_required']++; continue; }
                 if ($this->mode() !== 'auto') { $metrics['review_required']++; continue; }
                 $reason = null; $review = $this->automaticReview($draft, $actor, $reason);
                 if ($review === null) { $this->reviewReason($draft, $reason ?? 'REVIEW_REQUIRED'); $this->deferDispatch((int)$draft->conversation_id); $metrics['review_required']++; continue; }
@@ -177,14 +209,18 @@ class WhatsAppOrderWorkflow
             if ($bounded) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
             $baselined=$bounded && ($scan->auto_floor===null || (int)$scan->auto_floor<$activation);
             $staleBounded=$bounded && $existing && (int)$existing->evidence_floor<$floor;
-            if ($baselined || $staleBounded) {
+            $staleEvidence=$existing && !$staleBounded
+                && !hash_equals((string)$existing->evidence_hash,$this->snapshot($conversation,$floor,$ceiling)['hash']);
+            if ($baselined || $staleBounded || $staleEvidence) {
                 // Never reset a live lease. Keep historical drafts and completed command receipts.
-                DB::table(static::SCANS)->where('conversation_id',$conversation)->update(['auto_floor'=>max($activation,(int)($scan->auto_floor??0)),
-                    'claimed_ceiling'=>0,'attempts'=>0,'next_attempt_at'=>null,'updated_at'=>now('UTC')]);
-                $scan->auto_floor=max($activation,(int)($scan->auto_floor??0)); $scan->claimed_ceiling=0; $scan->attempts=0; $scan->next_attempt_at=null;
+                $updates=['claimed_ceiling'=>0,'attempts'=>0,'next_attempt_at'=>null,'updated_at'=>now('UTC')];
+                if ($bounded) $updates['auto_floor']=max($activation,(int)($scan->auto_floor??0));
+                DB::table(static::SCANS)->where('conversation_id',$conversation)->update($updates);
+                if ($bounded) $scan->auto_floor=$updates['auto_floor'];
+                $scan->claimed_ceiling=0; $scan->attempts=0; $scan->next_attempt_at=null;
             }
             $retry=$automatic && $existing && $existing->reason==='AI_UNAVAILABLE' && (int)$scan->attempts<3;
-            if ($existing && !$staleBounded && !$force && !$retry) return ['existing'=>$existing,'baselined'=>$baselined];
+            if ($existing && !$staleBounded && !$staleEvidence && !$force && !$retry) return ['existing'=>$existing,'baselined'=>$baselined];
             if (!$force) abort_if($scan->next_attempt_at && $scan->next_attempt_at > now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_BACKOFF');
             $attempts = (int)$scan->claimed_ceiling === $ceiling ? (int)$scan->attempts+1 : 1;
             abort_if($attempts > 3 && !$force, 409, 'ANALYSIS_RETRY_LIMIT');
@@ -201,7 +237,8 @@ class WhatsAppOrderWorkflow
                 : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
             if (!is_array($result) || !($result['ok'] ?? false)) {
                 $data = ['analysis_failure'=>$this->safeAnalysisFailure($result)];
-                $reason = ($result['reason'] ?? null) === 'CONTEXT_INCOMPLETE' ? 'CONTEXT_INCOMPLETE' : 'AI_UNAVAILABLE';
+                $reason = in_array($result['reason']??null,['INVALID_INPUT','INVALID_EVIDENCE','INVALID_EXTRACTION'],true)
+                    ? 'INVALID_EXTRACTION' : (($result['reason'] ?? null) === 'CONTEXT_INCOMPLETE' ? 'CONTEXT_INCOMPLETE' : 'AI_UNAVAILABLE');
                 $status='REVIEW';
             } else {
                 $checked = WhatsAppOrderExtraction::validate($result['data'], $snapshot['transcript']);
@@ -338,6 +375,9 @@ class WhatsAppOrderWorkflow
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         if (!$snapshot['complete'] || !$data || ($data['decision']??null)!=='CONFIRMED'
             || array_diff($data['issues']??[],['PRICE_ESTIMATE_ONLY','LOCATION_REQUIRED','MISSING_BRANCH','MISSING_AREA'])!==[]) { $reason='REVIEW_REQUIRED'; return null; }
+        if ($snapshot['recovered_at']!==null && !$this->freshAutomaticEvidence($data,$snapshot['transcript'],$snapshot['recovered_at'])) {
+            $reason='RECOVERED_HISTORY_REVIEW'; return null;
+        }
         if (!$this->freshAutomaticEvidence($data,$snapshot['transcript'])) { $reason='STALE_TRANSCRIPT'; return null; }
         if (($data['fulfillment']??null)!=='DELIVERY') { $reason='PICKUP_REQUIRES_REVIEW'; return null; }
         $resolved=$this->automaticBranch($data,$actor);
@@ -411,10 +451,11 @@ class WhatsAppOrderWorkflow
     }
 
     /** Insert ids alone cannot exclude late delivery of a pre-activation webhook. */
-    private function freshAutomaticEvidence(array $data,array $transcript): bool
+    private function freshAutomaticEvidence(array $data,array $transcript,?string $notBefore=null): bool
     {
         $activation=$this->activationInstant();
         if ($activation===null) return false;
+        if ($notBefore!==null) $activation=max($activation,$notBefore);
         $rows=array_column($transcript,null,'id');
         $confirmations=$data['evidence']['confirmation_ids']??[];
         if (!is_array($confirmations)||$confirmations===[]) return false;
@@ -649,9 +690,9 @@ class WhatsAppOrderWorkflow
         if ($lock) $query->lockForUpdate(); $rows=$query->get()->all();
         $complete=count($rows)<=self::MAX_MESSAGES; $rows=array_slice($rows,0,self::MAX_MESSAGES);
         usort($rows,fn($a,$b)=>strcmp((string)$a->sent_at,(string)$b->sent_at)?:((int)$a->id<=>(int)$b->id));
-        $transcript=[]; $keys=[]; $hash=[]; $chars=0;
+        $transcript=[]; $keys=[]; $hash=[]; $chars=0; $recoveredAt=null;
         foreach ($rows as $i=>$row) {
-            $cart=null; $location=null;
+            $cart=null; $location=null; $hydration=null;
             if ($row->source==='dashboard_api') {
                 // This is an authenticated send receipt, never a fabricated native webhook.
                 $receipt=app(WhatsAppAcceptedReplyEvidence::class)->unwrap($thread,$row,$lock);
@@ -665,6 +706,8 @@ class WhatsAppOrderWorkflow
                 abort_unless(($dto['direction']??null)===$row->direction&&($dto['type']??null)===$row->type
                     &&($dto['sent_at']??null)===$row->sent_at&&is_array($dto['content']['message']??null),500,'INVALID_INBOX_MESSAGE');
                 $text=is_string($dto['text']??null)?$dto['text']:null;
+                $hydration=$this->nativeHydration($dto,$thread,$row);
+                if ($hydration!==null) $recoveredAt=$recoveredAt===null?$hydration['at_utc']:max($recoveredAt,$hydration['at_utc']);
                 if ($row->direction==='outbound' && $row->type==='text'
                     && $this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages' && Schema::hasTable('whatsapp_reply_projection_keys')) {
                     app(WhatsAppAcceptedReplyEvidence::class)->validateNativeReceipt($thread,$row,$lock);
@@ -686,10 +729,46 @@ class WhatsAppOrderWorkflow
             if ($cart!==null) { $item['cart']=$cart; $chars+=mb_strlen(json_encode($cart,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),'UTF-8'); }
             $transcript[]=$item;
             $keys[$id]=$row->message_key; $identity=[(int)$row->id,$row->message_key,$row->direction,$row->type,$row->sent_at,$text,$location];
-            if ($cart!==null) $identity[]=$cart; $hash[]=$identity;
+            if ($cart!==null) $identity[]=$cart;
+            if ($hydration!==null) $identity[]=['hydration'=>$hydration];
+            $hash[]=$identity;
         }
         if ($chars>self::MAX_CHARS) $complete=false;
-        return ['transcript'=>$transcript,'keys'=>$keys,'hash'=>hash_hmac('sha256',PosServiceTicket::fingerprint($hash),Crypt::getKey()),'complete'=>$complete];
+        return ['transcript'=>$transcript,'keys'=>$keys,'hash'=>hash_hmac('sha256',PosServiceTicket::fingerprint($hash),Crypt::getKey()),'complete'=>$complete,'recovered_at'=>$recoveredAt];
+    }
+
+    /** Recovery provenance stays encrypted and is bound into the same semantic snapshot. */
+    private function nativeHydration(array $dto,object $thread,object $row): ?array
+    {
+        if (!array_key_exists('hydration',$dto['content']??[])) return null;
+        $h=$dto['content']['hydration'];
+        abort_unless(is_array($h) && count($h)===8 && ($h['version']??null)==='whatsapp-native-placeholder-hydration-v1'
+            && ($h['code']??null)===131060 && is_int($h['event_id']??null) && $h['event_id']>0
+            && is_array($h['before']??null) && is_string($h['at_utc']??null)
+            && is_string($h['before_ciphertext']??null) && strlen($h['before_ciphertext'])<=1048576
+            && is_string($h['before_ciphertext_sha256']??null) && preg_match('/\A[a-f0-9]{64}\z/',$h['before_ciphertext_sha256'])
+            && is_string($h['raw_payload_hash']??null) && preg_match('/\A[a-f0-9]{64}\z/',$h['raw_payload_hash']),500,'INVALID_NATIVE_HYDRATION');
+        $date=\DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$h['at_utc'],new \DateTimeZone('UTC'));
+        $errors=\DateTimeImmutable::getLastErrors();
+        abort_unless($date!==false && ($errors===false || ($errors['warning_count']===0 && $errors['error_count']===0))
+            && $date->format('Y-m-d H:i:s')===$h['at_utc'] && $h['at_utc']<=now('UTC')->addSeconds(5)->format('Y-m-d H:i:s'),500,'INVALID_NATIVE_HYDRATION');
+        $before=$h['before']; $plain=$this->decode($h['before_ciphertext']);
+        abort_unless(hash_equals($h['before_ciphertext_sha256'],hash('sha256',$h['before_ciphertext']))
+            && is_array($plain) && PosServiceTicket::fingerprint($plain)===PosServiceTicket::fingerprint($before)
+            && ($dto['direction']??null)==='inbound' && ($dto['type']??null)==='text' && is_string($dto['text']??null)
+            && ($before['direction']??null)==='inbound' && ($before['type']??null)==='unsupported' && ($before['text']??null)===null
+            && ($before['message_id']??null)===($dto['message_id']??null) && ($before['peer_identity']??null)===($dto['peer_identity']??null)
+            && ($before['peer_phone']??null)===($dto['peer_phone']??null) && ($before['peer_user_id']??null)===($dto['peer_user_id']??null)
+            && ($before['source']??null)===($dto['source']??null) && ($before['content']['message']['type']??null)==='unsupported',500,'INVALID_NATIVE_HYDRATION');
+        $nativeErrors=$before['content']['message']['errors']??null;
+        abort_unless(is_array($nativeErrors) && count($nativeErrors)===1
+            && in_array($nativeErrors[0]['code']??null,[131060,'131060'],true),500,'INVALID_NATIVE_HYDRATION');
+        $raw=DB::table($this->table('whatsapp_webhook_events'))->where('id',$h['event_id'])->first(['id','payload_hash','payload','processed_at']);
+        $quarantined=DB::table($this->table('whatsapp_inbox_ingestion_failures'))->where('event_id',$h['event_id'])->exists();
+        abort_unless($raw && WhatsAppNativePlaceholderHydration::prove($thread,$row,$dto,$raw,$quarantined),500,'INVALID_NATIVE_HYDRATION');
+        return ['version'=>$h['version'],'code'=>$h['code'],'event_id'=>$h['event_id'],'at_utc'=>$h['at_utc'],
+            'before_hash'=>PosServiceTicket::fingerprint($before),'before_ciphertext_sha256'=>$h['before_ciphertext_sha256'],
+            'raw_payload_hash'=>$h['raw_payload_hash']];
     }
 
     private function confirmationKey(object $row): string
@@ -874,13 +953,15 @@ class WhatsAppOrderWorkflow
     {
         $result=is_array($result)?$result:[];
         $reason=in_array($result['reason']??null,['CONTEXT_INCOMPLETE','DISABLED','NOT_CONFIGURED','INVALID_CONFIGURATION',
-            'INVALID_TRANSCRIPT','INPUT_TOO_LARGE','TRANSPORT_ERROR','RESPONSE_TOO_LARGE','HTTP_ERROR',
-            'INVALID_RESPONSE','INCOMPLETE','REFUSED','INVALID_EXTRACTION'],true)?$result['reason']:'UNKNOWN';
+            'INVALID_TRANSCRIPT','INVALID_INPUT','INPUT_TOO_LARGE','TRANSPORT_ERROR','RESPONSE_TOO_LARGE','HTTP_ERROR',
+            'INVALID_RESPONSE','INCOMPLETE','REFUSED','INVALID_EXTRACTION','INVALID_EVIDENCE'],true)?$result['reason']:'UNKNOWN';
         $raw=is_array($result['diagnostic']??null)?$result['diagnostic']:[]; $diagnostic=[];
         $enums=['stage'=>['CONFIGURATION','INPUT','REQUEST','TRANSPORT','RESPONSE','EXTRACTION'],
             'transport_category'=>['NONE','TIMEOUT','DNS','CONNECT','TLS','RESPONSE_LIMIT','OTHER','UNAVAILABLE','UNKNOWN'],
             'response_status'=>['completed','incomplete','failed','cancelled','queued','in_progress','UNKNOWN'],
-            'incomplete_reason'=>['max_output_tokens','content_filter','UNKNOWN']];
+            'incomplete_reason'=>['max_output_tokens','content_filter','UNKNOWN'],
+            'validation_category'=>WhatsAppOrderExtraction::VALIDATION_CATEGORIES,
+            'validation_field'=>WhatsAppOrderExtraction::VALIDATION_FIELDS];
         foreach ($enums as $field=>$values) $diagnostic[$field]=in_array($raw[$field]??null,$values,true)?$raw[$field]:null;
         foreach (['http_status'=>599,'curl_errno'=>999,'elapsed_ms'=>3600000,'input_tokens'=>1000000000,
             'output_tokens'=>1000000000,'reasoning_tokens'=>1000000000] as $field=>$maximum) {

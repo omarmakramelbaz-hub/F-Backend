@@ -101,13 +101,18 @@ namespace {
         providerExpect([$result['ok'], $result['reason'], $result['data']], [false, $reason, null], $label . ' fails closed');
         $d = $result['diagnostic'];
         providerExpect(array_keys($d), ['stage', 'http_status', 'transport_category', 'curl_errno', 'elapsed_ms',
-            'response_status', 'incomplete_reason', 'input_tokens', 'output_tokens', 'reasoning_tokens'], $label . ' fixed fields');
+            'response_status', 'incomplete_reason', 'input_tokens', 'output_tokens', 'reasoning_tokens',
+            'validation_category', 'validation_field'], $label . ' fixed fields');
         providerExpect(in_array($d['stage'], ['CONFIGURATION', 'INPUT', 'REQUEST', 'TRANSPORT', 'RESPONSE', 'EXTRACTION'], true), true, $label . ' stage enum');
         providerExpect(in_array($d['transport_category'], ['NONE', 'TIMEOUT', 'DNS', 'CONNECT', 'TLS', 'RESPONSE_LIMIT', 'OTHER', 'UNAVAILABLE', 'UNKNOWN'], true), true, $label . ' transport enum');
         providerExpect($d['response_status'] === null || in_array($d['response_status'],
             ['completed', 'incomplete', 'failed', 'cancelled', 'queued', 'in_progress', 'UNKNOWN'], true), true, $label . ' response enum');
         providerExpect($d['incomplete_reason'] === null || in_array($d['incomplete_reason'],
             ['max_output_tokens', 'content_filter', 'UNKNOWN'], true), true, $label . ' incomplete enum');
+        providerExpect($d['validation_category'] === null || in_array($d['validation_category'],
+            Extraction::VALIDATION_CATEGORIES, true), true, $label . ' validation category enum');
+        providerExpect($d['validation_field'] === null || in_array($d['validation_field'],
+            Extraction::VALIDATION_FIELDS, true), true, $label . ' validation field enum');
         foreach (['http_status' => 599, 'curl_errno' => 999, 'elapsed_ms' => 3600000,
             'input_tokens' => 1000000000, 'output_tokens' => 1000000000, 'reasoning_tokens' => 1000000000] as $field => $maximum) {
             providerExpect($d[$field] === null || (is_int($d[$field]) && $d[$field] >= 0 && $d[$field] <= $maximum), true, $label . ' bounded ' . $field);
@@ -144,6 +149,8 @@ namespace {
         providerExpect(isset($request['tools']), false, 'no model tools');
         providerExpect($request['text']['format']['strict'], true, 'strict schema retained');
         providerExpect($request['text']['format']['schema'], Extraction::schema(), 'schema unchanged');
+        providerExpect(strpos($request['instructions'], 'separate customer rows') !== false, true, 'prompt requires separated customer details to be cited');
+        providerExpect(strpos($request['instructions'], 'every cited request_id must precede') !== false, true, 'prompt matches strict request chronology');
         providerExpect(json_decode($request['input'][0]['content'], true)['transcript'], $rows, 'transcript intact');
         foreach (['fixture-model', 'gpt-6-luna-custom', 'gpt-4o-mini'] as $otherModel) {
             $other = new Provider(static function ($body) use ($data, $otherModel) {
@@ -208,6 +215,8 @@ namespace {
         $invalid = (new Provider(static fn () => providerHttp(providerResponse($bad)), providerConfiguration()))->extract($rows);
         providerPrivateFailure($invalid, 'INVALID_EVIDENCE', 'ungrounded name');
         providerExpect($invalid['diagnostic']['stage'], 'EXTRACTION', 'semantic failure remains distinguishable');
+        providerExpect($invalid['diagnostic']['validation_category'], 'LITERAL_NOT_CITED', 'semantic predicate captured');
+        providerExpect($invalid['diagnostic']['validation_field'], 'CUSTOMER_NAME', 'semantic field captured without rejected value');
         $throwing = (new Provider(static function () { throw new \RuntimeException('PRIVATE_PROVIDER_BODY sk-provider-fixture-private-never-print'); }, providerConfiguration()))->extract($rows);
         providerPrivateFailure($throwing, 'TRANSPORT_ERROR', 'private exception');
 

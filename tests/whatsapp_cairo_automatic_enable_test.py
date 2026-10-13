@@ -451,15 +451,21 @@ class ProductionPinTests(unittest.TestCase):
         workflow = 'app/Services/Dashboard/WhatsAppOrderWorkflow.php'
         legacy_blob = '6c63b91d7fb70130ae472cea291fa2cee88b27dd'
         repaired_blob = 'b30f25cf6dfc4a84061a58316db583f892a439a4'
+        semantic_blob = 'e87d94154e5f9871c959c23c8c9868f53b5dd5d0'
         repair_spec = importlib.util.spec_from_file_location('cairo_evidence_repair_pin_fixture',
             ROOT / 'deployment/apply_whatsapp_order_evidence_repair.py')
         repair = importlib.util.module_from_spec(repair_spec)
         sys.modules[repair_spec.name] = repair; repair_spec.loader.exec_module(repair)
         self.assertEqual(NS['TARGET_PINS'][workflow], legacy_blob)
         self.assertEqual(repair.SOURCE_PINS[workflow], (legacy_blob, repaired_blob))
+        semantic_spec = importlib.util.spec_from_file_location('cairo_semantic_repair_pin_fixture',
+            ROOT / 'deployment/apply_whatsapp_order_semantic_repair.py')
+        semantic = importlib.util.module_from_spec(semantic_spec)
+        sys.modules[semantic_spec.name] = semantic; semantic_spec.loader.exec_module(semantic)
+        self.assertEqual(semantic.SOURCE_PINS[workflow], (repaired_blob, semantic_blob))
         for relative, pin in NS['TARGET_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z')
-            self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), repaired_blob if relative == workflow else pin)
+            self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), semantic_blob if relative == workflow else pin)
         for name, pin in NS['HELPER_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z'); self.assertEqual(NS['blob']((ROOT / 'deployment' / name).read_bytes()), pin)
 
@@ -468,7 +474,7 @@ class ProductionPinTests(unittest.TestCase):
         workflow = 'app/Services/Dashboard/WhatsAppOrderWorkflow.php'
         self.assertEqual(NS['TARGET_PINS'][workflow], '6c63b91d7fb70130ae472cea291fa2cee88b27dd')
         current = (ROOT / workflow).read_bytes()
-        self.assertEqual(NS['blob'](current), 'b30f25cf6dfc4a84061a58316db583f892a439a4')
+        self.assertEqual(NS['blob'](current), 'e87d94154e5f9871c959c23c8c9868f53b5dd5d0')
         calls = []
         def runner(args):
             calls.append(tuple(args))

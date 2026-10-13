@@ -91,6 +91,8 @@ jobs:
           php -l tests/whatsapp_accepted_reply_evidence_test.php
           php -l deployment/whatsapp_order_evidence_status.php
           php -l deployment/whatsapp_order_capture_placeholder_metadata.php
+          php -l deployment/whatsapp_order_ai_read_only_probe.php
+          php -l app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php
           for file in app/Support/WhatsAppInboxProtocol.php app/Services/Dashboard/WhatsAppInbox*.php app/Console/Commands/ConsumeWhatsAppInbox.php app/Http/Controllers/Dashboard/WhatsAppInboxController.php routes/whatsapp_inbox.php database/migrations/*whatsapp_inbox* deployment/whatsapp_inbox*.php tests/whatsapp_inbox*.php; do
             php -l "$file"
           done
@@ -111,6 +113,7 @@ jobs:
           bash -n deployment/install_whatsapp_capture_root.sh
           bash -n deployment/apply_whatsapp_dashboard_upgrade_root.sh
           bash -n deployment/apply_whatsapp_order_evidence_repair_root.sh
+          bash -n deployment/apply_whatsapp_order_semantic_repair_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -122,6 +125,8 @@ jobs:
         run: |
           php tests/whatsapp_order_extraction_test.php
           php tests/whatsapp_order_provider_failure_test.php
+          php tests/whatsapp_order_validation_diagnostic_test.php
+          php tests/whatsapp_order_ai_read_only_probe_test.php
           php tests/whatsapp_order_capture_conflict_diagnostic_test.php
 
   terminal-handoff:
@@ -157,6 +162,8 @@ jobs:
           php -l deployment/whatsapp_order_live_review.php
       - name: Verify pinned evidence repair, configuration preservation and worker recovery
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_evidence_repair_install.py
+      - name: Verify semantic repair publication and one-window recovery orchestration
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_semantic_repair_install.py
       - name: Verify limited configuration permission correction and concurrent-change guards
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_config_modes.py
       - name: Verify automatic runtime and isolated timer installation
@@ -202,6 +209,7 @@ jobs:
           WA_INBOX_TEST_VENDOR: /tmp/whatsapp-inbox-test/vendor/autoload.php
         run: |
           php tests/whatsapp_inbox_database_test.php
+          php tests/whatsapp_inbox_hydration_test.php
           php tests/whatsapp_inbox_diagnostic_test.php
           php tests/whatsapp_order_workflow_test.php
           php tests/whatsapp_accepted_reply_evidence_test.php
@@ -262,3 +270,4 @@ jobs:
           python3 tests/test_whatsapp_dashboard_layout.py
           python3 tests/whatsapp_cairo_automatic_enable_test.py
           python3 tests/test_whatsapp_cairo_install_root_diagnostic.py
+          python3 tests/test_whatsapp_order_semantic_recovery_php.py
