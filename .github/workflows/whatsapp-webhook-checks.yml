@@ -155,6 +155,8 @@ jobs:
           php -l deployment/whatsapp_order_live_review.php
       - name: Verify pinned evidence repair, configuration preservation and worker recovery
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_evidence_repair_install.py
+      - name: Verify limited configuration permission correction and concurrent-change guards
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_config_modes.py
       - name: Verify automatic runtime and isolated timer installation
         run: |
           python3 /tmp/whatsapp-terminal-fixtures/tests/whatsapp_automatic_install_test.py
