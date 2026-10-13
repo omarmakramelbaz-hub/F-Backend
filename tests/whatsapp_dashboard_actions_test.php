@@ -122,7 +122,9 @@ function actionMessage(string $phone = '201111111111', string $user = 'US.action
     DB::table('whatsapp_webhook_events')->insert(['payload_hash' => hash('sha256', $plain),
         'payload' => Crypt::encryptString($plain), 'received_at' => '2023-08-09 12:00:00']);
     $metrics = (new WhatsAppInboxConsumer())->consume(100);
-    actionCheck($metrics['messages_inserted'] === 1 && $metrics['errors'] === 0, 'real protocol/consumer projects fixture');
+    actionCheck($metrics['messages_inserted'] + $metrics['messages_replayed'] === 1
+        && $metrics['quarantined_events'] === 0 && $metrics['errors'] === 0,
+        'real protocol/consumer inserts a native fixture or replays its verified accepted receipt');
     $row = DB::table('whatsapp_inbox_messages')->where('message_key', hash('sha256',
         'whatsapp-message-v1:468336579702269:515388018324075:' . $native))->first();
     actionCheck($row !== null, 'native ID maps to projected fixture');
@@ -158,6 +160,35 @@ function actionProtectedSnapshot(bool $includeReplies = false): array
         $snapshot[$table] = DB::table($table)->orderBy('id')->get()->toJson();
     if ($includeReplies) $snapshot['whatsapp_reply_requests'] = DB::table('whatsapp_reply_requests')->orderBy('id')->get()->toJson();
     return $snapshot;
+}
+function actionCheckReceiptProjectionPreservesProtectedData(array $before): void
+{
+    $after = actionProtectedSnapshot();
+    $oldMessages = json_decode($before['whatsapp_inbox_messages'],true,512,JSON_THROW_ON_ERROR);
+    $newMessages = json_decode($after['whatsapp_inbox_messages'],true,512,JSON_THROW_ON_ERROR);
+    $byId = array_column($newMessages,null,'id');
+    foreach ($oldMessages as $old)
+        actionCheck(isset($byId[$old['id']]) && $byId[$old['id']] === $old,
+            'accepted reply projection never rewrites existing native or receipt evidence');
+    $oldIds = array_column($oldMessages,'id');
+    $added = array_values(array_filter($newMessages,static fn($row)=>!in_array($row['id'],$oldIds,true)));
+    actionCheck(count($added) === 1 && $added[0]['source'] === 'dashboard_api'
+        && $added[0]['direction'] === 'outbound' && $added[0]['type'] === 'text',
+        'accepted text creates exactly one explicit receipt evidence row');
+    $thread = DB::table('whatsapp_inbox_conversations')->where('id',$added[0]['conversation_id'])->first();
+    $proof = (new \App\Services\Dashboard\WhatsAppAcceptedReplyEvidence())->unwrap($thread,(object)$added[0]);
+    actionCheck($proof['native_message_key'] === $added[0]['message_key'],
+        'the sole new evidence row is bound to a verified accepted receipt');
+    $oldThreads = json_decode($before['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
+    $newThreads = json_decode($after['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
+    foreach ($oldThreads as &$row) unset($row['last_message_at'],$row['updated_at']);
+    unset($row);
+    foreach ($newThreads as &$row) unset($row['last_message_at'],$row['updated_at']);
+    unset($row);
+    actionCheck($oldThreads === $newThreads,'receipt projection preserves conversation identity and encrypted customer data');
+    $after['whatsapp_inbox_messages'] = $before['whatsapp_inbox_messages'];
+    $after['whatsapp_inbox_conversations'] = $before['whatsapp_inbox_conversations'];
+    actionCheck($after === $before,'accepted text preserves raw webhooks read markers customer records and all order records');
 }
 function actionFake(callable $response): void
 {
@@ -274,22 +305,7 @@ actionCheck($service->send($actor, $fixture['conversation'], $input)['replayed']
 $auditRow = DB::table('whatsapp_reply_requests')->first();
 actionCheck(strpos($auditRow->audit, $fixture['native']) === false && strpos($auditRow->audit, $input['text']) === false,
     'quote audit keeps private message data encrypted');
-$afterProjection = actionProtectedSnapshot();
-$apiEvidence = DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->get();
-actionCheck($apiEvidence->count() === 1 && $apiEvidence->first()->direction === 'outbound'
-    && $apiEvidence->first()->type === 'text', 'quoted acceptance creates one explicit receipt evidence row');
-$afterProjection['whatsapp_inbox_messages'] = DB::table('whatsapp_inbox_messages')
-    ->where('source','!=','dashboard_api')->orderBy('id')->get()->toJson();
-$beforeThreads = json_decode($protected['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
-$afterThreads = json_decode($afterProjection['whatsapp_inbox_conversations'],true,512,JSON_THROW_ON_ERROR);
-foreach ($beforeThreads as &$thread) unset($thread['last_message_at'],$thread['updated_at']);
-unset($thread);
-foreach ($afterThreads as &$thread) unset($thread['last_message_at'],$thread['updated_at']);
-unset($thread);
-actionCheck($afterThreads === $beforeThreads, 'receipt projection preserves conversation identity and encrypted customer data');
-$afterProjection['whatsapp_inbox_conversations'] = $protected['whatsapp_inbox_conversations'];
-actionCheck($afterProjection === $protected,
-    'quoted send preserves existing native rows raw webhook history read markers customers and orders');
+actionCheckReceiptProjectionPreservesProtectedData($protected);
 $bad = actionTextInput($fixture); $bad['reply_to_message_id'] = 'wamid.client-chosen';
 actionRefuses(fn () => $service->send($actor, $fixture['conversation'], $bad), 422,
     'browser cannot inject a native quoted ID');
@@ -327,7 +343,7 @@ actionCheck($httpCalls[0]['data']['to'] === $target['phone'] && $httpCalls[0]['d
     && $httpCalls[0]['data']['text']['body'] === $fixture['text'], 'forward copies server text to server-resolved target');
 actionCheck($service->forward($actor, $fixture['conversation'], $fixture['message'], $input)['replayed']
     && count($httpCalls) === 1, 'forward replay cannot resend');
-actionCheck(actionProtectedSnapshot() === $protected, 'forward does not mutate source history or customer/order records');
+actionCheckReceiptProjectionPreservesProtectedData($protected);
 $bad = $input; $bad['client_request_id'] = actionUuid(); $bad['to'] = '201999999999';
 actionRefuses(fn () => $service->forward($actor, $fixture['conversation'], $fixture['message'], $bad), 422,
     'forward rejects arbitrary recipients');
@@ -632,7 +648,11 @@ actionCheck($service->forwardReply($actor, $fixture['conversation'], $api['id'],
 
 $fixture = actionReset(); $api = actionAcceptedReply($service, $actor, $fixture);
 $selection = $messages->selection($actor, $fixture['conversation']);
-actionCheck($selection['max_message_id'] === $fixture['message'] && $selection['max_reply_id'] === $api['id']
+$receiptMessage = DB::table('whatsapp_inbox_messages')->where('conversation_id',$fixture['conversation'])
+    ->where('message_key',hash('sha256','whatsapp-message-v1:468336579702269:515388018324075:'.$api['native']))->first();
+actionCheck($receiptMessage && $receiptMessage->source === 'dashboard_api' && $receiptMessage->id > $fixture['message'],
+    'the accepted receipt advances the inbox evidence cursor before selection');
+actionCheck($selection['max_message_id'] === $receiptMessage->id && $selection['max_reply_id'] === $api['id']
     && $selection['total_count'] === 2 && $selection['select_all_available']
     && !isset($selection['message_ids'], $selection['reply_ids']), 'selection captures bounded native and accepted-index cutoffs without enumerating history');
 $token = json_decode(Crypt::decryptString($selection['snapshot_token']), true, 64, JSON_THROW_ON_ERROR);
@@ -653,7 +673,8 @@ actionCheck($messages->indexReply(DB::table('whatsapp_reply_requests')->where('i
     'already accepted later fixture has valid canonical projection metadata');
 $selection = $messages->selection($actor, $fixture['conversation']);
 actionCheck($lateId < $selection['max_reply_id'] && $selection['max_reply_id'] === $laterAcceptedId
-    && $selection['reply_count'] === 2 && !DB::table(WhatsAppInboxMessage::INDEX)->where('reply_id', $lateId)->exists(),
+    && $selection['reply_count'] === 1 && $selection['total_count'] === 3
+    && !DB::table(WhatsAppInboxMessage::INDEX)->where('reply_id', $lateId)->exists(),
     'claimed request older than the accepted reply cutoff is absent from the acceptance-index snapshot');
 $token = json_decode(Crypt::decryptString($selection['snapshot_token']), true, 64, JSON_THROW_ON_ERROR);
 $future = actionMessage();
@@ -705,7 +726,8 @@ $fixture = actionReset(); $api = actionAcceptedReply($service, $actor, $fixture)
 $selection = $messages->selection($actor, $fixture['conversation']);
 $result = $messages->hideSelected($actor, $fixture['conversation'], ['snapshot_token' => $selection['snapshot_token'],
     'select_all' => false, 'message_ids' => [], 'reply_ids' => [$api['id']]]);
-actionCheck($result['reply_count'] === 1 && $result['message_count'] === 0, 'explicit API hide changes only selected local metadata');
+actionCheck($result['hidden_count'] === 1 && $result['message_count'] === 1 && $result['reply_count'] === 0,
+    'explicit API hide counts its canonical receipt once and changes only selected local metadata');
 $echo = actionMessage('201111111111', 'US.actions1', 'text', ['body' => $api['text']], 'outbound', $api['native']);
 actionRefuses(fn () => $messages->resolve($actor, $fixture['conversation'], $echo['message']), 404,
     'later projection of the same accepted native ID inherits the local hide');
