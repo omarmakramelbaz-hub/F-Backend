@@ -57,7 +57,8 @@ function mark(parent, data, tag = 'div') { const el = new Element(tag); el.datas
 
 function fixture(initialChannel = '') {
     const document = new Element(), window = new Element(), timers = new Map(), ids = new Map();
-    const state = {calls:[], events:[], status:{meta:200,whatsapp:200}, cleanup:[], drafts:{meta:'',whatsapp:''}};
+    const state = {calls:[], events:[], status:{meta:200,whatsapp:200}, cleanup:[], drafts:{meta:'',whatsapp:''},
+        messages:null,delayMetaThreads:false,metaThreadResolvers:[],timerDelays:new Map()};
     const labels = {customer:'Customer',business:'Business',loading:'Loading',empty:'Empty',denied:'DENIED',
         unavailable:'Unavailable',connected:'Updated',choose_conversation:'Choose',no_messages:'No messages',offline:'Offline',
         message_unavailable:'Unavailable message',types:{text:'Text',audio:'Audio',other:'Message'}};
@@ -107,9 +108,12 @@ function fixture(initialChannel = '') {
             conversations:source === 'meta' ? [{id:1,unread_count:2},{id:2,unread_count:4}] : [{id:1,unread_count:5}]};
         else if (parsed.pathname.endsWith('/messages')) {
             const id = Number(parsed.pathname.match(/\/([0-9]+)\/messages$/)[1]);
+            const messages = source === 'meta' && state.messages !== null ? state.messages
+                : [{id:1,direction:'inbound',type:'text',text:source + ' private message ' + id,sent_at:'2026-10-14T21:00:00Z'}];
             data = {success:true,conversation:allThreads[source].find(thread => thread.id === id),
-                messages:[{id:1,direction:'inbound',type:'text',text:source + ' private message ' + id,sent_at:'2026-10-14T21:00:00Z'}],last_id:1,has_more:false,next_before_id:null};
+                messages,last_id:Math.max(Number(parsed.searchParams.get('after_id')) || 0,...messages.map(message => message.id)),has_more:false,next_before_id:null};
         } else {
+            if (source === 'meta' && state.delayMetaThreads) await new Promise(resolve => state.metaThreadResolvers.push(resolve));
             let candidates = allThreads[source];
             if (source === 'meta' && parsed.searchParams.get('channel')) candidates = candidates.filter(thread => thread.channel === parsed.searchParams.get('channel'));
             const pageSize = source === 'meta' ? 2 : 1, paged = parsed.searchParams.has('cursor');
@@ -121,7 +125,8 @@ function fixture(initialChannel = '') {
     let timerId = 0;
     const context = {window,document,navigator:{onLine:true},URL,AbortController,Map,Set,Promise,Date,fetch,console,
         CustomEvent:class { constructor(type,options) { this.type = type; this.detail = options.detail; } },
-        setTimeout:callback => { timers.set(++timerId,callback); return timerId; },clearTimeout:id => timers.delete(id)};
+        setTimeout:(callback,delay) => { timers.set(++timerId,callback); state.timerDelays.set(timerId,delay); return timerId; },
+        clearTimeout:id => { timers.delete(id); state.timerDelays.delete(id); }};
     vm.createContext(context);
     const run = name => vm.runInContext(fs.readFileSync(path.join(__dirname,'..','public','js',name),'utf8'),context);
     const dom = build(initialChannel);
@@ -210,7 +215,101 @@ async function deniedAndRemount() {
     test.document.dispatchEvent({type:'dashboard:before-unload'});
 }
 
+function acceptedReceipt(replyId = 20, extra = {}) {
+    return Object.assign({reply_id:replyId,state:'ACCEPTED',kind:'text',text:'Confirmed outgoing reply',
+        created_at:'2026-10-14T21:00:02Z',projection_key:'a'.repeat(64),projected_message_id:null,hidden:false},extra);
+}
+function liveReceipt(test, reply, overrides = {}, name = 'meta:reply-accepted') {
+    const scope = test.window.DashboardMetaInbox.selectionState();
+    test.document.dispatchEvent(new test.context.CustomEvent(name,{detail:Object.assign({},scope,
+        name === 'meta:accepted-replies' ? {replies:reply} : {reply},overrides)}));
+}
+function receiptRows(test) { return test.dom.sourceElements.meta.messages.children.filter(el => String(el.dataset.waMessageId).startsWith('reply:')); }
+
+async function immediateMetaReceiptsAndScope() {
+    const test = fixture(); await settle();
+    test.window.DashboardWhatsAppInbox.destroy(); await settle();
+    assert.deepStrictEqual(Array.from(test.state.timerDelays.values()),[1000],'The actual Meta inbox polls each second without the dashboard refresh loop');
+    select(test,'meta:1'); await settle();
+    const scope = test.window.DashboardMetaInbox.selectionState();
+    assert.strictEqual(scope.channel,'messenger'); assert.strictEqual(scope.namespace,'https://example.test/admin/meta/conversations');
+    const selectionEvent = test.state.events.filter(event => event.type === 'meta:conversation-selected').at(-1);
+    assert.strictEqual(selectionEvent.detail.generation,scope.generation,'Composer selection gets the engine generation used to validate reply receipts');
+    const timerCallbacks = test.timers.size, calls = test.state.calls.length;
+    liveReceipt(test,acceptedReceipt());
+    assert.strictEqual(receiptRows(test).length,1,'A confirmed receipt is displayed synchronously before any polling response or scheduled timer');
+    assert(receiptRows(test)[0].textContent.includes('Accepted by Meta')); assert(receiptRows(test)[0].textContent.includes('Confirmed outgoing reply'));
+    assert(test.state.calls.length > calls,'Confirmed send immediately starts native echo refresh');
+    assert(timerCallbacks > 0,'A scheduled periodic poll existed but the test never executes it');
+    await settle();
+    const beforeForeign = test.state.calls.length;
+    [{generation:scope.generation - 1},{namespace:'https://example.test/admin/whatsapp/conversations'},
+        {channel:'instagram'},{conversation:2},{generation:null}].forEach(overrides => liveReceipt(test,acceptedReceipt(99,{text:'Foreign private reply'}),overrides));
+    await settle();
+    assert.strictEqual(test.state.calls.length,beforeForeign,'Stale generation or another source/channel/customer cannot wake this inbox');
+    assert(!test.dom.sourceElements.meta.messages.textContent.includes('Foreign private reply'));
+    for (const invalid of [acceptedReceipt(30,{state:'UNKNOWN'}),acceptedReceipt(31,{created_at:'not-a-date'}),
+        acceptedReceipt('32'),acceptedReceipt(33,{projection_key:'not-a-key'}),acceptedReceipt(34,{kind:'unrecognized'}),
+        acceptedReceipt(35,{projected_message_id:-1})]) {
+        liveReceipt(test,invalid); assert.strictEqual(receiptRows(test).length,1,'Unknown or malformed sends are never shown as accepted');
+        await settle();
+    }
+    test.document.hidden = true; const hiddenCalls = test.state.calls.length;
+    liveReceipt(test,acceptedReceipt(36,{text:'Hidden private reply'})); await settle();
+    assert.strictEqual(test.state.calls.length,hiddenCalls); assert(!test.dom.sourceElements.meta.messages.textContent.includes('Hidden private reply'));
+    test.document.hidden = false; test.context.navigator.onLine = false;
+    liveReceipt(test,acceptedReceipt(37,{text:'Offline private reply'})); await settle();
+    assert.strictEqual(test.state.calls.length,hiddenCalls); assert(!test.dom.sourceElements.meta.messages.textContent.includes('Offline private reply'));
+    test.context.navigator.onLine = true;
+    test.window.DashboardMetaInbox.resetSelection();
+    assert.strictEqual(test.dom.sourceElements.meta.messages.textContent,'','Changing source releases local accepted receipts');
+    liveReceipt(test,acceptedReceipt(38,{text:'Late deselected private reply'}),scope); await settle();
+    assert.strictEqual(test.dom.sourceElements.meta.messages.textContent,'');
+    test.document.dispatchEvent({type:'dashboard:before-unload'});
+    assert.strictEqual((test.document.listeners['meta:reply-accepted'] || []).length,0);
+    assert.strictEqual((test.document.listeners['meta:accepted-replies'] || []).length,0);
+}
+
+async function exactProjectionAndHiddenReceipts() {
+    const test = fixture(); await settle(); select(test,'meta:1'); await settle();
+    liveReceipt(test,acceptedReceipt()); await settle(); assert.strictEqual(receiptRows(test).length,1);
+    test.state.messages = [{id:2,direction:'outbound',type:'text',text:'Confirmed outgoing reply',projection_key:'a'.repeat(64),sent_at:'2026-10-14T21:00:02Z'}];
+    test.dom.sourceElements.meta.refresh.click(); await settle();
+    assert.strictEqual(receiptRows(test).length,0,'The exact projected message key replaces the local accepted shadow');
+    assert.strictEqual(test.dom.sourceElements.meta.messages.children.filter(el => el.textContent.includes('Confirmed outgoing reply')).length,1);
+    liveReceipt(test,acceptedReceipt(21,{projection_key:'b'.repeat(64)})); await settle();
+    assert.strictEqual(receiptRows(test).length,1,'Identical text with a different projection key is a separate confirmed send');
+    liveReceipt(test,[acceptedReceipt(21,{projection_key:'b'.repeat(64),hidden:true})],{},'meta:accepted-replies');
+    assert.strictEqual(receiptRows(test).length,0,'An authoritative hidden reply-state receipt removes the local shadow');
+    liveReceipt(test,[acceptedReceipt(22,{projection_key:'b'.repeat(64),projected_message_id:2})],{},'meta:accepted-replies');
+    assert.strictEqual(receiptRows(test).length,0,'An exact loaded projected ID also suppresses the shadow');
+    test.state.messages = [{id:2,direction:'outbound',type:'system',text:'Hidden from dashboard',hidden:true,
+        projection_key:'a'.repeat(64),sent_at:'2026-10-14T21:00:02Z'}];
+    select(test,'meta:2'); await settle(); select(test,'meta:1'); await settle();
+    liveReceipt(test,acceptedReceipt()); await settle();
+    assert.strictEqual(receiptRows(test).length,0,'A hidden native message retains its projection key and cannot be resurrected by an accepted shadow');
+    assert(!test.dom.sourceElements.meta.messages.textContent.includes('Confirmed outgoing reply'));
+    assert(test.dom.sourceElements.meta.messages.textContent.includes('Hidden from dashboard'));
+    liveReceipt(test,[],{},'meta:accepted-replies'); assert.strictEqual(receiptRows(test).length,0);
+    test.document.dispatchEvent({type:'dashboard:before-unload'});
+}
+
+async function metaAcceptedBusyCoalescing() {
+    const test = fixture(); await settle(); select(test,'meta:1'); await settle();
+    test.state.delayMetaThreads = true; const before = test.state.calls.length;
+    liveReceipt(test,acceptedReceipt()); await settle();
+    assert.strictEqual(test.state.metaThreadResolvers.length,1); const pendingCalls = test.state.calls.length;
+    liveReceipt(test,acceptedReceipt(21)); liveReceipt(test,acceptedReceipt(22)); await settle();
+    assert.strictEqual(test.state.calls.length,pendingCalls,'Accepted sends coalesce into one follow-up while a Meta poll is active');
+    test.state.delayMetaThreads = false; test.state.metaThreadResolvers[0](); await settle();
+    assert.strictEqual(test.state.calls.slice(before).filter(call => new URL(call.url).pathname === '/admin/meta/conversations').length,2,
+        'The in-flight refresh has exactly one immediate follow-up');
+    assert.strictEqual(receiptRows(test).length,3,'Queued refreshes preserve all confirmed local receipts until native projection');
+    test.document.dispatchEvent({type:'dashboard:before-unload'});
+}
+
 (async () => {
     await allSourcesAndSwitching(); await filtersAndPagination(); await deniedAndRemount();
+    await immediateMetaReceiptsAndScope(); await exactProjectionAndHiddenReceipts(); await metaAcceptedBusyCoalescing();
     console.log('META_MESSAGE_HUB_UI_PASS actual engines, all channels, filters, source ID isolation, drafts, unread, pagination, denial and SPA remount');
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
