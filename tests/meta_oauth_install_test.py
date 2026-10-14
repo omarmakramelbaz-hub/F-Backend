@@ -197,6 +197,94 @@ class MetaOAuthInstallTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'FOREIGN_FILE_OWNER'): self.update()
         self.assert_original()
 
+    def link_source(self, rel):
+        alias = self.root.parent / ('source-alias-' + str(len(list(self.root.parent.glob('source-alias-*')))))
+        os.link(self.root / rel, alias)
+        return alias
+
+    def alias_state(self, path):
+        metadata = path.stat()
+        return (metadata.st_dev, metadata.st_ino, metadata.st_uid, metadata.st_gid,
+                metadata.st_mode & 0o777, path.read_bytes())
+
+    def test_pinned_read_only_hardlinked_foundation_and_its_alias_are_unchanged(self):
+        rel = next(iter(installer.FOUNDATION_BLOBS)); alias = self.link_source(rel)
+        before = self.alias_state(alias); original_links = alias.stat().st_nlink
+        report = self.update()
+        self.assertEqual(report['status'], 'READY')
+        self.assertEqual(self.alias_state(alias), before)
+        self.assertEqual(self.alias_state(self.root / rel), before)
+        self.assertEqual(alias.stat().st_nlink, original_links)
+
+    def test_pinned_hardlinked_baseline_replacement_keeps_alias_bytes_inode_and_mode_unchanged(self):
+        rel = next(iter(installer.BASELINE_BLOBS)); alias = self.link_source(rel)
+        before = self.alias_state(alias)
+        self.update()
+        self.assertEqual((self.root / rel).read_bytes(), self.payloads[rel])
+        self.assertNotEqual((self.root / rel).stat().st_ino, alias.stat().st_ino)
+        self.assertEqual((self.root / rel).stat().st_nlink, 1)
+        self.assertEqual(self.alias_state(alias), before)
+        self.assertEqual(alias.stat().st_nlink, 1)
+
+    def test_already_pinned_new_hardlinked_source_is_accepted_and_never_rewritten(self):
+        rel = installer.NEW_FILES[0]; self.write(rel, self.payloads[rel]); alias = self.link_source(rel)
+        before = self.alias_state(alias)
+        report = self.update()
+        self.assertEqual(report['updated_files'], len(self.payloads))
+        self.assertEqual(self.alias_state(alias), before)
+        self.assertEqual(self.alias_state(self.root / rel), before)
+        self.assertEqual(alias.stat().st_nlink, 2)
+
+    def test_rollback_restores_hardlinked_source_target_without_modifying_original_alias(self):
+        rel = next(iter(installer.BASELINE_BLOBS)); alias = self.link_source(rel)
+        before = self.alias_state(alias); self.fail_verify = True
+        with self.assertRaisesRegex(RuntimeError, 'SANITIZED_RUNTIME_PROBE_FAILED'): self.update()
+        self.assert_original(); self.assertIn('RESTORED', self.output)
+        self.assertEqual(self.alias_state(alias), before)
+        self.assertNotEqual((self.root / rel).stat().st_ino, alias.stat().st_ino)
+        self.assertEqual((self.root / rel).stat().st_nlink, 1)
+
+    def test_hardlinked_private_settings_and_credentials_still_reject_before_writes(self):
+        for rel in (installer.SETTINGS_FILE, installer.CREDENTIALS_FILE):
+            with self.subTest(rel=rel):
+                private = self.root / installer.PRIVATE_DIR; private.mkdir(parents=True, mode=0o700)
+                self.write(rel, b'private-fixture-do-not-print', 0o600); alias = self.link_source(rel)
+                before = self.files(); alias_before = self.alias_state(alias)
+                with self.assertRaisesRegex(RuntimeError, 'HARDLINK_TARGET'): self.update()
+                self.assertEqual(self.files(), before); self.assertEqual(self.alias_state(alias), alias_before)
+                self.assertEqual(self.calls, []); self.assertFalse((self.root.parent / 'meta-release-backups').exists())
+                self.assertNotIn('private-fixture-do-not-print', self.output)
+                (self.root / rel).unlink(); alias.unlink(); private.rmdir()
+        self.assert_original()
+
+    def test_unknown_hardlinked_source_bytes_are_still_rejected_by_exact_pin(self):
+        rel = installer.NEW_FILES[0]; self.write(rel, b'<?php // unapproved linked source\n')
+        alias = self.link_source(rel); before = self.files(); alias_before = self.alias_state(alias)
+        with self.assertRaisesRegex(RuntimeError, 'UNEXPECTED_META_OAUTH_SOURCE'): self.update()
+        self.assertEqual(self.files(), before); self.assertEqual(self.alias_state(alias), alias_before)
+        self.assertEqual(self.calls, [])
+
+    def test_concurrent_mutation_through_source_alias_is_detected_before_publication(self):
+        rel = next(iter(installer.BASELINE_BLOBS)); alias = self.link_source(rel)
+        change = b'<?php // later operator edit through hardlink\n'
+        self.preflight_action = lambda: alias.write_bytes(change)
+        with self.assertRaisesRegex(RuntimeError, 'CONCURRENT_EDIT'): self.update()
+        self.assertEqual((self.root / rel).read_bytes(), change); self.assertEqual(alias.read_bytes(), change)
+        for baseline in installer.BASELINE_BLOBS:
+            if baseline != rel: self.assertEqual((self.root / baseline).read_bytes(), self.original[baseline])
+        self.assertFalse((self.root / installer.SETTINGS_FILE).exists())
+        for new in installer.NEW_FILES: self.assertFalse((self.root / new).exists())
+
+    def test_newly_added_published_source_hardlink_is_preserved_as_concurrent_edit(self):
+        rel = installer.NEW_FILES[0]; holder = []
+        self.verify_action = lambda: holder.append(self.link_source(rel))
+        with self.assertRaisesRegex(RuntimeError, 'HARDLINK_TARGET'): self.update()
+        self.assertIn('INCOMPLETE', self.output)
+        self.assertEqual((self.root / rel).read_bytes(), self.payloads[rel])
+        self.assertEqual(holder[0].read_bytes(), self.payloads[rel])
+        self.assertEqual(holder[0].stat().st_ino, (self.root / rel).stat().st_ino)
+        self.assertFalse((self.root / installer.SETTINGS_FILE).exists())
+
     def test_lint_and_sanitized_bootstrap_failures_leave_all_application_files_unchanged(self):
         self.fail_lint = True
         with self.assertRaisesRegex(RuntimeError, 'STAGED_PHP_LINT_FAILED'): self.update()

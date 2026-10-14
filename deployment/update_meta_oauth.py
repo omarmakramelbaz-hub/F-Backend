@@ -166,12 +166,12 @@ def safe_path(path):
         raise RuntimeError('SYMLINK_TARGET')
 
 
-def snapshot(path, uid, mode=None, owner=None):
+def snapshot(path, uid, mode=None, owner=None, allow_hardlinks=False):
     safe_path(path)
     if not path.exists(): return None
     before = path.lstat()
     if not stat.S_ISREG(before.st_mode): raise RuntimeError('NON_FILE_TARGET')
-    if before.st_nlink != 1: raise RuntimeError('HARDLINK_TARGET')
+    if not allow_hardlinks and before.st_nlink != 1: raise RuntimeError('HARDLINK_TARGET')
     if before.st_uid != (uid if owner is None else owner): raise RuntimeError('FOREIGN_FILE_OWNER')
     permissions = stat.S_IMODE(before.st_mode)
     if permissions & 0o7000 or permissions & 0o002 or (mode is not None and permissions != mode):
@@ -271,25 +271,27 @@ def install(root, release, php):
     originals = {}; constraints = {}; parent_states = {}
     for rel, expected in FOUNDATION_BLOBS.items():
         owner = 0 if rel == 'app/Http/Kernel.php' else uid
-        state = snapshot(root / rel, uid, owner=owner)
+        # Reviewed foundations are read-only, so their other hardlink names remain untouched.
+        state = snapshot(root / rel, uid, owner=owner, allow_hardlinks=True)
         if state is None or blob(state['content']) != expected: raise RuntimeError('META_AUTH_FOUNDATION_DIFFERS: ' + rel)
-        originals[rel] = state; constraints[rel] = (None, owner)
+        originals[rel] = state; constraints[rel] = (None, owner, True)
     releases = {}
     for rel in PUBLISH_ORDER:
         parent_states[str((root / rel).parent)] = directory((root / rel).parent, uid)
-        state = snapshot(root / rel, uid, mode=0o644)
+        # Only pinned source bytes may be replaced; atomic() never opens their old inode for writing.
+        state = snapshot(root / rel, uid, mode=0o644, allow_hardlinks=True)
         payload = git_file(root, release, rel)
         releases[rel] = payload
         if state is None:
             if rel in BASELINE_BLOBS: raise RuntimeError('REQUIRED_BASELINE_MISSING: ' + rel)
         elif state['content'] != payload and (rel not in BASELINE_BLOBS or blob(state['content']) != BASELINE_BLOBS[rel]):
             raise RuntimeError('UNEXPECTED_META_OAUTH_SOURCE: ' + rel)
-        originals[rel] = state; constraints[rel] = (0o644, uid)
+        originals[rel] = state; constraints[rel] = (0o644, uid, True)
     for rel in ROUTE_CACHE_FILES:
         if snapshot(root / rel, uid) is not None: raise RuntimeError('CACHED_ROUTES_BLOCKED')
-        originals[rel] = None; constraints[rel] = (None, uid)
+        originals[rel] = None; constraints[rel] = (None, uid, False)
     for rel in (SETTINGS_FILE, CREDENTIALS_FILE):
-        originals[rel] = snapshot(root / rel, uid, mode=0o600); constraints[rel] = (0o600, uid)
+        originals[rel] = snapshot(root / rel, uid, mode=0o600); constraints[rel] = (0o600, uid, False)
     private = root / PRIVATE_DIR
     private_before = directory(private, uid, private=True, required=False)
     directory(root / 'storage/app', uid)
@@ -325,8 +327,8 @@ def install(root, release, php):
     written = {}; created_dirs = []
     def recheck_all():
         for rel, old in originals.items():
-            mode, owner = constraints[rel]
-            if snapshot(root / rel, uid, mode=mode, owner=owner) != old:
+            mode, owner, allow_hardlinks = constraints[rel]
+            if snapshot(root / rel, uid, mode=mode, owner=owner, allow_hardlinks=allow_hardlinks) != old:
                 raise RuntimeError('CONCURRENT_EDIT: ' + rel)
         for path, old in parent_states.items():
             if directory(pathlib.Path(path), uid) != old: raise RuntimeError('CONCURRENT_DIRECTORY_EDIT')
@@ -338,7 +340,8 @@ def install(root, release, php):
         for rel, payload in releases.items():
             old = originals[rel]
             if old is not None and old['content'] == payload: continue
-            if snapshot(root / rel, uid, mode=0o644) != old: raise RuntimeError('CONCURRENT_EDIT: ' + rel)
+            if snapshot(root / rel, uid, mode=0o644, allow_hardlinks=constraints[rel][2]) != old:
+                raise RuntimeError('CONCURRENT_EDIT: ' + rel)
             atomic(root / rel, payload, 0o644)
             written[rel] = (old, None, payload, 0o644)
             published = snapshot(root / rel, uid, mode=0o644)
@@ -363,9 +366,11 @@ def install(root, release, php):
         json_probe([php, str(backup / 'oauth-runtime-verify.php'), str(root), json.dumps(settings, separators=(',', ':'))],
                    root, expected_verify)
         for rel, old in originals.items():
-            mode, owner = constraints[rel]
+            mode, owner, allow_hardlinks = constraints[rel]
             expected = written[rel][1] if rel in written else old
-            if snapshot(root / rel, uid, mode=mode, owner=owner) != expected:
+            # Every newly-published inode, including replacement source, must have one link.
+            if snapshot(root / rel, uid, mode=mode, owner=owner,
+                        allow_hardlinks=allow_hardlinks and rel not in written) != expected:
                 raise RuntimeError('CONCURRENT_EDIT: ' + rel)
         for path, old in parent_states.items():
             if directory(pathlib.Path(path), uid) != old: raise RuntimeError('CONCURRENT_DIRECTORY_EDIT')
@@ -375,7 +380,8 @@ def install(root, release, php):
         for rel, (old, published, payload, mode) in reversed(list(written.items())):
             path = root / rel
             try:
-                current = snapshot(path, uid, mode=mode)
+                # An operator adding a hardlink after publication is a concurrent edit; preserve it.
+                current = snapshot(path, uid, mode=mode, allow_hardlinks=False)
                 if current is None or current['content'] != payload or (published is not None and current != published):
                     restored = False; continue
                 if old is None: path.unlink()
