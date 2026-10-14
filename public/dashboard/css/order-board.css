@@ -128,8 +128,9 @@
 .ob-items li { padding: 3px 5px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-bottom: 1px solid #edf0f4; font-size: 11px; min-height: 22px; }
 .ob-items li:last-child { border-bottom: 0; }
 .ob-items li.ob-item-no-price { grid-template-columns: minmax(0, 1fr) auto; }
-.ob-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ob-item-option { display: inline; color: #718092; font-size: 11px; }
+.ob-item-name { min-width: 0; }
+.ob-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-item-option { display: block; color: #718092; font-size: 11px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
 .ob-line-amount { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; font-weight: 700; }
 .ob-quantity { color: #35414d; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ob-items-more { display: block; text-align: end; color: var(--ob-stage); font-size: 11px; padding-top: 2px; line-height: 1.4; }

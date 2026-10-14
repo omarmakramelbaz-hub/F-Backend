@@ -17,9 +17,16 @@ class OrderBoardClockObserver
         // the original restaurant acceptance clock.
         $wasAccepted = $order->getOriginal('accepted_notify') === 'yes'
             || in_array($order->getOriginal('status'), ['accepted', 'shipped', 'completed'], true);
-        $isAccepted = $order->accepted_notify === 'yes' || $order->status === 'accepted';
+        $isAccepted = $order->accepted_notify === 'yes' || in_array($order->status, ['accepted', 'shipped'], true);
         if (!$wasAccepted && $isAccepted && ($order->wasChanged('accepted_notify') || $order->wasChanged('status'))) {
             app(OrderBoardClock::class)->accepted('legacy', (int) $order->id);
+        }
+        $wasCourier = $order->getOriginal('status') === 'shipped'
+            || ($order->getOriginal('status') === 'accepted' && $order->getOriginal('delegate_from_out') === 'in_resturant');
+        $isCourier = $order->status === 'shipped'
+            || ($order->status === 'accepted' && $order->delegate_from_out === 'in_resturant');
+        if (!$wasCourier && $isCourier && ($order->wasChanged('status') || $order->wasChanged('delegate_from_out'))) {
+            app(OrderBoardClock::class)->courier('legacy', (int) $order->id);
         }
     }
 

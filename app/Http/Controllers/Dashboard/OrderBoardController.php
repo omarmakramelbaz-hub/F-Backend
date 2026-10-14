@@ -8,6 +8,7 @@ use App\Models\PartnerServiceRequest;
 use App\Events\OrderFinishedUpdated;
 use App\Notifications\NotifyUserOrderStatusUpdatedNotification;
 use App\Services\Dashboard\GoStoreBoardActions;
+use App\Services\Dashboard\LegacyOrderCancellation;
 use App\Services\Dashboard\OrderBoardService;
 use App\Services\Dashboard\OrderBoardItems;
 use App\Services\GoServices\Marketplace;
@@ -74,7 +75,7 @@ class OrderBoardController extends Controller
     public function action(Request $request, string $source, int $id, OrderBoardService $service, GoStoreBoardActions $stores)
     {
         $values = $request->validate([
-            'action'=>'required|in:accept,reject,prepare,ready,dispatch,complete',
+            'action'=>'required|in:accept,reject,cancel,prepare,ready,dispatch,complete',
             'expected_status'=>'required|string|max:32', 'expected_accepted_notify'=>'nullable|string|max:10',
             'expected_revision'=>'nullable|integer|min:0', 'reason'=>'nullable|string|max:500',
         ]);
@@ -85,7 +86,8 @@ class OrderBoardController extends Controller
         if ($source === 'store') {
             abort_unless(array_key_exists('expected_revision', $values), 422, 'راجع حالة الطلب قبل تنفيذ الإجراء.');
             $owner = $service->isAdmin($actor) ? DB::table('go_store_orders')->where('id', $id)->value('store_id') : $actor->id;
-            $changed = $stores->transition($id, (int) $owner, $values['action'], (int) $values['expected_revision'], $values['reason'] ?? 'رفض الإدارة');
+            $changed = $stores->transition($id, (int) $owner, $values['action'], (int) $values['expected_revision'],
+                $values['reason'] ?? ($values['action'] === 'cancel' ? 'إلغاء بناءً على طلب العميل' : 'رفض الإدارة'));
             if ($changed) $stores->notifyCustomer($id);
         } else {
             $shippingRejected = null;
@@ -116,6 +118,8 @@ class OrderBoardController extends Controller
                     elseif ($values['action'] === 'reject') {
                         $request->merge(['status'=>'declined']);
                         $vendor->updateOrderStatus($request, $order);
+                    } elseif ($values['action'] === 'cancel') {
+                        app(LegacyOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء بناءً على طلب العميل');
                     } elseif ($values['action'] === 'complete') {
                         $request->merge(['status'=>'completed']);
                         $vendor->updateOrderStatus($request, $order);
@@ -158,7 +162,7 @@ class OrderBoardController extends Controller
             }
         }
         if ($request->expectsJson()) {
-            $payload = ['success'=>true, 'message'=>'تم تحديث الطلب.'];
+            $payload = ['success'=>true, 'message'=>$values['action'] === 'cancel' ? 'تم إلغاء الطلب.' : 'تم تحديث الطلب.'];
             try {
                 // Return the committed card so the board does not wait for a second,
                 // expensive four-column feed before showing the new phase.

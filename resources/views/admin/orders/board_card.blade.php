@@ -31,7 +31,7 @@
     @if(!empty($items))
         <ul class="ob-items" aria-label="{{ __('order_board.items') }}">
             @foreach(array_slice($items, 0, 2) as $item)
-                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}">{{ $item['name'] }}@if(!empty($item['option_label']))<small class="ob-item-option"> · {{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
+                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}"><span class="ob-item-title">{{ $item['name'] }}</span>@if(!empty($item['option_label']))<small class="ob-item-option">{{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
             @endforeach
         </ul>
         @if($remainingItems > 0)

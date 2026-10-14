@@ -45,8 +45,8 @@ class GoStoreBoardActions
         if (!$validPayment) return [];
         switch ($order->status) {
             case 'pending': return ['accept', 'reject'];
-            case 'preparing': return ['ready'];
-            case 'ready': return ($order->fulfillment ?? '') === 'delivery' ? ['dispatch'] : ['complete'];
+            case 'preparing': return ['ready', 'cancel'];
+            case 'ready': return ($order->fulfillment ?? '') === 'delivery' ? ['dispatch', 'cancel'] : ['complete', 'cancel'];
             case 'out_for_delivery': return ['complete'];
             default: return [];
         }
@@ -59,7 +59,7 @@ class GoStoreBoardActions
         return DB::transaction(function () use ($id, $actorId, $action, $revision, $reason): bool {
             $order = DB::table('go_store_orders')->where('id', $id)->where('store_id', $actorId)->lockForUpdate()->first();
             abort_unless($order, 404);
-            $target = ['accept'=>'preparing', 'reject'=>'rejected', 'ready'=>'ready', 'dispatch'=>'out_for_delivery', 'complete'=>'completed'][$action] ?? null;
+            $target = ['accept'=>'preparing', 'reject'=>'rejected', 'ready'=>'ready', 'dispatch'=>'out_for_delivery', 'complete'=>'completed', 'cancel'=>'cancelled'][$action] ?? null;
             abort_unless($target, 422, 'الإجراء غير صالح.');
             $users = DB::table('users')->whereIn('id', [$order->customer_id, $order->store_id])
                 ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
@@ -76,6 +76,25 @@ class GoStoreBoardActions
                 $this->move($order, 'fee', (int) $order->store_id, null, (int) $order->commission_cents, true);
             }
             $payment = $order->payment_status;
+            if ($action === 'cancel') {
+                $this->returnCommission($order);
+                if ($payment === 'held') {
+                    $this->move($order, 'refund', null, (int) $order->customer_id, (int) $order->total_cents);
+                    $payment = 'refunded';
+                } elseif ($payment === 'paid') {
+                    // Retained gateway settlement credits the store before acceptance.
+                    // Require that real credit before reversing it; never debit invented gross.
+                    $gross = DB::table('wallets')->where('transfer_reference', 'gs:'.$order->id.':gross')->lockForUpdate()->first();
+                    abort_unless($gross && $gross->status === 'completed' && $gross->payment === 'wallet'
+                        && $gross->type === 'transfer' && $gross->from_user === null
+                        && (int) $gross->to_user === (int) $order->store_id
+                        && $this->minor($gross->amount) === (int) $order->total_cents, 409, 'قيد الدفع الإلكتروني للمتجر يحتاج مراجعة.');
+                    $this->move($order, 'reversal', (int) $order->store_id, null, (int) $order->total_cents, true);
+                    $payment = 'refund_pending';
+                } else {
+                    $payment = 'cancelled';
+                }
+            }
             if ($action === 'reject') {
                 if ($payment === 'held') {
                     $this->move($order, 'refund', null, (int) $order->customer_id, (int) $order->total_cents);
@@ -95,9 +114,15 @@ class GoStoreBoardActions
             }
             DB::table('go_store_orders')->where('id', $id)->update([
                 'status'=>$target, 'payment_status'=>$payment, 'revision'=>(int) $order->revision + 1,
-                'reason'=>$action === 'reject' ? $reason : ($order->reason ?? null), 'updated_at'=>now(),
+                'reason'=>in_array($action, ['reject', 'cancel'], true) ? ($reason ?: ($action === 'cancel' ? 'إلغاء بطلب العميل' : null)) : ($order->reason ?? null), 'updated_at'=>now(),
             ]);
             if ($action === 'accept' && $order->fulfillment === 'delivery') app(OrderBoardClock::class)->accepted('store', $id);
+            if ($action === 'dispatch') app(OrderBoardClock::class)->courier('store', $id);
+            if ($action === 'cancel' && Schema::hasTable('order_board_clocks')
+                && Schema::hasColumns('order_board_clocks', ['source', 'order_id', 'closed_at'])) {
+                DB::table('order_board_clocks')->where('source', 'store')->where('order_id', $id)
+                    ->whereNull('closed_at')->update(['closed_at' => now('UTC')]);
+            }
             return true;
         }, 3);
     }
@@ -108,6 +133,43 @@ class GoStoreBoardActions
         return ($owner->account_type ?? '') === 'delegate' && !empty($owner->pending_vendor_id)
             && Schema::hasTable('pending_vendors') && Schema::hasColumns('pending_vendors', ['id', 'profession_key'])
             && DB::table('pending_vendors')->where('id', $owner->pending_vendor_id)->where('profession_key', 'store_owner')->exists();
+    }
+
+    /** Acceptance and later item edits share this ledger; return its actual net fee once. */
+    private function returnCommission(object $order): void
+    {
+        $reference = 'gs:'.$order->id.':fee-refund';
+        abort_if(DB::table('wallets')->where('transfer_reference', $reference)->exists(), 409, 'تم رد عمولة الطلب مسبقًا.');
+        abort_if(DB::table('wallets')->whereIn('transfer_reference', ['gs:'.$order->id.':refund', 'gs:'.$order->id.':reversal'])->exists(), 409, 'راجع التسوية السابقة للطلب.');
+        $setting = DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->lockForUpdate()->first();
+        abort_unless($setting, 503, 'محفظة التطبيق غير مجهزة.');
+        $movements = DB::table('wallets')->where(function ($query) use ($order) {
+            $query->where('transfer_reference', 'gs:'.$order->id.':fee')
+                ->orWhere('transfer_reference', 'like', 'gs:'.$order->id.':items:%');
+        })->orderBy('id')->lockForUpdate()->get();
+        $charged = 0;
+        foreach ($movements as $movement) {
+            $debit = (int) $movement->from_user === (int) $order->store_id && $movement->to_user === null;
+            $credit = $movement->from_user === null && (int) $movement->to_user === (int) $order->store_id;
+            abort_unless($movement->status === 'completed' && $movement->payment === 'wallet'
+                && $movement->type === 'transfer' && ($debit || $credit), 409, 'قيد عمولة الطلب يحتاج مراجعة.');
+            $charged += ($debit ? 1 : -1) * $this->minor($movement->amount);
+        }
+        abort_unless($charged >= 0 && $charged === (int) $order->commission_cents, 409, 'راجع تسوية عمولة الطلب قبل إلغائه.');
+        if ($charged === 0) return;
+        $appBalance = $this->minor(json_decode($setting->payload, true), true);
+        abort_unless(DB::table('users')->where('id', $order->store_id)->increment('balance', Money::decimal($charged)) === 1, 409);
+        DB::table('settings')->where('id', $setting->id)->update(['payload' => json_encode(Money::decimal($appBalance - $charged))]);
+        DB::table('wallets')->insert(['transfer_reference' => $reference, 'from_user' => null, 'to_user' => $order->store_id,
+            'amount' => Money::decimal($charged), 'status' => 'completed', 'payment' => 'wallet', 'type' => 'transfer', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function minor($value, bool $signedBalance = false): int
+    {
+        try { $amount = Money::minor($value); }
+        catch (\InvalidArgumentException $error) { abort(409, 'قيمة تسوية محفوظة غير صالحة.'); }
+        abort_if(!$signedBalance && ($amount < 0 || $amount > 100000000), 409, 'قيمة التسوية غير صالحة.');
+        return $amount;
     }
 
     /** Call after a committed dashboard transition; polling remains authoritative if push fails. */

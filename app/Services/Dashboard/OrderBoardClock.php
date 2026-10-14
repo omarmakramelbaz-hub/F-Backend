@@ -29,12 +29,23 @@ class OrderBoardClock
         ]);
     }
 
+    /** Called after an authorized transition, while its order row remains locked. */
+    public function courier(string $source, int $id): void
+    {
+        if (!$this->ready()) return;
+        if (!in_array($source, ['legacy', 'store'], true)) throw new \InvalidArgumentException('Unsupported order clock');
+        // Preserve the first real/manual dispatch timestamp; never backfill old orders without a clock.
+        DB::table('order_board_clocks')->where('source', $source)->where('order_id', $id)
+            ->whereNull('closed_at')->whereNull('courier_at')->update(['courier_at'=>$this->utcNow(), 'updated_at'=>$this->utcNow()]);
+    }
+
     /** Safe for scheduler/manual retries and concurrent runs on the same row. */
     public function run(): array
     {
         $counts = ['courier'=>0, 'completed'=>0, 'skipped'=>0, 'errors'=>0];
         if (!$this->ready()) return $counts;
-        DB::table('order_board_clocks')->whereIn('source', ['legacy', 'store'])->whereNull('closed_at')->where('accepted_at', '<=', $this->utcNow()->subMinutes(15))
+        DB::table('order_board_clocks')->whereIn('source', ['legacy', 'store'])->whereNull('closed_at')
+            ->where(function ($query) { $query->where('accepted_at', '<=', $this->utcNow()->subMinutes(45))->orWhereNotNull('courier_at'); })
             ->orderBy('id')->chunkById(100, function ($clocks) use (&$counts) {
                 foreach ($clocks as $clock) {
                     try {
@@ -62,7 +73,6 @@ class OrderBoardClock
             $clock = DB::table('order_board_clocks')->where('id', $candidate->id)->lockForUpdate()->first();
             if (!$row || !$clock || $clock->closed_at) return 'skipped';
             $accepted = Carbon::parse($clock->accepted_at, 'UTC');
-            if ($accepted->gt($this->utcNow()->subMinutes(15))) return 'skipped';
             if (in_array($row->status, ['completed', 'cancelled', 'declined', 'rejected', 'expired'], true)) {
                 $this->clockUpdate($clock, ['closed_at'=>$this->utcNow()]);
                 return 'skipped';
@@ -85,6 +95,7 @@ class OrderBoardClock
             || ($order->status === 'accepted' && $order->delegate_from_out === 'in_resturant');
         $changed = false;
         if (!$courier) {
+            if ($accepted->gt($this->utcNow()->subMinutes(45))) return 'skipped';
             if ($order->delegate_id || $order->delegate_from_out === 'out_resturant') {
                 // Preserve the real assignment and partner delivery model.
                 $order->status = 'shipped';
@@ -94,12 +105,12 @@ class OrderBoardClock
                 $order->delegate_from_out = 'in_resturant';
             }
             $order->save();
-            $this->clockUpdate($clock, ['courier_at'=>$this->utcNow()]);
-            if ($accepted->gt($this->utcNow()->subMinutes(90))) $this->notifyLegacy($order);
+            $this->notifyLegacy($order);
             $courier = true;
             $changed = true;
         }
-        if ($courier && $accepted->lte($this->utcNow()->subMinutes(90))) {
+        $courierAt = $this->courierAt($clock);
+        if ($courier && $courierAt->lte($this->utcNow()->subMinutes(90))) {
             // A disrupted assigned cash courier is an existing manual financial
             // exception, not a signal to assume a successful collection.
             if ($order->payment_type === 'cash' && $order->delegate_id && $order->reason !== null) return 'skipped';
@@ -118,6 +129,7 @@ class OrderBoardClock
         if (!$actions->ready() || !in_array($row->status, ['preparing', 'ready', 'out_for_delivery'], true)
             || !$actions->available($row)) return 'skipped';
         $changed = false;
+        if ($row->status !== 'out_for_delivery' && $accepted->gt($this->utcNow()->subMinutes(45))) return 'skipped';
         if ($row->status === 'preparing') {
             $actions->transition((int) $row->id, (int) $row->store_id, 'ready', (int) $row->revision);
             $row = DB::table('go_store_orders')->find($row->id);
@@ -128,8 +140,8 @@ class OrderBoardClock
             $row = DB::table('go_store_orders')->find($row->id);
             $changed = true;
         }
-        if ($changed) $this->clockUpdate($clock, ['courier_at'=>$this->utcNow()]);
-        if ($row->status === 'out_for_delivery' && $accepted->lte($this->utcNow()->subMinutes(90))) {
+        $courierAt = $this->courierAt($clock);
+        if ($row->status === 'out_for_delivery' && $courierAt->lte($this->utcNow()->subMinutes(90))) {
             $actions->transition((int) $row->id, (int) $row->store_id, 'complete', (int) $row->revision);
             $this->clockUpdate($clock, ['closed_at'=>$this->utcNow()]);
             DB::afterCommit(fn () => $actions->notifyCustomer((int) $row->id));
@@ -179,6 +191,14 @@ class OrderBoardClock
     private function clockUpdate(object $clock, array $values): void
     {
         DB::table('order_board_clocks')->where('id', $clock->id)->update($values + ['updated_at'=>$this->utcNow()]);
+    }
+
+    private function courierAt(object $clock): Carbon
+    {
+        // Already-dispatched legacy clocks without a timestamp receive a fresh 90-minute window.
+        $this->courier($clock->source, (int) $clock->order_id);
+        $value = DB::table('order_board_clocks')->where('id', $clock->id)->value('courier_at');
+        return Carbon::parse($value, 'UTC');
     }
 
     private function notifyLegacy(Order $order): void
