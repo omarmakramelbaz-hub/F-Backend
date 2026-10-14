@@ -93,3 +93,5 @@ body.dark-mode .meta-chat,.dark-mode .meta-chat,[data-theme="dark"] .meta-chat {
 
 .wa-inbox:not(.meta-chat) .wa-inbox-workspace { height: max(400px, calc(100dvh - 250px)); }
 @media(max-width:720px) { .wa-inbox:not(.meta-chat) .wa-inbox-workspace { height: max(400px, calc(100dvh - 260px)); } }
+
+.meta-receipt-status { display:block; margin-top:4px; font-size:10px; color:#60758b; }
