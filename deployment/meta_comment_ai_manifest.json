@@ -5,7 +5,7 @@
     "app/Services/Dashboard/MetaCommentReplyGate.php": "30967f79079502bddb6f771958a6a475f3c34c6b",
     "app/Services/Dashboard/MetaCommentsReadCache.php": "54bf077ea52597c4a86055a23bf2cc1bb34673df",
     "app/Services/Dashboard/MetaCommentAiReplyPolicy.php": "5104252e60dcd0ae7e3c7732319882533cb85d50",
-    "app/Services/Dashboard/MetaCommentAiProvider.php": "e7ee14ac538d3947b28dbdf1be0de217b0cc5f57",
+    "app/Services/Dashboard/MetaCommentAiProvider.php": "969b22c235cc2a2e420d2def8af957a81afb19f9",
     "app/Services/Dashboard/MetaCommentAiControl.php": "d1cd90a84b427642fd52dc0d9611aaab6ba1ab1a",
     "app/Services/Dashboard/MetaCommentAiWorker.php": "520d9f2599641a498feac37d24417b532e562954",
     "app/Console/Commands/ProcessMetaCommentReplies.php": "a36a6f3950d5320f9cedd6473378c36515c2e25c",

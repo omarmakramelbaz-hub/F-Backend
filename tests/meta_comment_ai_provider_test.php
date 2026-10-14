@@ -40,7 +40,49 @@ check($seen['text']['format']['schema']['properties']['kind']['enum'] === ['PRIC
 check($seen['reasoning'] === ['effort' => 'low'], 'preserves existing configured model integration');
 check(strpos($seen['instructions'], 'sarcasm') !== false && strpos($seen['instructions'], 'UNTRUSTED DATA') !== false
     && strpos($seen['instructions'], 'NEVER quote') !== false, 'prompt understands sarcasm and enforces data/price boundary');
+check(strpos($seen['instructions'], 'خفة دم') !== false && strpos($seen['instructions'], 'Vary wording and openings naturally') !== false
+    && strpos($seen['instructions'], 'do not default to repeated فندم, حضرتك or شكرًا') !== false, 'prompt requests varied conversational Egyptian voice');
+check(strpos($seen['instructions'], 'Praise and emoji-only comments') !== false
+    && strpos($seen['instructions'], 'without a sales pitch or an unnecessary question') !== false
+    && strpos($seen['instructions'], 'Keep ordinary social engagement in the public thread') !== false,
+    'prompt keeps praise and social reactions contextual and public');
+check(strpos($seen['instructions'], 'poor food quality') !== false && strpos($seen['instructions'], 'calm empathy, no joke and no playful emoji') !== false
+    && strpos($seen['instructions'], 'zero or one relevant emoji') !== false, 'prompt separates playful banter from serious complaints');
+check(strpos($seen['instructions'], 'Do not imitate a human identity') !== false
+    && strpos($seen['instructions'], 'truthfully say you are Fasakhansta\'s automated assistant') !== false,
+    'natural voice does not require a false human identity');
 check(array_keys(json_decode($seen['input'][0]['content'], true)) === ['post_text', 'comment_text', 'product_names'], 'input whitelist excludes arbitrary metadata');
+
+// These injected candidates check the prompt contract and real output validator, not a live model's tone.
+$voiceCases = [
+    ['praise', 'تسلم إيديكم، شكل الأكل جميل', 'كلامك الحلو يسعدنا ❤️'],
+    ['casual joke', 'دخلت أتفرج لقيت نفسي جعان 😂', 'كده الصور أدّت مهمتها 😄'],
+    ['friendly teasing', 'إنتوا بتعذبونا بالصور دي 😂', 'اتفرج على مسؤوليتك بقى 😄'],
+    ['sarcastic delay complaint', 'السمك رجع البحر وإحنا لسه مستنيين', 'الانتظار بالشكل ده يضايق فعلًا. ابعت لنا رسالة خاصة بتفاصيل اللي حصل من فضلك.'],
+    ['quality complaint', 'التجربة المرة دي ضايقتني', 'مقدرين زعلك من التجربة. ممكن توضح لنا اللي حصل في رسالة خاصة؟'],
+    ['emoji-only affection', '😍', 'القلوب دي فرّحتنا ❤️'],
+];
+foreach ($voiceCases as [$label, $comment, $candidate]) {
+    $requestSeen = null;
+    $voiceProvider = new Provider(function ($body) use (&$requestSeen, $candidate) {
+        $requestSeen = json_decode($body, true, 16, JSON_THROW_ON_ERROR);
+        return envelope(['kind' => 'REPLY', 'message' => $candidate]);
+    }, $configuration);
+    $result = $voiceProvider->reply(array_replace($context, ['comment_text' => $comment]));
+    check($result === ['ok' => true, 'reason' => null, 'message' => $candidate, 'kind' => 'REPLY'],
+        'contextual Arabic candidate passes real validator: ' . $label);
+    $voiceInput = json_decode($requestSeen['input'][0]['content'], true, 8, JSON_THROW_ON_ERROR);
+    check($voiceInput['comment_text'] === $comment && $voiceInput['post_text'] === $context['post_text'],
+        'model receives the actual comment and post for: ' . $label);
+    check(strpos($requestSeen['instructions'], $comment) !== false && strpos($requestSeen['instructions'], $candidate) !== false,
+        'illustrative prompt pair stays within the output policy: ' . $label);
+}
+$identity = 'أنا المساعد الآلي لفسخانستا، وأقدر أساعدك هنا في استفسارك.';
+$identityProvider = new Provider(fn () => envelope(['kind' => 'REPLY', 'message' => $identity]), $configuration);
+check($identityProvider->reply(array_replace($context, ['comment_text' => 'إنت بني آدم ولا بوت؟']))['message'] === $identity,
+    'truthful automation disclosure is accepted as natural public prose');
+check(strpos($seen['instructions'], 'not templates to copy or facts to assume') !== false,
+    'voice examples are illustrative rather than fixed canned replies');
 
 foreach (['بكام؟', 'بكم الكيلو', 'بِـكـاَم الوجبة', 'ب كام', 'ب ك ا م', 'ب.ك.ا.م', 'بكااام', "ب\u{200D}كام",
     'نص كيلو عامل كام؟', 'الوجبة بتعمل كام دلوقتي؟', 'السعر إيه؟', 'الأسعار زادت؟', 'تمن الرنجة', 'إيه التكلفة؟',
