@@ -2,7 +2,7 @@ name: WhatsApp webhook checks
 
 on:
   push:
-    branches: [codex/whatsapp-webhook-20261009, codex/whatsapp-messaging-cache-fix-20261012, codex/whatsapp-order-evidence-fix-20261013, codex/whatsapp-branch-area-20261014, codex/whatsapp-location-request-20261014, codex/whatsapp-followup-handoff-20261014]
+    branches: [codex/whatsapp-webhook-20261009, codex/whatsapp-messaging-cache-fix-20261012, codex/whatsapp-order-evidence-fix-20261013, codex/whatsapp-branch-area-20261014, codex/whatsapp-location-request-20261014, codex/whatsapp-followup-handoff-20261014, codex/whatsapp-followup-diagnostic-20261014]
   pull_request:
     paths:
       - 'app/Support/WhatsAppWebhookProtocol.php'
@@ -111,6 +111,7 @@ jobs:
           php -l deployment/whatsapp_order_fragmented_address_read_only_probe.php
           php -l deployment/whatsapp_order_fulfillment_reclassify.php
           php -l deployment/whatsapp_order_followup_status.php
+          php -l deployment/whatsapp_order_followup_gates.php
           php -l deployment/whatsapp_order_source_reference_observer.php
           php -l deployment/whatsapp_order_source_reference_read_only_probe.php
           php -l app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php
@@ -307,6 +308,7 @@ jobs:
           php tests/whatsapp_order_handoff_workflow_test.php
           php tests/whatsapp_order_followup_service_test.php
           php tests/whatsapp_order_followup_status_test.php
+          php tests/whatsapp_order_followup_gates_test.php
           php tests/whatsapp_accepted_reply_evidence_test.php
           php tests/whatsapp_inbox_reads_test.php
           php tests/whatsapp_reply_service_test.php
