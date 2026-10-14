@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\DB;
 /** Independent, bounded public-comment polling. No inbox/order job or webhook subscription is changed. */
 class MetaCommentAiWorker
 {
+    private const MAX_QUEUE = 40;
+    private const MAX_PENDING = 100;
+    private const FRESH_HEADS = 2;
     private MetaCommentAiControl $control;
     private MetaCommentsService $comments;
     private MetaCommentAiProvider $provider;
@@ -42,7 +45,9 @@ class MetaCommentAiWorker
 
     public function run(int $budgetSeconds = 30, int $sendLimit = 4): array
     {
-        $result = ['seen' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => 0, 'unknown' => 0, 'errors' => 0, 'reason' => null];
+        $result = ['seen' => 0, 'attempted' => 0, 'sent' => 0, 'skipped' => 0, 'unknown' => 0, 'errors' => 0,
+            'skipped_timing' => 0, 'skipped_self' => 0, 'skipped_unreplyable' => 0,
+            'skipped_gate' => 0, 'skipped_business' => 0, 'skipped_ai' => 0, 'head_deferred' => 0, 'reason' => null];
         $budgetSeconds = max(1, min(60, $budgetSeconds));
         $sendLimit = max(1, min(4, $sendLimit));
         $deadline = hrtime(true) + $budgetSeconds * 1000000000;
@@ -69,7 +74,11 @@ class MetaCommentAiWorker
             $state['turn'] = ($this->clock)()->getTimestamp();
             $post = null; $comment = null;
             try {
-                if (!$state['queue']) $state = $this->fill($actor, $accountKey, $state);
+                $recentPosts = null;
+                if (!$state['queue']) $state = $this->fill($actor, $accountKey, $state, $recentPosts);
+                if ($recentPosts === null) $recentPosts = $this->comments->automationPosts($actor, $accountKey)['posts'];
+                $headFollowups = [];
+                $state = $this->refreshHeads($actor, $accountKey, $state, $recentPosts, $headFollowups, $result);
                 $visits = count($state['queue']);
                 while ($state['queue'] && $visits-- > 0 && hrtime(true) < $deadline
                     && $result['attempted'] < $sendLimit) {
@@ -90,17 +99,18 @@ class MetaCommentAiWorker
                         }
                         $result['seen']++;
                         if (!$this->control->eligible($policy, $comment['comment_created_at'] ?? null, ($this->clock)())) {
-                            $result['skipped']++; continue;
+                            $result['skipped']++; $result['skipped_timing']++; continue;
                         }
                         if (($comment['is_self'] ?? false) === true || ($comment['can_reply'] ?? true) === false
                             || trim((string) ($comment['text'] ?? '')) === '') {
                             $this->gate->skip($comment, ($comment['is_self'] ?? false) ? 'SELF_COMMENT' : 'NOT_REPLYABLE');
+                            $result[($comment['is_self'] ?? false) ? 'skipped_self' : 'skipped_unreplyable']++;
                             $result['skipped']++; continue;
                         }
-                        if (!$this->gate->mayAutomate($comment)) { $result['skipped']++; continue; }
+                        if (!$this->gate->mayAutomate($comment)) { $result['skipped']++; $result['skipped_gate']++; continue; }
                         $replied = $this->comments->automationHasBusinessReply($actor, $comment);
                         if ($replied === true) {
-                            $this->gate->skip($comment, 'BUSINESS_REPLIED'); $result['skipped']++; continue;
+                            $this->gate->skip($comment, 'BUSINESS_REPLIED'); $result['skipped']++; $result['skipped_business']++; continue;
                         }
                         if ($replied === null) {
                             // Do not guess when an entire reply thread cannot be read within its bounded pages.
@@ -113,7 +123,7 @@ class MetaCommentAiWorker
                             'request_timeout_seconds' => max(1, min(30, (int) (($deadline - hrtime(true)) / 1000000000)))]);
                         if (($draft['kind'] ?? null) === 'SKIP' && (($draft['ok'] ?? false) === true
                             || in_array($draft['reason'] ?? null, ['NO_SAFE_REPLY', 'UNSAFE_REPLY', 'UNGROUNDED_REPLY', 'INVALID_INPUT', 'REFUSED'], true))) {
-                            $this->gate->skip($comment, 'AI_SKIPPED'); $result['skipped']++; continue;
+                            $this->gate->skip($comment, 'AI_SKIPPED'); $result['skipped']++; $result['skipped_ai']++; continue;
                         }
                         if (($draft['ok'] ?? false) !== true || !is_string($draft['message'] ?? null) || trim($draft['message']) === '') {
                             $comment['failures'] = min(5, (int) ($comment['failures'] ?? 0) + 1);
@@ -127,15 +137,15 @@ class MetaCommentAiWorker
                         $replied = $this->comments->automationHasBusinessReply($actor, $comment);
                         if ($replied !== false) {
                             if ($replied === true) {
-                                $this->gate->skip($comment, 'BUSINESS_REPLIED'); $result['skipped']++; continue;
+                                $this->gate->skip($comment, 'BUSINESS_REPLIED'); $result['skipped']++; $result['skipped_business']++; continue;
                             }
                             array_unshift($post['pending'], $comment); $result['reason'] = 'REPLIES_INCOMPLETE'; $stop = true; break;
                         }
                         if (hrtime(true) >= $deadline) { array_unshift($post['pending'], $comment); break; }
                         $receipt = $this->control->withActiveDispatch($policy, function () use ($actor, $comment, $draft, $policy, &$result) {
                             // Recheck after generation; a human may have replied while AI was working.
-                            if (!$this->gate->mayAutomate($comment)) return ['state' => 'SKIPPED'];
-                            if (!$this->control->eligible($policy, $comment['comment_created_at'] ?? null, ($this->clock)())) return ['state' => 'SKIPPED'];
+                            if (!$this->gate->mayAutomate($comment)) { $result['skipped_gate']++; return ['state' => 'SKIPPED']; }
+                            if (!$this->control->eligible($policy, $comment['comment_created_at'] ?? null, ($this->clock)())) { $result['skipped_timing']++; return ['state' => 'SKIPPED']; }
                             $result['attempted']++;
                             return $this->comments->sendAutomation($actor, $comment, $draft['message'], (int) $policy['revision']);
                         });
@@ -154,7 +164,11 @@ class MetaCommentAiWorker
                     // Pending rows and deep comment cursors survive the wall/send budget and process restarts.
                     if ($post['pending'] || $post['cursor'] !== null) {
                         if (!$post['pending']) unset($post['pending']);
-                        $state['queue'][] = $post;
+                        if (!isset($post['pending']) && isset($headFollowups[$post['native_id']])) {
+                            // A refreshed head must not prevent its saved deep cursor from advancing.
+                            unset($headFollowups[$post['native_id']]); $visits++;
+                            array_unshift($state['queue'], $post);
+                        } else $state['queue'][] = $post;
                     }
                     $post = null; $comment = null;
                     if ($stop) break;
@@ -175,16 +189,61 @@ class MetaCommentAiWorker
         return $this->done($result, $result['reason']);
     }
 
-    private function fill($actor, string $accountKey, array $state): array
+    private function fill($actor, string $accountKey, array $state, ?array &$recentPosts = null): array
     {
         $recent = $state['phase'] === 'recent';
         $page = $this->comments->automationPosts($actor, $accountKey, $recent ? null : $state['history_cursor']);
+        if ($recent) $recentPosts = $page['posts'];
         foreach ($page['posts'] as $post) {
             if (!is_string($post['native_id'] ?? null) || preg_match('/\A[1-9][0-9]{0,31}(?:_[1-9][0-9]{0,31})?\z/', $post['native_id']) !== 1) continue;
             $state['queue'][] = ['native_id' => $post['native_id'], 'text' => mb_substr((string) ($post['text'] ?? ''), 0, 10000), 'cursor' => null];
         }
         if (!$recent || $state['history_cursor'] === null) $state['history_cursor'] = $page['next_cursor'];
         $state['phase'] = $recent ? 'history' : 'recent';
+        return $state;
+    }
+
+    /** Fresh heads have their own polling lane; an old busy thread cannot hide a new comment. */
+    private function refreshHeads($actor, string $accountKey, array $state, array $recentPosts,
+        array &$followups, array &$result): array
+    {
+        $heads = []; $seen = [];
+        foreach (array_slice($recentPosts, 0, self::FRESH_HEADS) as $recent) {
+            $native = $recent['native_id'] ?? null;
+            if (!is_string($native) || isset($seen[$native])) continue;
+            $seen[$native] = true;
+            $index = null;
+            foreach ($state['queue'] as $key => $queued) if (($queued['native_id'] ?? null) === $native) { $index = $key; break; }
+            if ($index === null && count($state['queue']) + count($heads) >= self::MAX_QUEUE) {
+                $result['head_deferred']++; continue;
+            }
+            $page = $this->comments->automationComments($actor, $accountKey, $native);
+            $post = $index === null ? ['native_id' => $native, 'cursor' => $page['next_cursor']] : $state['queue'][$index];
+            if ($index !== null) unset($state['queue'][$index]);
+            $post['text'] = mb_substr((string) ($recent['text'] ?? ''), 0, 10000);
+            if (($post['cursor'] ?? null) === null) $post['cursor'] = $page['next_cursor'];
+            $pending = []; $order = [];
+            foreach ($post['pending'] ?? [] as $row) {
+                $id = $row['native_id'] ?? null;
+                if (!is_string($id) || isset($pending[$id])) continue;
+                $pending[$id] = $row; $order[] = $id;
+            }
+            $fresh = []; $freshIds = [];
+            foreach ($page['comments'] as $row) {
+                $id = $row['native_id'] ?? null;
+                if (!is_string($id) || isset($freshIds[$id])) continue;
+                if (!isset($pending[$id]) && count($pending) >= self::MAX_PENDING) {
+                    $result['head_deferred']++; continue;
+                }
+                // Saved retry/backoff metadata wins over a fresh DTO for the same comment.
+                $fresh[] = $pending[$id] ?? $row; $freshIds[$id] = true;
+                if (!isset($pending[$id])) $pending[$id] = $row;
+            }
+            foreach ($order as $id) if (!isset($freshIds[$id])) $fresh[] = $pending[$id];
+            $post['pending'] = $fresh;
+            $heads[] = $post; $followups[$native] = true;
+        }
+        $state['queue'] = array_merge($heads, array_values($state['queue']));
         return $state;
     }
 
@@ -208,7 +267,7 @@ class MetaCommentAiWorker
             $state = json_decode(Crypt::decryptString($row->state), true, 64, JSON_THROW_ON_ERROR);
             if (!is_array($state) || ($state['v'] ?? null) !== 1 || ($state['revision'] ?? null) !== $revision
                 || !in_array($state['phase'] ?? null, ['recent', 'history'], true)
-                || !is_array($state['queue'] ?? null) || count($state['queue']) > 20) return $empty;
+                || !is_array($state['queue'] ?? null) || count($state['queue']) > self::MAX_QUEUE) return $empty;
             return $state + $empty;
         } catch (\Throwable $error) { return $empty; }
     }

@@ -66,6 +66,54 @@ class TransformTests(unittest.TestCase):
 
 
 class SchemaGuardTests(unittest.TestCase):
+    def test_upgrade_migration_preserves_enabled_policy_cutoff_and_send_guards(self):
+        local=PACKAGE.parent/'php-runtime/php'
+        php=os.environ.get('META_COMMENT_AI_TEST_PHP') or (str(local) if local.exists() else shutil.which('php'))
+        vendor=os.environ.get('WA_INBOX_TEST_VENDOR') or str(PACKAGE.parent/'php-runtime/vendor')
+        autoload=pathlib.Path(vendor)/'autoload.php' if pathlib.Path(vendor).is_dir() else pathlib.Path(vendor)
+        if not php or not autoload.is_file(): self.skipTest('Isolated PHP database dependencies required')
+        script=r'''
+require $argv[1];
+function now($zone=null){return \Carbon\Carbon::now($zone);}
+$container=new \Illuminate\Container\Container();
+\Illuminate\Support\Facades\Facade::setFacadeApplication($container);
+$capsule=new \Illuminate\Database\Capsule\Manager($container);
+$capsule->addConnection(['driver'=>'sqlite','database'=>':memory:']);
+$capsule->setAsGlobal();$capsule->bootEloquent();
+$container->instance('db',$capsule->getDatabaseManager());
+$container->bind('db.schema',fn()=>$capsule->schema());
+require $argv[2];require $argv[3];
+(new CreateMetaCommentReplyRequests())->up();$migration=new CreateMetaCommentAiTables();$migration->up();
+$db=$capsule->getConnection();$stamp='2026-10-14 22:53:08';
+$db->table('meta_comment_ai_settings')->where('id',1)->update([
+ 'enabled'=>true,'enabled_at'=>$stamp,'revision'=>1,'actor_id'=>17,
+ 'mode'=>'scheduled','days'=>'[1,3,5]','start'=>'09:00','end'=>'00:30',
+ 'worker_seen_at'=>'2026-10-14 23:08:13','last_reason'=>'OFF_WINDOW'
+]);
+$db->table('meta_comment_ai_targets')->insert([
+ 'account_key'=>str_repeat('a',64),'target_hash'=>str_repeat('b',64),'post_key'=>str_repeat('c',64),
+ 'state'=>'UNKNOWN','source'=>'ai','request_id'=>'f2ef0d23-2d4e-4a6c-8fb9-2c13e463a331',
+ 'revision'=>1,'response_id'=>'opaque encrypted receipt'
+]);
+$db->table('meta_comment_reply_requests')->insert([
+ 'request_hash'=>str_repeat('d',64),'pending_key'=>str_repeat('e',64),
+ 'actor_id'=>17,'account_key'=>str_repeat('a',64),'target_hash'=>str_repeat('b',64),
+ 'state'=>'UNKNOWN','payload_hash'=>str_repeat('f',64),'send_started_at'=>$stamp,
+ 'response_details'=>'opaque encrypted provider receipt'
+]);
+$db->table('meta_comment_ai_poll_states')->insert(['account_key'=>str_repeat('a',64),'state'=>'opaque encrypted cursor']);
+$tables=['meta_comment_ai_settings','meta_comment_ai_targets','meta_comment_reply_requests','meta_comment_ai_poll_states'];
+$before=[];foreach($tables as $table)$before[$table]=$db->table($table)->get()->toJson();
+$migration->up();$migration->up();$migration->down();
+foreach($tables as $table){if($before[$table]!==$db->table($table)->get()->toJson())throw new RuntimeException('Upgrade changed policy or receipt');}
+echo "ACTIVE_POLICY_AND_RECEIPTS_PRESERVED\n";
+'''
+        result=subprocess.run([php,'-r',script,'--',str(autoload),
+            str(PACKAGE/'database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php'),
+            str(PACKAGE/updater.MIGRATION)],text=True,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn('ACTIVE_POLICY_AND_RECEIPTS_PRESERVED',result.stdout)
+
     def test_read_only_sqlite_and_mysql_unique_guard_metadata(self):
         local=PACKAGE.parent/'php-runtime/php'
         php=os.environ.get('META_COMMENT_AI_TEST_PHP') or (str(local) if local.exists() else shutil.which('php'))
@@ -197,11 +245,13 @@ class InstallTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.temp.name)/'public_html'; self.root.mkdir()
         self.unit_root=pathlib.Path(self.temp.name)/'units'; self.unit_root.mkdir()
         self.release='a'*40; self.before={}; self.payloads={}; self.commands=[]; self.system=[]; self.migrated=False; self.fail=None
+        self.policy=None
         for relative in updater.EXISTING_FILES:
             self.before[relative]=b'header\nold behavior\nfooter\n'
             self.payloads[relative]=b'header\nnew behavior\nfooter\n'
         self.before[updater.WEB_ROUTES]=WEB.encode(); self.payloads[updater.WEB_ROUTES]=updater.web_contents(WEB).encode()
         for relative in updater.NEW_FILES: self.payloads[relative]=('new reviewed source '+relative+'\n').encode()
+        self.ai_baseline={relative:('previous reviewed source '+relative+'\n').encode() for relative in updater.NEW_FILES}
         for relative in updater.UNIT_INPUTS: self.payloads[relative]=(PACKAGE/relative).read_bytes()
         for relative,data in self.before.items(): self.write(relative,data)
         for relative in updater.NEW_FILES: (self.root/relative).parent.mkdir(parents=True,exist_ok=True)
@@ -220,6 +270,7 @@ class InstallTests(unittest.TestCase):
 
     def source(self,root,release,relative):
         if relative==updater.MANIFEST: return self.manifest
+        if release==updater.AI_FILE_BASE: return self.ai_baseline[relative]
         return self.payloads[relative] if release==self.release else self.before[relative]
 
     def owned(self,root,args):
@@ -232,9 +283,10 @@ class InstallTests(unittest.TestCase):
 
     def probe(self,root,php,script,phase,stage,views):
         if phase=='verify' and self.fail=='verify': raise RuntimeError('TEST_VERIFY_FAILURE')
-        return {'ok':True,'tables_ready':self.migrated,'tables':{'meta_comment_ai_settings':self.migrated},
-            'configured':True,'policy_present':self.migrated,'enabled':False if self.migrated else None,
-            'mode':'always' if self.migrated else None,'worker_seen':False,'routes_cached':False,
+        ready=self.migrated or self.policy is not None
+        return {'ok':True,'tables_ready':ready,'tables':{'meta_comment_ai_settings':ready},
+            'configured':True,'policy_present':ready,'enabled':self.policy['enabled'] if self.policy else (False if ready else None),
+            'mode':self.policy['mode'] if self.policy else ('always' if ready else None),'worker_seen':False,'routes_cached':False,
             'config_cached':True,'verified_routes':2 if phase=='verify' else 0,'views_compiled':1,
             'view_caches':[self.cache_relative]}
 
@@ -299,6 +351,62 @@ class InstallTests(unittest.TestCase):
         (self.root/path).unlink(); (self.unit_root/updater.UNIT_NAMES[0]).write_bytes(b'operator unit')
         with self.assertRaisesRegex(RuntimeError,'UNREVIEWED_TIMER_UNIT'): self.execute(timer=True)
         self.assertFalse(self.migrated)
+
+    def test_exact_reviewed_ai_files_upgrade_and_back_up_previous_bytes(self):
+        for relative,data in self.ai_baseline.items(): self.write(relative,data)
+        result=self.execute()
+        self.assertEqual(result['status'],'META_COMMENT_AI_READY')
+        backup=pathlib.Path(result['backup'])
+        for relative,previous in self.ai_baseline.items():
+            self.assertEqual((self.root/relative).read_bytes(),self.payloads[relative])
+            self.assertEqual((backup/relative).read_bytes(),previous)
+
+    def test_reviewed_ai_upgrade_is_read_only_during_preflight(self):
+        for relative,data in self.ai_baseline.items(): self.write(relative,data)
+        self.policy={'enabled':True,'mode':'always','revision':1,'enabled_at':'2026-10-14T22:53:08+00:00'}
+        files={path:(path.read_bytes(),path.stat().st_ino,path.stat().st_mode,path.stat().st_mtime_ns)
+               for path in self.root.rglob('*') if path.is_file()}
+        result=self.execute(check=True,timer=True)
+        self.assertTrue(result['readiness']['enabled'])
+        for path,before in files.items():
+            self.assertEqual((path.read_bytes(),path.stat().st_ino,path.stat().st_mode,path.stat().st_mtime_ns),before)
+        self.assertFalse(self.migrated)
+        self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+        self.assertEqual(list(self.unit_root.iterdir()),[])
+        self.assertTrue(all(args[0]=='systemd-analyze' for args in self.system))
+
+    def test_reviewed_ai_upgrade_is_idempotent_and_preserves_enabled_policy(self):
+        for relative,data in self.ai_baseline.items(): self.write(relative,data)
+        self.policy={'enabled':True,'mode':'always','revision':1,'enabled_at':'2026-10-14T22:53:08+00:00'}
+        before=self.policy.copy()
+        first=self.execute(timer=True)
+        self.assertTrue(first['readiness']['enabled'])
+        published={relative:(self.root/relative).stat().st_ino for relative in updater.SOURCE_FILES}
+        second=self.execute(timer=True)
+        self.assertEqual(second['updated_files'],0)
+        self.assertTrue(second['readiness']['enabled'])
+        self.assertEqual(self.policy,before)
+        self.assertEqual(published,{relative:(self.root/relative).stat().st_ino for relative in updater.SOURCE_FILES})
+        self.assertFalse(any('--once' in args or 'rollback' in args or 'schedule:run' in args for args in self.commands))
+
+    def test_unknown_ai_overlay_refuses_upgrade_before_migration_or_backup(self):
+        for relative,data in self.ai_baseline.items(): self.write(relative,data)
+        relative='app/Services/Dashboard/MetaCommentAiWorker.php'
+        altered=self.ai_baseline[relative]+b'operator polling overlay\n'; self.write(relative,altered)
+        with self.assertRaisesRegex(RuntimeError,'NEW_FILE_COLLISION: '+relative): self.execute()
+        self.assertEqual((self.root/relative).read_bytes(),altered)
+        self.assertFalse(self.migrated)
+        self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+
+    def test_failed_ai_upgrade_restores_reviewed_old_files_without_policy_reset(self):
+        for relative,data in self.ai_baseline.items(): self.write(relative,data)
+        self.policy={'enabled':True,'mode':'always','revision':1,'enabled_at':'2026-10-14T22:53:08+00:00'}
+        before=self.policy.copy(); self.fail='verify'
+        with self.assertRaisesRegex(RuntimeError,'TEST_VERIFY_FAILURE'): self.execute()
+        self.assertEqual(self.policy,before)
+        for relative,data in self.ai_baseline.items(): self.assertEqual((self.root/relative).read_bytes(),data)
+        self.assertIn('RESTORED',self.output)
+        self.assertFalse(any('rollback' in args for args in self.commands))
 
     def test_migration_or_verification_failure_restores_sources_and_retains_data(self):
         for failure in ('migration','verify'):

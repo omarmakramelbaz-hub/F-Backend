@@ -16,6 +16,9 @@ import tempfile
 APP_ROOT = pathlib.Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 BASES = ('e07724ccdccc7fede01a44c274a78bf108484366', '99101eccb0be057fe0fd75c1e1848e81591113f3')
+# Files introduced by the first AI release may be replaced only when the live
+# bytes still match this reviewed deployment. Unknown local edits stay blocked.
+AI_FILE_BASE = 'a89fffcb3926b56fa812d23a556d691cfdb69dd4'
 MANIFEST = 'deployment/meta_comment_ai_manifest.json'
 MIGRATION = 'database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php'
 DIAGNOSTIC = 'deployment/meta_comment_ai_diagnostic.php'
@@ -352,7 +355,8 @@ def install_locked(root, release, manifest, php, check_only, uid, gid, repair_pe
                     raise RuntimeError('BASELINE_FILE_MISSING: ' + relative)
                 payload = variant_patch(root, release, relative, old['bytes'], payload)
             elif old and old['bytes'] != payload:
-                raise RuntimeError('NEW_FILE_COLLISION: ' + relative)
+                if old['bytes'] != source(root, AI_FILE_BASE, relative):
+                    raise RuntimeError('NEW_FILE_COLLISION: ' + relative)
             originals[relative], targets[relative] = old, payload
             modes[relative] = old['mode'] & ~0o020 if old else 0o644
             checked = stage / relative; checked.parent.mkdir(parents=True, exist_ok=True); checked.write_bytes(payload); checked.chmod(0o644)

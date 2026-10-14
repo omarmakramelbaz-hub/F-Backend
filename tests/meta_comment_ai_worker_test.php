@@ -128,8 +128,10 @@ namespace {
     $commentRows['101_501'] = [comment('700', null, '2026-10-15T10:00:00+0000'), comment('702', '101'), comment('701')];
     $run = $worker->run();
     check($run['sent'] === 1 && $postWrites === 1 && $provider->calls === 1, 'only eligible external comment is sent; absent public author is allowed');
+    check($run['skipped_timing'] === 1 && $run['skipped_self'] === 1 && $run['reason'] === null, 'ordinary timing and self exclusions have safe counters without an error reason');
     check(DB::table('meta_comment_ai_targets')->where('reason', 'SELF_COMMENT')->exists(), 'known self author ID is suppressed');
-    $worker->run(); check($postWrites === 1 && $provider->calls === 1, 'accepted automatic comment is never generated/sent twice');
+    $repeat = $worker->run(); check($postWrites === 1 && $provider->calls === 1, 'accepted automatic comment is never generated/sent twice');
+    check($repeat['skipped_gate'] === 1 && $repeat['skipped_timing'] === 1 && $repeat['skipped_self'] === 1, 'fresh head rescans identify accepted receipts separately from old and self comments');
     $saved = DB::table('meta_comment_ai_poll_states')->first();
     check(strpos($saved->state, '101_501') === false && strpos($saved->state, 'بوست') === false, 'polling state encrypted');
     clearState(); $replyRows['701'] = [comment('880', '101')];
@@ -209,6 +211,56 @@ namespace {
     try { $service->automationPosts($actor, $fbKey); check(false, 'expired automation deadline refuses I/O'); }
     catch (\App\Services\Dashboard\MetaCommentsFailure $error) { check($error->reason === 'WORKER_BUDGET' && count($calls) === $before, 'expired automation deadline refuses I/O'); }
     $service->setAutomationDeadline(null);
+    // A busy old comment cursor must not prevent a fresh read of the newest Instagram post.
+    clearState();
+    $freshHeadRows = []; $freshHeadReads = 0; $freshWrites = 0; $oldRows = [];
+    for ($i = 0; $i < 1000; $i++) $oldRows[] = comment((string) (10000 + $i), null, '2026-10-15T10:00:00+0000');
+    $freshTransport = function ($method, $url, $query, $token) use (&$freshHeadRows, &$freshHeadReads, &$freshWrites, &$oldRows) {
+        $path = substr(parse_url($url, PHP_URL_PATH), strlen('/v25.0/'));
+        if ($method === 'POST') { $freshWrites++; return response(['id' => (string) (9900 + $freshWrites)]); }
+        if ($path === '202') return response(['id' => '202', 'username' => 'Official_Business']);
+        if ($path === '202/media') return response(['data' => [['id' => '600', 'caption' => 'Newest post'], ['id' => '601', 'caption' => 'Old busy post']]]);
+        if ($path === '600/comments') { $freshHeadReads++; return response(['data' => $freshHeadRows]); }
+        if ($path === '601/comments') {
+            $offset = isset($query['after']) ? (int) substr($query['after'], 1) : 0;
+            $body = ['data' => array_slice($oldRows, $offset, 25)];
+            if ($offset + 25 < count($oldRows)) $body['paging'] = ['cursors' => ['after' => 'C'.($offset + 25)], 'next' => 'https://graph.facebook.com/ignored'];
+            return response($body);
+        }
+        return response(['data' => []]);
+    };
+    $freshService = new MetaCommentsService($freshTransport);
+    $freshWorker = new MetaCommentAiWorker($control, $freshService, $provider, $gate, static fn () => $actor,
+        static function () use (&$clockNow) { return $clockNow; });
+    $igKey = hash('sha256', 'instagram:202');
+    $pollQueue = static function () use ($igKey) {
+        $row = DB::table('meta_comment_ai_poll_states')->where('account_key', $igKey)->first();
+        return json_decode(Crypt::decryptString($row->state), true, 64, JSON_THROW_ON_ERROR)['queue'];
+    };
+    $queued = static function (array $queue, string $id): ?array {
+        foreach ($queue as $post) if ($post['native_id'] === $id) return $post;
+        return null;
+    };
+    $cursorOffset = static function (array $post): int {
+        return (int) substr(json_decode(Crypt::decryptString($post['cursor']), true, 16, JSON_THROW_ON_ERROR)['after'], 1);
+    };
+    $initial = $freshWorker->run(); $beforeDeep = $queued($pollQueue(), '601');
+    check($initial['attempted'] === 0 && $initial['errors'] === 0 && $beforeDeep !== null && $beforeDeep['cursor'] !== null, 'old pre-activation thread retains a deep cursor without generating or sending');
+    $freshHeadRows = [comment('98001')];
+    $freshRun = $freshWorker->run(); $afterDeep = $queued($pollQueue(), '601');
+    check($freshRun['sent'] === 1 && $freshWrites === 1 && $provider->calls === 1 && $freshHeadReads === 2, 'new Instagram comment arriving after the first pass is sent on the next pass despite an old busy queue');
+    check($afterDeep !== null && $cursorOffset($afterDeep) > $cursorOffset($beforeDeep), 'fresh-head lane preserves and advances the older deep cursor instead of resetting or starving it');
+    $freshWorker->run(); check($freshWrites === 1 && $provider->calls === 1, 'fresh Instagram head rescans preserve the exactly-once target gate');
+
+    clearState(); $freshWrites = 0; $freshHeadRows = [comment('98002')]; $provider->transient = true;
+    $failedHead = $freshWorker->run(); $savedHead = $queued($pollQueue(), '600'); $savedDeep = $queued($pollQueue(), '601');
+    check($failedHead['errors'] === 1 && $savedHead !== null && $savedHead['pending'][0]['failures'] === 1, 'transient head failure is kept in the existing bounded retry queue');
+    $retryAt = $savedHead['pending'][0]['retry_at'];
+    $freshWorker->run(); $rescanHead = $queued($pollQueue(), '600'); $rescanDeep = $queued($pollQueue(), '601');
+    check($provider->calls === 1 && $freshWrites === 0 && $rescanHead['pending'][0]['failures'] === 1 && $rescanHead['pending'][0]['retry_at'] === $retryAt, 'fresh DTO merge retains retry_at and failures without rebilling during backoff');
+    check(count($rescanHead['pending']) === 1 && $cursorOffset($rescanDeep) > $cursorOffset($savedDeep), 'fresh/native ID deduplication keeps one pending row while old cursor progress continues');
+    $provider->transient = false; $clockNow = $clockNow->modify('+61 seconds');
+    $freshWorker->run(); check($freshWrites === 1 && $provider->calls === 2, 'deferred fresh head sends once after its original backoff expires');
     clearState();
     $post = $service->posts($actor, $fbKey)['posts'][0]; $manual = $service->comments($actor, $post['handle'])['comments'][0];
     $denied = new MetaCommentsService(static fn () => response(['error' => ['code' => 200]], 403));
