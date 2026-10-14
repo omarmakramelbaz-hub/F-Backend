@@ -52,6 +52,30 @@
         }
         return payload;
     }
+    function readOrder(controller) {
+        // Bound both response headers and JSON: aborting fetch alone may leave a body read pending.
+        return new Promise(function (resolve, reject) {
+            var settled = false, url = endpoint;
+            var timer = setTimeout(function () {
+                finish(new Error(t('items_load_failed')));
+                controller.abort();
+            }, 15000);
+            function finish(error, payload) {
+                if (settled) return;
+                settled = true; clearTimeout(timer);
+                controller.signal.removeEventListener('abort', cancel);
+                if (error) reject(error); else resolve(payload);
+            }
+            function cancel() {
+                var error = new Error(t('items_load_failed')); error.name = 'AbortError'; finish(error);
+            }
+            controller.signal.addEventListener('abort', cancel, {once:true});
+            Promise.resolve().then(function () {
+                if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                return fetch(url,{credentials:'same-origin',cache:'no-store',headers:headers(),signal:controller.signal});
+            }).then(json).then(function (payload) { finish(null, payload); }, function (error) { finish(error); });
+        });
+    }
     function quantityValid(line) {
         var amount = scaled(line.quantity, 3);
         return !line.input_invalid && amount !== null && amount > 0n && amount <= 1000000n && !(Number(line.quantity_step) === 1 && amount % 1000n !== 0n);
@@ -165,7 +189,8 @@
             var unavailable = el.matches('[data-items-catalog-control]') && productById(el.dataset.itemsProductId || el.dataset.itemsOptions);
             el.disabled = saving || (!el.matches('[data-items-close],[data-items-reload],[data-items-options-close]') && locked()) || !!(unavailable && unavailable.available === false);
         });
-        showQuantity(); updateSummary();
+        if (content.hidden) save.disabled = true;
+        else { showQuantity(); updateSummary(); }
     }
     function key(value) {
         if (locked()) return;
@@ -221,9 +246,9 @@
     async function load() {
         if (active) active.abort();
         var controller = new AbortController(), current = ++generation; active = controller;
-        loading = true; blocked = true; content.hidden = true; reload.hidden = true; optionModal.hidden = true; showMessage(t('items_loading'), true); lockControls();
         try {
-            var payload = await json(await fetch(endpoint,{credentials:'same-origin',cache:'no-store',headers:headers(),signal:controller.signal}));
+            loading = true; blocked = true; content.hidden = true; reload.hidden = true; optionModal.hidden = true; showMessage(t('items_loading'), true); lockControls();
+            var payload = await readOrder(controller);
             if (disposed || current !== generation) return;
             if (!payload.order || !Array.isArray(payload.order.items) || !Array.isArray(payload.catalog)) throw new Error(t('items_load_failed'));
             state = payload.order; catalog = payload.catalog; categories = payload.categories || []; category = '';
@@ -235,8 +260,9 @@
             blocked = false; dirty = false; search.value = ''; quantityMode = 'piece'; quantityInput = '1'; replaceQuantity = true;
             showMessage(''); content.hidden = false; renderCategories(); renderCatalog(); renderLines();
         } catch (error) {
-            if (disposed || current !== generation || error.name === 'AbortError') return;
-            showMessage(error.message || t('items_load_failed')); reload.hidden = false;
+            if (disposed || current !== generation) return;
+            blocked = true; content.hidden = true;
+            showMessage(error.status ? error.message : t('items_load_failed')); reload.hidden = false;
         } finally { if (current === generation) { loading = false; active = null; lockControls(); } }
     }
     function close() {

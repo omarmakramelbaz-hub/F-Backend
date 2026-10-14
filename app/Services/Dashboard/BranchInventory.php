@@ -165,11 +165,23 @@ class BranchInventory
         if(!str_starts_with($branch,'f:'))return $lines;
         $recipes=$this->saleRecipes($branch,array_column($lines,'product_id'));
         $direct=app(BranchStock::class)->directBalances($branch,array_column($lines,'product_id'));
+        // Customer orders persist the real "kilo" feature ID; the POS recipe editor
+        // saves that same full portion under variant 0. Match only the owning SKU.
+        $baseFeatures=[];
+        if($lines&&Schema::hasTable('product_features')&&Schema::hasColumn('resturant_products','product_id'))foreach(DB::table('product_features as f')
+            ->join('resturant_products as p','p.product_id','=','f.product_id')
+            ->where('p.resturant_id',(int)substr($branch,2))->whereIn('p.id',array_column($lines,'product_id'))
+            ->where('f.name','kilo')->get(['p.id as product_id','f.id as feature_id']) as $base){
+            $baseFeatures[(int)$base->product_id][(int)$base->feature_id]=true;
+        }
         foreach($lines as &$line){$r=$recipes[$line['product_id']]??null;$f=$this->feature($line);$variants=$r?json_decode($r->variants,true):[];$components=$variants[(string)$f]??null;
+            $baseAlias=$r&&!array_key_exists((string)$f,$variants)&&isset($baseFeatures[$line['product_id']][$f]);
+            if($baseAlias)$components=$variants['0']??null;
             if($r&&$r->unit==='piece')abort_unless((int)$line['quantity_millis']%1000===0,422,'وصفة هذا الصنف للوحدة؛ أدخل عددًا صحيحًا.');
             if($r)abort_unless($components,422,'لم تُسجّل وصفة حجم هذا الصنف: '.$line['name']);
             $sku=!$r?($direct[$line['product_id']]??null):null;
             $line['inventory']=['version'=>1,'branch'=>$branch,'product_id'=>(int)$line['product_id'],'feature_id'=>$f,'recipe_id'=>$r?(int)$r->id:null,'revision'=>$r?(int)$r->revision:0,'unit'=>$r->unit??($sku['unit']??null),'components'=>$components?:[]];
+            if($baseAlias)$line['inventory']['recipe_feature_id']=0;
             if($sku)$line['inventory']['stock_source']='direct';
         }unset($line);return $lines;
     }

@@ -5,6 +5,7 @@
 namespace {
     function app($abstract = null) { $app = \Illuminate\Container\Container::getInstance(); return $abstract === null ? $app : $app->make($abstract); }
     function config($key = null, $default = null) { return $key === null ? app('config') : app('config')->get($key, $default); }
+    function __($key, $replace = []) { return app('translator')->get($key, $replace); }
     function now($zone = null) { return \Carbon\Carbon::now($zone); }
     function abort($status, $message = '') { throw new \Symfony\Component\HttpKernel\Exception\HttpException($status, $message); }
     function abort_unless($value, $status, $message = '') { if (!$value) abort($status, $message); }

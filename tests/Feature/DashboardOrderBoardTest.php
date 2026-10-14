@@ -553,7 +553,7 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame('yes', $order->accepted_notify);
         $card = app(OrderBoardService::class)->detail('legacy', 1, $this->actor(10));
         $this->assertSame('preparing', $card['group']);
-        $this->assertSame(['prepare', 'dispatch'], $card['actions']);
+        $this->assertSame(['prepare', 'dispatch', 'cancel'], $card['actions']);
         $payload['action'] = 'reject';
         $this->postJson(route('order-board.action', ['legacy', 1]), $payload)->assertStatus(409);
         $this->assertSame('pending', DB::table('orders')->where('id', 1)->value('status'));

@@ -70,6 +70,14 @@
         return !!document.querySelector('.modal.show, dialog[open]');
     }
 
+    function syncOrderAlerts(source) {
+        var alerts = window.DashboardOrderAlerts;
+        if (!alerts) return;
+        // Only an explicitly resolved card acknowledges a live event. Missing cards
+        // may simply have moved outside the selected branch, search or page.
+        alerts.observeApp(source);
+    }
+
     function syncCards(nextHtml) {
         // Reconcile each column by order key. Existing cards and their scroll positions
         // remain in place when a polling response contains no changes.
@@ -215,7 +223,7 @@
 
     async function refresh(force) {
         if (disposed) return;
-        if (pendingAction || (!force && (document.hidden || modalIsOpen()))) {
+        if (pendingAction) {
             needsRefresh = true;
             if (pendingAction && force) reconcileUrgent = true;
             return;
@@ -227,6 +235,7 @@
         var controller = new AbortController();
         activeFeed = controller;
         var currentGeneration = ++generation;
+        var alertCheckpoint = window.DashboardOrderAlerts ? window.DashboardOrderAlerts.checkpoint() : 0;
         var query = filters().toString();
         var endpoint = new URL(board.dataset.feedUrl, window.location.href);
         endpoint.search = query;
@@ -240,10 +249,12 @@
             });
             var payload = await readJson(response);
             if (disposed || currentGeneration !== generation || query !== filters().toString() || pendingAction) return;
-            // A dialog may have opened while the request was in flight; defer DOM changes.
-            if (modalIsOpen()) { needsRefresh = true; return; }
             var html = payload.html !== undefined ? payload.html : payload.view;
             if (typeof html !== 'string') throw new Error(translated('loading_failed'));
+            if (window.DashboardOrderAlerts && Array.isArray(payload.pending_alert_keys)) window.DashboardOrderAlerts.reconcileApp(payload.pending_alert_keys, alertCheckpoint);
+            else syncOrderAlerts(html);
+            // Keep detecting new orders while a dialog is open, but defer DOM changes.
+            if (modalIsOpen()) { needsRefresh = true; return; }
             syncCards(html);
             syncCounts(payload.counts);
             setLive('updated');
@@ -371,14 +382,16 @@
             });
             var payload = await readJson(response);
             if (disposed) return;
-            notify(payload.message || translated('saved'), true, false);
+            if (action === 'reject') {
+                clearTimeout(messageTimer); message.hidden = true;
+            } else notify(payload.message || translated('saved'), true, false);
             reconcileNeeded = true;
             if (applyConfirmedCard(payload.card, card, query)) setLive('updated');
             else reconcileUrgent = true;
             // Shared notification audio can be unavailable while external SDKs initialize.
             // A sound failure must never report a successfully committed order as failed.
-            if (typeof window.stopSound === 'function') {
-                try { window.stopSound(); } catch (_) { /* The order has already been saved. */ }
+            if (window.DashboardOrderAlerts) {
+                try { window.DashboardOrderAlerts.acknowledge(key); } catch (_) { /* The order has already been saved. */ }
             }
         } catch (error) {
             if (disposed) return;
@@ -403,6 +416,7 @@
         wrapper.style.setProperty('--ob-top', Math.max(0, wrapper.getBoundingClientRect().top) + 'px');
         wrapper.style.setProperty('--ob-footer', (footer ? footer.getBoundingClientRect().height : 0) + 'px');
     }
+    syncOrderAlerts(columns);
     sizeBoard();
     window.addEventListener('load', sizeBoard);
     window.addEventListener('resize', sizeBoard);
