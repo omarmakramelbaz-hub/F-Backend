@@ -81,6 +81,10 @@ class MetaMediaService
         $claimed = $this->canonicalMime(strtolower(trim(explode(';', (string) ($response['content_type'] ?? ''), 2)[0])));
         $detected = (new \finfo(FILEINFO_MIME_TYPE))->buffer($response['body']);
         $mime = is_string($detected) ? $this->canonicalMime($detected) : null;
+        if (($source['type'] ?? '') === 'audio') {
+            if ($mime === 'video/mp4') $mime = 'audio/mp4';
+            if ($claimed === 'video/mp4') $claimed = 'audio/mp4';
+        }
         abort_unless(is_string($mime) && $this->allowedMime($source['type'] ?? '', $mime)
             && $this->compatibleMime($source['type'] ?? '', $claimed, $mime), 415);
         return ['body' => $response['body'], 'mime' => $mime,
@@ -175,7 +179,7 @@ class MetaMediaService
     {
         $types = [
             'image' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
-            'audio' => ['audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm', 'video/webm'],
+            'audio' => ['audio/aac', 'audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm', 'video/webm'],
             'video' => ['video/mp4', 'video/webm', 'video/quicktime'],
             'document' => ['application/pdf', 'text/plain', 'application/zip', 'application/x-zip', 'application/x-zip-compressed',
                 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
@@ -188,7 +192,7 @@ class MetaMediaService
 
     private function canonicalMime(string $mime): string
     {
-        return ['image/jpg' => 'image/jpeg', 'image/pjpeg' => 'image/jpeg', 'audio/x-m4a' => 'audio/mp4',
+        return ['audio/x-hx-aac-adts' => 'audio/aac', 'audio/x-amr' => 'audio/amr', 'image/jpg' => 'image/jpeg', 'image/pjpeg' => 'image/jpeg', 'audio/x-m4a' => 'audio/mp4',
             'audio/m4a' => 'audio/mp4', 'audio/x-wav' => 'audio/wav', 'audio/wave' => 'audio/wav',
             'application/ogg' => 'audio/ogg', 'application/x-zip' => 'application/zip',
             'application/x-zip-compressed' => 'application/zip'][$mime] ?? $mime;
