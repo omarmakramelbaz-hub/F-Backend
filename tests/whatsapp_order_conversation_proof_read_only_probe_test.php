@@ -2,12 +2,34 @@
 // Synthetic transcript and private fake HTTP only. No Laravel bootstrap, database,
 // external request, credentials, source publication or ERP/order actions.
 define('WHATSAPP_ORDER_CONVERSATION_PROOF_READ_ONLY_PROBE_TEST_ONLY', true);
-require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
-require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+// Mounted CI checkout permissions need not match a protected production tree.
+// Stage exact source bytes in a private, process-owned tree before loading any
+// classes; preserve every production file-mode and physical-path verification.
+$proofOriginalCwd=getcwd();
+$proofFixture=realpath(sys_get_temp_dir()).'/wa-proof-runtime-'.bin2hex(random_bytes(8));
+$proofStagedFiles=[];
+if (!mkdir($proofFixture,0700)) throw new RuntimeException('Cannot create private proof runtime');
+chmod($proofFixture,0700);
+register_shutdown_function(static function () use ($proofOriginalCwd,$proofFixture,&$proofStagedFiles): void {
+    chdir($proofOriginalCwd);
+    foreach ($proofStagedFiles as $path) if (is_file($path)) unlink($path);
+    foreach (['app/Services/Dashboard','app/Services','app/Support','app'] as $path)
+        if (is_dir($proofFixture.'/'.$path)) rmdir($proofFixture.'/'.$path);
+    if (is_dir($proofFixture)) rmdir($proofFixture);
+});
+$proofSourcePaths=['app/Support/WhatsAppInboxProtocol.php','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php',
+    'app/Support/WhatsAppOrderExtraction.php','app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
+    'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'];
+foreach ($proofSourcePaths as $path) {
+    $target=$proofFixture.'/'.$path;$parent=dirname($target);
+    if (!is_dir($parent) && !mkdir($parent,0700,true)) throw new RuntimeException('Cannot stage private proof directories');
+    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $proofStagedFiles[]=$target;
+    if (file_put_contents($target,$bytes)!==strlen($bytes) || !chmod($target,0600)
+        || file_get_contents($target)!==$bytes) throw new RuntimeException('Cannot stage exact private proof source');
+}
+chdir($proofFixture);
+foreach ($proofSourcePaths as $path) require $proofFixture.'/'.$path;
 require dirname(__DIR__) . '/deployment/whatsapp_order_conversation_proof_observer.php';
 require dirname(__DIR__) . '/deployment/whatsapp_order_conversation_proof_read_only_probe.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
@@ -210,7 +232,8 @@ function proofIsolated(array $data,array $rows,string $case): array
                 || ($case==='selection-source-drift' && str_contains($path,'SourceSelection'))
                 || ($case==='provider-source-drift' && str_contains($path,'AiProvider'))) $bytes.="\n";
             if (file_put_contents($target,$bytes)!==strlen($bytes)) throw new RuntimeException('Cannot write isolated synthetic source');
-            chmod($target,0600);$files[]=$target;
+            $mode=$case==='unsafe-writable-mode' && str_contains($path,'ConversationEvidence') ? 0660 : 0600;
+            chmod($target,$mode);$files[]=$target;
         }
         $program='chdir('.var_export($directory,true).');';
         foreach ($paths as $path) $program.='require '.var_export($directory.'/'.$path,true).';';
@@ -373,7 +396,7 @@ $wrongBoolean=$inspections['CUSTOMER_SELECTION'];$wrongBoolean['checks']['amount
 proofExpect(Observer::sanitize($wrongBoolean),$unknown,'boolean flags never accept integer coercion');
 $wrongKeys=$inspections['CUSTOMER_SELECTION'];unset($wrongKeys['checks']['amount_matches']);
 proofExpect(Observer::sanitize($wrongKeys),$unknown,'incomplete predicate map is never exposed');
-foreach (['evidence-source-drift','selection-source-drift','provider-source-drift','clone-class-collision'] as $case) {
+foreach (['evidence-source-drift','selection-source-drift','provider-source-drift','clone-class-collision','unsafe-writable-mode'] as $case) {
     $isolated=proofIsolated($failures['CUSTOMER_SELECTION']['data'],$failures['CUSTOMER_SELECTION']['rows'],$case);
     proofExpect($isolated['status'],'OBSERVER_STOPPED',$case.' prevents any trace from unreviewed code or a foreign clone class');
     proofExpect($isolated['subreason'],$case==='clone-class-collision'?'CLONE_INVALID':'SOURCE_PIN_INVALID',$case.' has a fixed reason');
