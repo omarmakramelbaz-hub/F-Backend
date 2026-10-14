@@ -294,9 +294,15 @@ def timer_state():
         if drops or (fragment and fragment != str(UNIT_ROOT / name)):
             raise RuntimeError('UNREVIEWED_TIMER_UNIT')
         enabled = properties.get('UnitFileState',''); active = properties.get('ActiveState','')
-        if enabled not in ('', 'disabled', 'enabled', 'static') or active not in ('inactive', 'active', 'failed'):
-            raise RuntimeError('UNREVIEWED_TIMER_STATE')
-        state[name] = {'enabled': enabled == 'enabled', 'active': active == 'active'}
+        # Type=oneshot stays "activating" until ExecStart finishes. Starting a
+        # timer with an elapsed OnBootSec can put its service there immediately.
+        # These are service lifecycle transitions, not a change to timer policy.
+        service_states = ('inactive', 'active', 'failed', 'activating', 'deactivating')
+        allowed_states = service_states if name == UNIT_NAMES[0] else ('inactive', 'active', 'failed')
+        if enabled not in ('', 'disabled', 'enabled', 'static') or active not in allowed_states:
+            raise RuntimeError('UNREVIEWED_TIMER_STATE: ' + name)
+        state[name] = {'enabled': enabled == 'enabled',
+                       'active': active in ('active', 'activating', 'deactivating')}
     return state
 
 

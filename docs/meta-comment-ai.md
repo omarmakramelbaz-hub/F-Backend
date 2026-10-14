@@ -19,7 +19,7 @@ bash VERIFIED_LAUNCHER RELEASE_SHA --install-timer --repair-permissions
 
 Apply publishes new dependencies first, runs only the targeted AI migration, verifies the new default is OFF, then exposes existing service/UI consumers and routes. PHP is linted before publication, Blade is compiled in memory, and only the changed comments template's compiled cache is invalidated. Existing manual ledger and AI claim uniqueness are checked using read-only MySQL/SQLite metadata, including full-column unique request/pending hashes, target hashes, poll account keys and the settings primary key.
 
-The explicit `--install-timer` option installs only `fasakhansta-meta-comment-ai.service` and `.timer`, using reviewed root-owned files under `/etc/systemd/system`, and enables/starts the timer after source/migration verification. It runs as `fasakha`, uses UMask 0077, and invokes `artisan meta:process-comment-replies --once`. The timer waits 60 seconds after boot and after a completed run; persistent catch-up is disabled. The worker enforces its own overlap lock, policy, schedule and bounded send budget. The service allows 90 seconds for its final bounded transport to settle. The installer never directly invokes `--once`, changes policy, runs another scheduler or makes a provider request. The timer operates independently and still obeys the Owner policy, including an already enabled policy on a rerun.
+The explicit `--install-timer` option installs only `fasakhansta-meta-comment-ai.service` and `.timer`, using reviewed root-owned files under `/etc/systemd/system`, and enables/starts the timer after source/migration verification. It runs as `fasakha`, uses UMask 0077, and invokes `artisan meta:process-comment-replies --once`. The timer uses a 60-second boot deadline and a 60-second interval after a completed run; an elapsed boot deadline can start the first service immediately when the timer is started. Persistent catch-up is disabled. The oneshot service can be `activating` while its command runs or `deactivating` while it finishes; these states count as existing service activity for rollback preservation. Timer enable/active policy remains separately checked, and other unreviewed states, units and overrides remain blocked. The worker enforces its own overlap lock, policy, schedule and bounded send budget. The service allows 90 seconds for its final bounded transport to settle. The installer never directly invokes `--once`, changes policy, runs another scheduler or makes a provider request. The timer operates independently and still obeys the Owner policy, including an already enabled policy on a rerun.
 
 Polling rotates bounded pages and threads. Reaching older posts or deep comment threads can span multiple timer runs; a one-minute response is not guaranteed.
 
@@ -39,7 +39,7 @@ For a later manual source rollback, first stop this dedicated timer and let an a
 Verification uses isolated fixtures and no live replies:
 
 ```bash
-python3 tests/test_meta_comment_ai_update.py
+python3 -m unittest discover -s tests -p 'test_meta_comment_ai_*.py'
 bash -n deployment/apply_meta_comment_ai_root.sh
 META_COMMENT_AI_LARAVEL_VENDOR=/path/to/laravel8/vendor php tests/meta_comment_ai_diagnostic_test.php
 ```
