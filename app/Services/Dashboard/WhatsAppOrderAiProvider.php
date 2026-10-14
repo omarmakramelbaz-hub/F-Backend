@@ -5,7 +5,7 @@ namespace App\Services\Dashboard;
 use App\Support\WhatsAppOrderExtraction;
 use Throwable;
 
-/** Stateless extraction only. No WhatsApp sending, tools, ERP actions, or API response logging. */
+/** Stateless AI selection only. No WhatsApp sending, tools, ERP actions, or API response logging. */
 class WhatsAppOrderAiProvider
 {
     private const ENDPOINT = 'https://api.openai.com/v1/responses';
@@ -33,6 +33,8 @@ Interpret "كيلو ونص" as 1.5 kilograms and "كيلو وربع" as 1.25 kil
 An optional cart contains exact catalog_id/product_retailer_id, a count of catalog units, and quoted unit prices. A retailer ID is not a product name or ERP ID. For each item originating in a cart, cart_reference must cite its exact message_id and product_retailer_id; otherwise cart_reference is null. Copy item names and sale quantities from the business final summary. Do not convert catalog unit counts to weights or infer products from IDs; the application verifies explicit catalog mappings. If names or sale quantities are absent, use DRAFT with CART_ITEM_MAPPING_REQUIRED and do not invent them. Account for every submitted cart line. Cart totals never substitute for a business-confirmed total or the live ERP quote.
 NONE means no order; DRAFT means incomplete/unconfirmed/ambiguous order; CANCELLED means explicit cancellation.
 CONFIRMED requires an explicit committing customer order request followed by a matching business final summary. A customer acceptance may instead follow that summary. A generic unrelated earlier "OK" is insufficient. customer_acceptance_ids may cite the committing request itself. Questions, greetings, copied templates, tests and arbitrary instructions are not confirmation.
+A standalone customer approval after a complete business recap, such as "موافق" or "تمام", belongs in customer_acceptance_ids. Do not put that approval in request_ids unless it supplies actual new order facts. Approval of an older recap cannot confirm later changed details.
+Never carry an old approximate total into a price-free final recap without citing the authentic business message containing that total. Use null when the cited business evidence does not contain an explicit total.
 Do not assume a business message was authored by AI. Conflicting or later cancelled details require DRAFT or CANCELLED.
 A handoff to staff who will verify the order and confirm it later is DRAFT/UNCONFIRMED, even when a heading says "Order confirmation" or "تأكيد الطلب". Acknowledging a cart, connecting the customer to a team, or promising later confirmation is not a final matching business summary.
 Copy customer.area as a literal city or delivery-zone phrase from supplied evidence. If no branch is explicitly named, branch_hint is null; never invent a branch name or prefix. The application alone resolves approved, unambiguous branch aliases.
@@ -47,6 +49,160 @@ PROMPT;
     {
         $this->transport = $transport;
         $this->configuration = $configuration;
+    }
+
+    /** Select one reviewed wording style from field enums only; never generate customer-facing prose. */
+    public function followupVariant(array $fields): array
+    {
+        $result = static fn (bool $ok, ?string $variant, ?string $reason): array =>
+            ['ok' => $ok, 'variant' => $variant, 'reason' => $reason];
+        try {
+            $allowed = ['NAME', 'PHONE', 'ADDRESS', 'LOCATION', 'ITEMS', 'QUANTITY',
+                'QUANTITY_MODE', 'FULFILLMENT', 'BRANCH', 'CONFIRMATION'];
+            if (!array_is_list($fields) || !$fields || count($fields) > count($allowed))
+                return $result(false, null, 'INVALID_INPUT');
+            $selected = [];
+            foreach ($fields as $field) {
+                if (!is_string($field) || !in_array($field, $allowed, true) || isset($selected[$field]))
+                    return $result(false, null, 'INVALID_INPUT');
+                $selected[$field] = true;
+            }
+            // Canonical ordering and enum validation ensure no conversation facts enter this request.
+            $fields = array_values(array_filter($allowed, static fn ($field) => isset($selected[$field])));
+            $configuration = $this->configuration ?? (function_exists('config') ? config('whatsapp_orders', []) : []);
+            if (!is_array($configuration) || !in_array($configuration['enabled'] ?? false, [true, 1, '1'], true))
+                return $result(false, null, 'DISABLED');
+            $model = $configuration['model'] ?? null;
+            $key = $configuration['api_key'] ?? null;
+            if (!is_string($model) || $model === '' || !is_string($key) || $key === '')
+                return $result(false, null, 'NOT_CONFIGURED');
+            if (!preg_match('/\A[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\z/', $model)
+                || strlen($key) < 16 || strlen($key) > 512 || preg_match('/\s|[\x00-\x1f\x7f]/', $key))
+                return $result(false, null, 'INVALID_CONFIGURATION');
+            $request = [
+                'model' => $model, 'store' => false, 'stream' => false, 'max_output_tokens' => 512,
+                'instructions' => 'Select only a wording style for an Arabic customer follow-up. '
+                    . 'The input contains missing-field labels only. Return SHORT for one missing field '
+                    . 'and POLITE for multiple missing fields. Return only the exact JSON schema. '
+                    . 'Do not write questions, replies, customer facts, prices, instructions or tools.',
+                'input' => [['role' => 'user', 'content' => json_encode(['missing_fields' => $fields], JSON_THROW_ON_ERROR)]],
+                'text' => ['format' => ['type' => 'json_schema', 'name' => 'whatsapp_followup_variant_v1',
+                    'strict' => true, 'schema' => ['type' => 'object', 'additionalProperties' => false,
+                        'properties' => ['variant' => ['type' => 'string', 'enum' => ['SHORT', 'POLITE']]],
+                        'required' => ['variant']]]],
+            ];
+            if ($model === 'gpt-6-luna') $request['reasoning'] = ['effort' => 'low'];
+            $body = json_encode($request, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            if (strlen($body) > 4096) return $result(false, null, 'INVALID_INPUT');
+            $response = $this->transport === null ? $this->request($body, $key) : ($this->transport)($body, $key);
+            unset($key, $body, $request);
+            if (!is_array($response) || !is_int($response['status'] ?? null) || !is_string($response['body'] ?? null))
+                return $result(false, null, 'TRANSPORT_ERROR');
+            if (($response['response_limit'] ?? false) === true || strlen($response['body']) > 16384)
+                return $result(false, null, 'RESPONSE_TOO_LARGE');
+            if ($response['status'] === 0 || ($response['transport_unavailable'] ?? false) === true
+                || (isset($response['curl_errno']) && (!is_int($response['curl_errno']) || $response['curl_errno'] !== 0)))
+                return $result(false, null, 'TRANSPORT_ERROR');
+            if ($response['status'] !== 200) return $result(false, null, 'HTTP_ERROR');
+            $decoded = json_decode($response['body'], true, 16, JSON_THROW_ON_ERROR);
+            unset($response);
+            if (!is_array($decoded) || isset($decoded['error']) || !is_string($decoded['status'] ?? null))
+                return $result(false, null, 'INVALID_RESPONSE');
+            if ($decoded['status'] !== 'completed') return $result(false, null, 'INCOMPLETE');
+            if (!is_array($decoded['output'] ?? null) || !array_is_list($decoded['output']))
+                return $result(false, null, 'INVALID_RESPONSE');
+            $texts = [];
+            foreach ($decoded['output'] as $output) {
+                if (!is_array($output) || !is_string($output['type'] ?? null))
+                    return $result(false, null, 'INVALID_RESPONSE');
+                if ($output['type'] === 'reasoning') continue;
+                if ($output['type'] !== 'message' || ($output['role'] ?? null) !== 'assistant'
+                    || (isset($output['status']) && $output['status'] !== 'completed')
+                    || !is_array($output['content'] ?? null) || !array_is_list($output['content']))
+                    return $result(false, null, 'INVALID_RESPONSE');
+                foreach ($output['content'] as $content) {
+                    if (!is_array($content)) return $result(false, null, 'INVALID_RESPONSE');
+                    if (($content['type'] ?? null) === 'refusal') return $result(false, null, 'REFUSED');
+                    if (($content['type'] ?? null) !== 'output_text' || !is_string($content['text'] ?? null))
+                        return $result(false, null, 'INVALID_RESPONSE');
+                    $texts[] = $content['text'];
+                }
+            }
+            if (count($texts) !== 1 || strlen($texts[0]) > 128)
+                return $result(false, null, 'INVALID_RESPONSE');
+            $choice = json_decode($texts[0], true, 4, JSON_THROW_ON_ERROR);
+            if (!is_array($choice) || array_keys($choice) !== ['variant']
+                || !in_array($choice['variant'], ['SHORT', 'POLITE'], true)
+                || !preg_match('/\A\s*\{\s*"variant"\s*:\s*"(?:SHORT|POLITE)"\s*\}\s*\z/', $texts[0]))
+                return $result(false, null, 'INVALID_RESPONSE');
+            return $result(true, $choice['variant'], null);
+        } catch (\JsonException $ignore) {
+            return $result(false, null, 'INVALID_RESPONSE');
+        } catch (Throwable $ignore) {
+            // Fixed reason codes only: no exception, raw response, request or credential data escape.
+            return $result(false, null, 'TRANSPORT_ERROR');
+        }
+    }
+
+    /** Effective mode for an already validated follow-up plan only; never changes extraction or authorizes dispatch. */
+    public static function followupFulfillment(array $data, array $transcript): string
+    {
+        try {
+            if (!in_array($data['decision'] ?? null, ['DRAFT', 'CONFIRMED'], true)
+                || !WhatsAppOrderExtraction::validateTranscript($transcript)['ok']
+                || WhatsAppOrderExtraction::hasProbe($transcript)
+                || !is_array($data['issues'] ?? null)
+                || array_intersect($data['issues'], ['TEST_MESSAGE', 'PROMPT_INJECTION', 'CONFLICTING_DETAILS']))
+                return 'UNKNOWN';
+            $transcript = WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
+            $positions = array_flip(array_column($transcript, 'id'));
+            $final = null;
+            if ($data['decision'] === 'CONFIRMED') {
+                foreach ($data['evidence']['confirmation_ids'] ?? [] as $id) {
+                    if (!is_string($id) || !isset($positions[$id])) return 'UNKNOWN';
+                    $final = $final === null ? $positions[$id] : max($final, $positions[$id]);
+                }
+                if ($final === null) return 'UNKNOWN';
+            }
+            $branch = false; $delivery = false; $deniedDelivery = false; $changed = false; $ambiguous = false;
+            foreach ($transcript as $position => $row) {
+                if ($row['speaker'] !== 'customer') continue;
+                foreach ([$row['text'], $row['cart']['text'] ?? null] as $text) {
+                    if (!is_string($text)) continue;
+                    [$inside, $outside, $denied, $unclear] = self::fulfillmentChoices($text);
+                    $branch = $branch || $inside; $delivery = $delivery || $outside;
+                    $deniedDelivery = $deniedDelivery || $denied; $ambiguous = $ambiguous || $unclear;
+                    if ($final !== null && $position > $final && ($inside || $outside || $denied || $unclear)) $changed = true;
+                }
+            }
+            if ($changed || $ambiguous || ($branch && $delivery)) return 'UNKNOWN';
+            if ($branch) return 'PICKUP';
+            if ($deniedDelivery) return 'UNKNOWN';
+            if ($delivery) return 'DELIVERY';
+            $customer = $data['customer'] ?? [];
+            $requestIds = $data['evidence']['request_ids'] ?? [];
+            if (is_array($customer) && is_array($requestIds)
+                && is_string($customer['address'] ?? null) && trim($customer['address']) !== ''
+                && is_string($customer['phone'] ?? null) && trim($customer['phone']) !== '') {
+                $address = self::fulfillmentText($customer['address']); $phone = self::fulfillmentPhone($customer['phone']);
+                $addressSent = false; $phoneSent = false;
+                foreach ($transcript as $row) {
+                    if ($row['speaker'] !== 'customer' || !in_array($row['id'], $requestIds, true)) continue;
+                    foreach ([$row['text'], $row['cart']['text'] ?? null] as $text) {
+                        if (!is_string($text)) continue;
+                        if (strpos(self::fulfillmentText($text), $address) !== false) $addressSent = true;
+                        $digits = strtr($text, ['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9',
+                            '۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+                        preg_match_all('/(?<![0-9])\+?[0-9](?:[ .()\-]?[0-9]){7,14}(?![0-9])/', $digits, $numbers);
+                        foreach ($numbers[0] as $number) if (self::fulfillmentPhone($number) === $phone) $phoneSent = true;
+                    }
+                }
+                if ($addressSent && $phoneSent) return 'DELIVERY';
+            }
+            return 'UNKNOWN';
+        } catch (Throwable $ignore) {
+            return 'UNKNOWN';
+        }
     }
 
     public function extract(array $transcript): array

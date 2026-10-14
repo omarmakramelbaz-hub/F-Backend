@@ -157,6 +157,10 @@ class WhatsAppOrderWorkflow
         foreach ($rows as $thread) {
             $metrics['threads_seen']++;
             try {
+                if ($this->waitingForCustomer((int)$thread->id,(int)($thread->analyzed_ceiling??0),(int)$thread->ceiling)) {
+                    $this->deferDispatch((int)$thread->id);
+                    $metrics['deferred']++; continue;
+                }
                 $result = $this->analyzeInternal((int)$thread->id, $actor, false, true); $metrics['analyzed']++;
                 if ($result['baselined'] ?? false) $metrics['baselined']++;
                 $draft = $this->draft((int)$result['draft']['id']);
@@ -165,7 +169,11 @@ class WhatsAppOrderWorkflow
                 if (in_array($draft->reason,['AI_UNAVAILABLE','INVALID_EXTRACTION','CONTEXT_INCOMPLETE'],true)) { $metrics['review_required']++; continue; }
                 if ($this->mode() !== 'auto') { $metrics['review_required']++; continue; }
                 $reason = null; $review = $this->automaticReview($draft, $actor, $reason);
-                if ($review === null) { $this->reviewReason($draft, $reason ?? 'REVIEW_REQUIRED'); $this->deferDispatch((int)$draft->conversation_id); $metrics['review_required']++; continue; }
+                if ($review === null) {
+                    $this->reviewReason($draft, $reason ?? 'REVIEW_REQUIRED');
+                    $this->requestMissingInformation($draft,$actor);
+                    $this->deferDispatch((int)$draft->conversation_id); $metrics['review_required']++; continue;
+                }
                 $quoted = $this->quote((int)$draft->id, $review, $actor);
                 $review = $quoted['draft']['review']; $review['expected_revision']=$quoted['draft']['revision'];
                 // A business estimate is advisory. The unpaid ticket uses the current ERP catalog
@@ -379,6 +387,10 @@ class WhatsAppOrderWorkflow
             $reason='RECOVERED_HISTORY_REVIEW'; return null;
         }
         if (!$this->freshAutomaticEvidence($data,$snapshot['transcript'])) { $reason='STALE_TRANSCRIPT'; return null; }
+        $followup=$this->followupService();
+        if ($followup!==null&&!$followup->approvalSatisfied((int)$row->conversation_id,$data,$snapshot,$lock)) {
+            $reason='REVIEW_REQUIRED'; return null;
+        }
         if (($data['fulfillment']??null)!=='DELIVERY') { $reason='PICKUP_REQUIRES_REVIEW'; return null; }
         $resolved=$this->automaticBranch($data,$actor);
         if ($resolved===null) { $reason='BRANCH_UNRESOLVED'; return null; }
@@ -452,6 +464,206 @@ class WhatsAppOrderWorkflow
         return $v;
     }
 
+    private function followupService()
+    {
+        if ($this->table('whatsapp_inbox_messages')!=='whatsapp_inbox_messages'
+            ||!class_exists(WhatsAppOrderFollowupService::class)) return null;
+        return app(WhatsAppOrderFollowupService::class);
+    }
+
+    private function waitingForCustomer(int $conversation,int $analyzed,int $ceiling): bool
+    {
+        try { $service=$this->followupService(); return $service!==null&&$service->waitingForCustomer($conversation,$analyzed,$ceiling); }
+        catch (\Throwable $ignore) { return false; }
+    }
+
+    /** Asking for facts is separate from confirming, quoting or dispatching an order. */
+    private function requestMissingInformation(object $row,$actor): void
+    {
+        try {
+            $service=$this->followupService(); if ($service===null) return;
+            $plan=$this->missingInformationPlan((int)$row->id,$actor);
+            if ($plan!==null) $service->request($actor,$plan,fn()=>$this->missingInformationPlan((int)$row->id,$actor));
+        } catch (\Throwable $ignore) {
+            // A question failure leaves the ordinary review/backoff and all ERP gates intact.
+        }
+    }
+
+    private function missingInformationPlan(int $id,$actor): ?array
+    {
+        if (!(bool)$this->orderConfig('whatsapp_orders.enabled',false)||$this->mode()!=='auto'
+            ||$this->pendingCapture()) return null;
+        $fresh=$this->automaticActor(); if ((int)$fresh->id!==(int)$actor->id) return null;
+        $row=$this->draft($id);
+        if ($row->status!=='REVIEW'||$row->ticket_id!==null
+            ||!in_array($row->reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED','BRANCH_UNRESOLVED','PICKUP_REQUIRES_REVIEW'],true)) return null;
+        $this->current($row);
+        $floor=$this->automaticFloor((int)$row->conversation_id);
+        $eventFloor=$this->activationBoundary('activation_event_id'); $activation=$this->activationInstant();
+        if ($eventFloor===null||$activation===null||(int)$row->evidence_floor<$floor
+            ||(int)$row->evidence_ceiling<=$floor
+            ||DB::table($this->table('whatsapp_inbox_ingestion_failures'))->where('event_id','>',$eventFloor)->exists()) return null;
+        $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
+        $data=$this->decode($row->extraction);
+        if (!$snapshot['complete']||!is_array($data)) return null;
+        $checked=WhatsAppOrderExtraction::validateDetailed($data,$snapshot['transcript']);
+        if (!$checked['ok']||!in_array($data['decision']??null,['DRAFT','CONFIRMED'],true)
+            ||array_diff($data['issues']??[],['MISSING_CUSTOMER_NAME','MISSING_PHONE','MISSING_ADDRESS','MISSING_AREA',
+                'MISSING_BRANCH','MISSING_ITEMS','MISSING_QUANTITY','LOCATION_REQUIRED','UNCONFIRMED','PRICE_ESTIMATE_ONLY'])) return null;
+        $transcript=WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']);
+        $notBefore=max($activation,$snapshot['recovered_at']??$activation);
+        $episode=$this->freshFollowupIntent($data,$transcript,$notBefore);
+        if ($episode===null) return null;
+        if ($data['decision']==='CONFIRMED'&&!$this->freshAutomaticEvidence($data,$snapshot['transcript'],$notBefore)) return null;
+        $latest=null;
+        foreach ($transcript as $message) if ($message['speaker']==='customer') $latest=$message;
+        if ($latest===null||$latest['sent_at']<$notBefore) return null;
+        $customerRow=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$row->conversation_id)
+            ->where('message_key',$snapshot['keys'][$latest['id']])->where('direction','inbound')->first(['id','message_key']);
+        if (!$customerRow) return null;
+        $fields=[]; $customer=$data['customer'];
+        foreach (['name'=>'NAME','phone'=>'PHONE'] as $field=>$label)
+            if (!is_string($customer[$field])||trim($customer[$field])==='') $fields[]=$label;
+        $mode=WhatsAppOrderAiProvider::followupFulfillment($data,$transcript); $pickup=$mode==='PICKUP';
+        if (!$pickup&&(!is_string($customer['address'])||trim($customer['address'])==='')) $fields[]='ADDRESS';
+        if ($mode==='UNKNOWN') $fields[]='FULFILLMENT';
+        if (!$data['items']) $fields[]='ITEMS';
+        foreach ($data['items'] as $item) {
+            if ($item['quantity']===null) $fields[]='QUANTITY';
+            if ($item['quantity_mode']==='unknown') $fields[]='QUANTITY_MODE';
+        }
+        $routing=null; $resolved=$this->automaticBranch($data,$fresh,$routing);
+        if ($resolved===null&&$fields===[]&&in_array($routing,['MISSING','UNKNOWN_HINT'],true)) $fields[]='BRANCH';
+        if ($resolved!==null) {
+            $reason=null; if (!$this->branchOpen($this->branch($resolved['fulfillment_branch']??$resolved['value'],$fresh),$reason)) return null;
+        }
+        if ($data['decision']==='CONFIRMED'&&$row->reason==='LOCATION_UNCONFIRMED'&&!$pickup&&$resolved!==null
+            &&!$this->followupHasPoint($data,$transcript,$resolved['fulfillment_branch']??$resolved['value'],$fresh)) $fields[]='LOCATION';
+        $needsApproval=$data['decision']==='CONFIRMED'&&$this->followupService()!==null
+            &&!$this->followupService()->approvalSatisfied((int)$row->conversation_id,$data,$snapshot);
+        if ($fields===[]&&($data['decision']==='DRAFT'||$needsApproval)&&!$pickup&&$resolved!==null) {
+            if (!$this->followupItemQuantities($data,$transcript,$resolved['fulfillment_branch']??$resolved['value'])) {
+                foreach ($data['items'] as $item) if (($item['cart_reference']??null)!==null) return null;
+                $fields[]='QUANTITY';
+            }
+            else {
+                $branch=$resolved['fulfillment_branch']??$resolved['value'];
+                if (!$this->followupHasPoint($data,$transcript,$branch,$fresh)) $fields[]='LOCATION';
+                elseif ($this->followupCatalogReady($data,$transcript,$branch,$fresh)) $fields[]='CONFIRMATION';
+            }
+        }
+        if ($fields===[]) return null;
+        $fields=array_values(array_unique($fields)); sort($fields);
+        return ['draft_id'=>(int)$row->id,'conversation_id'=>(int)$row->conversation_id,
+            'evidence_floor'=>(int)$row->evidence_floor,'evidence_ceiling'=>(int)$row->evidence_ceiling,
+            'evidence_hash'=>$row->evidence_hash,'latest_customer_id'=>(int)$customerRow->id,
+            'latest_customer_key'=>$customerRow->message_key,'episode_customer_key'=>$snapshot['keys'][$episode],
+            'fields'=>$fields,'data'=>$data,'transcript'=>$snapshot['transcript']];
+    }
+
+    /** Prompt-only intent proof; it cannot authorize confirmation or dispatch. */
+    private function freshFollowupIntent(array $data,array $transcript,string $notBefore): ?string
+    {
+        if ($data['decision']==='CONFIRMED') {
+            $requests=WhatsAppOrderExtraction::committingRequestIds($data,$transcript);
+            foreach ($transcript as $message)
+                if ($message['sent_at']>=$notBefore&&in_array($message['id'],$requests,true)) return $message['id'];
+            return null;
+        }
+        $intent=null; $position=null;
+        foreach ($transcript as $index=>$message) {
+            if ($message['speaker']!=='customer'||$message['sent_at']<$notBefore
+                ||!in_array($message['id'],$data['evidence']['request_ids'],true)) continue;
+            if (($message['cart']??null)!==null) { $intent=$message['id']; $position=$index; break; }
+            $text=$message['text']??'';
+            if (!is_string($text)||preg_match('/[?؟"«»“”]|(?:مش\s+(?:عايز|عاوز)|لا\s+(?:اريد|أريد)|إلغ|الغ|لغي|'
+                . 'اعرف|أعرف|بكام|سعر|هل|ينفع|تجاهل|تعليمات|ignore|instructions|cancel|not\s+want)/iu',$text)
+                ||!preg_match('/(?:عايز|عاوز|أريد|اريد|اطلب|أطلب|هات|ابعت|اعملي|اعمل\s+لي|\b(?:want|order|send)\b)/iu',$text)) continue;
+            $named=preg_match('/(?<![\p{L}\p{N}])(?:طلب|الطلب|أوردر|اوردر|الأوردر|الاوردر|order)(?![\p{L}\p{N}])/iu',$text)===1;
+            foreach ($data['items'] as $item) if (strpos($text,$item['name'])!==false) $named=true;
+            if ($named) { $intent=$message['id']; $position=$index; break; }
+        }
+        if ($intent===null) return null;
+        foreach ($transcript as $index=>$message) if ($index>$position&&$message['speaker']==='customer'
+            &&is_string($message['text'])&&preg_match('/(?:مش\s+(?:عايز|عاوز|موافق)|لا\s+(?:أريد|اريد|ترسل)|إلغ|الغ|لغي|'
+                . '(?:غير|غيّر|بدل|بدّل)\s+(?:الطلب|الأوردر|الاوردر)|تجاهل|تعليمات|cancel|not\s+want|ignore|instructions|change\s+the\s+order)/iu',$message['text'])) return null;
+        return $intent;
+    }
+
+    private function followupHasPoint(array $data,array $transcript,string $branch,$actor): bool
+    {
+        $addressAt=null; $lastPin=null;
+        foreach ($transcript as $message) {
+            if ($message['speaker']!=='customer') continue;
+            foreach ([$message['text'],$message['cart']['text']??null] as $text)
+                if (is_string($text)&&strpos($text,$data['customer']['address'])!==false) $addressAt=$message['sent_at'];
+            if ($message['location']!==null) $lastPin=$message;
+        }
+        if ($lastPin!==null) return $addressAt!==null&&$lastPin['sent_at']>=$addressAt
+            &&$this->validPoint($lastPin['location']['lat'],$lastPin['location']['long'])!==null;
+        $saved=DB::table('branch_customers')->where('branch',$branch)->where('phone_key',BranchCustomers::phoneKey($data['customer']['phone']))->first();
+        return $this->existingLocation($data['customer'],$branch,$actor,$saved,false)!==null;
+    }
+
+    private function followupItemQuantities(array $data,array $transcript,string $branch): bool
+    {
+        if ($data['decision']==='CONFIRMED') return WhatsAppOrderExtraction::validateDetailed($data,$transcript)['ok'];
+        $rows=array_column($transcript,null,'id');
+        foreach ($data['items'] as $item) {
+            $reference=$item['cart_reference']??null;
+            if ($reference!==null) {
+                $cart=$rows[$reference['message_id']]['cart']??null; $line=null;
+                foreach ($cart['product_items']??[] as $candidate)
+                    if ($candidate['product_retailer_id']===$reference['product_retailer_id']) $line=$candidate;
+                $maps=$this->orderConfig('whatsapp_cart.product_mappings',[]);
+                $mapping=is_array($maps)?($maps[$cart['catalog_id']??''][$reference['product_retailer_id']][$branch]??null):null;
+                if ($line===null||!is_array($mapping)||($mapping['quantity_mode']??null)!==$item['quantity_mode']) return false;
+                $unit=$this->quantityMillis($mapping['quantity_per_unit']??null); $quantity=$this->quantityMillis($item['quantity']);
+                if ($unit===null||$quantity===null||$unit*(int)$line['quantity']!==$quantity) return false;
+                continue;
+            }
+            if (($item['conversation_reference']??null)!==null) {
+                if (!WhatsAppOrderConversationEvidence::prove($data,$transcript)['ok']) return false;
+                continue;
+            }
+            $found=false; $amount=['quantity'=>$this->quantityMillis($item['quantity']), 'mode'=>$item['quantity_mode']];
+            foreach ($transcript as $message) {
+                if ($message['speaker']!=='customer'||!in_array($message['id'],$data['evidence']['request_ids'],true)
+                    ||!is_string($message['text'])) continue;
+                foreach (WhatsAppOrderConversationEvidence::clauses($message['text']) as $clause)
+                    if (strpos($clause,$item['name'])!==false&&in_array($amount,WhatsAppOrderConversationEvidence::quantities($clause),true)) $found=true;
+            }
+            if (!$found) return false;
+        }
+        return $data['items']!==[];
+    }
+
+    private function followupCatalogReady(array $data,array $transcript,string $branch,$actor): bool
+    {
+        $catalog=[];
+        for ($page=1;$page<=3;$page++) {
+            $list=app(TakeawayCatalog::class)->listing(['branch'=>$branch,'page'=>$page,'per_page'=>100],$actor);
+            $catalog=array_merge($catalog,$list['items']);
+            if ((int)($list['pagination']['last_page']??1)<=$page) break;
+            if ($page===3) return false;
+        }
+        $texts=[];
+        foreach ($transcript as $message) if (is_string($message['text'])
+            &&(($message['speaker']==='customer'&&in_array($message['id'],$data['evidence']['request_ids'],true))
+                ||($message['speaker']==='business'&&in_array($message['id'],$data['evidence']['confirmation_ids'],true)))) $texts[]=$message['text'];
+        $used=[];
+        foreach ($data['items'] as $item) {
+            if (($item['cart_reference']??null)!==null) {
+                if ($this->cartItem($item,$data['items'],$texts,$transcript,$catalog,$branch,$used)===null) return false;
+                continue;
+            }
+            $matches=array_values(array_filter($catalog,fn($p)=>($p['available']??false)&&$this->name($p['name'])===$this->name($item['name'])));
+            if (count($matches)!==1||!in_array($matches[0]['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)
+                ||$this->catalogOption($item,$data['items'],$texts,$matches[0],$data,$transcript)===null) return false;
+        }
+        return $this->completeCart($transcript,$data,$used);
+    }
+
     /** Insert ids alone cannot exclude late delivery of a pre-activation webhook. */
     private function freshAutomaticEvidence(array $data,array $transcript,?string $notBefore=null): bool
     {
@@ -486,8 +698,9 @@ class WhatsAppOrderWorkflow
     }
 
     /** Recognized place labels in supplied customer text can select only one authorized branch. */
-    private function automaticBranch(array $data,$actor): ?array
+    private function automaticBranch(array $data,$actor,?string &$routing=null): ?array
     {
+        $routing='MISSING';
         $available=[]; $all=app(TakeawayAccess::class)->branches($actor);
         $relationships=[];
         if (Schema::hasTable('resturants')&&Schema::hasColumn('resturants','parent_id')) {
@@ -547,16 +760,18 @@ class WhatsAppOrderWorkflow
         $byAddress=$this->placeBranches($address,$labels,true);
         $byPlace=$byArea+$byAddress;
         if ($hint!=='') {
-            if (count($byHint)!==1) return null;
+            if (count($byHint)!==1) { $routing=count($byHint)>1?'AMBIGUOUS':'UNKNOWN_HINT'; return null; }
             $branch=array_values($byHint)[0];
             // Two explicit places disagreeing cannot silently pick the nearest or first branch.
-            if ($byPlace!==[]&&(count($byPlace)!==1||!isset($byPlace[$branch['value']]))) return null;
-            return $this->allowed($branch['fulfillment_branch']??$branch['value'])?$branch:null;
+            if ($byPlace!==[]&&(count($byPlace)!==1||!isset($byPlace[$branch['value']]))) { $routing='CONFLICTING'; return null; }
+            $routing=$this->allowed($branch['fulfillment_branch']??$branch['value'])?'RESOLVED':'DENIED';
+            return $routing==='RESOLVED'?$branch:null;
         }
-        if (count($byPlace)!==1) return null;
+        if (count($byPlace)!==1) { $routing=count($byPlace)>1?'AMBIGUOUS':'MISSING'; return null; }
         $branch=array_values($byPlace)[0];
         // Permission filtering must not erase a conflicting known place from customer text.
-        return $this->allowed($branch['fulfillment_branch']??$branch['value'])?$branch:null;
+        $routing=$this->allowed($branch['fulfillment_branch']??$branch['value'])?'RESOLVED':'DENIED';
+        return $routing==='RESOLVED'?$branch:null;
     }
 
     /** Comparison only: never rewrite customer facts or consult an inferred/nearest location. */

@@ -42,7 +42,8 @@ class AddressBranchInstallTests(unittest.TestCase):
         provider='app/Services/Dashboard/WhatsAppOrderAiProvider.php'
         self.assertEqual(list(repair.SOURCE_PINS),[target])
         self.assertEqual(repair.SOURCE_PINS[target][0],'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d')
-        self.assertEqual(repair.SOURCE_PINS[target][1],repair.blob((ROOT/target).read_bytes()))
+        historical=ROOT/'tests/fixtures/whatsapp_order_pre_followup'/target
+        self.assertEqual(repair.SOURCE_PINS[target][1],repair.blob(historical.read_bytes()))
         self.assertNotIn(target,repair.PROTECTED_PINS)
         expected=dict(baseline.PROTECTED_PINS);expected.pop(target)
         expected[provider]='cbaaa8ed7014da5bad05d429151afa5ff377ceab'

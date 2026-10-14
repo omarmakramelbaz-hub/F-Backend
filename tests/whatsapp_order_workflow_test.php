@@ -58,6 +58,13 @@ namespace App\Services\Dashboard {
     class WhatsAppOrderAiProvider {
         public static $data; public static $calls=0; public static $callback; public static $failure=false; public static $lastTranscript;
         public static $failureReason='TRANSPORT_ERROR'; public static $failureDiagnostic=[];
+        public function followupVariant(array $fields): array { return ['ok'=>true,'variant'=>'SHORT']; }
+        // This harness mocks extraction; production spelling/intent policy has its own pure suite.
+        public static function followupFulfillment(array $data,array $transcript): string {
+            $mode=$data['fulfillment']??'UNKNOWN';
+            return $mode==='UNKNOWN'&&is_string($data['customer']['phone']??null)&&is_string($data['customer']['address']??null)
+                ?'DELIVERY':$mode;
+        }
         public function extract(array $transcript): array {
             self::$calls++; self::$lastTranscript=$transcript;
             \abort_unless(DB::connection()->transactionLevel()===0,500,'NETWORK_LOCK');

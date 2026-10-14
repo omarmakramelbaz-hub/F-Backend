@@ -84,6 +84,44 @@ class WhatsAppReplyService
         return $this->submit($fresh, $conversation, $request, null);
     }
 
+    /** Internal automation only; manual HTTP inputs still use the unchanged send validator. */
+    public function sendOrderFollowup($actor, int $conversation, array $input, callable $guard): array
+    {
+        $metadata=$input['_followup']??null; $compose=$input['_compose']??null;
+        unset($input['_followup'],$input['_compose']);
+        $fresh=$this->actor($actor); $request=$this->input($input,false);
+        if (!WhatsAppOrderFollowupService::validMarker($metadata,$conversation,$request['client_request_id'],$request['expected_inbound_id'])
+            || !is_callable($compose)) throw new HttpException(422);
+        $request=$this->bindContext($fresh,$conversation,$request);
+        $request['_followup']=$metadata; $request['_compose']=$compose; $request['_guard']=$guard;
+        return $this->submit($fresh,$conversation,$request,null);
+    }
+
+    /** Read-only cross-actor tombstones prevent both repeat generation and repeat sending. */
+    public function orderFollowupState($actor,int $conversation,string $uuid,int $inbound): ?array
+    {
+        $this->actor($actor); if (!$this->uuid($uuid)||$inbound<1) throw new HttpException(422);
+        if (!$this->tables()||!$this->thread($conversation)) throw new HttpException(503);
+        $old=$this->orderFollowupReceipt($conversation,$uuid,$inbound,false);
+        return $old?$this->result($this->publicState($old->state),true,(int)$old->id,$this->publicReason($old->reason)):null;
+    }
+
+    private function orderFollowupReceipt(int $conversation,string $uuid,int $inbound,bool $lock)
+    {
+        $q=$this->requests($conversation)->where('inbound_message_id',$inbound)->where('kind','text')->orderByDesc('id')->limit(21)
+            ->select('id','actor_id','conversation_id','state','reason','request_hash')
+            ->selectRaw('CASE WHEN LENGTH(audit)<=262144 THEN audit ELSE NULL END AS audit');
+        $rows=($lock?$q->lockForUpdate():$q)->get(); if (count($rows)>20) throw new HttpException(409);
+        foreach ($rows as $row) {
+            if (!is_string($row->audit)) throw new HttpException(409); $audit=$this->decrypt($row->audit);
+            if (($audit['client_request_id']??null)!==strtolower($uuid)) continue;
+            if (!hash_equals((string)$row->request_hash,$this->requestHash((int)$row->actor_id,$conversation,$uuid))
+                || !WhatsAppOrderFollowupService::validMarker($audit['order_followup']??null,$conversation,$uuid,$inbound)) throw new HttpException(409);
+            return $row;
+        }
+        return null;
+    }
+
     public function voice($actor, int $conversation, array $input, UploadedFile $file): array
     {
         $fresh = $this->actor($actor);
@@ -231,6 +269,11 @@ class WhatsAppReplyService
             if ((int) $fresh->id !== (int) $actor->id) throw new HttpException(403);
             $thread = $this->thread($conversation, true);
             if (!$thread) throw new HttpException(404);
+            if (isset($request['_followup'])) {
+                $old=$this->orderFollowupReceipt($conversation,$request['client_request_id'],$request['expected_inbound_id'],true);
+                if ($old) return ['result'=>$this->result($this->publicState($old->state),true,(int)$old->id,$this->publicReason($old->reason))];
+                if (($request['_guard'])()!==true) throw new HttpException(409);
+            }
             $hash = $this->requestHash((int) $fresh->id, $conversation, $request['client_request_id']);
             $payloadHash = $this->payloadHash($request);
             // MySQL REPEATABLE READ: actor lookup may have opened a snapshot before waiting
@@ -258,6 +301,7 @@ class WhatsAppReplyService
                 'caption' => isset($request['media']) || isset($request['attachment']) ? $request['text'] : null, 'emoji' => $request['emoji'] ?? null];
             if (isset($request['media']['filename'])) $audit['media']['filename'] = $request['media']['filename'];
             if (isset($request['media']['size'])) $audit['media']['size'] = $request['media']['size'];
+            if (isset($request['_followup'])) $audit['order_followup']=$request['_followup'];
             $id = DB::table('whatsapp_reply_requests')->insertGetId([
                 'conversation_id' => $conversation, 'actor_id' => (int) $fresh->id,
                 'waba_id' => self::WABA, 'phone_number_id' => self::PHONE,
@@ -274,6 +318,17 @@ class WhatsAppReplyService
         try {
             $reason = $this->preflight($actor, $conversation, $snapshot, $request);
             if ($reason !== null) return $this->finish($id, 'FAILED', $reason, ['CLAIMED']);
+            if (isset($request['_compose'])) {
+                // Reserve and commit before AI. A crash cannot spend/send again on this customer input.
+                $text=($request['_compose'])(); $next=$this->input(['client_request_id'=>$request['client_request_id'],
+                    'expected_inbound_id'=>$request['expected_inbound_id'],'text'=>$text],false); $request['text']=$next['text'];
+                $row=$this->requests($conversation)->where('id',$id)->where('state','CLAIMED')->whereNull('send_started_at')->first(['audit']);
+                if (!$row) return $this->result('UNKNOWN',false,$id,'DELIVERY_UNKNOWN');
+                $audit=$this->decrypt($row->audit); $audit['text']=$request['text']; $audit['payload_values']=$this->payloadValues($request);
+                if ($this->requests($conversation)->where('id',$id)->where('state','CLAIMED')->whereNull('send_started_at')
+                    ->update(['audit'=>$this->encrypt($audit),'payload_hash'=>$this->payloadHash($request),'updated_at'=>$this->now()->format('Y-m-d H:i:s')])!==1)
+                    return $this->result('UNKNOWN',false,$id,'DELIVERY_UNKNOWN');
+            }
             $payload = ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual',
                 'to' => $snapshot['recipient'], 'type' => $request['kind']];
             $uploadState = 'CLAIMED';
@@ -354,6 +409,10 @@ class WhatsAppReplyService
             }
             return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
         } catch (\Throwable $error) {
+            if (isset($request['_followup'])) {
+                $row=$this->requests($conversation)->where('id',$id)->where('state','CLAIMED')->whereNull('send_started_at')->first(['id']);
+                if ($row) return $this->finish($id,'FAILED','STALE_INBOUND',['CLAIMED']);
+            }
             // Only a persisted no-send state proves a safe failure. All crashes stay conservative.
             return $this->result('UNKNOWN', false, $id, 'DELIVERY_UNKNOWN');
         }
@@ -384,6 +443,10 @@ class WhatsAppReplyService
         try {
             $this->bindings($fresh, $conversation, $request);
         } catch (\Throwable $error) { return 'MESSAGE_UNAVAILABLE'; }
+        if (isset($request['_guard'])) {
+            try { if (($request['_guard'])()!==true) return 'STALE_INBOUND'; }
+            catch (\Throwable $error) { return 'STALE_INBOUND'; }
+        }
         return null;
     }
 

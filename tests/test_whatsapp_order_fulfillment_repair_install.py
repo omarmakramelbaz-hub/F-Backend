@@ -51,7 +51,8 @@ class FulfillmentPublicationTests(unittest.TestCase):
         self.assertEqual(wrapper.PUBLISHER_BLOB, repair.blob((ROOT/'deployment/apply_whatsapp_order_fulfillment_repair.py').read_bytes()))
         self.assertEqual(set(wrapper.HELPERS), {'apply_whatsapp_order_fulfillment_repair.py','install_whatsapp_inbox.py'})
         self.assertEqual(wrapper.BASE_BLOB, repair.BASE_BLOB)
-        self.assertEqual(target,repair.blob((ROOT/'app/Services/Dashboard/WhatsAppOrderAiProvider.php').read_bytes()))
+        historical=ROOT/'tests/fixtures/whatsapp_order_pre_followup/app/Services/Dashboard/WhatsAppOrderAiProvider.php'
+        self.assertEqual(target,repair.blob(historical.read_bytes()))
 
     def test_preflight_preserves_sources_config_and_workers(self):
         result = self.f.apply(True)
