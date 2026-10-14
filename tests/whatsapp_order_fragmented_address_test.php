@@ -10,7 +10,7 @@ require $addressRoot . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php
 require $addressRoot . ($addressBaseline
     ? '/tests/fixtures/whatsapp_order_pre_fragmented_address/app/Services/Dashboard/WhatsAppOrderAiProvider.php'
     : '/tests/fixtures/whatsapp_order_pre_fulfillment/app/Services/Dashboard/WhatsAppOrderAiProvider.php');
-require $addressRoot . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+require $addressRoot . '/tests/fixtures/whatsapp_order_pre_address_branch/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
     return false;
@@ -328,7 +328,7 @@ try {
     }
     addressExpect(addressBlob($addressRoot . '/app/Support/WhatsAppOrderExtraction.php'), '56d2b9575da152de3eac4876fd93140ee7bc9e39',
         'authoritative extraction validator remains unchanged');
-    addressExpect(addressBlob($addressRoot . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php'), 'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d',
+    addressExpect(addressBlob($addressRoot . '/tests/fixtures/whatsapp_order_pre_address_branch/app/Services/Dashboard/WhatsAppOrderWorkflow.php'), 'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d',
         'workflow, activation, catalog, GPS and routing contracts remain unchanged');
     echo 'WHATSAPP_ORDER_FRAGMENTED_ADDRESS_CHECKS=' . $checks . "\n";
 } catch (Throwable $error) {

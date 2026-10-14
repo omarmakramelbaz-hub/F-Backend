@@ -7,7 +7,7 @@ require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_offer_variant/app
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
 require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_address_branch/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 require dirname(__DIR__) . '/deployment/whatsapp_order_source_reference_observer.php';
 require dirname(__DIR__) . '/deployment/whatsapp_order_source_reference_read_only_probe.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
@@ -372,6 +372,8 @@ foreach (Probe::SOURCE_PINS as [$path,$expected]) {
         ? 'tests/fixtures/whatsapp_order_pre_anchor_citation/'.$path : $path;
     if ($path==='app/Services/Dashboard/WhatsAppOrderConversationEvidence.php')
         $sourcePath='tests/fixtures/whatsapp_order_pre_offer_variant/'.$path;
+    if ($path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')
+        $sourcePath='tests/fixtures/whatsapp_order_pre_address_branch/'.$path;
     $bytes=file_get_contents(dirname(__DIR__).'/'.$sourcePath);
     referenceExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'guard matches the exact unchanged reviewed application source');
 }

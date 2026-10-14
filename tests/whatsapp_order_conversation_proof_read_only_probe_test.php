@@ -5,6 +5,8 @@ define('WHATSAPP_ORDER_CONVERSATION_PROOF_READ_ONLY_PROBE_TEST_ONLY', true);
 // Keep this historical diagnostic bound to the exact app bytes it reviewed.
 function proofHistoricalSourcePath(string $path): string
 {
+    if ($path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')
+        return dirname(__DIR__).'/tests/fixtures/whatsapp_order_pre_address_branch/'.$path;
     return dirname(__DIR__).'/'.(in_array($path,[
         'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php',
         'app/Services/Dashboard/WhatsAppOrderSourceSelection.php',

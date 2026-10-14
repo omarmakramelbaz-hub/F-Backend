@@ -485,7 +485,7 @@ class WhatsAppOrderWorkflow
         return $value;
     }
 
-    /** Only explicit aliases for allowed branches, backed by exact extracted text, can route. */
+    /** Recognized place labels in supplied customer text can select only one authorized branch. */
     private function automaticBranch(array $data,$actor): ?array
     {
         $available=[]; $all=app(TakeawayAccess::class)->branches($actor);
@@ -499,14 +499,14 @@ class WhatsAppOrderWorkflow
             // The approved physical branches remain fulfillment destinations even when
             // an older ownership hierarchy links one of them to Shubra.
             if (in_array((string)$branch['id'],self::PHYSICAL_BRANCH_IDS,true)) {
-                if ($this->allowed($branch['value'])) $available[]=$branch;
+                $available[]=$branch;
                 continue;
             }
             // The reviewed Cairo registry is authoritative. Existing inventory has no parent
             // links; do not create links or classify an unknown future child as a Cairo store.
             $row=$relationships[(string)$branch['id']]??null;
             if (FasakhanstaDeliveryOrigin::isConfiguredOrigin($branch['value'])) {
-                if ($this->allowed('f:301')&&$row&&in_array((int)($row->parent_id??0),[0,301],true)
+                if ($row&&in_array((int)($row->parent_id??0),[0,301],true)
                     &&FasakhanstaDeliveryOrigin::matchesRegisteredName($branch['value'],$branch['name'])
                     &&FasakhanstaDeliveryOrigin::matchesRegisteredName($branch['value'],(string)$row->name)) {
                     $branch['fulfillment_branch']='f:301'; $available[]=$branch;
@@ -517,28 +517,93 @@ class WhatsAppOrderWorkflow
             if ($this->allowed($branch['value'])) $available[]=$branch;
         }
         $aliases=$this->orderConfig('whatsapp_cart.branch_aliases',[]); $hint=trim((string)($data['branch_hint']??''));
-        $area=trim((string)($data['customer']['area']??'')); $byHint=[]; $byArea=[];
+        $area=trim((string)($data['customer']['area']??''));
+        $address=trim((string)($data['customer']['address']??'')); $byHint=[]; $labels=[];
         foreach ($available as $branch) {
             $names=[$branch['name']]; $configured=is_array($aliases)?($aliases[(string)$branch['id']]??[]):[];
             if (isset($branch['fulfillment_branch'])) {
                 // Approved public store labels may omit only their literal store suffix.
-                // Compare the resulting whole label; never search an address or infer geography.
+                // Only registered origins receive the existing literal store-suffix alias.
                 $label=trim(preg_replace('/\s*(?:ستور|استور|store)\z/iu','',$branch['name']));
                 if ($label!==''&&$label!==$branch['name']) $names[]=$label;
             }
             foreach (is_array($configured)?$configured:[] as $alias) if (is_string($alias)&&$alias!=='') $names[]=$alias;
-            $names=array_map(fn($name)=>$this->name($name),$names);
-            if ($hint!==''&&in_array($this->name($hint),$names,true)) $byHint[$branch['value']]=$branch;
-            if ($area!==''&&in_array($this->name($area),$names,true)) $byArea[$branch['value']]=$branch;
+            $names=array_map(fn($name)=>$this->routingName($name),$names);
+            $places=[];
+            foreach ($names as $name) {
+                // Removing this literal branch prefix exposes its existing city/place label.
+                $place=trim(preg_replace('/\Aفرع\s+/u','',$name));
+                if (mb_strlen($place,'UTF-8')<3||mb_strlen($place,'UTF-8')>200
+                    ||!preg_match('/\p{L}/u',$place)
+                    ||in_array($place,['فرع','الفرع','branch','store','ستور','استور','محل','المحل',
+                        'مدينه','المدينه','فسخانستا','fasakhansta'],true)) continue;
+                $places[$place]=true;
+                $labels[]=['label'=>$place,'branch'=>$branch];
+            }
+            if ($hint!==''&&in_array($this->routingName($hint),array_merge($names,array_keys($places)),true))
+                $byHint[$branch['value']]=$branch;
         }
+        $byArea=$this->placeBranches($area,$labels,true);
+        $byAddress=$this->placeBranches($address,$labels,true);
+        $byPlace=$byArea+$byAddress;
         if ($hint!=='') {
             if (count($byHint)!==1) return null;
             $branch=array_values($byHint)[0];
             // Two explicit places disagreeing cannot silently pick the nearest or first branch.
-            if ($byArea!==[]&&(count($byArea)!==1||!isset($byArea[$branch['value']]))) return null;
-            return $branch;
+            if ($byPlace!==[]&&(count($byPlace)!==1||!isset($byPlace[$branch['value']]))) return null;
+            return $this->allowed($branch['fulfillment_branch']??$branch['value'])?$branch:null;
         }
-        return count($byArea)===1?array_values($byArea)[0]:null;
+        if (count($byPlace)!==1) return null;
+        $branch=array_values($byPlace)[0];
+        // Permission filtering must not erase a conflicting known place from customer text.
+        return $this->allowed($branch['fulfillment_branch']??$branch['value'])?$branch:null;
+    }
+
+    /** Comparison only: never rewrite customer facts or consult an inferred/nearest location. */
+    private function routingName(string $value): string
+    {
+        $value=strtr($value,['أ'=>'ا','إ'=>'ا','آ'=>'ا','ٱ'=>'ا','ى'=>'ي','ة'=>'ه']);
+        $value=preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{0640}]/u','',$value);
+        return $this->name($value);
+    }
+
+    /** Keep the longest approved label for each overlapping occurrence; distinct places conflict. */
+    private function placeBranches(string $text,array $labels,bool $address): array
+    {
+        if ($text==='') return [];
+        $text=$this->routingName($text); $hits=[];
+        foreach ($labels as $entry) {
+            $label=$entry['label'];
+            $quoted=preg_quote($label,'/'); $place=$quoted;
+            if (preg_match('/\p{Arabic}/u',$label)) {
+                // Lam contracts the initial alif only in a definite Arabic place label.
+                $place=mb_substr($label,0,2,'UTF-8')==='ال'
+                    ? '(?:(?:[بف])?'.$quoted.'|ل'.preg_quote(mb_substr($label,1,null,'UTF-8'),'/').')'
+                    : '(?:[بلف])?'.$quoted;
+            }
+            $pattern='/(?<![\p{L}\p{N}])'.$place.'(?![\p{L}\p{N}])/u';
+            preg_match_all($pattern,$text,$matches,PREG_SET_ORDER|PREG_OFFSET_CAPTURE);
+            foreach ($matches as $match) {
+                $start=$match[0][1]; $end=$start+strlen($match[0][0]);
+                $before=substr($text,0,$start); $after=substr($text,$end);
+                if (preg_match('/(?<![\p{L}\p{N}])(?:مش|لا|ليس|غير)\s+(?:(?:في|فى|من|داخل)\s+)?\z/u',$before)) continue;
+                // A street called Mansoura is not by itself a supplied Mansoura destination.
+                if ($address&&preg_match('/(?<![\p{L}\p{N}])(?:شارع|طريق|ش\.?|street|road)\s*[:：\-]?\s*\z/iu',$before)) continue;
+                // A different compound place is not reduced to an unregistered shorter city.
+                if (preg_match('/\A\s+(?:الجديده|الجديد|جديده|جديد)(?![\p{L}\p{N}])/u',$after)) continue;
+                $hits[]=['start'=>$start,'end'=>$end,'branch'=>$entry['branch']];
+            }
+        }
+        $found=[];
+        foreach ($hits as $hit) {
+            $contained=false;
+            foreach ($hits as $other) {
+                if ($other['start']<=$hit['start']&&$other['end']>=$hit['end']
+                    &&($other['start']<$hit['start']||$other['end']>$hit['end'])) { $contained=true; break; }
+            }
+            if (!$contained) $found[$hit['branch']['value']]=$hit['branch'];
+        }
+        return $found;
     }
 
     /** Reuse existing phone-order lookup. New addresses still require a real pin. */

@@ -478,7 +478,8 @@ class ProductionPinTests(unittest.TestCase):
         for relative, pin in NS['TARGET_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z')
             reviewed = {workflow: fragmented_blob, protocol: forward_protocol_blob}.get(relative, pin)
-            self.assertEqual(NS['blob']((ROOT / relative).read_bytes()), reviewed)
+            source = ROOT / 'tests/fixtures/whatsapp_order_pre_address_branch' / relative if relative == workflow else ROOT / relative
+            self.assertEqual(NS['blob'](source.read_bytes()), reviewed)
         for name, pin in NS['HELPER_PINS'].items():
             self.assertRegex(pin, r'\A[0-9a-f]{40}\Z'); self.assertEqual(NS['blob']((ROOT / 'deployment' / name).read_bytes()), pin)
 
@@ -486,7 +487,7 @@ class ProductionPinTests(unittest.TestCase):
     def test_original_cairo_stager_refuses_the_repaired_workflow_release_without_worker_actions(self):
         workflow = 'app/Services/Dashboard/WhatsAppOrderWorkflow.php'
         self.assertEqual(NS['TARGET_PINS'][workflow], '6c63b91d7fb70130ae472cea291fa2cee88b27dd')
-        current = (ROOT / workflow).read_bytes()
+        current = (ROOT / 'tests/fixtures/whatsapp_order_pre_address_branch' / workflow).read_bytes()
         self.assertEqual(NS['blob'](current), 'b1bdc5962330c5f61a8ab6fa4c640d0fcae8799d')
         protocol = 'app/Support/WhatsAppInboxProtocol.php'
         baseline_protocol = (ROOT / 'tests/fixtures/whatsapp_forward_before' / protocol).read_bytes()
@@ -500,7 +501,7 @@ class ProductionPinTests(unittest.TestCase):
                 return 0, b'commit\n'
             self.assertEqual(args[7], 'show')
             relative = args[8].split(':', 1)[1]
-            return 0, baseline_protocol if relative == protocol else (ROOT / relative).read_bytes()
+            return 0, baseline_protocol if relative == protocol else (current if relative == workflow else (ROOT / relative).read_bytes())
         with tempfile.TemporaryDirectory() as folder:
             payload = pathlib.Path(folder)
             with self.assertRaisesRegex(NS['SafeError'], 'CAIRO_PINNED_RELEASE_FILE_FAILED: ' + workflow):

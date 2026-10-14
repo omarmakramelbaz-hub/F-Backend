@@ -22,6 +22,8 @@ $proofSourcePaths=['app/Support/WhatsAppInboxProtocol.php','app/Services/Dashboa
     'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'];
 function proofHistoricalSource(string $path): string
 {
+    if ($path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')
+        return dirname(__DIR__).'/tests/fixtures/whatsapp_order_pre_address_branch/'.$path;
     return dirname(__DIR__).'/'.($path==='app/Services/Dashboard/WhatsAppOrderAiProvider.php'
         ? 'tests/fixtures/whatsapp_order_pre_fulfillment/' : '').$path;
 }

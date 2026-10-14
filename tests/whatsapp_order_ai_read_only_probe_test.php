@@ -32,7 +32,9 @@ $selectionRuntime=$probeVariant==='source-selection' ? dirname(__DIR__).'/tests/
 if (in_array($probeVariant,['source-selection','option-source','anchor-citation'],true))
     require $selectionRuntime . 'app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require $selectionRuntime . 'app/Services/Dashboard/WhatsAppOrderAiProvider.php';
-require $preFragmented . 'app/Services/Dashboard/WhatsAppOrderWorkflow.php';
+require (in_array($probeVariant,['source-selection','option-source','anchor-citation'],true)
+    ? dirname(__DIR__).'/tests/fixtures/whatsapp_order_pre_address_branch/' : $preFragmented)
+    . 'app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
     return false;
@@ -217,6 +219,9 @@ if ($probeVariant !== 'legacy') foreach (P::SOURCE_PINS as [$path, $expected]) {
     if ($probeVariant==='anchor-citation' && in_array($path,['app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
         'app/Services/Dashboard/WhatsAppOrderAiProvider.php'],true))
         $sourcePath='tests/fixtures/whatsapp_order_pre_offer_variant/'.$path;
+    if (in_array($probeVariant,['source-selection','option-source','anchor-citation'],true)
+        && $path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')
+        $sourcePath='tests/fixtures/whatsapp_order_pre_address_branch/'.$path;
     $bytes = file_get_contents(dirname(__DIR__) . '/' . $sourcePath);
     probeExpect(sha1('blob ' . strlen($bytes) . "\0" . $bytes), $expected, $probeVariant . ' guard matches the reviewed runtime ' . $path);
 }
