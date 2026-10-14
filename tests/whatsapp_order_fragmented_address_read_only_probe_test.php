@@ -20,10 +20,15 @@ register_shutdown_function(static function () use ($proofOriginalCwd,$proofFixtu
 $proofSourcePaths=['app/Support/WhatsAppInboxProtocol.php','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php',
     'app/Support/WhatsAppOrderExtraction.php','app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
     'app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php'];
+function proofHistoricalSource(string $path): string
+{
+    return dirname(__DIR__).'/'.($path==='app/Services/Dashboard/WhatsAppOrderAiProvider.php'
+        ? 'tests/fixtures/whatsapp_order_pre_fulfillment/' : '').$path;
+}
 foreach ($proofSourcePaths as $path) {
     $target=$proofFixture.'/'.$path;$parent=dirname($target);
     if (!is_dir($parent) && !mkdir($parent,0700,true)) throw new RuntimeException('Cannot stage private proof directories');
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $bytes=file_get_contents(proofHistoricalSource($path));
     $proofStagedFiles[]=$target;
     if (file_put_contents($target,$bytes)!==strlen($bytes) || !chmod($target,0600)
         || file_get_contents($target)!==$bytes) throw new RuntimeException('Cannot stage exact private proof source');
@@ -227,7 +232,7 @@ function proofIsolated(array $data,array $rows,string $case): array
         foreach ($paths as $path) {
             $target=$directory.'/'.$path;$parent=dirname($target);
             if (!is_dir($parent) && !mkdir($parent,0700,true)) throw new RuntimeException('Cannot make isolated synthetic directory');
-            $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+            $bytes=file_get_contents(proofHistoricalSource($path));
             if (($case==='evidence-source-drift' && str_contains($path,'ConversationEvidence'))
                 || ($case==='selection-source-drift' && str_contains($path,'SourceSelection'))
                 || ($case==='provider-source-drift' && str_contains($path,'AiProvider'))) $bytes.="\n";
@@ -492,7 +497,7 @@ foreach ([['probe.php'],['probe.php','--probe-one','--probe-one'],['probe.php','
     proofExpect(Probe::authorized($arguments),false,'alternate flags never authorize an extraction');
 
 foreach (Probe::SOURCE_PINS as [$path,$expected]) {
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $bytes=file_get_contents(proofHistoricalSource($path));
     proofExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'probe verifies the unchanged reviewed application source');
 }
 $observerBytes=file_get_contents(dirname(__DIR__).'/deployment/whatsapp_order_fragmented_address_observer.php');

@@ -651,7 +651,10 @@ class RepairRootRecoveryTests(unittest.TestCase):
 
     def test_published_candidates_and_root_publisher_binding_match_exact_real_bytes(self):
         for relative,(_,target) in repair.SOURCE_PINS.items():
-            with self.subTest(path=relative):self.assertEqual(repair.blob((ROOT/relative).read_bytes()),target)
+            # The old publication pins bind its own immutable candidate, not
+            # the Provider subsequently updated for fulfillment policy.
+            historical=ROOT/'tests/fixtures/whatsapp_order_pre_fulfillment'/relative
+            with self.subTest(path=relative):self.assertEqual(repair.blob(historical.read_bytes()),target)
         publisher=ROOT/'deployment/apply_whatsapp_order_fragmented_address_repair.py'
         self.assertEqual(wrapper.PUBLISHER_BLOB,repair.blob(publisher.read_bytes()))
         self.assertEqual(set(wrapper.HELPERS),{'apply_whatsapp_order_fragmented_address_repair.py','install_whatsapp_inbox.py'})

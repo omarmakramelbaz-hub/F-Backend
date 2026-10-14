@@ -24,6 +24,7 @@ For every item, return name_source instead of writing a product name: select mes
 For every item, return nullable option_source instead of writing option_hint. When an explicit preparation or variant phrase was selected, choose its exact original contiguous phrase from the same name_tokens table using message_id, source, first_token and last_token. Preserve its literal qualifiers; never normalize spelling or digits, join separate size and preparation phrases, or generate an option label. The selected option row must already be cited in request_ids or confirmation_ids. For a fragmented item, option_source must use native customer text already cited in request_ids; this selected source row is the explicit option reference, so do not supply a second option ID. It may be the quantity row when the selected option phrase occurs there. Select the exact later preparation choice when present; fish size per kilogram remains independently supported by the quantity row and must not be concatenated into that choice. Use null when there is no explicit selected option phrase. A null option never removes a size or variant stated in the quantity evidence.
 Read the whole conversation as one ordered dialogue. Orders and customer details normally arrive in separate messages. A bare customer name after a business request for customer details is still a name: copy its exact customer text and cite that row. Do not require the customer to prefix it with "اسمي". Never substitute a WhatsApp profile name. Preserve the exact spelling of product names from their cited anchors; do not append catalog titles or concatenate separate option words into a product name.
 customer.address records the literal delivery-address text the customer actually supplied, not your assessment of whether it is detailed enough for dispatch. After a business request for customer details, a separate customer reply containing a neighborhood and city can be the supplied delivery address even without an address label, street, building number or GPS. Copy that complete literal reply into customer.address and cite its customer row in request_ids; copy the literal city or delivery-zone phrase separately into customer.area. Do not set address to null merely because those additional details are absent. An unrelated city mention or a reply identifying only a service area is not automatically a delivery address. Never derive an address from customer.area, a profile, a branch or general knowledge, and never add missing address details. The application separately checks confirmation, location and dispatch readiness.
+The owner's fulfillment rule is: when the customer supplies both an actual address and a contact phone for the order, choose DELIVERY. A customer's explicit affirmative choice of dine-in, takeaway, or collection inside/from a branch takes priority over those contact details: choose PICKUP for that branch order. Questions, hypothetical choices, quoted third-party statements, negated mentions and address landmarks do not select a branch mode. Conflicting choices remain UNKNOWN and require review; never invent or repair customer facts or confirmation evidence to classify fulfillment.
 Evidence IDs must be supplied m1..m60 labels. request_ids cite customer text or a submitted customer cart; customer_acceptance_ids cite customer text; confirmation_ids cite business text. location_id may cite only a supplied customer location row. Never invent coordinates or ERP IDs.
 Evidence coverage is mandatory: request_ids must include the separate customer rows that supply the copied name, phone, address, area or notes, as well as the requested products and quantities. These supporting customer rows need not themselves be order commands. Every copied named phrase must occur literally in the cited request_ids or confirmation_ids; customer_acceptance_ids alone do not ground copied fields. Do not copy uncited facts even when they appear elsewhere in the transcript. Never place a business row in request_ids or a customer row in confirmation_ids.
 For CONFIRMED, every cited request_id must precede the final cited business confirmation. The accepted basket recap may come first, followed by a customer acceptance, a business request for customer details, separate customer name/phone/address replies, and a final business acknowledgment of the order and those details. Cite BOTH the complete basket recap and the final acknowledgment in confirmation_ids, and cite the customer acceptance of that basket. The final acknowledgment does not need to repeat the whole basket. An acknowledgment alone without the accepted basket remains insufficient. Do not cite business questions, tentative offers or unrelated acknowledgments as final confirmations.
@@ -159,6 +160,12 @@ PROMPT;
             unset($extraction,$plan);
             $checked=$selected['ok']?WhatsAppOrderExtraction::validateDetailed($selected['data'],$transcript):$selected;
             unset($selected);
+            if ($checked['ok']) {
+                $classified = self::fulfillmentPolicy($checked['data'], $transcript);
+                if ($classified !== $checked['data'])
+                    $checked = WhatsAppOrderExtraction::validateDetailed($classified, $transcript);
+                unset($classified);
+            }
             if (!$checked['ok']) {
                 $diagnostic['validation_category'] = in_array($checked['validation_category'] ?? null,
                     WhatsAppOrderExtraction::VALIDATION_CATEGORIES, true) ? $checked['validation_category'] : null;
@@ -173,6 +180,138 @@ PROMPT;
             if (isset($started)) $diagnostic['elapsed_ms'] = self::elapsed($started);
             return self::failure('TRANSPORT_ERROR', $diagnostic);
         }
+    }
+
+    /** Classify only already grounded orders; never repair facts, citations or commitment. */
+    private static function fulfillmentPolicy(array $data, array $transcript): array
+    {
+        if ($data['decision'] !== 'CONFIRMED' || !$data['items']
+            || array_diff($data['issues'], ['PRICE_ESTIMATE_ONLY', 'LOCATION_REQUIRED', 'MISSING_BRANCH', 'MISSING_AREA']))
+            return $data;
+        $transcript = WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
+        $positions = array_flip(array_column($transcript, 'id'));
+        $final = max(array_map(static fn ($id) => $positions[$id], $data['evidence']['confirmation_ids']));
+        $branch = false; $delivery = false; $deniedDelivery = false; $changed = false; $ambiguous = false;
+        foreach ($transcript as $position => $row) {
+            if ($row['speaker'] !== 'customer') continue;
+            foreach ([$row['text'], $row['cart']['text'] ?? null] as $text) {
+                if (!is_string($text)) continue;
+                [$inside, $outside, $denied, $unclear] = self::fulfillmentChoices($text);
+                $branch = $branch || $inside; $delivery = $delivery || $outside;
+                $deniedDelivery = $deniedDelivery || $denied; $ambiguous = $ambiguous || $unclear;
+                if ($position > $final && ($inside || $outside || $denied || $unclear)) $changed = true;
+            }
+        }
+        // A late choice or incompatible explicit choices cannot authorize automatic delivery.
+        if ($changed || $ambiguous || ($branch && $delivery)) { $data['fulfillment'] = 'UNKNOWN'; return $data; }
+        if ($branch) { $data['fulfillment'] = 'PICKUP'; return $data; }
+        if ($deniedDelivery) { $data['fulfillment'] = 'UNKNOWN'; return $data; }
+        if ($data['fulfillment'] === 'DELIVERY') return $data;
+        $customer = $data['customer'];
+        if (!is_string($customer['address']) || trim($customer['address']) === ''
+            || !is_string($customer['phone']) || trim($customer['phone']) === '') return $data;
+        $address = self::fulfillmentText($customer['address']); $phone = self::fulfillmentPhone($customer['phone']);
+        $addressSent = false; $phoneSent = false;
+        foreach ($transcript as $row) {
+            if ($row['speaker'] !== 'customer' || !in_array($row['id'], $data['evidence']['request_ids'], true)) continue;
+            // Native text and cart text remain separate authentic customer sources.
+            foreach ([$row['text'], $row['cart']['text'] ?? null] as $text) {
+                if (!is_string($text)) continue;
+                if (strpos(self::fulfillmentText($text), $address) !== false) $addressSent = true;
+                $digits = strtr($text, ['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9',
+                    '۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+                preg_match_all('/(?<![0-9])\+?[0-9](?:[ .()\-]?[0-9]){7,14}(?![0-9])/', $digits, $numbers);
+                foreach ($numbers[0] as $number) if (self::fulfillmentPhone($number) === $phone) $phoneSent = true;
+            }
+        }
+        if ($addressSent && $phoneSent) $data['fulfillment'] = 'DELIVERY';
+        return $data;
+    }
+
+    /** Bounded affirmative mode phrases, not a keyword search over addresses or questions. */
+    private static function fulfillmentChoices(string $text): array
+    {
+        // Mask complete quotations before splitting so a quoted comma cannot expose a choice.
+        $text = preg_replace('/\bdon[\x{0027}\x{2019}]t\b/iu', 'do not', $text);
+        $text = preg_replace('/"[^\"]*"|«[^»]*»|“[^”]*”|\x{0027}[^\x{0027}]*\x{0027}/us', ' ', $text);
+        $inside = '(?:تيك\s*(?:أواي|اواي|أواى|اواى|اوي|أوي)|take[ -]?away|take[ -]?out|dine[ -]?in|'
+            . '(?:في|فى|داخل|جوه|جوا)\s+(?:الصالة|الصاله|الفرع)|استلام\s+من\s+الفرع)';
+        $outside = '(?:(?:ال)?(?:دليفري|ديليفري|توصيل)|delivery)';
+        $arabic = '(?:و)?(?:(?:انا|أنا)\s+)?(?:عايز(?:ه|ة)?|عاوز(?:ه|ة)?|أريد|اريد|خلي(?:ه)?|خليه|اعمله|'
+            . 'الطلب|الأوردر|الاوردر|أوردر|اوردر)\s+(?:(?:الطلب|الأوردر|الاوردر|ده|دا|يكون|هيكون|هايكون|سيكون|يبقى|يبقي)\s+){0,3}';
+        $english = '(?:(?:i\s+)?(?:want|would\s+like)\s+(?:(?:this|the)\s+)?(?:order\s+)?(?:for\s+)?|'
+            . '(?:(?:this|the)\s+)?order\s+(?:is|will\s+be)\s+(?:for\s+)?)';
+        $branch = false; $delivery = false; $deniedDelivery = false; $ambiguous = false;
+        foreach (preg_split('/[،,;؛.!\r\n]+/u', $text) as $clause) {
+            $clause = self::fulfillmentText($clause);
+            $clause = trim(preg_replace('/(?:لو\s+سمحت|من\s+فضلك|please)/iu', '', $clause));
+            if ($clause === '' || preg_match('/[?؟"\x{0027}«»“”]/u', $clause)
+                || preg_match('/(?<![\p{L}\p{N}])(?:هل|ينفع|ممكن|لو|إذا|اذا|قال|قالت|'
+                    . 'if|unless|maybe|whether|can|could|said)(?![\p{L}\p{N}])/iu', $clause)
+                || preg_match('/\A(?:مثال|example)\s*[:：]/iu', $clause)) continue;
+            if (preg_match('/(?<![\p{L}\p{N}])(?:أو|او|ولا|or|either)(?![\p{L}\p{N}])/iu', $clause)
+                && preg_match('/(?:' . $inside . '|' . $outside . ')/iu', $clause)) {
+                $ambiguous = true; continue;
+            }
+            $negative = '(?:مش|لا|ليس|بدون|بلاش|not|no)\s+'
+                . '(?:(?:عايز(?:ه|ة)?|عاوز(?:ه|ة)?|أريد|اريد|محتاج(?:ه|ة)?|لازم|want|for)\s+)?'
+                . '(?:(?:الطلب|الأوردر|الاوردر)\s+)?'
+                . '(?:(?:هيكون|هايكون|هيبقى|هايبقى|يبقى|يكون)\s+)?';
+            $refusal = '/(?<![\p{L}\p{N}])(?:' . $negative . $outside
+                . '|i\s+do\s+not\s+want\s+' . $outside
+                . '|(?:متبعتش|ماتبعتش|متوصلش|ماتوصلش)\s+(?:(?:الطلب|الأوردر|الاوردر)\s+)?' . $outside
+                . '|(?:متبعتش|ماتبعتش|متوصلش|ماتوصلش)\s+(?:الطلب|الأوردر|الاوردر)'
+                . '|لا\s+توصل\s+(?:الطلب|الأوردر|الاوردر)'
+                . '|do\s+not\s+deliver(?:\s+(?:the\s+)?order)?'
+                . '|' . $outside . '\s+(?:مش|غير|ليس)\s+(?:مطلوب|لازم|ضروري|ضرورى|مرغوب)'
+                . '|' . $outside . '\s+is\s+not\s+(?:needed|required|wanted))(?![\p{L}\p{N}])/iu';
+            if (preg_match($refusal, $clause)) { $deniedDelivery = true; $clause = trim(preg_replace($refusal, '', $clause)); }
+            // Negation binds its own mode; "takeaway without chili" still chooses takeaway.
+            $clause = trim(preg_replace('/(?<![\p{L}\p{N}])' . $negative . $inside . '(?![\p{L}\p{N}])/iu', '', $clause));
+            $clause = trim(preg_replace('/(?<![\p{L}\p{N}])' . $negative . '(?:هآكل|هاكل|هأكل|هناكل)\s+'
+                . '(?:في|فى)\s+الصالة(?![\p{L}\p{N}])/u', '', $clause));
+            $tail = '(?:\s+(?:بس|فقط|شكرا|شكراً|thanks))?\s*\z';
+            $clauseBranch = false; $clauseDelivery = false;
+            foreach ([$inside, $outside] as $index => $mode) {
+                if (preg_match('/\A(?:(?:تمام|موافق)\s+)?' . $mode . $tail . '/iu', $clause)
+                    || preg_match('/(?<![\p{L}\p{N}])(?:(?:تمام|موافق)\s+)?(?:' . $arabic . '|' . $english . ')'
+                        . $mode . '(?![\p{L}\p{N}])/iu', $clause)) {
+                    if ($index === 0) $clauseBranch = true; else $clauseDelivery = true;
+                }
+            }
+            // A named basket can intervene between the customer's request verb and mode.
+            if (preg_match('/\A(?:(?:انا|أنا|تمام)\s+)?(?:عايز(?:ه|ة)?|عاوز(?:ه|ة)?|أريد|اريد)\s+/u', $clause)
+                && !preg_match('/(?:عنوان|شارع|جنب|بجوار|امام|أمام|اعرف|أعرف|سعر|أسعار|اسعار|رقم|فين|كام|كم)/u', $clause)
+                && preg_match('/(?<![\p{L}\p{N}])' . $inside . '(?![\p{L}\p{N}])/iu', $clause)) $clauseBranch = true;
+            if (preg_match('/\A(?:(?:انا|أنا)\s+)?(?:هستلم(?:ه)?|هاستلم(?:ه)?|سأستلم|ساستلم|'
+                . '(?:هاجي|هاجى|هجي|هأجي)\s+(?:اخد(?:ه)?|أخد(?:ه)?|آخد(?:ه)?))\s+'
+                . '(?:(?:الطلب|الأوردر|الاوردر)\s+)?من\s+(?:ال)?فرع(?![\p{L}\p{N}])/u', $clause)
+                || preg_match('/\A(?:(?:انا|أنا)\s+)?(?:هعدي|هعدى|هاعدي|هاعدى)\s+'
+                    . '(?:استلم|أستلم)\s+(?:الطلب|الأوردر|الاوردر)(?![\p{L}\p{N}])/u', $clause)
+                || preg_match('/(?<![\p{L}\p{N}])(?:هآكل|هاكل|هأكل|هناكل)\s+(?:في|فى)\s+الصالة(?![\p{L}\p{N}])/u', $clause)
+                || preg_match('/\A(?:i\s+(?:will|shall)\s+)?(?:collect|pick\s+up)\s+'
+                    . '(?:the\s+order\s+)?from\s+(?:the\s+)?branch(?![\p{L}\p{N}])/iu', $clause)) $clauseBranch = true;
+            if (!$clauseBranch && !$clauseDelivery && preg_match('/(?:' . $inside . '|' . $outside . ')/iu', $clause)
+                && preg_match('/(?<![\p{L}\p{N}])(?:و)?(?:الطلب|الأوردر|الاوردر|عايز(?:ه|ة)?|عاوز(?:ه|ة)?|'
+                    . 'هستلم(?:ه)?|هاستلم(?:ه)?|order|deliver|collect)(?![\p{L}\p{N}])/iu', $clause)
+                && !preg_match('/(?:عنوان|شارع|جنب|بجوار|امام|أمام|اعرف|أعرف|سعر|رقم|فين|كام)/u', $clause)) $ambiguous = true;
+            $branch = $branch || $clauseBranch; $delivery = $delivery || $clauseDelivery;
+        }
+        return [$branch, $delivery, $deniedDelivery, $ambiguous];
+    }
+
+    private static function fulfillmentText(string $text): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $text)), 'UTF-8');
+    }
+
+    private static function fulfillmentPhone(string $text): string
+    {
+        $text = strtr($text, ['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9',
+            '۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+        $phone = preg_replace('/[^0-9]/', '', $text);
+        if (preg_match('/\A00201[0125][0-9]{8}\z/', $phone)) $phone = substr($phone, 2);
+        return preg_match('/\A01[0125][0-9]{8}\z/', $phone) ? '20' . substr($phone, 1) : $phone;
     }
 
     /** Fixed enums and bounded integers only; never copy provider prose, identifiers, or content. */

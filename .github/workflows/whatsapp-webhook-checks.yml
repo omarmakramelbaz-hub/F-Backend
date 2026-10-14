@@ -109,6 +109,7 @@ jobs:
           php -l deployment/whatsapp_order_offer_variant_read_only_probe.php
           php -l deployment/whatsapp_order_fragmented_address_observer.php
           php -l deployment/whatsapp_order_fragmented_address_read_only_probe.php
+          php -l deployment/whatsapp_order_fulfillment_reclassify.php
           php -l deployment/whatsapp_order_source_reference_observer.php
           php -l deployment/whatsapp_order_source_reference_read_only_probe.php
           php -l app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php
@@ -139,6 +140,7 @@ jobs:
           bash -n deployment/apply_whatsapp_order_anchor_citation_repair_root.sh
           bash -n deployment/apply_whatsapp_order_offer_variant_repair_root.sh
           bash -n deployment/apply_whatsapp_order_fragmented_address_repair_root.sh
+          bash -n deployment/apply_whatsapp_order_fulfillment_repair_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -170,6 +172,8 @@ jobs:
           php tests/whatsapp_order_offer_variant_read_only_probe_test.php
           php tests/whatsapp_order_fragmented_address_test.php
           php tests/whatsapp_order_fragmented_address_read_only_probe_test.php
+          php tests/whatsapp_order_fulfillment_policy_test.php
+          php tests/whatsapp_order_fulfillment_reclassify_test.php
           php tests/whatsapp_order_source_reference_read_only_probe_test.php
           php tests/whatsapp_order_capture_conflict_diagnostic_test.php
 
@@ -227,6 +231,8 @@ jobs:
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_offer_variant_repair_install.py
       - name: Verify literal fragmented address publication and unchanged pipeline configuration
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_fragmented_address_repair_install.py
+      - name: Verify fulfillment policy publication and unchanged pipeline configuration
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_fulfillment_repair_install.py
       - name: Verify forward recovery lifecycle and capture guard refresh
         env:
           WHATSAPP_CAPTURE_TEST_TMP: /var/lib/whatsapp-capture-tests

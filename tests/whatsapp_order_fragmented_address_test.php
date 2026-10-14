@@ -9,7 +9,7 @@ require $addressRoot . '/app/Support/WhatsAppOrderExtraction.php';
 require $addressRoot . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require $addressRoot . ($addressBaseline
     ? '/tests/fixtures/whatsapp_order_pre_fragmented_address/app/Services/Dashboard/WhatsAppOrderAiProvider.php'
-    : '/app/Services/Dashboard/WhatsAppOrderAiProvider.php');
+    : '/tests/fixtures/whatsapp_order_pre_fulfillment/app/Services/Dashboard/WhatsAppOrderAiProvider.php');
 require $addressRoot . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 set_error_handler(static function ($severity, $message, $file, $line) {
     if ($severity & E_ALL) throw new ErrorException($message, 0, $severity, $file, $line);
@@ -176,6 +176,8 @@ try {
         echo json_encode($baseline['request'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         exit(0);
     }
+    addressExpect(addressBlob($addressRoot . '/tests/fixtures/whatsapp_order_pre_fulfillment/app/Services/Dashboard/WhatsAppOrderAiProvider.php'),
+        '1ac4ebbaeaef12a5da7d83f1c5a6daa024441db0', 'immutable fragmented-address Provider binding');
     $rows = addressRows(); $data = addressData();
     addressExpect(Extraction::validateTranscript($rows)['ok'], true, 'fragmented synthetic transcript is valid');
     addressExpect(Evidence::addressAcknowledged($data, $rows), true, 'short address with no street or GPS has actual data acknowledgment');
