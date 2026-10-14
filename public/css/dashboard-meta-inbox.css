@@ -76,3 +76,9 @@ body.dark-mode .meta-chat,.dark-mode .meta-chat,[data-theme="dark"] .meta-chat {
 @media(max-width:720px) { .meta-chat .wa-inbox-workspace { display:block; min-height:550px; height:calc(100dvh - 230px); } .meta-chat .wa-inbox-bubble { max-width:92%; } .meta-chat .wa-inbox-message-scroll { padding:12px; } .meta-chat h1 { font-size:19px; } .meta-chat .wa-replies { padding:8px 10px; } .meta-chat .wa-inbox-chat-footer { display:none; } .meta-chat-dialog { padding:12px; } }
 .content-wrapper.wa-inbox-wrapper:has(.meta-chat) { background:#f4f6fa; color:#172b42; }
 .dark-mode .content-wrapper.wa-inbox-wrapper:has(.meta-chat),[data-theme="dark"] .content-wrapper.wa-inbox-wrapper:has(.meta-chat) { background:#152133; color:#e6edf8; }
+
+.meta-inbox-channels { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.meta-chat .wa-inbox-message-scroll { flex: 1 1 auto; height: auto; }
+.meta-chat .wa-inbox-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.meta-inbox-channels a[aria-current="page"] { background: #ff8b16; color: #10243a; font-weight: 700; }
+.wa-media-audio { display: block; width: min(300px, 100%); max-width: 100%; margin: 6px 0; }
