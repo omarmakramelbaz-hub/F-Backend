@@ -569,9 +569,11 @@ class WhatsAppOrderWorkflow
             ||$this->pendingCapture()) return null;
         $row=$this->draft($id);
         $fresh=$this->automaticActor((int)$row->conversation_id); if ((int)$fresh->id!==(int)$actor->id) return null;
+        $questionReasons=['REVIEW_REQUIRED','LOCATION_UNCONFIRMED','BRANCH_UNRESOLVED','PICKUP_REQUIRES_REVIEW',
+            'CATALOG_UNRESOLVED','INVALID_EXTRACTION','NO_ORDER'];
+        if ($this->controlInstalled()) $questionReasons[]='BRANCH_CLOSED';
         if (!in_array($row->status,$this->controlInstalled()?['REVIEW','NONE']:['REVIEW'],true)||$row->ticket_id!==null
-            ||!in_array($row->reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED','BRANCH_UNRESOLVED','PICKUP_REQUIRES_REVIEW',
-                'CATALOG_UNRESOLVED','INVALID_EXTRACTION','NO_ORDER'],true)) return null;
+            ||!in_array($row->reason,$questionReasons,true)) return null;
         $this->current($row);
         $floor=$this->automaticFloor((int)$row->conversation_id);
         $eventFloor=$this->activationBoundary('activation_event_id',(int)$row->conversation_id); $activation=$this->activationInstant((int)$row->conversation_id);
@@ -639,14 +641,17 @@ class WhatsAppOrderWorkflow
             $dialogue=$this->dialogueContext('BRANCH','CONFLICT',null,[],$snapshot['transcript']);
         }
         if ($resolved!==null) {
-            $reason=null; if (!$this->branchOpen($this->branch($resolved['fulfillment_branch']??$resolved['value'],$fresh),$reason)) return null;
+            $questionBranch=$this->branch($resolved['fulfillment_branch']??$resolved['value'],$fresh);
+            // Primary reply hours may collect a future order while the physical branch is closed.
+            // Automatic ERP review and dispatch retain the existing live branch-hours guard.
+            $reason=null; if ($primary===null&&!$this->branchOpen($questionBranch,$reason)) return null;
             if ($data['items']!==[]) {
                 $catalog=$this->dialogueCatalog($resolved['fulfillment_branch']??$resolved['value'],$fresh);
                 if ($catalog===null) return null;
                 $dialogue=$this->catalogClarification($data,$snapshot['transcript'],$catalog);
             }
         }
-        if ($data['decision']==='CONFIRMED'&&$row->reason==='LOCATION_UNCONFIRMED'&&!$pickup&&$resolved!==null
+        if ($data['decision']==='CONFIRMED'&&($row->reason==='LOCATION_UNCONFIRMED'||($primary!==null&&$row->reason==='BRANCH_CLOSED'))&&!$pickup&&$resolved!==null
             &&!$this->followupHasPoint($data,$transcript,$resolved['fulfillment_branch']??$resolved['value'],$fresh)) $fields[]='LOCATION';
         $needsApproval=$data['decision']==='CONFIRMED'&&$this->followupService()!==null
             &&!$this->followupService()->approvalSatisfied((int)$row->conversation_id,$data,$snapshot);
@@ -1616,6 +1621,20 @@ class WhatsAppOrderWorkflow
         $messages=$this->table('whatsapp_inbox_messages');
         $replies=$this->table('whatsapp_reply_requests'); $drafts=static::DRAFTS;
         if (!Schema::hasTable($replies)) return $query->whereRaw('0 = 1');
+        // Exhausted unchanged input cannot occupy a bounded worker slot indefinitely.
+        // Current cached facts can still clarify or resume a queued order without AI.
+        $query->where(function($budget)use($messages,$drafts,$token) {
+            $budget->whereNull('s.claimed_ceiling')->orWhere('s.attempts','<',3)->orWhereNull('s.auto_floor')
+                ->orWhere('s.auto_floor','!=',$token['message_floor'])
+                ->orWhereExists(function($newer)use($messages) {
+                    $newer->selectRaw('1')->from($messages.' as ai_budget_message')
+                        ->whereColumn('ai_budget_message.conversation_id','c.id')->whereColumn('ai_budget_message.id','>','s.claimed_ceiling');
+                })->orWhereExists(function($cached)use($drafts) {
+                    $cached->selectRaw('1')->from($drafts.' as ai_budget_draft')
+                        ->whereColumn('ai_budget_draft.conversation_id','c.id')->whereColumn('ai_budget_draft.evidence_ceiling','s.claimed_ceiling')
+                        ->whereIn('ai_budget_draft.status',['REVIEW','READY','NONE']);
+                });
+        });
         return $query->whereExists(function($inbound)use($messages,$replies,$drafts,$token) {
             $inbound->selectRaw('1')->from($messages.' as ai_inbound')->whereColumn('ai_inbound.conversation_id','c.id')
                 ->where('ai_inbound.direction','inbound')->where('ai_inbound.id','>',$token['message_floor'])

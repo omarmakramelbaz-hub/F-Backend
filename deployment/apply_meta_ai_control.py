@@ -34,15 +34,16 @@ SOURCE_PINS = {
     'app/Services/Dashboard/MetaOrderFollowupService.php': (None, 'd14a3c6e84624ee5b2d20997b7f11159b9101720'),
     'app/Services/Dashboard/MetaMediaService.php': ('bc97cf1170ef0e4aedb06cfb1a8954522f831ce4', 'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e'),
     'app/Services/Dashboard/MetaReplyService.php': ('84c686bba5acc0dd3696015f09854aae3f8c4448', 'c4226df516aa5f8b59999a8979f9f2ab43cf0e28'),
-    'app/Services/Dashboard/WhatsAppOrderWorkflow.php': ('e2b558a5de68080b85b12189e73239190aace507', '1093547d48befad671dddbe73b5684240504d107'),
+    'app/Services/Dashboard/WhatsAppOrderWorkflow.php': ('e2b558a5de68080b85b12189e73239190aace507', '4daf361e4c17eb5eb8bec7249dfb8093df73e433'),
     'app/Services/Dashboard/MetaOrderWorkflow.php': ('e13362de65706f9ee5e5dab8acc24220bca5cdb0', '0bc341a40717428feb47a4d6f42232e7b82afa40'),
     'app/Services/Dashboard/MetaInboxConsumer.php': ('f7dda06f617de711a3f6a363edda0185e3973794', '3b7e9cb9abfabc85c0b78199d0bf9d2565424f42'),
     'app/Http/Controllers/Dashboard/MetaAiControlController.php': (None, '3cb87c03aaabdd7b1bb01f047caf201649c8db6f'),
     'app/Console/Commands/ProcessMetaAiMessages.php': (None, '9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7'),
     'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': (None, '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae'),
-    'resources/views/admin/meta/ai_controls.blade.php': (None, '05c991ec21144ae783104c089aea9f43fb3964a0'),
+    'resources/views/admin/meta/ai_controls.blade.php': (None, 'cbc83afedd12f4bd0276b67d287e93aea1b42d46'),
     'public/js/dashboard-meta-ai-controls.js': (None, 'c3f33b423b6228ca679f5b7ec292213a22c7bd5b'),
     'public/css/dashboard-meta-ai-controls.css': (None, '293c1db7c3a4c3dc2720fd9216c450ac172c37e8'),
+    'public/css/dashboard-meta-inbox-viewport.css': (None, '1d3c4c9360619c6e3d7ab6a23d4188de36e96732'),
     'routes/meta_ai_controls.php': (None, '8a89374a33002b88f7ed593d6aab5817aa3cf2a4'),
     'resources/views/admin/meta/channels.blade.php': ('6c15d00e98405f2fa13cb4583b51bee175caeccf', 'c922fd431ca3df5b12f6aeef05c0885bc0da3049'),
     'routes/meta_inbox.php': ('2893265daae77c55f73f33e887bc953c619172d5', '2b5f992b8392be450a032d71d5a625a8aeed822e'),
@@ -88,6 +89,7 @@ PREVIOUS_CONTROL_SOURCE_PROFILES = {
         'resources/views/admin/meta/ai_controls.blade.php': '9a560c33fd4d3f1a87390a56a72a372396db72fe',
         'public/js/dashboard-meta-ai-controls.js': 'fc34fca42cf8dd80f7916bacc1780444a51afab4',
         'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
+        'public/css/dashboard-meta-inbox-viewport.css': None,
         'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
         'routes/meta_inbox.php': '2b5f992b8392be450a032d71d5a625a8aeed822e',
@@ -114,6 +116,34 @@ PREVIOUS_CONTROL_SOURCE_PROFILES = {
         'resources/views/admin/meta/ai_controls.blade.php': '9a560c33fd4d3f1a87390a56a72a372396db72fe',
         'public/js/dashboard-meta-ai-controls.js': '00589d95df07646aaa8db71309e098bccd36bd2e',
         'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
+        'public/css/dashboard-meta-inbox-viewport.css': None,
+        'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
+        'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
+        'routes/meta_inbox.php': '2b5f992b8392be450a032d71d5a625a8aeed822e',
+    },
+    'META_AI_CONTROL_UNANSWERED_HOURS': {
+        'app/Support/MetaAiSchedule.php': 'f05614f2b9f7db4c3596bac5a78d0e2de5e538df',
+        'app/Services/Dashboard/MetaBusinessAgent.php': '4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
+        'app/Services/Dashboard/MetaAiControl.php': '86639b7cbac148006d9f93b2589412932d2c03e2',
+        'app/Support/WhatsAppOrderDialogue.php': '33253285d24ba7110f58744cad9c3a87e1bef06a',
+        'app/Support/WhatsAppOrderExtraction.php': '1b518728c5f63db4ba1ef84149fb0aafec02a98a',
+        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php': 'bfe69bb72cc586c68823463fd3f1885915774d02',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php': 'b7b2797f1aad6747d1e4a34e546e4f6421c99a4c',
+        'app/Services/Dashboard/WhatsAppOrderFollowupService.php': 'be38be4938cf0fb6725baf38ebd4fcb69e6d692f',
+        'app/Services/Dashboard/MetaOrderNativeEvidence.php': 'f11710e1439867ba63571a690526496684120ef5',
+        'app/Services/Dashboard/MetaOrderFollowupService.php': 'd14a3c6e84624ee5b2d20997b7f11159b9101720',
+        'app/Services/Dashboard/MetaMediaService.php': 'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e',
+        'app/Services/Dashboard/MetaReplyService.php': 'c4226df516aa5f8b59999a8979f9f2ab43cf0e28',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '1093547d48befad671dddbe73b5684240504d107',
+        'app/Services/Dashboard/MetaOrderWorkflow.php': '0bc341a40717428feb47a4d6f42232e7b82afa40',
+        'app/Services/Dashboard/MetaInboxConsumer.php': '3b7e9cb9abfabc85c0b78199d0bf9d2565424f42',
+        'app/Http/Controllers/Dashboard/MetaAiControlController.php': '3cb87c03aaabdd7b1bb01f047caf201649c8db6f',
+        'app/Console/Commands/ProcessMetaAiMessages.php': '9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7',
+        'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
+        'resources/views/admin/meta/ai_controls.blade.php': '05c991ec21144ae783104c089aea9f43fb3964a0',
+        'public/js/dashboard-meta-ai-controls.js': 'c3f33b423b6228ca679f5b7ec292213a22c7bd5b',
+        'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
+        'public/css/dashboard-meta-inbox-viewport.css': None,
         'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
         'routes/meta_inbox.php': '2b5f992b8392be450a032d71d5a625a8aeed822e',
@@ -306,7 +336,7 @@ READINESS_PHP = r'''
 ini_set('display_errors','0'); ini_set('log_errors','0'); ob_start();
 try {
  $pins=json_decode($argv[1]??'',true,16,JSON_THROW_ON_ERROR);
- $roster=['app/Support/MetaAiSchedule.php','app/Services/Dashboard/MetaBusinessAgent.php','app/Services/Dashboard/MetaAiControl.php','app/Support/WhatsAppOrderDialogue.php','app/Support/WhatsAppOrderExtraction.php','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php','app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderFollowupService.php','app/Services/Dashboard/MetaOrderNativeEvidence.php','app/Services/Dashboard/MetaOrderFollowupService.php','app/Services/Dashboard/MetaMediaService.php','app/Services/Dashboard/MetaReplyService.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php','app/Services/Dashboard/MetaInboxConsumer.php','app/Http/Controllers/Dashboard/MetaAiControlController.php','app/Console/Commands/ProcessMetaAiMessages.php','database/migrations/2026_10_15_000001_create_meta_ai_controls.php','resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js','public/css/dashboard-meta-ai-controls.css','routes/meta_ai_controls.php','resources/views/admin/meta/channels.blade.php','routes/meta_inbox.php'];
+ $roster=['app/Support/MetaAiSchedule.php','app/Services/Dashboard/MetaBusinessAgent.php','app/Services/Dashboard/MetaAiControl.php','app/Support/WhatsAppOrderDialogue.php','app/Support/WhatsAppOrderExtraction.php','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php','app/Services/Dashboard/WhatsAppOrderAiProvider.php','app/Services/Dashboard/WhatsAppOrderFollowupService.php','app/Services/Dashboard/MetaOrderNativeEvidence.php','app/Services/Dashboard/MetaOrderFollowupService.php','app/Services/Dashboard/MetaMediaService.php','app/Services/Dashboard/MetaReplyService.php','app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php','app/Services/Dashboard/MetaInboxConsumer.php','app/Http/Controllers/Dashboard/MetaAiControlController.php','app/Console/Commands/ProcessMetaAiMessages.php','database/migrations/2026_10_15_000001_create_meta_ai_controls.php','resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js','public/css/dashboard-meta-ai-controls.css','public/css/dashboard-meta-inbox-viewport.css','routes/meta_ai_controls.php','resources/views/admin/meta/channels.blade.php','routes/meta_inbox.php'];
  if(!is_array($pins)||array_keys($pins)!==$roster)throw new \RuntimeException();
  // Verify the entire declared code set before executing Composer or any candidate.
  foreach($pins as $relative=>$expected){
@@ -615,7 +645,10 @@ def apply(root, uid, release, check_only=False, runner=base.command, pins=None, 
                       'configuration_fingerprint':config_digest,'control_fingerprint':controls['fingerprint'],'source_profile':source_profile},sort_keys=True)+'\n').encode())
         written={};created=[]
         try:
-            for relative,content in sources.items():
+            # The Blade template reads this new asset's mtime during HTTP render.
+            # Publish it first; reverse recovery restores the template before it.
+            for relative in sorted(sources,key=lambda path:path!='public/css/dashboard-meta-inbox-viewport.css'):
+                content=sources[relative]
                 if observed[relative]==pins[relative][1]:
                     continue
                 unchanged()

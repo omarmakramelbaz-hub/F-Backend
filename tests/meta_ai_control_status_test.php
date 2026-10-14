@@ -7,11 +7,11 @@ $fixture=sys_get_temp_dir().'/meta-ai-status-'.bin2hex(random_bytes(8));mkdir($f
 register_shutdown_function(function()use($fixture){if(!is_dir($fixture))return;$it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixture,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as$item){if($item->isDir())rmdir($item->getPathname());else unlink($item->getPathname());}rmdir($fixture);});
 function expect($actual,$wanted,$label){$GLOBALS['checks']++;if($actual!==$wanted)throw new RuntimeException('FAILED: '.$label);}
 preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$match);expect(isset($match[1]),true,'source guard map present');
-preg_match_all("/'([^']+)'=>'([^']+)'/",$match[1],$entries,PREG_SET_ORDER);expect(count($entries),30,'complete deployed source profile guarded before bootstrap');
+preg_match_all("/'([^']+)'=>'([^']+)'/",$match[1],$entries,PREG_SET_ORDER);expect(count($entries),31,'complete deployed source profile guarded before bootstrap');
 $guardPins=[];foreach($entries as$entry)$guardPins[$entry[1]]=$entry[2];
 preg_match('/SOURCE_PINS = \{(.*?)\n\}/s',file_get_contents($root.'/deployment/apply_meta_ai_control.py'),$publication);
 preg_match_all("/'([^']+)': \\((?:None|'[^']*'), '([^']+)'\\)/",$publication[1]??'',$targetPins,PREG_SET_ORDER);
-expect(count($targetPins),24,'publisher runtime target roster complete');
+expect(count($targetPins),25,'publisher runtime target roster complete');
 foreach($targetPins as$target)expect($guardPins[$target[1]]??null,$target[2],'status agrees with published target '.$target[1]);
 foreach($entries as$entry){[$all,$path,$old]=$entry;$bytes=file_get_contents($root.'/'.$path);$staged[$path]=$bytes;
     expect(sha1('blob '.strlen($bytes)."\0".$bytes),$old,'source guard matches release bytes '.$path);

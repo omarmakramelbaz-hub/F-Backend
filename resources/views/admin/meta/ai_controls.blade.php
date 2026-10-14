@@ -62,6 +62,7 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
 </section>
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-ai-controls.css') }}?v={{ filemtime(public_path('css/dashboard-meta-ai-controls.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-meta-inbox-viewport.css') }}?v={{ filemtime(public_path('css/dashboard-meta-inbox-viewport.css')) }}">
 @endpush
 @push('custom-js')
 <script type="application/json" id="meta-ai-controls-bootstrap">@json($metaAiControlsBootstrap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>

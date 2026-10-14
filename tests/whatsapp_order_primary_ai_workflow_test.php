@@ -449,4 +449,69 @@ $c=primaryCompleteDraft();app()->instance(PrimaryPos::class,new PrimaryAfterSave
 primaryExpect($r['dispatched']===0&&$r['errors']===1,'fresh dispatch gate rejects revision drift even after the existing ERP boundary returns');
 primaryNoErp('in-transaction policy revision drift rolls back customer ticket kitchen and printer together');
 
+// Exhausted unchanged native input with no current cached draft is excluded before
+// the candidate limit, so it cannot make every timer tick fail or starve real work.
+primarySetup();$exhausted=[];
+for($old=0;$old<12;$old++){
+    $peer='US.primary.exhausted-'.$old;$blocked=addConversation($peer);
+    insertMessage($blocked,'wamid.primary.exhausted.'.$old,'inbound','أهلاً',1,null,$peer);
+    $ceiling=(int)PrimaryDB::table('whatsapp_inbox_messages')->where('conversation_id',$blocked)->max('id');
+    PrimaryDB::table('whatsapp_order_scans')->insert(['conversation_id'=>$blocked,'analyzed_ceiling'=>0,'claimed_ceiling'=>$ceiling,
+        'auto_floor'=>0,'attempts'=>3,'next_attempt_at'=>'2026-10-09 22:04:00','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    $exhausted[]=$blocked;
+}
+$before=PrimaryDB::table('whatsapp_order_scans')->whereIn('conversation_id',$exhausted)->orderBy('conversation_id')->get()->toArray();
+$c=primaryInbound();$r=primaryRun();
+primaryExpect($r['errors']===0&&$r['threads_seen']===1&&PrimaryAi::$calls===1&&count($dialogueGraphs)===1,
+    'more than candidate limit of exhausted unchanged threads cannot starve a fresh unanswered customer or fail worker');
+primaryExpect(PrimaryDB::table('whatsapp_order_scans')->whereIn('conversation_id',$exhausted)->orderBy('conversation_id')->get()->toArray()==$before,
+    'excluding an exhausted turn does not reset attempts backoff leases or any old evidence');
+$r=primaryRun();primaryExpect($r['errors']===0&&$r['threads_seen']===0&&PrimaryAi::$calls===1,
+    'later idle tick stays successful without repeating extraction for exhausted native input');
+
+$blocked=$exhausted[0];$peer='US.primary.exhausted-0';
+insertMessage($blocked,'wamid.primary.exhausted.new-turn','inbound','عايز فسيخ',302,null,$peer);dialogueAdvance(303);
+PrimaryAi::$data=PrimaryExtraction::none('MISSING_QUANTITY');PrimaryAi::$data['decision']='DRAFT';
+PrimaryAi::$data['items']=[['name'=>'فسيخ','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+PrimaryAi::$data['evidence']['request_ids']=['m2'];$r=primaryRun();
+primaryExpect($r['errors']===0&&$r['threads_seen']===1&&PrimaryAi::$calls===2&&count($dialogueGraphs)===2
+    &&(int)PrimaryDB::table('whatsapp_order_scans')->where('conversation_id',$blocked)->value('attempts')===1,
+    'a genuine newer native ceiling starts one new bounded attempt after an exhausted older turn');
+primaryNoErp('exhaustion recovery still cannot dispatch guessed facts');
+
+// Exhaustion does not suppress cached approved work: no new AI extraction is needed.
+$c=primaryCompleteDraft();PrimaryFixtureControl::$strictDispatchClock=true;primaryRun();
+$ceiling=(int)PrimaryDB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+PrimaryDB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['attempts'=>3,'claimed_ceiling'=>$ceiling]);
+$calls=PrimaryAi::$calls;PrimaryFixtureControl::$replyClockClosed=true;
+\Carbon\Carbon::setTestNow('2026-10-10 06:00:00');\Carbon\CarbonImmutable::setTestNow('2026-10-10 06:00:00');$r=primaryRun();
+primaryExpect($r['errors']===0&&$r['dispatched']===1&&PrimaryAi::$calls===$calls&&PrimaryDB::table('test_tickets')->count()===1,
+    'current cached approved draft at attempt three resumes at opening without a new native message or extraction');
+
+primarySetup();$c=primaryInbound();$workflow->analyze($c,(object)['id'=>7]);$calls=PrimaryAi::$calls;
+$ceiling=(int)PrimaryDB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
+PrimaryDB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0,'attempts'=>3,'claimed_ceiling'=>$ceiling]);
+$r=primaryRun();primaryExpect($r['errors']===0&&$r['threads_seen']===1&&PrimaryAi::$calls===$calls&&count($dialogueGraphs)===1,
+    'same-floor current cached NONE at attempt three still welcomes unanswered customer without another extraction');
+primaryNoErp('cached NONE clarification preserves no-order facts');
+
+primarySetup();$c=primaryInbound('عايز فسيخ دليفري من المنصورة');
+PrimaryAi::$data=PrimaryExtraction::none('MISSING_QUANTITY');PrimaryAi::$data['decision']='DRAFT';
+PrimaryAi::$data['branch_hint']='المنصورة';PrimaryAi::$data['fulfillment']='DELIVERY';
+PrimaryAi::$data['items']=[['name'=>'فسيخ','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+PrimaryAi::$data['evidence']['request_ids']=['m1'];
+PrimaryDB::table('test_branches')->where('id',363)->update(['status'=>'closed']);
+PrimaryFixtureControl::$strictDispatchClock=true;$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['field']==='QUANTITY',
+    'active primary reply schedule asks missing quantity for resolved closed Mansoura branch while dispatch hours are closed');
+primaryExpect(!str_contains(dialogueLastText(),'تم إرسال')&&!str_contains(dialogueLastText(),'اترسل')&&!str_contains(dialogueLastText(),'تم تأكيد'),
+    'after-hours clarification cannot claim an order was sent or accepted by the branch');
+primaryNoErp('closed-branch clarification never creates customer ticket kitchen print or payment');
+
+$c=primaryCompleteDraft();PrimaryDB::table('test_branches')->where('id',363)->update(['status'=>'closed']);
+PrimaryFixtureControl::$strictDispatchClock=true;$graphs=count($dialogueGraphs);$r=primaryRun();
+primaryExpect($r['dispatched']===0&&PrimaryDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('reason')==='BRANCH_CLOSED'
+    &&count($dialogueGraphs)===$graphs,'closed branch still blocks a complete approved ERP order without repeating its recap');
+primaryNoErp('primary question-hours bypass does not bypass ERP branch-open policy');
+
 fwrite(STDOUT,'WHATSAPP_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$primaryChecks." PASS\n");
