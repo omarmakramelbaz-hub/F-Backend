@@ -12,7 +12,7 @@ class MessageHubInstallTests(unittest.TestCase):
   self.menuBefore=self.menu.read_bytes();self.calls=[]
   self.user=types.SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid())
   self.stack=contextlib.ExitStack();self.addCleanup(self.stack.close);self.addCleanup(self.temp.cleanup)
-  self.stack.enter_context(patch.object(hub,'APP_ROOT',self.root));self.stack.enter_context(patch.object(hub,'SOURCE_PINS',{self.rel:{'old':[hub.blob(self.old)],'new':hub.blob(self.new)}}))
+  self.stack.enter_context(patch.object(hub,'PROTECTED_PINS',{}));self.stack.enter_context(patch.object(hub,'APP_ROOT',self.root));self.stack.enter_context(patch.object(hub,'SOURCE_PINS',{self.rel:{'old':[hub.blob(self.old)],'new':hub.blob(self.new)}}))
   self.stack.enter_context(patch.object(hub.pwd,'getpwnam',return_value=self.user))
   def command(args,**kwargs):
    self.calls.append(args)
@@ -44,6 +44,11 @@ class MessageHubInstallTests(unittest.TestCase):
   def changed():self.path.write_bytes(b'later operator edit');return {'ok':True}
   with self.assertRaisesRegex(RuntimeError,'CONCURRENT_EDIT'):self.install(changed)
   self.assertEqual(self.path.read_bytes(),b'later operator edit');self.assertEqual(self.menu.read_bytes(),self.menuBefore)
+ def test_unknown_authorization_foundation_blocks_update(self):
+  foundation=self.root/'app/Access.php';foundation.write_bytes(b'changed authorization')
+  with patch.object(hub,'PROTECTED_PINS',{'app/Access.php':hub.blob(b'reviewed authorization')}):
+   with self.assertRaisesRegex(RuntimeError,'MESSAGE_FOUNDATION_CHANGED'):self.install()
+  self.assertEqual(self.path.read_bytes(),self.old)
  def test_missing_meta_link_is_inserted_in_existing_whatsapp_position(self):
   self.assertEqual(hub.sidebar("before\n@include('admin.whatsapp.sidebar')\nafter\n"),"before\n                @include('admin.meta.sidebar')\nafter\n")
  def test_ambiguous_navigation_is_rejected(self):
