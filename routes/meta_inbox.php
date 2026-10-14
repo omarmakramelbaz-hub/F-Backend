@@ -17,6 +17,8 @@ Route::group(['prefix' => 'admin/meta/connection', 'middleware' => [MetaOAuthCal
 Route::group(['prefix' => 'admin/meta', 'middleware' => ['lang', 'IsAdmin']], function () {
     Route::get('/', [MetaInboxController::class, 'index'])->name('meta-inbox.index');
     Route::get('/conversations', [MetaInboxController::class, 'conversations'])->name('meta-inbox.conversations');
+    Route::post('/conversations/{conversation}/profile', [MetaInboxController::class, 'profile'])
+        ->whereNumber('conversation')->name('meta-inbox.profile');
     Route::get('/conversations/{conversation}/messages', [MetaInboxController::class, 'messages'])
         ->whereNumber('conversation')->name('meta-inbox.messages');
     Route::get('/conversations/{conversation}/messages/{message}/media/{index}', [MetaMessageActionsController::class, 'media'])
