@@ -39,7 +39,7 @@ namespace {
     use Illuminate\Support\Facades\Facade;
     use Illuminate\Support\Facades\Schema;
 
-    $app = new Container(); Container::setInstance($app);
+    $app = new class extends Container { public function getLocale() { return 'ar'; } }; Container::setInstance($app);
     $db = new Capsule($app);
     $db->addConnection(['driver'=>'sqlite', 'database'=>':memory:', 'prefix'=>'', 'foreign_key_constraints'=>true]);
     $db->setAsGlobal(); $db->bootEloquent();
@@ -48,6 +48,7 @@ namespace {
     $app->instance('config', new \Illuminate\Config\Repository(['app'=>['key'=>'editor-fixture-key', 'timezone'=>'Africa/Cairo'],
         'database'=>['default'=>'default','connections'=>['default'=>['driver'=>'sqlite','database'=>':memory:','prefix'=>'','foreign_key_constraints'=>true]]]]));
     $translator = new \Illuminate\Translation\Translator(new \Illuminate\Translation\ArrayLoader(), 'en');
+    $app->instance('translator', $translator);
     $app->instance('validator', new \Illuminate\Validation\Factory($translator, $app));
     Facade::setFacadeApplication($app);
     \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-14 18:30:00', 'UTC'));
@@ -69,10 +70,16 @@ namespace {
     });
     Schema::create('resturant_products', function (Blueprint $t) {
         $t->id(); $t->integer('resturant_id'); $t->integer('product_id'); $t->string('product_name'); $t->string('status')->default('show');
-        $t->decimal('product_price', 14, 2); $t->text('price')->default('{}');
+        $t->integer('category_id')->nullable(); $t->decimal('product_price', 14, 2); $t->text('price')->default('{}');
     });
+    Schema::create('categories', function (Blueprint $t) { $t->id(); $t->string('name_ar'); $t->string('name_en'); });
+    Schema::create('branch_stock', function (Blueprint $t) {
+        $t->id(); $t->string('branch'); $t->integer('product_id'); $t->string('unit'); $t->bigInteger('quantity_units'); $t->integer('revision');
+    });
+    Schema::create('branch_stock_movements', function (Blueprint $t) { $t->id(); });
     Schema::create('product_features', function (Blueprint $t) { $t->id(); $t->integer('product_id'); $t->string('name'); });
     Schema::create('settings', function (Blueprint $t) { $t->id(); $t->string('group'); $t->string('name'); $t->text('payload'); });
+    Schema::create('permissions', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('guard_name'); });
     Schema::create('payments', function (Blueprint $t) { $t->id(); $t->integer('order_id'); $t->string('status'); });
     Schema::create('go_stores', function (Blueprint $t) { $t->integer('user_id')->primary(); $t->string('name'); });
     Schema::create('go_store_products', function (Blueprint $t) {
@@ -89,18 +96,22 @@ namespace {
         $t->id(); $t->integer('from_user')->nullable(); $t->integer('to_user')->nullable(); $t->string('transfer_reference')->unique();
         $t->decimal('amount', 14, 2); foreach (['status','payment','type'] as $field) $t->string($field); $t->timestamps();
     });
-    foreach ([[1,'admin',null,1],[10,'vendor',100,0],[11,'vendor',101,0],[20,'user',null,0],[30,'vendor',null,0],[31,'vendor',null,0],[40,'admin',null,0]] as [$id,$type,$branch,$edit]) {
+    foreach ([[1,'admin',null,1],[10,'vendor',100,0],[11,'vendor',101,0],[20,'user',null,0],[30,'vendor',null,0],[31,'vendor',null,0],
+        [40,'admin',null,0],[41,'admin',100,0],[42,'resturant_owner',100,0],[43,'user',null,0],[44,'admin',101,0]] as [$id,$type,$branch,$edit]) {
         DB::table('users')->insert(['id'=>$id,'name'=>'Fixture '.$id,'account_type'=>$type,'app_scope'=>in_array($id,[30,31])?'go_partner':'fasakhansta',
             'status'=>'accepted','owner_resturant_id'=>$branch,'can_edit'=>$edit,'balance'=>'500.00']);
     }
     DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Branch A'],['id'=>101,'user_id'=>11,'name'=>'Branch B']]);
+    DB::table('categories')->insert([['id'=>10,'name_ar'=>'أسماك','name_en'=>'Fish'],['id'=>11,'name_ar'=>'الفرع الآخر','name_en'=>'Other branch']]);
     DB::table('resturant_products')->insert([
-        ['id'=>1,'resturant_id'=>100,'product_id'=>1000,'product_name'=>'Fish','product_price'=>'100.00','price'=>'{"extra_clean":"20.00"}'],
-        ['id'=>2,'resturant_id'=>100,'product_id'=>1001,'product_name'=>'Side','product_price'=>'20.00','price'=>'{}'],
-        ['id'=>3,'resturant_id'=>101,'product_id'=>1002,'product_name'=>'Other branch','product_price'=>'5.00','price'=>'{}'],
+        ['id'=>1,'resturant_id'=>100,'product_id'=>1000,'category_id'=>10,'product_name'=>'Fish','product_price'=>'100.00','price'=>'{"extra_clean":"20.00"}'],
+        ['id'=>2,'resturant_id'=>100,'product_id'=>1001,'category_id'=>10,'product_name'=>'Side','product_price'=>'20.00','price'=>'{}'],
+        ['id'=>3,'resturant_id'=>101,'product_id'=>1002,'category_id'=>11,'product_name'=>'Other branch','product_price'=>'5.00','price'=>'{}'],
     ]);
+    DB::table('branch_stock')->insert(['branch'=>'f:100','product_id'=>1,'unit'=>'kg','quantity_units'=>3500000,'revision'=>1]);
     DB::table('product_features')->insert([['id'=>50,'product_id'=>1000,'name'=>'half'],['id'=>51,'product_id'=>1000,'name'=>'quarter'],['id'=>52,'product_id'=>1002,'name'=>'half']]);
     DB::table('settings')->insert([['group'=>'general','name'=>'tax','payload'=>'"14.00"'],['group'=>'general','name'=>'service_fees','payload'=>'"5.00"'],['group'=>'general','name'=>'app_balance','payload'=>'"1000.00"']]);
+    DB::table('permissions')->insert(['name'=>'order-list','guard_name'=>'admin']);
     DB::table('go_stores')->insert([['user_id'=>30,'name'=>'Store A'],['user_id'=>31,'name'=>'Store B']]);
     DB::table('go_store_products')->insert([['id'=>10,'user_id'=>30,'name'=>'Rice','unit'=>'piece','price_cents'=>10000,'available'=>1],['id'=>11,'user_id'=>31,'name'=>'Other store','unit'=>'piece','price_cents'=>1000,'available'=>1]]);
 
@@ -125,6 +136,17 @@ namespace {
 
     seedLegacy();
     $read = editor()->read('legacy',1,actor(10));
+    same('f:100',$read['branch']['value'],'editor uses order branch metadata');
+    same('Branch A',$read['branch']['name'],'editor exposes branch label from POS');
+    same([['id'=>10,'name'=>'أسماك']],$read['categories'],'POS categories remain scoped to order branch');
+    same(10,$read['catalog'][0]['category_id'],'POS product category retained');
+    same(true,array_key_exists('image_url',$read['catalog'][0]),'POS product image metadata retained');
+    same('weight',$read['catalog'][0]['quantity_mode'],'POS quantity mode retained');
+    same('3.5',$read['catalog'][0]['stock']['quantity'],'POS product stock display retained');
+    DB::table('branch_stock')->where('product_id',1)->update(['quantity_units'=>2500000,'revision'=>2]);
+    $afterOtherSale=editor()->read('legacy',1,actor(10));
+    same('2.5',$afterOtherSale['catalog'][0]['stock']['quantity'],'POS product stock display updates');
+    same($read['order']['revision'],$afterOtherSale['order']['revision'],'unrelated stock sales do not invalidate order quote');
     same('130.00',$read['order']['subtotal'],'manual line discount preserved in opened total');
     same('204.70',$read['order']['total'],'current subtotal plus stored tax, delivery and service');
     same('f:50:extra_clean',$read['order']['items'][0]['option_id'],'saved portion and cleaning retained');
@@ -146,7 +168,16 @@ namespace {
     same(20.0,(float)DB::table('carts')->orderByDesc('id')->value('price'),'new price and quantity injection ignored');
     blocked(fn()=>editor()->save('legacy',1,$data,actor(10)),409,'stale replay rejected');
     blocked(fn()=>editor()->read('legacy',1,actor(11)),404,'other branch cannot open editor');
-    blocked(fn()=>editor()->read('legacy',1,actor(40)),403,'read-only administrative account cannot edit');
+    foreach ([1,10,40,41,42] as $userId) {
+        $allowed=editor()->read('legacy',1,actor($userId));
+        same('legacy:1',$allowed['order']['key'],'every authorized preparing-board account can open editor '.$userId);
+        $card=app(\App\Services\Dashboard\OrderBoardService::class)->detail('legacy',1,actor($userId));
+        same(true,isset($card['urls']['items']),'every authorized preparing-board account sees button '.$userId);
+        editor()->save('legacy',1,payload($allowed),actor($userId));
+        same(0.85,(float)DB::table('carts')->where('id',10)->value('qty'),'authorized preparing-board account can save '.$userId);
+    }
+    blocked(fn()=>editor()->read('legacy',1,actor(44)),404,'linked administrator cannot edit another branch');
+    blocked(fn()=>editor()->read('legacy',1,actor(43)),403,'customer account never receives dashboard edit access');
     $current = editor()->read('legacy',1,actor(10)); $invalid = payload($current);
     $invalid['items'][]=['product_id'=>3,'quantity'=>'1'];
     blocked(fn()=>editor()->save('legacy',1,$invalid,actor(10)),422,'cross-branch product rejected');
@@ -183,7 +214,14 @@ namespace {
     DB::table('go_store_orders')->insert(['id'=>200,'store_id'=>30,'customer_id'=>20,'status'=>'preparing','fulfillment'=>'delivery','payment_method'=>'cash','payment_status'=>'cash_due',
         'subtotal_cents'=>10000,'delivery_cents'=>5000,'total_cents'=>15000,'commission_bps'=>1000,'commission_cents'=>1000,'revision'=>2,'snapshot'=>json_encode($snapshot),'created_at'=>now(),'updated_at'=>now()]);
     DB::table('wallets')->insert(['from_user'=>30,'to_user'=>null,'transfer_reference'=>'gs:200:fee','amount'=>'10.00','status'=>'completed','payment'=>'wallet','type'=>'transfer','created_at'=>now(),'updated_at'=>now()]);
-    $current=editor()->read('store',200,actor(30)); $data=payload($current); $data['items'][0]['quantity']='2';
+    $current=editor()->read('store',200,actor(30));
+    same('0.00',$current['order']['pricing']['tax_rate'],'store preview has no legacy application tax');
+    same('0.00',$current['order']['pricing']['service_rate'],'store preview has no legacy application service fee');
+    same('150.00',$current['order']['total'],'store preview total is subtotal plus delivery');
+    DB::table('settings')->where('name','tax')->update(['payload'=>'"15.00"']);
+    same($current['order']['revision'],editor()->read('store',200,actor(30))['order']['revision'],'irrelevant legacy tax changes do not invalidate store quote');
+    DB::table('settings')->where('name','tax')->update(['payload'=>'"14.00"']);
+    $data=payload($current); $data['items'][0]['quantity']='2';
     editor()->save('store',200,$data,actor(30));
     $saved=DB::table('go_store_orders')->where('id',200)->first(); $snap=json_decode($saved->snapshot,true);
     same(25000,(int)$saved->total_cents,'store total includes unchanged delivery');
@@ -205,6 +243,16 @@ namespace {
     catch (\Illuminate\Database\QueryException $error) { same(500.0,(float)DB::table('users')->where('id',30)->value('balance'),'ledger failure rolls back wallet balance'); }
     same(10000,(int)DB::table('go_store_orders')->where('id',200)->value('subtotal_cents'),'ledger failure rolls back order');
     DB::statement('DROP TRIGGER fail_editor_wallet');
+    DB::table('go_store_orders')->where('id',200)->update(['status'=>'ready']);
+    $ready=editor()->read('store',200,actor(40));
+    same('store:200',$ready['order']['key'],'order-list administrator can edit ready order in preparing column');
+    $card=app(\App\Services\Dashboard\OrderBoardService::class)->detail('store',200,actor(40));
+    same(true,isset($card['urls']['items']),'ready store order exposes editor button to authorized viewer');
+    $data=payload($ready); $data['items'][0]['quantity']='2';
+    $change=editor()->save('store',200,$data,actor(40));
+    same('preparing',$change['from_group'],'ready order patch remains in preparing column');
+    same(490.0,(float)DB::table('users')->where('id',30)->value('balance'),'ready order commission increase debits store once');
+    same('ready',DB::table('go_store_orders')->where('id',200)->value('status'),'editing ready items preserves lifecycle state');
     DB::table('go_store_orders')->where('id',200)->update(['status'=>'out_for_delivery']);
     blocked(fn()=>editor()->read('store',200,actor(30)),409,'courier store order blocked');
 

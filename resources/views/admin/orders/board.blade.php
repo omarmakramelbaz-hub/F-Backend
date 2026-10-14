@@ -1,6 +1,7 @@
 @extends('admin.index')
 
 @push('custom-css')
+    <link rel="stylesheet" href="{{ asset('dashboard/css/takeaway-pos.css') }}?v={{ filemtime(public_path('dashboard/css/takeaway-pos.css')) }}">
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board-items.css') }}?v={{ filemtime(public_path('dashboard/css/order-board-items.css')) }}">
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board.css') }}?v={{ filemtime(public_path('dashboard/css/order-board.css')) }}">
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board-menu.css') }}?v={{ filemtime(public_path('dashboard/css/order-board-menu.css')) }}">
