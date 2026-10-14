@@ -103,12 +103,14 @@ def safe(path):
             raise RuntimeError('SYMLINK_PATH: ' + str(path))
 
 
-def snapshot(path, uid):
+def snapshot(path, uid, repair_gid=None):
     safe(path)
     if not path.exists():
         return None
     meta = path.stat()
-    if not stat.S_ISREG(meta.st_mode) or meta.st_uid not in (0, uid) or meta.st_mode & 0o7022:
+    trusted_group_write = repair_gid is not None and meta.st_uid == uid and meta.st_gid == repair_gid
+    if (not stat.S_ISREG(meta.st_mode) or meta.st_uid not in (0, uid)
+            or meta.st_mode & 0o7002 or (meta.st_mode & 0o020 and not trusted_group_write)):
         raise RuntimeError('UNSAFE_FILE: ' + str(path))
     return {'bytes': path.read_bytes(), 'uid': meta.st_uid, 'gid': meta.st_gid,
             'mode': stat.S_IMODE(meta.st_mode), 'device': meta.st_dev, 'inode': meta.st_ino,
@@ -195,7 +197,7 @@ def runtime(root, php, probe, phase, views=()):
     return data
 
 
-def install(root, release, php, check_only=False):
+def install(root, release, php, check_only=False, repair_permissions=False):
     if os.geteuid() != 0 or root != APP_ROOT or not re.fullmatch('[a-f0-9]{40}', release):
         raise RuntimeError('FIXED_ROOT_RELEASE_REQUIRED')
     safe(root)
@@ -211,22 +213,25 @@ def install(root, release, php, check_only=False):
         if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_uid != 0 or lock_info.st_nlink != 1 or stat.S_IMODE(lock_info.st_mode) != 0o600:
             raise RuntimeError('UPDATE_LOCK_UNSAFE')
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _install_locked(root, release, php, check_only, uid, gid)
+        _install_locked(root, release, php, check_only, uid, gid, repair_permissions)
     finally:
         os.close(lock)
 
 
-def _install_locked(root, release, php, check_only, uid, gid):
+def _install_locked(root, release, php, check_only, uid, gid, repair_permissions=False):
     with tempfile.TemporaryDirectory(prefix='app-order-items-', dir='/tmp') as temporary:
         stage = pathlib.Path(temporary)
         os.chmod(stage, 0o755)
         probe = stage / 'runtime.php'
         probe.write_text(PROBE)
         os.chmod(probe, 0o644)
-        originals, targets, staged_views = {}, {}, []
+        originals, targets, staged_views, target_modes = {}, {}, [], {}
+        # The exception is restricted to these reviewed source leaves; caches stay strict.
+        def source_snapshot(relative):
+            return snapshot(root / relative, uid, gid if repair_permissions else None)
         for relative in (*EXISTING_FILES, *NEW_FILES):
             path = root / relative
-            old = snapshot(path, uid)
+            old = source_snapshot(relative)
             reviewed = source(root, release, relative)
             if relative in EXISTING_FILES:
                 if old is None:
@@ -237,6 +242,7 @@ def _install_locked(root, release, php, check_only, uid, gid):
                     raise RuntimeError('NEW_FILE_COLLISION: ' + relative)
                 payload = reviewed
             originals[relative], targets[relative] = old, payload
+            target_modes[relative] = (old['mode'] & ~0o020) if old else 0o644
             checked = stage / relative
             checked.parent.mkdir(parents=True, exist_ok=True)
             checked.write_bytes(payload)
@@ -258,7 +264,8 @@ def _install_locked(root, release, php, check_only, uid, gid):
         cache_original = snapshot(root / cache_relative, uid)
         if check_only:
             print(json.dumps({'status': 'APP_ORDER_ITEMS_PREFLIGHT_OK', 'files': len(targets),
-                              'routes_cached': readiness['routes_cached']}))
+                              'routes_cached': readiness['routes_cached'],
+                              'permission_repairs': [p for p, old in originals.items() if old and old['mode'] != target_modes[p]]}))
             return
         parent = root.parent / 'app-order-items-backups'
         safe(parent)
@@ -280,15 +287,15 @@ def _install_locked(root, release, php, check_only, uid, gid):
         written, runtime_changed = {}, False
         try:
             for relative, old in originals.items():
-                if snapshot(root / relative, uid) != old:
+                if source_snapshot(relative) != old:
                     raise RuntimeError('CONCURRENT_EDIT: ' + relative)
             # Publish and run the additive widening before the editor is visible.
             for relative in PUBLISH_ORDER:
                 payload, old = targets[relative], originals[relative]
-                if snapshot(root / relative, uid) != old:
+                if source_snapshot(relative) != old:
                     raise RuntimeError('CONCURRENT_EDIT: ' + relative)
-                if old is None or old['bytes'] != payload:
-                    atomic(root / relative, payload, old['mode'] if old else 0o644,
+                if old is None or old['bytes'] != payload or old['mode'] != target_modes[relative]:
+                    atomic(root / relative, payload, target_modes[relative],
                            old['uid'] if old else uid, old['gid'] if old else gid)
                     written[relative] = snapshot(root / relative, uid)
                 if relative == MIGRATION:
@@ -308,18 +315,23 @@ def _install_locked(root, release, php, check_only, uid, gid):
                 if snapshot(root / relative, uid) != published:
                     raise RuntimeError('CONCURRENT_EDIT: ' + relative)
             print(json.dumps({'status': 'APP_ORDER_ITEMS_READY', 'updated_files': len(written),
-                              'backup': str(backup), 'release': release, **result}))
+                              'backup': str(backup), 'release': release,
+                              'permission_repairs': [p for p, old in originals.items() if old and old['mode'] != target_modes[p]], **result}))
         except BaseException:
             complete = True
             for relative, published in reversed(list(written.items())):
-                if snapshot(root / relative, uid) != published:
+                try:
+                    if snapshot(root / relative, uid) != published:
+                        complete = False
+                        continue
+                    old = originals[relative]
+                    if old:
+                        atomic(root / relative, old['bytes'], old['mode'], old['uid'], old['gid'])
+                    else:
+                        (root / relative).unlink()
+                except (OSError, RuntimeError):
+                    # An intervening unsafe mode/path belongs to the operator; restore other leaves.
                     complete = False
-                    continue
-                old = originals[relative]
-                if old:
-                    atomic(root / relative, old['bytes'], old['mode'], old['uid'], old['gid'])
-                else:
-                    (root / relative).unlink()
             if runtime_changed:
                 if cache_original:
                     atomic(root / cache_relative, cache_original['bytes'], cache_original['mode'], cache_original['uid'], cache_original['gid'])
@@ -340,9 +352,11 @@ if __name__ == '__main__':
     parser.add_argument('--release', required=True)
     parser.add_argument('--php', default=PHP)
     parser.add_argument('--check', action='store_true', help='Lint and validate patch anchors without publishing files or migrating')
+    parser.add_argument('--repair-permissions', action='store_true',
+                        help='Atomically remove group-write only from reviewed source files owned by the application account and its primary group')
     args = parser.parse_args()
     try:
-        install(pathlib.Path(args.root).absolute(), args.release, args.php, args.check)
+        install(pathlib.Path(args.root).absolute(), args.release, args.php, args.check, args.repair_permissions)
     except Exception as error:
         print(str(error))
         raise SystemExit(1)

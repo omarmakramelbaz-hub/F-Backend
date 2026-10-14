@@ -13,6 +13,15 @@ bash /path/to/verified/apply_app_order_items_root.sh FULL_REVIEWED_RELEASE_SHA -
 bash /path/to/verified/apply_app_order_items_root.sh FULL_REVIEWED_RELEASE_SHA
 ```
 
+If existing cPanel source files are writable by the application's group, use the explicit repair option:
+
+```bash
+bash /path/to/verified/apply_app_order_items_root.sh FULL_REVIEWED_RELEASE_SHA --check --repair-permissions
+bash /path/to/verified/apply_app_order_items_root.sh FULL_REVIEWED_RELEASE_SHA --repair-permissions
+```
+
+The default remains strict. `--repair-permissions` accepts group-write only on the sixteen reviewed source leaves when the owner and group exactly match the resolved `fasakha` account and its primary group. It rejects world-write, special permission bits, foreign owners/groups for this exception, and symlink paths. Every patch, PHP syntax check, and staged Blade compilation must pass before publication. The installer then atomically publishes the reviewed bytes with only group-write removed (`0775` becomes `0755`, `0664` becomes `0644`). An already-matching file is republished when its mode needs repair. It does not run recursive `chmod` or touch unrelated files or cache permissions. Hardlink aliases retain their original bytes and permissions; backups record the original owner/group/mode, and a failed installation restores that metadata. Combining the option with `--check` reports proposed repairs without changing source content, permissions, or inodes. Both flag orders are accepted.
+
 The wrapper is fixed to `/home/fasakha/public_html`, application user `fasakha`, and PHP `/opt/cpanel/ea-php82/root/usr/bin/php`. It extracts the installer from the supplied immutable Git commit and verifies the helper's Git blob before running it.
 
 The installer reads the reviewed files directly from that commit. It applies unique, eight-line context edits to existing files against base `4a81f073c134d762fdb31afa8e5dda99f978192e`; it does not replace their unrelated live customizations. In particular, the newer `OperatingDay` 06:00 Cairo filter in `OrderBoardService` is preserved. Conflicting or ambiguous context stops installation before publication. New files must be absent or exactly equal to the reviewed release. The `--check` option only validates source anchors, PHP syntax, staged Blade compilation, and basic runtime readiness; it does not migrate or publish files.
@@ -32,6 +41,6 @@ php tests/app_order_quantity_migration_test.php
 node tests/browser/order-board-items.cjs
 ```
 
-The deployment tests cover preserving unrelated live edits, refusing patch conflicts/new-file collisions/symlinks, preflight without publication, hardlink backup preservation, successful backups, and restoration after a failed runtime check. Backend tests exercise authorization, editable state, fractional quantities, catalog/line integrity, conflicts, repricing, and atomic persistence.
+The deployment tests cover preserving unrelated live edits, refusing patch conflicts/new-file collisions/symlinks, preflight without publication, hardlink backup preservation, successful backups, and restoration after a failed runtime check. Permission tests cover strict defaults, the exact trusted owner/group exception, whole-batch and mode-only repairs, rejection of world-write/special bits/foreign groups, unchanged aliases/unrelated paths, read-only preflight, original mode restoration, concurrent operator changes, and wrapper flag combinations. Backend tests exercise authorization, editable state, fractional quantities, catalog/line integrity, conflicts, repricing, and atomic persistence.
 
 After installation, open an eligible cash application order and verify a weight edit, removal, and new item, then reopen its details and receipt. A previously open editor must reject saving after another staff member changes the same order. Completed and paid orders must not expose the editing action.
