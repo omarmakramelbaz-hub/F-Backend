@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "files": {
+    "app/Services/Dashboard/MetaCommentAiDispatchLock.php": "636aefb39e215d97ea3e812dab56b99aaa3b3443",
+    "app/Services/Dashboard/MetaCommentReplyGate.php": "30967f79079502bddb6f771958a6a475f3c34c6b",
+    "app/Services/Dashboard/MetaCommentsReadCache.php": "54bf077ea52597c4a86055a23bf2cc1bb34673df",
+    "app/Services/Dashboard/MetaCommentAiReplyPolicy.php": "5104252e60dcd0ae7e3c7732319882533cb85d50",
+    "app/Services/Dashboard/MetaCommentAiProvider.php": "969b22c235cc2a2e420d2def8af957a81afb19f9",
+    "app/Services/Dashboard/MetaCommentAiControl.php": "d1cd90a84b427642fd52dc0d9611aaab6ba1ab1a",
+    "app/Services/Dashboard/MetaCommentAiWorker.php": "520d9f2599641a498feac37d24417b532e562954",
+    "app/Console/Commands/ProcessMetaCommentReplies.php": "a36a6f3950d5320f9cedd6473378c36515c2e25c",
+    "app/Http/Controllers/Dashboard/MetaCommentAiController.php": "53b4fa5dfc0082b8d376bf8b77ea837d13cec88e",
+    "config/meta_comment_ai.php": "f8a39d4b46e980294c47ead2ae824cb24336599e",
+    "public/js/dashboard-meta-comment-ai.js": "1c8b2cff7542e91c55faf694143698f44392800a",
+    "public/css/dashboard-meta-comment-ai.css": "5d72796437513511b610442f942933fb00445719",
+    "database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php": "3bf661df37f1d4ed4529fe1d995e829bb4acfda0",
+    "deployment/meta_comment_ai_diagnostic.php": "b474b816d2a07082d3f23c35d22edf7fe46b68af",
+    "routes/meta_comment_ai.php": "cd7c48d4e091921b127568269e8139414aa38e48",
+    "app/Services/Dashboard/MetaCommentsService.php": "eef483214ac5a8315a25ff64cdccb5849457b1c9",
+    "app/Http/Controllers/Dashboard/MetaCommentsController.php": "a33144b168f0ef0e2e63ad457abac9c9d64004c9",
+    "public/js/dashboard-meta-comments.js": "93d7ee38cb340791cb34d438b832daa3655e9042",
+    "public/css/dashboard-meta-comments.css": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+    "resources/views/admin/meta/comments.blade.php": "8ddb149a1265319362971a02b8c4afae418da10f",
+    "routes/web.php": "3c04f0f93aca712c62b34f5ca4c0d404aa06e60f",
+    "deployment/systemd/fasakhansta-meta-comment-ai.service": "18ec45ef739e8af754b3704ecc3bbfab5f6575f5",
+    "deployment/systemd/fasakhansta-meta-comment-ai.timer": "31024372a031f33b7d6aa07cd612d566e7c62038"
+  }
+}

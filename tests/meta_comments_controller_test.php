@@ -35,6 +35,14 @@ namespace {
         public function __construct(callable $callback) { $this->callback = $callback; }
         public function send($actor, array $input): array { $this->calls++; return ($this->callback)($input); }
     }
+    class FakeCommentsReadService extends MetaCommentsService {
+        public int $calls = 0;
+        public function __construct() {}
+        public function posts($actor, string $accountKey, ?string $cursor = null): array {
+            $this->calls++;
+            return ['success' => true, 'posts' => [], 'next_cursor' => null];
+        }
+    }
     $checks = 0;
     function check($ok, $label) { global $checks; $checks++; if (!$ok) throw new \RuntimeException($label); }
     function sendTest(callable $callback, ?array $input = null): array {
@@ -53,6 +61,9 @@ namespace {
     check($body['required_permissions'] === ['pages_manage_engagement'] && strpos($body['message'], 'Grant') !== false, 'actionable scope names preserved');
     [$status, $body] = sendTest(function () { throw new MetaCommentsFailure('INVALID_HANDLE', 422); });
     check($status === 422 && $body['state'] === 'FAILED' && $body['safe_to_retry'], 'expired selection is safe pre-send failure');
+    [$status, $body] = sendTest(function () { throw new MetaCommentsFailure('REPLY_IN_PROGRESS', 409); });
+    check($status === 409 && $body['state'] === 'FAILED' && $body['safe_to_retry']
+        && strpos($body['message'], 'being sent') !== false, 'another active reply is known unsent for this caller and never invents an uncertain receipt');
     [$status, $body, $calls] = sendTest(fn () => [], ['comment_handle' => 'fixture-handle', 'client_request_id' => '12345678-1234-4234-8234-123456789abc']);
     check($status === 422 && $body['state'] === 'FAILED' && $calls === 0 && $body['safe_to_retry'], 'request validation failure never sends or blocks target');
     [$status, $body, $calls] = sendTest(fn () => [], ['comment_handle' => 'fixture', 'message' => 'Thanks',
@@ -68,5 +79,11 @@ namespace {
     [$status, $body] = sendTest(fn () => ['success' => true, 'state' => 'ACCEPTED', 'reason' => null,
         'reply' => ['text' => 'Thanks', 'key' => 'opaque-key'], 'replayed' => false]);
     check($status === 200 && $body['success'] && $body['reply']['text'] === 'Thanks', 'accepted reply returned immediately');
+    $readService = new FakeCommentsReadService;
+    $read = (new MetaCommentsController)->posts(Request::create('/admin/meta/comments/posts', 'GET', ['account_key' => str_repeat('a', 64)]), $readService);
+    check($read->getStatusCode() === 200 && $readService->calls === 1, 'GET posts request executes once');
+    check(preg_match('/\Aread;dur=[0-9]+\.[0-9](?:, [a-z_]+;dur=[0-9]+\.[0-9])*\z/', $read->headers->get('Server-Timing')) === 1,
+        'read latency exposes fixed numeric metrics without account IDs or data');
+    check(strpos($read->headers->get('Cache-Control'), 'no-store') !== false, 'provider snapshot caching never enables shared HTTP caching');
     echo "meta-comments-controller: $checks checks passed\n";
 }

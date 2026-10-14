@@ -16,11 +16,14 @@ class MetaCommentsController extends Controller
     {
         try {
             $actor = auth('admin')->user();
-            $viewerKey = $service->viewerKey($actor);
+            // Account metadata is local and contains no tokens. Bootstrap it with the page
+            // instead of waiting for a second HTTP round trip before fetching any posts.
+            $bootstrap = $service->accounts($actor);
             $urls = [];
             foreach (['accounts', 'posts', 'comments', 'replies', 'reply'] as $endpoint) $urls[$endpoint] = route('meta-comments.' . $endpoint);
             return response()->view('admin.meta.comments', ['metaComments' => ['urls' => $urls,
-                'viewer_key' => $viewerKey, 'connection_url' => $access->canConnect($actor) ? route('meta-connection.index') : null]])
+                'viewer_key' => $bootstrap['viewer_key'], 'accounts' => $bootstrap['accounts'],
+                'connection_url' => $access->canConnect($actor) ? route('meta-connection.index') : null]])
                 ->withHeaders($this->privateHeaders());
         } catch (MetaCommentsFailure $error) {
             return response($this->message($error->reason), $error->status)->withHeaders($this->privateHeaders());
@@ -36,7 +39,7 @@ class MetaCommentsController extends Controller
         return $this->execute(function () use ($request, $service) {
             $this->only($request, []);
             return $service->accounts(auth('admin')->user());
-        });
+        }, false, $service);
     }
 
     public function posts(Request $request, MetaCommentsService $service)
@@ -45,7 +48,7 @@ class MetaCommentsController extends Controller
             $this->only($request, ['account_key', 'cursor']);
             $input = $request->validate(['account_key' => 'required|string|size:64', 'cursor' => 'nullable|string|max:6000']);
             return $service->posts(auth('admin')->user(), $input['account_key'], $input['cursor'] ?? null);
-        });
+        }, false, $service);
     }
 
     public function comments(Request $request, MetaCommentsService $service)
@@ -54,7 +57,7 @@ class MetaCommentsController extends Controller
             $this->only($request, ['post_handle', 'cursor']);
             $input = $request->validate(['post_handle' => 'required|string|max:4096', 'cursor' => 'nullable|string|max:6000']);
             return $service->comments(auth('admin')->user(), $input['post_handle'], $input['cursor'] ?? null);
-        });
+        }, false, $service);
     }
 
     public function replies(Request $request, MetaCommentsService $service)
@@ -63,7 +66,7 @@ class MetaCommentsController extends Controller
             $this->only($request, ['comment_handle', 'cursor']);
             $input = $request->validate(['comment_handle' => 'required|string|max:4096', 'cursor' => 'nullable|string|max:6000']);
             return $service->replies(auth('admin')->user(), $input['comment_handle'], $input['cursor'] ?? null);
-        });
+        }, false, $service);
     }
 
     public function reply(Request $request, MetaCommentsService $service)
@@ -103,6 +106,9 @@ class MetaCommentsController extends Controller
         }
         $headers = $this->privateHeaders();
         if ($reply && $service !== null) $headers['Server-Timing'] = $service->serverTiming((hrtime(true) - $started) / 1000000);
+        elseif ($service !== null) $headers['Server-Timing'] = method_exists($service, 'readServerTiming')
+            ? $service->readServerTiming((hrtime(true) - $started) / 1000000)
+            : 'read;dur=' . number_format(max(0, min(60000, (hrtime(true) - $started) / 1000000)), 1, '.', '');
         return $response->withHeaders($headers);
     }
 
@@ -134,6 +140,7 @@ class MetaCommentsController extends Controller
             'INVALID_CURSOR' => ['حدّث القائمة لتحميل التعليقات من البداية.', 'Refresh the list before loading more comments.'],
             'INVALID_REQUEST' => ['راجع نص الرد واختيار التعليق وحاول مرة أخرى.', 'Check the reply text and selected comment.'],
             'REQUEST_CONFLICT' => ['هذا الرد مسجل بنص أو تعليق مختلف. حدّث التعليقات قبل أي إرسال جديد.', 'This request ID already belongs to a different reply. Refresh comments before sending.'],
+            'REPLY_IN_PROGRESS' => ['يوجد رد جارٍ إرساله لهذا التعليق. انتظر قليلًا ثم اضغط نشر مرة أخرى إذا احتجت ردًا إضافيًا.', 'Another reply to this comment is being sent. Wait briefly, then publish again if an additional reply is needed.'],
             'DELIVERY_UNKNOWN' => ['تعذّر التأكد من نتيجة الإرسال. راجع الردود على البوست؛ الإرسال لن يتكرر تلقائيًا.', 'Delivery could not be confirmed. Check the post replies; this request will not be resent automatically.'],
             'CONTENT_UNAVAILABLE' => ['البوست أو التعليق لم يعد متاحًا، أو صلاحيات قراءته ناقصة. راجع ميتا ثم حدّث القائمة.', 'The post or comment is unavailable or its read permission is missing. Check Meta and refresh the list.'],
             'RATE_LIMITED' => ['ميتا أوقف الطلبات مؤقتًا لكثرتها. انتظر قليلًا ثم حاول مرة أخرى.', 'Meta temporarily limited requests. Wait before trying again.'],

@@ -1,0 +1,15 @@
+[Unit]
+Description=Fasakhansta public comment reply policy worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=fasakha
+WorkingDirectory=/home/fasakha/public_html
+UMask=0077
+ExecStart=/opt/cpanel/ea-php82/root/usr/bin/php artisan meta:process-comment-replies --once
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
