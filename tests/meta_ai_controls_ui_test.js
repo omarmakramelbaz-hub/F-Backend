@@ -20,10 +20,28 @@ class Element {
     addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
     removeEventListener(type, listener) { this.listeners[type] = (this.listeners[type] || []).filter(item => item !== listener); }
     fire(type) {
-        const event = {prevented: false, preventDefault() { this.prevented = true; }};
-        (this.listeners[type] || []).slice().forEach(listener => listener(event));
+        const event = {prevented: false, immediateStopped: false,
+            preventDefault() { this.prevented = true; },
+            stopImmediatePropagation() { this.immediateStopped = true; }};
+        for (const listener of (this.listeners[type] || []).slice()) {
+            listener.call(this, event);
+            if (event.immediateStopped) break;
+        }
         return event;
     }
+}
+function attachLegacySubmit(f) {
+    // Execute the actual shared footer callback, after Blade resolves the fixed translation.
+    const footer = fs.readFileSync(path.join(__dirname, '../resources/views/admin/layouts/footer.blade.php'), 'utf8');
+    const match = footer.match(/\$\(\s*"form"\s*\)\.not\("\[data-wa-reply-form\]"\)\.submit\(function\(\) \{([\s\S]*?)\n\s*\}\);/);
+    check(match, 'actual shared footer submit callback located');
+    const body = match[1].replace("@lang('main.under click')", 'قيد التنفيذ');
+    const legacy = vm.runInNewContext('(function () {' + body + '\n})', {$: element => ({find: selector => ({html: value => {
+        check(element === f.nodes.form && selector === "button[type='submit']", 'legacy footer selects this form submit button');
+        f.legacySubmitCalls++;
+        f.nodes.save.textContent = value.replace(/<[^>]*>/g, '');
+    }})})});
+    f.nodes.form.addEventListener('submit', legacy);
 }
 function policy() {
     return {enabled: false, channels: ['whatsapp', 'messenger', 'instagram'],
@@ -55,7 +73,7 @@ function fixture(first = state(), changes = {}) {
         setInterval: (callback, delay) => { const id = ++timerId; timers.set(id, {callback, delay}); return id; },
         clearInterval: id => timers.delete(id),
         DashboardSPA: {isCurrentPage: () => changes.current !== false, onCleanup: callback => { result.cleanup = callback; }}});
-    const result = {nodes, channels, days, panel, config, bootstrap, document, window, timers, calls: [], queue: [response(first)], cleanup: null};
+    const result = {nodes, channels, days, panel, config, bootstrap, document, window, timers, calls: [], queue: [response(first)], cleanup: null, legacySubmitCalls: 0};
     const fetch = async (url, options) => {
         result.calls.push({url, options});
         const next = result.queue.shift();
@@ -65,7 +83,9 @@ function fixture(first = state(), changes = {}) {
         return next;
     };
     result.run = () => vm.runInNewContext(source, {window, document, fetch, URL, console}, {filename: 'dashboard-meta-ai-controls.js'});
+    if (changes.legacySubmit === 'before') attachLegacySubmit(result);
     result.run();
+    if (changes.legacySubmit === 'after') attachLegacySubmit(result);
     return result;
 }
 async function settle() { for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve)); }
@@ -87,6 +107,54 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     check(f.days.every(input => input.disabled) && f.nodes.start.disabled && f.nodes.end.disabled, 'dormant schedule disabled');
     check(!f.nodes['external-paused'].checked, 'attestation not preselected');
     equal(f.nodes['current-time'].textContent, 'الوقت في القاهرة: 2026-10-14 21:00', 'server Cairo time shown');
+    equal(f.nodes.save.textContent, 'حفظ الإعدادات', 'save label belongs to the async control');
+
+    // The real legacy footer must neither leave a spinner nor cause another async mutation.
+    // Exercise both listener orders, including the footer writing before this form handles submit.
+    for (const order of ['before', 'after']) {
+        let legacy = fixture(state(), {legacySubmit:order}); await settle();
+        let finishSave;
+        legacy.queue.push(() => new Promise(resolve => { finishSave = resolve; }));
+        const submitted = legacy.nodes.form.fire('submit');
+        check(submitted.prevented && submitted.immediateStopped, 'async form owns submit propagation: ' + order);
+        equal(legacy.nodes.save.textContent, 'جارٍ حفظ الإعدادات…', 'pending save has its own label: ' + order);
+        check(legacy.nodes.save.disabled, 'pending save is disabled: ' + order);
+        legacy.nodes.form.fire('submit'); await settle();
+        equal(legacy.calls.filter(call => call.options.method === 'POST').length, 1, 'double submit posts once: ' + order);
+        finishSave(response(state({revision:1}))); await settle();
+        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'successful save restores label: ' + order);
+        check(!legacy.nodes.save.disabled && legacy.nodes.message.textContent.includes('تم حفظ'), 'save completion is visible and usable: ' + order);
+        equal(legacy.legacySubmitCalls, order === 'before' ? 2 : 0, 'later generic callback is stopped while earlier callback is safely overwritten: ' + order);
+
+        for (const failure of ['network', 'http', 'handoff', 'conflict']) {
+            legacy = fixture(state(), {legacySubmit:order}); await settle();
+            if (failure === 'network') legacy.queue.push(new Error('offline'));
+            if (failure === 'http') legacy.queue.push(response({}, 500));
+            if (failure === 'handoff') legacy.queue.push(response({reason:'HANDOFF_REQUIRED'}, 422));
+            if (failure === 'conflict') legacy.queue.push(response({reason:'STALE_REVISION'}, 409), response(state({revision:3})));
+            legacy.nodes.form.fire('submit'); await settle();
+            equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', failure + ' restores label: ' + order);
+            equal(legacy.calls.filter(call => call.options.method === 'POST').length, 1, failure + ' never retries a mutation: ' + order);
+            equal(legacy.calls.length, failure === 'conflict' ? 3 : 2, failure + ' only conflict reloads one read: ' + order);
+            check(legacy.nodes.save.disabled === (failure === 'network' || failure === 'http'), failure + ' retains correct edit permissions: ' + order);
+            if (failure === 'handoff') check(legacy.nodes.message.textContent.includes('أوقف ردود مساعد ميتا'), '422 keeps handoff instructions: ' + order);
+            if (failure === 'conflict') check(legacy.nodes.message.textContent.includes('جلسة أخرى'), '409 keeps conflict instructions: ' + order);
+        }
+
+        const enabledPolicy = policy(); enabledPolicy.enabled = true;
+        legacy = fixture(state({policy:enabledPolicy, status:'ACTIVE', effective:true}), {legacySubmit:order}); await settle();
+        legacy.channels.forEach(input => { input.checked = false; });
+        legacy.nodes.form.fire('submit'); await settle();
+        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'synchronous validation restores label: ' + order);
+        equal(legacy.calls.length, 1, 'invalid policy never posts: ' + order);
+        check(!legacy.nodes.save.disabled && legacy.nodes.message.textContent.includes('راجع'), 'invalid policy remains editable with explanation: ' + order);
+
+        legacy = fixture(state({can_manage:false}), {legacySubmit:order}); await settle();
+        legacy.nodes.form.fire('submit'); await settle();
+        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'read-only synthetic submit restores label: ' + order);
+        check(legacy.nodes.save.disabled, 'read-only submit remains disabled: ' + order);
+        equal(legacy.calls.length, 1, 'read-only submit never posts: ' + order);
+    }
 
     // Enabling uses exactly the channels/hours shown beside the owner's current attestation.
     f.channels[1].checked = false; f.channels[2].checked = false;
@@ -247,11 +315,15 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
 
     f = fixture(state(), {config:{lang:'en'}}); await settle();
     equal(f.nodes.toggle.textContent, 'Enable AI replies and analysis', 'English label supported');
+    equal(f.nodes.save.textContent, 'Save settings', 'English save label supported');
     f.window.DashboardMetaAiControls.destroy(); f.queue.push(response(state({revision:Number.MAX_SAFE_INTEGER})));
     f.window.DashboardMetaAiControls.mount(); await settle();
     check(!f.nodes.toggle.disabled, 'maximum safe revision accepted');
     f.queue.push(response(state({revision:Number.MAX_SAFE_INTEGER})));
-    f.nodes.toggle.fire('click'); await settle();
+    f.nodes.toggle.fire('click');
+    equal(f.nodes.save.textContent, 'Saving settings…', 'English pending save label supported');
+    await settle();
+    equal(f.nodes.save.textContent, 'Save settings', 'English completed save label restored');
     equal(sent(f).expected_revision, Number.MAX_SAFE_INTEGER, 'revision integer preserved exactly');
 
     // Idle status changes at the next schedule boundary without a manual refresh.

@@ -41,7 +41,7 @@ SOURCE_PINS = {
     'app/Console/Commands/ProcessMetaAiMessages.php': (None, 'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f'),
     'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': (None, '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae'),
     'resources/views/admin/meta/ai_controls.blade.php': (None, '9a560c33fd4d3f1a87390a56a72a372396db72fe'),
-    'public/js/dashboard-meta-ai-controls.js': (None, 'fc34fca42cf8dd80f7916bacc1780444a51afab4'),
+    'public/js/dashboard-meta-ai-controls.js': (None, '00589d95df07646aaa8db71309e098bccd36bd2e'),
     'public/css/dashboard-meta-ai-controls.css': (None, '293c1db7c3a4c3dc2720fd9216c450ac172c37e8'),
     'routes/meta_ai_controls.php': (None, '8a89374a33002b88f7ed593d6aab5817aa3cf2a4'),
     'resources/views/admin/meta/channels.blade.php': ('6c15d00e98405f2fa13cb4583b51bee175caeccf', 'c922fd431ca3df5b12f6aeef05c0885bc0da3049'),
@@ -62,6 +62,36 @@ for baseline in ('WHATSAPP_TAIL','WHATSAPP_CONTEXTUAL'):
 SOURCE_PROFILE_PROTECTED = {
     'WHATSAPP_TAIL':'META_UNIFIED_MESSAGES', 'WHATSAPP_CONTEXTUAL':'META_UNIFIED_MESSAGES',
     'WHATSAPP_TAIL_HUB':'META_MESSAGE_HUB', 'WHATSAPP_CONTEXTUAL_HUB':'META_MESSAGE_HUB',
+}
+# Exact complete runtime of the installed AI-control release. Its only upgrade
+# target is the control JavaScript; never adopt arbitrary mixtures of old/new AI.
+PREVIOUS_CONTROL_SOURCE_PROFILES = {
+    'META_AI_CONTROL_V1': {
+        'app/Support/MetaAiSchedule.php': '739244b40c1115105a72c42534eba37d696bf4fe',
+        'app/Services/Dashboard/MetaBusinessAgent.php': '4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
+        'app/Services/Dashboard/MetaAiControl.php': '66df1b61f9d47050a0d3ce870b560589f4e01824',
+        'app/Support/WhatsAppOrderDialogue.php': '33253285d24ba7110f58744cad9c3a87e1bef06a',
+        'app/Support/WhatsAppOrderExtraction.php': '1b518728c5f63db4ba1ef84149fb0aafec02a98a',
+        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php': 'bfe69bb72cc586c68823463fd3f1885915774d02',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php': 'b7b2797f1aad6747d1e4a34e546e4f6421c99a4c',
+        'app/Services/Dashboard/WhatsAppOrderFollowupService.php': 'be38be4938cf0fb6725baf38ebd4fcb69e6d692f',
+        'app/Services/Dashboard/MetaOrderNativeEvidence.php': 'f11710e1439867ba63571a690526496684120ef5',
+        'app/Services/Dashboard/MetaOrderFollowupService.php': 'd14a3c6e84624ee5b2d20997b7f11159b9101720',
+        'app/Services/Dashboard/MetaMediaService.php': 'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e',
+        'app/Services/Dashboard/MetaReplyService.php': 'c4226df516aa5f8b59999a8979f9f2ab43cf0e28',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'ee4263c6b7bd827d9bf481db237779c189782b40',
+        'app/Services/Dashboard/MetaOrderWorkflow.php': 'd6cbf86c96ad44a0e0a65c6894085500594ced8f',
+        'app/Services/Dashboard/MetaInboxConsumer.php': '3b7e9cb9abfabc85c0b78199d0bf9d2565424f42',
+        'app/Http/Controllers/Dashboard/MetaAiControlController.php': '3cb87c03aaabdd7b1bb01f047caf201649c8db6f',
+        'app/Console/Commands/ProcessMetaAiMessages.php': 'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f',
+        'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
+        'resources/views/admin/meta/ai_controls.blade.php': '9a560c33fd4d3f1a87390a56a72a372396db72fe',
+        'public/js/dashboard-meta-ai-controls.js': 'fc34fca42cf8dd80f7916bacc1780444a51afab4',
+        'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
+        'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
+        'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
+        'routes/meta_inbox.php': '2b5f992b8392be450a032d71d5a625a8aeed822e',
+    },
 }
 MIGRATION='database/migrations/2026_10_15_000001_create_meta_ai_controls.php'
 LOCK_NAMES = ('orders-install.lock', 'inbox-install.lock')
@@ -428,15 +458,24 @@ def protected_fingerprint(values):
     return hashlib.sha256(json.dumps(rows,separators=(',',':')).encode()).hexdigest()
 
 
+def source_foundation_matches(source_profile,protected_profile):
+    if source_profile=='CURRENT' or source_profile in PREVIOUS_CONTROL_SOURCE_PROFILES:
+        return protected_profile in PROTECTED_PROFILES
+    return (source_profile in SOURCE_PROFILE_PROTECTED and protected_profile in PROTECTED_PROFILE_FOUNDATIONS
+        and SOURCE_PROFILE_PROTECTED[source_profile]==PROTECTED_PROFILE_FOUNDATIONS[protected_profile])
+
+
 def verify_state(root,uid,expected_configuration,expected_sources,expected_protected,held_locks=None,expected_profile=None,expected_control=None):
+    profiles=dict(BASELINE_SOURCE_PROFILES,**PREVIOUS_CONTROL_SOURCE_PROFILES,
+        CURRENT={path:pair[1] for path,pair in SOURCE_PINS.items()})
     if (not isinstance(expected_sources,dict) or set(expected_sources)!=set(SOURCE_PINS)
-            or expected_sources not in list(BASELINE_SOURCE_PROFILES.values())+[{path:pair[1] for path,pair in SOURCE_PINS.items()}]
+            or expected_sources not in profiles.values()
             or not isinstance(expected_configuration,str) or not re.fullmatch('[a-f0-9]{64}',expected_configuration)
             or not isinstance(expected_protected,str) or not re.fullmatch('[a-f0-9]{64}',expected_protected)
             or expected_profile not in PROTECTED_PROFILES):
         raise SafeError('META_AI_CONTROL_STATE_SCOPE_INVALID')
-    matching=[name for name,values in BASELINE_SOURCE_PROFILES.items() if values==expected_sources]
-    if matching and not any(SOURCE_PROFILE_PROTECTED.get(name)==PROTECTED_PROFILE_FOUNDATIONS.get(expected_profile) for name in matching):
+    matching=[name for name,values in profiles.items() if values==expected_sources]
+    if not any(source_foundation_matches(name,expected_profile) for name in matching):
         raise SafeError('META_AI_CONTROL_STATE_PROFILE_PAIR_INVALID')
     base.validate_root(root,uid)
     with locks(root,uid,held_locks):
@@ -496,17 +535,18 @@ def apply(root, uid, release, check_only=False, runner=base.command, pins=None, 
         before={relative:guarded_snapshot(root/relative,uid,root,absent_ok=old is None)
                 for relative,(old,_) in pins.items()}
         observed={relative:None if value[0] is None else blob(value[0].content) for relative,value in before.items()}
-        profiles=dict(BASELINE_SOURCE_PROFILES,CURRENT={path:pair[1] for path,pair in pins.items()})
+        profiles=dict(BASELINE_SOURCE_PROFILES,**PREVIOUS_CONTROL_SOURCE_PROFILES,
+            CURRENT={path:pair[1] for path,pair in pins.items()})
         source_profile=next((name for name,values in profiles.items() if observed==values),None)
         if source_profile is None:raise SafeError('META_AI_CONTROL_LIVE_SOURCE_NEEDS_REVIEW')
-        if source_profile!='CURRENT' and SOURCE_PROFILE_PROTECTED.get(source_profile)!=PROTECTED_PROFILE_FOUNDATIONS.get(profile_name):
+        if not source_foundation_matches(source_profile,profile_name):
             raise SafeError('META_AI_CONTROL_SOURCE_FOUNDATION_PAIR_NEEDS_REVIEW')
         sources=release_sources(root,uid,release,runner,pins)
         initial=readiness(root,runner,observed)
         controls=control_state(root,runner)
         if expected_control!='UNSPECIFIED' and controls['fingerprint']!=expected_control:
             raise SafeError('META_AI_CONTROL_POLICY_CHANGED_SINCE_PREFLIGHT')
-        if source_profile!='CURRENT' and controls['enabled']:
+        if source_profile!='CURRENT' and source_profile not in PREVIOUS_CONTROL_SOURCE_PROFILES and controls['enabled']:
             raise SafeError('META_AI_CONTROL_ENABLED_WITH_LEGACY_RUNTIME_NEEDS_REVIEW')
         unchanged()
         parent=root.parent/'whatsapp-release-backups'

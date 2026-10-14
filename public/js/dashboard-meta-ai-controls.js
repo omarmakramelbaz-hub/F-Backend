@@ -7,6 +7,7 @@
     var channels = ['whatsapp', 'messenger', 'instagram'];
     var words = {
         ar: {enable:'تشغيل ردود وتحليل AI', disable:'إيقاف ردود وتحليل AI', loading:'جارٍ تحميل حالة AI',
+            save:'حفظ الإعدادات', saving:'جارٍ حفظ الإعدادات…',
             DISABLED:'AI متوقف', ACTIVE:'AI مفعّل حسب الجدول', SCHEDULED_OFF:'AI خارج مواعيد التشغيل', unavailable:'إعدادات AI غير متاحة حاليًا',
             failed:'تعذّر تحميل إعدادات AI. حدّث الحالة للمحاولة مرة أخرى.', save_failed:'تعذّر تأكيد الحفظ. حدّث الحالة قبل أي محاولة جديدة.',
             saved:'تم حفظ الإعدادات.', conflict:'تغيّرت الإعدادات من جلسة أخرى. حمّلنا أحدث نسخة؛ راجعها قبل الحفظ مجددًا.',
@@ -19,6 +20,7 @@
             ACTIVATION_REQUIRED:'القناة تحتاج إلى تفعيل', EXTERNAL_AGENT_PAUSE_REQUIRED:'يلزم إيقاف المساعد الخارجي', STATE_CHANGED:'حالة القناة تغيّرت؛ حدّث الحالة', UNAVAILABLE:'الجاهزية غير متاحة',
             OWNER_ATTESTED:'إيقاف المساعد الخارجي مؤكّد بإقرار المالك.', VERIFIED_WHATSAPP_API:'إيقاف مساعد واتساب مؤكّد عبر الاتصال بميتا.'},
         en: {enable:'Enable AI replies and analysis', disable:'Disable AI replies and analysis', loading:'Loading AI status',
+            save:'Save settings', saving:'Saving settings…',
             DISABLED:'AI is off', ACTIVE:'AI is enabled for these hours', SCHEDULED_OFF:'AI is outside operating hours', unavailable:'AI settings are currently unavailable',
             failed:'AI settings could not be loaded. Refresh the status to try again.', save_failed:'The save could not be confirmed. Refresh the status before another attempt.',
             saved:'Settings saved.', conflict:'Settings changed in another session. The latest version has been loaded; review it before saving again.',
@@ -111,7 +113,7 @@
         var dayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-day]'));
         if (!toggle || !save || !refresh || !form || !status || !message || !settings || !currentTime || !channelStatus || !handoffState
             || !scheduleEnabled || !allDay || !externalPaused || !start || !end || channelInputs.length !== 3 || dayInputs.length !== 7) return;
-        var run = {panel:panel, dead:false, busy:false, dirty:false, saved:null, listeners:[], timer:null};
+        var run = {panel:panel, dead:false, busy:false, saving:false, dirty:false, saved:null, listeners:[], timer:null};
         active = run;
 
         function alive() { return !run.dead && active === run && document.getElementById('meta-ai-controls') === panel; }
@@ -119,6 +121,7 @@
         function controls() {
             var editable = !run.busy && run.saved && run.saved.can_manage;
             toggle.disabled = !editable; save.disabled = !editable;
+            save.textContent = labels[run.saving ? 'saving' : 'save'];
             refresh.disabled = run.busy;
             channelInputs.forEach(function (input) { input.disabled = !editable; });
             scheduleEnabled.disabled = !editable;
@@ -207,7 +210,7 @@
             if (run.busy || !run.saved || !run.saved.can_manage || !alive()) return;
             if (!validPolicy(policy)) { showMessage(labels.invalid); return; }
             var revision = run.saved.revision;
-            run.busy = true; showMessage(''); controls();
+            run.busy = true; run.saving = true; showMessage(''); controls();
             try {
                 var value = await request(updateUrl, {policy:policy, expected_revision:revision, external_agent_paused:externalPaused.checked === true});
                 if (value === null) unavailable(labels.unavailable);
@@ -216,12 +219,12 @@
                 if (!alive()) return;
                 if (error.status === 409) {
                     // Reload once to review the newer policy. Never retry the mutation.
-                    run.busy = false;
+                    run.busy = false; run.saving = false;
                     await load(labels.conflict);
                 } else if (error.status === 422 && error.handoff) {
                     settings.open = true; showMessage(labels[run.saved.policy.enabled ? 'handoff_save' : 'handoff_enable']);
                 } else { unavailable(labels.save_failed); }
-            } finally { if (alive()) { run.busy = false; controls(); } }
+            } finally { if (alive()) { run.busy = false; run.saving = false; controls(); } }
         }
         function bind(element, event, listener) { element.addEventListener(event, listener); run.listeners.push([element,event,listener]); }
         function dirty() { if (run.saved && run.saved.can_manage && !run.busy) run.dirty = true; }
@@ -244,6 +247,9 @@
         });
         bind(form, 'submit', function (event) {
             event.preventDefault();
+            // This form owns its async state; the legacy page-wide submit spinner cannot track it.
+            event.stopImmediatePropagation();
+            controls();
             if (!run.saved || !run.saved.can_manage || run.busy) return;
             update(collectPolicy(run.saved.policy.enabled));
         });

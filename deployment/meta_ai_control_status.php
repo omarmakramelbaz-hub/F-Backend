@@ -73,7 +73,7 @@ try{
         'app/Console/Commands/ProcessMetaAiMessages.php'=>'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f',
         'database/migrations/2026_10_15_000001_create_meta_ai_controls.php'=>'3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
         'resources/views/admin/meta/ai_controls.blade.php'=>'9a560c33fd4d3f1a87390a56a72a372396db72fe',
-        'public/js/dashboard-meta-ai-controls.js'=>'fc34fca42cf8dd80f7916bacc1780444a51afab4',
+        'public/js/dashboard-meta-ai-controls.js'=>'00589d95df07646aaa8db71309e098bccd36bd2e',
         'public/css/dashboard-meta-ai-controls.css'=>'293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
         'routes/meta_ai_controls.php'=>'8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php'=>'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
