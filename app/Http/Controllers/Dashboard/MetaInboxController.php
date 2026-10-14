@@ -28,6 +28,7 @@ class MetaInboxController extends Controller
                 'available' => $available,
                 'conversations_url' => route('meta-inbox.conversations'),
                 'messages_base_url' => url('/admin/meta/conversations'),
+                'initial_channel' => in_array(request()->query('channel'), ['messenger', 'instagram'], true) ? request()->query('channel') : '',
                 'connection_url' => $access->canConnect($actor) ? route('meta-connection.index') : null,
                 'labels' => $this->labels(),
             ]])->withHeaders($this->privateHeaders());
@@ -158,6 +159,25 @@ class MetaInboxController extends Controller
                 'next_before_id' => !$newer && $more && $rows->first() ? (int) $rows->first()->id : null,
                 'last_id' => $rows->last() ? (int) $rows->last()->id : ($newer ? (int) $input['after_id'] : 0)];
         });
+    }
+
+    public function profile(Request $request, string $conversation, MetaInboxAccess $access)
+    {
+        try {
+            $access->actor(auth('admin')->user());
+            abort_unless($access->available(), 503);
+            abort_unless($request->except('_token') === [], 422);
+            $id = filter_var($conversation, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            abort_unless(is_int($id) && $this->scopedConversations()->where('id', $id)->exists(), 404);
+            app(\App\Services\Dashboard\MetaProfileService::class)->refresh(1, $id);
+            $access->actor(auth('admin')->user());
+            $row = $this->scopedConversations()->where('id', $id)->first(['customer']);
+            abort_unless($row, 404);
+            $customer = $this->decrypt($row->customer);
+            return response()->json(['success' => true, 'conversation_id' => $id,
+                'name' => $this->safeText($customer['name'] ?? null, 100)])->withHeaders($this->privateHeaders());
+        } catch (HttpException $error) { return $this->failure($error->getStatusCode()); }
+        catch (\Throwable $error) { return $this->failure(503); }
     }
 
     private function read(MetaInboxAccess $access, callable $callback)
