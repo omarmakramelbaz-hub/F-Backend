@@ -46,7 +46,7 @@
         var threadMap = new Map(), messageMap = new Map(), apiReplyMap = new Map(), controllers = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
         var channel = '', selectedChannel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
-        var pollDelay = Math.max(1500, Math.min(5000, Number(config.poll_interval_ms) || 2000));
+        var pollDelay = Math.max(500, Math.min(5000, Number(config.poll_interval_ms) || 1000));
         var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = pollDelay, denied = false;
         var threadLoading = false, messageLoading = false, messageStarted = false, projectionWarning = false;
         var hasPagedThreads = false, threadTotal = 0;
@@ -801,6 +801,13 @@
             apiRecentKeys = next;
             renderMessages(false, bottom);
         }
+        function acceptedReplyWake(event) {
+            var detail = event && event.detail;
+            if (closed || denied || document.hidden || navigator.onLine === false || !config.available || !chosen || !detail
+                || selectedChannel !== 'whatsapp' || detail.channel !== selectedChannel || detail.namespace !== namespace
+                || detail.conversation !== chosen || detail.generation !== generation) return;
+            wake();
+        }
         function visibleIds() {
             var result = {messages: [], replies: []}, bounds = typeof scroll.getBoundingClientRect === 'function' ? scroll.getBoundingClientRect() : null;
             if (bounds) { bounds = {top: Math.max(0, bounds.top), bottom: Math.min(Number(window.innerHeight) || bounds.bottom, bounds.bottom)}; if (bounds.bottom <= bounds.top) return result; }
@@ -1096,6 +1103,7 @@
         }
         document.addEventListener('visibilitychange', visibility);
         document.addEventListener('whatsapp:accepted-replies', acceptedReplies);
+        document.addEventListener('whatsapp:reply-accepted', acceptedReplyWake);
         document.addEventListener('whatsapp:private-reset', resetAcceptedReplies);
         window.addEventListener('offline', online); window.addEventListener('online', online);
         window.addEventListener('focus', wake);
@@ -1113,6 +1121,7 @@
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
             panel.removeEventListener('click', click); document.removeEventListener('visibilitychange', visibility);
             document.removeEventListener('whatsapp:accepted-replies', acceptedReplies);
+            document.removeEventListener('whatsapp:reply-accepted', acceptedReplyWake);
             document.removeEventListener('whatsapp:private-reset', resetAcceptedReplies);
             scroll.removeEventListener('scroll', readScroll);
             threadScroll.removeEventListener('scroll', listScroll);
