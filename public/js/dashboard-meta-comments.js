@@ -1,0 +1,337 @@
+(function () {
+    'use strict';
+    if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
+    if (window.DashboardMetaComments) { window.DashboardMetaComments.mount(); return; }
+
+    var active = null, draftStores = new Map(), sendStores = new Map();
+    function mount() {
+        if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
+        var host = document.getElementById('meta-comments'), bootstrap = document.getElementById('meta-comments-bootstrap');
+        if (!host || !bootstrap || active && active.host === host) return;
+        destroy();
+        var config; try { config = JSON.parse(bootstrap.textContent); } catch (_) { return; }
+        var labels = config.labels || {}, urls = config.urls || {}, origin = new URL(window.location.href).origin;
+        var fields = {};
+        ['account','alert','posts','post-count','post-status','more-posts','comments','comment-status','more-comments','post-title',
+            'post-link','scroll','form','reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count'].forEach(function (name) {
+            fields[name] = host.querySelector('[data-mc-' + name + ']');
+        });
+        if (Object.keys(fields).some(function (name) { return !fields[name]; })) return;
+        var accounts = [], channel = '', account = null, posts = new Map(), comments = new Map(), replyPages = new Map();
+        var post = null, selectedKey = '', postCursor = null, commentCursor = null, epoch = 0, postEpoch = 0;
+        var closed = false, denied = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
+        var viewer = '', drafts = new Map(), sends = new Map();
+        function node(tag, cls, value) { var el = document.createElement(tag); if (cls) el.className = cls; if (value !== undefined) el.textContent = String(value); return el; }
+        function label(name) { return labels[name] || name; }
+        function text(value, limit) { return typeof value === 'string' ? value.slice(0, limit || 20000) : ''; }
+        function author(row) { return text(typeof row.author === 'string' ? row.author : row.author && (row.author.name || row.author.username), 160) || label('anonymous'); }
+        function identity(row) { return row && typeof row.key === 'string' && /^[a-f0-9]{64}$/i.test(row.key) ? row.key : ''; }
+        function rows(value) { return Array.isArray(value) ? value.slice(0,100).filter(function(row) { return identity(row) && typeof row.handle === 'string' && row.handle.length < 8192; }) : []; }
+        function cursor(value) { return typeof value === 'string' && value.length < 8192 && value ? value : null; }
+        function date(value) { var time = new Date(value); return value && !isNaN(time.getTime()) ? time.toLocaleString(config.locale || 'ar', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : ''; }
+        function sourceUrl(value) {
+            try { var url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443')
+                && ['facebook.com','instagram.com'].some(function(domain) { return url.hostname === domain || url.hostname.endsWith('.' + domain); }) ? url.href : null; }
+            catch (_) { return null; }
+        }
+        function endpoint(name, params) {
+            var url = new URL(urls[name] || '/admin/meta/comments/' + name, window.location.href);
+            if (url.origin !== origin || !/^\/admin\/meta\/comments\//.test(url.pathname) || url.username || url.password) throw new Error(label('unavailable'));
+            Object.keys(params || {}).forEach(function(key) { if (params[key] !== null && params[key] !== undefined && params[key] !== '') url.searchParams.set(key, String(params[key])); });
+            return url.href;
+        }
+        function bindViewer(value) {
+            viewer = /^[a-f0-9]{64}$/i.test(String(value || '')) ? String(value) : '';
+            if (!viewer) return;
+            if (!draftStores.has(viewer)) draftStores.set(viewer,new Map());
+            if (!sendStores.has(viewer)) {
+                var recovered = new Map();
+                try { var saved = JSON.parse(window.sessionStorage.getItem('meta-comments-pending:' + viewer) || '[]');
+                    if (Array.isArray(saved)) saved.slice(0,100).forEach(function(item) {
+                        if (Array.isArray(item) && /^[a-f0-9]{64}$/i.test(item[0]) && item[1] && ['SENDING','UNKNOWN'].indexOf(item[1].state) !== -1)
+                            recovered.set(item[0],{state:'UNKNOWN',message:text(item[1].message,1000),request_id:text(item[1].request_id,64)});
+                    });
+                } catch (_) {}
+                sendStores.set(viewer,recovered);
+            }
+            drafts = draftStores.get(viewer); sends = sendStores.get(viewer);
+        }
+        function persistSends() {
+            if (!viewer) return;
+            try { window.sessionStorage.setItem('meta-comments-pending:' + viewer,JSON.stringify(Array.from(sends.entries()).filter(function(entry) {
+                return ['SENDING','UNKNOWN'].indexOf(entry[1].state) !== -1;
+            }).slice(-100))); } catch (_) {}
+        }
+        function alert(message) { fields.alert.textContent = message || ''; fields.alert.hidden = !message; }
+        function errorMessage(error) {
+            var payload = error && error.payload || {}, message = text(payload.message,800) || (error && error.status === 403 ? label('denied') : label('unavailable'));
+            var permissions = Array.isArray(payload.required_permissions) ? payload.required_permissions.filter(function(p) { return typeof p === 'string' && /^[a-z_]+$/.test(p); }).slice(0,8) : [];
+            return message + (permissions.length ? ' · ' + label('permissions') + ': ' + permissions.join(', ') : '');
+        }
+        function abortRead(key,controller) { controller.abort(); controllers.delete(key); busy.delete(key); }
+        function abortReads() { controllers.forEach(function(controller,key) { if (key !== 'reply') abortRead(key,controller); }); }
+        function accessLost(error) { return error && (error.status === 401 || ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf((error.payload || {}).reason) !== -1); }
+        async function request(key,name,params,payload) {
+            if (controllers.has(key)) controllers.get(key).abort();
+            var controller = new AbortController(), timeout;
+            controllers.set(key,controller); busy.add(key);
+            try {
+                timeout = setTimeout(function() { controller.abort(); }, payload ? 30000 : 20000); timeoutIds.add(timeout);
+                var options = {method:payload ? 'POST' : 'GET',credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal,
+                    headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}};
+                if (payload) { options.headers['Content-Type'] = 'application/json'; options.headers['X-CSRF-TOKEN'] = config.csrf || ''; options.body = JSON.stringify(payload); }
+                var response = await fetch(endpoint(name,params),options), data;
+                if (response.redirected) throw new Error(label('unavailable'));
+                var contentType = response.headers && response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) throw new Error(label('unavailable'));
+                try { data = await response.json(); } catch (_) { throw new Error(label('unavailable')); }
+                if (!data || typeof data !== 'object') throw new Error(label('unavailable'));
+                if (payload && ['ACCEPTED','UNKNOWN','FAILED'].indexOf(data.state) !== -1) return data;
+                if (!response.ok || data.success !== true) {
+                    var failure = new Error(errorMessage({status:response.status,payload:data})); failure.payload = data; failure.status = response.status; throw failure;
+                }
+                return data;
+            } finally {
+                clearTimeout(timeout); timeoutIds.delete(timeout);
+                if (controllers.get(key) === controller) { controllers.delete(key); busy.delete(key); }
+            }
+        }
+        function renderChannels() { host.querySelectorAll('[data-mc-channel]').forEach(function(button) { button.setAttribute('aria-pressed',button.dataset.mcChannel === channel ? 'true' : 'false'); }); }
+        function renderAccounts() {
+            fields.account.textContent = '';
+            var visible = accounts.filter(function(row) { return !channel || row.channel === channel; });
+            visible.forEach(function(row) { var option = node('option','',row.label); option.value = row.account_key; fields.account.appendChild(option); });
+            if (!visible.length) { var empty = node('option','',label('select_account')); empty.value = ''; fields.account.appendChild(empty); }
+            fields.account.disabled = !visible.length || denied;
+            var retained = visible.find(function(row) { return account && row.account_key === account.account_key; });
+            fields.account.value = retained ? retained.account_key : visible.length ? visible[0].account_key : '';
+            chooseAccount(fields.account.value);
+        }
+        function renderPosts() {
+            fields.posts.textContent = '';
+            posts.forEach(function(row,key) {
+                var item = node('li'), button = node('button','mc-post-button'); button.type = 'button'; button.dataset.mcPost = key;
+                button.setAttribute('aria-pressed',post && identity(post) === key ? 'true' : 'false');
+                var meta = node('span','mc-post-meta'); meta.appendChild(node('span','mc-channel-badge ' + (account && account.channel || ''),label(account && account.channel || 'facebook')));
+                meta.appendChild(node('time','mc-date',date(row.created_at))); button.appendChild(meta);
+                button.appendChild(node('span','mc-post-caption',text(row.text) || label('no_caption')));
+                var foot = node('span','mc-post-foot');
+                var amount = Number(row.comments_count); if (Number.isFinite(amount) && amount >= 0) foot.appendChild(node('span','',String(amount) + ' ' + label('count')));
+                foot.appendChild(node('span','',label('comments') + ' ←')); button.appendChild(foot); item.appendChild(button); fields.posts.appendChild(item);
+            });
+            fields['post-count'].textContent = String(posts.size);
+            fields['more-posts'].hidden = !postCursor; fields['more-posts'].disabled = busy.has('posts');
+        }
+        function commentCard(row,key,nested) {
+            var item = node('li',nested ? 'mc-reply' : 'mc-comment' + (selectedKey === key ? ' is-selected' : ''));
+            var meta = node('div','mc-comment-meta'); meta.appendChild(node('span','mc-comment-author',author(row))); meta.appendChild(node('time','mc-date',date(row.created_at))); item.appendChild(meta);
+            var content = node('p','mc-comment-text',text(row.text)); content.setAttribute('dir','auto'); item.appendChild(content);
+            if (nested) return item;
+            var actions = node('div','mc-comment-actions');
+            var reply = node('button','mc-button',label('reply')); reply.type = 'button'; reply.dataset.mcReply = key; reply.disabled = row.can_reply === false || denied; actions.appendChild(reply);
+            var count = Number(row.replies_count) || 0, page = replyPages.get(key);
+            if (count > 0 || page || row.replies_count === null || row.replies_count === undefined) {
+                var toggle = node('button','mc-button mc-secondary',(page && page.open ? label('hide_replies') : label('show_replies')) + (count ? ' (' + count + ')' : ''));
+                toggle.type = 'button'; toggle.dataset.mcToggleReplies = key; toggle.setAttribute('aria-expanded',page && page.open ? 'true' : 'false'); actions.appendChild(toggle);
+            }
+            item.appendChild(actions);
+            if (page && page.open) {
+                var section = node('div','mc-replies'), list = node('ol','mc-reply-list');
+                if (page.status) { var status = node('p','mc-status mc-replies-status',page.status); status.setAttribute('role','status'); section.appendChild(status); }
+                page.rows.forEach(function(child,childKey) { list.appendChild(commentCard(child,childKey,true)); }); section.appendChild(list);
+                if (page.cursor) { var more = node('button','mc-button mc-secondary',label('more_replies')); more.type = 'button'; more.dataset.mcMoreReplies = key; more.disabled = busy.has('replies:' + key); section.appendChild(more); }
+                item.appendChild(section);
+            }
+            return item;
+        }
+        function renderComments() {
+            var priorScroll = fields.scroll.scrollTop; fields.comments.textContent = '';
+            comments.forEach(function(row,key) { fields.comments.appendChild(commentCard(row,key,false)); });
+            fields['more-comments'].hidden = !commentCursor; fields['more-comments'].disabled = busy.has('comments'); fields.scroll.scrollTop = priorScroll;
+        }
+        function saveDraft() { if (selectedKey) drafts.set(selectedKey,fields['reply-text'].value); }
+        function renderComposer() {
+            var selected = comments.get(selectedKey), state = sends.get(selectedKey), locked = state && ['SENDING','UNKNOWN'].indexOf(state.state) !== -1;
+            fields['reply-target'].textContent = selected ? label('reply_to') + ' ' + author(selected) : label('choose_comment');
+            fields['reply-preview'].hidden = !selected; fields['reply-preview'].textContent = selected ? text(selected.text,300) : '';
+            fields.public.textContent = account ? label('public') + ' ' + account.label : label('public_hint');
+            fields['reply-text'].disabled = !selected || selected.can_reply === false || locked || denied || closed;
+            fields.send.disabled = fields['reply-text'].disabled || busy.has('reply') || !viewer || !fields['reply-text'].value.trim() || navigator.onLine === false;
+            fields['send-label'].textContent = state && state.state === 'SENDING' ? label('sending') : label('send');
+            fields['letter-count'].textContent = Array.from(fields['reply-text'].value).length + ' / 1000';
+            fields['send-status'].textContent = state ? state.state === 'SENDING' ? label('sending') : state.state === 'UNKNOWN' ? label('unknown') : state.state === 'ACCEPTED' ? label('accepted') : state.error || label('failed')
+                : selected && selected.can_reply === false ? label('no_reply') : navigator.onLine === false ? label('offline') : '';
+        }
+        function resetPost() {
+            saveDraft(); postEpoch++; post = null; selectedKey = ''; commentCursor = null; comments.clear(); replyPages.clear();
+            controllers.forEach(function(controller,key) { if (key === 'comments' || key.indexOf('replies:') === 0) abortRead(key,controller); });
+            fields['reply-text'].value = ''; fields['post-title'].textContent = label('choose_post'); fields['post-link'].hidden = true;
+            fields['post-link'].removeAttribute('href'); fields['comment-status'].textContent = label('choose_post'); fields['comment-status'].hidden = false;
+            host.classList.remove('has-post'); renderComments(); renderComposer();
+        }
+        function chooseAccount(key) {
+            var next = accounts.find(function(row) { return row.account_key === key; }) || null;
+            if (account && next && account.account_key === next.account_key) return;
+            epoch++; abortReads(); resetPost(); account = next; posts.clear(); postCursor = null; renderPosts();
+            fields['post-status'].hidden = false; fields['post-status'].textContent = next ? label('loading') : label('empty_accounts');
+            if (next) loadPosts(false);
+        }
+        async function loadAccounts() {
+            var currentEpoch = ++epoch; alert(''); fields.account.disabled = true;
+            try {
+                var data = await request('accounts','accounts'); if (closed || currentEpoch !== epoch) return;
+                bindViewer(data.viewer_key || config.viewer_key);
+                accounts = Array.isArray(data.accounts) ? data.accounts.slice(0,100).filter(function(row) {
+                    return row && /^[a-f0-9]{64}$/i.test(String(row.account_key || '')) && ['facebook','instagram'].indexOf(row.channel) !== -1;
+                }).map(function(row) { return {account_key:row.account_key,channel:row.channel,label:text(row.label,160) || label(row.channel)}; }) : [];
+                renderAccounts();
+            } catch (error) {
+                if (closed || currentEpoch !== epoch || error.name === 'AbortError') return;
+                alert(errorMessage(error)); fields['post-status'].textContent = errorMessage(error); if (accessLost(error)) deny();
+            }
+        }
+        async function loadPosts(more) {
+            if (!account || closed || denied || busy.has('posts')) return;
+            var currentEpoch = epoch, chosen = account.account_key;
+            fields['post-status'].hidden = posts.size > 0; fields['post-status'].textContent = label('loading'); fields['more-posts'].disabled = true;
+            try {
+                var data = await request('posts','posts',{account_key:chosen,cursor:more ? postCursor : null}); if (closed || currentEpoch !== epoch) return;
+                var incoming = rows(data.posts), updated = more ? posts : new Map(); incoming.forEach(function(row) { updated.set(identity(row),row); });
+                posts = updated; postCursor = cursor(data.next_cursor);
+                if (post && posts.has(identity(post))) post = posts.get(identity(post));
+                fields['post-status'].hidden = posts.size > 0; fields['post-status'].textContent = label('empty_posts'); renderPosts(); alert('');
+            } catch (error) {
+                if (closed || currentEpoch !== epoch || error.name === 'AbortError') return;
+                fields['post-status'].hidden = false; fields['post-status'].textContent = errorMessage(error); if (accessLost(error)) deny();
+            } finally { if (!closed && currentEpoch === epoch) fields['more-posts'].disabled = false; }
+        }
+        function choosePost(key) {
+            var next = posts.get(key); if (!next) return;
+            if (post && identity(post) === key) { host.classList.add('has-post'); return; }
+            resetPost(); post = next; host.classList.add('has-post'); fields['post-title'].textContent = text(post.text,240) || label('no_caption');
+            var link = sourceUrl(post.permalink); fields['post-link'].hidden = !link; if (link) fields['post-link'].href = link;
+            fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,false);
+        }
+        async function loadComments(more,quiet) {
+            if (!post || closed || denied || busy.has('comments')) return;
+            var currentEpoch = postEpoch, handle = post.handle;
+            if (!quiet) { fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); }
+            fields['more-comments'].disabled = true;
+            try {
+                var data = await request('comments','comments',{post_handle:handle,cursor:more ? commentCursor : null}); if (closed || currentEpoch !== postEpoch) return;
+                var incoming = rows(data.comments), updated = more || quiet ? new Map(comments) : new Map();
+                incoming.forEach(function(row) { updated.set(identity(row),row); }); comments = updated; commentCursor = more || !quiet ? cursor(data.next_cursor) : commentCursor || cursor(data.next_cursor);
+                fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('empty_comments'); renderComments(); renderComposer();
+                if (quiet) {
+                    var expanded = 0;
+                    replyPages.forEach(function(page,key) { if (page.open && comments.has(key) && expanded++ < 5) loadReplies(key,false,true); });
+                }
+                if (!quiet) alert('');
+            } catch (error) {
+                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                if (quiet) alert(errorMessage(error)); else { fields['comment-status'].hidden = false; fields['comment-status'].textContent = errorMessage(error); }
+                if (accessLost(error)) deny();
+            } finally { if (!closed && currentEpoch === postEpoch) fields['more-comments'].disabled = false; }
+        }
+        async function loadReplies(key,more,quiet) {
+            var row = comments.get(key), page = replyPages.get(key), requestKey = 'replies:' + key;
+            if (!row || !page || closed || denied || busy.has(requestKey)) return;
+            var currentEpoch = postEpoch; if (!quiet) { page.status = label('loading'); renderComments(); }
+            try {
+                var data = await request(requestKey,'replies',{comment_handle:row.handle,cursor:more ? page.cursor : null}); if (closed || currentEpoch !== postEpoch) return;
+                if (!more && !quiet) page.rows.clear(); rows(data.replies).forEach(function(child) { page.rows.set(identity(child),child); });
+                page.cursor = more || !quiet ? cursor(data.next_cursor) : page.cursor || cursor(data.next_cursor); page.status = ''; renderComments();
+            } catch (error) {
+                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                page.status = errorMessage(error); renderComments(); if (accessLost(error)) deny();
+            }
+        }
+        function chooseComment(key) {
+            if (!comments.has(key)) return; saveDraft(); selectedKey = key;
+            var state = sends.get(key); fields['reply-text'].value = drafts.get(key) || (state && state.state === 'UNKNOWN' ? state.message : '') || '';
+            renderComments(); renderComposer(); if (!fields['reply-text'].disabled) fields['reply-text'].focus();
+        }
+        function uuid() {
+            if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+            if (!window.crypto || !window.crypto.getRandomValues) throw new Error(label('failed'));
+            var bytes = new Uint8Array(16); window.crypto.getRandomValues(bytes); bytes[6] = bytes[6] & 15 | 64; bytes[8] = bytes[8] & 63 | 128;
+            var hex = Array.from(bytes).map(function(value) { return value.toString(16).padStart(2,'0'); }).join('');
+            return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20);
+        }
+        async function sendReply(event) {
+            event.preventDefault();
+            var key = selectedKey, row = comments.get(key), message = fields['reply-text'].value.trim(), previous = sends.get(key);
+            if (!key || !row || !viewer || row.can_reply === false || closed || denied || busy.has('reply') || !message || Array.from(message).length > 1000
+                || previous && ['SENDING','UNKNOWN'].indexOf(previous.state) !== -1) return;
+            if (navigator.onLine === false) { renderComposer(); return; }
+            saveDraft(); var requestId; try { requestId = uuid(); } catch (error) { sends.set(key,{state:'FAILED',error:label('failed')}); renderComposer(); return; }
+            sends.set(key,{state:'SENDING',request_id:requestId,message:message}); persistSends(); renderComposer();
+            try {
+                var data = await request('reply','reply',null,{comment_handle:row.handle,message:message,client_request_id:requestId});
+                var state = data.state === 'ACCEPTED' && data.success === true ? 'ACCEPTED' : data.state === 'FAILED' ? 'FAILED' : 'UNKNOWN';
+                sends.set(key,{state:state,request_id:requestId,message:message,error:state === 'FAILED' ? errorMessage({payload:Object.assign({message:label('failed')},data)}) : ''}); persistSends();
+                if (!closed && ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf(data.reason) !== -1) { alert(errorMessage({payload:data})); deny(); return; }
+                if (state === 'ACCEPTED') {
+                    drafts.delete(key);
+                    if (data.reply && identity(data.reply)) { var page = replyPages.get(key) || {open:true,rows:new Map(),cursor:null,status:''}; page.open = true; page.rows.set(identity(data.reply),data.reply); replyPages.set(key,page); }
+                    if (!closed && selectedKey === key) fields['reply-text'].value = '';
+                }
+                if (!closed && selectedKey === key) { renderComments(); renderComposer(); }
+                if (!closed && state === 'ACCEPTED') loadComments(false,true);
+            } catch (error) {
+                // Only an explicit FAILED result proves that Meta did not accept a write.
+                // A timeout, navigation, or unexpected HTTP result can still have published it.
+                sends.set(key,{state:'UNKNOWN',request_id:requestId,message:message}); persistSends();
+                if (!closed && selectedKey === key) renderComposer();
+            }
+        }
+        function deny() {
+            denied = true; epoch++; postEpoch++; abortReads(); resetPost(); accounts = []; account = null; posts.clear();
+            fields.account.textContent = ''; fields.account.disabled = true; fields['post-status'].hidden = false; fields['post-status'].textContent = label('denied');
+            drafts.clear(); renderPosts(); renderComposer();
+        }
+        function refresh() {
+            if (closed || denied) return;
+            if (navigator.onLine === false) { alert(label('offline')); return; }
+            alert(''); if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true); }
+        }
+        function poll() {
+            clearTimeout(timer); if (closed) return;
+            timer = setTimeout(function() { if (!closed && !denied && !document.hidden && navigator.onLine !== false && post) loadComments(false,true); poll(); },30000);
+        }
+        function visibility() { if (!document.hidden && !closed && post && navigator.onLine !== false) loadComments(false,true); }
+        function connectivity() { renderComposer(); if (navigator.onLine === false) alert(label('offline')); else { alert(''); refresh(); } }
+        function click(event) {
+            var target = event.target.closest('[data-mc-channel]');
+            if (target && host.contains(target)) { channel = target.dataset.mcChannel || ''; renderChannels(); renderAccounts(); return; }
+            target = event.target.closest('[data-mc-post]'); if (target && host.contains(target)) { choosePost(target.dataset.mcPost); return; }
+            target = event.target.closest('[data-mc-reply]'); if (target && host.contains(target)) { chooseComment(target.dataset.mcReply); return; }
+            target = event.target.closest('[data-mc-toggle-replies]'); if (target && host.contains(target)) {
+                var key = target.dataset.mcToggleReplies, page = replyPages.get(key); if (!page) { page = {open:true,rows:new Map(),cursor:null,status:''}; replyPages.set(key,page); loadReplies(key,false); }
+                else { page.open = !page.open; if (page.open && !page.rows.size) loadReplies(key,false); } renderComments(); return;
+            }
+            target = event.target.closest('[data-mc-more-replies]'); if (target && host.contains(target)) { loadReplies(target.dataset.mcMoreReplies,true); return; }
+            if (event.target.closest('[data-mc-more-posts]')) loadPosts(true);
+            if (event.target.closest('[data-mc-more-comments]')) loadComments(true,false);
+            if (event.target.closest('[data-mc-refresh]')) refresh();
+            if (event.target.closest('[data-mc-back]')) { saveDraft(); host.classList.remove('has-post'); }
+        }
+        function input() { saveDraft(); renderComposer(); }
+        function change() { chooseAccount(fields.account.value); }
+        host.addEventListener('click',click); fields.account.addEventListener('change',change); fields.form.addEventListener('submit',sendReply);
+        fields['reply-text'].addEventListener('input',input); document.addEventListener('visibilitychange',visibility);
+        window.addEventListener('online',connectivity); window.addEventListener('offline',connectivity);
+        var session = {host:host,destroy:function() {
+            if (closed) return; saveDraft(); closed = true; epoch++; postEpoch++; clearTimeout(timer);
+            controllers.forEach(function(controller) { controller.abort(); }); controllers.clear(); timeoutIds.forEach(clearTimeout); timeoutIds.clear();
+            host.removeEventListener('click',click); fields.account.removeEventListener('change',change); fields.form.removeEventListener('submit',sendReply);
+            fields['reply-text'].removeEventListener('input',input); document.removeEventListener('visibilitychange',visibility);
+            window.removeEventListener('online',connectivity); window.removeEventListener('offline',connectivity);
+        }};
+        active = session; bindViewer(config.viewer_key); renderChannels(); renderComposer(); loadAccounts(); poll();
+        if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function() { if (active === session) destroy(); else session.destroy(); });
+    }
+    function destroy() { if (active) active.destroy(); active = null; }
+    window.DashboardMetaComments = {mount:mount,destroy:destroy,dispose:destroy};
+    document.addEventListener('dashboard:before-unload',destroy); document.addEventListener('dashboard:page-mounted',mount); mount();
+}());
