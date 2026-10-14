@@ -349,6 +349,9 @@ $plan = followupReset(); $service->request($actor, $plan, fn () => $plan);
 $newInbound = followupNative('inbound', 'عايز 1 كيلو فسيخ', '2026-10-13 10:09:00');
 $freshPlan = followupPlan($newInbound, ['PHONE']); $freshPlan['episode_customer_key'] = $plan['episode_customer_key'];
 $freshPlan['evidence_floor'] = $plan['evidence_floor'];
+$freshSnapshot=followupSnapshot(); $freshPlan['transcript']=$freshSnapshot['transcript'];
+$freshRequestId=array_search($freshPlan['latest_customer_key'],$freshSnapshot['keys'],true);
+$freshPlan['data']['evidence']['request_ids']=[$freshRequestId];
 followupExpect($service->request($secondActor, $freshPlan, fn () => $freshPlan)['status'], 'ACCEPTED', 'fresh customer response permits next missing-field question');
 followupExpect([count($graphCalls), count($aiCalls), DB::table('whatsapp_reply_requests')->count()], [2, 2, 2], 'next inbound has exactly one new question');
 
@@ -444,14 +447,19 @@ $withoutRecap = followupSnapshot(); unset($withoutRecap['keys']['m3']);
 followupExpect($service->approvalSatisfied(1, $approvalData, $withoutRecap), false, 'snapshot excluding owned recap cannot reuse its approval');
 $withoutCitation = $approvalData; $withoutCitation['evidence']['confirmation_ids'] = [];
 followupExpect($service->approvalSatisfied(1, $withoutCitation, followupSnapshot()), false, 'own recap must be cited as confirmation evidence');
-followupNative('inbound', 'عايز 2 كيلو فسيخ كامل', '2026-10-13 10:11:03');
-followupNative('outbound', 'تم تأكيد طلبك 2 كيلو فسيخ كامل', '2026-10-13 10:11:04');
+followupNative('inbound',str_replace('1.5 كيلو','2 كيلو',$confirmationText),'2026-10-13 10:11:03');
+followupNative('outbound','تم تأكيد الطلب: 2 كيلو فسيخ كامل؛ الاسم عميل تجريبي ورقم التواصل 01000000001 والعنوان المنصورة شارع المثال','2026-10-13 10:11:04');
 $changedProposal['evidence']['request_ids'] = ['m1', 'm5']; $changedProposal['evidence']['confirmation_ids'] = ['m3', 'm6'];
 followupExpect($service->approvalSatisfied(1, $changedProposal, followupSnapshot()), false,
     'later external recap cannot reuse approval of different owned proposal');
 $newEpisode = followupSnapshot(); $newEpisode['keys'] = array_intersect_key($newEpisode['keys'], ['m5' => true, 'm6' => true]);
 $newEpisode['transcript'] = array_values(array_filter($newEpisode['transcript'], fn ($row) => in_array($row['id'], ['m5', 'm6'], true)));
-$changedProposal['evidence']['request_ids'] = ['m5']; $changedProposal['evidence']['confirmation_ids'] = ['m6'];
+$newEpisode['keys']=['m1'=>$newEpisode['keys']['m5'],'m2'=>$newEpisode['keys']['m6']];
+foreach ($newEpisode['transcript'] as $index=>&$row) $row['id']='m'.($index+1); unset($row);
+$changedProposal['decision']='CONFIRMED'; $changedProposal['issues']=[];
+$changedProposal['evidence']=['request_ids'=>['m1'],'confirmation_ids'=>['m2'],'customer_acceptance_ids'=>[],'location_id'=>null];
+followupExpect(WhatsAppOrderExtraction::validateDetailed($changedProposal,$newEpisode['transcript'])['ok'],true,
+    'independent next snapshot uses actual scoped label numbering and freshly grounded confirmed facts');
 followupExpect($service->approvalSatisfied(1, $changedProposal, $newEpisode), true,
     'completed prior episode recap below current snapshot cannot block independent next order');
 foreach (['empty_items', 'missing_quantity', 'unknown_mode', 'unsafe_name', 'unsafe_option'] as $mutation) {
@@ -629,10 +637,20 @@ foreach (['uncited_positive', 'quoted_positive', 'question', 'refusal', 'detail'
         followupExpect([$validated['ok'], $validated['data']['decision']], [true, 'NONE'],
             'authoritative validator normalizes raw confirmed test-order hint to NONE');
     }
-    followupExpect($service->handoffAllowed($plan), false, 'unproved merchant/customer handoff remains unavailable: ' . $mutation);
-    followupExpect($service->request($actor, $plan, fn () => $plan)['status'], 'BLOCKED', 'unproved handoff cannot ask a customer: ' . $mutation);
-    followupExpect([count($aiCalls), count($graphCalls), DB::table('whatsapp_reply_requests')->count()], [0, 0, 0],
-        'unproved handoff creates no AI spend, send or receipt: ' . $mutation);
+    if (in_array($mutation,['uncited_positive','quoted_positive','question','detail','older_approval_then_detail'],true)) {
+        followupExpect($service->handoffAllowed($plan), true, 'validated merchant completion permits asking missing facts: ' . $mutation);
+        followupExpect($service->approvalSatisfied(1,$plan['data'],followupSnapshot()),false,
+            'uncertain customer tail requires a fresh owned recap rather than ERP consent: '.$mutation);
+        followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'ACCEPTED',
+            'uncertain customer tail receives one factual missing-location question: '.$mutation);
+        followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_requests')->count()],[1,1,1],
+            'question-only tail completion uses one durable reservation: '.$mutation);
+    } else {
+        followupExpect($service->handoffAllowed($plan), false, 'unproved merchant/customer handoff remains unavailable: ' . $mutation);
+        followupExpect($service->request($actor, $plan, fn () => $plan)['status'], 'BLOCKED', 'unproved handoff cannot ask a customer: ' . $mutation);
+        followupExpect([count($aiCalls), count($graphCalls), DB::table('whatsapp_reply_requests')->count()], [0, 0, 0],
+            'unproved handoff creates no AI spend, send or receipt: ' . $mutation);
+    }
 }
 
 function followupImagePlan(array $data): array {
@@ -678,5 +696,92 @@ followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_req
 $aiHook=null;
 followupExpect($service->request($secondActor,$plan,fn()=>$plan)['status'],'ALREADY_ASKED','caption-race failure is not retried under another actor');
 followupExpect([count($aiCalls),count($graphCalls)],[1,0],'caption-race retry spends and sends nothing');
+
+function followupTailMediaPlan(array $data): array {
+    $plan=followupMerchantPlan($data,'شكرا');
+    foreach (['image'=>'image/jpeg','audio'=>'audio/ogg','document'=>'application/pdf'] as $kind=>$mime) {
+        $id=followupNative('inbound','','2026-10-13 10:03:0'.count($plan['transcript']));
+        $row=DB::table('whatsapp_inbox_messages')->where('id',$id)->first();
+        $dto=json_decode(Crypt::decryptString($row->content),true,32,JSON_THROW_ON_ERROR);
+        $raw=$dto['content']['message']; unset($raw['text']);
+        $raw['type']=$kind; $raw[$kind]=['id'=>'100000000000001','mime_type'=>$mime];
+        $payload=['object'=>'whatsapp_business_account','entry'=>[['id'=>WhatsAppInboxAccess::WABA_ID,'changes'=>[
+            ['field'=>'messages','value'=>['messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>WhatsAppInboxAccess::PHONE_ID],
+                'messages'=>[$raw]]]]]]];
+        $reported=\App\Support\WhatsAppInboxProtocol::report($payload,WhatsAppInboxAccess::WABA_ID,WhatsAppInboxAccess::PHONE_ID);
+        followupExpect(count($reported['messages']),1,'mixed tail uses authentic normalized native '.$kind);
+        DB::table('whatsapp_inbox_messages')->where('id',$id)->update(['type'=>$kind,'content'=>followupEnc($reported['messages'][0])]);
+        $plan['latest_customer_id']=$id; $plan['latest_customer_key']=$row->message_key; $plan['evidence_ceiling']=$id;
+        $plan['transcript']=followupSnapshot()['transcript'];
+    }
+    return $plan;
+}
+
+$plan=followupTailMediaPlan($confirmationData);
+followupExpect($service->handoffAllowed($plan),true,'three mixed media and cited ordinary text permit missing-data completion');
+followupExpect($service->approvalSatisfied(1,$plan['data'],followupSnapshot()),false,'ordinary mixed customer tail never counts as ERP approval');
+followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'ACCEPTED','actual sender asks one mixed-tail LOCATION question');
+followupExpect($aiCalls[0],['missing_fields'=>['LOCATION']],'mixed-tail style selector receives only LOCATION enum');
+followupExpect($service->request($secondActor,$plan,fn()=>$plan)['status'],'ALREADY_ASKED','mixed-tail customer input shares all-actor tombstone');
+followupExpect([count($aiCalls),count($graphCalls)],[1,1],'mixed-tail retry does not spend or resend');
+
+$plan=followupTailMediaPlan($confirmationData); $plan['fields']=['CONFIRMATION'];
+followupExpect($service->handoffAllowed($plan),true,'validated merchant completion also permits a factual confirmation question');
+followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'ACCEPTED','actual sender sends owned factual recap after uncertain mixed tail');
+$receipt=DB::table('whatsapp_reply_requests')->first(); $audit=json_decode(Crypt::decryptString($receipt->audit),true,32,JSON_THROW_ON_ERROR);
+followupExpect([$audit['order_followup']['kind'],$audit['order_followup']['fields']],['confirmation',['CONFIRMATION']],
+    'owned recap receipt carries actual confirmation marker');
+followupExpect(preg_match('/\A[a-f0-9]{64}\z/',$audit['order_followup']['proposal_hash']),1,
+    'owned mixed-tail recap binds exact factual proposal');
+followupExpect($service->approvalSatisfied(1,$plan['data'],followupSnapshot()),false,'owned factual recap alone is not approval');
+followupNative('inbound','موافق','2026-10-13 10:11:00');
+$approved=$plan['data']; $approved['evidence']['confirmation_ids']=['m7']; $approved['evidence']['customer_acceptance_ids']=['m8'];
+followupExpect(WhatsAppOrderExtraction::validateDetailed($approved,followupSnapshot()['transcript'])['ok'],true,
+    'whole positive customer reply after owned recap passes unchanged extraction validator');
+followupExpect($service->approvalSatisfied(1,$approved,followupSnapshot()),true,
+    'actual later cited positive reply approves exact owned recap despite older mixed-media tail');
+
+$plan=followupTailMediaPlan($confirmationData);
+$aiHook=static function():void {
+    $row=DB::table('whatsapp_inbox_messages')->where('type','image')->first();
+    $dto=json_decode(Crypt::decryptString($row->content),true,32,JSON_THROW_ON_ERROR);
+    $dto['content']['message']['image']['caption']='مش موافق';
+    DB::table('whatsapp_inbox_messages')->where('id',$row->id)->update(['content'=>followupEnc($dto)]);
+};
+followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'BLOCKED',
+    'earlier image refusal caption is reauthenticated while latest document and supplied plan stay unchanged');
+followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_requests')->value('state')],[1,0,'FAILED'],
+    'full-tail native race retains failed durable reservation and sends nothing');
+$aiHook=null;
+followupExpect($service->request($secondActor,$plan,fn()=>$plan)['status'],'ALREADY_ASKED',
+    'earlier-tail caption race cannot be retried under another actor');
+foreach (['omitted_row','wrong_label','foreign_source','oversized_cipher'] as $mutation) {
+    $plan=followupTailMediaPlan($confirmationData);
+    if ($mutation==='omitted_row') unset($plan['transcript'][3]);
+    if ($mutation==='wrong_label') $plan['transcript'][3]['id']='m50';
+    if ($mutation==='foreign_source') DB::table('whatsapp_inbox_messages')->where('type','audio')->update(['source'=>'foreign']);
+    if ($mutation==='oversized_cipher') DB::table('whatsapp_inbox_messages')->where('type','audio')->update(['content'=>str_repeat('x',8388609)]);
+    followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'BLOCKED',
+        'bounded authenticated full native ledger rejects '.$mutation);
+    followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_requests')->count()],[0,0,0],
+        'malformed or oversized tail proof fails before reservation and AI '.$mutation);
+}
+
+$plan=followupTailMediaPlan($confirmationData); $snapshot=followupSnapshot();
+Schema::drop(WhatsAppInboxMessage::INDEX);
+followupExpect($service->approvalSatisfied(1,$plan['data'],$snapshot),false,
+    'missing authenticated receipt projection index cannot prove absent owned recap or ERP approval');
+followupExpect([count($aiCalls),count($graphCalls)],[0,0],
+    'missing projection index approval check performs no AI or customer send');
+Schema::create(WhatsAppInboxMessage::INDEX,function(Blueprint $t):void {
+    $t->bigIncrements('id'); $t->unsignedBigInteger('reply_id')->unique(); $t->unsignedBigInteger('conversation_id');
+    $t->string('waba_id'); $t->string('phone_number_id'); $t->char('message_key',64)->nullable()->unique();
+    $t->string('kind'); $t->char('receipt_hash',64); $t->boolean('valid'); $t->timestamps();
+});
+Schema::drop('whatsapp_reply_requests');
+followupExpect($service->approvalSatisfied(1,$plan['data'],$snapshot),false,
+    'missing durable reply ledger cannot prove absent owned recap or ERP approval');
+followupExpect([count($aiCalls),count($graphCalls)],[0,0],
+    'missing durable ledger approval check performs no AI or customer send');
 
 echo "WHATSAPP_ORDER_FOLLOWUP_SERVICE_TESTS=$checks PASS\n";

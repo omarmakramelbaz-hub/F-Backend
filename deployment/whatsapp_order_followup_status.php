@@ -13,7 +13,7 @@ try {
     foreach ([
         'WhatsAppOrderAiProvider'=>'50dba4e16e2bec8811b6f37c3a6becf428d61a52',
         'WhatsAppReplyService'=>'f0373c39d4a00d3ae67366c34949712adfd51858',
-        'WhatsAppOrderFollowupService'=>'f8cbd5f86aeedf34d5281aec3d960ff31dc8b6eb',
+        'WhatsAppOrderFollowupService'=>'919e1e1407792cfa0caefd868e1b3c79284e8a3c',
         'WhatsAppOrderWorkflow'=>'e2b558a5de68080b85b12189e73239190aace507',
         'WhatsAppInboxAccess'=>'186789d42113e81818de8d82a2327e3ee9d8d0b5',
     ] as $name=>$pin) {

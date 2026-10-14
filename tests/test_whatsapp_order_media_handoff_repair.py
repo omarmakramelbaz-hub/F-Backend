@@ -43,7 +43,7 @@ class MediaHandoffInstallTests(unittest.TestCase):
         self.assertEqual(list(repair.SOURCE_PINS),[self.target])
         self.assertEqual(wrapper.SOURCE_ROSTER,(self.target,))
         self.assertEqual(repair.SOURCE_PINS[self.target][0],'ca0e78765596f45263f19ffb626dd7452945f119')
-        self.assertEqual(repair.SOURCE_PINS[self.target][1],repair.blob((ROOT/self.target).read_bytes()))
+        self.assertEqual(repair.SOURCE_PINS[self.target][1],repair.blob((ROOT/'tests/fixtures/whatsapp_order_pre_tail_handoff'/self.target).read_bytes()))
         expected=dict(baseline.PROTECTED_PINS)
         self.assertEqual(repair.PROTECTED_PINS,expected)
         self.assertNotIn(self.target,repair.PROTECTED_PINS)

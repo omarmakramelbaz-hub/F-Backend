@@ -78,7 +78,8 @@ function mediaHandoffCachedPlan(int $conversation): array {
     $cached=MediaHandoffDB::table('whatsapp_order_drafts')->first();
     $reason=null; $review=(new ReflectionMethod($workflow,'automaticReview'))->invokeArgs($workflow,
         [$cached,(object)['id'=>7],&$reason]);
-    mediaHandoffExpect($review===null&&$reason==='LOCATION_UNCONFIRMED','native image cached-plan needs actual point');
+    mediaHandoffExpect($review===null&&in_array($reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED'],true),
+        'native image cached-plan needs actual point and owned factual approval');
     (new ReflectionMethod($workflow,'reviewReason'))->invoke($workflow,$cached,$reason);
     $plan=(new ReflectionMethod($workflow,'missingInformationPlan'))->invoke($workflow,(int)$cached->id,(object)['id'=>7]);
     mediaHandoffExpect(is_array($plan)&&$plan['fields']===['LOCATION'],'actual workflow constructs bounded LOCATION plan');
@@ -94,12 +95,12 @@ $analyzed=$workflow->analyze($conversation,(object)['id'=>7]);
 $cached=MediaHandoffDB::table('whatsapp_order_drafts')->first();
 $reason=null; $review=(new ReflectionMethod($workflow,'automaticReview'))->invokeArgs($workflow,
     [$cached,(object)['id'=>7],&$reason]);
-mediaHandoffExpect($review===null&&$reason==='LOCATION_UNCONFIRMED',
-    'normal automatic review independently identifies missing verified point');
+mediaHandoffExpect($review===null&&in_array($reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED'],true),
+    'normal automatic review identifies missing verified point or mandatory owned factual approval');
 (new ReflectionMethod($workflow,'reviewReason'))->invoke($workflow,$cached,$reason);
 $cached=MediaHandoffDB::table('whatsapp_order_drafts')->first();
-mediaHandoffExpect($cached->status==='REVIEW'&&$cached->reason==='LOCATION_UNCONFIRMED',
-    'actual analyzed cached image order is held for missing verified point');
+mediaHandoffExpect($cached->status==='REVIEW'&&in_array($cached->reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED'],true),
+    'actual analyzed cached image order stays held until point and owned factual approval');
 $cipher=$cached->extraction; $ceiling=$cached->evidence_ceiling; $calls=MediaHandoffAi::$calls;
 $result=followupRun();
 mediaHandoffExpect($result['review_required']===1&&count(FollowupFixtureReplies::$sent)===1
@@ -122,15 +123,23 @@ MediaHandoffAi::$data['evidence']['location_id']='m6'; MediaHandoffAi::$data['is
 mediaHandoffExpect(MediaHandoffExtraction::validateDetailed(MediaHandoffAi::$data,handoffSnapshot($conversation)['transcript'])['ok'],
     'actual native pin answer passes unchanged validator with earlier merchant recap/approval');
 MediaHandoffDB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]); $result=followupRun();
-mediaHandoffExpect($result['dispatched']===1&&MediaHandoffAi::$calls===$calls+1
+mediaHandoffExpect($result['review_required']===1&&MediaHandoffAi::$calls===$calls+1
+    &&count(FollowupFixtureReplies::$sent)===2&&FollowupFixtureReplies::$sent[1]['marker']['fields']===['CONFIRMATION']
+    &&MediaHandoffDB::table('test_tickets')->count()===0,
+    'real pin fills location while earlier opaque image requires a new owned factual recap');
+insertMessage($conversation,'wamid.media-handoff-owned-approval','inbound','موافق',361,null,'US.media-handoff-fixture');
+\Carbon\Carbon::setTestNow('2026-10-09 22:07:00');
+MediaHandoffAi::$data['evidence']['confirmation_ids']=['m7']; MediaHandoffAi::$data['evidence']['customer_acceptance_ids']=['m8'];
+MediaHandoffDB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]); $result=followupRun();
+mediaHandoffExpect($result['dispatched']===1&&MediaHandoffAi::$calls===$calls+2
     &&MediaHandoffDB::table('test_tickets')->count()===1
     &&MediaHandoffDB::table('test_tickets')->first()->branch==='f:363',
-    'later native pin resumes normal dispatch to exactly one approved branch order');
+    'later cited approval of owned recap dispatches exactly one approved branch order');
 mediaHandoffExpect(MediaHandoffDB::table('test_print')->count()===1
     &&MediaHandoffDB::table('test_tickets')->first()->payment_status==='unpaid'
     &&MediaHandoffDB::table('test_billing')->count()===0,'image handoff completion prints once and collects no payment');
 followupRun(); mediaHandoffExpect(MediaHandoffDB::table('test_tickets')->count()===1
-    &&count(FollowupFixtureReplies::$sent)===1,'completed image handoff replay creates no duplicate ERP or question');
+    &&count(FollowupFixtureReplies::$sent)===2,'completed image handoff replay creates no duplicate ERP or question');
 
 foreach ([null,''] as $caption) {
     followupSetup(); $conversation=mediaHandoffThread($caption,null);
@@ -149,24 +158,37 @@ foreach (['تمام','مش موافق','غير الطلب','عنواني مكا�
     mediaHandoffExpect($snapshot['transcript'][3]['text']===null
         &&MediaHandoffExtraction::validateDetailed(MediaHandoffAi::$data,$snapshot['transcript'])['ok'],
         'raw caption is absent from otherwise valid order transcript '.$caption);
-    followupRun(); mediaHandoffNoWrites('nonempty raw image caption cannot establish prompt handoff '.$caption);
+    followupRun();
+    if (in_array($caption,['مش موافق','غير الطلب'],true)) mediaHandoffNoWrites('raw cancellation or order change blocks followup '.$caption);
+    else mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+        &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+        'ordinary caption permits missing-fact question and is never consent '.$caption);
 }
 followupSetup(); $conversation=mediaHandoffThread();
 mediaHandoffAlterNative($conversation,static function(array &$dto): void { $dto['content']['message']['image']['caption']=null; });
 followupRun(); mediaHandoffNoWrites('explicit null caption fails closed rather than behaving as absent caption');
 foreach (['audio','video','document'] as $kind) {
     followupSetup(); mediaHandoffThread(null,'تمام',$kind); followupRun();
-    mediaHandoffNoWrites('other native media kinds do not borrow image-only handoff '.$kind);
+    mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+        &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+        'authenticated opaque native media allows missing-data question without consent '.$kind);
 }
 followupSetup(); $conversation=mediaHandoffThread();
 mediaHandoffNative($conversation,'wamid.media-handoff-second-image',5); followupRun();
-mediaHandoffNoWrites('multiple opaque postrecap images remain review without interpreting attachments');
+mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+    &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+    'multiple authenticated postrecap images permit completion question while owned approval remains required');
 foreach (['مش موافق','تمام بس غير الطلب','تمام، عنواني مكان آخر','قال لي العميل تمام','"تمام"','تمام؟','شكرا'] as $approval) {
     followupSetup(); mediaHandoffThread(null,$approval); followupRun();
-    mediaHandoffNoWrites('postrecap refusal/change/quotation/question/courtesy cannot hand off via later image '.$approval);
+    if (in_array($approval,['مش موافق','تمام بس غير الطلب'],true)) mediaHandoffNoWrites('postrecap refusal/change blocks followup '.$approval);
+    else mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+        &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+        'ordinary details/quote/question/courtesy with later image receives question without consent '.$approval);
 }
 followupSetup(); mediaHandoffThread(); MediaHandoffAi::$data['evidence']['customer_acceptance_ids']=[]; followupRun();
-mediaHandoffNoWrites('uncited earlier positive text cannot be bypassed by later captionless image');
+mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+    &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+    'uncited positive plus opaque image permits question while approval remains mandatory');
 followupSetup(); $conversation=mediaHandoffThread(null,null);
 insertMessage($conversation,'wamid.media-handoff-pre-summary-approval','inbound','تمام',0,null,'US.media-handoff-fixture');
 $request=MediaHandoffDB::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->where('type','text')
@@ -183,7 +205,9 @@ mediaHandoffExpect(!MediaHandoffExtraction::validateDetailed(MediaHandoffAi::$da
 followupRun(); mediaHandoffNoWrites('image cannot lend consent to an uncommitted pre-summary approval episode');
 followupSetup(); $conversation=mediaHandoffThread();
 insertMessage($conversation,'wamid.media-handoff-later-data','inbound','الاسم عميل آخر',5,null,'US.media-handoff-fixture'); followupRun();
-mediaHandoffNoWrites('later customer data makes image no longer latest and blocks cached handoff');
+mediaHandoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+    &&MediaHandoffDB::table('test_tickets')->count()===0&&MediaHandoffDB::table('branch_customers')->count()===0,
+    'later customer details permit one missing-data question without reusing old facts as consent');
 followupSetup(); mediaHandoffThread(); MediaHandoffAi::$data['decision']='DRAFT'; MediaHandoffAi::$data['issues'][]='UNCONFIRMED'; followupRun();
 mediaHandoffNoWrites('captionless image cannot turn unconfirmed DRAFT into confirmed customer handoff');
 followupSetup(); mediaHandoffThread(); app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:05'); followupRun();

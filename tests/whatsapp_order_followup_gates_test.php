@@ -101,7 +101,7 @@ Schema::create('users',static function (Blueprint $t): void {
     $t->integer('id')->primary(); $t->boolean('active'); $t->string('account_type'); $t->integer('owner_resturant_id')->nullable(); $t->boolean('can_checkout');
 });
 Schema::create('whatsapp_inbox_conversations',static function (Blueprint $t): void {
-    $t->integer('id')->primary(); $t->string('waba_id'); $t->string('phone_number_id'); $t->string('peer_hash'); $t->text('private_customer');
+    $t->integer('id')->primary(); $t->string('waba_id'); $t->string('phone_number_id'); $t->string('peer_hash'); $t->text('private_customer'); $t->text('customer')->nullable();
 });
 Schema::create('whatsapp_inbox_messages',static function (Blueprint $t): void {
     $t->integer('id')->primary(); $t->integer('conversation_id'); $t->string('message_key'); $t->string('source');
@@ -119,12 +119,19 @@ Schema::create('whatsapp_reply_requests',static function (Blueprint $t): void {
     $t->integer('id')->primary(); $t->integer('actor_id'); $t->integer('conversation_id'); $t->string('waba_id'); $t->string('phone_number_id');
     $t->string('kind'); $t->string('state'); $t->integer('inbound_message_id'); $t->string('reason')->nullable(); $t->string('request_hash');
     $t->string('created_at'); $t->string('completed_at')->nullable(); $t->text('audit');
+    $t->string('payload_hash')->nullable(); $t->string('remote_message_key')->nullable(); $t->text('response_details')->nullable();
+    $t->string('claimed_at')->nullable(); $t->string('send_started_at')->nullable();
+});
+Schema::create('whatsapp_reply_projection_keys',static function (Blueprint $t): void {
+    $t->integer('id')->primary(); $t->integer('reply_id'); $t->integer('conversation_id'); $t->string('waba_id'); $t->string('phone_number_id');
+    $t->string('kind'); $t->boolean('valid'); $t->string('message_key'); $t->string('receipt_hash');
 });
 $case=getenv('GATES_FIXTURE_CASE'); $waba=Access::WABA_ID; $phoneId=Access::PHONE_ID;
 $scope=$waba.':'.$phoneId.':'; $peerPhone='201000000001'; $peerUser='US.PRIVATE_FIXTURE'; $peerIdentity='user:'.$peerUser;
 DB::table('users')->insert(['id'=>9,'active'=>$case!=='actor-unavailable','account_type'=>'admin','owner_resturant_id'=>null,'can_checkout'=>true]);
 DB::table('whatsapp_inbox_conversations')->insert(['id'=>7,'waba_id'=>$case==='bad-scope'?'foreign':$waba,'phone_number_id'=>$phoneId,
-    'peer_hash'=>hash_hmac('sha256','whatsapp-peer-v1:'.$scope.$peerIdentity,Crypt::getKey()),'private_customer'=>'PRIVATE_ADDRESS PRIVATE_CUSTOMER']);
+    'peer_hash'=>hash_hmac('sha256','whatsapp-peer-v1:'.$scope.$peerIdentity,Crypt::getKey()),'private_customer'=>'PRIVATE_ADDRESS PRIVATE_CUSTOMER',
+    'customer'=>Crypt::encryptString(json_encode(['phone'=>$peerPhone,'user_id'=>$peerUser],JSON_THROW_ON_ERROR))]);
 DB::table('whatsapp_inbox_conversations')->insert(['id'=>8,'waba_id'=>$waba,'phone_number_id'=>$phoneId,
     'peer_hash'=>str_repeat('a',64),'private_customer'=>'PRIVATE_FOREIGN_CUSTOMER']);
 $rows=[
@@ -142,30 +149,60 @@ if ($case==='normalized-none') $rows[2]['text']='WA-2026 تمام موافق';
 if ($case==='branch-mode') $rows[0]['text'].=' الطلب في الصالة.';
 if ($case==='already-asked') $rows[]=['id'=>4,'direction'=>'outbound','text'=>'من فضلك ابعت اللوكيشن'];
 if ($case==='native-location'||$case==='native-location-cited') $rows[]=['id'=>4,'direction'=>'inbound','text'=>null,'location'=>['latitude'=>31.0,'longitude'=>31.4]];
+if ($case==='ordinary-mixed-media'||$case==='ordinary-mixed-then-positive') {
+    $rows[2]['text']='تمام يا باشا';
+    foreach ([4=>'audio',5=>'video',6=>'document'] as $id=>$kind) $rows[]=['id'=>$id,'direction'=>'inbound','text'=>null,
+        $kind=>['id'=>'PRIVATE_MEDIA_REFERENCE_'.$id,'mime_type'=>'application/octet-stream']];
+    if ($case==='ordinary-mixed-then-positive') $rows[]=['id'=>7,'direction'=>'inbound','text'=>'تمام موافق'];
+}
+if ($case==='ordinary-text') $rows[2]['text']='العنوان شارع المثال';
+if (str_starts_with($case,'own-recap-')&&$case!=='own-recap-positive') {
+    if (str_contains($case,'media')) {
+        if (str_contains($case,'before')) {
+            $rows[2]=['id'=>3,'direction'=>'inbound','text'=>null,'image'=>['id'=>'PRIVATE_OWN_RECAP_MEDIA','mime_type'=>'image/jpeg']];
+            $rows[]=['id'=>4,'direction'=>'inbound','text'=>'تمام موافق'];
+        } else $rows[]=['id'=>4,'direction'=>'inbound','text'=>null,'image'=>['id'=>'PRIVATE_OWN_RECAP_MEDIA','mime_type'=>'image/jpeg']];
+    } elseif (str_contains($case,'before')) {
+        $rows[2]['text']='العنوان شارع المثال'; $rows[]=['id'=>4,'direction'=>'inbound','text'=>'تمام موافق'];
+    } else $rows[]=['id'=>4,'direction'=>'inbound','text'=>'العنوان شارع المثال'];
+}
 if (str_starts_with($case,'media-')) {
     if ($case==='media-direct-image') unset($rows[2]);
     $rows[]=['id'=>$case==='media-direct-image'?3:4,'direction'=>'inbound','text'=>null,
         'image'=>['id'=>'PRIVATE_IMAGE_REFERENCE','mime_type'=>'image/jpeg']];
     $last=array_key_last($rows);
     if ($case==='media-image-caption') $rows[$last]['image']['caption']='PRIVATE_CAPTION تغيّر العنوان';
+    if ($case==='media-image-safe-caption') $rows[$last]['image']['caption']='PRIVATE_CAPTION صورة توضيحية';
+    if ($case==='media-image-whitespace-caption') $rows[$last]['image']['caption']='   ';
+    if ($case==='media-image-refusal-caption') $rows[$last]['image']['caption']='لا';
+    if ($case==='media-image-probe-caption') $rows[$last]['image']['caption']='WA-2026';
     if ($case==='media-image-empty-caption') $rows[$last]['image']['caption']='';
     if ($case==='media-image-null-caption') $rows[$last]['image']['caption']=null;
     if ($case==='media-image-invalid-caption') $rows[$last]['image']['caption']=12345;
     if ($case==='media-image-oversized-caption') $rows[$last]['image']['caption']=str_repeat('ن',17000);
     if ($case==='media-image-bad-reference') $rows[$last]['image']['id']='PRIVATE IMAGE REFERENCE';
     if ($case==='media-image-bad-peer') $rows[$last]['image_bad_peer']=true;
+    if ($case==='media-image-bad-timestamp') $rows[$last]['image_bad_timestamp']=true;
+    if ($case==='media-image-type-mismatch') $rows[$last]['image_type_mismatch']=true;
+    if ($case==='media-refusal-before-approval') {
+        $rows[$last]['image']['caption']='لا'; $rows[]=['id'=>5,'direction'=>'inbound','text'=>'تمام موافق'];
+    }
     if ($case==='media-second-image') $rows[]=['id'=>5,'direction'=>'inbound','text'=>null,
         'image'=>['id'=>'PRIVATE_SECOND_IMAGE_REFERENCE','mime_type'=>'image/jpeg']];
 }
 if ($case==='incomplete-snapshot') for ($id=4;$id<=61;$id++) $rows[]=['id'=>$id,'direction'=>'inbound','text'=>'بيانات إضافية'];
 foreach ($rows as $row) {
     $sent=$case==='delayed-data'&&$row['id']<3?'2026-10-14 10:59:0'.$row['id']:'2026-10-14 12:00:'.str_pad((string)min($row['id'],9),2,'0',STR_PAD_LEFT);
-    $type=isset($row['location'])?'location':(isset($row['image'])?'image':'text'); $native='wamid.PRIVATE_NATIVE_'.$row['id'];
-    $raw=['id'=>$native,'from'=>$peerPhone,'from_user_id'=>$peerUser,'timestamp'=>(string)strtotime($sent.' UTC'),'type'=>$type];
+    $type='text'; foreach (['location','image','audio','video','document'] as $kind) if (isset($row[$kind])) { $type=$kind; break; }
+    $native='wamid.PRIVATE_NATIVE_'.$row['id'];
+    $raw=['id'=>$native,$row['direction']==='inbound'?'from':'to'=>$peerPhone,
+        $row['direction']==='inbound'?'from_user_id':'to_user_id'=>$peerUser,'timestamp'=>(string)strtotime($sent.' UTC'),'type'=>$type];
     if ($type==='location') $raw['location']=$row['location'];
-    elseif ($type==='image') $raw['image']=$row['image'];
+    elseif (in_array($type,['image','audio','video','document'],true)) $raw[$type]=$row[$type];
     else $raw['text']=['body'=>$row['text']];
     if (($row['image_bad_peer']??false)===true) $raw['from_user_id']='US.PRIVATE_FOREIGN_IMAGE_PEER';
+    if (($row['image_bad_timestamp']??false)===true) $raw['timestamp']='0';
+    if (($row['image_type_mismatch']??false)===true) $raw['type']='audio';
     $dto=['message_id'=>$native,'peer_identity'=>$peerIdentity,'peer_phone'=>$peerPhone,'peer_user_id'=>$peerUser,
         'source'=>$row['direction']==='inbound'?'messages':'smb_message_echoes','direction'=>$row['direction'],'type'=>$type,
         'sent_at'=>$sent,'text'=>$row['text'],'content'=>['message'=>$raw]];
@@ -181,11 +218,36 @@ $data=['decision'=>'CONFIRMED','fulfillment'=>'UNKNOWN',
 if ($case==='invalid-extraction') $data['customer']['address']='عنوان مختلق خاص';
 if ($case==='native-location-cited') $data['evidence']['location_id']='m4';
 if ($case==='media-direct-image') $data['evidence']['customer_acceptance_ids']=[];
+if ($case==='ordinary-mixed-then-positive') $data['evidence']['customer_acceptance_ids']=['m3','m7'];
+if ($case==='media-refusal-before-approval') $data['evidence']['customer_acceptance_ids']=['m3','m5'];
+if (str_starts_with($case,'own-recap-')&&str_contains($case,'before')) $data['evidence']['customer_acceptance_ids']=['m4'];
 $ceiling=count($rows);
 $snapshotMethod=new \ReflectionMethod(Workflow::class,'snapshot'); $snapshotMethod->setAccessible(true);
 // Hash the actual native snapshot before the read-observation listener begins.
 // A foreign scope fixture cannot call its scoped snapshot, so a synthetic hash is sufficient there.
 $snapshot=$case==='bad-scope'?['hash'=>str_repeat('a',64)]:$snapshotMethod->invoke(new Workflow(),7,0,$ceiling,false);
+if (str_starts_with($case,'own-recap-')) {
+    $proposalMethod=new \ReflectionMethod(Followup::class,'proposalHash'); $proposalMethod->setAccessible(true);
+    $marker=['version'=>'whatsapp-order-followup-v1','kind'=>'confirmation','fields'=>['CONFIRMATION'],
+        'latest_customer_id'=>1,'latest_customer_key'=>hash('sha256','whatsapp-message-v1:'.$scope.'wamid.PRIVATE_NATIVE_1'),
+        'episode_customer_key'=>hash('sha256','whatsapp-message-v1:'.$scope.'wamid.PRIVATE_NATIVE_1'),
+        'proposal_hash'=>$proposalMethod->invoke(null,$data,$snapshot['transcript'])];
+    $uuid=Followup::requestUuid($marker+['conversation_id'=>7],Crypt::getKey()); $text=$rows[1]['text'];
+    $nativeId='wamid.PRIVATE_NATIVE_2';
+    $response=Crypt::encryptString(json_encode(['message_id'=>$nativeId],JSON_THROW_ON_ERROR));
+    $remote=hash('sha256','whatsapp-reply-message-v1:'.$scope.$nativeId);
+    DB::table('whatsapp_reply_requests')->insert(['id'=>30,'actor_id'=>9,'conversation_id'=>7,'waba_id'=>$waba,'phone_number_id'=>$phoneId,
+        'kind'=>'text','state'=>'ACCEPTED','inbound_message_id'=>1,'reason'=>null,
+        'request_hash'=>hash_hmac('sha256','whatsapp-reply-request-v1:9:7:'.$uuid,Crypt::getKey()),
+        'payload_hash'=>hash_hmac('sha256','whatsapp-reply-payload-v1:'.json_encode(['text',1,$text,null],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),Crypt::getKey()),
+        'remote_message_key'=>$remote,'response_details'=>$response,'created_at'=>'2026-10-14 12:00:01','claimed_at'=>'2026-10-14 12:00:01',
+        'send_started_at'=>'2026-10-14 12:00:02','completed_at'=>'2026-10-14 12:00:02',
+        'audit'=>Crypt::encryptString(json_encode(['client_request_id'=>$uuid,'order_followup'=>$marker,'recipient'=>$peerPhone,'text'=>$text],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE))]);
+    DB::table('whatsapp_reply_projection_keys')->insert(['id'=>30,'reply_id'=>30,'conversation_id'=>7,'waba_id'=>$waba,'phone_number_id'=>$phoneId,
+        'kind'=>'text','valid'=>true,'message_key'=>hash('sha256','whatsapp-message-v1:'.$scope.$nativeId),
+        'receipt_hash'=>hash('sha256',$response.':'.$remote.':7')]);
+}
+if ($case==='approval-missing-index') Schema::drop('whatsapp_reply_projection_keys');
 $cipher=Crypt::encryptString(json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE));
 if ($case==='decrypt-failure') $cipher='PRIVATE_BROKEN_CIPHERTEXT';
 if ($case==='oversized-ciphertext') $cipher=Crypt::encryptString(json_encode($data+['padding'=>str_repeat('PRIVATE_',20000)]));
@@ -302,6 +364,11 @@ gatesExpect([$ready['candidate_plan_available'],$ready['valid_plan'],$ready['con
 gatesExpect([$ready['media_question_handoff'],$ready['latest_image_authenticated'],$ready['latest_image_caption_status'],
     $ready['latest_image_caption_length'],$ready['latest_image_reference_valid']],
     [false,'NOT_APPLICABLE','NOT_APPLICABLE',null,'NOT_APPLICABLE'],'text approval cannot become a media handoff or native image');
+gatesExpect([$ready['general_question_handoff'],$ready['approval_satisfied'],$ready['approval_scope']],
+    [true,true,'APPROVAL_GUARD_ONLY_NOT_ERP_ELIGIBILITY'],'general missing-data handoff and actual positive approval are separate read-only guards');
+$missingIndex=gatesReady('approval-missing-index');
+gatesExpect([$missingIndex['general_question_handoff'],$missingIndex['handoff_allowed'],$missingIndex['approval_satisfied']],
+    [true,true,false],'missing receipt projection schema permits diagnostics and questions but cannot grant approval');
 gatesExpect($ready['post_final_customer_counts'],['total'=>1,'null_text'=>0,'whole_positive_cited'=>1],
     'actual episode counts only the later cited whole positive customer approval');
 gatesExpect([$ready['automatic_actor_available'],$ready['sender_state']['can_reply'],$ready['sender_state']['reason'],
@@ -317,8 +384,9 @@ gatesExpect([$ready['scan']['present'],$ready['scan']['attempts'],$ready['scan']
 $location=gatesReady('location-text');
 gatesExpect([$location['snapshot_complete'],$location['snapshot_current_at_read'],$location['valid'],$location['raw_decision'],$location['normalized_checked_decision']],
     [true,true,true,'CONFIRMED','CONFIRMED'],'location text preserves the existing grounded confirmed snapshot');
-gatesExpect([$location['latest_positive_approval'],$location['candidate_plan_available'],$location['valid_plan'],$location['confirmed_customer_handoff'],$location['handoff_allowed']],
-    [false,true,true,false,false],'mere location text is not a positive handoff approval');
+gatesExpect([$location['latest_positive_approval'],$location['candidate_plan_available'],$location['valid_plan'],$location['confirmed_customer_handoff'],
+    $location['general_question_handoff'],$location['handoff_allowed'],$location['approval_satisfied']],
+    [false,true,true,false,true,true,false],'ordinary location text can hand off a question but supplies no approval');
 foreach (['hint-quoted-approval'=>[true,true,false], 'hint-negative-approval'=>[true,false,true],
     'hint-detail-ok'=>[true,false,false], 'hint-courtesy-approval'=>[true,false,false]] as $case=>$hints) {
     $turn=gatesReady($case);
@@ -336,7 +404,8 @@ gatesExpect([$late['snapshot_complete'],$late['snapshot_current_at_read'],$late[
     [true,true,true,'CONFIRMED','CONFIRMED'],'delayed contact details preserve a valid historical confirmed snapshot '.json_encode($late));
 gatesExpect([$late['fresh_intent'],$late['fresh_automatic_evidence'],$late['candidate_plan_available']],[false,false,false],
     'post-activation contact data cannot make an old commitment fresh');
-foreach (['valid_plan','confirmed_customer_handoff','media_question_handoff','handoff_allowed','unasked_fields','render_ready','valid_marker','tombstone_state'] as $field)
+foreach (['valid_plan','confirmed_customer_handoff','media_question_handoff','general_question_handoff','handoff_allowed','approval_satisfied',
+    'unasked_fields','render_ready','valid_marker','tombstone_state'] as $field)
     gatesExpect($late[$field],'NOT_APPLICABLE','intent-null leaves downstream '.$field.' explicitly unevaluated');
 gatesExpect($late['tombstone_count'],null,'intent-null does not invent a tombstone query result');
 gatesExpect($late['latest_customer_fresh'],true,'a fresh latest contact row alone is accurately distinguished from fresh purchase intent');
@@ -366,6 +435,8 @@ foreach (['media-image','media-direct-image','media-image-empty-caption'] as $ca
     gatesExpect($media['post_final_customer_counts'],$case==='media-direct-image'
         ?['total'=>1,'null_text'=>1,'whole_positive_cited'=>0]:['total'=>2,'null_text'=>1,'whole_positive_cited'=>1],
         'bounded post-final counts distinguish direct media from separately cited prior approval');
+    gatesExpect([$media['general_question_handoff'],$media['approval_satisfied']],[true,false],
+        'captionless media permits missing-data questions while actual opaque-tail approval guard stays false');
 }
 foreach (['media-image-caption'=>['TEXT',29], 'media-image-null-caption'=>['NULL',null],
     'media-image-oversized-caption'=>['TEXT',16000], 'media-second-image'=>['ABSENT',null]] as $case=>$caption) {
@@ -373,7 +444,9 @@ foreach (['media-image-caption'=>['TEXT',29], 'media-image-null-caption'=>['NULL
     gatesExpect([$media['latest_image_authenticated'],$media['latest_image_caption_status'],$media['latest_image_caption_length'],$media['latest_image_reference_valid']],
         [true,$caption[0],$caption[1],true],'bounded raw authenticated image caption diagnostics observe '.$case);
     gatesExpect([$media['latest_text_present'],$media['confirmed_customer_handoff'],$media['media_question_handoff'],$media['handoff_allowed']],
-        [false,false,false,false],'raw caption or additional image cannot authorize missing-data handoff for '.$case);
+        [false,false,false,$case==='media-second-image'],'raw caption or additional image preserve the strict legacy media guard for '.$case);
+    gatesExpect([$media['general_question_handoff'],$media['approval_satisfied']],[$case==='media-second-image',false],
+        'general question handoff can inspect multiple authenticated media without granting approval');
     gatesExpect($media['post_final_customer_counts'],$case==='media-second-image'
         ?['total'=>3,'null_text'=>2,'whole_positive_cited'=>1]:['total'=>2,'null_text'=>1,'whole_positive_cited'=>1],
         'diagnostic counts show extra media without fabricating text or customer approval');
@@ -381,11 +454,55 @@ foreach (['media-image-caption'=>['TEXT',29], 'media-image-null-caption'=>['NULL
 $badReference=gatesReady('media-image-bad-reference');
 gatesExpect([$badReference['latest_image_authenticated'],$badReference['latest_image_reference_valid'],$badReference['media_question_handoff'],$badReference['handoff_allowed']],
     [true,false,false,false],'authenticated native envelope still requires a valid bounded image media reference');
-foreach (['media-image-bad-peer','media-image-invalid-caption'] as $case) {
+foreach (['media-image-bad-peer','media-image-invalid-caption','media-image-bad-timestamp','media-image-type-mismatch'] as $case) {
     $badImage=gatesReady($case);
     gatesExpect([$badImage['latest_image_authenticated'],$badImage['latest_image_caption_status'],$badImage['latest_image_caption_length'],
         $badImage['latest_image_reference_valid'],$badImage['media_question_handoff'],$badImage['handoff_allowed']],
         [false,'UNAUTHENTICATED',null,false,false,false],'unauthenticated native raw image cannot be handoff evidence or disclose caption metadata for '.$case);
+    gatesExpect([$badImage['general_question_handoff'],$badImage['approval_satisfied']],[false,false],
+        'failed native projection remains false for both new readonly guards');
+}
+$mixed=gatesReady('ordinary-mixed-media');
+gatesExpect([$mixed['post_final_customer_counts'],$mixed['latest_native_type'],$mixed['latest_positive_approval'],$mixed['media_question_handoff'],
+    $mixed['general_question_handoff'],$mixed['handoff_allowed'],$mixed['approval_satisfied']],
+    [['total'=>4,'null_text'=>3,'whole_positive_cited'=>0],'document',false,false,true,true,false],
+    'ordinary text plus three authentic mixed media can request missing facts but cannot approve the external recap');
+$mixedApproved=gatesReady('ordinary-mixed-then-positive');
+gatesExpect([$mixedApproved['post_final_customer_counts'],$mixedApproved['confirmed_customer_handoff'],$mixedApproved['latest_positive_approval'],
+    $mixedApproved['general_question_handoff'],$mixedApproved['handoff_allowed'],$mixedApproved['approval_satisfied']],
+    [['total'=>5,'null_text'=>3,'whole_positive_cited'=>1],true,true,true,true,false],
+    'positive text after ordinary/opaque tail does not bypass actual external-recapped order approval guard');
+$ordinary=gatesReady('ordinary-text');
+gatesExpect([$ordinary['latest_positive_approval'],$ordinary['confirmed_customer_handoff'],$ordinary['general_question_handoff'],
+    $ordinary['handoff_allowed'],$ordinary['approval_satisfied']],[false,false,true,true,false],
+    'ordinary factual text enables question handoff and forces factual recap before execution');
+$safeCaption=gatesReady('media-image-safe-caption');
+gatesExpect([$safeCaption['latest_text_present'],$safeCaption['latest_image_authenticated'],$safeCaption['latest_image_caption_status'],
+    $safeCaption['media_question_handoff'],$safeCaption['general_question_handoff'],$safeCaption['handoff_allowed'],$safeCaption['approval_satisfied']],
+    [false,true,'TEXT',false,true,true,false],'authenticated safe raw caption absent from DTO is visible to new guard but cannot count as customer approval');
+$whitespaceCaption=gatesReady('media-image-whitespace-caption');
+gatesExpect([$whitespaceCaption['latest_image_authenticated'],$whitespaceCaption['latest_image_caption_status'],$whitespaceCaption['latest_image_caption_length'],
+    $whitespaceCaption['media_question_handoff'],$whitespaceCaption['general_question_handoff'],$whitespaceCaption['handoff_allowed'],$whitespaceCaption['approval_satisfied']],
+    [true,'TEXT',3,false,true,true,false],'authenticated whitespace caption permits a question while staying opaque to customer approval');
+foreach (['media-image-refusal-caption','media-image-probe-caption','hint-negative-approval'] as $case) {
+    $blocked=gatesReady($case);
+    gatesExpect([$blocked['general_question_handoff'],$blocked['handoff_allowed'],$blocked['approval_satisfied']],
+        $case==='hint-negative-approval'?['NOT_APPLICABLE','NOT_APPLICABLE','NOT_APPLICABLE']:[false,false,false],
+        'native refusal/probe blocks the confirmed order question and approval for '.$case);
+    if ($case==='hint-negative-approval') gatesExpect($blocked['candidate_plan_available'],false,
+        'actual visible refusal has no fresh intent and cannot fabricate a candidate');
+}
+$priorRefusal=gatesReady('media-refusal-before-approval');
+gatesExpect([$priorRefusal['confirmed_customer_handoff'],$priorRefusal['latest_positive_approval'],$priorRefusal['general_question_handoff'],
+    $priorRefusal['handoff_allowed'],$priorRefusal['approval_satisfied']],[true,true,false,false,false],
+    'later positive DTO text cannot bypass an authenticated earlier raw-caption refusal');
+$ownPositive=gatesReady('own-recap-positive');
+gatesExpect([$ownPositive['general_question_handoff'],$ownPositive['handoff_allowed'],$ownPositive['approval_satisfied']],
+    [true,true,true],'real authenticated own recap can be approved by later cited whole positive text');
+foreach (['own-recap-before-positive','own-recap-after-positive','own-recap-media-before-positive','own-recap-media-after-positive'] as $case) {
+    $own=gatesReady($case);
+    gatesExpect([$own['candidate_plan_available'],$own['general_question_handoff'],$own['handoff_allowed'],$own['approval_satisfied']],
+        [true,true,true,false],'ordinary or opaque customer turn before/after positive text keeps own recap approval barrier for '.$case);
 }
 $branch=gatesReady('branch-mode'); gatesExpect($branch['fulfillment'],'PICKUP','explicit in-branch choice overrides address and phone');
 foreach (['tombstone-accepted'=>'ACCEPTED','tombstone-failed'=>'FAILED','tombstone-unknown'=>'UNKNOWN'] as $case=>$state) {

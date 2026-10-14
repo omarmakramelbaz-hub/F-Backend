@@ -25,7 +25,7 @@ function waFollowupGateTime($value,bool $iso=false): ?string
 function waFollowupGateInvoke($target,string $method,...$args)
 {
     $allowed=['snapshot','freshFollowupIntent','freshAutomaticEvidence','activationInstant','automaticActor',
-        'confirmedCustomerHandoff','confirmedMediaQuestionHandoff','positiveApproval','validPlan','unaskedFields'];
+        'confirmedCustomerHandoff','confirmedMediaQuestionHandoff','confirmedOrderQuestionHandoff','positiveApproval','validPlan','unaskedFields'];
     if (!in_array($method,$allowed,true)) throw new RuntimeException();
     $reflection=new ReflectionMethod($target,$method); $reflection->setAccessible(true);
     return $reflection->invoke(is_object($target)?$target:null,...$args);
@@ -46,7 +46,7 @@ try {
         'WhatsAppOrderAiProvider'=>'50dba4e16e2bec8811b6f37c3a6becf428d61a52',
         'WhatsAppReplyService'=>'f0373c39d4a00d3ae67366c34949712adfd51858',
         'WhatsAppOrderWorkflow'=>'e2b558a5de68080b85b12189e73239190aace507',
-        'WhatsAppOrderFollowupService'=>'f8cbd5f86aeedf34d5281aec3d960ff31dc8b6eb',
+        'WhatsAppOrderFollowupService'=>'919e1e1407792cfa0caefd868e1b3c79284e8a3c',
         'WhatsAppInboxAccess'=>'186789d42113e81818de8d82a2327e3ee9d8d0b5',
         'WhatsAppInboxMessage'=>'bedd91db5266d83bdce84a04836e988518891728',
     ];
@@ -174,7 +174,9 @@ try {
         'latest_after_final_cited_business'=>$latest!==null&&$final>=0&&$latestPosition>$final,
         'post_final_customer_counts'=>$postFinalCounts,
         'fulfillment'=>waFollowupGateEnum(\App\Services\Dashboard\WhatsAppOrderAiProvider::followupFulfillment($data,$transcript),['DELIVERY','PICKUP','UNKNOWN']),
-        'candidate_plan_available'=>false,'confirmed_customer_handoff'=>'NOT_APPLICABLE','media_question_handoff'=>'NOT_APPLICABLE','handoff_allowed'=>'NOT_APPLICABLE',
+        'candidate_plan_available'=>false,'confirmed_customer_handoff'=>'NOT_APPLICABLE','media_question_handoff'=>'NOT_APPLICABLE',
+        'general_question_handoff'=>'NOT_APPLICABLE','handoff_allowed'=>'NOT_APPLICABLE','approval_satisfied'=>'NOT_APPLICABLE',
+        'approval_scope'=>'APPROVAL_GUARD_ONLY_NOT_ERP_ELIGIBILITY',
         'valid_plan'=>'NOT_APPLICABLE','unasked_fields'=>'NOT_APPLICABLE','render_ready'=>'NOT_APPLICABLE','valid_marker'=>'NOT_APPLICABLE',
         'automatic_actor_available'=>false,'sender_state'=>['can_reply'=>null,'reason'=>'NOT_APPLICABLE','latest_inbound_id'=>null,'window_expires_at'=>null],
         'tombstone_state'=>'NOT_APPLICABLE','tombstone_count'=>null];
@@ -191,7 +193,11 @@ try {
         $out['confirmed_customer_handoff']=waFollowupGateInvoke($service,'confirmedCustomerHandoff',$plan)===true;
         try { $out['media_question_handoff']=waFollowupGateInvoke($service,'confirmedMediaQuestionHandoff',$plan)===true; }
         catch (Throwable $ignore) { $out['media_question_handoff']=false; }
+        try { $out['general_question_handoff']=waFollowupGateInvoke($service,'confirmedOrderQuestionHandoff',$plan)===true; }
+        catch (Throwable $ignore) { $out['general_question_handoff']=false; }
         $out['handoff_allowed']=$service->handoffAllowed($plan);
+        try { $out['approval_satisfied']=$service->approvalSatisfied($cid,$data,$snapshot,false)===true; }
+        catch (Throwable $ignore) { $out['approval_satisfied']=false; }
         $fields=waFollowupGateInvoke($service,'unaskedFields',$plan);
         if (!is_array($fields)||array_diff($fields,['LOCATION'])) throw new RuntimeException();
         $out['unasked_fields']=$fields;

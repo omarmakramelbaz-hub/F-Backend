@@ -54,12 +54,19 @@ HandoffAi::$data['evidence']['location_id']='m5'; HandoffAi::$data['issues']=['M
 handoffExpect(HandoffExtraction::validateDetailed(HandoffAi::$data,handoffSnapshot($c)['transcript'])['ok'],
     'actual pin answer keeps original merchant recap and customer acceptance valid');
 HandoffDB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]); $p=followupRun();
-handoffExpect($p['dispatched']===1&&HandoffAi::$calls===$calls+1
+handoffExpect($p['review_required']===1&&HandoffAi::$calls===$calls+1&&count(FollowupFixtureReplies::$sent)===2
+    &&FollowupFixtureReplies::$sent[1]['marker']['fields']===['CONFIRMATION']&&HandoffDB::table('test_tickets')->count()===0,
+    'new native pin fills location while a new owned factual recap asks approval before ERP');
+insertMessage($c,'wamid.handoff-owned-approval','inbound','موافق',361,null,'US.handoff-fixture');
+\Carbon\Carbon::setTestNow('2026-10-09 22:07:00');
+HandoffAi::$data['evidence']['confirmation_ids']=['m6']; HandoffAi::$data['evidence']['customer_acceptance_ids']=['m7'];
+HandoffDB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]); $p=followupRun();
+handoffExpect($p['dispatched']===1&&HandoffAi::$calls===$calls+2
     &&HandoffDB::table('test_tickets')->count()===1&&HandoffDB::table('test_tickets')->first()->branch==='f:363',
-    'new native pin resumes normal validation and dispatches exactly one intended-branch order');
+    'later positive approval of owned factual recap dispatches exactly one intended-branch order');
 handoffExpect(HandoffDB::table('test_print')->count()===1&&HandoffDB::table('test_tickets')->first()->payment_status==='unpaid'
     &&HandoffDB::table('test_billing')->count()===0,'handoff completion prints once and collects no payment');
-followupRun(); handoffExpect(HandoffDB::table('test_tickets')->count()===1&&count(FollowupFixtureReplies::$sent)===1,
+followupRun(); handoffExpect(HandoffDB::table('test_tickets')->count()===1&&count(FollowupFixtureReplies::$sent)===2,
     'completed handoff replay sends no extra question and creates no duplicate ERP');
 
 foreach (['حاضر','نعم','تمام موافق','موافق على الطلب','okay'] as $approval) {
@@ -77,18 +84,26 @@ handoffExpect(HandoffAi::$calls===$calls&&HandoffDB::table('whatsapp_order_draft
     'existing cached location review resumes without reextraction or rewritten facts/draft');
 handoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION'],
     'cached genuine positive-approved order uses new handoff without DB wake or activation change');
-foreach (['مش موافق','تمام بس غير الطلب','تمام، عنواني مكان آخر','قال لي العميل تمام','"تمام"','تمام؟','غير موافق'] as $approval) {
+foreach (['مش موافق','تمام بس غير الطلب','غير موافق','لا','No'] as $approval) {
     followupSetup(); handoffThread($approval); followupRun();
     handoffExpect(count(FollowupFixtureReplies::$sent)===0&&HandoffDB::table('test_tickets')->count()===0
         &&HandoffDB::table('branch_customers')->count()===0,'refusal/change/quotation/question cannot authorize handoff '.$approval);
 }
+foreach (['تمام، عنواني مكان آخر','قال لي العميل تمام','"تمام"','تمام؟','شكرا'] as $reply) {
+    followupSetup(); handoffThread($reply); followupRun();
+    handoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+        &&HandoffDB::table('test_tickets')->count()===0&&HandoffDB::table('branch_customers')->count()===0,
+        'ordinary details/quoted/courtesy tail asks missing facts without treating reply as consent '.$reply);
+}
 followupSetup(); $c=handoffThread();
 insertMessage($c,'wamid.handoff-later-data','inbound','الاسم عميل آخر',4,null,'US.handoff-fixture'); followupRun();
-handoffExpect(count(FollowupFixtureReplies::$sent)===0&&HandoffDB::table('test_tickets')->count()===0,
-    'older cited positive approval cannot hand off after latest new customer detail');
+handoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+    &&HandoffDB::table('test_tickets')->count()===0,
+    'latest customer detail permits missing-fact question but cannot reuse old approval for ERP');
 followupSetup(); handoffThread(); HandoffAi::$data['evidence']['customer_acceptance_ids']=[]; followupRun();
-handoffExpect(count(FollowupFixtureReplies::$sent)===0&&HandoffDB::table('test_tickets')->count()===0,
-    'uncited positive text does not establish the new handoff');
+handoffExpect(count(FollowupFixtureReplies::$sent)===1&&FollowupFixtureReplies::$sent[0]['marker']['fields']===['LOCATION']
+    &&HandoffDB::table('test_tickets')->count()===0,
+    'uncited positive text permits completion question while ERP waits for owned recap approval');
 followupSetup(); handoffThread(); HandoffAi::$data['decision']='DRAFT'; HandoffAi::$data['issues'][]='UNCONFIRMED'; followupRun();
 handoffExpect(count(FollowupFixtureReplies::$sent)===0&&HandoffDB::table('test_tickets')->count()===0,
     'the focused final-approval handoff cannot promote an unconfirmed DRAFT');
