@@ -74,6 +74,19 @@ PROTECTED_PINS = {'app/Services/Dashboard/WhatsAppReplyService.php': 'f80378c7b6
 PROTECTED_PROFILES = {'META_UNIFIED_MESSAGES': dict(PROTECTED_PINS),
     'META_MESSAGE_HUB':dict(PROTECTED_PINS,**{
         'app/Http/Controllers/Dashboard/WhatsAppInboxController.php':'6f1da086e5b930f8248eb856a09f0c9572fb9545'})}
+# The reviewed POS item editor adds an optional, default-false catalog row lock.
+# Accept its exact complete foundation without publishing or modifying that file.
+CATALOG_LOCK_OVERRIDE = {
+    'app/Services/Dashboard/TakeawayCatalog.php':'2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
+}
+PROTECTED_PROFILE_FOUNDATIONS = {
+    'META_UNIFIED_MESSAGES':'META_UNIFIED_MESSAGES',
+    'META_MESSAGE_HUB':'META_MESSAGE_HUB',
+    'META_UNIFIED_MESSAGES_CATALOG_LOCK':'META_UNIFIED_MESSAGES',
+    'META_MESSAGE_HUB_CATALOG_LOCK':'META_MESSAGE_HUB',
+}
+for foundation in ('META_UNIFIED_MESSAGES','META_MESSAGE_HUB'):
+    PROTECTED_PROFILES[foundation+'_CATALOG_LOCK']=dict(PROTECTED_PROFILES[foundation],**CATALOG_LOCK_OVERRIDE)
 # Observed existing root-owned configuration, read only. These files are never
 # publication targets, backups of configuration contents, or ownership changes.
 ROOT_READ_ONLY_CONFIGURATION = frozenset((
@@ -423,7 +436,7 @@ def verify_state(root,uid,expected_configuration,expected_sources,expected_prote
             or expected_profile not in PROTECTED_PROFILES):
         raise SafeError('META_AI_CONTROL_STATE_SCOPE_INVALID')
     matching=[name for name,values in BASELINE_SOURCE_PROFILES.items() if values==expected_sources]
-    if matching and not any(SOURCE_PROFILE_PROTECTED.get(name)==expected_profile for name in matching):
+    if matching and not any(SOURCE_PROFILE_PROTECTED.get(name)==PROTECTED_PROFILE_FOUNDATIONS.get(expected_profile) for name in matching):
         raise SafeError('META_AI_CONTROL_STATE_PROFILE_PAIR_INVALID')
     base.validate_root(root,uid)
     with locks(root,uid,held_locks):
@@ -486,7 +499,7 @@ def apply(root, uid, release, check_only=False, runner=base.command, pins=None, 
         profiles=dict(BASELINE_SOURCE_PROFILES,CURRENT={path:pair[1] for path,pair in pins.items()})
         source_profile=next((name for name,values in profiles.items() if observed==values),None)
         if source_profile is None:raise SafeError('META_AI_CONTROL_LIVE_SOURCE_NEEDS_REVIEW')
-        if source_profile!='CURRENT' and SOURCE_PROFILE_PROTECTED.get(source_profile)!=profile_name:
+        if source_profile!='CURRENT' and SOURCE_PROFILE_PROTECTED.get(source_profile)!=PROTECTED_PROFILE_FOUNDATIONS.get(profile_name):
             raise SafeError('META_AI_CONTROL_SOURCE_FOUNDATION_PAIR_NEEDS_REVIEW')
         sources=release_sources(root,uid,release,runner,pins)
         initial=readiness(root,runner,observed)

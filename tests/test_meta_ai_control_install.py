@@ -93,8 +93,16 @@ class AppFixture:
         for baseline in ('WHATSAPP_TAIL','WHATSAPP_CONTEXTUAL'):
             self.profiles[baseline+'_HUB']=dict(self.profiles[baseline],**{path:repair.blob(data) for path,data in self.hub.items()})
         self.hub_foundation=b'<?php /* shipped hub foundation */\n'
+        self.catalog_path='app/Support/Catalog.php'
+        self.catalog_original=b'<?php /* original catalog */\n'
+        self.catalog_locked=b'<?php /* reviewed optional catalog lock */\n'
+        self.protected[self.catalog_path]=repair.blob(self.catalog_original)
+        self.write(self.catalog_path,self.catalog_original)
         self.protected_profiles={'META_UNIFIED_MESSAGES':dict(self.protected),
-            'META_MESSAGE_HUB':{path:repair.blob(self.hub_foundation) for path in self.protected}}
+            'META_MESSAGE_HUB':dict(self.protected,**{'app/Support/Immutable.php':repair.blob(self.hub_foundation)})}
+        for foundation in ('META_UNIFIED_MESSAGES','META_MESSAGE_HUB'):
+            self.protected_profiles[foundation+'_CATALOG_LOCK']=dict(self.protected_profiles[foundation],
+                **{self.catalog_path:repair.blob(self.catalog_locked)})
         self.controls={'present':False,'fingerprint':None,'enabled':False,'default_disabled':False}
         self.fail_migrate=False;self.bad_seed=False
         self.runner_original=self.inner.runner
@@ -171,6 +179,17 @@ class MetaAiInstallTests(unittest.TestCase):
             with self.subTest(path=path):self.assertEqual(pin,repair.blob((ROOT/path).read_bytes()))
         self.assertEqual(wrapper.PUBLISHER_BLOB,repair.blob((ROOT/'deployment/apply_meta_ai_control.py').read_bytes()))
         for name,pin in wrapper.UNIT_PINS.items():self.assertEqual(pin,repair.blob((ROOT/'deployment/systemd'/name).read_bytes()))
+    def test_catalog_compatibility_uses_only_complete_exact_protected_profiles(self):
+        self.assertEqual(set(repair.PROTECTED_PROFILES),wrapper.PROFILE_NAMES)
+        self.assertEqual(set(repair.PROTECTED_PROFILES),set(repair.PROTECTED_PROFILE_FOUNDATIONS))
+        self.assertEqual(repair.CATALOG_LOCK_OVERRIDE,{
+            'app/Services/Dashboard/TakeawayCatalog.php':'2ff0e19675d8678dfb6ca738767eeaa99f95dc47'})
+        for foundation in ('META_UNIFIED_MESSAGES','META_MESSAGE_HUB'):
+            profile=foundation+'_CATALOG_LOCK'
+            self.assertEqual(repair.PROTECTED_PROFILES[profile],
+                dict(repair.PROTECTED_PROFILES[foundation],**repair.CATALOG_LOCK_OVERRIDE))
+            self.assertEqual(repair.PROTECTED_PROFILE_FOUNDATIONS[profile],foundation)
+        self.assertFalse(set(repair.CATALOG_LOCK_OVERRIDE)&set(repair.SOURCE_PINS))
     def test_readonly_preflight_never_migrates_publishes_or_stops_workers(self):
         out=self.f.apply(True);self.assertEqual(out['status'],'META_AI_CONTROL_PREFLIGHT_READY')
         self.f.originals(self);self.f.unchanged_config(self)
@@ -227,6 +246,93 @@ class MetaAiInstallTests(unittest.TestCase):
     def test_root_orchestrator_preserves_hub_profile_through_restart_guards(self):
         workers=WorkerFixture();workers.foundation='META_MESSAGE_HUB'
         self.assertEqual(workers.run()['protected_profile'],'META_MESSAGE_HUB')
+    def test_catalog_profiles_preflight_publish_and_verify_current_without_catalog_writes(self):
+        for hub in (False,True):
+            for contextual in (False,True):
+                with self.subTest(hub=hub,contextual=contextual),tempfile.TemporaryDirectory() as folder:
+                    fixture=AppFixture(folder)
+                    if contextual:
+                        for path,data in fixture.context.items():fixture.write(path,data)
+                    if hub:
+                        for path,data in fixture.hub.items():fixture.write(path,data)
+                        fixture.write('app/Support/Immutable.php',fixture.hub_foundation)
+                    fixture.write(fixture.catalog_path,fixture.catalog_locked)
+                    expected_profile=('META_MESSAGE_HUB' if hub else 'META_UNIFIED_MESSAGES')+'_CATALOG_LOCK'
+                    expected_source=('WHATSAPP_CONTEXTUAL' if contextual else 'WHATSAPP_TAIL')+('_HUB' if hub else '')
+                    before={path:repair.metadata(fixture.root/path) for path in fixture.protected}
+                    source_before={path:(fixture.root/path).read_bytes() if (fixture.root/path).exists() else None
+                        for path in fixture.pins}
+                    preflight=fixture.apply(True)
+                    self.assertEqual(preflight['protected_profile'],expected_profile)
+                    self.assertEqual(preflight['source_profile'],expected_source)
+                    self.assertEqual(source_before,{path:(fixture.root/path).read_bytes() if (fixture.root/path).exists() else None
+                        for path in fixture.pins})
+                    fixture.unchanged_config(self)
+                    self.assertFalse(any('artisan' in args or args[0]=='/usr/bin/systemctl' for args in fixture.calls))
+                    published=fixture.apply()
+                    self.assertEqual(published['protected_profile'],expected_profile)
+                    self.assertEqual(before,{path:repair.metadata(fixture.root/path) for path in fixture.protected})
+                    receipt=json.loads((pathlib.Path(published['backup'])/'receipt.json').read_text())
+                    self.assertEqual(receipt['protected_profile'],expected_profile)
+                    self.assertEqual(receipt['protected'],fixture.protected_profiles[expected_profile])
+                    fixture.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
+                    current=fixture.apply()
+                    self.assertEqual(current['status'],'META_AI_CONTROL_ALREADY_CURRENT')
+                    self.assertTrue(fixture.controls['enabled'])
+                    with fixture.patches(),mock.patch.object(repair.base,'command',fixture.runner):
+                        verified=repair.verify_state(fixture.root,fixture.uid,current['configuration_fingerprint'],
+                            current['sources'],current['protected_fingerprint'],expected_profile=expected_profile,
+                            expected_control=current['control_fingerprint'])
+                    self.assertEqual(verified['protected_profile'],expected_profile)
+                    self.assertEqual(before,{path:repair.metadata(fixture.root/path) for path in fixture.protected})
+    def test_catalog_profile_with_crossed_source_foundation_rejects_before_commands(self):
+        self.f.write(self.f.catalog_path,self.f.catalog_locked)
+        for path,data in self.f.hub.items():self.f.write(path,data)
+        with self.assertRaisesRegex(repair.SafeError,'SOURCE_FOUNDATION_PAIR'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+        for path,content in self.f.old.items():
+            if content is not None:self.f.write(path,content)
+        self.f.write('app/Support/Immutable.php',self.f.hub_foundation)
+        with self.assertRaisesRegex(repair.SafeError,'SOURCE_FOUNDATION_PAIR'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_catalog_restart_guard_refuses_crossed_complete_foundation(self):
+        with self.f.patches(),self.assertRaisesRegex(repair.SafeError,'STATE_PROFILE_PAIR_INVALID'):
+            repair.verify_state(self.f.root,self.f.uid,'b'*64,self.f.profiles['WHATSAPP_TAIL_HUB'],
+                'c'*64,expected_profile='META_UNIFIED_MESSAGES_CATALOG_LOCK')
+    def test_catalog_restart_guard_refuses_change_to_another_reviewed_catalog(self):
+        self.f.write(self.f.catalog_path,self.f.catalog_locked)
+        out=self.f.apply()
+        self.f.write(self.f.catalog_path,self.f.catalog_original)
+        with self.f.patches(),mock.patch.object(repair.base,'command',self.f.runner),\
+                self.assertRaisesRegex(repair.SafeError,'STATE_PROTECTED_CHANGED'):
+            repair.verify_state(self.f.root,self.f.uid,out['configuration_fingerprint'],out['sources'],
+                out['protected_fingerprint'],expected_profile=out['protected_profile'],expected_control=out['control_fingerprint'])
+    def test_catalog_variants_still_refuse_unreviewed_protected_drift(self):
+        self.f.write(self.f.catalog_path,self.f.catalog_locked)
+        self.f.write('app/Support/Immutable.php',b'<?php /* unrelated drift */\n')
+        with self.assertRaisesRegex(repair.SafeError,'PROTECTED_SOURCE_MISMATCH'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_catalog_change_during_preflight_never_reaches_publication(self):
+        self.f.write(self.f.catalog_path,self.f.catalog_locked)
+        changed=[False]
+        def hook(args):
+            if args[:2]==[repair.PHP,'-l'] and not changed[0]:
+                changed[0]=True;self.f.write(self.f.catalog_path,self.f.catalog_original)
+        self.f.inner.hook=hook
+        with self.assertRaisesRegex(repair.SafeError,'PROTECTED_SOURCE_CHANGED'):self.f.apply()
+        self.f.originals(self);self.f.unchanged_config(self)
+        self.assertFalse(any('artisan' in args or args[0]=='/usr/bin/systemctl' for args in self.f.calls))
+    def test_root_orchestrator_preserves_catalog_variant_in_each_restart_guard(self):
+        for foundation in ('META_UNIFIED_MESSAGES_CATALOG_LOCK','META_MESSAGE_HUB_CATALOG_LOCK'):
+            with self.subTest(foundation=foundation):
+                worker=WorkerFixture();worker.foundation=foundation;calls=[];original=worker.child
+                def child(*args,**kwargs):
+                    calls.append((args,kwargs));return original(*args,**kwargs)
+                result=worker.run(child)
+                self.assertEqual(result['protected_profile'],foundation)
+                state_calls=[args for args,kwargs in calls if args[5]=='state']
+                self.assertTrue(state_calls)
+                self.assertTrue(all(args[9]==foundation for args in state_calls))
     def test_unknown_protected_source_blocks_before_commands(self):
         self.f.write('app/Support/Immutable.php',b'<?php /* unknown */\n')
         with self.assertRaisesRegex(repair.SafeError,'PROTECTED_SOURCE_MISMATCH'):self.f.apply()

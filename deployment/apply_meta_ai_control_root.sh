@@ -21,11 +21,12 @@ import time
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 SYSTEMCTL='/usr/bin/systemctl'
-PUBLISHER_BLOB='43e1b60a87c02473b4fcae2ed2321ddc50019e72'
+PUBLISHER_BLOB='a6bafd7e5ac55e420214f619c638b1985dcae3a1'
 BASE_BLOB='f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 HELPERS={'apply_meta_ai_control.py':PUBLISHER_BLOB,'install_whatsapp_inbox.py':BASE_BLOB}
 SOURCE_ROSTER=('app/Support/MetaAiSchedule.php', 'app/Services/Dashboard/MetaBusinessAgent.php', 'app/Services/Dashboard/MetaAiControl.php', 'app/Support/WhatsAppOrderDialogue.php', 'app/Support/WhatsAppOrderExtraction.php', 'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php', 'app/Services/Dashboard/WhatsAppOrderAiProvider.php', 'app/Services/Dashboard/WhatsAppOrderFollowupService.php', 'app/Services/Dashboard/MetaOrderNativeEvidence.php', 'app/Services/Dashboard/MetaOrderFollowupService.php', 'app/Services/Dashboard/MetaMediaService.php', 'app/Services/Dashboard/MetaReplyService.php', 'app/Services/Dashboard/WhatsAppOrderWorkflow.php', 'app/Services/Dashboard/MetaOrderWorkflow.php', 'app/Services/Dashboard/MetaInboxConsumer.php', 'app/Http/Controllers/Dashboard/MetaAiControlController.php', 'app/Console/Commands/ProcessMetaAiMessages.php', 'database/migrations/2026_10_15_000001_create_meta_ai_controls.php', 'resources/views/admin/meta/ai_controls.blade.php', 'public/js/dashboard-meta-ai-controls.js', 'public/css/dashboard-meta-ai-controls.css', 'routes/meta_ai_controls.php', 'resources/views/admin/meta/channels.blade.php', 'routes/meta_inbox.php')
-PROFILE_NAMES=frozenset(('META_UNIFIED_MESSAGES','META_MESSAGE_HUB'))
+PROFILE_NAMES=frozenset(('META_UNIFIED_MESSAGES','META_MESSAGE_HUB',
+    'META_UNIFIED_MESSAGES_CATALOG_LOCK','META_MESSAGE_HUB_CATALOG_LOCK'))
 UNITS=tuple('fasakhansta-whatsapp-'+v for v in ('capture.timer','capture.service','orders.timer','orders.service'))+(
     'fasakhansta-meta-messaging.timer','fasakhansta-meta-messaging.service',
     'fasakhansta-meta-ai.timer','fasakhansta-meta-ai.service')
