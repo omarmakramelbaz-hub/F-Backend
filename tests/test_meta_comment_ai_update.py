@@ -131,6 +131,35 @@ class WrapperTests(unittest.TestCase):
             with self.subTest(flags=flags): self.assertNotEqual(self.parse(*flags).returncode,0)
 
 
+class ProbeTests(unittest.TestCase):
+    def test_safe_source_checkpoint_survives_probe_failure(self):
+        detail={'phase':'verify','step':'view_compile','type':'ErrorException','file':'Filesystem.php','line':41}
+        response=types.SimpleNamespace(returncode=1,stdout=json.dumps({'ok':False,'reason':'AI_READINESS_FAILED','diagnostic':detail}).encode())
+        with mock.patch.object(updater.subprocess,'run',return_value=response):
+            with self.assertRaisesRegex(RuntimeError,r'AI_READINESS_FAILED: verify/view_compile/ErrorException/Filesystem.php:41'):
+                updater.probe(PACKAGE,'php','diagnostic','verify',PACKAGE,'views')
+
+    def test_private_or_untrusted_diagnostic_fields_are_not_reflected(self):
+        detail={'phase':'verify','step':'private token text','type':'ErrorException','file':'/private/key.php','line':41}
+        message=updater.readiness_failure({'reason':'PRIVATE_TOKEN','diagnostic':detail},'verify')
+        self.assertEqual(message,'AI_READINESS_FAILED: verify')
+
+    def test_invalid_stdout_is_distinct_and_never_echoed(self):
+        response=types.SimpleNamespace(returncode=1,stdout=b'private provider token')
+        with mock.patch.object(updater.subprocess,'run',return_value=response):
+            with self.assertRaisesRegex(RuntimeError,r'^AI_READINESS_OUTPUT_INVALID: post_migration$'):
+                updater.probe(PACKAGE,'php','diagnostic','post_migration',PACKAGE,'views')
+
+    def test_application_readability_reports_only_reviewed_relative_path(self):
+        relative='resources/views/admin/meta/comments.blade.php'
+        with mock.patch.object(updater,'owned_command',return_value=json.dumps([str(PACKAGE/relative)]).encode()):
+            with self.assertRaisesRegex(RuntimeError,r'^APPLICATION_FILE_NOT_READABLE: resources/views/admin/meta/comments.blade.php$'):
+                updater.readable_sources(PACKAGE,'php',[relative])
+        with mock.patch.object(updater,'owned_command',return_value=b'["/private/secret"]'):
+            with self.assertRaisesRegex(RuntimeError,r'^APPLICATION_READABILITY_CHECK_FAILED$'):
+                updater.readable_sources(PACKAGE,'php',[relative])
+
+
 class InstallTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.temp.name)/'public_html'; self.root.mkdir()
@@ -189,6 +218,7 @@ class InstallTests(unittest.TestCase):
     def execute(self,check=False,timer=False,repair=False):
         output=io.StringIO()
         with mock.patch.object(updater,'source',side_effect=self.source), mock.patch.object(updater,'owned_command',side_effect=self.owned), \
+             mock.patch.object(updater,'readable_sources'), \
              mock.patch.object(updater,'probe',side_effect=self.probe), mock.patch.object(updater,'UNIT_ROOT',self.unit_root), \
              mock.patch.object(updater,'timer_state',side_effect=lambda:json.loads(json.dumps(self.unit_state))), mock.patch.object(updater,'system_command',side_effect=self.system_command), \
              contextlib.redirect_stdout(output):

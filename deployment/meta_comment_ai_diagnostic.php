@@ -57,7 +57,7 @@ function metaCommentAiUniqueIndexes($connection, string $table): bool
     return true;
 }
 // END COMMENT AI UNIQUE INDEX CHECK
-$level = ob_get_level(); ob_start(); $exit = 1; $out = ['ok' => false];
+$level = ob_get_level(); ob_start(); $exit = 1; $out = ['ok' => false]; $step = 'bootstrap';
 try {
     $root = $argv[1] ?? '/home/fasakha/public_html';
     $phase = $argv[2] ?? 'diagnostic';
@@ -72,6 +72,7 @@ try {
     $app = require $root.'/bootstrap/app.php';
     $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
     if (config('desktop_dashboard.local', false)) throw new \RuntimeException('LIVE_SERVER_REQUIRED');
+    $step = 'access';
     $owner = \App\Models\User::query()->find(1);
     $access = $app->make(\App\Services\Dashboard\MetaInboxAccess::class);
     if (!$owner || !$access->canAccess($owner) || !$access->available()) throw new \RuntimeException('CENTRAL_INBOX_NOT_READY');
@@ -83,6 +84,7 @@ try {
     ];
     $tables = []; $counts = [];
     foreach ($columns as $table => $required) {
+        $step = 'schema:'.$table;
         $tables[$table] = \Illuminate\Support\Facades\Schema::hasTable($table);
         if ($tables[$table] && !\Illuminate\Support\Facades\Schema::hasColumns($table, $required)) throw new \RuntimeException('AI_SCHEMA_DIFFERS');
         if ($tables[$table] && !metaCommentAiUniqueIndexes(\Illuminate\Support\Facades\DB::connection(), $table)) throw new \RuntimeException('AI_UNIQUE_GUARDS_MISSING');
@@ -90,17 +92,23 @@ try {
     }
     if (!$tables['meta_comment_reply_requests']) throw new \RuntimeException('COMMENTS_LEDGER_MISSING');
     $ready = !in_array(false, $tables, true);
+    $step = 'policy';
     $policy = $ready ? $app->make(\App\Services\Dashboard\MetaCommentAiControl::class)->snapshot() : null;
     if ($ready && $policy === null) throw new \RuntimeException('AI_POLICY_INVALID');
+    $step = 'provider';
     $configured = $app->make(\App\Services\Dashboard\MetaCommentAiProvider::class)->ready();
+    $step = 'accounts';
     $accounts = \App\Services\Dashboard\MetaInboxAccess::accounts();
     $connected = count(array_filter($accounts, static fn ($a) => is_string($a['access_token'] ?? null)
         && strlen($a['access_token']) >= 16 && strlen($a['access_token']) <= 4096));
     $caches = []; $compiled = 0;
     if (isset($argv[4])) {
+        $step = 'view_manifest';
         $views = json_decode(file_get_contents($argv[4]), true, 32, JSON_THROW_ON_ERROR);
         foreach ($views as $relative => $path) {
+            $step = 'view_compile';
             $code = $app['blade.compiler']->compileString(file_get_contents($path)); token_get_all($code, TOKEN_PARSE);
+            $step = 'view_cache_path';
             $cache = $app['blade.compiler']->getCompiledPath($root.'/'.$relative);
             $prefix = $root.'/storage/framework/views/';
             if (strncmp($cache, $prefix, strlen($prefix)) !== 0 || !preg_match('/^[a-f0-9]+\\.php$/D', substr($cache, strlen($prefix)))) throw new \RuntimeException('VIEW_CACHE_PATH_UNSUPPORTED');
@@ -111,6 +119,7 @@ try {
     if ($phase === 'verify') {
         if (!$ready) throw new \RuntimeException('AI_TABLES_NOT_READY');
         foreach (['status' => 'GET', 'update' => 'POST'] as $action => $method) {
+            $step = 'route:'.$action;
             $name = 'meta-comment-ai.'.$action;
             $route = $app['router']->getRoutes()->getByName($name);
             $methods = $route ? $route->methods() : []; sort($methods);
@@ -128,6 +137,7 @@ try {
             $verified++;
         }
     }
+    $step = 'result';
     $out = ['ok' => true, 'tables_ready' => $ready, 'tables' => $tables, 'counts' => $counts,
         'configured' => (bool) $configured, 'policy_present' => $policy !== null,
         'configured_accounts' => $connected,
@@ -139,7 +149,12 @@ try {
 } catch (\Throwable $error) {
     $known = ['LIVE_SERVER_REQUIRED','CENTRAL_INBOX_NOT_READY','AI_SCHEMA_DIFFERS','COMMENTS_LEDGER_MISSING',
         'AI_POLICY_INVALID','VIEW_CACHE_PATH_UNSUPPORTED','AI_TABLES_NOT_READY','AI_ROUTES_INVALID','AI_UNIQUE_GUARDS_MISSING'];
-    $out = ['ok' => false, 'reason' => in_array($error->getMessage(), $known, true) ? $error->getMessage() : 'AI_READINESS_FAILED'];
+    $out = ['ok' => false, 'reason' => in_array($error->getMessage(), $known, true) ? $error->getMessage() : 'AI_READINESS_FAILED',
+        // Fixed checkpoint and source location only; never exception messages, SQL, arguments or credentials.
+        'diagnostic' => ['phase' => in_array($phase ?? null, ['preflight','post_migration','verify','diagnostic'], true) ? $phase : 'diagnostic',
+            'step' => $step, 'type' => get_class($error),
+            'file' => $error->getFile() !== '' ? basename($error->getFile()) : ($step === 'view_compile' ? 'compiled-view.php' : basename(__FILE__)),
+            'line' => $error->getLine()]];
 }
 while (ob_get_level() > $level) ob_end_clean();
 echo json_encode($out, JSON_UNESCAPED_SLASHES)."\n"; exit($exit);

@@ -14,7 +14,7 @@
     "public/js/dashboard-meta-comment-ai.js": "1c8b2cff7542e91c55faf694143698f44392800a",
     "public/css/dashboard-meta-comment-ai.css": "5d72796437513511b610442f942933fb00445719",
     "database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php": "3bf661df37f1d4ed4529fe1d995e829bb4acfda0",
-    "deployment/meta_comment_ai_diagnostic.php": "5b08abaaeb0d28e5564b13d77e7951a160aff46d",
+    "deployment/meta_comment_ai_diagnostic.php": "74225d9dbfce6940bc46d8afa6433a9f4e3e982a",
     "routes/meta_comment_ai.php": "cd7c48d4e091921b127568269e8139414aa38e48",
     "app/Services/Dashboard/MetaCommentsService.php": "b07c711a7e2eca9ba17b35892f9318d0e57aea85",
     "app/Http/Controllers/Dashboard/MetaCommentsController.php": "a33144b168f0ef0e2e63ad457abac9c9d64004c9",

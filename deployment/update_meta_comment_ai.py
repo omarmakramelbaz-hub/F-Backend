@@ -135,6 +135,37 @@ def owned_command(root, arguments):
     return result.stdout
 
 
+def readable_sources(root, php, relatives):
+    """Staging uses 0644; check the live files as the actual application user too."""
+    script = ('$paths=json_decode($argv[1],true,32,JSON_THROW_ON_ERROR);$bad=[];'
+              'foreach($paths as $path){if(!is_readable($path))$bad[]=$path;}'
+              'echo json_encode($bad,JSON_THROW_ON_ERROR);')
+    paths = [str(root / relative) for relative in relatives]
+    try:
+        unreadable = json.loads(owned_command(root, [php, '-r', script, json.dumps(paths)]))
+    except (ValueError, TypeError):
+        raise RuntimeError('APPLICATION_READABILITY_CHECK_FAILED')
+    if not isinstance(unreadable, list) or any(path not in paths for path in unreadable):
+        raise RuntimeError('APPLICATION_READABILITY_CHECK_FAILED')
+    if unreadable:
+        raise RuntimeError('APPLICATION_FILE_NOT_READABLE: ' + str(pathlib.Path(unreadable[0]).relative_to(root)))
+
+
+def readiness_failure(data, phase):
+    known = {'LIVE_SERVER_REQUIRED','CENTRAL_INBOX_NOT_READY','AI_SCHEMA_DIFFERS','COMMENTS_LEDGER_MISSING',
+             'AI_POLICY_INVALID','VIEW_CACHE_PATH_UNSUPPORTED','AI_TABLES_NOT_READY','AI_ROUTES_INVALID','AI_UNIQUE_GUARDS_MISSING'}
+    reason = data.get('reason') if isinstance(data, dict) else None
+    reason = reason if reason in known else 'AI_READINESS_FAILED'
+    detail = data.get('diagnostic') if isinstance(data, dict) else None
+    if isinstance(detail, dict) and detail.get('phase') == phase \
+            and isinstance(detail.get('step'), str) and re.fullmatch('[a-z][a-z0-9_:]{0,79}', detail['step']) \
+            and isinstance(detail.get('type'), str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_\\]{0,159}', detail['type']) \
+            and isinstance(detail.get('file'), str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}\.php', detail['file']) \
+            and type(detail.get('line')) is int and 0 < detail['line'] < 1000000:
+        return reason + ': ' + phase + '/' + detail['step'] + '/' + detail['type'] + '/' + detail['file'] + ':' + str(detail['line'])
+    return reason + ': ' + phase
+
+
 def source(root, revision, relative):
     data = owned_command(root, ['git', '-C', str(root), 'show', revision + ':' + relative])
     expected = owned_command(root, ['git', '-C', str(root), 'rev-parse', revision + ':' + relative]).decode().strip()
@@ -203,18 +234,15 @@ def probe(root, php, script, phase, stage, views):
     try:
         data = json.loads(result.stdout)
     except (ValueError, TypeError):
-        raise RuntimeError('AI_READINESS_FAILED')
+        raise RuntimeError('AI_READINESS_OUTPUT_INVALID: ' + phase)
     if result.returncode or not isinstance(data, dict) or data.get('ok') is not True:
-        known={'LIVE_SERVER_REQUIRED','CENTRAL_INBOX_NOT_READY','AI_SCHEMA_DIFFERS','COMMENTS_LEDGER_MISSING',
-               'AI_POLICY_INVALID','VIEW_CACHE_PATH_UNSUPPORTED','AI_TABLES_NOT_READY','AI_ROUTES_INVALID','AI_UNIQUE_GUARDS_MISSING'}
-        reason=data.get('reason') if isinstance(data,dict) else None
-        raise RuntimeError(reason if reason in known else 'AI_READINESS_FAILED')
+        raise RuntimeError(readiness_failure(data, phase))
     if not isinstance(data.get('tables'),dict) or type(data['tables'].get('meta_comment_ai_settings')) is not bool \
             or type(data.get('tables_ready')) is not bool or type(data.get('configured')) is not bool \
             or (data.get('enabled') is not None and type(data['enabled']) is not bool) \
             or data.get('mode') not in (None,'always','scheduled') \
             or type(data.get('verified_routes')) is not int or data['verified_routes'] != (2 if phase=='verify' else 0):
-        raise RuntimeError('AI_READINESS_FAILED')
+        raise RuntimeError('AI_READINESS_RESULT_INVALID: ' + phase)
     caches = data.get('view_caches')
     if not isinstance(caches, list) or len(caches) != len(set(caches)) or any(not isinstance(p, str) or not re.fullmatch(
             r'storage/framework/views/[a-f0-9]+\.php', p) for p in caches):
@@ -322,6 +350,7 @@ def install_locked(root, release, manifest, php, check_only, uid, gid, repair_pe
                 (stage / name).write_bytes(payload)
         prior_timer = timer_state() if install_timer else None
         if install_timer: system_command(['systemd-analyze', 'verify', *[str(stage / name) for name in UNIT_NAMES]])
+        readable_sources(root, php, [path for path, old in originals.items() if old is not None])
         view_manifest = stage / 'views.json'; view_manifest.write_text(json.dumps(views)); view_manifest.chmod(0o644)
         readiness = probe(root, php, stage / DIAGNOSTIC, 'preflight', stage, view_manifest)
         compiled = readiness['view_caches']
@@ -362,26 +391,32 @@ def install_locked(root, release, manifest, php, check_only, uid, gid, repair_pe
                         or published['uid'] != target_uid or published['gid'] != target_gid:
                     raise RuntimeError('CONCURRENT_EDIT: '+relative)
                 written[relative] = published
+        install_phase = 'publish_dependencies'
         try:
             for relative, old in originals.items():
                 if live(relative) != old: raise RuntimeError('CONCURRENT_EDIT: ' + relative)
             for relative in NEW_FILES: publish(relative)
+            install_phase = 'migration'
             owned_command(root, [php, 'artisan', 'migrate', '--path='+MIGRATION, '--force', '--no-interaction'])
-            migrated = probe(root, php, stage / DIAGNOSTIC, 'preflight', stage, view_manifest)
+            install_phase = 'post_migration'
+            migrated = probe(root, php, stage / DIAGNOSTIC, 'post_migration', stage, view_manifest)
             if migrated.get('tables_ready') is not True: raise RuntimeError('AI_TABLES_NOT_READY')
             if not readiness['tables']['meta_comment_ai_settings'] and migrated.get('enabled') is not False:
                 raise RuntimeError('NEW_POLICY_MUST_BE_OFF')
+            install_phase = 'publish_page'
             for relative in AFTER_MIGRATION: publish(relative)
             for relative, old in caches.items():
                 if snapshot(root/relative, uid) != old: raise RuntimeError('CONCURRENT_VIEW_CACHE_EDIT')
                 if old:
                     (root/relative).unlink(); invalidated.append(relative)
             view_manifest.write_text(json.dumps({p:str(root/p) for p in views}))
+            install_phase = 'verify'
             result = probe(root, php, root / DIAGNOSTIC, 'verify', root, view_manifest)
             if result['view_caches'] != compiled: raise RuntimeError('CONCURRENT_VIEW_CONFIGURATION_EDIT')
             for relative, published in written.items():
                 if snapshot(root/relative, uid) != published: raise RuntimeError('CONCURRENT_EDIT: '+relative)
             if install_timer:
+                install_phase = 'timer'
                 # A oneshot worker may naturally finish while preflight/publication runs.
                 # Only the timer's enable/active policy must remain stable here.
                 if timer_state()[UNIT_NAMES[1]] != prior_timer[UNIT_NAMES[1]]: raise RuntimeError('CONCURRENT_TIMER_STATE_EDIT')
@@ -445,7 +480,8 @@ def install_locked(root, release, manifest, php, check_only, uid, gid, repair_pe
                     old=caches[relative]; atomic(root/relative,old['bytes'],old['mode'],old['uid'],old['gid'])
                 except (OSError,RuntimeError): complete=False
             print(json.dumps({'status':'META_COMMENT_AI_FAILED','rollback':'RESTORED' if complete else 'NEEDS_REVIEW',
-                              'backup':str(backup),'tables_retained':metadata['tables_retained'],'provider_requests':0}))
+                              'backup':str(backup),'tables_retained':metadata['tables_retained'],'provider_requests':0,
+                              'phase':install_phase}))
             raise
 
 

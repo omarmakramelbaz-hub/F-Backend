@@ -30,7 +30,7 @@ runuser -u fasakha -- /opt/cpanel/ea-php82/root/usr/bin/php deployment/meta_comm
 systemctl status fasakhansta-meta-comment-ai.timer --no-pager
 ```
 
-The CLI-only diagnostic reports schema/guard readiness, numeric counts, configured-account count, provider configuration, policy enabled/mode and worker heartbeat presence. It prints no tokens, customer/comment text, provider response, account IDs or private model credentials and makes no provider call. The command `artisan meta:process-comment-replies --check` is also read-only; it does not run the actual worker.
+The CLI-only diagnostic reports schema/guard readiness, numeric counts, configured-account count, provider configuration, policy enabled/mode and worker heartbeat presence. Failed checks include only the phase, fixed checkpoint, exception class, source basename and line; exception messages, SQL, trace arguments and process output are never reflected. The installer distinguishes malformed output from invalid result contracts and identifies the publication phase in a rollback report. Preflight additionally checks existing source readability as `fasakha`, because staged copies are always readable even when a live file is not. It prints no tokens, customer/comment text, provider response, account IDs or private model credentials and makes no provider call. The command `artisan meta:process-comment-replies --check` is also read-only; it does not run the actual worker.
 
 Root-only source/cache/unit backups and previous timer state are recorded under `/home/fasakha/meta-comment-ai-backups/`. A failed apply restores only leaves that still match its published snapshots, preserves intervening operator edits, and reports `RESTORED` or `NEEDS_REVIEW`. New database tables and migration records always remain; no automatic migration down, table drop, receipt reset or historical resend occurs. Dedicated timer changes made by a failed apply are reverted when the units still match this release.
 
@@ -41,6 +41,7 @@ Verification uses isolated fixtures and no live replies:
 ```bash
 python3 tests/test_meta_comment_ai_update.py
 bash -n deployment/apply_meta_comment_ai_root.sh
+META_COMMENT_AI_LARAVEL_VENDOR=/path/to/laravel8/vendor php tests/meta_comment_ai_diagnostic_test.php
 ```
 
 The deployment suite covers e077/991 variants, exact pins, preserved concurrent route/source work, read-only preflight, strict/opt-in permissions, targeted migration, read-only unique-index metadata, dedicated timer behavior, source/cache/unit restoration and concurrent-edit preservation. Runtime provider/control/worker/gate and full-page browser tests are separate. After deployment, refresh the comments page, confirm OFF and timer readiness, then use the Owner control to choose continuous or scheduled operation when ready.
