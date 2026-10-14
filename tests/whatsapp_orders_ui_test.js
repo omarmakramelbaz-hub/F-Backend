@@ -33,8 +33,10 @@ class Element {
     }
 }
 
-function fixture() {
-    const panel = new Element(), host = new Element(), document = new Element(), window = new Element();
+function orderPane(withDrawer) {
+    const panel = new Element(), host = new Element();
+    const drawer = withDrawer ? new Element('details') : null;
+    if (drawer) drawer.open = false;
     const bootstrap = new Element('script'), elements = {}, fields = {};
     const form = new Element('form');
     ['status', 'proposed', 'items', 'quote', 'analyze', 'reload', 'calculate', 'dispatch', 'add', 'search',
@@ -51,23 +53,33 @@ function fixture() {
         fields[name] = element; elements['[data-wa-order-field="' + name + '"]'] = element;
     });
     panel.querySelector = selector => elements[selector];
-    host.querySelector = selector => selector === '[data-wa-orders]' ? panel : null;
-    document.getElementById = id => id === 'whatsapp-inbox' ? host : id === 'whatsapp-orders-bootstrap' ? bootstrap : null;
+    host.querySelector = selector => selector === '[data-wa-orders]' ? panel : selector === '[data-wa-order-drawer]' ? drawer : null;
+    return {panel, host, bootstrap, elements, fields, form, drawer};
+}
+
+function fixture(withDrawer = true, withSocial = false) {
+    const primary = orderPane(withDrawer), social = withSocial ? orderPane(withDrawer) : null;
+    const {panel, host, bootstrap, elements, fields, form, drawer} = primary;
+    const document = new Element(), window = new Element();
+    const nodes = {'whatsapp-inbox': host, 'whatsapp-orders-bootstrap': bootstrap};
+    if (social) { nodes['meta-social-inbox'] = social.host; nodes['meta-social-orders-bootstrap'] = social.bootstrap; }
+    document.getElementById = id => nodes[id] || null;
     document.createElement = tag => new Element(tag); document.hidden = false;
     window.location = {href: 'https://example.test/admin/whatsapp'};
     const state = {calls: [], cleanup: [], redirected: false, status: 200, quoteHold: null, dispatchHold: null,
-        inboxDestroyed: 0, aiReady: true, maps: [], timers: new Map(), timerId: 0, mode: 'review',
+        inboxDestroyed: 0, metaInboxDestroyed: 0, aiReady: true, maps: [], timers: new Map(), timerId: 0, mode: 'review',
         customerHold: false, addressHold: false, deliveryHold: false};
     window.setTimeout = (callback, ms) => { const id = ++state.timerId; state.timers.set(id, {callback, ms}); return id; };
     window.clearTimeout = id => state.timers.delete(id);
     window.DashboardLocationPicker = {create: (element, options) => {
         const map = {options, routes: [], pins: [], destroyed: false, clear() { this.pins = []; },
             set(lat, lng) { this.pins.push([lat, lng]); }, route(value) { this.routes.push(value); },
-            invalidate() {}, resize() {}, destroy() { this.destroyed = true; }};
+            invalidate() {}, resizeCount: 0, resize() { this.resizeCount++; }, destroy() { this.destroyed = true; }};
         state.maps.push(map); return map;
     }};
     window.DashboardSPA = {isCurrentPage: () => true, onCleanup: callback => state.cleanup.push(callback)};
     window.DashboardWhatsAppInbox = {selection: () => 0, destroy: () => { state.inboxDestroyed++; }};
+    window.DashboardMetaInbox = {selection: () => 0, destroy: () => { state.metaInboxDestroyed++; }};
     const labels = {};
     ['choose_branch', 'loading', 'unavailable', 'denied', 'offline', 'empty', 'pending', 'changed',
         'review', 'none', 'cancelled', 'failed', 'ready', 'dispatched', 'quote_expired', 'not_configured',
@@ -81,6 +93,11 @@ function fixture() {
         conversations_base_url: 'https://example.test/admin/whatsapp/conversations',
         drafts_base_url: 'https://example.test/admin/whatsapp/orders', csrf: 'fixture-csrf', labels};
     bootstrap.textContent = JSON.stringify(config);
+    if (social) social.bootstrap.textContent = JSON.stringify({...config,
+        meta_url: 'https://example.test/admin/meta/orders/meta',
+        catalog_url: 'https://example.test/admin/meta/orders/catalog',
+        conversations_base_url: 'https://example.test/admin/meta/conversations',
+        drafts_base_url: 'https://example.test/admin/meta/orders'});
     function draft(conversation, status = 'REVIEW', revision = 1) {
         return {id: conversation + 100, revision, conversation_id: conversation, status, ticket_id: status === 'DISPATCHED' ? 201 : null,
             data: {customer: {name: '<img src=x onerror=alert(1)> customer ' + conversation, phone: '01000000001',
@@ -96,13 +113,14 @@ function fixture() {
         assert.strictEqual(options.headers.Authorization, undefined, 'No provider credential belongs in the browser');
         if (options.method) assert.strictEqual(options.headers['X-CSRF-TOKEN'], config.csrf);
         const parsed = new URL(url), pathname = parsed.pathname;
+        const source = pathname.startsWith('/admin/meta/') ? 'meta' : 'whatsapp';
         const conversation = Number((pathname.match(/conversations\/(\d+)/) || [])[1]) || 1;
         let data;
         if (pathname.endsWith('/meta')) data = {success: true, available: true, ai_ready: state.aiReady, can_checkout: true,
             mode: state.mode, branches: [{value: 'f:1', name: 'Fixture branch'}, {value: 'f:2', name: 'Other branch'}],
             maps: {open_enabled: true, tile_url: 'https://tiles.test/{z}/{x}/{y}.png'},
             urls: Object.fromEntries(['customers', 'delivery-settings', 'delivery-quote', 'address-suggestions']
-                .map(key => [key.replace(/-/g, '_'), 'https://example.test/admin/whatsapp/orders/' + key]))};
+                .map(key => [key.replace(/-/g, '_'), 'https://example.test/admin/' + source + '/orders/' + key]))};
         else if (pathname.endsWith('/catalog')) data = {success: true,
             items: [{id: 11, name: '<script>catalog product</script>', available: true, options: []}], pagination: {page: 1, last_page: 1}};
         else if (pathname.endsWith('/delivery-settings')) data = {success: true, settings: {ready: true, latitude: 30, longitude: 31, km_price: '50.00'}};
@@ -134,7 +152,7 @@ function fixture() {
         fetch, console, CustomEvent: class { constructor(type, details) { this.type = type; this.detail = details.detail; } }};
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public/js/dashboard-whatsapp-orders.js'), 'utf8'), context);
-    return {panel, host, document, window, elements, fields, form, state, context, labels};
+    return {panel, host, document, window, elements, fields, form, drawer, state, context, labels, social, nodes};
 }
 
 async function settle() { for (let index = 0; index < 10; index++) await new Promise(setImmediate); }
@@ -338,8 +356,104 @@ async function serverAutomationReadOnlyRefresh() {
     test.state.cleanup[0](); assert.strictEqual(test.state.timers.size, 0);
 }
 
+async function compactReviewDrawerMap() {
+    const test = fixture();
+    test.drawer.open = true; test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(test.state.calls.length, 0, 'Opening an empty review drawer cannot fetch customer data or analyze orders');
+    test.drawer.open = false;
+    select(test, 1); await settle();
+    assert.strictEqual(test.state.maps.length, 1);
+    const map = test.state.maps[0], count = map.resizeCount, requests = test.state.calls.length;
+    test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count, 'Closing the review drawer does not resize a hidden map');
+    test.drawer.open = true; test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count + 1, 'Opening the compact review drawer repairs the map initialized at zero size');
+    assert.strictEqual(test.state.calls.length, requests, 'A map resize makes no quote, AI or dispatch request');
+    test.state.cleanup[0]();
+    assert.strictEqual(test.drawer.listeners.toggle.length, 0, 'SPA cleanup removes the drawer listener');
+    test.drawer.dispatchEvent({type: 'toggle'});
+    assert.strictEqual(map.resizeCount, count + 1, 'A detached drawer cannot resize a destroyed map');
+    const legacy = fixture(false); select(legacy, 1); await settle(); legacy.state.cleanup[0]();
+    assert.strictEqual(legacy.state.maps.length, 1, 'The upgrade still mounts the previous layout during atomic publication');
+}
+
+async function independentSocialAndWhatsAppPanels() {
+    const test = fixture(true, true);
+    assert.strictEqual(test.state.calls.length, 0, 'Two mounted source panes still wait for an explicit conversation selection');
+    select(test, 1); await settle();
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 1');
+    assert.strictEqual(test.social.fields.customer_name.value, '', 'WhatsApp selection cannot read or populate a social order');
+    assert(test.state.calls.every(call => new URL(call.url).pathname.startsWith('/admin/whatsapp/')));
+    test.document.dispatchEvent({type: 'meta:conversation-selected', detail: {conversation: 2}}); await settle();
+    assert.strictEqual(test.social.fields.customer_name.value, 'Customer 2');
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 1', 'A social selection cannot switch the WhatsApp order');
+    assert(test.state.calls.some(call => new URL(call.url).pathname === '/admin/meta/conversations/2/orders'));
+    click(test, 'calculate'); await settle();
+    click(test.social, 'calculate'); await settle();
+    assert.strictEqual(test.elements['[data-wa-order-dispatch]'].disabled, false);
+    assert.strictEqual(test.social.elements['[data-wa-order-dispatch]'].disabled, false);
+    test.document.dispatchEvent({type: 'meta:conversation-updated', detail: {conversation: 2}});
+    assert.strictEqual(test.social.elements['[data-wa-order-dispatch]'].disabled, true);
+    assert.strictEqual(test.elements['[data-wa-order-dispatch]'].disabled, false, 'Social message evidence cannot invalidate a WhatsApp quote');
+    test.document.dispatchEvent({type: 'meta:private-reset', detail: {reason: 'offline'}});
+    assert.strictEqual(test.social.fields.customer_name.value, '');
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 1', 'A source reset only clears that source review');
+    test.window.DashboardWhatsAppOrders.destroy();
+    assert.strictEqual(test.fields.customer_name.value, '');
+    assert.strictEqual(test.social.fields.customer_name.value, '');
+    assert.strictEqual(test.document.listeners['meta:conversation-selected'].length, 0);
+    assert.strictEqual(test.document.listeners['whatsapp:conversation-selected'].length, 0);
+}
+
+async function independentRegistryAndCleanup() {
+    const test = fixture(true, true);
+    test.window.DashboardWhatsAppOrders.mount();
+    assert.strictEqual(test.state.cleanup.length, 2, 'Repeated mounting reuses each pane session');
+    assert.strictEqual(test.document.listeners['meta:conversation-selected'].length, 1);
+    assert.strictEqual(test.document.listeners['whatsapp:conversation-selected'].length, 1);
+    select(test, 1);
+    test.document.dispatchEvent({type: 'meta:conversation-selected', detail: {conversation: 2}}); await settle();
+    test.state.cleanup[0]();
+    assert.strictEqual(test.fields.customer_name.value, '');
+    assert.strictEqual(test.social.fields.customer_name.value, 'Customer 2', 'One cleanup callback cannot clear the other pane');
+    test.window.DashboardWhatsAppOrders.mount();
+    assert.strictEqual(test.state.cleanup.length, 3);
+    test.state.cleanup[0]();
+    test.window.DashboardWhatsAppOrders.mount();
+    assert.strictEqual(test.state.cleanup.length, 3, 'A stale callback cannot remove the replacement session from the registry');
+    select(test, 3); await settle();
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 3');
+    delete test.nodes['meta-social-inbox'];
+    test.window.DashboardWhatsAppOrders.mount();
+    assert.strictEqual(test.social.fields.customer_name.value, '', 'A removed source pane is destroyed on remount');
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 3');
+    test.document.dispatchEvent({type: 'dashboard:before-unload'});
+    assert.strictEqual(test.fields.customer_name.value, '');
+    assert.strictEqual(test.document.listeners['whatsapp:conversation-selected'].length, 0);
+    assert.strictEqual(test.document.listeners['meta:private-reset'].length, 0);
+    assert(test.state.maps.every(map => map.destroyed), 'Before unload destroys maps from every mounted or removed session');
+}
+
+async function socialExpiryTargetsSocialInbox() {
+    const test = fixture(true, true);
+    select(test, 1);
+    test.document.dispatchEvent({type: 'meta:conversation-selected', detail: {conversation: 2}}); await settle();
+    test.state.status = 403;
+    click(test.social, 'calculate'); await settle();
+    assert.strictEqual(test.state.metaInboxDestroyed, 1, 'Social API expiry clears the social chat controller');
+    assert.strictEqual(test.state.inboxDestroyed, 0, 'Social API expiry must not call the WhatsApp chat controller');
+    assert.strictEqual(test.social.fields.customer_name.value, '');
+    assert.strictEqual(test.fields.customer_name.value, 'Customer 1');
+    test.state.status = 200;
+    click(test, 'calculate'); await settle();
+    assert.strictEqual(test.elements['[data-wa-order-dispatch]'].disabled, false);
+    test.window.DashboardWhatsAppOrders.destroy();
+}
+
 (async () => {
     await quoteAndEdit(); await staleQuoteAndSwitch(); await repeatedDispatchAndNewMessages(); await expiredAndOffline(); await pendingEditAndHidden();
     await savedCustomerMapAndDelivery(); await suggestionAndLateLocationPrivacy(); await serverAutomationReadOnlyRefresh();
-    console.log('WHATSAPP_ORDERS_UI_PASS plain text, quote invalidation, stale privacy, single dispatch, expiry cleanup, shared saved customer map/delivery, pin confirmation, read-only automatic refresh');
+    await compactReviewDrawerMap();
+    await independentSocialAndWhatsAppPanels(); await independentRegistryAndCleanup(); await socialExpiryTargetsSocialInbox();
+    console.log('WHATSAPP_ORDERS_UI_PASS plain text, quote invalidation, stale privacy, single dispatch, expiry cleanup, shared saved customer map/delivery, pin confirmation, read-only automatic refresh, compact drawer map resize and cleanup, independent social/WhatsApp sources and lifecycle');
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
