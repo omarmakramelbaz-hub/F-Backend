@@ -45,7 +45,7 @@ class Element {
     contains(element) { return true; }
 }
 
-function fixture(withUnread = false, withCart = false) {
+function fixture(withUnread = false, withCart = false, withHub = false) {
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert',
         'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back', 'unread-total'].forEach(name => {
@@ -56,7 +56,7 @@ function fixture(withUnread = false, withCart = false) {
     const document = new Element();
     const window = new Element();
     const timers = new Map();
-    const state = {calls: [], redirected: false, status: 200, emptyNewer: true};
+    const state = {calls: [], redirected: false, status: 200, emptyNewer: true, events: [], nextCursor: withHub ? 'fixture-next' : null};
     const labels = {customer: 'Customer', business: 'Business', loading: 'Loading', denied: 'DENIED',
         choose_conversation: 'Choose', empty: 'Empty', unavailable: 'Unavailable', connected: 'Updated',
         no_messages: 'No messages', offline: 'Offline', types: {text: 'Text', other: 'Message', order: 'Cart'},
@@ -64,7 +64,7 @@ function fixture(withUnread = false, withCart = false) {
         cart_unit_price: 'Quoted unit price', cart_total: 'Quoted cart subtotal', cart_note: 'Catalog mapping required'};
     const config = {available: true,
         conversations_url: 'https://example.test/admin/whatsapp/conversations',
-        messages_base_url: 'https://example.test/admin/whatsapp/conversations', labels};
+        messages_base_url: 'https://example.test/admin/whatsapp/conversations', labels, hub_chat: withHub};
     if (withUnread) Object.assign(config, {unread_url: 'https://example.test/admin/whatsapp/unread',
         read_base_url: 'https://example.test/admin/whatsapp/conversations', unread_label: 'Unread', csrf: 'fixture-csrf'});
     bootstrap.textContent = JSON.stringify(config);
@@ -81,6 +81,10 @@ function fixture(withUnread = false, withCart = false) {
     document.createDocumentFragment = () => new Element('fragment');
     document.documentElement = {lang: 'en'};
     document.hidden = false;
+    if (withHub) document.dispatchEvent = event => {
+        state.events.push(event);
+        (document.listeners[event.type] || []).slice().forEach(listener => listener(event));
+    };
     window.location = {href: 'https://example.test/admin/whatsapp'};
     window.innerHeight = 100; window.innerWidth = 500;
     window.DashboardSPA = {isCurrentPage: () => true, onCleanup: callback => { state.cleanup = callback; }};
@@ -123,10 +127,12 @@ function fixture(withUnread = false, withCart = false) {
             json: async () => isMessages ? {success: true, conversation: thread,
                 messages: isNewer && state.emptyNewer ? [] : visibleRows,
                 last_id: 1, has_more: false, next_before_id: null}
-                : {success: true, conversations: [thread], total: 1, next_cursor: null}};
+                : {success: true, conversations: [parsed.searchParams.has('cursor') ? {...thread, id: 2, name: 'Second Customer'} : thread],
+                    total: withHub ? 2 : 1, next_cursor: parsed.searchParams.has('cursor') ? null : state.nextCursor}};
     }
     const context = {window, document, navigator: {onLine: true}, URL, AbortController, Map, Set, Promise, Date,
-        fetch, console, setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
+        fetch, console, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+        setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
         clearTimeout: id => timers.delete(id)};
     vm.createContext(context);
     const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard-whatsapp-inbox.js'), 'utf8');
@@ -226,8 +232,8 @@ async function visibilityAndOffline() {
 
 async function unreadVisibility() {
     const test = fixture(true); await settle();
-    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 3');
-    assert(test.elements['[data-wa-thread-list]'].textContent.includes('3'), 'Thread badges include unread counts');
+    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 1', 'The global badge counts unread customer conversations, not messages');
+    assert(test.elements['[data-wa-thread-list]'].textContent.includes('1'), 'Each unread customer has one conversation indicator');
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'Opening the thread list does not mark messages read');
     click(test, 'data-wa-thread', 1); await settle();
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 1);
@@ -263,6 +269,50 @@ async function cartRendering() {
     assert.strictEqual(messages.textContent, '', 'Cart contents cleared on SPA navigation');
 }
 
+async function hubCoordinatorAPI() {
+    const test = fixture(true, false, true); await settle();
+    const api = test.window.DashboardWhatsAppInbox;
+    const snapshot = () => JSON.parse(JSON.stringify(api.snapshot()));
+    assert.strictEqual(api.selection(), 0, 'A hidden hub source starts without selecting or loading a chat');
+    assert.strictEqual(test.state.calls.filter(call => new URL(call.url).pathname.endsWith('/messages')).length, 0);
+    let current = snapshot();
+    assert.strictEqual(current.source, 'whatsapp');
+    assert.strictEqual(current.total, 2); assert.strictEqual(current.has_more, true); assert.strictEqual(current.available, true);
+    assert.strictEqual(current.unread['1'], 3);
+    assert.strictEqual(current.conversations[0].name, 'Fixture Customer');
+    const published = test.state.events.filter(event => event.type === 'meta-hub:threads').at(-1).detail;
+    assert.strictEqual(published.total, 2, 'Hub publication uses the latest total and cursor, not the prior load metadata');
+    assert.strictEqual(published.has_more, true);
+    current.conversations[0].name = 'Changed by coordinator';
+    assert.strictEqual(snapshot().conversations[0].name, 'Fixture Customer', 'Coordinator snapshots cannot change stored thread names');
+    assert.strictEqual(api.openConversation(999), false, 'Only a loaded conversation can be opened');
+    assert.strictEqual(api.openConversation(1), true); await settle();
+    assert.strictEqual(api.selection(), 1);
+    assert(test.elements['[data-wa-messages]'].textContent.includes('<img src=x onerror=alert(1)>'));
+    api.resetSelection();
+    assert.strictEqual(api.selection(), 0);
+    assert.strictEqual(test.elements['[data-wa-messages]'].textContent, '', 'Switching source releases the previous private chat');
+    assert.strictEqual(test.panel.classList.contains('has-selection'), false);
+    assert.strictEqual(snapshot().conversations.length, 1, 'Resetting a chat preserves the unified list source');
+    const messageReads = test.state.calls.filter(call => new URL(call.url).pathname.endsWith('/messages')).length;
+    click(test, 'data-wa-refresh'); await settle();
+    assert.strictEqual(test.state.calls.filter(call => new URL(call.url).pathname.endsWith('/messages')).length, messageReads,
+        'A deselected pane keeps list polling without loading or acknowledging hidden chat messages');
+    await api.loadMore(); await settle();
+    assert.strictEqual(snapshot().conversations.length, 2); assert.strictEqual(snapshot().has_more, false);
+    assert(test.state.calls.some(call => new URL(call.url).searchParams.get('cursor') === 'fixture-next'));
+    api.openConversation(1); await settle(); click(test, 'data-wa-back');
+    assert.strictEqual(api.selection(), 0);
+    assert(test.state.events.some(event => event.type === 'meta-hub:conversation-reset' && event.detail.source === 'whatsapp'));
+    test.state.status = 403; click(test, 'data-wa-refresh'); await settle();
+    const denied = test.state.events.filter(event => event.type === 'meta-hub:threads').at(-1).detail;
+    assert.strictEqual(denied.available, false); assert.strictEqual(denied.conversations.length, 0);
+    assert.strictEqual(snapshot().total, 0); assert.strictEqual(api.openConversation(1), false);
+    test.state.cleanup();
+    assert.strictEqual(api.snapshot().available, false);
+    assert.strictEqual(api.snapshot().conversations.length, 0);
+}
+
 (async () => {
     await initialAndSafeRendering();
     await expiredAccessClears(true);
@@ -271,8 +321,10 @@ async function cartRendering() {
     await visibilityAndOffline();
     await unreadVisibility();
     await cartRendering();
+    await hubCoordinatorAPI();
     console.log('WHATSAPP_INBOX_UI_PASS initial reads, escaped chat text, mobile reopen, empty poll, redirect/403 privacy, cleanup, offline');
 })().catch(error => {
     console.error(error.stack);
     process.exitCode = 1;
 });
+
