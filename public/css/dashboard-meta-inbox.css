@@ -23,16 +23,24 @@
 .meta-chat .wa-inbox-bubble time,.meta-chat .wa-inbox-message-type { color:#6d819b; }
 .meta-chat .wa-inbox-message.is-hidden .wa-inbox-message-text { color:var(--meta-muted); font-style:italic; }
 .meta-chat .wa-inbox-button:hover { background:#fff1e5; }
-.meta-chat .wa-replies { padding:10px 15px; border-color:var(--wa-line); background:var(--meta-panel); }
-.meta-chat .wa-replies textarea { min-height:50px; max-height:105px; background:#f8fafd; color:var(--wa-ink); border-color:var(--wa-line); }
+.meta-chat .wa-replies { padding:7px 12px 8px; border-color:var(--wa-line); background:var(--meta-panel); }
+.meta-chat .wa-replies textarea { min-height:42px; max-height:120px; background:#f8fafd; color:var(--wa-ink); border-color:var(--wa-line); }
 .meta-chat .wa-replies textarea:disabled { background:#f2f4f8; }
 .meta-chat .wa-replies-send { background:#f58220; border-color:#f58220; color:#fff; }
 .meta-chat .wa-replies-send:hover { background:#df6c0c; color:#fff; }
+.meta-chat .wa-replies-send:disabled { background:#efb78b; color:#fff; }
+.meta-chat .wa-replies-compose > .wa-icon-button,.meta-chat .wa-replies-emoji > .wa-icon-button { color:#65768a; }
+.meta-chat .wa-replies-compose > .wa-replies-send { color:#fff; background:#f58220; }
+.meta-chat .wa-replies-compose > .wa-replies-send:hover { color:#fff; background:#df6c0c; }
+.meta-chat .wa-replies-compose > .wa-replies-send:disabled { background:#efb78b; }
+.meta-chat .wa-replies .wa-replies-mic[aria-pressed="true"] { background:#fde9e2; color:#a23a2c; }
+.meta-chat .wa-replies-emoji-picker { background:var(--meta-panel); border-color:var(--wa-line); }
 .meta-chat .wa-replies-status,.meta-chat .wa-replies-audit summary,.meta-chat .wa-replies footer span { color:var(--meta-muted); }
 .meta-chat .wa-replies-status.is-error { color:#aa5718; }
 .meta-chat .wa-inbox-chat-footer { padding:8px 15px; font-size:10px; color:var(--meta-muted); border-color:var(--wa-line); }
-.meta-chat .wa-replies-voice { margin-top:6px; }
-.meta-chat .wa-replies-voice button,.meta-attachment-tools button { padding:6px 9px; font-size:11px; }
+.meta-chat .wa-replies-voice { margin-top:7px; background:var(--meta-canvas); border-color:var(--wa-line); }
+.meta-chat .meta-attachment-tools:has([data-meta-attachment-remove][hidden]) { display:none; }
+.meta-chat .meta-attachment-tools .wa-icon-button { padding:0; }
 .meta-chat-media { margin:6px 0; max-width:320px; }
 .meta-chat-image { padding:0; border:0; border-radius:10px; background:transparent; overflow:hidden; cursor:zoom-in; display:block; }
 .meta-chat-image img { display:block; max-width:100%; width:260px; max-height:280px; object-fit:cover; }
