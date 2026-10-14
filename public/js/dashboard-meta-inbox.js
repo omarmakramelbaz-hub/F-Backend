@@ -38,11 +38,13 @@
         var refresh = panel.querySelector('[data-wa-refresh]');
         var back = panel.querySelector('[data-wa-back]');
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
+        var acceptedReplies = new Map();
+        var namespace = new URL(config.messages_base_url, window.location.href).origin + new URL(config.messages_base_url, window.location.href).pathname.replace(/\/+$/, '');
         var threadMap = new Map(), messageMap = new Map(), controllers = new Map(), renderedMessages = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
         var channel = ['messenger', 'instagram'].indexOf(config.hub_chat ? '' : config.initial_channel) !== -1 ? config.initial_channel : '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var total = 0;
-        var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
+        var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = 1000, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
 
         panel.querySelectorAll('[data-meta-channel]').forEach(function (button) { button.setAttribute('aria-pressed', (button.dataset.metaChannel || '') === channel ? 'true' : 'false'); });
@@ -65,7 +67,7 @@
             closeOverlay(); generation++; chosen = 0; beforeId = null; lastId = 0; messageLoading = false;
             ['messages','profile'].forEach(function(key) { if (controllers.has(key)) controllers.get(key).abort(); });
             clearTimeout(readTimer); emit('whatsapp:private-reset', {reason:'selection'});
-            messageMap.clear(); stopMessageMedia(); messages.textContent = ''; older.hidden = true;
+            messageMap.clear(); acceptedReplies.clear(); stopMessageMedia(); messages.textContent = ''; older.hidden = true;
             title.textContent = labels.choose_conversation; customer.textContent = ''; chatStatus.textContent = labels.choose_conversation;
             panel.classList.remove('has-selection'); back.hidden = true; renderThreads();
         }
@@ -104,6 +106,47 @@
             section.appendChild(node('p', 'wa-inbox-cart-note', labels.cart_note || ''));
             if (typeof cart.text === 'string' && cart.text) section.appendChild(node('p', 'wa-inbox-message-text', cart.text));
             return section;
+        }
+        function selectionDetail() {
+            return {conversation: chosen, generation: generation, channel: (threadMap.get(chosen) || {}).channel || '', namespace: namespace};
+        }
+        function currentReceipt(detail) {
+            var selected = selectionDetail();
+            return detail && !closed && !denied && !document.hidden && navigator.onLine !== false && chosen
+                && Number(detail.conversation) === chosen && detail.generation === generation
+                && detail.namespace === namespace && detail.channel === selected.channel;
+        }
+        function safeReceipt(reply) {
+            if (!reply || reply.state !== 'ACCEPTED' || !Number.isSafeInteger(reply.reply_id) || reply.reply_id < 1
+                || ['text','audio','image','video','file'].indexOf(reply.kind) === -1
+                || typeof reply.created_at !== 'string' || reply.created_at.length > 64 || isNaN(new Date(reply.created_at).getTime())
+                || reply.text !== null && reply.text !== undefined && (typeof reply.text !== 'string' || Array.from(reply.text).length > 20000)
+                || reply.projection_key !== null && reply.projection_key !== undefined && !/^[a-f0-9]{64}$/.test(reply.projection_key)
+                || reply.projected_message_id !== null && reply.projected_message_id !== undefined
+                    && (!Number.isSafeInteger(reply.projected_message_id) || reply.projected_message_id < 1)) return null;
+            return reply;
+        }
+        function receiptRows() {
+            var native = Array.from(messageMap.values());
+            return native.concat(Array.from(acceptedReplies.values()).filter(function(reply) {
+                return !reply.hidden && !native.some(function(message) {
+                    return reply.projected_message_id === message.id || reply.projection_key && reply.projection_key === message.projection_key;
+                });
+            }).map(function(reply) {
+                return {id:'reply:'+reply.reply_id, receipt:true, direction:'outbound', type:reply.kind === 'file' ? 'document' : reply.kind,
+                    text:reply.text || '', sent_at:reply.accepted_at || reply.created_at, unavailable:false, media:[]};
+            }));
+        }
+        function acceptedSnapshot(event) {
+            var detail = event.detail || {}; if (!currentReceipt(detail) || !Array.isArray(detail.replies)) return;
+            var next = new Map(); detail.replies.slice(0,40).forEach(function(reply) { reply = safeReceipt(reply); if (reply && !reply.hidden) next.set(reply.reply_id, reply); });
+            acceptedReplies = next; renderMessages(false,false);
+        }
+        function replyAccepted(event) {
+            var detail = event.detail || {}; if (!currentReceipt(detail)) return;
+            var reply = safeReceipt(detail.reply);
+            if (reply && !reply.hidden) { acceptedReplies.set(reply.reply_id,reply); renderMessages(false,true); }
+            clearTimeout(timer); poll();
         }
         function stopMessageMedia() {
             renderedMessages.clear();
@@ -153,6 +196,7 @@
             return holder;
         }
         function messageActions(message) {
+            if (message.receipt) return null;
             if (message.hidden || message.unavailable) return null;
             var actions = node('details', 'meta-chat-actions'), summary = node('summary', '', '•••');
             summary.setAttribute('aria-label', rich.actions || 'Message actions'); actions.appendChild(summary);
@@ -213,7 +257,7 @@
                 denied = true; generation++; chosen = 0; closeOverlay();
                 clearTimeout(readTimer);
                 emit('whatsapp:private-reset', {reason: 'denied'});
-                threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+                threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
                 unreadMap.clear(); readSeen.clear(); readPending.clear();
                 if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
                 title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
@@ -350,7 +394,7 @@
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
             var rendered = [], nextRendered = new Map();
-            Array.from(messageMap.values()).sort(function (a, b) {
+            receiptRows().sort(function (a, b) {
                 return String(a.sent_at || a.received_at || '').localeCompare(String(b.sent_at || b.received_at || '')) || a.id - b.id;
             }).forEach(function (message) {
                 var signature = JSON.stringify(message);
@@ -374,7 +418,9 @@
                     : (message.text || typeText(message.type))));
                 var timestamp = message.sent_at || message.received_at;
                 var time = node('time', '', dateText(timestamp, true)); if (timestamp) time.dateTime = timestamp;
-                bubble.appendChild(time); item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
+                bubble.appendChild(time);
+                if (message.receipt) bubble.appendChild(node('span','meta-receipt-status',document.documentElement.lang === 'ar' ? 'قبلت ميتا الإرسال' : 'Accepted by Meta'));
+                item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
             });
             if (typeof messages.insertBefore === 'function' && typeof messages.removeChild === 'function') {
                 var currentNode = messages.firstChild;
@@ -388,7 +434,7 @@
                 messages.textContent = ''; messages.appendChild(fragment);
             }
             renderedMessages = nextRendered;
-            chatStatus.textContent = messageMap.size ? '' : labels.no_messages;
+            chatStatus.textContent = messageMap.size || acceptedReplies.size ? '' : labels.no_messages;
             if (prepend) scroll.scrollTop = oldTop + scroll.scrollHeight - oldHeight;
             else if (toBottom) scroll.scrollTop = scroll.scrollHeight;
             else scroll.scrollTop = oldTop;
@@ -427,8 +473,8 @@
         function choose(id) {
             if (closed || denied || !id) return;
             if (chosen === id) { panel.classList.add('has-selection'); back.hidden = false; return; }
-            closeOverlay(); generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear();
-            emit('whatsapp:conversation-selected', {conversation: id});
+            closeOverlay(); generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear(); acceptedReplies.clear();
+            emit('whatsapp:conversation-selected', selectionDetail());
             if (controllers.has('messages')) controllers.get('messages').abort();
             stopMessageMedia(); messages.textContent = ''; title.textContent = labels.loading; customer.textContent = '';
             chatStatus.textContent = labels.loading; older.hidden = true;
@@ -443,7 +489,7 @@
         }
         function success() {
             if (closed || denied) return;
-            retryDelay = 8000; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
+            retryDelay = 1000; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
             connection.textContent = labels.connected + ' · ' + new Date().toLocaleTimeString(document.documentElement.lang || 'ar',
                 {hour: '2-digit', minute: '2-digit'});
         }
@@ -452,10 +498,15 @@
             if (!closed && !denied && config.available && !document.hidden && navigator.onLine !== false) timer = setTimeout(poll, retryDelay);
         }
         function poll() {
-            if (closed || pollBusy || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
+            if (pollBusy) { pollAgain = true; return; }
+            if (closed || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
             pollBusy = true; refresh.disabled = true;
             Promise.all([loadThreads(false), loadMessages(chosen && lastId ? 'newer' : 'initial')]).then(loadUnread).then(success).catch(unavailable)
-                .finally(function () { pollBusy = false; if (!closed) refresh.disabled = false; schedule(); });
+                .finally(function () {
+                    pollBusy = false; if (!closed) refresh.disabled = false;
+                    if (pollAgain && !closed && !denied && !document.hidden && navigator.onLine !== false) { pollAgain = false; poll(); }
+                    else { pollAgain = false; schedule(); }
+                });
         }
         function setChannel(value) {
             if (['','messenger','instagram'].indexOf(value) === -1) return;
@@ -463,7 +514,7 @@
             closeOverlay(); channel = value; threadEpoch++; generation++; chosen = 0;
                 controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
                 clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
-                total = 0; threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+                total = 0; threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
                 nextCursor = null; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false;
                 title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
                 panel.classList.remove('has-selection'); back.hidden = true;
@@ -531,30 +582,32 @@
         function keyboard(event) { if (event.key === 'Escape') closeOverlay(); }
         function visibility() {
             if (document.hidden) { closeOverlay(); clearTimeout(timer); emit('whatsapp:private-reset', {reason: 'hidden'}); }
-            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); acknowledgeVisible(); poll(); }
+            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', selectionDetail()); acknowledgeVisible(); poll(); }
         }
         function online() {
             clearTimeout(timer);
             if (navigator.onLine === false) { closeOverlay(); emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
-            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); poll(); }
+            else { if (chosen && !denied) emit('whatsapp:conversation-selected', selectionDetail()); poll(); }
         }
         panel.addEventListener('click', click);
         document.addEventListener('keydown', keyboard);
+        document.addEventListener('meta:accepted-replies', acceptedSnapshot); document.addEventListener('meta:reply-accepted', replyAccepted);
         scroll.addEventListener('scroll', readScroll);
         document.addEventListener('visibilitychange', visibility);
         window.addEventListener('offline', online); window.addEventListener('online', online);
-        var session = {panel: panel, selection: function () { return chosen; }, snapshot: snapshot,
+        var session = {panel: panel, selection: function () { return chosen; }, selectionState: selectionDetail, snapshot: snapshot,
             openConversation: function(id) { id = Number(id); if (!Number.isSafeInteger(id) || id <= 0 || !threadMap.has(id) || closed || denied) return false; choose(id); return true; },
             resetSelection: resetConversation, setChannel: setChannel, loadMore: function() { return loadThreads(true).catch(unavailable); }, destroy: function () {
             if (closed) return; closeOverlay(); closed = true; generation++; clearTimeout(timer);
             clearTimeout(readTimer);
             emit('whatsapp:private-reset', {reason: 'closed'});
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
-            panel.removeEventListener('click', click); document.removeEventListener('keydown', keyboard); document.removeEventListener('visibilitychange', visibility);
+            panel.removeEventListener('click', click); document.removeEventListener('keydown', keyboard);
+            document.removeEventListener('meta:accepted-replies', acceptedSnapshot); document.removeEventListener('meta:reply-accepted', replyAccepted); document.removeEventListener('visibilitychange', visibility);
             scroll.removeEventListener('scroll', readScroll);
             window.removeEventListener('offline', online); window.removeEventListener('online', online);
             // No chat cache in browser storage; remove private text when the page leaves the shell.
-            threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+            threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
             unreadMap.clear(); readSeen.clear(); readPending.clear();
             if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
             if (window.DashboardWhatsAppInbox === window.DashboardMetaInbox) window.DashboardWhatsAppInbox = priorInbox;
@@ -572,6 +625,7 @@
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardMetaInbox = {mount: mount, destroy: destroy,
         selection: function () { return active && active.selection ? active.selection() : 0; },
+        selectionState: function() { return active ? active.selectionState() : {conversation:0,generation:0,channel:'',namespace:''}; },
         openConversation: function(id) { return active ? active.openConversation(id) : false; },
         resetSelection: function() { if (active) active.resetSelection(); },
         setChannel: function(value) { if (active) active.setChannel(value); },
