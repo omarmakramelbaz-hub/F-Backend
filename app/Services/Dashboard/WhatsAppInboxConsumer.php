@@ -7,6 +7,7 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -25,12 +26,6 @@ class WhatsAppInboxConsumer
             throw new InvalidArgumentException('Inbox limit must be between 1 and 500.');
         }
         $key = $this->hashKey();
-        $metrics = [
-            'events_seen' => 0, 'events_processed' => 0, 'events_skipped' => 0,
-            'messages_inserted' => 0, 'messages_replayed' => 0,
-            'quarantined_events' => 0, 'ignored_records' => 0,
-            'status_records' => 0, 'errors' => 0,
-        ];
         // Capture a bounded batch. Every row is re-read under a transaction lock.
         $batch = DB::table('whatsapp_webhook_events')->whereNull('processed_at');
         if (!$retryQuarantined) {
@@ -41,10 +36,30 @@ class WhatsAppInboxConsumer
         }
         $ids = $batch->orderBy('id')->limit($limit)->pluck('id');
 
+        return $this->consumeIds($ids, $key, $retryQuarantined, false);
+    }
+
+    /** Explicit bounded metadata recovery, never a global retry or an order/AI action. */
+    public function recoverUnavailableMessages(array $eventIds): array
+    {
+        if (!array_is_list($eventIds) || $eventIds === [] || count($eventIds) > 20
+            || count(array_unique($eventIds, SORT_REGULAR)) !== count($eventIds)) throw new InvalidArgumentException('Invalid recovery event IDs.');
+        foreach ($eventIds as $id) if (!is_int($id) || $id < 1) throw new InvalidArgumentException('Invalid recovery event IDs.');
+        return $this->consumeIds($eventIds, $this->hashKey(), true, true);
+    }
+
+    private function consumeIds($ids, string $key, bool $retryQuarantined, bool $unavailableOnly): array
+    {
+        $metrics = [
+            'events_seen' => 0, 'events_processed' => 0, 'events_skipped' => 0,
+            'messages_inserted' => 0, 'messages_replayed' => 0, 'messages_hydrated' => 0,
+            'quarantined_events' => 0, 'ignored_records' => 0,
+            'status_records' => 0, 'errors' => 0,
+        ];
         foreach ($ids as $id) {
             $metrics['events_seen']++;
             try {
-                $result = $this->withUniqueRetry(function () use ($id, $key, $retryQuarantined) {
+                $result = $this->withUniqueRetry(function () use ($id, $key, $retryQuarantined, $unavailableOnly) {
                     $event = DB::table('whatsapp_webhook_events')->where('id', $id)
                         ->lockForUpdate()->first();
                     if (!$event || $event->processed_at !== null) {
@@ -55,6 +70,10 @@ class WhatsAppInboxConsumer
                     if (!$retryQuarantined && DB::table('whatsapp_inbox_ingestion_failures')
                         ->where('event_id', $id)->lockForUpdate()->first()) {
                         return ['events_skipped' => 1];
+                    }
+                    if ($unavailableOnly) {
+                        $failure = DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $id)->lockForUpdate()->first();
+                        if (!$failure || $failure->reason !== 'CONFLICTING_MESSAGE') throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
                     }
                     try {
                         $json = Crypt::decryptString($event->payload);
@@ -78,18 +97,23 @@ class WhatsAppInboxConsumer
                         || $report['quarantined_count'] > 0) {
                         throw new WhatsAppInboxQuarantinedEvent();
                     }
+                    $rawHash = hash('sha256', $json);
+                    $rawVerified = is_string($event->payload_hash ?? null)
+                        && preg_match('/\A[a-f0-9]{64}\z/', $event->payload_hash) && hash_equals($event->payload_hash, $rawHash);
+                    if ($unavailableOnly && (!$rawVerified || count($report['messages']) !== 1 || $report['ignored_count'] !== 0
+                        || $report['status_count'] !== 0)) throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
                     $counts = [
                         'events_processed' => 1, 'messages_inserted' => 0,
-                        'messages_replayed' => 0,
+                        'messages_replayed' => 0, 'messages_hydrated' => 0,
                         'ignored_records' => $report['ignored_count'],
                         'status_records' => $report['status_count'],
                     ];
                     foreach ($report['messages'] as $message) {
                         $this->assertMessage($message);
-                        $kind = $this->persist($message, $key);
-                        $counts[$kind === 'inserted' ? 'messages_inserted' : 'messages_replayed']++;
+                        $kind = $this->persist($message, $key, (int) $id, $rawVerified ? $rawHash : null, $unavailableOnly);
+                        $counts[$kind === 'inserted' ? 'messages_inserted' : ($kind === 'hydrated' ? 'messages_hydrated' : 'messages_replayed')]++;
                     }
-                    DB::table('whatsapp_webhook_events')->where('id', $id)
+                    DB::table('whatsapp_webhook_events')->where('id', $id)->whereNull('processed_at')
                         ->update(['processed_at' => now('UTC')]);
                     DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $id)->delete();
                     return $counts;
@@ -212,7 +236,7 @@ class WhatsAppInboxConsumer
         }
     }
 
-    private function persist(array $message, string $key): string
+    private function persist(array $message, string $key, int $eventId = 0, ?string $rawHash = null, bool $unavailableOnly = false): string
     {
         $scope = self::WABA_ID . ':' . self::PHONE_ID . ':';
         $peerHash = hash_hmac('sha256', 'whatsapp-peer-v1:' . $scope . $message['peer_identity'], $key);
@@ -225,8 +249,16 @@ class WhatsAppInboxConsumer
             if (!$conversation || $conversation->waba_id !== self::WABA_ID
                 || $conversation->phone_number_id !== self::PHONE_ID
                 || !hash_equals($conversation->peer_hash, $peerHash)
-                || $existing->direction !== $message['direction'] || $existing->type !== $message['type']) {
+                || $existing->direction !== $message['direction']
+                || ($existing->type !== $message['type'] && !$this->hydrationShape($existing, $message))) {
                 throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
+            }
+            if ($existing->source === 'dashboard_api') {
+                // API acceptance and a later genuine echo share the native ID, not a timestamp.
+                // Validate both facts without rewriting immutable receipt evidence or its cursor.
+                if (!(new WhatsAppAcceptedReplyEvidence())->matchesNativeEcho($conversation, $existing, $message, true))
+                    throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
+                return 'replayed';
             }
             try {
                 $saved = json_decode(Crypt::decryptString($existing->content), true, 512, JSON_THROW_ON_ERROR);
@@ -234,6 +266,10 @@ class WhatsAppInboxConsumer
                 throw new WhatsAppInboxQuarantinedEvent();
             }
             $this->assertMessage($saved);
+            if ($existing->type !== $message['type']) {
+                return $this->hydrateUnavailable($conversation, $existing, $saved, $message, $key, $eventId, $rawHash);
+            }
+            if ($unavailableOnly) throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
             foreach (['message_id', 'peer_identity', 'direction', 'type', 'text', 'sent_at'] as $field) {
                 if (!array_key_exists($field, $saved) || $saved[$field] !== $message[$field]) {
                     throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
@@ -247,6 +283,18 @@ class WhatsAppInboxConsumer
                     !== $this->canonical($message['content']['message'][$field] ?? null)) {
                     throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
                 }
+            }
+            if (array_key_exists('hydration', $saved['content'])) {
+                $marker = $saved['content']['hydration'];
+                $proofEvent = is_array($marker) && is_int($marker['event_id'] ?? null)
+                    ? DB::table('whatsapp_webhook_events')->where('id', $marker['event_id'])->first() : null;
+                $proofFailure = is_array($marker) && is_int($marker['event_id'] ?? null)
+                    && DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $marker['event_id'])->exists();
+                if (!$proofEvent || !WhatsAppNativePlaceholderHydration::prove($conversation, $existing, $saved, $proofEvent, $proofFailure))
+                    throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
+                // Preserve the raw-proven hydration evidence; new genuine source copies remain
+                // in their own raw events and must not rewrite a sealed transcript identity.
+                return 'replayed';
             }
             $sources = $saved['content']['sources'] ?? null;
             if (!is_array($sources)) throw new WhatsAppInboxQuarantinedEvent();
@@ -264,6 +312,7 @@ class WhatsAppInboxConsumer
             return 'replayed';
         }
 
+        if ($unavailableOnly) throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
         $conversation = DB::table('whatsapp_inbox_conversations')
             ->where('waba_id', self::WABA_ID)->where('phone_number_id', self::PHONE_ID)
             ->where('peer_hash', $peerHash)->lockForUpdate()->first();
@@ -315,6 +364,53 @@ class WhatsAppInboxConsumer
             'updated_at' => $now,
         ]);
         return 'inserted';
+    }
+
+    private function hydrationShape(object $existing, array $incoming): bool
+    {
+        return $existing->source === 'messages' && $existing->direction === 'inbound' && $existing->type === 'unsupported'
+            && ($incoming['source'] ?? null) === 'messages' && ($incoming['direction'] ?? null) === 'inbound'
+            && ($incoming['type'] ?? null) === 'text';
+    }
+
+    /** Replace only a proven unavailable-content marker with its authentic same-ID native text. */
+    private function hydrateUnavailable(object $thread, object $existing, array $saved, array $incoming,
+        string $key, int $eventId, ?string $rawHash): string
+    {
+        if ($eventId < 1 || $rawHash === null || !WhatsAppNativePlaceholderHydration::transition($thread, $existing, $saved, $incoming))
+            throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
+        if (Schema::hasTable('whatsapp_order_drafts')) {
+            $used = DB::table('whatsapp_order_drafts')->where('conversation_id', $thread->id)
+                ->where('evidence_floor', '<', $existing->id)->where('evidence_ceiling', '>=', $existing->id)
+                ->lockForUpdate()->get(['status', 'sealed_payload']);
+            foreach ($used as $draft) if ($draft->status === 'DISPATCHED' || $draft->sealed_payload !== null)
+                throw new RuntimeException('HYDRATION_ORDER_EVIDENCE_PROTECTED');
+        }
+        $event = DB::table('whatsapp_webhook_events')->where('id', $eventId)->lockForUpdate()->first();
+        if (!$event || !is_string($event->payload_hash ?? null) || !hash_equals($event->payload_hash, $rawHash))
+            throw new RuntimeException('HYDRATION_RAW_REVISION_CHANGED');
+        $stamp = is_string($event->processed_at) ? $event->processed_at : now('UTC')->format('Y-m-d H:i:s');
+        $sources = array_values(array_unique(array_merge($saved['content']['sources'], $incoming['content']['sources']))); sort($sources);
+        $incoming['content']['sources'] = $sources;
+        $incoming['content']['hydration'] = ['version' => WhatsAppNativePlaceholderHydration::VERSION, 'code' => 131060,
+            'event_id' => $eventId, 'at_utc' => $stamp, 'before' => $saved, 'before_ciphertext' => $existing->content,
+            'before_ciphertext_sha256' => hash('sha256', $existing->content), 'raw_payload_hash' => $rawHash];
+        $changed = DB::table('whatsapp_inbox_messages')->where('id', $existing->id)->where('conversation_id', $thread->id)
+            ->where('message_key', $existing->message_key)->where('type', 'unsupported')->where('source', 'messages')
+            ->where('content', $existing->content)->update(['type' => 'text',
+                'content' => Crypt::encryptString(json_encode($incoming, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)),
+                'sent_at' => $incoming['sent_at'], 'updated_at' => $stamp]);
+        if ($changed !== 1) throw new RuntimeException('HYDRATION_REVISION_CHANGED');
+        // Current raw/failure metadata is visible to the proof in this same transaction only.
+        // Any later failure rolls all facts and metadata back; callers never bypass quarantine.
+        DB::table('whatsapp_webhook_events')->where('id', $eventId)->update(['processed_at' => $stamp]);
+        DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $eventId)->delete();
+        if (!app(WhatsAppOrderWorkflow::class)->noteProjectionRevision((int) $thread->id, (int) $existing->id))
+            throw new RuntimeException('TRANSCRIPT_REVISION_BUSY');
+        DB::table('whatsapp_inbox_conversations')->where('id', $thread->id)->update([
+            'last_message_at' => $thread->last_message_at === null || $incoming['sent_at'] > $thread->last_message_at
+                ? $incoming['sent_at'] : $thread->last_message_at, 'updated_at' => $stamp]);
+        return 'hydrated';
     }
 
     private function canonical($value)
