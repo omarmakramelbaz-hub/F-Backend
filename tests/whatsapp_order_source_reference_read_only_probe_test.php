@@ -3,7 +3,7 @@
 // external request, credentials, source publication or ERP/order actions.
 define('WHATSAPP_ORDER_SOURCE_REFERENCE_READ_ONLY_PROBE_TEST_ONLY', true);
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
+require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_offer_variant/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
 require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
 require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
@@ -370,6 +370,8 @@ foreach (Probe::SOURCE_PINS as [$path,$expected]) {
     $sourcePath=in_array($path,['app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
         'app/Services/Dashboard/WhatsAppOrderAiProvider.php'],true)
         ? 'tests/fixtures/whatsapp_order_pre_anchor_citation/'.$path : $path;
+    if ($path==='app/Services/Dashboard/WhatsAppOrderConversationEvidence.php')
+        $sourcePath='tests/fixtures/whatsapp_order_pre_offer_variant/'.$path;
     $bytes=file_get_contents(dirname(__DIR__).'/'.$sourcePath);
     referenceExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'guard matches the exact unchanged reviewed application source');
 }

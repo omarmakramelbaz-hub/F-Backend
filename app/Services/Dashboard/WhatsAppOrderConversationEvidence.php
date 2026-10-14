@@ -559,7 +559,9 @@ final class WhatsAppOrderConversationEvidence
 
     private static function variantPattern(): string
     {
-        return '/(?<![\p{L}\p{N}])(?:من\s+)?(?:ال)?كيلو\s*([0-9]{1,2})\s*'
+        // Arabic offers commonly join the next size with an attached conjunction
+        // ("والكيلو 3 حبه"). Keep the token boundary and consume only that prefix.
+        return '/(?<![\p{L}\p{N}])(?:و)?(?:من\s+)?(?:ال)?كيلو\s*([0-9]{1,2})\s*'
             . '(?:حبات|حبة|حبه|سمكات|سمكة|سمكه)(?![\p{L}\p{N}])|'
             . '(?<![\p{L}\p{N}])([0-9]{1,2})\s*(?:حبات|حبة|حبه|سمكات|سمكة|سمكه)\s*'
             . '(?:في|لكل|\/)\s*(?:ال)?كيلو(?![\p{L}\p{N}])/iu';

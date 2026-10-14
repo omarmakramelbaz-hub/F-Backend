@@ -2,6 +2,15 @@
 // Synthetic transcript and private fake HTTP only. No Laravel bootstrap, database,
 // external request, credentials, source publication or ERP/order actions.
 define('WHATSAPP_ORDER_CONVERSATION_PROOF_READ_ONLY_PROBE_TEST_ONLY', true);
+// Keep this historical diagnostic bound to the exact app bytes it reviewed.
+function proofHistoricalSourcePath(string $path): string
+{
+    return dirname(__DIR__).'/'.(in_array($path,[
+        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php',
+        'app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'],true)
+        ? 'tests/fixtures/whatsapp_order_pre_offer_variant/' : '').$path;
+}
 // Mounted CI checkout permissions need not match a protected production tree.
 // Stage exact source bytes in a private, process-owned tree before loading any
 // classes; preserve every production file-mode and physical-path verification.
@@ -23,7 +32,7 @@ $proofSourcePaths=['app/Support/WhatsAppInboxProtocol.php','app/Services/Dashboa
 foreach ($proofSourcePaths as $path) {
     $target=$proofFixture.'/'.$path;$parent=dirname($target);
     if (!is_dir($parent) && !mkdir($parent,0700,true)) throw new RuntimeException('Cannot stage private proof directories');
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $bytes=file_get_contents(proofHistoricalSourcePath($path));
     $proofStagedFiles[]=$target;
     if (file_put_contents($target,$bytes)!==strlen($bytes) || !chmod($target,0600)
         || file_get_contents($target)!==$bytes) throw new RuntimeException('Cannot stage exact private proof source');
@@ -227,7 +236,7 @@ function proofIsolated(array $data,array $rows,string $case): array
         foreach ($paths as $path) {
             $target=$directory.'/'.$path;$parent=dirname($target);
             if (!is_dir($parent) && !mkdir($parent,0700,true)) throw new RuntimeException('Cannot make isolated synthetic directory');
-            $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+            $bytes=file_get_contents(proofHistoricalSourcePath($path));
             if (($case==='evidence-source-drift' && str_contains($path,'ConversationEvidence'))
                 || ($case==='selection-source-drift' && str_contains($path,'SourceSelection'))
                 || ($case==='provider-source-drift' && str_contains($path,'AiProvider'))) $bytes.="\n";
@@ -464,7 +473,7 @@ foreach ([['probe.php'],['probe.php','--probe-one','--probe-one'],['probe.php','
     proofExpect(Probe::authorized($arguments),false,'alternate flags never authorize an extraction');
 
 foreach (Probe::SOURCE_PINS as [$path,$expected]) {
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $bytes=file_get_contents(proofHistoricalSourcePath($path));
     proofExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'probe verifies the unchanged reviewed application source');
 }
 $observerBytes=file_get_contents(dirname(__DIR__).'/deployment/whatsapp_order_conversation_proof_observer.php');
