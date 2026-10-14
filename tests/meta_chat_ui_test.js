@@ -226,6 +226,7 @@ class ReplyElement {
     removeEventListener(name, callback) { this.listeners[name] = (this.listeners[name] || []).filter(item => item !== callback); }
     dispatchEvent(event) { (this.listeners[event.type] || []).slice().forEach(callback => callback(event)); }
     removeAttribute(name) { delete this.attributes[name]; if (name === 'src') this.src = ''; }
+    setAttribute(name, value) { this.attributes[name] = String(value); }
     appendChild(child) { this.children.push(child); return child; }
     pause() {} load() {}
     querySelectorAll(selector) { return this.children.filter(el=>selector.split(',').includes(el.tagName)); }
@@ -433,6 +434,7 @@ async function trustedPreclaimFailure() {
 async function attachmentAndForwardExplicitSend() {
     const test=repliesFixture(); select(test,1); await replySettle();
     const picked=new Blob(['fixture'],{type:'image/png'}); picked.name='<b>photo.png</b>';
+    test.elements['[data-meta-attachment-pick]'].dispatchEvent({type:'click'});
     test.elements['[data-meta-attachment-input]'].files=[picked]; test.elements['[data-meta-attachment-input]'].dispatchEvent({type:'change'});
     assert(test.elements['[data-meta-attachment-preview]'].textContent.includes('<b>photo.png</b>')); assert.strictEqual(test.state.calls.filter(c=>c.options.method==='POST').length,0);
     test.state.outcome='UNKNOWN'; test.state.networkFailure=true;
