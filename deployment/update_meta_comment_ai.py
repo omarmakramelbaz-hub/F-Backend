@@ -153,6 +153,7 @@ def readable_sources(root, php, relatives):
 
 def readiness_failure(data, phase):
     known = {'LIVE_SERVER_REQUIRED','CENTRAL_INBOX_NOT_READY','AI_SCHEMA_DIFFERS','COMMENTS_LEDGER_MISSING',
+             'AI_READINESS_FATAL','AI_READINESS_EARLY_EXIT',
              'AI_POLICY_INVALID','VIEW_CACHE_PATH_UNSUPPORTED','AI_TABLES_NOT_READY','AI_ROUTES_INVALID','AI_UNIQUE_GUARDS_MISSING'}
     reason = data.get('reason') if isinstance(data, dict) else None
     reason = reason if reason in known else 'AI_READINESS_FAILED'
@@ -162,7 +163,9 @@ def readiness_failure(data, phase):
             and isinstance(detail.get('type'), str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_\\]{0,159}', detail['type']) \
             and isinstance(detail.get('file'), str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}\.php', detail['file']) \
             and type(detail.get('line')) is int and 0 < detail['line'] < 1000000:
-        return reason + ': ' + phase + '/' + detail['step'] + '/' + detail['type'] + '/' + detail['file'] + ':' + str(detail['line'])
+        suffix = ('/' + detail['fatal_kind']) if detail.get('fatal_kind') in {
+            'CLASS_REDECLARATION','FUNCTION_REDECLARATION','METHOD_SIGNATURE','MEMORY_LIMIT','TIME_LIMIT','OTHER'} else ''
+        return reason + ': ' + phase + '/' + detail['step'] + '/' + detail['type'] + '/' + detail['file'] + ':' + str(detail['line']) + suffix
     return reason + ': ' + phase
 
 
@@ -229,12 +232,28 @@ def web_contents(value):
 
 
 def probe(root, php, script, phase, stage, views):
-    result = subprocess.run(['runuser', '-u', 'fasakha', '--', php, str(script), str(root), phase, str(stage), str(views)],
-                            cwd=root, capture_output=True, timeout=60)
+    descriptor, result_path = tempfile.mkstemp(prefix='meta-comment-ai-result-', dir='/tmp')
     try:
-        data = json.loads(result.stdout)
-    except (ValueError, TypeError):
-        raise RuntimeError('AI_READINESS_OUTPUT_INVALID: ' + phase)
+        owner = root.stat()
+        os.fchown(descriptor, owner.st_uid, owner.st_gid)
+        result = subprocess.run(['runuser', '-u', 'fasakha', '--', php, str(script), str(root), phase, str(stage), str(views), result_path],
+                                cwd=root, capture_output=True, timeout=60)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        payload = os.read(descriptor, 65537)
+        if len(payload) > 65536:
+            raise RuntimeError('AI_READINESS_OUTPUT_INVALID: ' + phase)
+        try:
+            data = json.loads(payload if payload else result.stdout)
+        except (ValueError, TypeError):
+            raise RuntimeError('AI_READINESS_OUTPUT_INVALID: ' + phase + '/exit=' + str(result.returncode))
+    finally:
+        opened = os.fstat(descriptor)
+        os.close(descriptor)
+        try:
+            current = os.lstat(result_path)
+            if (current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino): os.unlink(result_path)
+        except FileNotFoundError:
+            pass
     if result.returncode or not isinstance(data, dict) or data.get('ok') is not True:
         raise RuntimeError(readiness_failure(data, phase))
     if not isinstance(data.get('tables'),dict) or type(data['tables'].get('meta_comment_ai_settings')) is not bool \

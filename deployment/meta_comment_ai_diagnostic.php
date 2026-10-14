@@ -57,16 +57,55 @@ function metaCommentAiUniqueIndexes($connection, string $table): bool
     return true;
 }
 // END COMMENT AI UNIQUE INDEX CHECK
+// A private pre-created result file survives framework output and native PHP shutdowns.
+function metaCommentAiWriteResult(array $out, ?string $path): void
+{
+    $json = json_encode($out, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)."\n";
+    if ($path !== null && !is_link($path)) {
+        $before = @lstat($path);
+        $stream = $before && ($before['mode'] & 0170000) === 0100000 && ($before['mode'] & 0777) === 0600
+            && $before['nlink'] === 1 && $before['size'] === 0 ? @fopen($path, 'r+b') : false;
+        if ($stream) {
+            $opened = fstat($stream);
+            if ($opened && $opened['ino'] === $before['ino'] && $opened['dev'] === $before['dev'] && flock($stream, LOCK_EX)) {
+                fwrite($stream, $json); fflush($stream); flock($stream, LOCK_UN);
+            }
+            fclose($stream);
+        }
+    }
+    echo $json;
+}
 $level = ob_get_level(); ob_start(); $exit = 1; $out = ['ok' => false]; $step = 'bootstrap';
+$phase = $argv[2] ?? 'diagnostic'; $resultPath = $argv[5] ?? null; $finished = false; $reserve = str_repeat(' ', 262144);
+register_shutdown_function(static function () use (&$finished, &$reserve, &$step, $phase, $resultPath, $level) {
+    if ($finished) return;
+    $reserve = null;
+    $error = error_get_last();
+    $fatal = $error && in_array($error['type'], [E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR,E_USER_ERROR], true);
+    $kind = 'OTHER';
+    if ($fatal) {
+        foreach (['CLASS_REDECLARATION'=>'/Cannot (?:declare|redeclare) (?:class|interface|trait)/i',
+            'FUNCTION_REDECLARATION'=>'/Cannot redeclare /i', 'METHOD_SIGNATURE'=>'/Declaration of .* must be compatible/i',
+            'MEMORY_LIMIT'=>'/Allowed memory size .* exhausted/i', 'TIME_LIMIT'=>'/Maximum execution time .* exceeded/i'] as $code => $pattern) {
+            if (preg_match($pattern, $error['message'])) { $kind = $code; break; }
+        }
+    }
+    for ($buffers = 0; $buffers < 64 && ob_get_level() > $level; $buffers++) { if (!@ob_end_clean()) break; }
+    metaCommentAiWriteResult(['ok'=>false, 'reason'=>$fatal ? 'AI_READINESS_FATAL' : 'AI_READINESS_EARLY_EXIT',
+        'diagnostic'=>['phase'=>in_array($phase, ['preflight','post_migration','verify','diagnostic'], true) ? $phase : 'diagnostic',
+            'step'=>$step, 'type'=>$fatal ? 'NativeFatal' : 'EarlyExit', 'file'=>basename($error['file'] ?? __FILE__),
+            'line'=>max(1, (int) ($error['line'] ?? 1)), 'fatal_kind'=>$kind]], $resultPath);
+});
 try {
     $root = $argv[1] ?? '/home/fasakha/public_html';
     $phase = $argv[2] ?? 'diagnostic';
     $stage = $argv[3] ?? null;
     require $root.'/vendor/autoload.php';
-    if ($stage) spl_autoload_register(static function ($class) use ($stage) {
+    // The live check must exercise Composer exactly as the application does.
+    if ($stage && realpath($stage) !== realpath($root)) spl_autoload_register(static function ($class) use ($stage) {
         if (str_starts_with($class, 'App\\')) {
             $path = $stage.'/app/'.str_replace('\\', '/', substr($class, 4)).'.php';
-            if (is_file($path)) require $path;
+            if (is_file($path)) require_once $path;
         }
     }, true, true);
     $app = require $root.'/bootstrap/app.php';
@@ -156,5 +195,6 @@ try {
             'file' => $error->getFile() !== '' ? basename($error->getFile()) : ($step === 'view_compile' ? 'compiled-view.php' : basename(__FILE__)),
             'line' => $error->getLine()]];
 }
-while (ob_get_level() > $level) ob_end_clean();
-echo json_encode($out, JSON_UNESCAPED_SLASHES)."\n"; exit($exit);
+for ($buffers = 0; $buffers < 64 && ob_get_level() > $level; $buffers++) { if (!@ob_end_clean()) break; }
+$finished = true; $reserve = null;
+metaCommentAiWriteResult($out, $resultPath); exit($exit);

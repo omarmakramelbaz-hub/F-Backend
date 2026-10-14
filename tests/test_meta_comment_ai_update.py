@@ -147,8 +147,40 @@ class ProbeTests(unittest.TestCase):
     def test_invalid_stdout_is_distinct_and_never_echoed(self):
         response=types.SimpleNamespace(returncode=1,stdout=b'private provider token')
         with mock.patch.object(updater.subprocess,'run',return_value=response):
-            with self.assertRaisesRegex(RuntimeError,r'^AI_READINESS_OUTPUT_INVALID: post_migration$'):
+            with self.assertRaisesRegex(RuntimeError,r'^AI_READINESS_OUTPUT_INVALID: post_migration/exit=1$'):
                 updater.probe(PACKAGE,'php','diagnostic','post_migration',PACKAGE,'views')
+
+    def test_private_result_file_ignores_framework_output_and_is_removed(self):
+        seen=[]
+        body={'ok':True,'tables':{'meta_comment_ai_settings':True},'tables_ready':True,'configured':True,
+              'enabled':False,'mode':'always','verified_routes':2,'view_caches':[],'routes_cached':False}
+        def run(arguments,**kwargs):
+            path=pathlib.Path(arguments[-1]); seen.append(path)
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
+            path.write_text(json.dumps(body))
+            return types.SimpleNamespace(returncode=0,stdout=b'framework private output',stderr=b'private details')
+        with mock.patch.object(updater.subprocess,'run',side_effect=run):
+            self.assertEqual(updater.probe(PACKAGE,'php','diagnostic','verify',PACKAGE,'views'),body)
+        self.assertFalse(seen[0].exists())
+
+    def test_native_fatal_uses_private_checkpoint_without_reflecting_process_output(self):
+        detail={'phase':'verify','step':'bootstrap','type':'NativeFatal','file':'Legacy.php','line':15,'fatal_kind':'CLASS_REDECLARATION'}
+        def run(arguments,**kwargs):
+            pathlib.Path(arguments[-1]).write_text(json.dumps({'ok':False,'reason':'AI_READINESS_FATAL','diagnostic':detail}))
+            return types.SimpleNamespace(returncode=255,stdout=b'private fatal message',stderr=b'private path')
+        with mock.patch.object(updater.subprocess,'run',side_effect=run):
+            with self.assertRaisesRegex(RuntimeError,r'^AI_READINESS_FATAL: verify/bootstrap/NativeFatal/Legacy.php:15/CLASS_REDECLARATION$'):
+                updater.probe(PACKAGE,'php','diagnostic','verify',PACKAGE,'views')
+
+    def test_result_file_is_removed_after_process_timeout(self):
+        seen=[]
+        def run(arguments,**kwargs):
+            seen.append(pathlib.Path(arguments[-1]))
+            raise subprocess.TimeoutExpired('fixture',60)
+        with mock.patch.object(updater.subprocess,'run',side_effect=run):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                updater.probe(PACKAGE,'php','diagnostic','verify',PACKAGE,'views')
+        self.assertFalse(seen[0].exists())
 
     def test_application_readability_reports_only_reviewed_relative_path(self):
         relative='resources/views/admin/meta/comments.blade.php'

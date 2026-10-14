@@ -5,6 +5,22 @@
 
 function metaCommentDiagnosticFixture(string $root, bool $migrated)
 {
+    $scenario = basename($root);
+    if (in_array($scenario, ['early_exit', 'native_fatal', 'shutdown_noise'], true)) {
+        // Framework shutdown output can corrupt stdout after our diagnostic has already finished.
+        register_shutdown_function(static function () { echo 'PRIVATE-FRAMEWORK-SHUTDOWN-MARKER'; });
+    }
+    if ($scenario === 'early_exit') exit(0);
+    if ($scenario === 'native_fatal') {
+        require $root.'/native-first.php';
+        require $root.'/native-second.php'; // Actual uncatchable duplicate-class fatal, not a thrown exception.
+    }
+    // Model an optimized production Composer map that intentionally differs from an old PSR-4 path.
+    $loader = new \Composer\Autoload\ClassLoader();
+    $loader->addPsr4('App\\', $root.'/app/');
+    $loader->addClassMap(['App\\AutoloadIsolationProbe' => $root.'/production/AutoloadIsolationProbe.php']);
+    $loader->register();
+    if (\App\AutoloadIsolationProbe::value() !== 'production') throw new \RuntimeException('NON_PRODUCTION_AUTOLOADER');
     $app = new class($root) extends \Illuminate\Foundation\Application {
         public function configurationIsCached() { return true; }
         public function routesAreCached() { return false; }
@@ -59,12 +75,20 @@ $temporary = sys_get_temp_dir().'/meta-comment-diagnostic-test-'.bin2hex(random_
 mkdir($temporary, 0755, true);
 $checks = 0;
 try {
-    foreach (['initial', 'staged', 'installed', 'invalid_blade'] as $case) {
+    foreach (['initial', 'staged', 'installed', 'installed_stale_path', 'invalid_blade', 'early_exit', 'native_fatal', 'shutdown_noise'] as $case) {
         $root = $temporary.'/'.$case;
-        $installed = in_array($case, ['installed', 'invalid_blade'], true);
-        foreach (['bootstrap', 'storage/framework/views', 'resources/views/admin/meta'] as $path) mkdir($root.'/'.$path, 0755, true);
+        $installed = !in_array($case, ['initial', 'staged'], true);
+        foreach (['bootstrap', 'storage/framework/views', 'resources/views/admin/meta', 'production'] as $path) mkdir($root.'/'.$path, 0755, true);
         symlink($vendor, $root.'/vendor');
-        symlink($project.'/app', $root.'/app');
+        foreach (['app/Services/Dashboard/MetaCommentAiControl.php', 'app/Services/Dashboard/MetaCommentAiProvider.php',
+            'app/Services/Dashboard/MetaCommentsFailure.php', 'app/Http/Controllers/Controller.php',
+            'app/Http/Controllers/Dashboard/MetaCommentAiController.php'] as $relative) {
+            if (!is_dir(dirname($root.'/'.$relative))) mkdir(dirname($root.'/'.$relative), 0755, true);
+            copy($project.'/'.$relative, $root.'/'.$relative);
+        }
+        file_put_contents($root.'/production/AutoloadIsolationProbe.php', '<?php namespace App; class AutoloadIsolationProbe { public static function value() { return "production"; } }');
+        if ($case === 'installed_stale_path') file_put_contents($root.'/app/AutoloadIsolationProbe.php', '<?php namespace App; class AutoloadIsolationProbe { public static function value() { return "stale-psr4-path"; } }');
+        if ($case === 'native_fatal') foreach (['native-first.php', 'native-second.php'] as $file) file_put_contents($root.'/'.$file, '<?php class PrivateNativeFatalMarker {}');
         $view = 'resources/views/admin/meta/comments.blade.php';
         copy($project.'/'.$view, $root.'/'.$view);
         if ($case === 'invalid_blade') file_put_contents($root.'/'.$view, "\n<?php \$privateFixture = 'PRIVATE-TEMPLATE-MARKER'; if ( ?>", FILE_APPEND);
@@ -72,18 +96,34 @@ try {
         file_put_contents($root.'/bootstrap/app.php', $bootstrap);
         $views = $root.'/views.json';
         file_put_contents($views, json_encode([$view => ($installed ? $root : $project).'/'.$view], JSON_THROW_ON_ERROR));
+        $resultFile = $root.'/result.json'; file_put_contents($resultFile, ''); chmod($resultFile, 0600);
         $command = [$php, '-d', 'display_errors=0', $project.'/deployment/meta_comment_ai_diagnostic.php', $root,
-            $installed ? 'verify' : 'preflight', $installed ? $root : $project, $views];
+            $installed ? 'verify' : 'preflight', $installed ? $root : $project, $views, $resultFile];
         $pipes = [];
         $process = proc_open($command, [['pipe','r'], ['pipe','w'], ['pipe','w']], $pipes, $project);
         if (!is_resource($process)) throw new RuntimeException('Diagnostic process did not start');
         fclose($pipes[0]); $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]); $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
         $code = proc_close($process);
-        $body = json_decode($stdout, true, 32, JSON_THROW_ON_ERROR);
+        $resultJson = file_get_contents($resultFile);
+        $body = json_decode($resultJson, true, 32, JSON_THROW_ON_ERROR);
         $assert = static function ($ok, string $label) use (&$checks, $case, $code, $body, $stderr) {
             $checks++;
             if (!$ok) throw new RuntimeException($case.': '.$label.'; '.json_encode(['exit'=>$code,'body'=>$body,'stderr'=>$stderr]));
         };
+        $assert((fileperms($resultFile) & 0777) === 0600 && !is_link($resultFile), 'structured result remains a private regular file');
+        if (in_array($case, ['early_exit', 'native_fatal'], true)) {
+            $fatal = $case === 'native_fatal'; $detail = $body['diagnostic'] ?? [];
+            $assert($fatal ? $code !== 0 : $code === 0, 'actual fatal or deliberate early-exit process status observed');
+            $assert(($body['ok'] ?? null) === false && ($body['reason'] ?? null) === ($fatal ? 'AI_READINESS_FATAL' : 'AI_READINESS_EARLY_EXIT'), 'shutdown captures failure even when stdout is corrupted');
+            $assert(($detail['phase'] ?? null) === 'verify' && ($detail['step'] ?? null) === 'bootstrap', 'shutdown preserves failing checkpoint');
+            $assert(($detail['type'] ?? null) === ($fatal ? 'NativeFatal' : 'EarlyExit'), 'native shutdown category is explicit');
+            $assert(($detail['fatal_kind'] ?? null) === ($fatal ? 'CLASS_REDECLARATION' : 'OTHER'), 'fatal message is classified without exposing its text');
+            $assert(is_string($detail['file'] ?? null) && basename($detail['file']) === $detail['file'] && is_int($detail['line'] ?? null) && $detail['line'] > 0, 'safe source basename and line survive shutdown');
+            $assert(!str_contains($resultJson, 'PrivateNativeFatalMarker') && !str_contains($resultJson, 'PRIVATE-FRAMEWORK-SHUTDOWN-MARKER') && !str_contains($resultJson, $root) && !str_contains($resultJson, $project), 'private fatal content and source paths excluded from structured result');
+            $assert(str_contains($stdout, 'PRIVATE-FRAMEWORK-SHUTDOWN-MARKER') && json_decode($stdout, true) === null, 'framework shutdown output actually corrupts stdout');
+            $assert(array_keys($body) === ['ok', 'reason', 'diagnostic'] && array_keys($detail) === ['phase', 'step', 'type', 'file', 'line', 'fatal_kind'], 'native errors contain no message, stack or arguments');
+            continue;
+        }
         if ($case === 'invalid_blade') {
             $detail = $body['diagnostic'] ?? [];
             $assert($code === 1 && ($body['ok'] ?? null) === false, 'actual invalid Blade fails closed');
@@ -103,8 +143,12 @@ try {
         $assert(($body['view_caches'] ?? null) === ['storage/framework/views/'.sha1('v2'.$root.'/'.$view).'.php'], 'actual cache path matches reviewed view');
         $assert(($body['tables_ready'] ?? null) === ($case !== 'initial'), 'real schema and unique guards checked');
         $assert(($body['policy_present'] ?? null) === ($case !== 'initial'), 'real policy snapshot checked');
-        $assert(($body['verified_routes'] ?? null) === ($case === 'installed' ? 2 : 0), 'actual installed routes verified');
+        $assert(($body['verified_routes'] ?? null) === ($installed ? 2 : 0), 'actual installed routes verified');
         $assert(($body['enabled'] ?? null) === ($case === 'initial' ? null : false), 'installation never enables replies');
+        if ($case === 'shutdown_noise') {
+            $assert(str_contains($stdout, 'PRIVATE-FRAMEWORK-SHUTDOWN-MARKER') && json_decode($stdout, true) === null, 'later framework output makes stdout invalid JSON');
+            $assert(!str_contains($resultJson, 'PRIVATE-FRAMEWORK-SHUTDOWN-MARKER') && ($body['ok'] ?? false) === true, 'private structured result retains verified success despite noisy shutdown');
+        }
     }
     echo "meta-comment-ai-diagnostic: $checks checks passed\n";
 } finally {
