@@ -10,7 +10,21 @@ namespace {
     set_error_handler(function ($s, $m, $f, $l) { if ($s & E_ALL) throw new \ErrorException($m, 0, $s, $f, $l); return false; });
 }
 namespace App\Models { class User { public $id = 1; public $active = true; public $account_type = 'admin'; public $owner_resturant_id = null; } }
-namespace App\Services\Dashboard { class TakeawayAccess { public function actor($actor) { \abort_unless($actor && $actor->active, 403); return $actor; } } }
+namespace App\Services\Dashboard {
+    class TakeawayAccess {
+        public static int $calls = 0; public static $before = null;
+        public function actor($actor) {
+            self::$calls++; if (self::$before) (self::$before)($actor, self::$calls);
+            \abort_unless($actor && $actor->active, 403); return $actor;
+        }
+    }
+    class MetaOAuthCredentials {
+        public static int $calls = 0; public static $before = null;
+        public function overlay(array $accounts): array {
+            self::$calls++; return self::$before ? (self::$before)($accounts, self::$calls) : $accounts;
+        }
+    }
+}
 namespace {
     use Illuminate\Container\Container;
     use Illuminate\Config\Repository;
@@ -61,7 +75,8 @@ namespace {
         check($parameters['appsecret_proof'] === hash_hmac('sha256', $token, 'private-secret'), 'appsecret proof supplied');
         if ($method === 'POST') {
             check(DB::connection()->transactionLevel() === 0, 'POST outside database transaction');
-            return jsonResponse(['id' => '880']);
+            return jsonResponse(['id' => '880']) + ['timings' => ['meta_dns' => 0.2, 'meta_connect' => 1.5,
+                'meta_tls' => 2.5, 'meta_wait' => 4.5, 'private-token' => 99]];
         }
         if (strpos($endpoint, '/published_posts') !== false) {
             check($parameters['limit'] === 20, 'post request bounded');
@@ -124,11 +139,25 @@ namespace {
     $igFbComment = $service->comments($actor, $igFbPost['handle'])['comments'][0];
 
     $replyInput = input($comment['handle']); $before = count($calls);
+    \App\Services\Dashboard\TakeawayAccess::$calls = 0;
+    \App\Services\Dashboard\MetaOAuthCredentials::$calls = 0;
+    DB::connection()->enableQueryLog(); DB::connection()->flushQueryLog();
     $accepted = $service->send($actor, $replyInput);
+    $writeQueries = DB::connection()->getQueryLog(); DB::connection()->disableQueryLog();
     check($accepted['state'] === 'ACCEPTED' && $accepted['success'] && $accepted['reply']['text'] === 'أهلًا بحضرتك', 'accepted reply returned immediately before remote refresh');
+    check(count($writeQueries) === 3 && count(array_filter($writeQueries,
+        fn ($query) => strpos($query['query'], 'meta_comment_reply_requests') !== false)) === 3,
+        'reply storage uses claim read finish only without per-send schema query');
+    check(\App\Services\Dashboard\TakeawayAccess::$calls === 2 && \App\Services\Dashboard\MetaOAuthCredentials::$calls === 2,
+        'two persisted actor and credential checks retained before provider send');
+    $timing = $service->serverTiming(12.5);
+    check(strpos($timing, 'reply;dur=12.5') === 0 && strpos($timing, 'meta;dur=') !== false
+        && strpos($timing, 'meta_wait;dur=4.5') !== false && strpos($timing, 'private-token') === false,
+        'timing attribution exposes only bounded fixed numeric metrics');
     check(end($calls)[1] === 'https://graph.facebook.com/v25.0/700/comments' && end($calls)[0] === 'POST', 'Facebook reply sends correct edge');
     $repeat = $service->send($actor, $replyInput);
     check($repeat['state'] === 'ACCEPTED' && $repeat['replayed'] && count($calls) === $before + 1, 'same UUID returns persisted receipt without second send');
+    check($service->serverTiming(5.0) === 'reply;dur=5.0', 'idempotent replay clears old provider timing');
     $row = DB::table('meta_comment_reply_requests')->first();
     check($row->pending_key === null && strpos(json_encode((array) $row), 'أهلًا') === false && strpos($row->response_details, '880') === false, 'minimal reply audit remains encrypted');
     expectFailure(fn () => $service->send($actor, array_merge($replyInput, ['message' => 'Different text'])), 'REQUEST_CONFLICT', 'same UUID payload mismatch blocked');
@@ -186,5 +215,23 @@ namespace {
     expectFailure(fn () => $service->accounts($actor), 'CENTRAL_ONLY', 'offline desktop has no live social access');
     expectFailure(fn () => $service->send($actor, $replyInput), 'CENTRAL_ONLY', 'offline desktop cannot reply');
     config()->set('desktop_dashboard.local', false);
+    $freshActor = new \App\Models\User; $freshActor->id = 90; $preflightCalls = 0;
+    $preflightService = new Comments(function () use (&$preflightCalls) { $preflightCalls++; return jsonResponse(['id' => '899']); });
+    \App\Services\Dashboard\TakeawayAccess::$calls = 0;
+    \App\Services\Dashboard\TakeawayAccess::$before = function ($actor, $count) { if ($count === 2) $actor->active = false; };
+    $revokedActor = $preflightService->send($freshActor, input($comment['handle']));
+    check($revokedActor['state'] === 'FAILED' && $revokedActor['reason'] === 'ACCESS_REVOKED' && $preflightCalls === 0,
+        'persisted actor revocation after claim still prevents provider write');
+    \App\Services\Dashboard\TakeawayAccess::$before = null; $freshActor->active = true;
+    \App\Services\Dashboard\MetaOAuthCredentials::$calls = 0;
+    \App\Services\Dashboard\MetaOAuthCredentials::$before = fn ($accounts, $count) => $count === 2 ? [] : $accounts;
+    $revokedAccount = $preflightService->send($freshActor, input($comment['handle']));
+    check($revokedAccount['state'] === 'FAILED' && $revokedAccount['reason'] === 'ACCESS_REVOKED' && $preflightCalls === 0,
+        'fresh credential overlay revocation after claim still prevents provider write');
+    \App\Services\Dashboard\MetaOAuthCredentials::$before = null;
+    (new \CreateMetaCommentReplyRequests)->down();
+    expectFailure(fn () => $preflightService->send($freshActor, input($comment['handle'])), 'REPLIES_UNAVAILABLE',
+        'missing reply table reported before sending without schema preflight query');
+    check($preflightCalls === 0, 'storage failure never reaches provider');
     echo "meta-comments-service: $checks checks passed\n";
 }

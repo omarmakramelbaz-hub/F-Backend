@@ -34,8 +34,14 @@ SOURCE_FILES = (
 )
 SIDEBAR_BASELINE = 'cb321326b61eeebb2f8c1276e7b1be217c273d51'
 REVIEWED_PRIOR_FILES = {
-    SIDEBAR: (SIDEBAR_BASELINE,),
+    SIDEBAR: (SIDEBAR_BASELINE, '62b1ffa41982517492f670efca027776d39b3324'),
     'deployment/meta_comments_diagnostic.php': ('ab1be0914a9fdc576e35a118445576bd4e483db1',),
+    # Exact reviewed e07724ccdccc7fede01a44c274a78bf108484366 sources only.
+    'app/Services/Dashboard/MetaCommentsService.php': ('7eb32215897388601c98d20473e321f30a2a9f73',),
+    'app/Http/Controllers/Dashboard/MetaCommentsController.php': ('204d9411e83d3f6bc6cee81a8a6f8d6abd61923d',),
+    'resources/views/admin/meta/comments.blade.php': ('5f27d31e55b50c58a8613966ceae889900a967a2',),
+    'public/js/dashboard-meta-comments.js': ('9962ae6f9376ba2aee5ee9fd5997e0d5a34ac72d',),
+    'public/css/dashboard-meta-comments.css': ('6a904ee6d59f0d3459b47dd4024a7cf7fd79c7f3',),
 }
 FOUNDATION_PINS = {
     'app/Services/Dashboard/WhatsAppInboxAccess.php': '186789d42113e81818de8d82a2327e3ee9d8d0b5',
@@ -43,9 +49,9 @@ FOUNDATION_PINS = {
     'app/Services/Dashboard/TakeawayAccess.php': '6b27b7ac2faff6fdaf952494f90f2d8378a12484',
 }
 ROUTE_CACHE_FILES = ('bootstrap/cache/routes-v7.php', 'bootstrap/cache/routes.php')
-NAV_MARKER = '// BEGIN Meta comments sidebar ordering v1'
-NAV_END = '// END Meta comments sidebar ordering v1'
-NAV_BLOCK = r'''// BEGIN Meta comments sidebar ordering v1
+PRIOR_NAV_MARKER = '// BEGIN Meta comments sidebar ordering v1'
+PRIOR_NAV_END = '// END Meta comments sidebar ordering v1'
+PRIOR_NAV_BLOCK = r'''// BEGIN Meta comments sidebar ordering v1
 (() => {
     const placeComments = () => {
         const links = Array.from(document.querySelectorAll('a[href]'));
@@ -65,6 +71,63 @@ NAV_BLOCK = r'''// BEGIN Meta comments sidebar ordering v1
     else placeComments();
 })();
 // END Meta comments sidebar ordering v1
+'''
+NAV_MARKER = '// BEGIN Meta comments sidebar ordering v2'
+NAV_END = '// END Meta comments sidebar ordering v2'
+NAV_BLOCK = r'''// BEGIN Meta comments sidebar ordering v2
+(() => {
+    const key = '__fasakhanstaMetaCommentsNavigationV2';
+    if (window[key] && typeof window[key].schedule === 'function') {
+        window[key].schedule();
+        return;
+    }
+    const observed = new WeakSet();
+    let queued = false;
+    const placeComments = () => {
+        const origin = new URL(window.location.href).origin;
+        const isComments = /^\/admin\/meta\/comments(?:\/|$)/.test(window.location.pathname);
+        document.querySelectorAll('.main-sidebar').forEach(sidebar => {
+            if (!observed.has(sidebar)) {
+                new MutationObserver(schedule).observe(sidebar, {
+                    childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'href']
+                });
+                observed.add(sidebar);
+            }
+            const links = Array.from(sidebar.querySelectorAll('.nav-sidebar a[href]'))
+                .filter(link => link.closest('.main-sidebar') === sidebar);
+            const at = path => links.filter(link => {
+                try {
+                    const url = new URL(link.href, window.location.href);
+                    return url.origin === origin && url.pathname.replace(/\/+$/, '') === path;
+                } catch (_) { return false; }
+            });
+            const comments = at('/admin/meta/comments');
+            const inbox = at('/admin/meta');
+            if (comments.length !== 1 || inbox.length !== 1) return;
+            const item = comments[0].closest('li');
+            const after = inbox[0].closest('li');
+            if (!item || !after || item === after || item.contains(after)
+                || !item.closest('.nav-sidebar') || !after.closest('.nav-sidebar')) return;
+            if (item.parentElement !== after.parentElement || after.nextElementSibling !== item)
+                after.insertAdjacentElement('afterend', item);
+            if (isComments) {
+                if (inbox[0].classList.contains('active')) inbox[0].classList.remove('active');
+                if (!comments[0].classList.contains('active')) comments[0].classList.add('active');
+            }
+        });
+    };
+    const schedule = () => {
+        if (queued) return;
+        queued = true;
+        window.requestAnimationFrame(() => { queued = false; placeComments(); });
+    };
+    window[key] = { schedule };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule, { once: true });
+    else schedule();
+    document.addEventListener('dashboard:page-mounted', schedule);
+    window.addEventListener('popstate', schedule);
+})();
+// END Meta comments sidebar ordering v2
 '''
 
 
@@ -213,10 +276,17 @@ def navigation_contents(source):
         source = source[:match.start(2)] + '|'.join(routes) + source[match.end(2):]
     newline = '\r\n' if '\r\n' in source else '\n'
     block = NAV_BLOCK.replace('\n', newline)
-    if NAV_MARKER in source or NAV_END in source:
-        if source.count(NAV_MARKER) != 1 or source.count(NAV_END) != 1 or block not in source:
+    prior_block = PRIOR_NAV_BLOCK.replace('\n', newline)
+    begin = '// BEGIN Meta comments sidebar ordering '
+    end = '// END Meta comments sidebar ordering '
+    if begin in source or end in source:
+        if source.count(begin) != 1 or source.count(end) != 1:
             raise RuntimeError('NATIVE_COMMENTS_ORDERING_DIFFERS')
-        return source
+        if block in source:
+            return source
+        if prior_block in source:
+            return source.replace(prior_block, block, 1)
+        raise RuntimeError('NATIVE_COMMENTS_ORDERING_DIFFERS')
     return source + ('' if source.endswith('\n') else newline) + newline + block
 
 

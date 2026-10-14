@@ -2,13 +2,13 @@
   "version": 1,
   "files": {
     "app/Services/Dashboard/MetaCommentsFailure.php": "b43557d145f7ca19f74ff663d1deeba261ac486b",
-    "app/Services/Dashboard/MetaCommentsService.php": "7eb32215897388601c98d20473e321f30a2a9f73",
-    "app/Http/Controllers/Dashboard/MetaCommentsController.php": "204d9411e83d3f6bc6cee81a8a6f8d6abd61923d",
+    "app/Services/Dashboard/MetaCommentsService.php": "518c311392f53f089451a813d800176a64463b2f",
+    "app/Http/Controllers/Dashboard/MetaCommentsController.php": "6d0ac5e0a0ca057827e4f06eb3293f0e617af3db",
     "database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php": "b7dfa555c58c86986914a147666f9ba2983a2c38",
     "deployment/meta_comments_diagnostic.php": "b767af2b1b745c90e5e671886dd6a7d8371f1b5c",
-    "public/js/dashboard-meta-comments.js": "9962ae6f9376ba2aee5ee9fd5997e0d5a34ac72d",
-    "public/css/dashboard-meta-comments.css": "6a904ee6d59f0d3459b47dd4024a7cf7fd79c7f3",
-    "resources/views/admin/meta/comments.blade.php": "5f27d31e55b50c58a8613966ceae889900a967a2",
+    "public/js/dashboard-meta-comments.js": "ef99bbe386854dde8fda9b4165efc01cbadccad2",
+    "public/css/dashboard-meta-comments.css": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+    "resources/views/admin/meta/comments.blade.php": "3f8b5f3df44a4fa3aaa63b173bc12f76de50adf4",
     "routes/meta_comments.php": "66e6c162c630a3285de9b37b54c706fc1076f0f0",
     "resources/views/admin/meta/sidebar.blade.php": "62b1ffa41982517492f670efca027776d39b3324"
   }

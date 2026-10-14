@@ -44,6 +44,8 @@ namespace {
         check(strpos($response->headers->get('Cache-Control'), 'no-store') !== false, 'private no-store response');
         check($response->headers->get('Referrer-Policy') === 'no-referrer'
             && $response->headers->get('X-Content-Type-Options') === 'nosniff', 'privacy and content headers');
+        check(preg_match('/\Areply;dur=[0-9]+\.[0-9]\z/', $response->headers->get('Server-Timing')) === 1,
+            'success and failures carry sanitized numeric reply latency');
         return [$response->getStatusCode(), json_decode($response->getContent(), true), $service->calls];
     }
     [$status, $body] = sendTest(function () { throw new MetaCommentsFailure('PERMISSION_REQUIRED', 403, ['pages_manage_engagement']); });

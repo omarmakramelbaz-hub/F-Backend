@@ -13,14 +13,25 @@
         var labels = config.labels || {}, urls = config.urls || {}, origin = new URL(window.location.href).origin;
         var fields = {};
         ['account','alert','posts','post-count','post-status','more-posts','comments','comment-status','more-comments','post-title',
-            'post-link','scroll','form','reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count'].forEach(function (name) {
+            'post-link','scroll','form','reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count',
+            'emoji-toggle','emoji-picker','emoji-grid','emoji-tabs','emoji-wrap','refresh'].forEach(function (name) {
             fields[name] = host.querySelector('[data-mc-' + name + ']');
         });
         if (Object.keys(fields).some(function (name) { return !fields[name]; })) return;
         var accounts = [], channel = '', account = null, posts = new Map(), comments = new Map(), replyPages = new Map();
         var post = null, selectedKey = '', postCursor = null, commentCursor = null, epoch = 0, postEpoch = 0;
-        var closed = false, denied = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
+        var closed = false, denied = false, sending = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
         var viewer = '', drafts = new Map(), sends = new Map();
+        var emojiCategory = 'reactions', caret = {start:0,end:0};
+        var emojiGroups = {
+            reactions:[['👍','إعجاب','Like'],['❤️','حب','Love'],['😂','ضحك','Laugh'],['😮','دهشة','Wow'],['😢','حزين','Sad'],['😡','غاضب','Angry'],['🙏','شكر ودعاء','Thanks'],['😍','إعجاب وحب','Heart eyes'],
+                ['😀','ابتسامة عريضة','Grinning'],['😊','ابتسامة لطيفة','Smiling'],['🙂','مبتسم','Smile'],['😁','ضحكة','Beaming'],['🤣','ضحك شديد','Rolling laugh'],['😉','غمزة','Wink'],['😘','قبلة','Kiss'],['🥰','حب وامتنان','Affection']],
+            hearts:[['👋','تحية','Wave'],['👌','تمام','Okay'],['✌️','سلام','Peace'],['🤝','مصافحة','Handshake'],['👏','تصفيق','Applause'],['🙌','احتفال','Celebration'],['💪','قوة','Strong'],['🤲','دعاء','Prayer'],
+                ['🤗','حضن','Hug'],['🫶','قلب باليدين','Heart hands'],['🤍','قلب أبيض','White heart'],['💛','قلب أصفر','Yellow heart'],['💙','قلب أزرق','Blue heart'],['💜','قلب بنفسجي','Purple heart']],
+            extras:[['✅','علامة صح','Check'],['❌','علامة خطأ','Cross'],['⭐','نجمة','Star'],['✨','لمعة','Sparkles'],['🎉','احتفال','Party'],['🎊','زينة احتفال','Confetti'],['💯','مائة بالمائة','Hundred'],['🔥','نار','Fire'],
+                ['🌹','وردة','Rose'],['💐','باقة ورد','Bouquet'],['☀️','شمس','Sun'],['🌙','هلال','Moon'],['😋','لذيذ','Delicious'],['🤤','أكل شهي','Tasty'],['🍽️','طبق طعام','Plate'],['🐟','سمكة','Fish'],
+                ['🍋','ليمون','Lemon'],['🥗','سلطة','Salad'],['🍞','خبز','Bread'],['🚚','توصيل','Delivery'],['📍','موقع','Location'],['⏰','وقت','Time'],['💬','تعليق','Comment'],['📞','تليفون','Phone'],['💰','نقود','Money'],['🛍️','تسوق','Shopping']]
+        };
         function node(tag, cls, value) { var el = document.createElement(tag); if (cls) el.className = cls; if (value !== undefined) el.textContent = String(value); return el; }
         function label(name) { return labels[name] || name; }
         function text(value, limit) { return typeof value === 'string' ? value.slice(0, limit || 20000) : ''; }
@@ -49,7 +60,7 @@
                 try { var saved = JSON.parse(window.sessionStorage.getItem('meta-comments-pending:' + viewer) || '[]');
                     if (Array.isArray(saved)) saved.slice(0,100).forEach(function(item) {
                         if (Array.isArray(item) && /^[a-f0-9]{64}$/i.test(item[0]) && item[1] && ['SENDING','UNKNOWN'].indexOf(item[1].state) !== -1)
-                            recovered.set(item[0],{state:'UNKNOWN',message:text(item[1].message,1000),request_id:text(item[1].request_id,64)});
+                            recovered.set(item[0],{state:'UNKNOWN',message:text(item[1].message,2000),request_id:text(item[1].request_id,64),account_label:text(item[1].account_label,160)});
                     });
                 } catch (_) {}
                 sendStores.set(viewer,recovered);
@@ -68,7 +79,7 @@
             var permissions = Array.isArray(payload.required_permissions) ? payload.required_permissions.filter(function(p) { return typeof p === 'string' && /^[a-z_]+$/.test(p); }).slice(0,8) : [];
             return message + (permissions.length ? ' · ' + label('permissions') + ': ' + permissions.join(', ') : '');
         }
-        function abortRead(key,controller) { controller.abort(); controllers.delete(key); busy.delete(key); }
+        function abortRead(key,controller) { controller.abort(); clearTimeout(controller.commentsTimer); timeoutIds.delete(controller.commentsTimer); controllers.delete(key); busy.delete(key); }
         function abortReads() { controllers.forEach(function(controller,key) { if (key !== 'reply') abortRead(key,controller); }); }
         function accessLost(error) { return error && (error.status === 401 || ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf((error.payload || {}).reason) !== -1); }
         async function request(key,name,params,payload) {
@@ -76,15 +87,17 @@
             var controller = new AbortController(), timeout;
             controllers.set(key,controller); busy.add(key);
             try {
-                timeout = setTimeout(function() { controller.abort(); }, payload ? 30000 : 20000); timeoutIds.add(timeout);
+                timeout = setTimeout(function() { controller.abort(); }, payload ? 30000 : 20000); controller.commentsTimer = timeout; timeoutIds.add(timeout);
                 var options = {method:payload ? 'POST' : 'GET',credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal,
                     headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}};
                 if (payload) { options.headers['Content-Type'] = 'application/json'; options.headers['X-CSRF-TOKEN'] = config.csrf || ''; options.body = JSON.stringify(payload); }
                 var response = await fetch(endpoint(name,params),options), data;
+                if (controller.signal.aborted) { var canceled = new Error('Canceled'); canceled.name = 'AbortError'; throw canceled; }
                 if (response.redirected) throw new Error(label('unavailable'));
                 var contentType = response.headers && response.headers.get('content-type') || '';
                 if (!contentType.includes('application/json')) throw new Error(label('unavailable'));
                 try { data = await response.json(); } catch (_) { throw new Error(label('unavailable')); }
+                if (controller.signal.aborted) { var interrupted = new Error('Canceled'); interrupted.name = 'AbortError'; throw interrupted; }
                 if (!data || typeof data !== 'object') throw new Error(label('unavailable'));
                 if (payload && ['ACCEPTED','UNKNOWN','FAILED'].indexOf(data.state) !== -1) return data;
                 if (!response.ok || data.success !== true) {
@@ -142,6 +155,17 @@
                 if (page.cursor) { var more = node('button','mc-button mc-secondary',label('more_replies')); more.type = 'button'; more.dataset.mcMoreReplies = key; more.disabled = busy.has('replies:' + key); section.appendChild(more); }
                 item.appendChild(section);
             }
+            var pending = sends.get(key);
+            if (pending && ['SENDING','UNKNOWN'].indexOf(pending.state) !== -1) {
+                var pendingSection = node('div','mc-replies'), pendingList = node('ol','mc-reply-list'), pendingRow = node('li','mc-reply mc-pending');
+                pendingRow.dataset.mcPending = key; pendingRow.dataset.mcState = pending.state;
+                pendingRow.appendChild(node('strong','mc-comment-author',pending.account_label || account && account.label || ''));
+                var pendingText = node('p','mc-comment-text',pending.message || ''); pendingText.setAttribute('dir','auto'); pendingRow.appendChild(pendingText);
+                var pendingStatus = node('p','mc-pending-status'); pendingStatus.setAttribute('role','status');
+                pendingStatus.appendChild(node('i',pending.state === 'SENDING' ? 'far fa-clock' : 'fas fa-exclamation-circle'));
+                pendingStatus.appendChild(node('span','',label(pending.state === 'SENDING' ? 'sending' : 'unknown')));
+                pendingRow.appendChild(pendingStatus); pendingList.appendChild(pendingRow); pendingSection.appendChild(pendingList); item.appendChild(pendingSection);
+            }
             return item;
         }
         function renderComments() {
@@ -150,20 +174,55 @@
             fields['more-comments'].hidden = !commentCursor; fields['more-comments'].disabled = busy.has('comments'); fields.scroll.scrollTop = priorScroll;
         }
         function saveDraft() { if (selectedKey) drafts.set(selectedKey,fields['reply-text'].value); }
+        function rememberCaret() {
+            var input = fields['reply-text'], length = input.value.length;
+            caret = {start:Number.isFinite(input.selectionStart) ? input.selectionStart : length,end:Number.isFinite(input.selectionEnd) ? input.selectionEnd : length};
+        }
+        function closeEmoji(refocus) {
+            fields['emoji-picker'].hidden = true; fields['emoji-toggle'].setAttribute('aria-expanded','false');
+            if (refocus && !fields['reply-text'].disabled) {
+                fields['reply-text'].focus(); fields['reply-text'].setSelectionRange(caret.start,caret.end);
+            }
+        }
+        function renderEmoji() {
+            fields['emoji-tabs'].textContent = ''; fields['emoji-grid'].textContent = '';
+            Object.keys(emojiGroups).forEach(function(group) {
+                var tab = node('button','',label('emoji_' + group)); tab.type = 'button'; tab.dataset.mcEmojiCategory = group;
+                tab.setAttribute('aria-pressed',group === emojiCategory ? 'true' : 'false'); fields['emoji-tabs'].appendChild(tab);
+            });
+            emojiGroups[emojiCategory].forEach(function(item) {
+                var button = node('button','',item[0]); button.type = 'button'; button.dataset.mcEmoji = item[0];
+                button.setAttribute('aria-label',item[0] + ' · ' + item[config.locale === 'ar' ? 1 : 2]); button.title = item[config.locale === 'ar' ? 1 : 2]; fields['emoji-grid'].appendChild(button);
+            });
+        }
+        function insertEmoji(value) {
+            if (fields['reply-text'].disabled || !emojiGroups[emojiCategory].some(function(item) { return item[0] === value; })) return;
+            var input = fields['reply-text'], start = Math.min(caret.start,input.value.length), end = Math.max(start,Math.min(caret.end,input.value.length));
+            var next = input.value.slice(0,start) + value + input.value.slice(end);
+            if (Array.from(next).length > 1000) { fields['send-status'].textContent = label('limit'); return; }
+            input.value = next; caret = {start:start + value.length,end:start + value.length};
+            closeEmoji(true); saveDraft(); renderComposer();
+        }
         function renderComposer() {
             var selected = comments.get(selectedKey), state = sends.get(selectedKey), locked = state && ['SENDING','UNKNOWN'].indexOf(state.state) !== -1;
             fields['reply-target'].textContent = selected ? label('reply_to') + ' ' + author(selected) : label('choose_comment');
             fields['reply-preview'].hidden = !selected; fields['reply-preview'].textContent = selected ? text(selected.text,300) : '';
             fields.public.textContent = account ? label('public') + ' ' + account.label : label('public_hint');
             fields['reply-text'].disabled = !selected || selected.can_reply === false || locked || denied || closed;
-            fields.send.disabled = fields['reply-text'].disabled || busy.has('reply') || !viewer || !fields['reply-text'].value.trim() || navigator.onLine === false;
+            var overLimit = Array.from(fields['reply-text'].value).length > 1000;
+            fields.send.disabled = fields['reply-text'].disabled || sending || busy.has('reply') || !viewer || !fields['reply-text'].value.trim() || overLimit || navigator.onLine === false;
+            fields['emoji-toggle'].disabled = fields['reply-text'].disabled;
+            fields.refresh.disabled = sending || denied;
+            fields.account.disabled = sending || denied || !accounts.some(function(row) { return !channel || row.channel === channel; });
+            host.querySelectorAll('[data-mc-channel]').forEach(function(button) { button.disabled = sending || denied; });
+            if (fields['reply-text'].disabled) closeEmoji(false);
             fields['send-label'].textContent = state && state.state === 'SENDING' ? label('sending') : label('send');
             fields['letter-count'].textContent = Array.from(fields['reply-text'].value).length + ' / 1000';
             fields['send-status'].textContent = state ? state.state === 'SENDING' ? label('sending') : state.state === 'UNKNOWN' ? label('unknown') : state.state === 'ACCEPTED' ? label('accepted') : state.error || label('failed')
-                : selected && selected.can_reply === false ? label('no_reply') : navigator.onLine === false ? label('offline') : '';
+                : overLimit ? label('limit') : selected && selected.can_reply === false ? label('no_reply') : navigator.onLine === false ? label('offline') : '';
         }
         function resetPost() {
-            saveDraft(); postEpoch++; post = null; selectedKey = ''; commentCursor = null; comments.clear(); replyPages.clear();
+            saveDraft(); closeEmoji(false); postEpoch++; post = null; selectedKey = ''; commentCursor = null; comments.clear(); replyPages.clear();
             controllers.forEach(function(controller,key) { if (key === 'comments' || key.indexOf('replies:') === 0) abortRead(key,controller); });
             fields['reply-text'].value = ''; fields['post-title'].textContent = label('choose_post'); fields['post-link'].hidden = true;
             fields['post-link'].removeAttribute('href'); fields['comment-status'].textContent = label('choose_post'); fields['comment-status'].hidden = false;
@@ -177,9 +236,10 @@
             if (next) loadPosts(false);
         }
         async function loadAccounts() {
+            if (sending) return;
             var currentEpoch = ++epoch; alert(''); fields.account.disabled = true;
             try {
-                var data = await request('accounts','accounts'); if (closed || currentEpoch !== epoch) return;
+                var data = await request('accounts','accounts'); if (closed || sending || currentEpoch !== epoch) return;
                 bindViewer(data.viewer_key || config.viewer_key);
                 accounts = Array.isArray(data.accounts) ? data.accounts.slice(0,100).filter(function(row) {
                     return row && /^[a-f0-9]{64}$/i.test(String(row.account_key || '')) && ['facebook','instagram'].indexOf(row.channel) !== -1;
@@ -191,11 +251,11 @@
             }
         }
         async function loadPosts(more) {
-            if (!account || closed || denied || busy.has('posts')) return;
+            if (!account || closed || denied || sending || busy.has('posts')) return;
             var currentEpoch = epoch, chosen = account.account_key;
             fields['post-status'].hidden = posts.size > 0; fields['post-status'].textContent = label('loading'); fields['more-posts'].disabled = true;
             try {
-                var data = await request('posts','posts',{account_key:chosen,cursor:more ? postCursor : null}); if (closed || currentEpoch !== epoch) return;
+                var data = await request('posts','posts',{account_key:chosen,cursor:more ? postCursor : null}); if (closed || sending || currentEpoch !== epoch) return;
                 var incoming = rows(data.posts), updated = more ? posts : new Map(); incoming.forEach(function(row) { updated.set(identity(row),row); });
                 posts = updated; postCursor = cursor(data.next_cursor);
                 if (post && posts.has(identity(post))) post = posts.get(identity(post));
@@ -213,12 +273,12 @@
             fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,false);
         }
         async function loadComments(more,quiet) {
-            if (!post || closed || denied || busy.has('comments')) return;
+            if (!post || closed || denied || sending || busy.has('comments')) return;
             var currentEpoch = postEpoch, handle = post.handle;
             if (!quiet) { fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); }
             fields['more-comments'].disabled = true;
             try {
-                var data = await request('comments','comments',{post_handle:handle,cursor:more ? commentCursor : null}); if (closed || currentEpoch !== postEpoch) return;
+                var data = await request('comments','comments',{post_handle:handle,cursor:more ? commentCursor : null}); if (closed || sending || currentEpoch !== postEpoch) return;
                 var incoming = rows(data.comments), updated = more || quiet ? new Map(comments) : new Map();
                 incoming.forEach(function(row) { updated.set(identity(row),row); }); comments = updated; commentCursor = more || !quiet ? cursor(data.next_cursor) : commentCursor || cursor(data.next_cursor);
                 fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('empty_comments'); renderComments(); renderComposer();
@@ -235,10 +295,10 @@
         }
         async function loadReplies(key,more,quiet) {
             var row = comments.get(key), page = replyPages.get(key), requestKey = 'replies:' + key;
-            if (!row || !page || closed || denied || busy.has(requestKey)) return;
+            if (!row || !page || closed || denied || sending || busy.has(requestKey)) return;
             var currentEpoch = postEpoch; if (!quiet) { page.status = label('loading'); renderComments(); }
             try {
-                var data = await request(requestKey,'replies',{comment_handle:row.handle,cursor:more ? page.cursor : null}); if (closed || currentEpoch !== postEpoch) return;
+                var data = await request(requestKey,'replies',{comment_handle:row.handle,cursor:more ? page.cursor : null}); if (closed || sending || currentEpoch !== postEpoch) return;
                 if (!more && !quiet) page.rows.clear(); rows(data.replies).forEach(function(child) { page.rows.set(identity(child),child); });
                 page.cursor = more || !quiet ? cursor(data.next_cursor) : page.cursor || cursor(data.next_cursor); page.status = ''; renderComments();
             } catch (error) {
@@ -247,8 +307,9 @@
             }
         }
         function chooseComment(key) {
-            if (!comments.has(key)) return; saveDraft(); selectedKey = key;
+            if (!comments.has(key)) return; saveDraft(); closeEmoji(false); selectedKey = key;
             var state = sends.get(key); fields['reply-text'].value = drafts.get(key) || (state && state.state === 'UNKNOWN' ? state.message : '') || '';
+            caret = {start:fields['reply-text'].value.length,end:fields['reply-text'].value.length}; fields['reply-text'].setSelectionRange(caret.start,caret.end);
             renderComments(); renderComposer(); if (!fields['reply-text'].disabled) fields['reply-text'].focus();
         }
         function uuid() {
@@ -261,28 +322,35 @@
         async function sendReply(event) {
             event.preventDefault();
             var key = selectedKey, row = comments.get(key), message = fields['reply-text'].value.trim(), previous = sends.get(key);
-            if (!key || !row || !viewer || row.can_reply === false || closed || denied || busy.has('reply') || !message || Array.from(message).length > 1000
+            if (!key || !row || !viewer || row.can_reply === false || closed || denied || sending || busy.has('reply') || !message || Array.from(message).length > 1000
                 || previous && ['SENDING','UNKNOWN'].indexOf(previous.state) !== -1) return;
             if (navigator.onLine === false) { renderComposer(); return; }
             saveDraft(); var requestId; try { requestId = uuid(); } catch (error) { sends.set(key,{state:'FAILED',error:label('failed')}); renderComposer(); return; }
-            sends.set(key,{state:'SENDING',request_id:requestId,message:message}); persistSends(); renderComposer();
+            var accountLabel = account && account.label || '';
+            sending = true; clearTimeout(timer); closeEmoji(false); abortReads();
+            replyPages.forEach(function(page) { if (page.status === label('loading')) page.status = ''; });
+            if (comments.size) fields['comment-status'].hidden = true;
+            if (posts.size) fields['post-status'].hidden = true;
+            sends.set(key,{state:'SENDING',request_id:requestId,message:message,account_label:accountLabel}); persistSends(); renderComments(); renderComposer();
             try {
                 var data = await request('reply','reply',null,{comment_handle:row.handle,message:message,client_request_id:requestId});
                 var state = data.state === 'ACCEPTED' && data.success === true ? 'ACCEPTED' : data.state === 'FAILED' ? 'FAILED' : 'UNKNOWN';
-                sends.set(key,{state:state,request_id:requestId,message:message,error:state === 'FAILED' ? errorMessage({payload:Object.assign({message:label('failed')},data)}) : ''}); persistSends();
+                sends.set(key,{state:state,request_id:requestId,message:message,account_label:accountLabel,error:state === 'FAILED' ? errorMessage({payload:Object.assign({message:label('failed')},data)}) : ''}); persistSends();
                 if (!closed && ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf(data.reason) !== -1) { alert(errorMessage({payload:data})); deny(); return; }
                 if (state === 'ACCEPTED') {
                     drafts.delete(key);
                     if (data.reply && identity(data.reply)) { var page = replyPages.get(key) || {open:true,rows:new Map(),cursor:null,status:''}; page.open = true; page.rows.set(identity(data.reply),data.reply); replyPages.set(key,page); }
                     if (!closed && selectedKey === key) fields['reply-text'].value = '';
                 }
-                if (!closed && selectedKey === key) { renderComments(); renderComposer(); }
-                if (!closed && state === 'ACCEPTED') loadComments(false,true);
+                if (!closed) { renderComments(); renderComposer(); }
             } catch (error) {
                 // Only an explicit FAILED result proves that Meta did not accept a write.
                 // A timeout, navigation, or unexpected HTTP result can still have published it.
-                sends.set(key,{state:'UNKNOWN',request_id:requestId,message:message}); persistSends();
-                if (!closed && selectedKey === key) renderComposer();
+                sends.set(key,{state:'UNKNOWN',request_id:requestId,message:message,account_label:accountLabel}); persistSends();
+                if (!closed) { renderComments(); renderComposer(); }
+            } finally {
+                sending = false;
+                if (!closed) { renderComposer(); poll(); }
             }
         }
         function deny() {
@@ -291,20 +359,29 @@
             drafts.clear(); renderPosts(); renderComposer();
         }
         function refresh() {
-            if (closed || denied) return;
+            if (closed || denied || sending) return;
             if (navigator.onLine === false) { alert(label('offline')); return; }
             alert(''); if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true); }
         }
         function poll() {
-            clearTimeout(timer); if (closed) return;
+            clearTimeout(timer); if (closed || sending) return;
             timer = setTimeout(function() { if (!closed && !denied && !document.hidden && navigator.onLine !== false && post) loadComments(false,true); poll(); },30000);
         }
         function visibility() { if (!document.hidden && !closed && post && navigator.onLine !== false) loadComments(false,true); }
         function connectivity() { renderComposer(); if (navigator.onLine === false) alert(label('offline')); else { alert(''); refresh(); } }
         function click(event) {
+            var emoji = event.target.closest('[data-mc-emoji]'); if (emoji && host.contains(emoji)) { insertEmoji(emoji.dataset.mcEmoji); return; }
+            var category = event.target.closest('[data-mc-emoji-category]'); if (category && host.contains(category) && emojiGroups[category.dataset.mcEmojiCategory]) {
+                emojiCategory = category.dataset.mcEmojiCategory; renderEmoji(); return;
+            }
+            if (event.target.closest('[data-mc-emoji-close]')) { closeEmoji(true); return; }
+            if (event.target.closest('[data-mc-emoji-toggle]')) {
+                if (!fields['emoji-toggle'].disabled) { rememberCaret(); var open = fields['emoji-picker'].hidden; fields['emoji-picker'].hidden = !open; fields['emoji-toggle'].setAttribute('aria-expanded',open ? 'true' : 'false'); }
+                return;
+            }
             var target = event.target.closest('[data-mc-channel]');
-            if (target && host.contains(target)) { channel = target.dataset.mcChannel || ''; renderChannels(); renderAccounts(); return; }
-            target = event.target.closest('[data-mc-post]'); if (target && host.contains(target)) { choosePost(target.dataset.mcPost); return; }
+            if (target && host.contains(target)) { if (!sending) { channel = target.dataset.mcChannel || ''; renderChannels(); renderAccounts(); } return; }
+            target = event.target.closest('[data-mc-post]'); if (target && host.contains(target)) { if (!sending) choosePost(target.dataset.mcPost); return; }
             target = event.target.closest('[data-mc-reply]'); if (target && host.contains(target)) { chooseComment(target.dataset.mcReply); return; }
             target = event.target.closest('[data-mc-toggle-replies]'); if (target && host.contains(target)) {
                 var key = target.dataset.mcToggleReplies, page = replyPages.get(key); if (!page) { page = {open:true,rows:new Map(),cursor:null,status:''}; replyPages.set(key,page); loadReplies(key,false); }
@@ -314,21 +391,28 @@
             if (event.target.closest('[data-mc-more-posts]')) loadPosts(true);
             if (event.target.closest('[data-mc-more-comments]')) loadComments(true,false);
             if (event.target.closest('[data-mc-refresh]')) refresh();
-            if (event.target.closest('[data-mc-back]')) { saveDraft(); host.classList.remove('has-post'); }
+            if (event.target.closest('[data-mc-back]')) { saveDraft(); closeEmoji(false); host.classList.remove('has-post'); }
         }
-        function input() { saveDraft(); renderComposer(); }
-        function change() { chooseAccount(fields.account.value); }
+        function input() { rememberCaret(); saveDraft(); renderComposer(); }
+        function change() { if (!sending) chooseAccount(fields.account.value); }
+        function outsideEmoji(event) { if (!fields['emoji-wrap'].contains(event.target)) closeEmoji(false); }
+        function keydown(event) { if (event.key === 'Escape' && !fields['emoji-picker'].hidden) { event.preventDefault(); closeEmoji(true); } }
+        function emojiPointer(event) { if (event.target.closest('[data-mc-emoji-toggle]') || event.target.closest('[data-mc-emoji]')) event.preventDefault(); }
         host.addEventListener('click',click); fields.account.addEventListener('change',change); fields.form.addEventListener('submit',sendReply);
         fields['reply-text'].addEventListener('input',input); document.addEventListener('visibilitychange',visibility);
+        ['select','click','keyup'].forEach(function(name) { fields['reply-text'].addEventListener(name,rememberCaret); });
+        host.addEventListener('mousedown',emojiPointer); document.addEventListener('click',outsideEmoji); document.addEventListener('keydown',keydown);
         window.addEventListener('online',connectivity); window.addEventListener('offline',connectivity);
         var session = {host:host,destroy:function() {
-            if (closed) return; saveDraft(); closed = true; epoch++; postEpoch++; clearTimeout(timer);
+            if (closed) return; saveDraft(); closeEmoji(false); closed = true; epoch++; postEpoch++; clearTimeout(timer);
             controllers.forEach(function(controller) { controller.abort(); }); controllers.clear(); timeoutIds.forEach(clearTimeout); timeoutIds.clear();
             host.removeEventListener('click',click); fields.account.removeEventListener('change',change); fields.form.removeEventListener('submit',sendReply);
             fields['reply-text'].removeEventListener('input',input); document.removeEventListener('visibilitychange',visibility);
+            ['select','click','keyup'].forEach(function(name) { fields['reply-text'].removeEventListener(name,rememberCaret); });
+            host.removeEventListener('mousedown',emojiPointer); document.removeEventListener('click',outsideEmoji); document.removeEventListener('keydown',keydown);
             window.removeEventListener('online',connectivity); window.removeEventListener('offline',connectivity);
         }};
-        active = session; bindViewer(config.viewer_key); renderChannels(); renderComposer(); loadAccounts(); poll();
+        active = session; bindViewer(config.viewer_key); renderChannels(); renderEmoji(); renderComposer(); loadAccounts(); poll();
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function() { if (active === session) destroy(); else session.destroy(); });
     }
     function destroy() { if (active) active.destroy(); active = null; }

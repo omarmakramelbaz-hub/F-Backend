@@ -4,6 +4,12 @@ The central Owner and Admin dashboard gains **تعليقات السوشيال م
 
 Users select a business account, a post, and a comment to read its replies and publish a public reply under that business account. The selected post is refreshed by polling. This release does not register a feed/comments webhook, replace OAuth settings, change Messenger or WhatsApp, or enable automatic AI replies.
 
+The composer includes 56 Unicode emojis with Arabic and English names. Emojis replace the current text selection or insert at the caret, and an emoji can be published on its own. Replies appear immediately with a pending label. Background reads pause during the foreground write, and a confirmed receipt replaces the pending row without requiring another comments fetch. An uncertain outcome remains visibly uncertain and blocks resending; a definitive rejection keeps the draft available.
+
+The sidebar placement is scoped to the native sidebar and survives delayed menu regrouping and SPA navigation. Comments appears directly below the Meta inbox, with one active link on the comments route.
+
+Reply responses include numeric `Server-Timing` values for the controller write path and Meta transport phases. The write still uses one provider POST and retains the persisted actor/account checks. These timings exclude middleware and PHP-FPM queue time; Meta's actual response time remains external to the dashboard.
+
 ## Access prerequisites
 
 Facebook Page tokens need `pages_read_engagement`, `pages_read_user_content`, and `pages_manage_engagement`. Instagram with Facebook Login needs `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`; Instagram Login needs `instagram_business_basic` and `instagram_business_manage_comments`. Existing messaging permissions alone do not imply comment access. A permission or token failure appears inside the tab with a reconnect action. Grant the requested permissions to the same business account through its Meta connection and review the capability output before testing a public reply.

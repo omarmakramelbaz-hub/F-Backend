@@ -73,7 +73,7 @@ class MetaCommentsController extends Controller
             $input = $request->validate(['comment_handle' => 'required|string|max:4096',
                 'message' => 'required|string|max:1000', 'client_request_id' => 'required|string|size:36']);
             return $service->send(auth('admin')->user(), $input);
-        }, true);
+        }, true, $service);
     }
 
     private function only(Request $request, array $allowed, bool $csrf = false): void
@@ -82,25 +82,28 @@ class MetaCommentsController extends Controller
         if (array_diff(array_keys($request->all()), $allowed)) throw new MetaCommentsFailure('INVALID_REQUEST', 422);
     }
 
-    private function execute(callable $operation, bool $reply = false)
+    private function execute(callable $operation, bool $reply = false, ?MetaCommentsService $service = null)
     {
+        $started = hrtime(true);
         try {
             $result = $operation();
             if (isset($result['reason']) && $result['reason'] !== null) $result['message'] = $this->message($result['reason']);
             $status = ($result['state'] ?? null) === 'UNKNOWN' ? 202 : (($result['state'] ?? null) === 'FAILED' ? 422 : 200);
-            return response()->json($result, $status)->withHeaders($this->privateHeaders());
+            $response = response()->json($result, $status);
         } catch (MetaCommentsFailure $error) {
-            return $this->failure($error->reason, $error->status, $error->permissions, $reply);
+            $response = $this->failure($error->reason, $error->status, $error->permissions, $reply);
         } catch (ValidationException $error) {
-            return $this->failure('INVALID_REQUEST', 422, [], $reply);
+            $response = $this->failure('INVALID_REQUEST', 422, [], $reply);
         } catch (HttpException $error) {
-            return $this->failure('ACCESS_DENIED', $error->getStatusCode(), [], $reply);
+            $response = $this->failure('ACCESS_DENIED', $error->getStatusCode(), [], $reply);
         } catch (\Throwable $error) {
-            if ($reply) return response()->json(['success' => false, 'state' => 'UNKNOWN', 'reason' => 'DELIVERY_UNKNOWN',
+            $response = $reply ? response()->json(['success' => false, 'state' => 'UNKNOWN', 'reason' => 'DELIVERY_UNKNOWN',
                 'message' => $this->message('DELIVERY_UNKNOWN'), 'required_permissions' => [], 'safe_to_retry' => false], 202)
-                ->withHeaders($this->privateHeaders());
-            return $this->failure('META_UNAVAILABLE', 503);
+                : $this->failure('META_UNAVAILABLE', 503);
         }
+        $headers = $this->privateHeaders();
+        if ($reply && $service !== null) $headers['Server-Timing'] = $service->serverTiming((hrtime(true) - $started) / 1000000);
+        return $response->withHeaders($headers);
     }
 
     private function failure(string $reason, int $status, array $permissions = [], bool $reply = false)

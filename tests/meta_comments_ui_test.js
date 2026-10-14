@@ -31,6 +31,7 @@ class Element {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     click() { for(let item=this;item;item=item.parentNode) item.dispatchEvent({type:'click',target:this}); }
     focus() { this.focused=true; }
+    setSelectionRange(start,end) { this.selectionStart=start; this.selectionEnd=end; }
 }
 function walk(root) { return root.children.flatMap(child=>[child,...walk(child)]); }
 function mark(parent,name,tag='div') { const item=new Element(tag); item.dataset[dataKey('mc-'+name)]=''; parent.appendChild(item); return item; }
@@ -38,24 +39,27 @@ const key=letter=>letter.repeat(64);
 const viewer=key('a'), fb=key('b'), ig=key('c'), postA=key('1'), postB=key('2'), commentA=key('3'), commentB=key('4'), replyA=key('5');
 const postRow=(id=postA,extra={})=>Object.assign({key:id,handle:'post-'+id[0],text:'عرض الرنجة <img src=x onerror=alert(1)>',created_at:'2026-10-14T20:00:00Z',permalink:'https://www.facebook.com/fasakhansta/posts/123'},extra);
 const commentRow=(id=commentA,extra={})=>Object.assign({key:id,handle:'comment-'+id[0],text:'السعر كام؟ <script>unsafe()</script>',author:'عميل',created_at:'2026-10-14T20:01:00Z',replies_count:1,can_reply:true},extra);
-function fixture() {
+function fixture(locale='ar') {
     const document=new Element(),window=new Element(),ids=new Map(),timers=new Map(),storage=new Map();
     const state={calls:[],cleanup:[],delays:new Map(),sendState:'ACCEPTED',sendFail:false,hold:new Map(),resolvers:new Map(),nextPosts:null,nextComments:null,nextReplies:null,
         postRows:[postRow(),postRow(postB,{text:'بوست آخر'})],commentRows:[commentRow(),commentRow(commentB,{author:'عميل آخر'})],replyRows:[commentRow(replyA,{text:'رد الصفحة',author:'فسخانستا'})],denied:false,permissionAccount:null};
     document.documentElement={lang:'ar'}; document.hidden=false; document.getElementById=id=>ids.get(id)||null; document.createElement=tag=>new Element(tag);
     window.location={href:'https://dashboard.test/admin/meta/comments'}; window.sessionStorage={getItem:name=>storage.get(name)||null,setItem:(name,value)=>storage.set(name,value)};
-    window.crypto={randomUUID:()=> 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'};
+    let requestCounter=0;
+    window.crypto={randomUUID:()=> 'aaaaaaaa-bbbb-4ccc-8ddd-'+String(++requestCounter).padStart(12,'0')};
     window.DashboardSPA={isCurrentPage:()=>true,onCleanup:callback=>state.cleanup.push(callback)};
     const labels={all:'الكل',facebook:'فيسبوك',instagram:'إنستجرام',anonymous:'مستخدم',choose_post:'اختر بوست',choose_comment:'اختر تعليق',
         loading:'تحميل',empty_posts:'لا بوستات',empty_comments:'لا تعليقات',empty_accounts:'لا حسابات',unavailable:'تعذر',denied:'ممنوع',reply:'رد',comments:'تعليقات',
         show_replies:'عرض الردود',hide_replies:'إخفاء الردود',more_replies:'ردود إضافية',reply_to:'الرد على',public:'علني باسم',public_hint:'علني',
-        send:'نشر',sending:'جاري النشر',accepted:'تم النشر',unknown:'غير مؤكد',failed:'فشل',offline:'غير متصل'};
+        send:'نشر',sending:'جاري النشر',accepted:'تم النشر',unknown:'غير مؤكد',failed:'فشل',offline:'غير متصل',limit:'الحد الأقصى',
+        emoji_reactions:'وجوه وتفاعلات',emoji_hearts:'قلوب وإشارات',emoji_extras:'رموز ومناسبات'};
     function build(overrides={}) {
         const host=new Element(),fields={};
         ['account','alert','posts','post-count','post-status','more-posts','comments','comment-status','more-comments','post-title','post-link','scroll','form',
-            'reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count','refresh','back'].forEach(name=>fields[name]=mark(host,name));
+            'reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count','refresh','back','emoji-toggle','emoji-wrap','emoji-picker','emoji-grid','emoji-tabs'].forEach(name=>fields[name]=mark(host,name));
+        fields['emoji-picker'].hidden=true;
         ['', 'facebook','instagram'].forEach(channel=> { const button=mark(host,'channel','button'); button.dataset.mcChannel=channel; });
-        const bootstrap=new Element('script'); bootstrap.textContent=JSON.stringify(Object.assign({viewer_key:viewer,csrf:'fixture-csrf',labels},overrides));
+        const bootstrap=new Element('script'); bootstrap.textContent=JSON.stringify(Object.assign({viewer_key:viewer,csrf:'fixture-csrf',labels,locale},overrides));
         ids.set('meta-comments',host); ids.set('meta-comments-bootstrap',bootstrap); return {host,fields,bootstrap};
     }
     let timerId=0;
@@ -137,10 +141,13 @@ async function draftsSurviveRefreshAndNavigation() {
 async function acceptedRepliesAndDuplicateSubmit() {
     const test=fixture(); await settle(); click(test,'post',postA); await settle(); selectComment(test); draft(test,'رد الموظف');
     test.state.hold.set('reply',true); submit(test); submit(test); assert.strictEqual(calls(test,'reply').length,1);
+    assert.strictEqual(control(test,'pending',commentA).dataset.mcState,'SENDING');
+    assert.strictEqual(control(test,'pending',commentA).textContent.includes('تم النشر'),false,'A local pending row never claims acceptance');
     assert.strictEqual(test.dom.fields.send.disabled,true);
     const payload=JSON.parse(calls(test,'reply')[0].options.body); assert.strictEqual(payload.message,'رد الموظف'); assert.strictEqual(payload.comment_handle,'comment-3');
     assert.match(payload.client_request_id,/^[a-f0-9-]{36}$/); assert.strictEqual(calls(test,'reply')[0].options.headers['X-CSRF-TOKEN'],'fixture-csrf');
     release(test,'reply'); await settle(); assert.strictEqual(test.dom.fields['reply-text'].value,''); assert.strictEqual(test.dom.fields['send-status'].textContent,'تم النشر');
+    assert.strictEqual(control(test,'pending',commentA),undefined,'The server receipt replaces the pending row');
     assert(test.dom.fields.comments.textContent.includes('رد مقبول'),'Only the server accepted receipt becomes a visible reply'); dispose(test);
 }
 async function uncertainAndFailedOutcomes() {
@@ -148,6 +155,7 @@ async function uncertainAndFailedOutcomes() {
         const test=fixture(); await settle(); click(test,'post',postA); await settle(); selectComment(test); draft(test,'رد لا نكرره');
         if(mode==='network') test.state.sendFail=true; else test.state.sendState='UNKNOWN'; submit(test); await settle();
         assert.strictEqual(test.dom.fields['send-status'].textContent,'غير مؤكد'); assert.strictEqual(test.dom.fields['reply-text'].value,'رد لا نكرره');
+        assert.strictEqual(control(test,'pending',commentA).dataset.mcState,'UNKNOWN');
         assert.strictEqual(test.dom.fields['reply-text'].disabled,true); submit(test); assert.strictEqual(calls(test,'reply').length,1);
         click(test,'refresh'); await settle(); selectComment(test,commentB); selectComment(test); submit(test); assert.strictEqual(calls(test,'reply').length,1);
         assert(test.storage.get('meta-comments-pending:'+viewer).includes('UNKNOWN'));
@@ -156,7 +164,54 @@ async function uncertainAndFailedOutcomes() {
     }
     const failed=fixture(); await settle(); click(failed,'post',postA); await settle(); selectComment(failed); draft(failed,'إعادة آمنة'); failed.state.sendState='FAILED'; submit(failed); await settle();
     assert.strictEqual(failed.dom.fields['reply-text'].disabled,false); assert.strictEqual(failed.dom.fields['reply-text'].value,'إعادة آمنة');
+    assert.strictEqual(control(failed,'pending',commentA),undefined,'A definitive failure removes the pending row without inventing a public reply');
     failed.state.sendState='ACCEPTED'; submit(failed); await settle(); assert.strictEqual(calls(failed,'reply').length,2,'Only explicit FAILED permits retry'); dispose(failed);
+}
+async function emojiCaretDraftAndLimits() {
+    const test=fixture(); await settle(); assert.strictEqual(test.dom.fields['emoji-toggle'].disabled,true);
+    click(test,'emoji-toggle'); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true);
+    click(test,'post',postA); await settle(); selectComment(test); draft(test,'أهلا أحمد');
+    test.dom.fields['reply-text'].setSelectionRange(5,9); test.dom.fields['reply-text'].dispatchEvent({type:'select'});
+    click(test,'emoji-toggle'); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,false);
+    const choice=control(test,'emoji','👍'); assert(choice.getAttribute('aria-label').includes('إعجاب'));
+    click(test,'emoji','👍'); assert.strictEqual(test.dom.fields['reply-text'].value,'أهلا 👍');
+    assert.strictEqual(test.dom.fields['reply-text'].selectionStart,7); assert.strictEqual(test.dom.fields['reply-text'].selectionEnd,7);
+    assert.strictEqual(test.dom.fields['reply-text'].focused,true); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true);
+    assert.strictEqual(calls(test,'reply').length,0,'Choosing an emoji edits a draft only');
+    selectComment(test,commentB); selectComment(test); assert.strictEqual(test.dom.fields['reply-text'].value,'أهلا 👍');
+    click(test,'emoji-toggle'); click(test,'emoji-category','extras'); assert.strictEqual(test.dom.fields['emoji-grid'].children.length,26);
+    assert(control(test,'emoji','🚚').getAttribute('aria-label').includes('توصيل'));
+    test.document.dispatchEvent({type:'keydown',key:'Escape',preventDefault(){}}); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true);
+    click(test,'emoji-toggle'); test.document.dispatchEvent({type:'click',target:new Element()}); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true);
+    click(test,'emoji-toggle'); click(test,'post',postB); await settle(); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true);
+    click(test,'post',postA); await settle(); selectComment(test); draft(test,'😀'.repeat(999));
+    test.dom.fields['reply-text'].setSelectionRange(1998,1998); click(test,'emoji-toggle'); click(test,'emoji-category','reactions'); click(test,'emoji','👍');
+    assert.strictEqual(Array.from(test.dom.fields['reply-text'].value).length,1000); assert.strictEqual(test.dom.fields.send.disabled,false,'The 1,000-character limit counts Unicode code points');
+    const fullDraft=test.dom.fields['reply-text'].value; click(test,'emoji-toggle'); click(test,'emoji','👍');
+    assert.strictEqual(test.dom.fields['reply-text'].value,fullDraft,'Emoji insertion cannot exceed the Unicode limit or destroy text');
+    assert.strictEqual(test.dom.fields['send-status'].textContent,'الحد الأقصى');
+    dispose(test); assert.strictEqual(test.dom.fields['emoji-picker'].hidden,true); assert.strictEqual((test.document.listeners.keydown||[]).length,0);
+    const english=fixture('en'); await settle(); click(english,'post',postA); await settle(); selectComment(english); click(english,'emoji-toggle');
+    assert(control(english,'emoji','👍').getAttribute('aria-label').includes('Like')); dispose(english);
+}
+async function emojiOnlyAndReadPauseWhileWriting() {
+    const test=fixture(); await settle(); click(test,'post',postA); await settle(); selectComment(test);
+    click(test,'emoji-toggle'); click(test,'emoji','❤️'); assert.strictEqual(test.dom.fields.send.disabled,false);
+    test.state.hold.set('comments',true); click(test,'refresh'); await settle(); const interrupted=calls(test,'comments').at(-1);
+    test.state.hold.set('reply',true); submit(test); const readCount=test.state.calls.filter(call=>call.endpoint!=='reply').length;
+    assert.strictEqual(JSON.parse(calls(test,'reply')[0].options.body).message,'❤️','An emoji-only reply is sent as its exact Unicode sequence');
+    assert.strictEqual(interrupted.options.signal.aborted,true,'Starting a write cancels the background read');
+    assert.strictEqual(test.dom.fields['emoji-toggle'].disabled,true); assert.strictEqual(control(test,'pending',commentA).dataset.mcState,'SENDING');
+    test.document.dispatchEvent({type:'visibilitychange'}); click(test,'refresh'); click(test,'toggle-replies',commentA); click(test,'more-comments');
+    assert.strictEqual(test.state.calls.filter(call=>call.endpoint!=='reply').length,readCount,'Refresh, visible polling and expanded threads cannot queue Graph reads while posting');
+    assert.strictEqual(test.timers.size,1,'Only the POST timeout remains; the background polling timer is paused');
+    selectComment(test,commentB); draft(test,'رد تالي'); submit(test); assert.strictEqual(calls(test,'reply').length,1,'A second comment cannot create a concurrent POST');
+    release(test,'comments'); await settle(); release(test,'reply'); await settle();
+    assert.strictEqual(test.state.calls.filter(call=>call.endpoint!=='reply').length,readCount,'Accepted receipts do not trigger an immediate list reload');
+    assert.strictEqual(test.dom.fields['reply-text'].value,'رد تالي','The accepted result cannot erase another comment draft');
+    assert.strictEqual(test.dom.fields.send.disabled,false); submit(test); await settle(); assert.strictEqual(calls(test,'reply').length,2);
+    assert.notStrictEqual(JSON.parse(calls(test,'reply')[0].options.body).client_request_id,JSON.parse(calls(test,'reply')[1].options.body).client_request_id,'Distinct explicit replies get distinct request IDs');
+    dispose(test);
 }
 async function staleReadsAndCleanup() {
     const test=fixture(); await settle(); test.state.hold.set('comments',true); click(test,'post',postA); await settle();
@@ -195,6 +250,7 @@ async function visibilityAndPermissionErrors() {
 }
 (async()=>{
     await initialFilteringSafeRendering(); await paginationAndUnknownReplyCounts(); await draftsSurviveRefreshAndNavigation();
-    await acceptedRepliesAndDuplicateSubmit(); await uncertainAndFailedOutcomes(); await staleReadsAndCleanup(); await immediateSwitchAndPartialPermissions(); await visibilityAndPermissionErrors();
-    console.log('META_COMMENTS_UI_PASS 8 scenarios: safe bilingual account filters; pagination and Instagram reply discovery; stable drafts; accepted receipts; duplicate/uncertain guards; stale requests and SPA cleanup; immediate switching with partial permissions; visible-only refresh and access loss.');
+    await acceptedRepliesAndDuplicateSubmit(); await uncertainAndFailedOutcomes(); await emojiCaretDraftAndLimits(); await emojiOnlyAndReadPauseWhileWriting();
+    await staleReadsAndCleanup(); await immediateSwitchAndPartialPermissions(); await visibilityAndPermissionErrors();
+    console.log('META_COMMENTS_UI_PASS 10 scenarios: safe account filters; pagination; stable drafts; server-confirmed receipts; duplicate/uncertain guards; emoji caret, names and Unicode limits; emoji-only posting with paused reads; SPA cleanup; immediate switching; permission isolation and visible refresh.');
 })().catch(error=>{console.error(error.stack); process.exitCode=1;});

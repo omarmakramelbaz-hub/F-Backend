@@ -4,7 +4,6 @@ namespace App\Services\Dashboard;
 
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /** Bounded live reads and explicit human replies to posts owned by configured business accounts. */
 class MetaCommentsService
@@ -14,6 +13,7 @@ class MetaCommentsService
     private const HANDLE_TTL = 21600;
     private const MAX_BODY = 2097152;
     private $transport;
+    private array $sendTimings = [];
 
     /** Test transport receives (method, fixed endpoint, query/form, private bearer token). */
     public function __construct(?callable $transport = null)
@@ -113,6 +113,7 @@ class MetaCommentsService
 
     public function send($actor, array $input): array
     {
+        $this->sendTimings = [];
         $actor = $this->actor($actor);
         if (array_diff(array_keys($input), ['comment_handle', 'message', 'client_request_id'])
             || array_diff(['comment_handle', 'message', 'client_request_id'], array_keys($input))
@@ -126,19 +127,24 @@ class MetaCommentsService
         $handle = $this->decodeHandle($input['comment_handle'], 'comment');
         $account = $handle['account'];
         $this->requireConnection($account);
-        if (!Schema::hasTable('meta_comment_reply_requests')) throw new MetaCommentsFailure('REPLIES_UNAVAILABLE', 503);
         $target = $this->objectKey($account, $handle['post'], $handle['comment']);
         $requestHash = $this->key('request:' . (int) $actor->id . ':' . strtolower($input['client_request_id']));
         $payloadHash = $this->key('payload:' . $target . ':' . $message);
         $pendingKey = $this->key('pending:' . (int) $actor->id . ':' . $target);
         // The unique request and pending keys claim the only send before any provider I/O.
         // A fatal process interruption leaves SENDING durable and will never resend automatically.
-        $inserted = DB::table('meta_comment_reply_requests')->insertOrIgnore([
-            'actor_id' => (int) $actor->id, 'account_key' => $this->accountKey($account),
-            'target_hash' => $target, 'request_hash' => $requestHash, 'payload_hash' => $payloadHash,
-            'pending_key' => $pendingKey, 'state' => 'SENDING', 'send_started_at' => now('UTC'),
-            'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
-        $row = DB::table('meta_comment_reply_requests')->where('request_hash', $requestHash)->first();
+        try {
+            // Attempt the actual claim directly instead of a separate schema probe on every reply.
+            // Any storage error here occurs before provider I/O and is safe to report as unsent.
+            $inserted = DB::table('meta_comment_reply_requests')->insertOrIgnore([
+                'actor_id' => (int) $actor->id, 'account_key' => $this->accountKey($account),
+                'target_hash' => $target, 'request_hash' => $requestHash, 'payload_hash' => $payloadHash,
+                'pending_key' => $pendingKey, 'state' => 'SENDING', 'send_started_at' => now('UTC'),
+                'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+            $row = DB::table('meta_comment_reply_requests')->where('request_hash', $requestHash)->first();
+        } catch (\Illuminate\Database\QueryException $error) {
+            throw new MetaCommentsFailure('REPLIES_UNAVAILABLE', 503);
+        }
         if (!$inserted) {
             if ($row) {
                 if (!hash_equals($row->payload_hash, $payloadHash)) throw new MetaCommentsFailure('REQUEST_CONFLICT', 409);
@@ -172,6 +178,19 @@ class MetaCommentsService
             }
         } catch (\Throwable $error) { /* No raw response or text may escape. */ }
         return $this->finish((int) $row->id, 'UNKNOWN', 'DELIVERY_UNKNOWN');
+    }
+
+    /** Fixed numeric timing names for attribution; contains no URLs, account IDs or Graph data. */
+    public function serverTiming(float $requestMilliseconds): string
+    {
+        $metrics = ['reply' => $requestMilliseconds] + $this->sendTimings;
+        $parts = [];
+        foreach (['reply', 'meta', 'meta_dns', 'meta_connect', 'meta_tls', 'meta_wait'] as $name) {
+            $value = $metrics[$name] ?? null;
+            if ((!is_float($value) && !is_int($value)) || !is_finite((float) $value)) continue;
+            $parts[] = $name . ';dur=' . number_format(max(0, min(60000, $value)), 1, '.', '');
+        }
+        return implode(', ', $parts);
     }
 
     private function actor($actor)
@@ -342,9 +361,16 @@ class MetaCommentsService
         $endpoint = 'https://' . $host . '/' . $this->version() . '/' . $path;
         $secret = config('meta_messaging.app_secret', '');
         if (is_string($secret) && $secret !== '') $parameters['appsecret_proof'] = hash_hmac('sha256', $account['access_token'], $secret);
+        $started = hrtime(true);
         try {
             $response = $this->transport !== null ? ($this->transport)($method, $endpoint, $parameters, $account['access_token'])
                 : $this->network($method, $endpoint, $parameters, $account['access_token']);
+            if ($method === 'POST') {
+                foreach (['meta_dns', 'meta_connect', 'meta_tls', 'meta_wait'] as $phase) {
+                    $duration = $response['timings'][$phase] ?? null;
+                    if ((is_float($duration) || is_int($duration)) && is_finite((float) $duration)) $this->sendTimings[$phase] = $duration;
+                }
+            }
             $status = is_array($response) && is_int($response['status'] ?? null) ? $response['status'] : 0;
             $raw = $response['body'] ?? null;
             if (!is_string($raw) || strlen($raw) > self::MAX_BODY) throw new \RuntimeException();
@@ -352,6 +378,8 @@ class MetaCommentsService
             if (!is_array($body)) throw new \RuntimeException();
         } catch (\Throwable $error) {
             throw new MetaCommentsFailure('META_UNAVAILABLE', 503);
+        } finally {
+            if ($method === 'POST') $this->sendTimings['meta'] = (hrtime(true) - $started) / 1000000;
         }
         if ($status === 200 && !isset($body['error'])) return $body;
         $code = $body['error']['code'] ?? null;
@@ -380,11 +408,21 @@ class MetaCommentsService
             $options[CURLOPT_POST] = true;
             $options[CURLOPT_POSTFIELDS] = http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
             $options[CURLOPT_HTTPHEADER][] = 'Content-Type: application/x-www-form-urlencoded';
+            $options[CURLOPT_HTTPHEADER][] = 'Expect:';
         }
+        if (defined('CURL_HTTP_VERSION_2TLS') && defined('CURL_VERSION_HTTP2')
+            && (curl_version()['features'] & CURL_VERSION_HTTP2) !== 0) $options[CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_2TLS;
         curl_setopt_array($curl, $options);
         try {
             $ok = curl_exec($curl);
-            return ['status' => $ok === false ? 0 : (int) curl_getinfo($curl, CURLINFO_HTTP_CODE), 'body' => $ok === false ? '' : $body];
+            $info = curl_getinfo($curl);
+            $dns = (float) ($info['namelookup_time'] ?? 0);
+            $connect = (float) ($info['connect_time'] ?? 0);
+            $tls = (float) curl_getinfo($curl, CURLINFO_APPCONNECT_TIME);
+            return ['status' => $ok === false ? 0 : (int) ($info['http_code'] ?? 0), 'body' => $ok === false ? '' : $body,
+                'timings' => ['meta_dns' => $dns * 1000, 'meta_connect' => max(0, $connect - $dns) * 1000,
+                    'meta_tls' => max(0, $tls - $connect) * 1000,
+                    'meta_wait' => max(0, (float) ($info['starttransfer_time'] ?? 0) - (float) ($info['pretransfer_time'] ?? 0)) * 1000]];
         } finally { curl_close($curl); }
     }
 

@@ -80,6 +80,24 @@ class TransformTests(unittest.TestCase):
         self.assertNotIn('\n', target.replace('\r\n', ''))
         self.assertEqual(updater.navigation_contents(target), target)
 
+    def test_exact_deployed_v1_block_upgrades_to_v2_without_changing_native_customizations(self):
+        for newline in ('\n', '\r\n'):
+            with self.subTest(newline=newline):
+                native = NATIVE.replace('whatsapp|meta|desktop-pos', r'whatsapp|meta|meta\/comments|desktop-pos')
+                source = (native + '\n' + updater.PRIOR_NAV_BLOCK).replace('\n', newline)
+                target = updater.navigation_contents(source)
+                self.assertEqual(target, (native + '\n' + updater.NAV_BLOCK).replace('\n', newline))
+                self.assertEqual(updater.navigation_contents(target), target)
+                self.assertNotIn(updater.PRIOR_NAV_MARKER, target)
+        altered = source.replace("document.querySelectorAll('a[href]')", "document.querySelectorAll('foreign[href]')")
+        with self.assertRaisesRegex(RuntimeError, 'NATIVE_COMMENTS_ORDERING_DIFFERS'):
+            updater.navigation_contents(altered)
+
+    def test_navigation_runtime_handles_late_native_menu_grouping_and_exclusive_active_state(self):
+        result = subprocess.run(['node', str(pathlib.Path(__file__).with_name('meta_comments_navigation_test.js'))],
+                                input=updater.NAV_BLOCK, text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_unknown_or_ambiguous_navigation_is_rejected(self):
         for source in [NATIVE + NATIVE, NATIVE.replace('const priority', 'const preferred'),
                        NATIVE.replace('|meta|', '|meta|meta|'), NATIVE.replace('|meta|', '|'),
@@ -257,6 +275,35 @@ class InstallTests(unittest.TestCase):
                 self.update()
         self.assertEqual(self.files(), before)
         self.assertEqual(self.calls, []); self.assertEqual(self.publications, [])
+
+    def test_reviewed_installed_feature_upgrade_preserves_every_other_file_and_restores_on_failure(self):
+        self.update()
+        changed = ('app/Services/Dashboard/MetaCommentsService.php',
+                   'app/Http/Controllers/Dashboard/MetaCommentsController.php',
+                   'resources/views/admin/meta/comments.blade.php',
+                   'public/js/dashboard-meta-comments.js', 'public/css/dashboard-meta-comments.css', updater.SIDEBAR)
+        reviewed = {}
+        for relative in changed:
+            previous = ('<?php // reviewed prior release ' + relative + '\n').encode()
+            self.write(relative, previous); reviewed[relative] = (updater.blob(previous),)
+        before = self.files(); self.publications = []
+        self.fail_verify = True
+        with mock.patch.dict(updater.REVIEWED_PRIOR_FILES, reviewed):
+            with self.assertRaisesRegex(RuntimeError, 'SANITIZED_RUNTIME_PROBE_FAILED'):
+                self.update()
+        self.assertEqual(self.files(), before); self.assertIn('RESTORED', self.output)
+        self.fail_verify = False; self.publications = []
+        inodes = {relative: (self.root / relative).stat().st_ino for relative in before}
+        with mock.patch.dict(updater.REVIEWED_PRIOR_FILES, reviewed):
+            report = self.update()
+        self.assertEqual(report['updated_files'], len(changed))
+        self.assertEqual(set(self.publications), set(changed))
+        expected = dict(before)
+        expected.update({relative: (self.payloads[relative], 0o644) for relative in changed})
+        self.assertEqual(self.files(), expected)
+        for relative in before:
+            if relative not in changed:
+                self.assertEqual((self.root / relative).stat().st_ino, inodes[relative])
 
     def test_lint_and_preflight_failure_leave_application_bytes_untouched(self):
         before = self.files()
