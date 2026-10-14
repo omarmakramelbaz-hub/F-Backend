@@ -94,7 +94,7 @@ function fixture(hub = false) {
         return {ok: status === 200, status, redirected: state.redirected,
             headers: {get: () => state.redirected ? 'text/html' : 'application/json'},
             json: async () => post ? state.preclaimFailure ? {success: false, state: 'FAILED', reply_id: null, reason: state.preclaimFailure}
-                : {success: state.outcome === 'ACCEPTED', state: state.outcome, replayed: false, reply_id: 17}
+                : {success: state.outcome === 'ACCEPTED', state: state.outcome, replayed: false, reply_id: 17, accepted_reply: state.acceptedReply}
                 : {success: true, available: true, can_reply: state.canReply, latest_inbound_id: state.latestInbound,
                     reason: state.reason, request_state: state.requestState, voice_ready: state.voiceReady,
                     attachment_ready: state.attachmentReady, attachment_mime_types: state.attachmentTypes,
@@ -143,7 +143,9 @@ async function guardedKeyboardText() {
     const text = test.elements['[data-wa-reply-text]']; text.dispatchEvent({type: 'compositionstart'}); key(test);
     assert.strictEqual(posts(test).length, 0, 'IME composition never sends a partial message');
     text.dispatchEvent({type: 'compositionend'});
-    test.state.hold = true; key(test); key(test, {repeat: true}); key(test); submit(test); await settle();
+    test.state.hold = true; key(test);
+    assert.strictEqual(posts(test).length, 1, 'Enter dispatches the send immediately without waiting for a dashboard refresh timer');
+    key(test, {repeat: true}); key(test); submit(test); await settle();
     assert.strictEqual(posts(test).length, 1, 'Holding Enter and repeated submit cannot duplicate a send');
     assert(posts(test)[0].url.endsWith('/7/replies'));
     assert.deepStrictEqual(JSON.parse(posts(test)[0].options.body), {client_request_id: '00000000-0000-4000-8000-000000000001', text: 'رد على العميل', expected_inbound_id: 11});
@@ -165,7 +167,9 @@ async function recordingNeedsStopAndExplicitSend() {
     assert.strictEqual(test.elements['[data-wa-reply-text]'].readOnly, true);
     assert.strictEqual(test.elements['[data-wa-reply-text]'].focused, true, 'A stopped recording returns focus for Enter');
     assert.strictEqual(posts(test).length, 0, 'Stopping offers a review without sending');
-    test.state.hold = true; key(test); key(test, {repeat: true}); submit(test); await settle();
+    test.state.hold = true; key(test);
+    assert.strictEqual(posts(test).length, 1, 'Ready recordings start uploading immediately on Enter');
+    key(test, {repeat: true}); submit(test); await settle();
     assert.strictEqual(posts(test).length, 1); assert(posts(test)[0].url.endsWith('/3/voice'));
     assert(posts(test)[0].options.body instanceof Multipart);
     assert.deepStrictEqual(posts(test)[0].options.body.values.map(value => value.name), ['audio', 'client_request_id', 'expected_inbound_id']);
@@ -236,9 +240,45 @@ async function emojiDraftNeverSends() {
     select(test, 2); await settle(); assert.strictEqual(test.elements['[data-wa-reply-emoji-picker]'].hidden, true);
     dispose(test);
 }
+function scopedSelect(test, id = 1, extras = {}) {
+    test.document.dispatchEvent({type: test.prefix + ':conversation-selected', detail: Object.assign({conversation: id, generation: 9,
+        channel: 'instagram', namespace: 'https://example.test/admin/meta/conversations'}, extras)});
+}
+function receipt(extras = {}) {
+    return Object.assign({reply_id: 17, state: 'ACCEPTED', kind: 'text', text: 'رد مؤكد من السيرفر', created_at: '2026-10-14T19:34:00+00:00',
+        projected_message_id: null, projection_key: 'a'.repeat(64), hidden: false, media: null}, extras);
+}
+async function scopedAcceptedReceipts() {
+    const test = fixture(true), snapshots = [], notifications = [];
+    test.document.addEventListener('meta:accepted-replies', event => snapshots.push(event.detail));
+    test.document.addEventListener('meta:reply-accepted', event => notifications.push(event.detail));
+    test.state.publicRecent = [receipt(), receipt({reply_id: 18, hidden: true, text: null}), receipt({reply_id: 19, state: 'UNKNOWN'}),
+        receipt({reply_id: '20'}), receipt({reply_id: 21, projection_key: 'unsafe-key'}), receipt({reply_id: 22, text: 'x'.repeat(1001)})];
+    scopedSelect(test, 8); await settle();
+    assert.strictEqual(snapshots.length, 1); assert.strictEqual(snapshots[0].snapshot, true);
+    assert.strictEqual(snapshots[0].conversation, 8); assert.strictEqual(snapshots[0].generation, 9); assert.strictEqual(snapshots[0].channel, 'instagram');
+    assert.deepStrictEqual(snapshots[0].replies.map(row => row.reply_id), [17, 18], 'Only bounded accepted receipts and hidden tombstones reach the transcript');
+    assert.strictEqual(snapshots[0].replies[1].hidden, true);
+    test.state.acceptedReply = receipt({text: 'السيرفر أكد الرد', accepted_at: '2026-10-14T19:34:01Z'}); input(test, 'Operator draft'); key(test); await settle();
+    assert.strictEqual(notifications.length, 1); assert.strictEqual(notifications[0].reply.text, 'السيرفر أكد الرد', 'The bubble uses the server receipt rather than inventing one from a client draft');
+    assert.strictEqual(notifications[0].reply.projection_key, 'a'.repeat(64)); releaseKey(test);
+    assert.strictEqual(notifications[0].reply.accepted_at, '2026-10-14T19:34:01Z');
+    test.state.acceptedReply = undefined; input(test, 'Old backend'); key(test); await settle();
+    assert.strictEqual(notifications.length, 2); assert.strictEqual(notifications[1].reply, undefined, 'An older backend wakes the transcript without inventing acceptance content'); releaseKey(test);
+    test.state.acceptedReply = receipt({reply_id: 99}); input(test, 'Mismatched receipt'); key(test); await settle();
+    assert.strictEqual(notifications[2].reply, undefined, 'A receipt ID must match the actual accepted POST result'); dispose(test);
+    for (const outcome of ['UNKNOWN', 'FAILED']) {
+        const rejected = fixture(true), received = []; rejected.document.addEventListener('meta:reply-accepted', event => received.push(event.detail));
+        scopedSelect(rejected); await settle(); rejected.state.outcome = outcome; rejected.state.acceptedReply = receipt(); input(rejected, 'Draft'); key(rejected); await settle();
+        assert.strictEqual(received.length, 0, 'Failed or uncertain requests never publish accepted receipts'); dispose(rejected);
+    }
+    const switched = fixture(true), late = []; switched.document.addEventListener('meta:reply-accepted', event => late.push(event.detail));
+    scopedSelect(switched, 1); await settle(); switched.state.hold = true; switched.state.acceptedReply = receipt(); input(switched, 'Previous conversation'); key(switched);
+    scopedSelect(switched, 2); await settle(); switched.state.release(); await settle(); assert.strictEqual(late.length, 0, 'Late accepted results cannot show inside a new conversation'); dispose(switched);
+}
 
 (async () => {
     await guardedKeyboardText(); await recordingNeedsStopAndExplicitSend(); await recordingCapabilitiesAndPrivacy();
-    await attachmentsShareSendWithoutStaleDialogs(); await unknownCannotRepeat(); await hubEventsAreIsolated(); await emojiDraftNeverSends();
-    console.log('META_REPLIES_UI_PASS 7 scenarios: guarded Enter/text/voice/attachments; microphone toggle/review; uncertain send/privacy; independent hub events; emoji drafts');
+    await attachmentsShareSendWithoutStaleDialogs(); await unknownCannotRepeat(); await hubEventsAreIsolated(); await emojiDraftNeverSends(); await scopedAcceptedReceipts();
+    console.log('META_REPLIES_UI_PASS 8 scenarios: immediate send; guarded Enter/text/voice/attachments; microphone toggle/review; uncertain send/privacy; independent hub events; bounded scoped accepted receipts');
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
