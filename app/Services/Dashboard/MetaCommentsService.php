@@ -105,8 +105,11 @@ class MetaCommentsService
         if ($internal && !$facebook) $fields .= ',from';
         $query = ['fields' => $fields, 'limit' => self::COMMENT_LIMIT];
         if (!$replies && $facebook) $query['filter'] = 'toplevel';
+        // Always poll the newest Page comments and replies, including on long threads.
+        if ($facebook) $query['order'] = 'reverse_chronological';
         $context = ['kind' => $replies ? 'replies' : 'comments', 'account' => $this->accountKey($account),
             'post' => $handle['post'], 'parent' => $parent];
+        if ($facebook) $context['order'] = $query['order'];
         $this->addCursor($query, $cursor, $account, $context);
         $body = $this->graph($account, 'GET', $parent . '/' . $edge, $query, $fresh);
         $this->unchanged($actor, $account);

@@ -14,10 +14,10 @@ function dataKey(value) { return value.replace(/-([a-z])/g, (_, letter) => lette
 class Element {
     constructor(tag='div') { this.tag=tag; this.children=[]; this.parentNode=null; this.listeners={}; this.attributes={}; this.dataset={};
         this.text=''; this.value=''; this.hidden=false; this.disabled=false; this.classList=new Classes(); this.scrollTop=0; }
-    set textContent(value) { this.text=String(value); this.children.forEach(child=>{child.parentNode=null;}); this.children=[]; }
+    set textContent(value) { this.text=String(value); this.textWrites=(this.textWrites||0)+1; this.children.forEach(child=>{child.parentNode=null;}); this.children=[]; }
     get textContent() { return this.text+this.children.map(child=>child.textContent).join(''); }
     set innerHTML(_) { throw new Error('API content must never become HTML'); }
-    appendChild(child) { this.children.push(child); child.parentNode=this; return child; }
+    appendChild(child) { if(child.parentNode) child.parentNode.children=child.parentNode.children.filter(item=>item!==child); this.children.push(child); child.parentNode=this; child.ownerDocument=this.ownerDocument; return child; }
     setAttribute(name,value) { this.attributes[name]=String(value); }
     getAttribute(name) { return this.attributes[name]; }
     removeAttribute(name) { delete this.attributes[name]; if(name==='href') this.href=''; }
@@ -30,8 +30,18 @@ class Element {
     querySelectorAll(selector) { return this.children.flatMap(child=>[child,...walk(child)]).filter(child=>child.matches(selector)); }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     click() { for(let item=this;item;item=item.parentNode) item.dispatchEvent({type:'click',target:this}); }
-    focus() { this.focused=true; }
+    focus() { this.focused=true; if(this.ownerDocument) this.ownerDocument.activeElement=this; }
     setSelectionRange(start,end) { this.selectionStart=start; this.selectionEnd=end; }
+    getBoundingClientRect() {
+        if(this.box) return this.box;
+        if(this.dataset.mcComment && this.parentNode && this.parentNode.parentNode) {
+            const scroll=this.parentNode.parentNode, siblings=this.parentNode.children;
+            const height=item=>100+item.querySelectorAll('li').filter(child=>!child.dataset.mcComment).length*40;
+            const top=200+siblings.slice(0,siblings.indexOf(this)).reduce((sum,item)=>sum+height(item),0)-scroll.scrollTop;
+            return {top,bottom:top+height(this),height:height(this)};
+        }
+        return {top:0,bottom:0,height:0};
+    }
 }
 function walk(root) { return root.children.flatMap(child=>[child,...walk(child)]); }
 function mark(parent,name,tag='div') { const item=new Element(tag); item.dataset[dataKey('mc-'+name)]=''; parent.appendChild(item); return item; }
@@ -41,9 +51,9 @@ const postRow=(id=postA,extra={})=>Object.assign({key:id,handle:'post-'+id[0],te
 const commentRow=(id=commentA,extra={})=>Object.assign({key:id,handle:'comment-'+id[0],text:'السعر كام؟ <script>unsafe()</script>',author:'عميل',created_at:'2026-10-14T20:01:00Z',replies_count:1,can_reply:true},extra);
 function fixture(locale='ar',bootstrapOptions={}) {
     const document=new Element(),window=new Element(),ids=new Map(),timers=new Map(),storage=new Map();
-    const state={calls:[],cleanup:[],delays:new Map(),sendState:'ACCEPTED',sendReason:null,sendFail:false,hold:new Map(),resolvers:new Map(),nextPosts:null,nextComments:null,nextReplies:null,moreCommentRows:null,endlessComments:false,
+    const state={calls:[],cleanup:[],delays:new Map(),due:new Map(),now:0,sendState:'ACCEPTED',sendReason:null,sendFail:false,hold:new Map(),resolvers:new Map(),nextPosts:null,nextComments:null,nextReplies:null,moreCommentRows:null,endlessComments:false,
         postRows:[postRow(),postRow(postB,{text:'بوست آخر'})],commentRows:[commentRow(),commentRow(commentB,{author:'عميل آخر'})],replyRows:[commentRow(replyA,{text:'رد الصفحة',author:'فسخانستا'})],denied:false,permissionAccount:null,invalidReads:new Map()};
-    document.documentElement={lang:'ar'}; document.hidden=false; document.getElementById=id=>ids.get(id)||null; document.createElement=tag=>new Element(tag);
+    document.documentElement={lang:'ar'}; document.hidden=false; document.getElementById=id=>ids.get(id)||null; document.createElement=tag=>{const el=new Element(tag); el.ownerDocument=document; return el;};
     window.location={href:'https://dashboard.test/admin/meta/comments'}; window.sessionStorage={getItem:name=>storage.get(name)||null,setItem:(name,value)=>storage.set(name,value)};
     let requestCounter=0;
     window.crypto={randomUUID:()=> 'aaaaaaaa-bbbb-4ccc-8ddd-'+String(++requestCounter).padStart(12,'0')};
@@ -54,10 +64,11 @@ function fixture(locale='ar',bootstrapOptions={}) {
         send:'نشر',sending:'جاري النشر',accepted:'تم النشر',unknown:'غير مؤكد',failed:'فشل',offline:'غير متصل',limit:'الحد الأقصى',
         emoji_reactions:'وجوه وتفاعلات',emoji_hearts:'قلوب وإشارات',emoji_extras:'رموز ومناسبات',selection_renewed:'تم تجديد الاختيار، اضغط نشر مرة أخرى'};
     function build(overrides={}) {
-        const host=new Element(),fields={};
+        const host=new Element(),fields={}; host.ownerDocument=document;
         ['account','alert','posts','post-count','post-status','more-posts','comments','comment-status','more-comments','post-title','post-link','scroll','form',
             'reply-text','reply-target','reply-preview','public','send','send-label','send-status','letter-count','refresh','back','emoji-toggle','emoji-wrap','emoji-picker','emoji-grid','emoji-tabs'].forEach(name=>fields[name]=mark(host,name));
         fields['emoji-picker'].hidden=true;
+        fields.scroll.box={top:200,bottom:500,height:300}; fields.scroll.appendChild(fields.comments);
         ['', 'facebook','instagram'].forEach(channel=> { const button=mark(host,'channel','button'); button.dataset.mcChannel=channel; });
         const bootstrap=new Element('script'); bootstrap.textContent=JSON.stringify(Object.assign({viewer_key:viewer,csrf:'fixture-csrf',labels,locale},overrides));
         ids.set('meta-comments',host); ids.set('meta-comments-bootstrap',bootstrap); return {host,fields,bootstrap};
@@ -85,13 +96,24 @@ function fixture(locale='ar',bootstrapOptions={}) {
     }
     const navigator={onLine:true};
     const context={window,document,navigator,URL,AbortController,Map,Set,Promise,Date,fetch,Uint8Array,console,
-        setTimeout:(callback,delay)=>{timers.set(++timerId,callback); state.delays.set(timerId,delay); return timerId;},
-        clearTimeout:id=>{timers.delete(id); state.delays.delete(id);}};
+        setTimeout:(callback,delay)=>{timers.set(++timerId,callback); state.delays.set(timerId,delay); state.due.set(timerId,state.now+delay); return timerId;},
+        clearTimeout:id=>{timers.delete(id); state.delays.delete(id); state.due.delete(id);}};
     vm.createContext(context); const dom=build(bootstrapOptions);
     const run=()=>vm.runInContext(fs.readFileSync(path.join(__dirname,'..','public','js','dashboard-meta-comments.js'),'utf8'),context);
     run(); return {state,document,window,dom,context,timers,storage,build,run,navigator};
 }
 async function settle() { for(let i=0;i<14;i++) await new Promise(setImmediate); }
+async function advance(test,milliseconds) {
+    const until=test.state.now+milliseconds;
+    for(let count=0;count<100;count++) {
+        const next=Array.from(test.state.due.entries()).filter(([,due])=>due<=until).sort((a,b)=>a[1]-b[1])[0];
+        if(!next) {test.state.now=until; return;}
+        const [id,due]=next,callback=test.timers.get(id); test.state.now=due;
+        test.timers.delete(id); test.state.delays.delete(id); test.state.due.delete(id);
+        callback(); await settle();
+    }
+    throw new Error('Unbounded timer loop');
+}
 function control(test,name,value) { const candidates=test.dom.host.querySelectorAll('[data-mc-'+name+']'); return value===undefined?candidates[0]:candidates.find(el=>el.dataset[dataKey('mc-'+name)]===value); }
 function click(test,name,value) { const el=control(test,name,value); assert(el,'Missing '+name+' '+value); el.click(); }
 function selectComment(test,id=commentA) { click(test,'reply',id); }
@@ -241,8 +263,7 @@ async function immediateSwitchAndPartialPermissions() {
 }
 async function visibilityAndPermissionErrors() {
     const test=fixture(); await settle(); click(test,'post',postA); await settle(); selectComment(test); draft(test,'تظل المسودة');
-    const interval=()=>Array.from(test.timers.entries()).find(([id])=>test.state.delays.get(id)===30000);
-    const before=calls(test,'comments').length; test.document.hidden=true; interval()[1](); await settle(); assert.strictEqual(calls(test,'comments').length,before);
+    const before=calls(test,'comments').length; test.document.hidden=true; test.document.dispatchEvent({type:'visibilitychange'}); await advance(test,15000); assert.strictEqual(calls(test,'comments').length,before);
     test.document.hidden=false; test.document.dispatchEvent({type:'visibilitychange'}); await settle(); assert.strictEqual(calls(test,'comments').length,before+1);
     assert.strictEqual(test.dom.fields['reply-text'].value,'تظل المسودة'); test.navigator.onLine=false; test.window.dispatchEvent({type:'offline'});
     assert.strictEqual(test.dom.fields.send.disabled,true); submit(test); assert.strictEqual(calls(test,'reply').length,0);
@@ -284,11 +305,10 @@ async function boundedExpiryRecoveryAndNoAutomaticPostRetry() {
 async function pollingDoesNotFloodExpandedReplies() {
     const test=fixture(); await settle(); click(test,'post',postA); await settle(); click(test,'toggle-replies',commentA); await settle();
     const before=calls(test,'replies').length;
-    const tick=Array.from(test.timers.entries()).find(([id])=>test.state.delays.get(id)===30000);
-    tick[1](); await settle();
-    assert.strictEqual(calls(test,'replies').length,before,'Regular comment polling does not refetch every expanded reply thread');
+    await advance(test,5000);
+    assert.strictEqual(calls(test,'replies').length,before+1,'A live cycle refreshes one expanded reply thread');
     click(test,'refresh'); await settle();
-    assert.strictEqual(calls(test,'replies').length,before+1,'Explicit Refresh still refreshes expanded replies');
+    assert.strictEqual(calls(test,'replies').length,before+2,'Explicit Refresh still refreshes expanded replies');
     dispose(test);
 }
 async function olderCommentAndSafeFailedSendRecovery() {
@@ -322,11 +342,95 @@ async function olderCommentAndSafeFailedSendRecovery() {
     assert.strictEqual(missing.dom.fields['reply-text'].value,'المسودة لا تضيع عند حذف التعليق');
     assert.strictEqual(calls(missing,'reply').length,0); dispose(missing);
 }
+async function liveArrivalsPreserveReadingAndComposer() {
+    const test=fixture(),older=key('7'),newest=key('d');
+    test.state.commentRows=[commentRow(commentA,{created_at:'2026-10-14T20:05:00Z'}),commentRow(commentB,{created_at:'2026-10-14T20:04:00Z'})];
+    test.state.nextComments='older-comment-page'; test.state.nextReplies='older-reply-page';
+    await settle(); click(test,'post',postA); await settle(); click(test,'more-comments'); await settle();
+    click(test,'toggle-replies',commentA); await settle(); click(test,'more-replies',commentA); await settle();
+    selectComment(test,commentB); draft(test,'مسودة محفوظة مع الردود اللايف');
+    const composer=test.dom.fields['reply-text']; composer.setSelectionRange(3,9); composer.dispatchEvent({type:'select'});
+    test.dom.fields.scroll.scrollTop=200;
+    const anchor=()=>control(test,'comment',commentB).getBoundingClientRect().top;
+    const beforeTop=anchor(),beforeComments=calls(test,'comments').length,beforeReplies=calls(test,'replies').length;
+    test.state.commentRows=[commentRow(newest,{text:'تعليق جديد وصل تلقائيا',created_at:'2026-10-14T20:09:00Z'}),...test.state.commentRows];
+    test.state.replyRows=[commentRow(replyA,{text:'رد الصفحة',author:'فسخانستا'}),commentRow(key('e'),{text:'رد الذكاء الاصطناعي الجديد',author:'فسخانستا'})];
+    test.state.nextComments='fresh-head-cursor'; test.state.nextReplies='fresh-replies-cursor';
+    await advance(test,5000);
+    assert(test.dom.fields.comments.textContent.includes('تعليق جديد وصل تلقائيا'));
+    assert(test.dom.fields.comments.textContent.includes('رد الذكاء الاصطناعي الجديد'),'Open threads show AI replies without any click');
+    assert.strictEqual(test.dom.fields.comments.children[0].dataset.mcComment,newest,'Fresh head appears before the loaded older comments');
+    assert(control(test,'comment',older),'Live head merges keep the older page loaded by the operator');
+    assert.strictEqual(test.dom.fields['more-comments'].hidden,true,'Head polling cannot revive an exhausted pagination cursor');
+    assert.strictEqual(control(test,'more-replies',commentA),undefined,'Reply polling preserves exhausted older pagination');
+    assert(test.dom.fields.comments.textContent.includes('رد أقدم'),'Live replies keep already loaded older reply pages');
+    assert.strictEqual(anchor(),beforeTop,'The comment being read retains its viewport offset after new cards/replies arrive above it');
+    assert.strictEqual(composer.value,'مسودة محفوظة مع الردود اللايف'); assert.strictEqual(test.document.activeElement,composer);
+    assert.strictEqual(composer.selectionStart,3); assert.strictEqual(composer.selectionEnd,9);
+    assert.strictEqual(calls(test,'comments').length,beforeComments+1); assert.strictEqual(calls(test,'replies').length,beforeReplies+1);
+    assert.strictEqual(calls(test,'reply').length,0,'Polling only reads, including after an AI reply appears');
+    const retainedCard=control(test,'comment',commentA),paintCount=test.dom.fields.comments.textWrites;
+    test.state.commentRows=test.state.commentRows.map(row=>Object.assign({},row,{handle:'rotated-'+row.key[0]}));
+    test.state.replyRows=test.state.replyRows.map(row=>Object.assign({},row,{handle:'rotated-reply-'+row.key[0]}));
+    await advance(test,5000);
+    assert.strictEqual(control(test,'comment',commentA),retainedCard,'Only handle rotation does not rebuild visible cards');
+    assert.strictEqual(test.dom.fields.comments.textWrites,paintCount);
+    selectComment(test,commentA); draft(test,'استخدام الاختيار المجدد'); submit(test); await settle();
+    assert.strictEqual(JSON.parse(calls(test,'reply')[0].options.body).comment_handle,'rotated-3','Fresh handles are still saved internally when DOM painting is skipped');
+    dispose(test);
+}
+async function liveCyclesAreBoundedFairAndPaused() {
+    const test=fixture(),third=key('d');
+    test.state.commentRows.push(commentRow(third)); await settle(); click(test,'post',postA); await settle();
+    for(const id of [commentA,commentB,third]) {click(test,'toggle-replies',id); await settle();}
+    selectComment(test,commentA); const prior=calls(test,'replies').length;
+    await advance(test,20000);
+    const refreshed=calls(test,'replies').slice(prior).map(call=>new URL(call.url).searchParams.get('comment_handle'));
+    assert.deepStrictEqual(refreshed,['comment-3','comment-4','comment-3','comment-d'],'One thread per cycle gives selected priority and rotates through the others');
+    test.state.hold.set('comments',true); const before=calls(test,'comments').length;
+    await advance(test,5000); const held=calls(test,'comments').at(-1); await advance(test,10000);
+    assert.strictEqual(calls(test,'comments').length,before+1,'Slow reads cannot overlap autonomous cycles');
+    test.document.hidden=true; test.document.dispatchEvent({type:'visibilitychange'}); assert(held.options.signal.aborted);
+    release(test,'comments'); await settle(); const hiddenCalls=test.state.calls.length; await advance(test,60000);
+    assert.strictEqual(test.state.calls.length,hiddenCalls,'Hidden pages do not poll');
+    test.navigator.onLine=false; test.window.dispatchEvent({type:'offline'}); test.document.hidden=false; test.document.dispatchEvent({type:'visibilitychange'}); await advance(test,60000);
+    assert.strictEqual(test.state.calls.length,hiddenCalls,'Offline pages do not poll when made visible');
+    test.navigator.onLine=true; test.window.dispatchEvent({type:'online'}); await settle(); assert.strictEqual(calls(test,'comments').length,before+2,'Reconnection immediately catches up the selected post');
+    draft(test,'حالة إرسال لا يكررها التحديث'); test.state.hold.set('reply',true); submit(test); const sendingCalls=test.state.calls.length;
+    await advance(test,15000); assert.strictEqual(test.state.calls.length,sendingCalls,'A write pauses live polling');
+    assert.strictEqual(control(test,'pending',commentA).dataset.mcState,'SENDING');
+    test.state.sendState='UNKNOWN'; release(test,'reply'); await settle(); await advance(test,5000);
+    assert.strictEqual(control(test,'pending',commentA).dataset.mcState,'UNKNOWN','Fresh server reads cannot clear uncertain local receipts');
+    assert.strictEqual(calls(test,'reply').length,1,'The resumed timer never retries POST');
+    click(test,'post',postB); await settle(); await advance(test,5000);
+    assert.strictEqual(new URL(calls(test,'comments').at(-1).url).searchParams.get('post_handle'),'post-2','Live updates follow the currently selected post');
+    const navigating=test.state.calls.length; dispose(test); await advance(test,60000);
+    assert.strictEqual(test.state.calls.length,navigating); assert.strictEqual(test.timers.size,0,'SPA disposal cancels all timers');
+}
+async function liveReadFailuresBackOffAndRecover() {
+    const test=fixture(); await settle(); click(test,'post',postA); await settle(); click(test,'toggle-replies',commentA); await settle();
+    test.state.invalidReads.set('replies',10); const before=calls(test,'comments').length;
+    await advance(test,5000); assert.strictEqual(calls(test,'comments').length,before+2,'One expired reply performs the existing bounded selection recovery');
+    await advance(test,9999); assert.strictEqual(calls(test,'comments').length,before+2,'A failed live cycle backs off to ten seconds');
+    await advance(test,1); const second=calls(test,'comments').length;
+    await advance(test,19999); assert.strictEqual(calls(test,'comments').length,second,'Persistent reply failures back off even when the comment head succeeds');
+    await advance(test,1); const third=calls(test,'comments').length;
+    test.state.invalidReads.set('replies',0); await advance(test,30000); assert(calls(test,'comments').length>third);
+    const recovered=calls(test,'comments').length; await advance(test,5000); assert.strictEqual(calls(test,'comments').length,recovered+1,'A fully successful cycle returns to the normal live interval');
+    dispose(test);
+    const transient=fixture(); await settle(); click(transient,'post',postA); await settle();
+    transient.state.invalidReads.set('comments',2); await advance(transient,5000);
+    assert(transient.dom.fields.alert.textContent.includes('انتهى الاختيار'),'A bounded failed live read explains the temporary interruption');
+    await advance(transient,10000);
+    assert.strictEqual(transient.dom.fields.alert.hidden,true,'A successful recovery clears its own stale live-read alert');
+    dispose(transient);
+}
 (async()=>{
     await initialFilteringSafeRendering(); await paginationAndUnknownReplyCounts(); await draftsSurviveRefreshAndNavigation();
     await acceptedRepliesAndDuplicateSubmit(); await uncertainAndFailedOutcomes(); await emojiCaretDraftAndLimits(); await emojiOnlyAndReadPauseWhileWriting();
     await staleReadsAndCleanup(); await immediateSwitchAndPartialPermissions(); await visibilityAndPermissionErrors();
     await bootstrappedAccountsAndInstantRevisits(); await boundedExpiryRecoveryAndNoAutomaticPostRetry(); await pollingDoesNotFloodExpandedReplies();
     await olderCommentAndSafeFailedSendRecovery();
-    console.log('META_COMMENTS_UI_PASS 14 scenarios: safe account filters; pagination; stable drafts; server-confirmed receipts; duplicate/uncertain guards; emoji caret and Unicode limits; paused reads; SPA cleanup; permission isolation; bootstrapped first load; instant revisits; bounded expired-handle and older-page recovery; deliberate failed-send retry; bounded polling.');
+    await liveArrivalsPreserveReadingAndComposer(); await liveCyclesAreBoundedFairAndPaused(); await liveReadFailuresBackOffAndRecover();
+    console.log('META_COMMENTS_UI_PASS 17 scenarios: safe account filters; pagination; stable drafts; server-confirmed receipts; duplicate/uncertain guards; emoji caret and Unicode limits; paused reads; SPA cleanup; permission isolation; bootstrapped first load; instant revisits; bounded expired-handle and older-page recovery; deliberate failed-send retry; live comments and AI replies; stable scroll/caret/drafts and pagination; bounded fair polling; offline/hidden/send/navigation pause; adaptive failure backoff.');
 })().catch(error=>{console.error(error.stack); process.exitCode=1;});

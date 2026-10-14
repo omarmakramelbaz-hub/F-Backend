@@ -15,7 +15,13 @@ import tempfile
 
 APP_ROOT = pathlib.Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
-BASES = ('e07724ccdccc7fede01a44c274a78bf108484366', '99101eccb0be057fe0fd75c1e1848e81591113f3')
+# Include the deployed AI UI when applying later comment-page upgrades. The
+# variant patch still requires exact reviewed bytes or uniquely anchored hunks.
+BASES = (
+    'e07724ccdccc7fede01a44c274a78bf108484366',
+    '99101eccb0be057fe0fd75c1e1848e81591113f3',
+    '86e5271d76030e53da33ee680d99d9a09a742b54',
+)
 # Files introduced by the first AI release may be replaced only when the live
 # bytes still match this reviewed deployment. Unknown local edits stay blocked.
 AI_FILE_BASE = 'a89fffcb3926b56fa812d23a556d691cfdb69dd4'

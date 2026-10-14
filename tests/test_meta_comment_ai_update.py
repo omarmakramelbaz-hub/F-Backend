@@ -35,15 +35,15 @@ class TransformTests(unittest.TestCase):
         older = b'old polish\n'+b'unchanged\n'*30+b'old AI\n'
         newer = older.replace(b'old polish',b'new polish')
         target = newer.replace(b'old AI',b'new AI')
-        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+        with mock.patch.object(updater,'BASES',('older','newer')), mock.patch.object(updater,'source',side_effect=[older,newer]):
             self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'file',older,target),target)
-        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+        with mock.patch.object(updater,'BASES',('older','newer')), mock.patch.object(updater,'source',side_effect=[older,newer]):
             self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'file',newer,target),target)
 
     def test_unknown_ambiguous_variant_refuses_to_choose_behavior(self):
         older=b'old polish\n'+b'unchanged\n'*15+b'operator slot\n'+b'unchanged\n'*15+b'old AI\n'+b'tail\n'*20
         newer=older.replace(b'old polish',b'new polish'); target=newer.replace(b'old AI',b'new AI')
-        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+        with mock.patch.object(updater,'BASES',('older','newer')), mock.patch.object(updater,'source',side_effect=[older,newer]):
             with self.assertRaisesRegex(RuntimeError,'SOURCE_PATCH_AMBIGUOUS'):
                 updater.variant_patch(PACKAGE,'a'*40,'file',older.replace(b'operator slot',b'operator overlay'),target)
 
@@ -51,7 +51,7 @@ class TransformTests(unittest.TestCase):
         old=b'.old{}\n'+b'body{}\n'*30
         target=old.replace(b'.old{}',b'.new{}')
         live=target+b'/* operator color overlay */\n'
-        with mock.patch.object(updater,'source',side_effect=[old,target]):
+        with mock.patch.object(updater,'BASES',('older','newer')), mock.patch.object(updater,'source',side_effect=[old,target]):
             self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'style.css',live,target),live)
 
     def test_actual_comment_baselines_patch_and_rerun(self):
@@ -63,6 +63,39 @@ class TransformTests(unittest.TestCase):
                 with self.subTest(relative=relative,revision=revision), mock.patch.object(updater,'source',side_effect=source):
                     self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,baseline,target),target)
                     self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,target,target),target)
+
+    def test_deployed_comment_ui_upgrade_preserves_unrelated_operator_overlay(self):
+        relative='public/js/dashboard-meta-comments.js'
+        revision='86e5271d76030e53da33ee680d99d9a09a742b54'
+        self.assertIn(revision,updater.BASES)
+        baseline=subprocess.check_output(['git','show',revision+':'+relative],cwd=PACKAGE)
+        before=b'},30000);'
+        self.assertEqual(baseline.count(before),1)
+        target=baseline.replace(before,b'},5000);')
+        anchor=b'    var active = null, draftStores = new Map(), sendStores = new Map();\n'
+        self.assertEqual(baseline.count(anchor),1)
+        overlay=anchor+b'    // Operator observation hook outside the polling change.\n'
+        current=baseline.replace(anchor,overlay)
+        expected=target.replace(anchor,overlay)
+        def source(root,selected,path):
+            return subprocess.check_output(['git','show',selected+':'+path],cwd=PACKAGE)
+        with mock.patch.object(updater,'source',side_effect=source):
+            self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,current,target),expected)
+            self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,expected,target),expected)
+
+    def test_deployed_comment_ui_conflicting_operator_poll_change_is_refused(self):
+        relative='public/js/dashboard-meta-comments.js'
+        revision='86e5271d76030e53da33ee680d99d9a09a742b54'
+        baseline=subprocess.check_output(['git','show',revision+':'+relative],cwd=PACKAGE)
+        before=b'},30000);'
+        self.assertEqual(baseline.count(before),1)
+        target=baseline.replace(before,b'},5000);')
+        current=baseline.replace(before,b'},15000);')
+        def source(root,selected,path):
+            return subprocess.check_output(['git','show',selected+':'+path],cwd=PACKAGE)
+        with mock.patch.object(updater,'source',side_effect=source):
+            with self.assertRaisesRegex(RuntimeError,'SOURCE_PATCH_CONFLICT: '+relative):
+                updater.variant_patch(PACKAGE,'a'*40,relative,current,target)
 
 
 class SchemaGuardTests(unittest.TestCase):

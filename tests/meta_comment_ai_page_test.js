@@ -27,6 +27,95 @@ const key=letter=>letter.repeat(64),post={key:key('1'),handle:'post-1',text:'ع�
 const control={enabled:false,mode:'always',days:[1,2,3,4,5,6,7],start:'22:00',end:'02:00',timezone:'Africa/Cairo',revision:3,active_now:false,configured:true,worker_seen_at:null,enabled_at:null,last_reason:null};
 const resultDir=path.join(root,'test-results/meta-comment-ai');fs.mkdirSync(resultDir,{recursive:true});
 async function bounds(page,selector){return page.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height,clientHeight:el.clientHeight,scrollHeight:el.scrollHeight};});}
+async function liveUpdates(browser){
+ const page=await browser.newPage({viewport:{width:1366,height:900}}),errors=[],requests=[];
+ const liveKey=n=>n.toString(16).padStart(64,'0');
+ const makeComment=(n,minute)=>({key:liveKey(n),handle:'comment-'+n,text:'تعليق عميل رقم '+n+' · بنحب فسخانستا وخدمة العملاء',author:'عميل '+n,created_at:new Date(Date.UTC(2026,9,14,20,minute)).toISOString(),replies_count:1,can_reply:true});
+ const first=Array.from({length:18},(_,i)=>makeComment(100+i,50-i));
+ const older=Array.from({length:8},(_,i)=>makeComment(200+i,20-i));
+ const selected=first[6],anchor=older[3],arrival=makeComment(300,59);
+ const previousReply={key:liveKey(400),handle:'reply-400',text:'أهلًا بحضرتك، نورت فسخانستا.',author:'صفحة فسخانستا',created_at:'2026-10-14T20:52:00Z',can_reply:false};
+ const aiReply={...previousReply,key:liveKey(401),handle:'reply-401',text:'تسلم يا فندم، سعداء إن التجربة عجبت حضرتك ❤️',created_at:'2026-10-14T20:59:00Z'};
+ let arrived=false,headReads=0,replyReads=0;
+ page.on('pageerror',error=>errors.push(error.message));
+ await page.clock.install({time:new Date('2026-10-14T21:00:00Z')});
+ await page.route('**/*',async route=>{
+  const req=route.request(),url=new URL(req.url());requests.push({method:req.method(),path:url.pathname,cursor:url.searchParams.get('cursor')});
+  if(url.origin!=='http://localhost')return route.abort('blockedbyclient');
+  if(url.pathname==='/comments')return route.fulfill({contentType:'text/html',body:html});
+  if(/^\/(css|js)\/dashboard-meta-comment/.test(url.pathname))return route.fulfill({contentType:url.pathname.endsWith('.css')?'text/css':'text/javascript',body:fs.readFileSync(path.join(root,'public',url.pathname))});
+  if(url.pathname==='/ai/status')return route.fulfill({json:{success:true,can_manage:true,control}});
+  if(url.pathname==='/admin/meta/comments/posts')return route.fulfill({json:{success:true,posts:[post],next_cursor:null}});
+  if(url.pathname==='/admin/meta/comments/comments'){
+   const cursor=url.searchParams.get('cursor');
+   if(cursor==='comments-page-2')return route.fulfill({json:{success:true,comments:older,next_cursor:'comments-page-3'}});
+   if(cursor==='comments-page-3')return route.fulfill({json:{success:true,comments:[makeComment(208,10)],next_cursor:null}});
+   headReads++;
+   return route.fulfill({json:{success:true,comments:(arrived?[arrival,...first.slice(0,-1)]:first).map(row=>({...row,handle:row.handle+'-read-'+headReads})),next_cursor:'comments-page-2'}});
+  }
+  if(url.pathname==='/admin/meta/comments/replies'){
+   replyReads++;
+   if(url.searchParams.get('cursor')==='replies-page-2')return route.fulfill({json:{success:true,replies:[{...previousReply,key:liveKey(402),handle:'reply-402',text:'رد أقدم محفوظ'}],next_cursor:null}});
+   return route.fulfill({json:{success:true,replies:arrived?[previousReply,aiReply]:[previousReply],next_cursor:arrived?null:'replies-page-2'}});
+  }
+  return route.fulfill({status:404,json:{success:false}});
+ });
+ try{
+  await page.goto('http://localhost/comments',{waitUntil:'domcontentloaded'});
+  await page.locator('[data-mc-post]').click();
+  await page.locator(`[data-mc-comment="${selected.key}"]`).waitFor();
+  await page.locator('[data-mc-more-comments]').click();
+  await page.locator(`[data-mc-comment="${anchor.key}"]`).waitFor();
+  await page.locator(`[data-mc-toggle-replies="${selected.key}"]`).click();
+  await page.getByText(previousReply.text,{exact:true}).waitFor();
+  await page.locator(`[data-mc-reply="${selected.key}"]`).click();
+  const draft='مسودة الرد لعميل فسخانستا محفوظة أثناء وصول التعليقات الجديدة';
+  await page.locator('[data-mc-reply-text]').fill(draft);
+  const before=await page.evaluate(({anchorKey,selectedKey})=>{
+   const scroll=document.querySelector('[data-mc-scroll]'),anchor=document.querySelector(`[data-mc-comment="${anchorKey}"]`),input=document.querySelector('[data-mc-reply-text]');
+   scroll.scrollTop+=anchor.getBoundingClientRect().top-scroll.getBoundingClientRect().top-12;
+   input.focus({preventScroll:true});input.setSelectionRange(6,12);
+   const visible=Array.from(document.querySelector('[data-mc-comments]').children).find(row=>row.getBoundingClientRect().bottom>scroll.getBoundingClientRect().top);
+   window.fixtureLiveRow=document.querySelector(`[data-mc-comment="${selectedKey}"]`);
+   return {anchorKey:visible.dataset.mcComment,anchorTop:visible.getBoundingClientRect().top,scrollTop:scroll.scrollTop};
+  },{anchorKey:anchor.key,selectedKey:selected.key});
+  assert(before.scrollTop>100,'The operator is reading an older loaded page before the live arrival');
+  arrived=true;
+  await page.clock.runFor(5001);
+  await page.locator(`[data-mc-comment="${arrival.key}"]`).waitFor();
+  await page.getByText(aiReply.text,{exact:true}).waitFor();
+  const after=await page.evaluate(({anchorKey,selectedKey})=>{
+   const anchor=document.querySelector(`[data-mc-comment="${anchorKey}"]`),input=document.querySelector('[data-mc-reply-text]');
+   return {anchorTop:anchor.getBoundingClientRect().top,value:input.value,start:input.selectionStart,end:input.selectionEnd,focused:document.activeElement===input,selected:document.querySelector(`[data-mc-comment="${selectedKey}"]`).classList.contains('is-selected'),comments:document.querySelectorAll('[data-mc-comment]').length,first:document.querySelector('[data-mc-comment]').dataset.mcComment};
+  },{anchorKey:before.anchorKey,selectedKey:selected.key});
+  assert.equal(after.first,arrival.key,'New live comments are inserted at the fresh head');
+  assert.equal(after.comments,27,'Live head refresh retains all comments from loaded older pages');
+  assert.equal(after.value,draft,'Live arrivals preserve the manual reply draft');
+  assert.deepEqual([after.start,after.end],[6,12],'Live arrivals preserve the current selection/caret');
+  assert.equal(after.focused,true,'The operator keeps focus in the manual reply composer');
+  assert.equal(after.selected,true,'The selected comment stays selected while its AI reply arrives');
+  assert(Math.abs(after.anchorTop-before.anchorTop)<=2,'New comments and an expanded AI reply preserve the visible older-reading anchor');
+  assert.equal(headReads,2,'One live cycle makes a single comments-head request');
+  assert.equal(replyReads,2,'One live cycle refreshes the expanded replies without manual action');
+  const readCount=headReads;
+  await page.evaluate(()=>{window.fixtureLiveRow=document.querySelector('.mc-comment.is-selected');});
+  const nextHead=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/meta/comments/comments');
+  await page.clock.runFor(5001);
+  await nextHead;
+  await page.waitForFunction(()=>!document.querySelector('[data-mc-more-comments]').disabled);
+  assert.equal(headReads,readCount+1,'The next live cycle reads the head again');
+  assert.equal(await page.evaluate(()=>document.querySelector('.mc-comment.is-selected')===window.fixtureLiveRow),true,'Renewed opaque handles do not rebuild unchanged comment cards');
+  await page.locator('[data-mc-more-comments]').click();
+  await page.locator(`[data-mc-comment="${liveKey(208)}"]`).waitFor();
+  assert(requests.some(row=>row.path==='/admin/meta/comments/comments'&&row.cursor==='comments-page-3'),'Live refresh preserves the older comments pagination cursor');
+  await page.locator(`[data-mc-more-replies="${selected.key}"]`).click();
+  await page.getByText('رد أقدم محفوظ',{exact:true}).waitFor();
+  assert(requests.some(row=>row.path==='/admin/meta/comments/replies'&&row.cursor==='replies-page-2'),'Live replies preserve the older replies pagination cursor');
+  assert.deepEqual(requests.filter(row=>row.method==='POST'),[],'Automatic live updates never send a public reply or activate AI');
+  assert.deepEqual(errors,[],'Live comments and replies run without browser errors');
+  console.log('meta-comment-ai live page: automatic comments and expanded AI replies, older-page cursors, draft/caret/focus/selection, reading anchor, unchanged-card identity and zero POST passed');
+ }finally{await page.close();}
+}
 (async()=>{
  const launch={headless:true};if(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)launch.executablePath=process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
  const browser=await chromium.launch(launch);try{
@@ -82,6 +171,7 @@ async function bounds(page,selector){return page.locator(selector).evaluate(el=>
    assert.deepEqual(errors,[],'Both production scripts run without browser errors');
    await page.close();
   }
+  await liveUpdates(browser);
   console.log('meta-comment-ai full page: actual Blade, both production modules, independent controls while posts pending, desktop/mobile composer and schedule layout passed');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

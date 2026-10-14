@@ -23,6 +23,7 @@
         var closed = false, denied = false, sending = false, recovering = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
         var viewer = '', drafts = new Map(), sends = new Map();
         var postSnapshots = new Map(), commentSnapshots = new Map();
+        var commentsPaint = '', liveRunning = false, liveFailures = 0, liveReplyTurn = 0, liveReplyLast = '', liveAlert = '';
         var emojiCategory = 'reactions', caret = {start:0,end:0};
         var emojiGroups = {
             reactions:[['👍','إعجاب','Like'],['❤️','حب','Love'],['😂','ضحك','Laugh'],['😮','دهشة','Wow'],['😢','حزين','Sad'],['😡','غاضب','Angry'],['🙏','شكر ودعاء','Thanks'],['😍','إعجاب وحب','Heart eyes'],
@@ -90,7 +91,7 @@
             var controller = new AbortController(), timeout;
             controllers.set(key,controller); busy.add(key);
             try {
-                timeout = setTimeout(function() { controller.abort(); }, payload ? 30000 : 20000); controller.commentsTimer = timeout; timeoutIds.add(timeout);
+                timeout = setTimeout(function() { controller.commentsTimedOut = true; controller.abort(); }, payload ? 30000 : 20000); controller.commentsTimer = timeout; timeoutIds.add(timeout);
                 var options = {method:payload ? 'POST' : 'GET',credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal,
                     headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}};
                 if (payload) { options.headers['Content-Type'] = 'application/json'; options.headers['X-CSRF-TOKEN'] = config.csrf || ''; options.body = JSON.stringify(payload); }
@@ -107,6 +108,9 @@
                     var failure = new Error(errorMessage({status:response.status,payload:data})); failure.payload = data; failure.status = response.status; throw failure;
                 }
                 return data;
+            } catch (error) {
+                if (controller.commentsTimedOut) error.commentsTimeout = true;
+                throw error;
             } finally {
                 clearTimeout(timeout); timeoutIds.delete(timeout);
                 if (controllers.get(key) === controller) { controllers.delete(key); busy.delete(key); }
@@ -140,6 +144,7 @@
         }
         function commentCard(row,key,nested) {
             var item = node('li',nested ? 'mc-reply' : 'mc-comment' + (selectedKey === key ? ' is-selected' : ''));
+            if (!nested) item.dataset.mcComment = key;
             var meta = node('div','mc-comment-meta'); meta.appendChild(node('span','mc-comment-author',author(row))); meta.appendChild(node('time','mc-date',date(row.created_at))); item.appendChild(meta);
             var content = node('p','mc-comment-text',text(row.text)); content.setAttribute('dir','auto'); item.appendChild(content);
             if (nested) return item;
@@ -172,9 +177,41 @@
             return item;
         }
         function renderComments() {
-            var priorScroll = fields.scroll.scrollTop; fields.comments.textContent = '';
+            fields['more-comments'].hidden = !commentCursor; fields['more-comments'].disabled = busy.has('comments');
+            function visibleRow(row) { return [identity(row),author(row),text(row.text),date(row.created_at),row.can_reply !== false,row.replies_count]; }
+            var paint = JSON.stringify([selectedKey,denied,Array.from(comments.entries()).map(function(entry) {
+                var key = entry[0], page = replyPages.get(key), pending = sends.get(key);
+                return [visibleRow(entry[1]),page ? [page.open,page.status,!!page.cursor,page.open ? Array.from(page.rows.values()).map(visibleRow) : []] : null,
+                    pending && ['SENDING','UNKNOWN'].indexOf(pending.state) !== -1 ? [pending.state,pending.message,pending.account_label] : null];
+            })]);
+            // Handles/cursors are renewed on every read. Their opaque bytes do not change the visible cards.
+            if (paint === commentsPaint) return;
+            commentsPaint = paint;
+            var priorScroll = fields.scroll.scrollTop, anchor = null, anchorTop = 0;
+            if (priorScroll > 2 && fields.scroll.getBoundingClientRect) {
+                var viewport = fields.scroll.getBoundingClientRect();
+                Array.from(fields.comments.children).some(function(item) {
+                    var rect = item.getBoundingClientRect();
+                    if (rect.bottom > viewport.top && rect.top < viewport.bottom) { anchor = item.dataset.mcComment; anchorTop = rect.top; return true; }
+                    return false;
+                });
+            }
+            fields.comments.textContent = '';
             comments.forEach(function(row,key) { fields.comments.appendChild(commentCard(row,key,false)); });
-            fields['more-comments'].hidden = !commentCursor; fields['more-comments'].disabled = busy.has('comments'); fields.scroll.scrollTop = priorScroll;
+            fields.scroll.scrollTop = priorScroll;
+            if (anchor) {
+                var retained = Array.from(fields.comments.children).find(function(item) { return item.dataset.mcComment === anchor; });
+                if (retained) fields.scroll.scrollTop = priorScroll + retained.getBoundingClientRect().top - anchorTop;
+            }
+        }
+        function mergeComments(incoming,retain) {
+            var updated = retain ? new Map(comments) : new Map();
+            incoming.forEach(function(row) { updated.set(identity(row),row); });
+            // A fresh head belongs above the older pages already loaded by the operator.
+            return new Map(Array.from(updated.entries()).sort(function(left,right) {
+                var a = Date.parse(left[1].created_at), b = Date.parse(right[1].created_at);
+                return Number.isFinite(a) && Number.isFinite(b) ? b - a : 0;
+            }));
         }
         function saveDraft() { if (selectedKey) drafts.set(selectedKey,fields['reply-text'].value); }
         function rememberCaret() {
@@ -247,6 +284,7 @@
             fields['reply-text'].value = ''; fields['post-title'].textContent = label('choose_post'); fields['post-link'].hidden = true;
             fields['post-link'].removeAttribute('href'); fields['comment-status'].textContent = label('choose_post'); fields['comment-status'].hidden = false;
             host.classList.remove('has-post'); renderComments(); renderComposer();
+            clearTimeout(timer); liveFailures = 0; liveReplyTurn = 0; liveReplyLast = '';
         }
         function chooseAccount(key) {
             var next = accounts.find(function(row) { return row.account_key === key; }) || null;
@@ -288,7 +326,7 @@
         }
         function choosePost(key) {
             var next = posts.get(key); if (!next) return;
-            if (post && identity(post) === key) { host.classList.add('has-post'); return; }
+            if (post && identity(post) === key) { host.classList.add('has-post'); poll(); return; }
             resetPost(); post = next; host.classList.add('has-post'); fields['post-title'].textContent = text(post.text,240) || label('no_caption');
             var link = sourceUrl(post.permalink); fields['post-link'].hidden = !link; if (link) fields['post-link'].href = link;
             var snapshot = account && commentSnapshots.get(account.account_key + ':' + key);
@@ -296,7 +334,7 @@
                 comments = new Map(snapshot.rows); commentCursor = snapshot.cursor; selectedKey = snapshot.selected || '';
                 fields['reply-text'].value = drafts.get(selectedKey) || ''; renderComments(); renderComposer();
             }
-            fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,!!snapshot);
+            fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,!!snapshot); poll();
         }
         function expiredSelection(error) { return ['INVALID_HANDLE','ACCOUNT_CHANGED'].indexOf((error && error.payload || {}).reason) !== -1; }
         async function recoverSelection(expectedEpoch,commentKey) {
@@ -327,7 +365,7 @@
                 }
                 commentCursor = nextCursor; rememberComments(); renderComments(); renderComposer();
                 return !!renewed;
-            } finally { recovering = false; if (!closed) renderComposer(); }
+            } finally { recovering = false; if (!closed) { renderComposer(); poll(); } }
         }
         async function loadComments(more,quiet,refreshReplies,recovered) {
             if (!post || closed || denied || sending || busy.has('comments')) return;
@@ -336,24 +374,30 @@
             fields['more-comments'].disabled = true;
             try {
                 var data = await request('comments','comments',{post_handle:handle,cursor:more ? commentCursor : null}); if (closed || sending || currentEpoch !== postEpoch) return;
-                var incoming = rows(data.comments), updated = more || quiet ? new Map(comments) : new Map();
-                incoming.forEach(function(row) { updated.set(identity(row),row); }); comments = updated; commentCursor = more || !quiet ? cursor(data.next_cursor) : commentCursor || cursor(data.next_cursor);
+                var hadRows = comments.size > 0;
+                comments = mergeComments(rows(data.comments),more || quiet);
+                if (more || !quiet || !hadRows) commentCursor = cursor(data.next_cursor);
                 rememberComments();
                 fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('empty_comments'); renderComments(); renderComposer();
                 if (refreshReplies) {
-                    var expanded = 0;
-                    replyPages.forEach(function(page,key) { if (page.open && comments.has(key) && expanded++ < 5) loadReplies(key,false,true); });
+                    var expanded = Array.from(replyPages.keys()).filter(function(key) { return replyPages.get(key).open && comments.has(key); }).slice(0,5);
+                    for (var expandedKey of expanded) {
+                        if (closed || sending || currentEpoch !== postEpoch) break;
+                        await loadReplies(expandedKey,false,true);
+                    }
                 }
                 if (!quiet) alert('');
+                return true;
             } catch (error) {
-                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError' && !error.commentsTimeout) return;
                 if (!recovered && expiredSelection(error)) {
-                    try { if (await recoverSelection(currentEpoch,selectedKey || null)) { await loadComments(false,quiet,refreshReplies,true); return; } }
+                    try { if (await recoverSelection(currentEpoch,selectedKey || null)) return await loadComments(false,quiet,refreshReplies,true); }
                     catch (recoveryError) { error = recoveryError; if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return; }
                 }
-                if (quiet) alert(errorMessage(error)); else { fields['comment-status'].hidden = false; fields['comment-status'].textContent = errorMessage(error); }
+                if (quiet) { liveAlert = errorMessage(error); alert(liveAlert); } else { fields['comment-status'].hidden = false; fields['comment-status'].textContent = errorMessage(error); }
                 if (accessLost(error)) deny();
-            } finally { if (!closed && currentEpoch === postEpoch) fields['more-comments'].disabled = false; }
+                return false;
+            } finally { if (!closed && currentEpoch === postEpoch) fields['more-comments'].disabled = false; if (!liveRunning) poll(); }
         }
         async function loadReplies(key,more,quiet,recovered) {
             var row = comments.get(key), page = replyPages.get(key), requestKey = 'replies:' + key;
@@ -361,16 +405,19 @@
             var currentEpoch = postEpoch; if (!quiet) { page.status = label('loading'); renderComments(); }
             try {
                 var data = await request(requestKey,'replies',{comment_handle:row.handle,cursor:more ? page.cursor : null}); if (closed || sending || currentEpoch !== postEpoch) return;
+                var wasLoaded = page.loaded;
                 if (!more && !quiet) page.rows.clear(); rows(data.replies).forEach(function(child) { page.rows.set(identity(child),child); });
-                page.cursor = more || !quiet ? cursor(data.next_cursor) : page.cursor || cursor(data.next_cursor); page.status = ''; renderComments();
+                if (more || !quiet || !wasLoaded) page.cursor = cursor(data.next_cursor);
+                page.loaded = true; page.status = ''; renderComments(); return true;
             } catch (error) {
-                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                if (closed || currentEpoch !== postEpoch || error.name === 'AbortError' && !error.commentsTimeout) return;
                 if (!recovered && expiredSelection(error)) {
-                    try { if (await recoverSelection(currentEpoch,key)) { await loadReplies(key,false,quiet,true); return; } }
+                    try { if (await recoverSelection(currentEpoch,key)) return await loadReplies(key,false,quiet,true); }
                     catch (recoveryError) { error = recoveryError; if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return; }
                 }
                 page.status = errorMessage(error); renderComments(); if (accessLost(error)) deny();
-            }
+                return false;
+            } finally { if (!liveRunning) poll(); }
         }
         function chooseComment(key) {
             if (!comments.has(key)) return; saveDraft(); closeEmoji(false); selectedKey = key;
@@ -447,11 +494,54 @@
             if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true,true); }
         }
         function poll() {
-            clearTimeout(timer); if (closed || sending) return;
-            timer = setTimeout(function() { if (!closed && !denied && !document.hidden && navigator.onLine !== false && post) loadComments(false,true); poll(); },30000);
+            clearTimeout(timer);
+            if (!liveReady() || liveRunning) return;
+            timer = setTimeout(liveCycle,Math.min(30000,5000 * Math.pow(2,liveFailures)));
         }
-        function visibility() { if (!document.hidden && !closed && post && navigator.onLine !== false) loadComments(false,true); }
-        function connectivity() { renderComposer(); if (navigator.onLine === false) alert(label('offline')); else { alert(''); refresh(); } }
+        function liveReady() { return !closed && !denied && !sending && !recovering && !document.hidden && navigator.onLine !== false && post && host.classList.contains('has-post'); }
+        function nextLiveReply() {
+            var expanded = Array.from(replyPages.keys()).filter(function(key) { return replyPages.get(key).open && comments.has(key); });
+            if (!expanded.length) return null;
+            var chosen = expanded.indexOf(selectedKey) !== -1 ? selectedKey : '';
+            if (chosen && (liveReplyLast !== chosen || expanded.length === 1)) { liveReplyLast = chosen; return chosen; }
+            var others = expanded.filter(function(key) { return key !== chosen; });
+            liveReplyLast = others[liveReplyTurn++ % others.length]; return liveReplyLast;
+        }
+        async function liveCycle() {
+            clearTimeout(timer);
+            if (!liveReady() || liveRunning) return;
+            if (busy.size) { poll(); return; }
+            liveRunning = true;
+            var currentEpoch = postEpoch, result;
+            try {
+                result = await loadComments(false,true);
+                if (result === false) liveFailures = Math.min(liveFailures + 1,3);
+                if (result !== true || !liveReady() || currentEpoch !== postEpoch || busy.size) return;
+                var key = nextLiveReply();
+                if (key) {
+                    result = await loadReplies(key,false,true);
+                    if (result === false) liveFailures = Math.min(liveFailures + 1,3);
+                }
+                if (result === true) {
+                    liveFailures = 0;
+                    if (liveAlert && fields.alert.textContent === liveAlert) alert('');
+                    liveAlert = '';
+                }
+            } finally { liveRunning = false; poll(); }
+        }
+        function resumeLive() {
+            liveFailures = 0;
+            if (liveReady()) liveCycle();
+            else if (!closed && !denied && !sending && !document.hidden && navigator.onLine !== false && !busy.size) {
+                if (!accounts.length) loadAccounts(); else if (!post) loadPosts(false);
+            }
+        }
+        function visibility() { if (document.hidden) { clearTimeout(timer); abortReads(); } else resumeLive(); }
+        function connectivity() {
+            renderComposer();
+            if (navigator.onLine === false) { clearTimeout(timer); abortReads(); alert(label('offline')); }
+            else { alert(''); resumeLive(); }
+        }
         function click(event) {
             var emoji = event.target.closest('[data-mc-emoji]'); if (emoji && host.contains(emoji)) { insertEmoji(emoji.dataset.mcEmoji); return; }
             var category = event.target.closest('[data-mc-emoji-category]'); if (category && host.contains(category) && emojiGroups[category.dataset.mcEmojiCategory]) {
@@ -474,7 +564,7 @@
             if (event.target.closest('[data-mc-more-posts]')) loadPosts(true);
             if (event.target.closest('[data-mc-more-comments]')) loadComments(true,false);
             if (event.target.closest('[data-mc-refresh]')) refresh();
-            if (event.target.closest('[data-mc-back]')) { saveDraft(); closeEmoji(false); host.classList.remove('has-post'); }
+            if (event.target.closest('[data-mc-back]')) { saveDraft(); closeEmoji(false); host.classList.remove('has-post'); clearTimeout(timer); abortReads(); }
         }
         function input() { rememberCaret(); saveDraft(); renderComposer(); }
         function change() { if (!sending) chooseAccount(fields.account.value); }

@@ -9,7 +9,7 @@ namespace {
     function abort_unless($ok, $status) { if (!$ok) throw new \Symfony\Component\HttpKernel\Exception\HttpException($status); }
     set_error_handler(function ($s, $m, $f, $l) { if ($s & E_ALL) throw new \ErrorException($m, 0, $s, $f, $l); return false; });
 }
-namespace App\Models { class User { public $id = 1; public $active = true; public $account_type = 'admin'; public $owner_resturant_id = null; } }
+namespace App\Models { class User { public $id = 1; public $active = true; public $account_type = 'admin'; public $owner_resturant_id = null; public function getKey() { return $this->id; } } }
 namespace App\Services\Dashboard {
     class TakeawayAccess {
         public static int $calls = 0; public static $before = null;
@@ -114,8 +114,43 @@ namespace {
     $comments = $service->comments($actor, $post['handle']); $comment = $comments['comments'][0];
     check($comment['author'] === 'عميل' && $comment['text'] === 'سعر الرنجة كام؟' && $comment['replies_count'] === 2, 'comment DTO supports authors reply counts and dates');
     check(end($calls)[1] === 'https://graph.facebook.com/v25.0/101_501/comments' && end($calls)[2]['filter'] === 'toplevel', 'Page comments fetched from selected owned post');
+    check(end($calls)[2]['order'] === 'reverse_chronological', 'Facebook first comment page explicitly reads newest first for live arrivals');
+    $service->comments($actor, $post['handle'], $comments['next_cursor']);
+    check(end($calls)[2]['after'] === 'comment_cursor' && end($calls)[2]['order'] === 'reverse_chronological', 'Facebook comment pagination keeps the same ordering and bounded native cursor');
     $replies = $service->replies($actor, $comment['handle']);
     check(end($calls)[1] === 'https://graph.facebook.com/v25.0/700/comments' && count($replies['replies']) === 1, 'Facebook reply edge');
+    check(end($calls)[2]['order'] === 'reverse_chronological' && !isset(end($calls)[2]['filter']), 'Facebook reply head explicitly includes newest replies without top-level post filter');
+    $service->replies($actor, $comment['handle'], $replies['next_cursor']);
+    check(end($calls)[2]['after'] === 'comment_cursor' && end($calls)[2]['order'] === 'reverse_chronological', 'Facebook reply pagination keeps newest-first ordering');
+    $before = count($calls);
+    $legacyCursor = json_decode(Crypt::decryptString($comments['next_cursor']), true);
+    unset($legacyCursor['context']['order']);
+    expectFailure(fn () => $service->comments($actor, $post['handle'], Crypt::encryptString(json_encode($legacyCursor))), 'INVALID_CURSOR', 'legacy Facebook pagination cannot silently change provider ordering');
+    $legacyCursor['context']['order'] = 'chronological';
+    expectFailure(fn () => $service->comments($actor, $post['handle'], Crypt::encryptString(json_encode($legacyCursor))), 'INVALID_CURSOR', 'Facebook cursors bind their provider ordering');
+    expectFailure(fn () => $service->replies($actor, $comment['handle'], $comments['next_cursor']), 'INVALID_CURSOR', 'comment cursor cannot cross into reply edge');
+    check(count($calls) === $before, 'mismatched pagination ordering never reaches Graph');
+    $internal = $service->automationComments($actor, $fbKey, '101_501');
+    check($internal['comments'][0]['native_id'] === '700' && end($calls)[2]['order'] === 'reverse_chronological', 'worker head uses the same newest-first Facebook order while keeping native IDs server-only');
+    $service->automationComments($actor, $fbKey, '101_501', $internal['next_cursor']);
+    check(end($calls)[2]['after'] === 'comment_cursor' && end($calls)[2]['order'] === 'reverse_chronological', 'worker backlog cursor keeps Facebook head ordering');
+    $liveRows = array_map(static fn ($n) => ['id' => (string) (1000 + $n), 'message' => 'Comment ' . $n], range(1, 30));
+    $liveService = new Comments(static function ($method, $endpoint, $parameters) use (&$liveRows) {
+        $ordered = ($parameters['order'] ?? null) === 'reverse_chronological' ? array_reverse($liveRows) : $liveRows;
+        $offset = (int) ($parameters['after'] ?? 0);
+        $body = ['data' => array_slice($ordered, $offset, $parameters['limit'])];
+        if (count($ordered) > $offset + $parameters['limit']) $body['paging'] = [
+            'cursors' => ['after' => (string) ($offset + $parameters['limit'])], 'next' => 'https://graph.facebook.com/ignored'];
+        return jsonResponse($body);
+    });
+    $liveHead = $liveService->comments($actor, $post['handle']);
+    check($liveHead['comments'][0]['text'] === 'Comment 30' && count($liveHead['comments']) === 25, 'long Facebook thread initially returns its newest bounded page');
+    $liveRows[] = ['id' => '1031', 'message' => 'New live arrival'];
+    $updatedHead = $liveService->comments($actor, $post['handle']);
+    check($updatedHead['comments'][0]['text'] === 'New live arrival', 'head refresh sees a new Facebook comment even with older pages still unloaded');
+    $olderComments = $liveService->comments($actor, $post['handle'], $updatedHead['next_cursor']);
+    check(count($olderComments['comments']) === 6 && $olderComments['comments'][0]['text'] === 'Comment 6'
+        && $olderComments['comments'][5]['text'] === 'Comment 1', 'newest-first provider cursor still reaches older comments');
     $output = json_encode([$post, $comment]);
     foreach (['101_501', 'private-customer-id', 'access_token'] as $private) check(strpos($output, $private) === false, 'public DTO excludes native identity ' . $private);
     $before = count($calls);
@@ -132,11 +167,14 @@ namespace {
     $igPost = $service->posts($actor, $igKey)['posts'][0];
     check(end($calls)[1] === 'https://graph.instagram.com/v25.0/202/media', 'Instagram Login uses native Graph host');
     $igComment = $service->comments($actor, $igPost['handle'])['comments'][0];
+    check(!isset(end($calls)[2]['order']) && !isset(end($calls)[2]['filter']), 'Instagram comments keep documented native parameters without Facebook ordering');
     $service->replies($actor, $igComment['handle']);
     check(end($calls)[1] === 'https://graph.instagram.com/v25.0/700/replies', 'Instagram reply read edge');
+    check(!isset(end($calls)[2]['order']) && !isset(end($calls)[2]['filter']), 'Instagram replies never receive Facebook-only ordering or filter');
     $igFbPost = $service->posts($actor, $igFbKey)['posts'][0];
     check(end($calls)[1] === 'https://graph.facebook.com/v25.0/303/media', 'Facebook Login Instagram uses Facebook Graph host');
     $igFbComment = $service->comments($actor, $igFbPost['handle'])['comments'][0];
+    check(!isset(end($calls)[2]['order']), 'Facebook Login Instagram retains Instagram comment parameters');
 
     $replyInput = input($comment['handle']); $before = count($calls);
     \App\Services\Dashboard\TakeawayAccess::$calls = 0;
