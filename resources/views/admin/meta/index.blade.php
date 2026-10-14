@@ -13,7 +13,7 @@
         <div class="wa-inbox-tools">@if(!empty($waInbox['connection_url']))<a href="{{ $waInbox['connection_url'] }}" class="wa-inbox-button btn-warning"><i class="fas fa-link" aria-hidden="true"></i> {{ app()->getLocale() === 'ar' ? 'ربط حساب ميتا' : 'Connect Meta' }}</a>@endif<span class="wa-inbox-unread-total" data-wa-unread-total role="status" aria-live="polite" hidden></span><span class="wa-inbox-connection" data-wa-connection role="status" aria-live="polite">{{ $waInbox['labels']['loading'] }}</span><button type="button" class="wa-inbox-button" data-wa-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i> {{ $waInbox['labels']['refresh'] }}</button></div>
     </header>
     <div class="wa-inbox-alert" data-wa-alert role="status" aria-live="polite" hidden></div>
-    <nav class="meta-inbox-channels" aria-label="قناة الرسائل"><button type="button" data-meta-channel="" class="wa-inbox-button" aria-pressed="true">الكل</button><button type="button" data-meta-channel="messenger" class="wa-inbox-button" aria-pressed="false">ماسنجر</button><button type="button" data-meta-channel="instagram" class="wa-inbox-button" aria-pressed="false">إنستجرام</button></nav>
+    @include('admin.meta.channels')
     <div class="wa-inbox-workspace">
         <aside class="wa-inbox-threads" aria-labelledby="wa-conversations-title">
             <header class="wa-inbox-panel-heading"><h2 id="wa-conversations-title">{{ $waInbox['labels']['conversations'] }}</h2><span class="wa-inbox-count" data-wa-count></span></header>
