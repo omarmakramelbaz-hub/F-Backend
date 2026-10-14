@@ -36,11 +36,13 @@
         var refresh = panel.querySelector('[data-wa-refresh]');
         var back = panel.querySelector('[data-wa-back]');
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
-        var threadMap = new Map(), messageMap = new Map(), controllers = new Map();
+        var threadMap = new Map(), messageMap = new Map(), controllers = new Map(), renderedMessages = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
-        var channel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
+        var channel = ['messenger', 'instagram'].indexOf(config.initial_channel) !== -1 ? config.initial_channel : '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
+
+        panel.querySelectorAll('[data-meta-channel]').forEach(function (button) { button.setAttribute('aria-pressed', (button.dataset.metaChannel || '') === channel ? 'true' : 'false'); });
 
         function emit(name, detail) {
             if (document.dispatchEvent && typeof CustomEvent !== 'undefined') {
@@ -85,6 +87,7 @@
             return section;
         }
         function stopMessageMedia() {
+            renderedMessages.clear();
             if (messages && messages.querySelectorAll) messages.querySelectorAll('audio,video').forEach(function (media) { media.pause(); media.removeAttribute('src'); media.load(); });
         }
         function closeOverlay() {
@@ -326,14 +329,22 @@
         }
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
-            var fragment = document.createDocumentFragment();
+            var rendered = [], nextRendered = new Map();
             Array.from(messageMap.values()).sort(function (a, b) {
                 return String(a.sent_at || a.received_at || '').localeCompare(String(b.sent_at || b.received_at || '')) || a.id - b.id;
             }).forEach(function (message) {
+                var signature = JSON.stringify(message);
+                var cached = renderedMessages.get(message.id);
+                if (cached && cached.signature === signature) {
+                    var author = typeof cached.node.querySelector === 'function' ? cached.node.querySelector('[data-meta-author]') : null;
+                    if (author) author.textContent = message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen});
+                    rendered.push(cached.node); nextRendered.set(message.id, cached); return;
+                }
+                if (cached) cached.node.querySelectorAll('audio,video').forEach(function (media) { media.pause(); media.removeAttribute('src'); media.load(); });
                 var item = node('li', 'wa-inbox-message ' + (message.hidden ? 'is-hidden ' : '') + (message.direction === 'outbound' ? 'is-outbound' : 'is-inbound'));
                 item.dataset.waMessageId = String(message.id); item.dataset.waDirection = message.direction;
                 var bubble = node('article', 'wa-inbox-bubble');
-                bubble.appendChild(node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})));
+                var author = node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})); author.dataset.metaAuthor = 'true'; bubble.appendChild(author);
                 var actions = messageActions(message); if (actions) bubble.appendChild(actions);
                 if (message.type !== 'text') bubble.appendChild(node('span', 'wa-inbox-message-type', typeText(message.type)));
                 var cart = !message.unavailable && message.type === 'order' ? cartNode(message.cart) : null;
@@ -343,9 +354,20 @@
                     : (message.text || typeText(message.type))));
                 var timestamp = message.sent_at || message.received_at;
                 var time = node('time', '', dateText(timestamp, true)); if (timestamp) time.dateTime = timestamp;
-                bubble.appendChild(time); item.appendChild(bubble); fragment.appendChild(item);
+                bubble.appendChild(time); item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
             });
-            stopMessageMedia(); messages.textContent = ''; messages.appendChild(fragment);
+            if (typeof messages.insertBefore === 'function' && typeof messages.removeChild === 'function') {
+                var currentNode = messages.firstChild;
+                rendered.forEach(function (item) {
+                    if (currentNode === item) currentNode = currentNode.nextSibling;
+                    else messages.insertBefore(item, currentNode);
+                });
+                Array.from(messages.children).forEach(function (item) { if (rendered.indexOf(item) === -1) messages.removeChild(item); });
+            } else {
+                var fragment = document.createDocumentFragment(); rendered.forEach(function (item) { fragment.appendChild(item); });
+                messages.textContent = ''; messages.appendChild(fragment);
+            }
+            renderedMessages = nextRendered;
             chatStatus.textContent = messageMap.size ? '' : labels.no_messages;
             if (prepend) scroll.scrollTop = oldTop + scroll.scrollHeight - oldHeight;
             else if (toBottom) scroll.scrollTop = scroll.scrollHeight;
@@ -392,6 +414,12 @@
             chatStatus.textContent = labels.loading; older.hidden = true;
             panel.classList.add('has-selection'); back.hidden = false; renderThreads();
             loadMessages('initial').catch(unavailable);
+            var thread = threadMap.get(id), selection = id, current = generation;
+            if (thread && !thread.name) request(config.messages_base_url + '/' + id + '/profile', 'profile', {}).then(function (data) {
+                if (closed || denied || current !== generation || selection !== chosen || !data.name) return;
+                var known = threadMap.get(selection); if (!known) return;
+                known.name = data.name; threadMap.set(selection, known); title.textContent = displayName(known); renderThreads();
+            }).catch(function (error) { if (error && [401, 403, 419].indexOf(error.status) !== -1) unavailable(error); });
         }
         function success() {
             if (closed || denied) return;
