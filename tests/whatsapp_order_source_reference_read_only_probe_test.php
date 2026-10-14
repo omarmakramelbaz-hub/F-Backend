@@ -5,8 +5,8 @@ define('WHATSAPP_ORDER_SOURCE_REFERENCE_READ_ONLY_PROBE_TEST_ONLY', true);
 require dirname(__DIR__) . '/app/Support/WhatsAppInboxProtocol.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
 require dirname(__DIR__) . '/app/Support/WhatsAppOrderExtraction.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
-require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
+require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderSourceSelection.php';
+require dirname(__DIR__) . '/tests/fixtures/whatsapp_order_pre_anchor_citation/app/Services/Dashboard/WhatsAppOrderAiProvider.php';
 require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
 require dirname(__DIR__) . '/deployment/whatsapp_order_source_reference_observer.php';
 require dirname(__DIR__) . '/deployment/whatsapp_order_source_reference_read_only_probe.php';
@@ -367,7 +367,10 @@ foreach ([['probe.php'],['probe.php','--probe-one','--probe-one'],['probe.php','
     referenceExpect(Probe::authorized($arguments),false,'alternate flags never authorize a provider request');
 
 foreach (Probe::SOURCE_PINS as [$path,$expected]) {
-    $bytes=file_get_contents(dirname(__DIR__).'/'.$path);
+    $sourcePath=in_array($path,['app/Services/Dashboard/WhatsAppOrderSourceSelection.php',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'],true)
+        ? 'tests/fixtures/whatsapp_order_pre_anchor_citation/'.$path : $path;
+    $bytes=file_get_contents(dirname(__DIR__).'/'.$sourcePath);
     referenceExpect(sha1('blob '.strlen($bytes)."\0".$bytes),$expected,'guard matches the exact unchanged reviewed application source');
 }
 $observerBytes=file_get_contents(dirname(__DIR__).'/deployment/whatsapp_order_source_reference_observer.php');

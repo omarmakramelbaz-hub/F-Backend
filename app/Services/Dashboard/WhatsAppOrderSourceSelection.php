@@ -88,12 +88,12 @@ final class WhatsAppOrderSourceSelection
         } catch (\Throwable $error) { return self::result(false,'INVALID_INPUT'); }
     }
 
-    /** Decode only supplied source choices; this does not approve any customer/order fact. */
+    /** Decode supplied choices and their native name citations; no customer/order fact is approved. */
     public static function decode(array $wire,array $plan): array
     {
         try {
             if (!is_array($wire['items']??null) || !array_is_list($wire['items'])) return self::result(true,null,$wire);
-            $normal=$wire;
+            $normal=$wire; $anchorRequests=null; $nameAnchors=[];
             foreach ($wire['items'] as $index=>$item) {
                 // Legacy fixture/provider replies retain their original contract. The new
                 // request schema never permits a free-form item name.
@@ -117,13 +117,20 @@ final class WhatsAppOrderSourceSelection
                         $target=is_string($id)?($plan['sources'][$id.':text']??null):null;
                         if (!is_array($target) || $target['speaker']!==$speaker || $target['source']!=='text') return self::sourceFailure('ITEM');
                     }
-                    if ($row['speaker']!=='customer' || $row['source']!=='text'
-                        || !is_array($wire['evidence']['request_ids']??null)
-                        || !in_array($source['message_id'],$wire['evidence']['request_ids'],true)) return self::sourceFailure('ITEM_NAME');
+                    if ($row['speaker']!=='customer' || $row['source']!=='text') return self::sourceFailure('ITEM_NAME');
+                    if ($anchorRequests===null) {
+                        $anchorRequests=self::originalRequests($wire,$plan);
+                        if ($anchorRequests===null) return self::sourceFailure('ITEM_NAME');
+                    }
+                    // Only the selected native name row carries an implicit citation.
+                    // Quantity and option citations must be present in the ORIGINAL
+                    // response, even when they happen to use the same row as its name.
+                    if (!self::cited($reference['customer_quantity_id'],$wire,['request_ids'])) return self::sourceFailure('ITEM');
                     if ($option!==null && ($option['row']['speaker']!=='customer' || $option['row']['source']!=='text'
                         || !self::cited($option['message_id'],$wire,['request_ids']))) return self::sourceFailure('ITEM_OPTION');
                     $choice=is_string($reference['summary_clause_id'])?($plan['clauses'][$reference['summary_clause_id']]??null):null;
                     if (!is_array($choice)) return self::sourceFailure('ITEM');
+                    $nameAnchors[$source['message_id']]=true;
                     $reference=['name_anchor_id'=>$source['message_id'],'business_offer_id'=>$reference['business_offer_id'],
                         'customer_quantity_id'=>$reference['customer_quantity_id'],'business_summary_id'=>$choice['message_id'],
                         'summary_clause_index'=>$choice['clause_index'],'customer_option_id'=>$option===null?null:$option['message_id']];
@@ -132,6 +139,14 @@ final class WhatsAppOrderSourceSelection
                 $normal['items'][$index]['name']=$name['text'];
                 $normal['items'][$index]['option_hint']=$option===null?null:$option['text'];
                 $normal['items'][$index]['conversation_reference']=$reference;
+            }
+            if ($anchorRequests!==null) {
+                foreach (array_keys($nameAnchors) as $id) {
+                    if (in_array($id,$anchorRequests,true)) continue;
+                    if (count($anchorRequests)>=WhatsAppOrderExtraction::MAX_MESSAGES) return self::sourceFailure('ITEM_NAME');
+                    $anchorRequests[]=$id;
+                }
+                $normal['evidence']['request_ids']=$anchorRequests;
             }
             return self::result(true,null,$normal);
         } catch (\Throwable $error) { return self::sourceFailure('ITEM'); }
@@ -190,6 +205,32 @@ final class WhatsAppOrderSourceSelection
             if (is_array($ids) && in_array($id,$ids,true)) return true;
         }
         return false;
+    }
+    /** Validate original metadata before deriving a selected contextual name citation. */
+    private static function originalRequests(array $wire,array $plan): ?array
+    {
+        $transcript=$plan['input']['transcript']??null;
+        $evidence=$wire['evidence']??null;
+        if (!is_array($transcript) || !WhatsAppOrderExtraction::validateTranscript($transcript)['ok']
+            || !is_array($evidence)
+            || !self::keys($evidence,['request_ids','confirmation_ids','customer_acceptance_ids','location_id'])) return null;
+        $rows=array_column($transcript,null,'id');
+        foreach (['request_ids'=>'customer','confirmation_ids'=>'business','customer_acceptance_ids'=>'customer'] as $field=>$speaker) {
+            $ids=$evidence[$field];
+            if (!is_array($ids) || !array_is_list($ids) || count($ids)>WhatsAppOrderExtraction::MAX_MESSAGES) return null;
+            $seen=[];
+            foreach ($ids as $id) {
+                if (!is_string($id) || !isset($rows[$id]) || isset($seen[$id]) || $rows[$id]['speaker']!==$speaker) return null;
+                $text=implode("\n",array_filter([$rows[$id]['text'],$rows[$id]['cart']['text']??null],'is_string'));
+                if ((trim($text)==='' || preg_match('//u',$text)!==1 || self::length($text)>WhatsAppOrderExtraction::MAX_INPUT_CHARACTERS)
+                    && !($field==='request_ids' && ($rows[$id]['cart']??null)!==null)) return null;
+                $seen[$id]=true;
+            }
+        }
+        $location=$evidence['location_id'];
+        if ($location!==null && (!is_string($location) || !isset($rows[$location])
+            || $rows[$location]['speaker']!=='customer' || $rows[$location]['location']===null)) return null;
+        return $evidence['request_ids'];
     }
     private static function idList(array $ids): array
     {
