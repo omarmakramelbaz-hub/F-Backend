@@ -139,7 +139,7 @@ class WhatsAppOrderFollowupService
             $marker=['version'=>'whatsapp-order-followup-v1','kind'=>$fields===['CONFIRMATION']?'confirmation':'question','fields'=>$fields,
                 'latest_customer_id'=>$inbound,'latest_customer_key'=>$plan['latest_customer_key'],'episode_customer_key'=>$plan['episode_customer_key'],
                 'proposal_hash'=>$fields===['CONFIRMATION']?self::proposalHash($plan['data'],$plan['transcript']):null];
-            $guard=static fn():bool=>$refresh()===$plan;
+            $guard=fn():bool=>$refresh()===$plan&&$this->handoffAllowed($plan);
             $compose=function() use($plan,$fields,$guard,$text):string {
                 if (!$guard()) throw new \RuntimeException();
                 $this->provider=$this->provider??app(WhatsAppOrderAiProvider::class); $choice=$this->provider->followupVariant($fields);
@@ -164,6 +164,7 @@ class WhatsAppOrderFollowupService
             }
             if ($after) return true;
             if ($this->confirmedCustomerHandoff($plan)) return true;
+            if ($this->confirmedMediaQuestionHandoff($plan)) return true;
             $anchor=DB::table('whatsapp_inbox_messages')->where('conversation_id',$plan['conversation_id'])
                 ->where('message_key',$plan['episode_customer_key'])->where('direction','inbound')->first(['id','sent_at']);
             if ($anchor && (int)$anchor->id>$plan['evidence_floor']) {
@@ -192,6 +193,49 @@ class WhatsAppOrderFollowupService
         return $latest!==null&&$final>=0&&$latest['position']>$final
             &&in_array($latest['row']['id'],$data['evidence']['customer_acceptance_ids'],true)
             &&self::positiveApproval($latest['row']['text']);
+    }
+
+    /** An authenticated trailing image can hand off a missing-data question, never approval. */
+    private function confirmedMediaQuestionHandoff(array $plan): bool
+    {
+        if (!self::validPlan($plan)||self::fields($plan['fields'])===['CONFIRMATION']
+            ||($plan['data']['decision']??null)!=='CONFIRMED') return false;
+        $checked=WhatsAppOrderExtraction::validateDetailed($plan['data'],$plan['transcript']);
+        if (!$checked['ok']||($checked['data']['decision']??null)!=='CONFIRMED') return false;
+        $episode=WhatsAppOrderConversationEvidence::episodeTranscript($plan['transcript']);
+        $final=-1; $latest=null; $image=null;
+        foreach ($episode as $position=>$row) {
+            if ($row['speaker']==='customer') $latest=['position'=>$position,'row'=>$row];
+            if ($row['speaker']==='business'&&in_array($row['id'],$plan['data']['evidence']['confirmation_ids'],true)) $final=$position;
+        }
+        if ($final<0||$latest===null||$latest['position']<=$final) return false;
+        foreach ($episode as $position=>$row) {
+            if ($position<=$final||$row['speaker']!=='customer') continue;
+            if ($row['text']!==null) {
+                if (!in_array($row['id'],$plan['data']['evidence']['customer_acceptance_ids'],true)
+                    ||!self::positiveApproval($row['text'])) return false;
+            } else {
+                if ($image!==null||($row['location']??null)!==null||($row['cart']??null)!==null) return false;
+                $image=$row;
+            }
+        }
+        if ($image===null||$image['id']!==$latest['row']['id']) return false;
+        $thread=DB::table('whatsapp_inbox_conversations')->where('id',$plan['conversation_id'])
+            ->where('waba_id',WhatsAppInboxAccess::WABA_ID)->where('phone_number_id',WhatsAppInboxAccess::PHONE_ID)->first();
+        $native=DB::table('whatsapp_inbox_messages')->where('conversation_id',$plan['conversation_id'])
+            ->where('id',$plan['latest_customer_id'])->where('message_key',$plan['latest_customer_key'])
+            ->where('id','>',$plan['evidence_floor'])->where('id','<=',$plan['evidence_ceiling'])
+            ->where('direction','inbound')->where('type','image')->whereIn('source',['messages','standby'])
+            ->select('id','conversation_id','message_key','type','direction','source','sent_at')
+            ->selectRaw('CASE WHEN LENGTH(content)<=8388608 THEN content ELSE NULL END AS content')->first();
+        if (!$thread||!$native||$native->sent_at!==$image['sent_at']) return false;
+        $projection=(new WhatsAppInboxMessage())->projected($thread,$native);
+        $body=$projection['raw']['image']??null;
+        return $projection['direction']==='inbound'&&$projection['kind']==='image'
+            &&$projection['native_message_key']===$plan['latest_customer_key']&&$projection['sent_at']===$image['sent_at']
+            &&is_array($body)&&is_string($body['id']??null)&&preg_match('/\A[^\x00-\x20\x7f]{1,512}\z/',$body['id'])===1
+            &&(!array_key_exists('caption',$body)||$body['caption']==='')
+            &&($projection['text']===null||$projection['text']==='');
     }
 
     private static function positiveApproval($text): bool

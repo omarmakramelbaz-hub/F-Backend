@@ -42,7 +42,7 @@ class HandoffInstallTests(unittest.TestCase):
         self.assertEqual(list(repair.SOURCE_PINS),[self.target])
         self.assertEqual(wrapper.SOURCE_ROSTER,(self.target,))
         self.assertEqual(repair.SOURCE_PINS[self.target][0],'1236fff48e0c3626df4425bed201d61329194f75')
-        self.assertEqual(repair.SOURCE_PINS[self.target][1],repair.blob((ROOT/self.target).read_bytes()))
+        self.assertEqual(repair.SOURCE_PINS[self.target][1],repair.blob((ROOT/'tests/fixtures/whatsapp_order_pre_media_handoff'/self.target).read_bytes()))
         expected=dict(baseline.PROTECTED_PINS)
         expected.update({path:pin[1] for path,pin in baseline.SOURCE_PINS.items() if path!=self.target})
         self.assertEqual(repair.PROTECTED_PINS,expected)

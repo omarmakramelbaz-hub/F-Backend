@@ -635,4 +635,48 @@ foreach (['uncited_positive', 'quoted_positive', 'question', 'refusal', 'detail'
         'unproved handoff creates no AI spend, send or receipt: ' . $mutation);
 }
 
+function followupImagePlan(array $data): array {
+    $plan=followupMerchantPlan($data);
+    $id=followupNative('inbound','','2026-10-13 10:03:00');
+    $row=DB::table('whatsapp_inbox_messages')->where('id',$id)->first();
+    $dto=json_decode(Crypt::decryptString($row->content),true,32,JSON_THROW_ON_ERROR);
+    $raw=$dto['content']['message']; unset($raw['text']);
+    $raw['type']='image'; $raw['image']=['id'=>'100000000000001','mime_type'=>'image/jpeg'];
+    $payload=['object'=>'whatsapp_business_account','entry'=>[['id'=>WhatsAppInboxAccess::WABA_ID,'changes'=>[
+        ['field'=>'messages','value'=>['messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>WhatsAppInboxAccess::PHONE_ID],
+            'messages'=>[$raw]]]]]]];
+    $reported=\App\Support\WhatsAppInboxProtocol::report($payload,WhatsAppInboxAccess::WABA_ID,WhatsAppInboxAccess::PHONE_ID);
+    followupExpect(count($reported['messages']),1,'media handoff uses actual normalized native image');
+    DB::table('whatsapp_inbox_messages')->where('id',$id)->update(['type'=>'image','content'=>followupEnc($reported['messages'][0])]);
+    $plan['latest_customer_id']=$id; $plan['latest_customer_key']=$row->message_key; $plan['evidence_ceiling']=$id;
+    $plan['transcript']=followupSnapshot()['transcript'];
+    return $plan;
+}
+
+$plan=followupImagePlan($confirmationData);
+followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'ACCEPTED','native image handoff uses real transactional sender');
+followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_requests')->count()],[1,1,1],
+    'media question reserves once, selects once and sends once');
+$receipt=DB::table('whatsapp_reply_requests')->first();
+$audit=json_decode(Crypt::decryptString($receipt->audit),true,32,JSON_THROW_ON_ERROR);
+followupExpect([$receipt->state,(int)$receipt->inbound_message_id,$audit['order_followup']['kind'],$audit['order_followup']['fields'],
+    $audit['order_followup']['proposal_hash']],['ACCEPTED',$plan['latest_customer_id'],'question',['LOCATION'],null],
+    'image produces only a question receipt, bound to authentic latest inbound');
+followupExpect($service->request($secondActor,$plan,fn()=>$plan)['status'],'ALREADY_ASKED','media replay across actors reuses durable tombstone');
+followupExpect([count($aiCalls),count($graphCalls)],[1,1],'media replay creates no provider or Graph call');
+
+$plan=followupImagePlan($confirmationData); $latest=$plan['latest_customer_id'];
+$aiHook=static function() use($latest):void {
+    $row=DB::table('whatsapp_inbox_messages')->where('id',$latest)->first();
+    $dto=json_decode(Crypt::decryptString($row->content),true,32,JSON_THROW_ON_ERROR);
+    $dto['content']['message']['image']['caption']='غير الطلب';
+    DB::table('whatsapp_inbox_messages')->where('id',$latest)->update(['content'=>followupEnc($dto)]);
+};
+followupExpect($service->request($actor,$plan,fn()=>$plan)['status'],'BLOCKED','fresh native caption proof is rechecked despite unchanged supplied plan');
+followupExpect([count($aiCalls),count($graphCalls),DB::table('whatsapp_reply_requests')->value('state')],[1,0,'FAILED'],
+    'caption mutation after reservation never sends and retains failed tombstone');
+$aiHook=null;
+followupExpect($service->request($secondActor,$plan,fn()=>$plan)['status'],'ALREADY_ASKED','caption-race failure is not retried under another actor');
+followupExpect([count($aiCalls),count($graphCalls)],[1,0],'caption-race retry spends and sends nothing');
+
 echo "WHATSAPP_ORDER_FOLLOWUP_SERVICE_TESTS=$checks PASS\n";
