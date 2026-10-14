@@ -22,17 +22,8 @@ class MetaReplyService
         $account=MetaInboxAccess::account($thread->waba_id,$thread->phone_number_id);
         $reason=!$this->configured($account) ? 'REPLIES_UNAVAILABLE'
             : ($this->unresolved($conversation) ? 'UNKNOWN_PENDING' : $snapshot['reason']);
-        $recent=[];
-        foreach (DB::table('meta_reply_requests')->where('conversation_id',$conversation)->orderByDesc('id')->limit(20)->get() as $r) {
-            try {
-                $audit=json_decode(Crypt::decryptString($r->audit),true,32,JSON_THROW_ON_ERROR);
-                $recent[]=['reply_id'=>(int)$r->id,'client_request_id'=>$audit['client_request_id'],
-                    'state'=>$this->publicState($r->state),'kind'=>$r->kind,'text'=>$audit['text']??null,
-                    'media'=>isset($audit['media'])?['type'=>$audit['media']['type'],'name'=>$audit['media']['name']]:null,
-                    'forwarded'=>isset($audit['source_message_id']),
-                    'created_at'=>CarbonImmutable::parse($r->created_at,'UTC')->toIso8601String(),'actor_id'=>(int)$r->actor_id];
-            } catch (\Throwable $e) {}
-        }
+        $recent=$this->publicReplies($actor,$thread,DB::table('meta_reply_requests')->where('conversation_id',$conversation)
+            ->orderByDesc('id')->limit(20)->get());
         $request=$uuid===null ? null : DB::table('meta_reply_requests')->where('conversation_id',$conversation)
             ->where('request_hash',$this->requestHash((int)$actor->id,$conversation,$uuid))->first();
         return ['success'=>true,'available'=>$this->configured($account),'can_reply'=>$reason===null,
@@ -44,6 +35,77 @@ class MetaReplyService
                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.openxmlformats-officedocument.presentationml.presentation'],
             'request_state'=>$request?$this->publicState($request->state):null,
             'request_reason'=>$request->reason??null,'reply_id'=>$request?(int)$request->id:null,'recent_replies'=>array_reverse($recent)];
+    }
+
+    /** A local accepted receipt is available before the provider's webhook copy arrives. */
+    public function acceptedReply($actor,int $conversation,int $reply): ?array
+    {
+        $actor=app(MetaInboxAccess::class)->actor($actor); $thread=$this->thread($conversation);
+        abort_unless($reply>0,404);
+        $row=DB::table('meta_reply_requests')->where('conversation_id',$conversation)->where('id',$reply)
+            ->where('state','ACCEPTED')->first();
+        if (!$row) return null;
+        $items=$this->publicReplies($actor,$thread,[$row]);
+        app(MetaInboxAccess::class)->actor($actor);
+        return $items[0]??null;
+    }
+
+    private function publicReplies($actor,object $thread,iterable $rows): array
+    {
+        $items=[]; $keys=[];
+        foreach ($rows as $row) {
+            try {
+                if ((int)$row->conversation_id!==(int)$thread->id || $row->waba_id!==$thread->waba_id
+                    || $row->phone_number_id!==$thread->phone_number_id || !in_array($row->kind,['text','audio','image','video','file'],true)) continue;
+                $audit=json_decode(Crypt::decryptString($row->audit),true,32,JSON_THROW_ON_ERROR);
+                if (!is_array($audit) || !$this->uuid($audit['client_request_id']??null)
+                    || !hash_equals((string)$row->request_hash,$this->requestHash((int)$row->actor_id,(int)$thread->id,$audit['client_request_id']))) continue;
+                $state=$this->publicState($row->state); $projection=null;
+                if ($state==='ACCEPTED') {
+                    $details=json_decode(Crypt::decryptString($row->response_details),true,8,JSON_THROW_ON_ERROR);
+                    $native=$details['message_id']??null;
+                    if (!is_string($native) || $native==='' || strlen($native)>512 || preg_match('/[\x00-\x1f\x7f]/',$native)) continue;
+                    $projection=hash('sha256','whatsapp-message-v1:'.$thread->waba_id.':'.$thread->phone_number_id.':'.$native);
+                    $keys[]=$projection;
+                }
+                $text=$audit['text']??null;
+                if (!is_string($text) || !mb_check_encoding($text,'UTF-8') || mb_strlen($text,'UTF-8')>1000
+                    || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$text)) $text=null;
+                $media=null; $source=$audit['media']??null;
+                if (is_array($source) && in_array($source['type']??null,['audio','image','video','file'],true)) {
+                    $name=$source['name']??null;
+                    if (!is_string($name) || !mb_check_encoding($name,'UTF-8') || mb_strlen($name,'UTF-8')>120
+                        || preg_match('/[\x00-\x1f\x7f]/',$name)) $name=null;
+                    $media=['type'=>$source['type'],'name'=>$name];
+                }
+                $items[]=['id'=>(int)$row->id,'reply_id'=>(int)$row->id,'client_request_id'=>strtolower($audit['client_request_id']),
+                    'state'=>$state,'kind'=>$row->kind,'text'=>$text,'media'=>$media,'forwarded'=>isset($audit['source_message_id']),
+                    'created_at'=>CarbonImmutable::parse($row->created_at,'UTC')->toIso8601String(),
+                    'accepted_at'=>$state==='ACCEPTED'&&$row->completed_at!==null?CarbonImmutable::parse($row->completed_at,'UTC')->toIso8601String():null,
+                    'actor_id'=>(int)$row->actor_id,'projection_key'=>$projection,'projected_message_id'=>null,'hidden'=>false];
+            } catch (\Throwable $error) {} // Corrupt private evidence is omitted, never returned.
+        }
+        if ($keys) {
+            try {
+                // One scoped batch lookup handles every receipt; provider calls never run here.
+                abort_unless(Schema::hasTable(MetaMediaService::HIDES_TABLE),503);
+                $projected=DB::table('meta_inbox_messages')->where('conversation_id',(int)$thread->id)->where('direction','outbound')
+                    ->whereIn('message_key',array_values(array_unique($keys)))->get(['id','message_key'])->keyBy('message_key');
+                $hidden=app(MetaMediaService::class)->hiddenIds($actor,$projected->pluck('id')->all());
+                foreach ($items as &$item) {
+                    $message=$item['projection_key']!==null?$projected->get($item['projection_key']):null;
+                    if (!$message) continue;
+                    $item['projected_message_id']=(int)$message->id;
+                    $item['hidden']=in_array((int)$message->id,$hidden,true);
+                    if ($item['hidden']) { $item['text']=null; $item['media']=null; }
+                }
+                unset($item);
+            } catch (\Throwable $error) {
+                // Failure to verify a hidden copy must not resurrect its private receipt.
+                $items=array_values(array_filter($items,static fn($item)=>$item['state']!=='ACCEPTED'));
+            }
+        }
+        return $items;
     }
 
     public function send($actor,int $conversation,array $input): array
