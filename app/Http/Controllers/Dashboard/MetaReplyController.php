@@ -23,7 +23,8 @@ class MetaReplyController extends Controller
     public function send(Request $request, string $conversation, MetaReplyService $replies)
     {
         return $this->respond(function () use ($request, $conversation, $replies) {
-            return $replies->send(auth('admin')->user(), $this->conversation($conversation), $request->except('_token'));
+            $id = $this->conversation($conversation);
+            return $this->withAcceptedReply($replies, $id, $replies->send(auth('admin')->user(), $id, $request->except('_token')));
         });
     }
 
@@ -32,8 +33,9 @@ class MetaReplyController extends Controller
         return $this->respond(function () use ($request, $conversation, $replies) {
             $file = $request->file('audio');
             if (!$file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile) throw new HttpException(422);
-            return $replies->voice(auth('admin')->user(), $this->conversation($conversation),
-                $request->except(['_token', 'audio']), $file);
+            $id = $this->conversation($conversation);
+            return $this->withAcceptedReply($replies, $id, $replies->voice(auth('admin')->user(), $id,
+                $request->except(['_token', 'audio']), $file));
         });
     }
 
@@ -42,16 +44,30 @@ class MetaReplyController extends Controller
         return $this->respond(function () use ($request, $conversation, $replies) {
             $file = $request->file('attachment');
             if (!$file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile) throw new HttpException(422);
-            return $replies->attachment(auth('admin')->user(), $this->conversation($conversation),
-                $request->except(['_token', 'attachment']), $file);
+            $id = $this->conversation($conversation);
+            return $this->withAcceptedReply($replies, $id, $replies->attachment(auth('admin')->user(), $id,
+                $request->except(['_token', 'attachment']), $file));
         });
     }
 
     public function forward(Request $request, string $conversation, MetaReplyService $replies)
     {
         return $this->respond(function () use ($request, $conversation, $replies) {
-            return $replies->forward(auth('admin')->user(), $this->conversation($conversation), $request->except('_token'));
+            $id = $this->conversation($conversation);
+            return $this->withAcceptedReply($replies, $id, $replies->forward(auth('admin')->user(), $id, $request->except('_token')));
         });
+    }
+
+    private function withAcceptedReply(MetaReplyService $replies, int $conversation, array $result): array
+    {
+        if (($result['state'] ?? null) !== 'ACCEPTED' || !is_int($result['reply_id'] ?? null) || $result['reply_id'] < 1) return $result;
+        try {
+            $receipt = $replies->acceptedReply(auth('admin')->user(), $conversation, $result['reply_id']);
+            if ($receipt !== null) $result['accepted_reply'] = $receipt;
+        } catch (\Throwable $error) {
+            // A failed local receipt lookup cannot turn a confirmed send into an uncertain retry.
+        }
+        return $result;
     }
 
     /** Meta fetches a ten-minute upload capability; this endpoint has no user session or arbitrary source URL. */
