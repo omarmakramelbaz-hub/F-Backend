@@ -82,3 +82,6 @@ body.dark-mode .meta-chat,.dark-mode .meta-chat,[data-theme="dark"] .meta-chat {
 .meta-chat .wa-inbox-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .meta-inbox-channels a[aria-current="page"] { background: #ff8b16; color: #10243a; font-weight: 700; }
 .wa-media-audio { display: block; width: min(300px, 100%); max-width: 100%; margin: 6px 0; }
+
+.wa-inbox:not(.meta-chat) .wa-inbox-workspace { height: max(400px, calc(100dvh - 250px)); }
+@media(max-width:720px) { .wa-inbox:not(.meta-chat) .wa-inbox-workspace { height: max(400px, calc(100dvh - 260px)); } }
