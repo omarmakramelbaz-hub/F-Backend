@@ -45,7 +45,7 @@ class Element {
     contains(element) { return true; }
 }
 
-function fixture(withUnread = false, withCart = false, withHub = false) {
+function fixture(withUnread = false, withCart = false, withHub = false, pollInterval = undefined) {
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert',
         'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back', 'unread-total'].forEach(name => {
@@ -56,7 +56,8 @@ function fixture(withUnread = false, withCart = false, withHub = false) {
     const document = new Element();
     const window = new Element();
     const timers = new Map();
-    const state = {calls: [], redirected: false, status: 200, emptyNewer: true, events: [], nextCursor: withHub ? 'fixture-next' : null};
+    const state = {calls: [], redirected: false, status: 200, emptyNewer: true, events: [], nextCursor: withHub ? 'fixture-next' : null,
+        timerDelays: new Map(), delayThreads: false, threadResolvers: []};
     const labels = {customer: 'Customer', business: 'Business', loading: 'Loading', denied: 'DENIED',
         choose_conversation: 'Choose', empty: 'Empty', unavailable: 'Unavailable', connected: 'Updated',
         no_messages: 'No messages', offline: 'Offline', types: {text: 'Text', other: 'Message', order: 'Cart'},
@@ -65,6 +66,7 @@ function fixture(withUnread = false, withCart = false, withHub = false) {
     const config = {available: true,
         conversations_url: 'https://example.test/admin/whatsapp/conversations',
         messages_base_url: 'https://example.test/admin/whatsapp/conversations', labels, hub_chat: withHub};
+    if (pollInterval !== undefined) config.poll_interval_ms = pollInterval;
     if (withUnread) Object.assign(config, {unread_url: 'https://example.test/admin/whatsapp/unread',
         read_base_url: 'https://example.test/admin/whatsapp/conversations', unread_label: 'Unread', csrf: 'fixture-csrf'});
     bootstrap.textContent = JSON.stringify(config);
@@ -105,6 +107,7 @@ function fixture(withUnread = false, withCart = false, withHub = false) {
         const parsed = new URL(url);
         const isMessages = parsed.pathname.endsWith('/messages');
         const isNewer = parsed.searchParams.has('after_id');
+        if (parsed.pathname.endsWith('/conversations') && state.delayThreads) await new Promise(resolve => state.threadResolvers.push(resolve));
         if (parsed.pathname.endsWith('/read')) {
             assert.deepStrictEqual(JSON.parse(options.body), {seen_message_id: 1}, 'Only the inbound message in the visible viewport may be acknowledged');
             return {ok: true, status: 200, redirected: false, headers: {get: () => 'application/json'}, json: async () => ({success: true})};
@@ -132,8 +135,8 @@ function fixture(withUnread = false, withCart = false, withHub = false) {
     }
     const context = {window, document, navigator: {onLine: true}, URL, AbortController, Map, Set, Promise, Date,
         fetch, console, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
-        setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
-        clearTimeout: id => timers.delete(id)};
+        setTimeout: (callback, delay) => { timers.set(++timerId, callback); state.timerDelays.set(timerId, delay); return timerId; },
+        clearTimeout: id => { timers.delete(id); state.timerDelays.delete(id); }};
     vm.createContext(context);
     const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard-whatsapp-inbox.js'), 'utf8');
     vm.runInContext(source, context);
@@ -313,6 +316,48 @@ async function hubCoordinatorAPI() {
     assert.strictEqual(api.snapshot().conversations.length, 0);
 }
 
+async function acceptedReplyImmediatePolling() {
+    const test = fixture(false, false, true); await settle();
+    assert(Array.from(test.state.timerDelays.values()).includes(1000), 'Inbox polling runs independently at a one-second default');
+    test.window.DashboardWhatsAppInbox.openConversation(1); await settle();
+    const current = test.window.DashboardWhatsAppInbox.selectionState();
+    const receipt = detail => test.document.dispatchEvent(new test.context.CustomEvent('whatsapp:reply-accepted', {detail: Object.assign({}, current, detail)}));
+    const calls = test.state.calls.length;
+    [{generation:current.generation - 1}, {namespace:'https://example.test/admin/meta/conversations'},
+        {conversation:2}, {channel:'instagram'}, {generation:null}].forEach(receipt);
+    await settle();
+    assert.strictEqual(test.state.calls.length,calls,'Stale or foreign source receipts cannot wake the selected private chat');
+    receipt({});
+    assert(test.state.calls.length > calls,'A matching ACCEPTED receipt starts reading immediately without waiting for the polling timer');
+    await settle();
+    assert(test.state.calls.slice(calls).some(call => new URL(call.url).searchParams.has('after_id')),
+        'Immediate refresh checks new raw messages while retaining the selected chat cursor');
+    test.state.delayThreads = true;
+    const pendingBefore = test.state.calls.length;
+    receipt({}); await settle();
+    assert.strictEqual(test.state.threadResolvers.length,1);
+    const busyCalls = test.state.calls.length;
+    receipt({}); receipt({}); await settle();
+    assert.strictEqual(test.state.calls.length,busyCalls,'Receipts during an active poll queue one follow-up instead of parallel private reads');
+    test.state.delayThreads = false; test.state.threadResolvers[0](); await settle();
+    assert.strictEqual(test.state.calls.slice(pendingBefore).filter(call => new URL(call.url).pathname.endsWith('/conversations')).length,2,
+        'The in-flight poll performs one immediate follow-up for its queued receipts');
+    test.document.hidden = true; const hiddenCalls = test.state.calls.length; receipt({}); await settle();
+    assert.strictEqual(test.state.calls.length,hiddenCalls,'Hidden pages cannot be awakened by receipts');
+    test.document.hidden = false; test.context.navigator.onLine = false; receipt({}); await settle();
+    assert.strictEqual(test.state.calls.length,hiddenCalls,'Offline pages do not read after receipts');
+    test.context.navigator.onLine = true;
+    test.window.DashboardWhatsAppInbox.resetSelection(); const resetCalls = test.state.calls.length; receipt({}); await settle();
+    assert.strictEqual(test.state.calls.length,resetCalls,'Deselected chats ignore a late receipt');
+    test.state.cleanup();
+    assert.strictEqual((test.document.listeners['whatsapp:reply-accepted'] || []).length,0,'SPA cleanup removes receipt wake listeners');
+    for (const [configured, expected] of [[100,500],[30000,5000]]) {
+        const bounded = fixture(false,false,false,configured); await settle();
+        assert(Array.from(bounded.state.timerDelays.values()).includes(expected),'Configured polling stays within supported bounds');
+        bounded.state.cleanup();
+    }
+}
+
 (async () => {
     await initialAndSafeRendering();
     await expiredAccessClears(true);
@@ -322,6 +367,7 @@ async function hubCoordinatorAPI() {
     await unreadVisibility();
     await cartRendering();
     await hubCoordinatorAPI();
+    await acceptedReplyImmediatePolling();
     console.log('WHATSAPP_INBOX_UI_PASS initial reads, escaped chat text, mobile reopen, empty poll, redirect/403 privacy, cleanup, offline');
 })().catch(error => {
     console.error(error.stack);
