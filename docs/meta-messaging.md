@@ -97,3 +97,15 @@ Discovery validates the user token and lists only business identities already pr
 Deploy using the pinned `deployment/apply_meta_oauth_root.sh` helper with a full release SHA. Its Python installer validates the observed live foundation hashes, stages and lints the narrow source set, backs up affected originals outside the public web root, publishes settings last and verifies the four routes and compiled Blade views. It rejects unexpected source changes, unsafe paths and cached routes; failures restore its own changes while preserving later operator edits. No full checkout, database migration, timer change or Graph request is part of installation.
 
 Validation: `tests/meta_oauth_controller_test.php`, `meta_oauth_privacy_test.php`, `meta_oauth_credentials_test.php`, `meta_oauth_service_test.php`, `meta_messaging_routes_test.php` and `meta_oauth_install_test.py`. The PHP component tests use `WA_INBOX_TEST_VENDOR` pointing to an isolated Laravel 8 Illuminate vendor directory; they do not contact live Meta. After installation, complete real Facebook authorization and a Messenger/Instagram receive-and-reply test before recording the App Review screencast.
+
+## Message hub (14 October 2026)
+
+The main sidebar shows one Meta inbox. Its channel tabs link to WhatsApp at `/admin/meta/whatsapp`, while the existing `/admin/whatsapp` routes continue to serve the WhatsApp worker, reply and order modules. The WhatsApp channel retains its central Owner/Admin access checks and its own conversation/message IDs.
+
+WhatsApp received and accepted outgoing audio now have same-origin media players. The existing authenticated media service resolves the media ID, checks the receiving phone, provider size and SHA-256 digest, downloads only from approved provider hosts, checks the detected MIME, and rechecks message visibility after download. Audio downloads have a 16-MiB limit. Recording still requires the browser microphone permission, an open customer response window, and the existing ffmpeg/ffprobe runtime. Recordings are reviewed before sending.
+
+Message deletion hides messages from the acting administrator's dashboard and blocks their media download. Customer/provider copies and order evidence remain intact. Existing WhatsApp bulk deletion and Meta message actions remain available.
+
+Opening an unnamed Meta conversation requests one scoped user profile with the current saved account token. The returned social name is shown only when the provider confirms the same customer ID; missing names keep the existing fallback. Profile failures are throttled and do not block the message feed. Meta audio/video elements are retained across live transcript updates to preserve playback.
+
+`deployment/apply_meta_message_hub_root.sh` installs only seventeen pinned feature files and adjusts the two existing sidebar hooks in place. It keeps a private backup, checks PHP and Blade syntax, verifies authenticated routes, reports voice-runtime readiness, and restores published files if verification fails. It does not change OAuth credentials, account subscriptions, message/order tables, automatic reply settings or worker activation.
