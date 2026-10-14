@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Services\Dashboard\WhatsAppOrderConversationEvidence;
 use DateTimeImmutable;
 use DateTimeZone;
 use Throwable;
@@ -12,6 +13,26 @@ final class WhatsAppOrderExtraction
     public const MAX_MESSAGES = 60;
     public const MAX_INPUT_CHARACTERS = 16000;
     public const MAX_ITEMS = 30;
+    public const VALIDATION_CATEGORIES = [
+        'TRANSCRIPT_INVALID', 'ROOT_SHAPE', 'ISSUE_UNKNOWN', 'ISSUE_DUPLICATE', 'ITEM_SHAPE',
+        'EVIDENCE_LIST_SHAPE', 'EVIDENCE_ID_TYPE', 'EVIDENCE_ID_MISSING', 'EVIDENCE_ID_DUPLICATE',
+        'EVIDENCE_SPEAKER_MISMATCH', 'EVIDENCE_MESSAGE_EMPTY', 'CART_REFERENCE_SHAPE', 'CART_REFERENCE_LINE',
+        'LOCATION_REFERENCE', 'LITERAL_NOT_CITED', 'PHONE_FORMAT', 'PHONE_NOT_CITED', 'PRICE_NOT_CITED',
+        'FULFILLMENT_WITHOUT_EVIDENCE', 'CANCELLED_WITHOUT_REQUEST', 'CONFIRMATION_MISSING_ITEMS',
+        'CONFIRMATION_MISSING_REQUEST', 'CONFIRMATION_MISSING_SUMMARY', 'MULTIPLE_ORDERS',
+        'SUMMARY_INSTRUCTION', 'SUMMARY_TENTATIVE', 'SUMMARY_NEGATIVE', 'SUMMARY_MARKER_MISSING',
+        'REQUEST_INSTRUCTION', 'REQUEST_NEGATED', 'REQUEST_AFTER_SUMMARY', 'ITEM_REQUEST_NAME',
+        'ITEM_SUMMARY_NAME', 'ITEM_REQUEST_OPTION', 'ITEM_SUMMARY_OPTION', 'ITEM_REQUEST_QUANTITY',
+        'ITEM_SUMMARY_QUANTITY', 'SUMMARY_PHONE_CONFLICT', 'CART_LINE_UNACCOUNTED', 'MULTIPLE_CARTS',
+        'LATER_PENDING_HANDOFF', 'LATER_CART', 'LATER_NEGATIVE_SUMMARY', 'LATER_CUSTOMER_CHANGE',
+        'CUSTOMER_COMMITMENT_MISSING', 'CONTEXT_REFERENCE_INVALID', 'SOURCE_REFERENCE_INVALID',
+        'CONVERSATION_REFERENCE_INVALID', 'CONVERSATION_ITEM_UNGROUNDED', 'CONVERSATION_AMBIGUOUS_ITEM',
+        'CONVERSATION_DATA_UNACKNOWLEDGED', 'CONVERSATION_EPISODE_UNCONFIRMED',
+    ];
+    public const VALIDATION_FIELDS = ['TRANSCRIPT', 'ROOT', 'ISSUES', 'ITEM', 'REQUEST_IDS', 'CONFIRMATION_IDS',
+        'CUSTOMER_ACCEPTANCE_IDS', 'CART_REFERENCE', 'LOCATION_ID', 'CUSTOMER_NAME', 'CUSTOMER_PHONE',
+        'CUSTOMER_ADDRESS', 'CUSTOMER_AREA', 'CUSTOMER_NOTES', 'BRANCH_HINT', 'ITEM_NAME', 'ITEM_OPTION',
+        'ITEM_QUANTITY', 'APPROXIMATE_TOTAL', 'FULFILLMENT', 'DECISION'];
     public const ISSUES = [
         'NO_ORDER', 'TEST_MESSAGE', 'MISSING_CUSTOMER_NAME', 'MISSING_PHONE',
         'MISSING_ADDRESS', 'MISSING_AREA', 'MISSING_BRANCH', 'MISSING_ITEMS',
@@ -48,6 +69,14 @@ final class WhatsAppOrderExtraction
                     'message_id' => ['type' => 'string', 'enum' => $labels],
                     'product_retailer_id' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200],
                 ]), ['type' => 'null']]],
+                'conversation_reference' => ['anyOf' => [self::object([
+                    'name_anchor_id' => ['type'=>'string','enum'=>$labels],
+                    'business_offer_id' => ['type'=>'string','enum'=>$labels],
+                    'customer_quantity_id' => ['type'=>'string','enum'=>$labels],
+                    'business_summary_id' => ['type'=>'string','enum'=>$labels],
+                    'summary_clause_index' => ['type'=>'integer','minimum'=>0,'maximum'=>29],
+                    'customer_option_id' => ['type'=>['string','null'],'enum'=>array_merge($labels,[null])],
+                ]), ['type'=>'null']]],
             ])],
             'approximate_total' => ['type' => ['string', 'null'],
                 'pattern' => '^(?:0|[1-9][0-9]{0,7})(?:\\.[0-9]{1,2})?$'],
@@ -131,7 +160,7 @@ final class WhatsAppOrderExtraction
                 return true;
             }
         }
-        return false;
+        return WhatsAppOrderConversationEvidence::operationalTest($transcript);
     }
 
     /** The automatic cutover must use real commitment, never a recent name/address-only row. */
@@ -147,6 +176,14 @@ final class WhatsAppOrderExtraction
             if (strcmp($row['sent_at'], $summary) < 0
                 && (self::commitment(self::rowText($row)) || ($row['cart'] ?? null) !== null)) $ids[] = $id;
         }
+        // validate() has already proved the contextual offer, positive customer quantity
+        // and matching recap acceptance. Only that real customer quantity row is fresh commitment.
+        foreach ($data['items'] as $item) {
+            $reference=$item['conversation_reference']??null;
+            if ($reference===null) continue;
+            $id=$reference['customer_quantity_id']; $row=$rows[$id];
+            if (strcmp($row['sent_at'],$summary)<0) $ids[]=$id;
+        }
         foreach ($data['evidence']['customer_acceptance_ids'] as $id) {
             $row = $rows[$id]; $text = self::rowText($row);
             if (strcmp($row['sent_at'], $summary) > 0 && !self::instruction($text)
@@ -157,9 +194,17 @@ final class WhatsAppOrderExtraction
 
     public static function validate(array $data, array $transcript): array
     {
+        $result = self::validateDetailed($data, $transcript);
+        unset($result['validation_category'], $result['validation_field']);
+        return $result;
+    }
+
+    /** The same decision predicates with fixed diagnostics; no rejected values or model text. */
+    public static function validateDetailed(array $data, array $transcript): array
+    {
         $input = self::validateTranscript($transcript);
         if (!$input['ok']) {
-            return $input;
+            return self::invalid($input['reason'], 'TRANSCRIPT_INVALID', 'TRANSCRIPT');
         }
         if (self::hasProbe($transcript)) {
             return self::result(true, null, self::none('TEST_MESSAGE'));
@@ -182,40 +227,50 @@ final class WhatsAppOrderExtraction
             || !self::keys($data['evidence'], ['request_ids', 'confirmation_ids', 'customer_acceptance_ids', 'location_id'])
             || !is_array($data['issues']) || !array_is_list($data['issues'])
             || count($data['issues']) > count(self::ISSUES)) {
-            return self::result(false, 'INVALID_EXTRACTION');
+            return self::invalid('INVALID_EXTRACTION', 'ROOT_SHAPE', 'ROOT');
         }
         foreach ($data['issues'] as $issue) {
             if (!in_array($issue, self::ISSUES, true)) {
-                return self::result(false, 'INVALID_EXTRACTION');
+                return self::invalid('INVALID_EXTRACTION', 'ISSUE_UNKNOWN', 'ISSUES');
             }
         }
         if (count(array_unique($data['issues'], SORT_REGULAR)) !== count($data['issues'])) {
-            return self::result(false, 'INVALID_EXTRACTION');
+            return self::invalid('INVALID_EXTRACTION', 'ISSUE_DUPLICATE', 'ISSUES');
         }
         foreach ($data['items'] as $item) {
             if (!is_array($item) || (!self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint'])
-                    && !self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint', 'cart_reference']))
+                    && !self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint', 'cart_reference'])
+                    && !self::keys($item, ['name', 'quantity', 'quantity_mode', 'option_hint', 'cart_reference', 'conversation_reference']))
                 || !self::string($item['name'], 200) || !self::decimal($item['quantity'], self::QUANTITY_PATTERN, true)
                 || !in_array($item['quantity_mode'], ['piece', 'weight', 'unknown'], true)
                 || !self::nullableString($item['option_hint'], 200)) {
-                return self::result(false, 'INVALID_EXTRACTION');
+                return self::invalid('INVALID_EXTRACTION', 'ITEM_SHAPE', 'ITEM');
             }
         }
         $rows = array_column($transcript, null, 'id');
+        foreach ($data['items'] as $item) {
+            $reference=$item['conversation_reference']??null;
+            if ($reference===null) continue;
+            if (($item['cart_reference']??null)!==null || !self::conversationReference($reference,$rows))
+                return self::invalid('INVALID_EVIDENCE','CONTEXT_REFERENCE_INVALID','ITEM');
+        }
         foreach (['request_ids' => 'customer', 'confirmation_ids' => 'business',
             'customer_acceptance_ids' => 'customer'] as $field => $speaker) {
             $ids = $data['evidence'][$field];
+            $diagnosticField = ['request_ids'=>'REQUEST_IDS', 'confirmation_ids'=>'CONFIRMATION_IDS',
+                'customer_acceptance_ids'=>'CUSTOMER_ACCEPTANCE_IDS'][$field];
             if (!is_array($ids) || !array_is_list($ids) || count($ids) > self::MAX_MESSAGES) {
-                return self::result(false, 'INVALID_EVIDENCE');
+                return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_LIST_SHAPE', $diagnosticField);
             }
             $seen = [];
             foreach ($ids as $id) {
-                if (!is_string($id) || !isset($rows[$id]) || isset($seen[$id])
-                    || $rows[$id]['speaker'] !== $speaker
-                    || (!self::string(self::rowText($rows[$id]), self::MAX_INPUT_CHARACTERS)
-                        && !($field === 'request_ids' && ($rows[$id]['cart'] ?? null) !== null))) {
-                    return self::result(false, 'INVALID_EVIDENCE');
-                }
+                if (!is_string($id)) return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_ID_TYPE', $diagnosticField);
+                if (!isset($rows[$id])) return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_ID_MISSING', $diagnosticField);
+                if (isset($seen[$id])) return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_ID_DUPLICATE', $diagnosticField);
+                if ($rows[$id]['speaker'] !== $speaker) return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_SPEAKER_MISMATCH', $diagnosticField);
+                if (!self::string(self::rowText($rows[$id]), self::MAX_INPUT_CHARACTERS)
+                    && !($field === 'request_ids' && ($rows[$id]['cart'] ?? null) !== null))
+                    return self::invalid('INVALID_EVIDENCE', 'EVIDENCE_MESSAGE_EMPTY', $diagnosticField);
                 $seen[$id] = true;
             }
         }
@@ -227,71 +282,103 @@ final class WhatsAppOrderExtraction
                 || !is_string($ref['message_id']) || !is_string($ref['product_retailer_id'])
                 || !in_array($ref['message_id'], $data['evidence']['request_ids'], true)
                 || !isset($rows[$ref['message_id']]) || ($rows[$ref['message_id']]['cart'] ?? null) === null) {
-                return self::result(false, 'INVALID_EVIDENCE');
+                return self::invalid('INVALID_EVIDENCE', 'CART_REFERENCE_SHAPE', 'CART_REFERENCE');
             }
             $line = self::cartLine($rows[$ref['message_id']]['cart'], $ref['product_retailer_id']);
             $key = $ref['message_id'] . ':' . $ref['product_retailer_id'];
-            if ($line === null || isset($cartReferences[$key])) return self::result(false, 'INVALID_EVIDENCE');
+            if ($line === null || isset($cartReferences[$key])) return self::invalid('INVALID_EVIDENCE', 'CART_REFERENCE_LINE', 'CART_REFERENCE');
             $cartReferences[$key] = true;
         }
         $locationId = $data['evidence']['location_id'];
         if ($locationId !== null && (!is_string($locationId) || !isset($rows[$locationId])
             || $rows[$locationId]['speaker'] !== 'customer' || $rows[$locationId]['location'] === null)) {
-            return self::result(false, 'INVALID_EVIDENCE');
+            return self::invalid('INVALID_EVIDENCE', 'LOCATION_REFERENCE', 'LOCATION_ID');
         }
+        if (!WhatsAppOrderConversationEvidence::evidenceAfterTest($data,$transcript))
+            return self::invalid('INVALID_EVIDENCE','CONTEXT_REFERENCE_INVALID','ITEM');
         $evidenceIds = array_merge($data['evidence']['request_ids'], $data['evidence']['confirmation_ids']);
         $texts = array_map(static fn ($id) => self::rowText($rows[$id]), $evidenceIds);
         foreach (['name', 'address', 'area', 'notes'] as $field) {
             if ($data['customer'][$field] !== null && !self::backed($data['customer'][$field], $texts)) {
-                return self::result(false, 'INVALID_EVIDENCE');
+                $diagnosticField = ['name'=>'CUSTOMER_NAME', 'address'=>'CUSTOMER_ADDRESS',
+                    'area'=>'CUSTOMER_AREA', 'notes'=>'CUSTOMER_NOTES'][$field];
+                return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', $diagnosticField);
             }
         }
         if ($data['customer']['phone'] !== null) {
             $phone = self::digits($data['customer']['phone']);
-            if (!preg_match('/\A[0-9]{8,15}\z/', $phone)
-                || !self::phoneBacked($phone, $texts)) {
-                return self::result(false, 'INVALID_EVIDENCE');
-            }
+            if (!preg_match('/\A[0-9]{8,15}\z/', $phone))
+                return self::invalid('INVALID_EVIDENCE', 'PHONE_FORMAT', 'CUSTOMER_PHONE');
+            if (!self::phoneBacked($phone, $texts))
+                return self::invalid('INVALID_EVIDENCE', 'PHONE_NOT_CITED', 'CUSTOMER_PHONE');
         }
         if ($data['branch_hint'] !== null && !self::backed($data['branch_hint'], $texts)) {
-            return self::result(false, 'INVALID_EVIDENCE');
+            return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'BRANCH_HINT');
         }
         foreach ($data['items'] as $item) {
-            if (!self::backed($item['name'], $texts)
-                || ($item['option_hint'] !== null && !self::backed($item['option_hint'], $texts))) {
-                return self::result(false, 'INVALID_EVIDENCE');
-            }
+            if (!self::backed($item['name'], $texts))
+                return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'ITEM_NAME');
+            if ($item['option_hint'] !== null && !self::backed($item['option_hint'], $texts))
+                return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'ITEM_OPTION');
         }
         $confirmationTexts = array_map(static fn ($id) => self::rowText($rows[$id]), $data['evidence']['confirmation_ids']);
         if ($data['approximate_total'] !== null && !self::priceBacked($data['approximate_total'], $confirmationTexts)) {
-            return self::result(false, 'INVALID_EVIDENCE');
+            return self::invalid('INVALID_EVIDENCE', 'PRICE_NOT_CITED', 'APPROXIMATE_TOTAL');
         }
         if ($data['fulfillment'] !== 'UNKNOWN' && count($evidenceIds) === 0) {
-            return self::result(false, 'INVALID_EVIDENCE');
+            return self::invalid('INVALID_EVIDENCE', 'FULFILLMENT_WITHOUT_EVIDENCE', 'FULFILLMENT');
         }
-        if ($data['decision'] === 'CONFIRMED' && !self::confirmation($data, $rows)) {
-            return self::result(false, 'INVALID_EVIDENCE');
+        $category = null; $field = null;
+        if ($data['decision'] === 'CONFIRMED' && !self::confirmation($data, $rows, $category, $field)) {
+            return self::invalid('INVALID_EVIDENCE', $category, $field);
         }
         if ($data['decision'] === 'CANCELLED' && count($data['evidence']['request_ids']) === 0) {
-            return self::result(false, 'INVALID_EVIDENCE');
+            return self::invalid('INVALID_EVIDENCE', 'CANCELLED_WITHOUT_REQUEST', 'DECISION');
         }
         return self::result(true, null, $data);
     }
 
-    private static function confirmation(array $data, array $rows): bool
+    private static function invalid(string $reason, string $category, string $field): array
     {
-        if (count($data['items']) === 0 || !$data['evidence']['request_ids']
-            || !$data['evidence']['confirmation_ids'] || self::multipleOrders($rows)) {
-            return false;
+        return self::result(false, $reason) + ['validation_category'=>$category, 'validation_field'=>$field];
+    }
+
+    private static function notConfirmed(?string &$category, ?string &$field, string $why, string $where): bool
+    {
+        $category = $why; $field = $where; return false;
+    }
+
+    private static function confirmation(array $data, array $rows, ?string &$category = null, ?string &$field = null): bool
+    {
+        if (count($data['items']) === 0) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_ITEMS', 'ITEM');
+        if (!$data['evidence']['request_ids']) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_REQUEST', 'REQUEST_IDS');
+        if (!$data['evidence']['confirmation_ids']) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_SUMMARY', 'CONFIRMATION_IDS');
+        $contextual=false; $contextQuantityIds=[];
+        foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null) $contextual=true;
+        if ($contextual) {
+            $proof=WhatsAppOrderConversationEvidence::prove($data,array_values($rows));
+            if (($proof['ok']??null)!==true) {
+                $why = in_array($proof['reason'] ?? null, ['CONVERSATION_REFERENCE_INVALID',
+                    'CONVERSATION_ITEM_UNGROUNDED', 'CONVERSATION_AMBIGUOUS_ITEM',
+                    'CONVERSATION_DATA_UNACKNOWLEDGED', 'CONVERSATION_EPISODE_UNCONFIRMED'], true)
+                    ? $proof['reason'] : 'CONTEXT_REFERENCE_INVALID';
+                return self::notConfirmed($category,$field,$why,'ITEM');
+            }
+            foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null)
+                $contextQuantityIds[]=$item['conversation_reference']['customer_quantity_id'];
         }
+        // Only the independently proved post-test new-order boundary may exclude old history.
+        // All rows within that epoch, including uncited changes/cancellations, remain visible.
+        $rows=array_column(WhatsAppOrderConversationEvidence::episodeRows(array_values($rows)),null,'id');
+        if (self::multipleOrders($rows)) return self::notConfirmed($category, $field, 'MULTIPLE_ORDERS', 'DECISION');
         $summary = null;
         $summaryTexts = [];
         $summaryMarker = false;
         foreach ($data['evidence']['confirmation_ids'] as $id) {
             $text = $rows[$id]['text'];
-            if (self::instruction($text) || self::tentative($text) || self::negativeSummary($text)) {
-                return false;
-            }
+            if (self::instruction($text)) return self::notConfirmed($category, $field, 'SUMMARY_INSTRUCTION', 'CONFIRMATION_IDS');
+            if (self::tentative($text)) return self::notConfirmed($category, $field, 'SUMMARY_TENTATIVE', 'CONFIRMATION_IDS');
+            if (self::negativeSummary($text)) return self::notConfirmed($category, $field, 'SUMMARY_NEGATIVE', 'CONFIRMATION_IDS');
             $summaryMarker = $summaryMarker || self::finalSummary($text);
             if ($summary === null || strcmp($rows[$id]['sent_at'], $summary) > 0) {
                 $summary = $rows[$id]['sent_at'];
@@ -299,22 +386,22 @@ final class WhatsAppOrderExtraction
             $summaryTexts[] = $text;
         }
         if (!$summaryMarker) {
-            return false;
+            return self::notConfirmed($category, $field, 'SUMMARY_MARKER_MISSING', 'CONFIRMATION_IDS');
         }
         $committingRequest = null;
         $requestTexts = [];
         $cartRows = [];
         foreach ($data['evidence']['request_ids'] as $id) {
             $requestText = self::rowText($rows[$id]);
-            if (self::instruction($requestText) || self::negatedRequest($requestText)) {
-                return false;
-            }
+            if (self::instruction($requestText)) return self::notConfirmed($category, $field, 'REQUEST_INSTRUCTION', 'REQUEST_IDS');
+            if (self::negatedRequest($requestText)) return self::notConfirmed($category, $field, 'REQUEST_NEGATED', 'REQUEST_IDS');
             if (strcmp($rows[$id]['sent_at'], $summary) >= 0) {
-                return false;
+                return self::notConfirmed($category, $field, 'REQUEST_AFTER_SUMMARY', 'REQUEST_IDS');
             }
             $requestTexts[] = $requestText;
             if (($rows[$id]['cart'] ?? null) !== null) $cartRows[$id] = $rows[$id]['cart'];
-            if ((self::commitment($requestText) || ($rows[$id]['cart'] ?? null) !== null) && strcmp($rows[$id]['sent_at'], $summary) < 0
+            if ((self::commitment($requestText) || ($rows[$id]['cart'] ?? null) !== null || in_array($id,$contextQuantityIds,true))
+                && strcmp($rows[$id]['sent_at'], $summary) < 0
                 && ($committingRequest === null || strcmp($rows[$id]['sent_at'], $committingRequest) > 0)) {
                 $committingRequest = $rows[$id]['sent_at'];
             }
@@ -324,40 +411,45 @@ final class WhatsAppOrderExtraction
             $ref = $item['cart_reference'] ?? null;
             $cartBacked = $ref !== null && isset($cartRows[$ref['message_id']])
                 && self::cartLine($cartRows[$ref['message_id']], $ref['product_retailer_id']) !== null;
-            if ((!$cartBacked && !self::backed($item['name'], $requestTexts)) || !self::backed($item['name'], $summaryTexts)) {
-                return false;
-            }
-            if ($item['option_hint'] !== null && (!self::optionBacked($item, $data['items'], $summaryTexts)
-                || (!$cartBacked && !self::optionBacked($item, $data['items'], $requestTexts)))) return false;
-            if ($item['quantity'] !== null && ((!$cartBacked && !self::quantityBacked($item, $data['items'], $requestTexts))
-                || !self::quantityBacked($item, $data['items'], $summaryTexts))) {
-                return false;
-            }
+            $contextBacked=$contextual && ($item['conversation_reference']??null)!==null;
+            if (!$cartBacked && !$contextBacked && !self::backed($item['name'], $requestTexts))
+                return self::notConfirmed($category, $field, 'ITEM_REQUEST_NAME', 'ITEM_NAME');
+            if (!$contextBacked && !self::backed($item['name'], $summaryTexts))
+                return self::notConfirmed($category, $field, 'ITEM_SUMMARY_NAME', 'ITEM_NAME');
+            if (!$contextBacked && $item['option_hint'] !== null && !self::optionBacked($item, $data['items'], $summaryTexts))
+                return self::notConfirmed($category, $field, 'ITEM_SUMMARY_OPTION', 'ITEM_OPTION');
+            if (!$contextBacked && $item['option_hint'] !== null && !$cartBacked && !self::optionBacked($item, $data['items'], $requestTexts))
+                return self::notConfirmed($category, $field, 'ITEM_REQUEST_OPTION', 'ITEM_OPTION');
+            if (!$contextBacked && $item['quantity'] !== null && !$cartBacked && !self::quantityBacked($item, $data['items'], $requestTexts))
+                return self::notConfirmed($category, $field, 'ITEM_REQUEST_QUANTITY', 'ITEM_QUANTITY');
+            if (!$contextBacked && $item['quantity'] !== null && !self::quantityBacked($item, $data['items'], $summaryTexts))
+                return self::notConfirmed($category, $field, 'ITEM_SUMMARY_QUANTITY', 'ITEM_QUANTITY');
             if ($cartBacked) $accounted[$ref['message_id']][$ref['product_retailer_id']] = true;
         }
-        if ($data['customer']['phone'] !== null && !self::summaryPhoneConsistent($data['customer']['phone'], $summaryTexts)) return false;
+        if ($data['customer']['phone'] !== null && !self::summaryPhoneConsistent($data['customer']['phone'], $summaryTexts))
+            return self::notConfirmed($category, $field, 'SUMMARY_PHONE_CONFLICT', 'CUSTOMER_PHONE');
         foreach ($cartRows as $id => $cart) foreach ($cart['product_items'] as $line) {
-            if (!isset($accounted[$id][$line['product_retailer_id']])) return false;
+            if (!isset($accounted[$id][$line['product_retailer_id']])) return self::notConfirmed($category, $field, 'CART_LINE_UNACCOUNTED', 'CART_REFERENCE');
         }
         // One submitted cart per order; repeated/changed carts need a fresh matching summary.
-        if (count($cartRows) > 1) return false;
+        if (count($cartRows) > 1) return self::notConfirmed($category, $field, 'MULTIPLE_CARTS', 'CART_REFERENCE');
         $positions = array_flip(array_keys($rows));
         $cartPosition = $cartRows ? $positions[array_key_first($cartRows)] : null;
         $finalPosition = max(array_map(static fn ($id) => $positions[$id], $data['evidence']['confirmation_ids']));
         foreach ($rows as $row) {
             if ($row['speaker'] === 'business' && $positions[$row['id']] > $finalPosition
-                && self::pendingHandoff($row['text'] ?? '')) return false;
+                && self::pendingHandoff($row['text'] ?? '')) return self::notConfirmed($category, $field, 'LATER_PENDING_HANDOFF', 'CONFIRMATION_IDS');
             if ($row['speaker'] === 'customer' && ($row['cart'] ?? null) !== null
-                && $cartPosition !== null && $positions[$row['id']] > $cartPosition) return false;
+                && $cartPosition !== null && $positions[$row['id']] > $cartPosition) return self::notConfirmed($category, $field, 'LATER_CART', 'CART_REFERENCE');
             if ($row['speaker'] === 'business' && strcmp($row['sent_at'], $summary) > 0
                 && self::negativeSummary($row['text'] ?? '')) {
-                return false;
+                return self::notConfirmed($category, $field, 'LATER_NEGATIVE_SUMMARY', 'CONFIRMATION_IDS');
             }
             if ($row['speaker'] === 'customer' && strcmp($row['sent_at'], $committingRequest ?? $summary) > 0
                 && (self::negatedRequest($row['text'] ?? '')
                     || preg_match('/(?:بدل|بدّل|غيّر|غير الطلب|\b(?:change|instead)\b)/iu', $row['text'] ?? '')
                     || ($row['cart'] ?? null) !== null)) {
-                return false;
+                return self::notConfirmed($category, $field, 'LATER_CUSTOMER_CHANGE', 'REQUEST_IDS');
             }
         }
         // Native business summaries may conclude an explicitly requested order without another reply.
@@ -370,7 +462,23 @@ final class WhatsAppOrderExtraction
                 return true;
             }
         }
-        return false;
+        return self::notConfirmed($category, $field, 'CUSTOMER_COMMITMENT_MISSING', 'CUSTOMER_ACCEPTANCE_IDS');
+    }
+
+    private static function conversationReference($reference,array $rows): bool
+    {
+        if (!is_array($reference) || !self::keys($reference,['name_anchor_id','business_offer_id','customer_quantity_id',
+                'business_summary_id','summary_clause_index','customer_option_id'])
+            || !is_int($reference['summary_clause_index']) || $reference['summary_clause_index']<0
+            || $reference['summary_clause_index']>29) return false;
+        foreach (['name_anchor_id'=>'customer','business_offer_id'=>'business','customer_quantity_id'=>'customer',
+            'business_summary_id'=>'business','customer_option_id'=>'customer'] as $field=>$speaker) {
+            $id=$reference[$field];
+            if ($field==='customer_option_id' && $id===null) continue;
+            if (!is_string($id) || !preg_match('/\Am(?:[1-9]|[1-5][0-9]|60)\z/',$id)
+                || !isset($rows[$id]) || $rows[$id]['speaker']!==$speaker) return false;
+        }
+        return true;
     }
 
     private static function multipleOrders(array $rows): bool
