@@ -140,6 +140,7 @@ class MetaInboxController extends Controller
                 $dto = $hidden ? null : $this->decrypt($row->content);
                 $items[] = [
                     'id' => (int) $row->id,
+                    'projection_key' => is_string($row->message_key) && preg_match('/\A[a-f0-9]{64}\z/', $row->message_key) ? $row->message_key : null,
                     'direction' => $row->direction === 'outbound' ? 'outbound' : 'inbound',
                     'type' => $hidden ? 'system' : $this->messageType($row->type),
                     'text' => $hidden ? $this->hiddenText() : $this->displayText($dto, 20000),
