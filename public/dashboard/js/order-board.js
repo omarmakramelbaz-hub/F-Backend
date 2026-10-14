@@ -382,7 +382,9 @@
             });
             var payload = await readJson(response);
             if (disposed) return;
-            notify(payload.message || translated('saved'), true, false);
+            if (action === 'reject') {
+                clearTimeout(messageTimer); message.hidden = true;
+            } else notify(payload.message || translated('saved'), true, false);
             reconcileNeeded = true;
             if (applyConfirmedCard(payload.card, card, query)) setLive('updated');
             else reconcileUrgent = true;

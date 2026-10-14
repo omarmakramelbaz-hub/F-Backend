@@ -2,7 +2,6 @@
 
 namespace App\Services\Dashboard;
 
-use App\Models\User;
 use App\Services\GoServices\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -14,7 +13,6 @@ class OrderBoardItems
     private OrderBoardService $board;
     private TakeawayCatalog $catalog;
     private TakeawayAccess $access;
-    private array $management = [];
     private array $features = [];
 
     public function __construct(OrderBoardService $board, TakeawayCatalog $catalog, TakeawayAccess $access)
@@ -27,7 +25,7 @@ class OrderBoardItems
     public function available(string $source, object $row, $actor): bool
     {
         // Display callers and context() have already applied the board's persisted tenant scope.
-        if (!$actor || !$this->canManage($actor)) return false;
+        if (!$actor) return false;
         if ($source === 'legacy') {
             return ($row->type ?? '') === 'current' && ($row->payment_type ?? '') === 'cash'
                 && in_array($row->status ?? '', ['pending', 'new_order', 'another_delegate', 'accepted'], true)
@@ -35,13 +33,13 @@ class OrderBoardItems
         }
         return $source === 'store' && ($row->payment_method ?? '') === 'cash'
             && ($row->payment_status ?? '') === 'cash_due'
-            && in_array($row->status ?? '', ['pending', 'preparing'], true);
+            && in_array($row->status ?? '', ['pending', 'preparing', 'ready'], true);
     }
 
     public function read(string $source, int $id, $actor): array
     {
         return DB::transaction(function () use ($source, $id, $actor) {
-            [$row, $branch, $lines, $products, $rates] = $this->context($source, $id, $actor, false);
+            [$row, $branch, $lines, $products, $rates, $categories] = $this->context($source, $id, $actor, false);
             $items = $this->presentLines($source, $lines, $products);
             $subtotal = array_sum(array_map(fn ($line) => $this->money($line['line_total']), $items));
             $delivery = $source === 'legacy' ? $this->money($row->delivery_price ?? 0) : (int) $row->delivery_cents;
@@ -55,7 +53,8 @@ class OrderBoardItems
                 'pricing'=>['delivery'=>Money::decimal($delivery), 'tax_rate'=>Money::decimal($rates['tax']),
                     'service_rate'=>Money::decimal($rates['service'])],
                 'quantity_hint'=>'للأصناف الموزونة أدخل الوزن الفعلي بالكيلو؛ 0.850 تعني 850 جرام. بقية الأصناف بالعدد.'],
-                'catalog'=>array_values($products), 'save_url'=>route('order-board.items.save', [$source, $id])];
+                'catalog'=>array_values($products), 'branch'=>$branch, 'categories'=>$categories,
+                'save_url'=>route('order-board.items.save', [$source, $id])];
         });
     }
 
@@ -133,7 +132,6 @@ class OrderBoardItems
     private function context(string $source, int $id, $actor, bool $lock, array $wanted = []): array
     {
         $actor = $this->access->actor($actor);
-        abort_unless($this->canManage($actor), 403);
         $row = $this->board->scopedRow($source, $id, $actor, $lock);
         abort_unless($this->available($source, $row, $actor), 409, 'تعديل الأصناف متاح للطلب الكاش قبل التحصيل وتسليمه للمندوب.');
         $branch = $this->access->branch(($source === 'legacy' ? 'f:'.$row->resturant_id : 'gs:'.$row->store_id), $actor, $lock);
@@ -163,12 +161,15 @@ class OrderBoardItems
             }
             unset($option);
             $item['options'] = $options;
-            $products[(int) $item['id']] = array_intersect_key($item, array_flip(['id','name','price','unit_price','available','options','revision'])) + [
+            // Retain the takeaway POS card metadata, including image, category and stock display.
+            $products[(int) $item['id']] = array_merge($item, [
                 'product_id'=>(int) $item['id'], 'unit'=>$unit, 'quantity_step'=>$unit === 'piece' ? '1' : '0.001',
-                'weight_per_unit'=>$this->weightPerUnit(0, $unit)];
+                'weight_per_unit'=>$this->weightPerUnit(0, $unit)]);
         }
-        $rates = ['tax'=>$this->rate('tax', $lock), 'service'=>$this->rate('service_fees', $lock)];
-        return [$row, $branch, $lines, $products, $rates];
+        $rates = $source === 'legacy'
+            ? ['tax'=>$this->rate('tax', $lock), 'service'=>$this->rate('service_fees', $lock)]
+            : ['tax'=>0, 'service'=>0];
+        return [$row, $branch, $lines, $products, $rates, $listing['categories'] ?? []];
     }
 
     private function presentLines(string $source, array $lines, array $products): array
@@ -247,7 +248,7 @@ class OrderBoardItems
             $items[] = $item;
         }
         $commission = Money::commission($subtotal, (int) $row->commission_bps);
-        if ($row->status === 'preparing') $this->adjustStoreCommission($row, $commission - (int) $row->commission_cents, $revision);
+        if (in_array($row->status, ['preparing', 'ready'], true)) $this->adjustStoreCommission($row, $commission - (int) $row->commission_cents, $revision);
         $total = $subtotal + (int) $row->delivery_cents;
         $snapshot['items'] = $items; $snapshot['subtotal'] = Money::decimal($subtotal); $snapshot['total'] = Money::decimal($total);
         DB::table('go_store_orders')->where('id', $row->id)->update(['snapshot'=>json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
@@ -284,18 +285,15 @@ class OrderBoardItems
 
     private function revision(object $row, array $lines, array $products, array $rates): string
     {
-        return hash_hmac('sha256', json_encode([$row, $lines, $products, $rates], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), (string) config('app.key'));
-    }
-
-    private function canManage($actor): bool
-    {
-        if (!$this->board->isAdmin($actor)) return true;
-        if (!array_key_exists((int) $actor->id, $this->management)) {
-            $super = (int) $actor->id === 1 || (Schema::hasTable('roles') && Schema::hasTable('model_has_roles')
-                && $actor->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists());
-            $this->management[(int) $actor->id] = $super || $actor->can('order-edit');
+        $pricing = [];
+        foreach ($products as $id => $product) {
+            // Other branch sales update stock balances while this editor is open.
+            // Only identity, choices, availability and pricing invalidate the saved quote.
+            $pricing[$id] = array_intersect_key($product, array_flip([
+                'id','name','price','unit_price','available','options','revision','unit','weight_per_unit',
+            ]));
         }
-        return $this->management[(int) $actor->id];
+        return hash_hmac('sha256', json_encode([$row, $lines, $pricing, $rates], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), (string) config('app.key'));
     }
 
     private function rate(string $name, bool $lock = false): int
@@ -358,6 +356,6 @@ class OrderBoardItems
 
     private function phase(string $source, object $row): string
     {
-        return in_array($row->status, ['accepted', 'preparing'], true) || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes') ? 'preparing' : 'new';
+        return in_array($row->status, ['accepted', 'preparing', 'ready'], true) || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes') ? 'preparing' : 'new';
     }
 }
