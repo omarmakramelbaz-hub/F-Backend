@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\WhatsAppReplyService;
+use App\Services\Dashboard\WhatsAppInboxMedia;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -26,6 +27,26 @@ class WhatsAppReplyController extends Controller
         });
     }
 
+    public function history(Request $request, string $conversation, WhatsAppReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            if (array_diff(array_keys($request->query()), ['before_reply_id', 'known_reply_ids'])) throw new HttpException(422);
+            $before = $request->query('before_reply_id');
+            if ($before !== null && !is_string($before)) throw new HttpException(422);
+            $known = $request->query('known_reply_ids', []);
+            if (!is_array($known) || !array_is_list($known) || count($known) > 100) throw new HttpException(422);
+            $ids = [];
+            foreach ($known as $id) {
+                if (!is_string($id) && !is_int($id)) throw new HttpException(422);
+                $number = filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if (!is_int($number)) throw new HttpException(422);
+                $ids[] = $number;
+            }
+            return $replies->history(auth('admin')->user(), $this->conversation($conversation),
+                $before === null ? null : $this->conversation($before), $ids);
+        });
+    }
+
     public function voice(Request $request, string $conversation, WhatsAppReplyService $replies)
     {
         return $this->respond(function () use ($request, $conversation, $replies) {
@@ -34,6 +55,59 @@ class WhatsAppReplyController extends Controller
             return $replies->voice(auth('admin')->user(), $this->conversation($conversation),
                 $request->except(['_token', 'audio']), $file);
         });
+    }
+
+    public function attachment(Request $request, string $conversation, WhatsAppReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $replies) {
+            if ($request->query() !== [] || array_keys($request->allFiles()) !== ['attachment']) throw new HttpException(422);
+            $file = $request->file('attachment');
+            if (!$file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile) throw new HttpException(422);
+            return $replies->attachment(auth('admin')->user(), $this->conversation($conversation),
+                $request->except(['_token', 'attachment']), $file);
+        });
+    }
+
+    public function downloadAttachment(Request $request, string $conversation, string $reply, WhatsAppInboxMedia $media)
+    {
+        try {
+            if ($request->query() !== []) throw new HttpException(422);
+            $file = $media->replyAttachment(auth('admin')->user(), $this->conversation($conversation), $this->conversation($reply));
+            return response($file['bytes'], 200)->withHeaders([
+                'Content-Type' => $file['mime'], 'Content-Length' => (string) strlen($file['bytes']),
+                'Content-Disposition' => \Symfony\Component\HttpFoundation\HeaderUtils::makeDisposition(
+                    'attachment', $file['filename'], $file['mime'] === 'application/pdf' ? 'attachment.pdf' : 'attachment.txt'),
+                'Cache-Control' => 'no-store, private, max-age=0', 'Pragma' => 'no-cache',
+                'X-Content-Type-Options' => 'nosniff', 'Content-Security-Policy' => "default-src 'none'; sandbox",
+                'Referrer-Policy' => 'no-referrer',
+            ]);
+        } catch (\Throwable $error) {
+            $status = $error instanceof HttpException ? $error->getStatusCode() : 503;
+            return response('', $status)->withHeaders([
+                'Cache-Control' => 'no-store, private, max-age=0', 'Pragma' => 'no-cache', 'X-Content-Type-Options' => 'nosniff',
+            ]);
+        }
+    }
+
+    public function forward(Request $request, string $conversation, string $message, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->forward(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($message), $request->except('_token')));
+    }
+    public function forwardReply(Request $request, string $conversation, string $reply, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->forwardReply(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($reply), $request->except('_token')));
+    }
+    public function reaction(Request $request, string $conversation, string $message, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->reaction(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($message), $request->except('_token')));
+    }
+    public function reactionReply(Request $request, string $conversation, string $reply, WhatsAppReplyService $replies)
+    {
+        return $this->respond(fn () => $replies->reactionReply(auth('admin')->user(), $this->conversation($conversation),
+            $this->conversation($reply), $request->except('_token')));
     }
 
     private function respond(callable $operation)
@@ -45,7 +119,7 @@ class WhatsAppReplyController extends Controller
             if (($body['state'] ?? null) === 'FAILED') {
                 $status = in_array($reason, ['STALE_INBOUND', 'WINDOW_CLOSED', 'UNKNOWN_PENDING'], true) ? 409
                     : ($reason === 'ACCESS_REVOKED' ? 403
-                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE'], true) ? 503
+                        : (in_array($reason, ['REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'ATTACHMENT_UNAVAILABLE'], true) ? 503
                             : (in_array($reason, ['META_REJECTED', 'MEDIA_UPLOAD_FAILED'], true) ? 502 : 422)));
             }
         } catch (HttpException $error) {
