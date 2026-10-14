@@ -16,6 +16,8 @@ PACKAGE = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('comment_ai_updater', PACKAGE/'deployment/update_meta_comment_ai.py')
 updater = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(updater)
 WEB = "<?php\nrequire __DIR__.'/meta_inbox.php';\nrequire __DIR__.'/meta_comments.php';\n// live WhatsApp AI/custom routes\n"
+DEPLOYED_AI_RELEASE = '2ab99920fcd769ec65c7ddff5cee1e663bf9a661'
+VOICE_AI_RELEASE = 'b6cd8463464dd02ee1646b050c16df8afbf44086'
 
 
 class TransformTests(unittest.TestCase):
@@ -285,6 +287,7 @@ class InstallTests(unittest.TestCase):
         self.before[updater.WEB_ROUTES]=WEB.encode(); self.payloads[updater.WEB_ROUTES]=updater.web_contents(WEB).encode()
         for relative in updater.NEW_FILES: self.payloads[relative]=('new reviewed source '+relative+'\n').encode()
         self.ai_baseline={relative:('previous reviewed source '+relative+'\n').encode() for relative in updater.NEW_FILES}
+        self.ai_baselines={revision:self.ai_baseline for revision in updater.AI_FILE_BASES}
         for relative in updater.UNIT_INPUTS: self.payloads[relative]=(PACKAGE/relative).read_bytes()
         for relative,data in self.before.items(): self.write(relative,data)
         for relative in updater.NEW_FILES: (self.root/relative).parent.mkdir(parents=True,exist_ok=True)
@@ -303,8 +306,34 @@ class InstallTests(unittest.TestCase):
 
     def source(self,root,release,relative):
         if relative==updater.MANIFEST: return self.manifest
-        if release==updater.AI_FILE_BASE: return self.ai_baseline[relative]
+        if release in self.ai_baselines and relative in updater.NEW_FILES: return self.ai_baselines[release][relative]
         return self.payloads[relative] if release==self.release else self.before[relative]
+
+    def prepare_deployed_ai_upgrade(self,revision=DEPLOYED_AI_RELEASE):
+        self.assertIn(revision,updater.BASES)
+        self.assertIn(revision,updater.AI_FILE_BASES)
+        old={relative:subprocess.check_output(['git','show',revision+':'+relative],cwd=PACKAGE)
+             for relative in updater.ALL_INPUTS}
+        self.before={relative:old[relative] for relative in (*updater.EXISTING_FILES,updater.WEB_ROUTES)}
+        self.ai_baselines[revision]={relative:old[relative] for relative in updater.NEW_FILES}
+        self.payloads=old.copy()
+        self.changed_ai_files=(
+            'app/Services/Dashboard/MetaCommentAiProvider.php',
+            'app/Services/Dashboard/MetaCommentAiReplyPolicy.php',
+            'app/Services/Dashboard/MetaCommentAiWorker.php',
+        )
+        for relative in self.changed_ai_files:
+            self.payloads[relative]+=b'\n// Reviewed upgrade fixture.\n'
+        for relative in updater.SOURCE_FILES: self.write(relative,old[relative])
+        self.manifest=json.dumps({'version':1,'files':{p:updater.blob(v) for p,v in self.payloads.items()}}).encode()
+        self.policy={'enabled':True,'mode':'scheduled','days':[1,3,5],'start':'09:00','end':'00:30',
+                     'revision':9,'enabled_at':'2026-10-14T22:53:08+00:00','actor_id':17}
+        self.receipt_relative='storage/meta-comment-fixture-ledger.json'
+        receipts={'settings':self.policy,'targets':[{'state':'ACCEPTED','response_id':'encrypted accepted receipt'},
+                    {'state':'UNKNOWN','request_id':'opaque uncertain send guard'}],
+                  'poll_states':[{'state':'encrypted historical cursor'}]}
+        self.write(self.receipt_relative,json.dumps(receipts,sort_keys=True).encode())
+        return old
 
     def owned(self,root,args):
         self.commands.append(args)
@@ -393,6 +422,74 @@ class InstallTests(unittest.TestCase):
         for relative,previous in self.ai_baseline.items():
             self.assertEqual((self.root/relative).read_bytes(),self.payloads[relative])
             self.assertEqual((backup/relative).read_bytes(),previous)
+
+    def assert_deployed_upgrade_preserves_active_policy(self,revision):
+        old=self.prepare_deployed_ai_upgrade(revision)
+        policy=json.loads(json.dumps(self.policy)); receipts=(self.root/self.receipt_relative).read_bytes()
+        files={path:(path.read_bytes(),path.stat().st_ino,path.stat().st_mode,path.stat().st_mtime_ns)
+               for path in self.root.rglob('*') if path.is_file()}
+        checked=self.execute(check=True)
+        self.assertTrue(checked['readiness']['enabled'])
+        for path,before in files.items():
+            self.assertEqual((path.read_bytes(),path.stat().st_ino,path.stat().st_mode,path.stat().st_mtime_ns),before)
+        self.assertFalse(self.migrated)
+        self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+        result=self.execute()
+        self.assertEqual(result['status'],'META_COMMENT_AI_READY')
+        self.assertEqual(result['updated_files'],len(self.changed_ai_files))
+        self.assertEqual(result['provider_requests'],0)
+        self.assertTrue(result['readiness']['enabled'])
+        self.assertEqual(self.policy,policy)
+        self.assertEqual((self.root/self.receipt_relative).read_bytes(),receipts)
+        backup=pathlib.Path(result['backup'])
+        for relative in updater.SOURCE_FILES:
+            self.assertEqual((self.root/relative).read_bytes(),self.payloads[relative])
+            self.assertEqual((backup/relative).read_bytes(),old[relative])
+        rerun=self.execute()
+        self.assertEqual(rerun['updated_files'],0)
+        self.assertEqual(self.policy,policy)
+        self.assertEqual((self.root/self.receipt_relative).read_bytes(),receipts)
+        self.assertEqual(self.system,[])
+        self.assertTrue(all(args[1]=='-l' or args[1:]==[
+            'artisan','migrate','--path='+updater.MIGRATION,'--force','--no-interaction'] for args in self.commands))
+
+    def test_exact_deployed_2ab_upgrade_preserves_active_policy_and_receipts_without_invoking_worker(self):
+        self.assert_deployed_upgrade_preserves_active_policy(DEPLOYED_AI_RELEASE)
+
+    def test_exact_deployed_b6_upgrade_preserves_active_policy_and_receipts_without_invoking_worker(self):
+        self.assert_deployed_upgrade_preserves_active_policy(VOICE_AI_RELEASE)
+
+    def assert_deployed_unknown_ai_edit_is_refused(self,revision):
+        old=self.prepare_deployed_ai_upgrade(revision)
+        relative='app/Services/Dashboard/MetaCommentAiProvider.php'
+        altered=old[relative]+b'\n// Operator provider customization.\n'; self.write(relative,altered)
+        with self.assertRaisesRegex(RuntimeError,'NEW_FILE_COLLISION: '+relative): self.execute()
+        self.assertEqual((self.root/relative).read_bytes(),altered)
+        self.assertFalse(self.migrated)
+        self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+
+    def test_deployed_2ab_unknown_ai_operator_edit_is_refused_before_migration_or_backup(self):
+        self.assert_deployed_unknown_ai_edit_is_refused(DEPLOYED_AI_RELEASE)
+
+    def test_deployed_b6_unknown_ai_operator_edit_is_refused_before_migration_or_backup(self):
+        self.assert_deployed_unknown_ai_edit_is_refused(VOICE_AI_RELEASE)
+
+    def assert_failed_deployed_upgrade_restores_sources_and_policy(self,revision):
+        old=self.prepare_deployed_ai_upgrade(revision)
+        policy=json.loads(json.dumps(self.policy)); receipts=(self.root/self.receipt_relative).read_bytes()
+        self.fail='verify'
+        with self.assertRaisesRegex(RuntimeError,'TEST_VERIFY_FAILURE'): self.execute()
+        for relative in updater.SOURCE_FILES: self.assertEqual((self.root/relative).read_bytes(),old[relative])
+        self.assertEqual(self.policy,policy)
+        self.assertEqual((self.root/self.receipt_relative).read_bytes(),receipts)
+        self.assertIn('RESTORED',self.output)
+        self.assertEqual(self.system,[])
+
+    def test_failed_deployed_2ab_upgrade_restores_exact_old_ai_bytes_and_enabled_policy(self):
+        self.assert_failed_deployed_upgrade_restores_sources_and_policy(DEPLOYED_AI_RELEASE)
+
+    def test_failed_deployed_b6_upgrade_restores_exact_old_ai_bytes_and_enabled_policy(self):
+        self.assert_failed_deployed_upgrade_restores_sources_and_policy(VOICE_AI_RELEASE)
 
     def test_reviewed_ai_upgrade_is_read_only_during_preflight(self):
         for relative,data in self.ai_baseline.items(): self.write(relative,data)

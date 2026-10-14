@@ -21,10 +21,18 @@ BASES = (
     'e07724ccdccc7fede01a44c274a78bf108484366',
     '99101eccb0be057fe0fd75c1e1848e81591113f3',
     '86e5271d76030e53da33ee680d99d9a09a742b54',
+    '2ab99920fcd769ec65c7ddff5cee1e663bf9a661',
+    'b6cd8463464dd02ee1646b050c16df8afbf44086',
 )
-# Files introduced by the first AI release may be replaced only when the live
-# bytes still match this reviewed deployment. Unknown local edits stay blocked.
+# Introduced AI files require exact reviewed bytes from an installed release.
+# Preserve the original release as an upgrade source; newer worker/provider
+# versions must not be mistaken for unknown local edits. Unknown edits stay blocked.
 AI_FILE_BASE = 'a89fffcb3926b56fa812d23a556d691cfdb69dd4'
+AI_FILE_BASES = (
+    AI_FILE_BASE,
+    '2ab99920fcd769ec65c7ddff5cee1e663bf9a661',
+    'b6cd8463464dd02ee1646b050c16df8afbf44086',
+)
 MANIFEST = 'deployment/meta_comment_ai_manifest.json'
 MIGRATION = 'database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php'
 DIAGNOSTIC = 'deployment/meta_comment_ai_diagnostic.php'
@@ -361,7 +369,7 @@ def install_locked(root, release, manifest, php, check_only, uid, gid, repair_pe
                     raise RuntimeError('BASELINE_FILE_MISSING: ' + relative)
                 payload = variant_patch(root, release, relative, old['bytes'], payload)
             elif old and old['bytes'] != payload:
-                if old['bytes'] != source(root, AI_FILE_BASE, relative):
+                if not any(old['bytes'] == source(root, revision, relative) for revision in AI_FILE_BASES):
                     raise RuntimeError('NEW_FILE_COLLISION: ' + relative)
             originals[relative], targets[relative] = old, payload
             modes[relative] = old['mode'] & ~0o020 if old else 0o644

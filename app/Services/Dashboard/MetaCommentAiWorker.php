@@ -13,6 +13,7 @@ class MetaCommentAiWorker
     private const MAX_QUEUE = 40;
     private const MAX_PENDING = 100;
     private const FRESH_HEADS = 2;
+    private const RECENT_REPLIES = 6;
     private MetaCommentAiControl $control;
     private MetaCommentsService $comments;
     private MetaCommentAiProvider $provider;
@@ -120,6 +121,7 @@ class MetaCommentAiWorker
                         if ($generationStopped) { $post['pending'][] = $comment; continue; }
                         $draft = $this->provider->reply(['post_text' => (string) ($post['text'] ?? ''),
                             'comment_text' => (string) $comment['text'], 'product_names' => [],
+                            'recent_replies' => $state['recent_replies'],
                             'request_timeout_seconds' => max(1, min(30, (int) (($deadline - hrtime(true)) / 1000000000)))]);
                         if (($draft['kind'] ?? null) === 'SKIP' && (($draft['ok'] ?? false) === true
                             || in_array($draft['reason'] ?? null, ['NO_SAFE_REPLY', 'UNSAFE_REPLY', 'UNGROUNDED_REPLY', 'INVALID_INPUT', 'REFUSED'], true))) {
@@ -152,7 +154,13 @@ class MetaCommentAiWorker
                         if ($receipt === null || ($receipt['state'] ?? null) === 'DEFERRED') {
                             array_unshift($post['pending'], $comment); $result['reason'] = 'DISPATCH_STOPPED'; $stop = true; break;
                         }
-                        if (($receipt['state'] ?? null) === 'ACCEPTED') $result['sent']++;
+                        if (($receipt['state'] ?? null) === 'ACCEPTED') {
+                            $result['sent']++;
+                            // Style memory contains published prose only, never uncertain or failed drafts.
+                            if (($draft['kind'] ?? null) === 'REPLY') {
+                                $state['recent_replies'] = $this->recentReplies(array_merge([$draft['message']], $state['recent_replies']));
+                            }
+                        }
                         elseif (($receipt['state'] ?? null) === 'UNKNOWN') $result['unknown']++;
                         elseif (($receipt['state'] ?? null) === 'SKIPPED') $result['skipped']++;
                         else {
@@ -260,7 +268,8 @@ class MetaCommentAiWorker
 
     private function load(string $accountKey, int $revision): array
     {
-        $empty = ['v' => 1, 'revision' => $revision, 'phase' => 'recent', 'history_cursor' => null, 'queue' => [], 'turn' => 0];
+        $empty = ['v' => 1, 'revision' => $revision, 'phase' => 'recent', 'history_cursor' => null, 'queue' => [], 'turn' => 0,
+            'recent_replies' => []];
         try {
             $row = DB::table('meta_comment_ai_poll_states')->where('account_key', $accountKey)->first();
             if (!$row || !is_string($row->state) || strlen($row->state) > 2097152) return $empty;
@@ -268,8 +277,26 @@ class MetaCommentAiWorker
             if (!is_array($state) || ($state['v'] ?? null) !== 1 || ($state['revision'] ?? null) !== $revision
                 || !in_array($state['phase'] ?? null, ['recent', 'history'], true)
                 || !is_array($state['queue'] ?? null) || count($state['queue']) > self::MAX_QUEUE) return $empty;
+            $state['recent_replies'] = $this->recentReplies($state['recent_replies'] ?? []);
             return $state + $empty;
         } catch (\Throwable $error) { return $empty; }
+    }
+
+    /** A bounded, encrypted per-account wording sample; old poll-state versions default to empty. */
+    private function recentReplies($messages): array
+    {
+        if (!is_array($messages) || !array_is_list($messages)) return [];
+        $recent = [];
+        foreach (array_slice($messages, 0, self::RECENT_REPLIES) as $message) {
+            if (!is_string($message) || !preg_match('//u', $message)) continue;
+            // Public replies permit line breaks; style samples use one line so a valid
+            // accepted multiline response cannot invalidate the next model request.
+            $message = trim(preg_replace('/[ \t\r\n]+/u', ' ', $message));
+            $checked = MetaCommentAiReplyPolicy::validateReply($message);
+            if (($checked['ok'] ?? false) !== true || ($checked['kind'] ?? null) !== 'REPLY') continue;
+            if (!in_array($checked['message'], $recent, true)) $recent[] = $checked['message'];
+        }
+        return $recent;
     }
 
     private function save(string $accountKey, array $state): void

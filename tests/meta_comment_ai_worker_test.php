@@ -62,12 +62,13 @@ namespace {
     }
     class TestCommentProvider extends \App\Services\Dashboard\MetaCommentAiProvider {
         public int $calls = 0; public $hook = null; public bool $skip = false; public bool $transient = false;
+        public array $contexts = []; public string $message = 'شكرًا لحضرتك، نورتنا'; public string $kind = 'REPLY';
         public function ready(): bool { return true; }
         public function reply(array $context): array {
-            $this->calls++; if ($this->hook) ($this->hook)();
+            $this->calls++; $this->contexts[] = $context; if ($this->hook) ($this->hook)();
             if ($this->transient) return ['ok' => false, 'kind' => 'SKIP', 'message' => null, 'reason' => 'TRANSPORT_ERROR'];
             return $this->skip ? ['ok' => false, 'kind' => 'SKIP', 'message' => null, 'reason' => 'NO_SAFE_REPLY']
-                : ['ok' => true, 'kind' => 'REPLY', 'message' => 'شكرًا لحضرتك، نورتنا', 'reason' => null];
+                : ['ok' => true, 'kind' => $this->kind, 'message' => $this->message, 'reason' => null];
         }
     }
     $checks = 0;
@@ -115,6 +116,7 @@ namespace {
         global $calls, $postWrites, $onWrite, $uncertain, $provider, $control, $cache, $commentRows, $replyRows, $postRows, $clockNow;
         foreach (['meta_comment_ai_targets', 'meta_comment_reply_requests', 'meta_comment_ai_poll_states'] as $table) DB::table($table)->delete();
         $calls = []; $postWrites = 0; $onWrite = null; $uncertain = false; $provider->calls = 0; $provider->hook = null; $provider->skip = false; $provider->transient = false;
+        $provider->contexts = []; $provider->message = 'شكرًا لحضرتك، نورتنا'; $provider->kind = 'REPLY';
         $clockNow = new \DateTimeImmutable('2026-10-15T12:00:00+00:00');
         $control->enabled = true; $control->blocked = false; $control->heartbeats = 0; $cache->flush();
         $commentRows = ['101_501' => [comment('701')]]; $replyRows = [];
@@ -134,6 +136,70 @@ namespace {
     check($repeat['skipped_gate'] === 1 && $repeat['skipped_timing'] === 1 && $repeat['skipped_self'] === 1, 'fresh head rescans identify accepted receipts separately from old and self comments');
     $saved = DB::table('meta_comment_ai_poll_states')->first();
     check(strpos($saved->state, '101_501') === false && strpos($saved->state, 'بوست') === false, 'polling state encrypted');
+    check($provider->contexts[0]['recent_replies'] === [], 'first automatic reply has no invented style history');
+    $styleState = json_decode(Crypt::decryptString(DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first()->state), true);
+    check($styleState['recent_replies'] === [$provider->message] && strpos($saved->state, $provider->message) === false,
+        'accepted prose is stored only inside encrypted polling state');
+    $commentRows['101_501'][] = comment('703'); $worker->run();
+    check($provider->contexts[1]['recent_replies'] === [$provider->message], 'next worker pass reuses published wording for variety');
+    $commentRows['101_501'][] = comment('704');
+    $restartedWorker = new MetaCommentAiWorker($control, $service, $provider, $gate, static fn () => $actor,
+        static function () use (&$clockNow) { return $clockNow; });
+    $restartedWorker->run();
+    check($provider->contexts[2]['recent_replies'] === [$provider->message], 'wording memory survives worker construction/process restart');
+    $styleState = json_decode(Crypt::decryptString(DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first()->state), true);
+    check(count($styleState['recent_replies']) === 1, 'identical accepted wording is deduplicated in bounded memory');
+    // Add distinct prose in one run and prove each following generation sees only prior accepted replies.
+    clearState(); $commentRows['101_501'] = [];
+    for ($i = 0; $i < 8; $i++) $commentRows['101_501'][] = comment((string) (740 + $i));
+    $wording = ['كلامك فرحنا ❤️', 'يا سلام على ذوقك الجميل 😍', 'حلوة منك دي 😂', 'تسلم على كلامك الجميل 🙏',
+        'أهو تعليق يفتح النفس 😋', 'ذوقك جميل وبيفرحنا 😊', 'فرحتنا بالتعليق ده ❤️', 'منور بتعليقك الحلو 😍'];
+    $provider->hook = function () use ($provider, $wording) { $provider->message = $wording[$provider->calls - 1]; };
+    $worker->run(); $worker->run();
+    check($provider->contexts[1]['recent_replies'] === [$wording[0]], 'same run passes accepted preceding wording to the next comment');
+    check($provider->contexts[7]['recent_replies'] === array_reverse(array_slice($wording, 1, 6)),
+        'only the six most recent accepted replies reach the model context');
+    $styleRow = DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first();
+    $styleState = json_decode(Crypt::decryptString($styleRow->state), true);
+    check($styleState['recent_replies'] === array_reverse(array_slice($wording, 2, 6)), 'persisted wording memory remains bounded');
+    unset($styleState['recent_replies']);
+    DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->update(['state' => Crypt::encryptString(json_encode($styleState))]);
+    $commentRows['101_501'][] = comment('748'); $provider->hook = null; $worker->run();
+    check(end($provider->contexts)['recent_replies'] === [] && $postWrites === 9,
+        'legacy polling state upgrades without dropping saved cursor work or re-sending accepted targets');
+    $styleRow = DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first();
+    $styleState = json_decode(Crypt::decryptString($styleRow->state), true);
+    $styleState['recent_replies'] = ['https://private.invalid', 'رقمك 01012345678', ['unexpected' => 'metadata'], 'كلامك فرحنا ❤️'];
+    DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->update(['state' => Crypt::encryptString(json_encode($styleState))]);
+    $commentRows['101_501'][] = comment('749'); $worker->run();
+    check(end($provider->contexts)['recent_replies'] === ['كلامك فرحنا ❤️'],
+        'invalid or sensitive state examples are discarded without losing eligible queue work');
+    clearState(); $postRows['202'] = [['id' => '600', 'caption' => 'Instagram post']]; $commentRows['600'] = [comment('800')];
+    $worker->run();
+    check($provider->calls === 2 && $provider->contexts[1]['recent_replies'] === [], 'Facebook wording history is isolated from Instagram');
+    clearState(); $provider->kind = 'PRICE'; $provider->message = \App\Services\Dashboard\MetaCommentAiReplyPolicy::priceRedirect();
+    $worker->run();
+    $styleState = json_decode(Crypt::decryptString(DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first()->state), true);
+    check($styleState['recent_replies'] === [], 'server-owned numbered price redirects never enter model style memory');
+    clearState();
+    $failedStyleService = new MetaCommentsService(function ($method, $url, $query, $token) use ($transport) {
+        return $method === 'POST' ? response(['error' => ['code' => 200]], 403) : $transport($method, $url, $query, $token);
+    });
+    $failedStyleWorker = new MetaCommentAiWorker($control, $failedStyleService, $provider, $gate, static fn () => $actor,
+        static function () use (&$clockNow) { return $clockNow; });
+    $failedStyleWorker->run();
+    $styleState = json_decode(Crypt::decryptString(DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first()->state), true);
+    check($styleState['recent_replies'] === [], 'definitively rejected drafts never enter published wording memory');
+    clearState(); $provider->message = "كلامك فرحنا\nنورتنا ❤️";
+    $commentRows['101_501'][] = comment('750'); $worker->run();
+    check($provider->contexts[1]['recent_replies'] === ['كلامك فرحنا نورتنا ❤️'],
+        'accepted multiline response is normalized before it can poison subsequent model inputs');
+    $historyProvider = new \App\Services\Dashboard\MetaCommentAiProvider(function ($body, $key) {
+        return response(['status' => 'completed', 'output' => [['type' => 'message', 'role' => 'assistant',
+            'status' => 'completed', 'content' => [['type' => 'output_text',
+                'text' => json_encode(['kind' => 'REPLY', 'message' => 'كلامك يسعدنا ❤️'], JSON_UNESCAPED_UNICODE)]]]]]);
+    }, ['model' => 'gpt-6-luna', 'api_key' => 'fixture-not-a-live-key']);
+    check($historyProvider->reply($provider->contexts[1])['ok'], 'real provider accepts the worker multiline style sample');
     clearState(); $replyRows['701'] = [comment('880', '101')];
     $worker->run(); check($postWrites === 0 && $provider->calls === 0, 'existing business reply suppresses AI before generation');
     clearState(); $provider->hook = function () use (&$replyRows) { $replyRows['701'] = [comment('880', '101')]; };
@@ -159,6 +225,8 @@ namespace {
     clearState(); $uncertain = true;
     $run = $worker->run(); $worker->run();
     check($run['unknown'] === 1 && $postWrites === 1 && $provider->calls === 1, 'uncertain AI transport is durable and never automatically retried');
+    $styleState = json_decode(Crypt::decryptString(DB::table('meta_comment_ai_poll_states')->where('account_key', $fbKey)->first()->state), true);
+    check($styleState['recent_replies'] === [], 'uncertain public sends never become published style examples');
     $post = $service->posts($actor, $fbKey)['posts'][0]; $manual = $service->comments($actor, $post['handle'])['comments'][0];
     check($service->send($other, ['comment_handle' => $manual['handle'], 'message' => 'ثانٍ', 'client_request_id' => MetaCommentReplyGate::uuid()])['state'] === 'UNKNOWN'
         && $postWrites === 1, 'uncertain AI receipt also blocks manual retry from another actor');
