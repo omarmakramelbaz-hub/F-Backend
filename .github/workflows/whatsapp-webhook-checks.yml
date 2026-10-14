@@ -103,6 +103,8 @@ jobs:
           php -l deployment/whatsapp_order_source_selection_read_only_probe.php
           php -l deployment/whatsapp_order_option_source_read_only_probe.php
           php -l deployment/whatsapp_order_anchor_citation_read_only_probe.php
+          php -l deployment/whatsapp_order_conversation_proof_observer.php
+          php -l deployment/whatsapp_order_conversation_proof_read_only_probe.php
           php -l deployment/whatsapp_order_source_reference_observer.php
           php -l deployment/whatsapp_order_source_reference_read_only_probe.php
           php -l app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php
@@ -157,6 +159,7 @@ jobs:
           php tests/whatsapp_order_source_selection_test.php
           php tests/whatsapp_order_option_source_test.php
           php tests/whatsapp_order_anchor_citation_test.php
+          php tests/whatsapp_order_conversation_proof_read_only_probe_test.php
           php tests/whatsapp_order_source_reference_read_only_probe_test.php
           php tests/whatsapp_order_capture_conflict_diagnostic_test.php
 
