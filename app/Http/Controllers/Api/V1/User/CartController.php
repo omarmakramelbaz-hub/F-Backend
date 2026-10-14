@@ -531,7 +531,7 @@ class CartController extends Controller
                     return (float) $cart->updated_total;
                 }
 
-                return (float) $cart->price * (int) $cart->qty;
+                return (float) $cart->price * (float) $cart->qty;
             });
 
             $serviceFees = ($updatedTotal * $serviceFeeRate) / 100;

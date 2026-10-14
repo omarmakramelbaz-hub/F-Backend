@@ -9,6 +9,7 @@ use App\Events\OrderFinishedUpdated;
 use App\Notifications\NotifyUserOrderStatusUpdatedNotification;
 use App\Services\Dashboard\GoStoreBoardActions;
 use App\Services\Dashboard\OrderBoardService;
+use App\Services\Dashboard\OrderBoardItems;
 use App\Services\GoServices\Marketplace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,26 @@ class OrderBoardController extends Controller
     public function print(string $source, int $id, OrderBoardService $service)
     {
         return view('admin.orders.board_detail', ['card'=>$service->detail($source, $id, auth('admin')->user()), 'printing'=>true]);
+    }
+
+    public function items(string $source, int $id, OrderBoardItems $items)
+    {
+        return response()->json($items->read($source, $id, auth('admin')->user()));
+    }
+
+    public function saveItems(Request $request, string $source, int $id, OrderBoardItems $items, OrderBoardService $service)
+    {
+        $actor = auth('admin')->user();
+        $change = $items->save($source, $id, $request->all(), $actor);
+        $payload = ['success'=>true, 'message'=>'تم تعديل أصناف الطلب وإعادة حساب الإجمالي.'];
+        try {
+            $card = $service->detail($source, $id, $actor);
+            $payload['card'] = ['key'=>$card['key'], 'from_group'=>$change['from_group'], 'group'=>$card['group'],
+                'html'=>view('admin.orders.board_card', ['card'=>$card])->render()];
+        } catch (\Throwable $error) {
+            \Log::warning('Committed order items refresh unavailable', ['source'=>$source, 'order_id'=>$id, 'exception'=>get_class($error)]);
+        }
+        return response()->json($payload);
     }
 
     public function action(Request $request, string $source, int $id, OrderBoardService $service, GoStoreBoardActions $stores)

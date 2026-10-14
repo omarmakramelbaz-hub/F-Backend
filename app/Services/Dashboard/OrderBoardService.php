@@ -17,6 +17,7 @@ class OrderBoardService
     private $columns = [];
     private $related = [];
     private $storeActions;
+    private $itemsEditor;
 
     public function canAccess($actor): bool
     {
@@ -140,6 +141,18 @@ class OrderBoardService
         abort_unless($row, 404);
         $this->loadRelated($source, collect([$row]));
         return $this->normalize($source, $row, $actor);
+    }
+
+    /** Shared row scope for item editing; the caller owns the transaction when locking. */
+    public function scopedRow(string $source, int $id, $actor, bool $lock = false): object
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $query = $this->query($source, $actor, []);
+        abort_unless($query, 404);
+        if ($lock) $query->lockForUpdate();
+        $row = $query->where('id', $id)->first();
+        abort_unless($row, 404);
+        return $row;
     }
 
     public function scopedLegacy(int $id, $actor, bool $lock = false): Order
@@ -339,7 +352,7 @@ class OrderBoardService
             foreach ($this->related['carts'][$row->id] ?? [] as $line) {
                 $product = $this->related['resturant_products'][$line->resturant_product_id ?? null] ?? null;
                 $feature = $this->related['product_features'][$line->product_feature ?? null] ?? null;
-                $lineTotal = !empty($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
+                $lineTotal = isset($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
                 $subtotal += $lineTotal;
                 $card['items'][] = ['name'=>$product->product_name ?? $product->name_ar ?? $line->name ?? 'صنف',
                     'quantity'=>$line->qty ?? 1, 'option_label'=>$feature ? __('main.'.$feature->name) : '',
@@ -403,6 +416,10 @@ class OrderBoardService
                 if ($status === 'pending') $card['actions'] = ['accept','reject'];
                 elseif ($status === 'accepted') $card['actions'] = ['complete'];
             }
+        }
+        if ($this->itemsEditor === null) $this->itemsEditor = app(OrderBoardItems::class);
+        if ($this->itemsEditor->available($source, $row, $actor)) {
+            $card['urls']['items'] = route('order-board.items', [$source, $row->id]);
         }
         return $card;
     }
