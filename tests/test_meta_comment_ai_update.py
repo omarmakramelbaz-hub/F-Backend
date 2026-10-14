@@ -1,0 +1,338 @@
+"""Isolated rollout tests: no real database, provider, credentials or systemd writes."""
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+PACKAGE = pathlib.Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('comment_ai_updater', PACKAGE/'deployment/update_meta_comment_ai.py')
+updater = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(updater)
+WEB = "<?php\nrequire __DIR__.'/meta_inbox.php';\nrequire __DIR__.'/meta_comments.php';\n// live WhatsApp AI/custom routes\n"
+
+
+class TransformTests(unittest.TestCase):
+    def test_live_route_addition_is_narrow_and_idempotent(self):
+        reviewed = updater.web_contents(WEB)
+        self.assertTrue(reviewed.startswith(WEB))
+        self.assertEqual(updater.web_contents(reviewed), reviewed)
+        self.assertEqual(reviewed.count('meta_comment_ai'), 1)
+        loop = "<?php\nforeach (['meta_inbox','meta_comments','meta_comment_ai','other_meta_ai'] as $metaRoutes) { require __DIR__.'/'.$metaRoutes.'.php'; }\n"
+        self.assertEqual(updater.web_contents(loop), loop)
+
+    def test_ambiguous_route_registration_is_refused(self):
+        for value in (WEB+'// meta_comment_ai unknown operator block\n', updater.web_contents(WEB)*2, WEB+'?>'):
+            with self.subTest(value=value), self.assertRaises(RuntimeError): updater.web_contents(value)
+
+    def test_exact_old_baseline_wins_even_when_other_candidate_could_patch(self):
+        older = b'old polish\n'+b'unchanged\n'*30+b'old AI\n'
+        newer = older.replace(b'old polish',b'new polish')
+        target = newer.replace(b'old AI',b'new AI')
+        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+            self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'file',older,target),target)
+        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+            self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'file',newer,target),target)
+
+    def test_unknown_ambiguous_variant_refuses_to_choose_behavior(self):
+        older=b'old polish\n'+b'unchanged\n'*15+b'operator slot\n'+b'unchanged\n'*15+b'old AI\n'+b'tail\n'*20
+        newer=older.replace(b'old polish',b'new polish'); target=newer.replace(b'old AI',b'new AI')
+        with mock.patch.object(updater,'source',side_effect=[older,newer]):
+            with self.assertRaisesRegex(RuntimeError,'SOURCE_PATCH_AMBIGUOUS'):
+                updater.variant_patch(PACKAGE,'a'*40,'file',older.replace(b'operator slot',b'operator overlay'),target)
+
+    def test_css_already_at_reviewed_newer_version_preserves_unrelated_overlay(self):
+        old=b'.old{}\n'+b'body{}\n'*30
+        target=old.replace(b'.old{}',b'.new{}')
+        live=target+b'/* operator color overlay */\n'
+        with mock.patch.object(updater,'source',side_effect=[old,target]):
+            self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,'style.css',live,target),live)
+
+    def test_actual_comment_baselines_patch_and_rerun(self):
+        for relative in updater.EXISTING_FILES:
+            target=(PACKAGE/relative).read_bytes()
+            for revision in updater.BASES:
+                baseline=subprocess.check_output(['git','show',revision+':'+relative],cwd=PACKAGE)
+                def source(root,selected,path): return subprocess.check_output(['git','show',selected+':'+path],cwd=PACKAGE)
+                with self.subTest(relative=relative,revision=revision), mock.patch.object(updater,'source',side_effect=source):
+                    self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,baseline,target),target)
+                    self.assertEqual(updater.variant_patch(PACKAGE,'a'*40,relative,target,target),target)
+
+
+class SchemaGuardTests(unittest.TestCase):
+    def test_read_only_sqlite_and_mysql_unique_guard_metadata(self):
+        local=PACKAGE.parent/'php-runtime/php'
+        php=os.environ.get('META_COMMENT_AI_TEST_PHP') or (str(local) if local.exists() else shutil.which('php'))
+        if not php: self.skipTest('PHP with PDO SQLite is required for the isolated schema fixture')
+        script=r'''<?php
+$source=file_get_contents($argv[1]);
+$begin='// BEGIN COMMENT AI UNIQUE INDEX CHECK';$end='// END COMMENT AI UNIQUE INDEX CHECK';
+$code=substr($source,strpos($source,$begin)+strlen($begin));$code=substr($code,0,strpos($code,$end));eval($code);
+$checks=0;function check($ok){$GLOBALS['checks']++;if(!$ok)throw new RuntimeException('Schema guard fixture failed');}
+class SqliteFixture {
+ public $pdo;public $reads=[];function __construct(){$this->pdo=new PDO('sqlite::memory:');}
+ function getDriverName(){return 'sqlite';}function getTablePrefix(){return '';}
+ function select($sql){$this->reads[]=$sql;check(str_starts_with($sql,'PRAGMA '));return $this->pdo->query($sql)->fetchAll(PDO::FETCH_OBJ);}
+}
+$db=new SqliteFixture();
+$db->pdo->exec('CREATE TABLE meta_comment_ai_settings (id INTEGER PRIMARY KEY, enabled INTEGER)');
+$db->pdo->exec('CREATE TABLE meta_comment_ai_targets (target_hash TEXT UNIQUE, state TEXT)');
+$db->pdo->exec('CREATE TABLE meta_comment_ai_poll_states (account_key TEXT UNIQUE)');
+$db->pdo->exec('CREATE TABLE meta_comment_reply_requests (request_hash TEXT UNIQUE, pending_key TEXT UNIQUE)');
+foreach(['meta_comment_ai_settings','meta_comment_ai_targets','meta_comment_ai_poll_states','meta_comment_reply_requests'] as $table)check(metaCommentAiUniqueIndexes($db,$table));
+$reads=count($db->reads);check(!metaCommentAiUniqueIndexes($db,'unrelated_credentials'));check(count($db->reads)===$reads);
+$db->pdo->exec('DROP TABLE meta_comment_ai_targets');$db->pdo->exec('CREATE TABLE meta_comment_ai_targets (target_hash TEXT, state TEXT, UNIQUE(target_hash,state))');
+check(!metaCommentAiUniqueIndexes($db,'meta_comment_ai_targets'));
+$db->pdo->exec('CREATE UNIQUE INDEX partial_guard ON meta_comment_ai_targets(target_hash) WHERE state="SENDING"');
+check(!metaCommentAiUniqueIndexes($db,'meta_comment_ai_targets'));
+$db->pdo->exec('DROP TABLE meta_comment_ai_settings');$db->pdo->exec('CREATE TABLE meta_comment_ai_settings (id INTEGER UNIQUE)');
+check(!metaCommentAiUniqueIndexes($db,'meta_comment_ai_settings'));
+class MysqlFixture {
+ public $rows=[];public $reads=[];function getDriverName(){return 'mysql';}function getTablePrefix(){return 'prefix_';}
+ function select($sql){$this->reads[]=$sql;check(str_starts_with($sql,'SHOW INDEX FROM `prefix_meta_comment_'));return $this->rows;}
+}
+function indexRow($name,$column,$position=1,$prefix=null,$nonUnique=0){return (object)['Key_name'=>$name,'Column_name'=>$column,'Seq_in_index'=>$position,'Sub_part'=>$prefix,'Non_unique'=>$nonUnique];}
+$mysql=new MysqlFixture();$mysql->rows=[indexRow('target_unique','target_hash')];check(metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_targets'));
+$mysql->rows=[indexRow('prefix_unique','target_hash',1,12)];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_targets'));
+$mysql->rows=[indexRow('compound','target_hash'),indexRow('compound','state',2,1)];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_targets'));
+$mysql->rows=[indexRow('compound','target_hash'),indexRow('compound',null,2)];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_targets'));
+$mysql->rows=[indexRow('not_unique','target_hash',1,null,1)];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_targets'));
+$mysql->rows=[indexRow('id_unique','id')];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_settings'));
+$mysql->rows=[indexRow('PRIMARY','id')];check(metaCommentAiUniqueIndexes($mysql,'meta_comment_ai_settings'));
+$mysql->rows=[indexRow('request_unique','request_hash')];check(!metaCommentAiUniqueIndexes($mysql,'meta_comment_reply_requests'));
+$mysql->rows[] = indexRow('pending_unique','pending_key');check(metaCommentAiUniqueIndexes($mysql,'meta_comment_reply_requests'));
+echo 'READ_ONLY_SCHEMA_GUARDS_OK '.$checks."\n";
+'''
+        result=subprocess.run([php,'-r',script.removeprefix('<?php\n'),'--',str(PACKAGE/updater.DIAGNOSTIC)],text=True,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn('READ_ONLY_SCHEMA_GUARDS_OK',result.stdout)
+
+
+class WrapperTests(unittest.TestCase):
+    def parse(self,*flags):
+        body=(PACKAGE/'deployment/apply_meta_comment_ai_root.sh').read_text()
+        parser=body.split('\nshift\n',1)[1].split('\ncomment_ai_tmp=',1)[0]
+        return subprocess.run(['bash','-s','--',*flags],input=parser+'\nprintf "%s\\n" "${comment_ai_flags[@]}"\n',text=True,capture_output=True)
+
+    def test_all_reviewed_flags_forward_in_any_order(self):
+        for flags in ((),('--check',),('--check','--install-timer','--repair-permissions'),('--repair-permissions','--check','--install-timer')):
+            with self.subTest(flags=flags):
+                result=self.parse(*flags); self.assertEqual(result.returncode,0)
+                self.assertEqual(result.stdout.strip().splitlines(),list(flags))
+
+    def test_unknown_and_duplicate_flags_are_refused(self):
+        for flags in (('--unknown',),('--check','--check'),('--install-timer','--install-timer')):
+            with self.subTest(flags=flags): self.assertNotEqual(self.parse(*flags).returncode,0)
+
+
+class InstallTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.temp.name)/'public_html'; self.root.mkdir()
+        self.unit_root=pathlib.Path(self.temp.name)/'units'; self.unit_root.mkdir()
+        self.release='a'*40; self.before={}; self.payloads={}; self.commands=[]; self.system=[]; self.migrated=False; self.fail=None
+        for relative in updater.EXISTING_FILES:
+            self.before[relative]=b'header\nold behavior\nfooter\n'
+            self.payloads[relative]=b'header\nnew behavior\nfooter\n'
+        self.before[updater.WEB_ROUTES]=WEB.encode(); self.payloads[updater.WEB_ROUTES]=updater.web_contents(WEB).encode()
+        for relative in updater.NEW_FILES: self.payloads[relative]=('new reviewed source '+relative+'\n').encode()
+        for relative in updater.UNIT_INPUTS: self.payloads[relative]=(PACKAGE/relative).read_bytes()
+        for relative,data in self.before.items(): self.write(relative,data)
+        for relative in updater.NEW_FILES: (self.root/relative).parent.mkdir(parents=True,exist_ok=True)
+        self.cache_relative='storage/framework/views/ab1234.php'; self.write(self.cache_relative,b'original comment view')
+        self.write('storage/framework/views/cc2222.php',b'unrelated inbox view')
+        self.write('.env',b'PRIVATE_CREDENTIALS=untouched')
+        self.write('app/Console/Kernel.php',b'current WhatsApp and Meta AI scheduler overlays')
+        self.manifest=json.dumps({'version':1,'files':{p:updater.blob(v) for p,v in self.payloads.items()}}).encode()
+        self.prior={name:{'enabled':False,'active':False} for name in updater.UNIT_NAMES}
+        self.unit_state=json.loads(json.dumps(self.prior))
+
+    def tearDown(self): self.temp.cleanup()
+
+    def write(self,relative,data):
+        path=self.root/relative; path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(data); path.chmod(0o644)
+
+    def source(self,root,release,relative):
+        if relative==updater.MANIFEST: return self.manifest
+        return self.payloads[relative] if release==self.release else self.before[relative]
+
+    def owned(self,root,args):
+        self.commands.append(args)
+        if 'migrate' in args:
+            self.assertEqual(args[1:],['artisan','migrate','--path='+updater.MIGRATION,'--force','--no-interaction'])
+            self.migrated=True
+            if self.fail=='migration': raise RuntimeError('TEST_MIGRATION_FAILURE')
+        return b''
+
+    def probe(self,root,php,script,phase,stage,views):
+        if phase=='verify' and self.fail=='verify': raise RuntimeError('TEST_VERIFY_FAILURE')
+        return {'ok':True,'tables_ready':self.migrated,'tables':{'meta_comment_ai_settings':self.migrated},
+            'configured':True,'policy_present':self.migrated,'enabled':False if self.migrated else None,
+            'mode':'always' if self.migrated else None,'worker_seen':False,'routes_cached':False,
+            'config_cached':True,'verified_routes':2 if phase=='verify' else 0,'views_compiled':1,
+            'view_caches':[self.cache_relative]}
+
+    def system_command(self,args):
+        self.system.append(args)
+        if args[:2]==['systemctl','start'] and self.fail=='timer': raise RuntimeError('TEST_TIMER_FAILURE')
+        if args[:2]==['systemctl','enable']: self.unit_state[args[2]]['enabled']=True
+        if args[:2]==['systemctl','start']: self.unit_state[args[2]]['active']=True
+        if args[:2]==['systemctl','disable']: self.unit_state[args[2]]['enabled']=False
+        if args[:2]==['systemctl','stop']: self.unit_state[args[2]]['active']=False
+        return ''
+
+    def execute(self,check=False,timer=False,repair=False):
+        output=io.StringIO()
+        with mock.patch.object(updater,'source',side_effect=self.source), mock.patch.object(updater,'owned_command',side_effect=self.owned), \
+             mock.patch.object(updater,'probe',side_effect=self.probe), mock.patch.object(updater,'UNIT_ROOT',self.unit_root), \
+             mock.patch.object(updater,'timer_state',side_effect=lambda:json.loads(json.dumps(self.unit_state))), mock.patch.object(updater,'system_command',side_effect=self.system_command), \
+             contextlib.redirect_stdout(output):
+            try: return updater.install_locked(self.root,self.release,self.manifest,'php-fixture',check,os.getuid(),os.getgid(),repair,timer)
+            finally: self.output=output.getvalue()
+
+    def test_read_only_preflight_creates_no_sources_backup_migration_or_timer_changes(self):
+        before={p:(self.root/p).stat() for p in self.before}; self.execute(check=True,timer=True)
+        for relative,old in before.items():
+            path=self.root/relative; now=path.stat(); self.assertEqual(path.read_bytes(),self.before[relative])
+            self.assertEqual((old.st_ino,old.st_mode,old.st_mtime_ns),(now.st_ino,now.st_mode,now.st_mtime_ns))
+        self.assertFalse(self.migrated); self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+        self.assertEqual(list(self.unit_root.iterdir()),[])
+        self.assertTrue(all(args[0]=='systemd-analyze' for args in self.system))
+
+    def test_success_is_pinned_targeted_off_default_and_preserves_other_inbox_work(self):
+        result=self.execute(timer=True)
+        self.assertEqual(result['status'],'META_COMMENT_AI_READY'); self.assertFalse(result['readiness']['enabled'])
+        for relative,expected in self.payloads.items():
+            if relative not in updater.UNIT_INPUTS: self.assertEqual((self.root/relative).read_bytes(),expected)
+        self.assertEqual((self.root/'.env').read_bytes(),b'PRIVATE_CREDENTIALS=untouched')
+        self.assertEqual((self.root/'app/Console/Kernel.php').read_bytes(),b'current WhatsApp and Meta AI scheduler overlays')
+        self.assertEqual((self.root/'storage/framework/views/cc2222.php').read_bytes(),b'unrelated inbox view')
+        self.assertFalse((self.root/self.cache_relative).exists())
+        self.assertTrue(self.migrated)
+        self.assertIn(['systemctl','enable',updater.UNIT_NAMES[1]],self.system)
+        self.assertIn(['systemctl','start',updater.UNIT_NAMES[1]],self.system)
+        self.assertFalse(any('--once' in args or 'schedule:run' in args or 'config:clear' in args for args in self.commands))
+        backup=pathlib.Path(result['backup']); saved=json.loads((backup/'manifest.json').read_text())
+        self.assertIn('meta_comment_ai_targets',saved['tables_retained'])
+        self.assertEqual((backup/self.cache_relative).read_bytes(),b'original comment view')
+
+    def test_bad_manifest_pin_fails_before_publication(self):
+        self.payloads[updater.NEW_FILES[0]]+=b'tamper'
+        with self.assertRaisesRegex(RuntimeError,'SOURCE_MANIFEST_PIN_DIFFERS'): self.execute()
+        self.assertFalse(self.migrated)
+
+    def test_unknown_comment_overlay_refuses_before_backup_or_migration(self):
+        path=updater.EXISTING_FILES[0]; self.write(path,b'header\noperator change\nfooter\n')
+        with self.assertRaisesRegex(RuntimeError,'SOURCE_PATCH_CONFLICT'): self.execute()
+        self.assertFalse(self.migrated); self.assertFalse((self.root.parent/'meta-comment-ai-backups').exists())
+
+    def test_conflicting_new_file_or_systemd_unit_is_not_replaced(self):
+        path=updater.NEW_FILES[0]; self.write(path,b'operator new source')
+        with self.assertRaisesRegex(RuntimeError,'NEW_FILE_COLLISION'): self.execute()
+        (self.root/path).unlink(); (self.unit_root/updater.UNIT_NAMES[0]).write_bytes(b'operator unit')
+        with self.assertRaisesRegex(RuntimeError,'UNREVIEWED_TIMER_UNIT'): self.execute(timer=True)
+        self.assertFalse(self.migrated)
+
+    def test_migration_or_verification_failure_restores_sources_and_retains_data(self):
+        for failure in ('migration','verify'):
+            with self.subTest(failure=failure):
+                self.fail=failure
+                with self.assertRaises(RuntimeError): self.execute()
+                self.assertTrue(self.migrated)
+                for relative,old in self.before.items(): self.assertEqual((self.root/relative).read_bytes(),old)
+                self.assertFalse((self.root/updater.NEW_FILES[0]).exists())
+                self.assertEqual((self.root/self.cache_relative).read_bytes(),b'original comment view')
+                self.assertFalse(any('rollback' in args or 'migrate:rollback' in args for args in self.commands))
+
+    def test_timer_failure_rolls_back_only_dedicated_units_and_sources(self):
+        self.fail='timer'
+        with self.assertRaises(RuntimeError): self.execute(timer=True)
+        self.assertEqual(list(self.unit_root.iterdir()),[])
+        for relative,old in self.before.items(): self.assertEqual((self.root/relative).read_bytes(),old)
+        self.assertTrue(self.migrated)
+        self.assertIn(['systemctl','disable',updater.UNIT_NAMES[1]],self.system)
+
+    def test_concurrent_edit_before_source_publication_is_preserved(self):
+        relative=updater.EXISTING_FILES[0]; native=self.owned
+        def mutate(root,args):
+            result=native(root,args)
+            if 'migrate' in args: self.write(relative,b'operator live edit during migration')
+            return result
+        with mock.patch.object(self,'owned',side_effect=mutate):
+            with self.assertRaisesRegex(RuntimeError,'CONCURRENT_EDIT'): self.execute()
+        self.assertEqual((self.root/relative).read_bytes(),b'operator live edit during migration')
+        for path,before in self.before.items():
+            if path!=relative: self.assertEqual((self.root/path).read_bytes(),before)
+        self.assertFalse((self.root/updater.NEW_FILES[0]).exists())
+
+    def test_concurrent_edit_during_failure_is_skipped_and_other_leaves_restore(self):
+        relative=updater.EXISTING_FILES[0]; native=self.probe
+        def mutate(root,php,script,phase,stage,views):
+            if phase=='verify':
+                self.write(relative,b'operator edit after publication')
+                raise RuntimeError('TEST_CONCURRENT_VERIFY_FAILURE')
+            return native(root,php,script,phase,stage,views)
+        with mock.patch.object(self,'probe',side_effect=mutate):
+            with self.assertRaisesRegex(RuntimeError,'TEST_CONCURRENT_VERIFY_FAILURE'): self.execute()
+        self.assertEqual((self.root/relative).read_bytes(),b'operator edit after publication')
+        for path,before in self.before.items():
+            if path!=relative: self.assertEqual((self.root/path).read_bytes(),before)
+        self.assertIn('NEEDS_REVIEW',self.output)
+        self.assertEqual((self.root/self.cache_relative).read_bytes(),b'original comment view')
+        self.assertTrue(self.migrated)
+
+    def test_immediate_post_write_operator_bytes_are_not_recorded_as_our_publication(self):
+        relative=updater.NEW_FILES[0]; native=updater.atomic
+        def publish(path,data,mode,uid,gid):
+            native(path,data,mode,uid,gid)
+            if path==self.root/relative: path.write_bytes(b'operator replaced just-published source')
+        with mock.patch.object(updater,'atomic',side_effect=publish):
+            with self.assertRaisesRegex(RuntimeError,'CONCURRENT_EDIT'): self.execute()
+        self.assertEqual((self.root/relative).read_bytes(),b'operator replaced just-published source')
+        self.assertIn('NEEDS_REVIEW',self.output)
+        self.assertFalse(self.migrated)
+
+    def test_immediate_post_write_operator_deletion_is_not_recreated_by_rollback(self):
+        relative=updater.EXISTING_FILES[0]; native=updater.atomic
+        def publish(path,data,mode,uid,gid):
+            native(path,data,mode,uid,gid)
+            if path==self.root/relative: path.unlink()
+        with mock.patch.object(updater,'atomic',side_effect=publish):
+            with self.assertRaisesRegex(RuntimeError,'CONCURRENT_EDIT'): self.execute()
+        self.assertFalse((self.root/relative).exists())
+        self.assertIn('NEEDS_REVIEW',self.output)
+        self.assertTrue(self.migrated)
+
+    def test_permission_repair_is_explicit_and_check_never_changes_modes(self):
+        for relative in self.before: (self.root/relative).chmod(0o775)
+        with self.assertRaisesRegex(RuntimeError,'UNSAFE_FILE'): self.execute(check=True)
+        self.execute(check=True,repair=True)
+        for relative in self.before: self.assertEqual((self.root/relative).stat().st_mode&0o777,0o775)
+        self.execute(repair=True)
+        for relative in self.before: self.assertEqual((self.root/relative).stat().st_mode&0o777,0o755)
+
+    def test_cached_routes_are_not_cleared_or_published(self):
+        native=self.probe
+        def cached(*args):
+            result=native(*args); result['routes_cached']=True
+            raise RuntimeError('CACHED_ROUTES_BLOCKED')
+        with mock.patch.object(self,'probe',side_effect=cached):
+            with self.assertRaisesRegex(RuntimeError,'CACHED_ROUTES_BLOCKED'): self.execute()
+        self.assertFalse(self.migrated)
+
+    def test_public_check_creates_no_lock(self):
+        user=types.SimpleNamespace(pw_uid=self.root.stat().st_uid,pw_gid=self.root.stat().st_gid)
+        with mock.patch.object(updater,'APP_ROOT',self.root), mock.patch.object(updater,'PHP','php-fixture'), \
+             mock.patch.object(updater.pwd,'getpwnam',return_value=user), mock.patch.object(updater.os,'geteuid',return_value=0), \
+             mock.patch.object(updater,'install_locked') as locked:
+            updater.install(self.root,self.release,self.manifest,'php-fixture',check_only=True)
+            locked.assert_called_once()
+        self.assertFalse((self.root.parent/'.meta-comment-ai-update.lock').exists())
+
+
+if __name__=='__main__': unittest.main()

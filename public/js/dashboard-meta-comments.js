@@ -20,8 +20,9 @@
         if (Object.keys(fields).some(function (name) { return !fields[name]; })) return;
         var accounts = [], channel = '', account = null, posts = new Map(), comments = new Map(), replyPages = new Map();
         var post = null, selectedKey = '', postCursor = null, commentCursor = null, epoch = 0, postEpoch = 0;
-        var closed = false, denied = false, sending = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
+        var closed = false, denied = false, sending = false, recovering = false, controllers = new Map(), busy = new Set(), timer = null, timeoutIds = new Set();
         var viewer = '', drafts = new Map(), sends = new Map();
+        var postSnapshots = new Map(), commentSnapshots = new Map();
         var emojiCategory = 'reactions', caret = {start:0,end:0};
         var emojiGroups = {
             reactions:[['👍','إعجاب','Like'],['❤️','حب','Love'],['😂','ضحك','Laugh'],['😮','دهشة','Wow'],['😢','حزين','Sad'],['😡','غاضب','Angry'],['🙏','شكر ودعاء','Thanks'],['😍','إعجاب وحب','Heart eyes'],
@@ -52,7 +53,9 @@
             return url.href;
         }
         function bindViewer(value) {
-            viewer = /^[a-f0-9]{64}$/i.test(String(value || '')) ? String(value) : '';
+            var nextViewer = /^[a-f0-9]{64}$/i.test(String(value || '')) ? String(value) : '';
+            if (viewer && viewer !== nextViewer) { postSnapshots.clear(); commentSnapshots.clear(); }
+            viewer = nextViewer;
             if (!viewer) return;
             if (!draftStores.has(viewer)) draftStores.set(viewer,new Map());
             if (!sendStores.has(viewer)) {
@@ -210,7 +213,7 @@
             fields.public.textContent = account ? label('public') + ' ' + account.label : label('public_hint');
             fields['reply-text'].disabled = !selected || selected.can_reply === false || locked || denied || closed;
             var overLimit = Array.from(fields['reply-text'].value).length > 1000;
-            fields.send.disabled = fields['reply-text'].disabled || sending || busy.has('reply') || !viewer || !fields['reply-text'].value.trim() || overLimit || navigator.onLine === false;
+            fields.send.disabled = fields['reply-text'].disabled || sending || recovering || busy.has('reply') || !viewer || !fields['reply-text'].value.trim() || overLimit || navigator.onLine === false;
             fields['emoji-toggle'].disabled = fields['reply-text'].disabled;
             fields.refresh.disabled = sending || denied;
             fields.account.disabled = sending || denied || !accounts.some(function(row) { return !channel || row.channel === channel; });
@@ -221,8 +224,25 @@
             fields['send-status'].textContent = state ? state.state === 'SENDING' ? label('sending') : state.state === 'UNKNOWN' ? label('unknown') : state.state === 'ACCEPTED' ? label('accepted') : state.error || label('failed')
                 : overLimit ? label('limit') : selected && selected.can_reply === false ? label('no_reply') : navigator.onLine === false ? label('offline') : '';
         }
+        function boundedSnapshot(store,key,value) {
+            store.delete(key); store.set(key,value);
+            while (store.size > 20) store.delete(store.keys().next().value);
+        }
+        function rememberPosts() {
+            if (account && posts.size) boundedSnapshot(postSnapshots,account.account_key,
+                {rows:new Map(Array.from(posts.entries()).slice(0,120)),cursor:posts.size <= 120 ? postCursor : null});
+        }
+        function rememberComments() {
+            if (account && post && comments.size) boundedSnapshot(commentSnapshots,account.account_key + ':' + identity(post),
+                {rows:new Map(Array.from(comments.entries()).slice(0,120)),cursor:comments.size <= 120 ? commentCursor : null,selected:selectedKey});
+        }
+        function accountRows(value) {
+            return Array.isArray(value) ? value.slice(0,100).filter(function(row) {
+                return row && /^[a-f0-9]{64}$/i.test(String(row.account_key || '')) && ['facebook','instagram'].indexOf(row.channel) !== -1;
+            }).map(function(row) { return {account_key:row.account_key,channel:row.channel,label:text(row.label,160) || label(row.channel)}; }) : [];
+        }
         function resetPost() {
-            saveDraft(); closeEmoji(false); postEpoch++; post = null; selectedKey = ''; commentCursor = null; comments.clear(); replyPages.clear();
+            saveDraft(); rememberComments(); closeEmoji(false); postEpoch++; post = null; selectedKey = ''; commentCursor = null; comments.clear(); replyPages.clear();
             controllers.forEach(function(controller,key) { if (key === 'comments' || key.indexOf('replies:') === 0) abortRead(key,controller); });
             fields['reply-text'].value = ''; fields['post-title'].textContent = label('choose_post'); fields['post-link'].hidden = true;
             fields['post-link'].removeAttribute('href'); fields['comment-status'].textContent = label('choose_post'); fields['comment-status'].hidden = false;
@@ -231,8 +251,10 @@
         function chooseAccount(key) {
             var next = accounts.find(function(row) { return row.account_key === key; }) || null;
             if (account && next && account.account_key === next.account_key) return;
-            epoch++; abortReads(); resetPost(); account = next; posts.clear(); postCursor = null; renderPosts();
-            fields['post-status'].hidden = false; fields['post-status'].textContent = next ? label('loading') : label('empty_accounts');
+            rememberPosts(); epoch++; abortReads(); resetPost(); account = next; posts.clear(); postCursor = null;
+            var snapshot = next && postSnapshots.get(next.account_key);
+            if (snapshot) { posts = new Map(snapshot.rows); postCursor = snapshot.cursor; }
+            renderPosts(); fields['post-status'].hidden = posts.size > 0; fields['post-status'].textContent = next ? label('loading') : label('empty_accounts');
             if (next) loadPosts(false);
         }
         async function loadAccounts() {
@@ -241,9 +263,7 @@
             try {
                 var data = await request('accounts','accounts'); if (closed || sending || currentEpoch !== epoch) return;
                 bindViewer(data.viewer_key || config.viewer_key);
-                accounts = Array.isArray(data.accounts) ? data.accounts.slice(0,100).filter(function(row) {
-                    return row && /^[a-f0-9]{64}$/i.test(String(row.account_key || '')) && ['facebook','instagram'].indexOf(row.channel) !== -1;
-                }).map(function(row) { return {account_key:row.account_key,channel:row.channel,label:text(row.label,160) || label(row.channel)}; }) : [];
+                accounts = accountRows(data.accounts);
                 renderAccounts();
             } catch (error) {
                 if (closed || currentEpoch !== epoch || error.name === 'AbortError') return;
@@ -258,6 +278,7 @@
                 var data = await request('posts','posts',{account_key:chosen,cursor:more ? postCursor : null}); if (closed || sending || currentEpoch !== epoch) return;
                 var incoming = rows(data.posts), updated = more ? posts : new Map(); incoming.forEach(function(row) { updated.set(identity(row),row); });
                 posts = updated; postCursor = cursor(data.next_cursor);
+                rememberPosts();
                 if (post && posts.has(identity(post))) post = posts.get(identity(post));
                 fields['post-status'].hidden = posts.size > 0; fields['post-status'].textContent = label('empty_posts'); renderPosts(); alert('');
             } catch (error) {
@@ -270,9 +291,45 @@
             if (post && identity(post) === key) { host.classList.add('has-post'); return; }
             resetPost(); post = next; host.classList.add('has-post'); fields['post-title'].textContent = text(post.text,240) || label('no_caption');
             var link = sourceUrl(post.permalink); fields['post-link'].hidden = !link; if (link) fields['post-link'].href = link;
-            fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,false);
+            var snapshot = account && commentSnapshots.get(account.account_key + ':' + key);
+            if (snapshot) {
+                comments = new Map(snapshot.rows); commentCursor = snapshot.cursor; selectedKey = snapshot.selected || '';
+                fields['reply-text'].value = drafts.get(selectedKey) || ''; renderComments(); renderComposer();
+            }
+            fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); renderPosts(); loadComments(false,!!snapshot);
         }
-        async function loadComments(more,quiet) {
+        function expiredSelection(error) { return ['INVALID_HANDLE','ACCOUNT_CHANGED'].indexOf((error && error.payload || {}).reason) !== -1; }
+        async function recoverSelection(expectedEpoch,commentKey) {
+            if (!account || !post) return false;
+            var chosen = account.account_key, chosenPost = identity(post), data, incoming, renewed, nextCursor = null;
+            function current() { return !closed && !sending && expectedEpoch === postEpoch && account && account.account_key === chosen && post && identity(post) === chosenPost; }
+            saveDraft(); recovering = true; renderComposer();
+            try {
+                // Refresh a selected older post/comment without using any expired cursor or handle.
+                // Provider pagination is bounded; a missing target requires an explicit new selection.
+                for (var page = 0; page < 5; page++) {
+                    data = await request('posts','posts',{account_key:chosen,cursor:nextCursor});
+                    if (!current()) return false;
+                    incoming = rows(data.posts); incoming.forEach(function(row) { posts.set(identity(row),row); });
+                    renewed = incoming.find(function(row) { return identity(row) === chosenPost; });
+                    nextCursor = cursor(data.next_cursor); if (renewed || !nextCursor) break;
+                }
+                if (!renewed) return false;
+                post = renewed; postCursor = nextCursor; rememberPosts(); renderPosts();
+                if (!commentKey) return true;
+                nextCursor = null;
+                for (var commentPage = 0; commentPage < 5; commentPage++) {
+                    data = await request('comments','comments',{post_handle:post.handle,cursor:nextCursor});
+                    if (!current()) return false;
+                    incoming = rows(data.comments); incoming.forEach(function(row) { comments.set(identity(row),row); });
+                    renewed = incoming.find(function(row) { return identity(row) === commentKey; });
+                    nextCursor = cursor(data.next_cursor); if (renewed || !nextCursor) break;
+                }
+                commentCursor = nextCursor; rememberComments(); renderComments(); renderComposer();
+                return !!renewed;
+            } finally { recovering = false; if (!closed) renderComposer(); }
+        }
+        async function loadComments(more,quiet,refreshReplies,recovered) {
             if (!post || closed || denied || sending || busy.has('comments')) return;
             var currentEpoch = postEpoch, handle = post.handle;
             if (!quiet) { fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('loading'); }
@@ -281,19 +338,24 @@
                 var data = await request('comments','comments',{post_handle:handle,cursor:more ? commentCursor : null}); if (closed || sending || currentEpoch !== postEpoch) return;
                 var incoming = rows(data.comments), updated = more || quiet ? new Map(comments) : new Map();
                 incoming.forEach(function(row) { updated.set(identity(row),row); }); comments = updated; commentCursor = more || !quiet ? cursor(data.next_cursor) : commentCursor || cursor(data.next_cursor);
+                rememberComments();
                 fields['comment-status'].hidden = comments.size > 0; fields['comment-status'].textContent = label('empty_comments'); renderComments(); renderComposer();
-                if (quiet) {
+                if (refreshReplies) {
                     var expanded = 0;
                     replyPages.forEach(function(page,key) { if (page.open && comments.has(key) && expanded++ < 5) loadReplies(key,false,true); });
                 }
                 if (!quiet) alert('');
             } catch (error) {
                 if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                if (!recovered && expiredSelection(error)) {
+                    try { if (await recoverSelection(currentEpoch,selectedKey || null)) { await loadComments(false,quiet,refreshReplies,true); return; } }
+                    catch (recoveryError) { error = recoveryError; if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return; }
+                }
                 if (quiet) alert(errorMessage(error)); else { fields['comment-status'].hidden = false; fields['comment-status'].textContent = errorMessage(error); }
                 if (accessLost(error)) deny();
             } finally { if (!closed && currentEpoch === postEpoch) fields['more-comments'].disabled = false; }
         }
-        async function loadReplies(key,more,quiet) {
+        async function loadReplies(key,more,quiet,recovered) {
             var row = comments.get(key), page = replyPages.get(key), requestKey = 'replies:' + key;
             if (!row || !page || closed || denied || sending || busy.has(requestKey)) return;
             var currentEpoch = postEpoch; if (!quiet) { page.status = label('loading'); renderComments(); }
@@ -303,6 +365,10 @@
                 page.cursor = more || !quiet ? cursor(data.next_cursor) : page.cursor || cursor(data.next_cursor); page.status = ''; renderComments();
             } catch (error) {
                 if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return;
+                if (!recovered && expiredSelection(error)) {
+                    try { if (await recoverSelection(currentEpoch,key)) { await loadReplies(key,false,quiet,true); return; } }
+                    catch (recoveryError) { error = recoveryError; if (closed || currentEpoch !== postEpoch || error.name === 'AbortError') return; }
+                }
                 page.status = errorMessage(error); renderComments(); if (accessLost(error)) deny();
             }
         }
@@ -322,11 +388,11 @@
         async function sendReply(event) {
             event.preventDefault();
             var key = selectedKey, row = comments.get(key), message = fields['reply-text'].value.trim(), previous = sends.get(key);
-            if (!key || !row || !viewer || row.can_reply === false || closed || denied || sending || busy.has('reply') || !message || Array.from(message).length > 1000
+            if (!key || !row || !viewer || row.can_reply === false || closed || denied || sending || recovering || busy.has('reply') || !message || Array.from(message).length > 1000
                 || previous && ['SENDING','UNKNOWN'].indexOf(previous.state) !== -1) return;
             if (navigator.onLine === false) { renderComposer(); return; }
             saveDraft(); var requestId; try { requestId = uuid(); } catch (error) { sends.set(key,{state:'FAILED',error:label('failed')}); renderComposer(); return; }
-            var accountLabel = account && account.label || '';
+            var accountLabel = account && account.label || '', sendEpoch = postEpoch, renewFailedSelection = false;
             sending = true; clearTimeout(timer); closeEmoji(false); abortReads();
             replyPages.forEach(function(page) { if (page.status === label('loading')) page.status = ''; });
             if (comments.size) fields['comment-status'].hidden = true;
@@ -335,10 +401,15 @@
             try {
                 var data = await request('reply','reply',null,{comment_handle:row.handle,message:message,client_request_id:requestId});
                 var state = data.state === 'ACCEPTED' && data.success === true ? 'ACCEPTED' : data.state === 'FAILED' ? 'FAILED' : 'UNKNOWN';
+                renewFailedSelection = state === 'FAILED' && ['INVALID_HANDLE','ACCOUNT_CHANGED','RECONNECT_REQUIRED'].indexOf(data.reason) !== -1;
                 sends.set(key,{state:state,request_id:requestId,message:message,account_label:accountLabel,error:state === 'FAILED' ? errorMessage({payload:Object.assign({message:label('failed')},data)}) : ''}); persistSends();
                 if (!closed && ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf(data.reason) !== -1) { alert(errorMessage({payload:data})); deny(); return; }
                 if (state === 'ACCEPTED') {
                     drafts.delete(key);
+                    if (account) {
+                        postSnapshots.delete(account.account_key);
+                        commentSnapshots.forEach(function(_,snapshotKey) { if (snapshotKey.indexOf(account.account_key + ':') === 0) commentSnapshots.delete(snapshotKey); });
+                    }
                     if (data.reply && identity(data.reply)) { var page = replyPages.get(key) || {open:true,rows:new Map(),cursor:null,status:''}; page.open = true; page.rows.set(identity(data.reply),data.reply); replyPages.set(key,page); }
                     if (!closed && selectedKey === key) fields['reply-text'].value = '';
                 }
@@ -350,18 +421,30 @@
                 if (!closed) { renderComments(); renderComposer(); }
             } finally {
                 sending = false;
-                if (!closed) { renderComposer(); poll(); }
+                if (!closed) {
+                    if (renewFailedSelection && sendEpoch === postEpoch) {
+                        try {
+                            if (await recoverSelection(sendEpoch,key)) {
+                                var failed = sends.get(key);
+                                if (failed && failed.state === 'FAILED') failed.error = label('selection_renewed');
+                            }
+                        } catch (recoveryError) { if (!closed && sendEpoch === postEpoch) { alert(errorMessage(recoveryError)); if (accessLost(recoveryError)) deny(); } }
+                    }
+                    renderComposer(); poll();
+                }
             }
         }
         function deny() {
             denied = true; epoch++; postEpoch++; abortReads(); resetPost(); accounts = []; account = null; posts.clear();
+            postSnapshots.clear(); commentSnapshots.clear();
             fields.account.textContent = ''; fields.account.disabled = true; fields['post-status'].hidden = false; fields['post-status'].textContent = label('denied');
             drafts.clear(); renderPosts(); renderComposer();
         }
         function refresh() {
             if (closed || denied || sending) return;
             if (navigator.onLine === false) { alert(label('offline')); return; }
-            alert(''); if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true); }
+            alert(''); postSnapshots.clear(); commentSnapshots.clear();
+            if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true,true); }
         }
         function poll() {
             clearTimeout(timer); if (closed || sending) return;
@@ -412,7 +495,10 @@
             host.removeEventListener('mousedown',emojiPointer); document.removeEventListener('click',outsideEmoji); document.removeEventListener('keydown',keydown);
             window.removeEventListener('online',connectivity); window.removeEventListener('offline',connectivity);
         }};
-        active = session; bindViewer(config.viewer_key); renderChannels(); renderEmoji(); renderComposer(); loadAccounts(); poll();
+        active = session; bindViewer(config.viewer_key); renderChannels(); renderEmoji(); renderComposer();
+        if (Array.isArray(config.accounts)) { accounts = accountRows(config.accounts); renderAccounts(); }
+        else loadAccounts();
+        poll();
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function() { if (active === session) destroy(); else session.destroy(); });
     }
     function destroy() { if (active) active.destroy(); active = null; }
