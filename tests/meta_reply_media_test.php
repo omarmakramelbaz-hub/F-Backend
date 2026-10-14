@@ -4,12 +4,15 @@ namespace {
     function app($name=null){$c=\Illuminate\Container\Container::getInstance();return $name===null?$c:$c->make($name);}
     function config($key=null,$default=null){return $key===null?app('config'):app('config')->get($key,$default);}
     function now($tz=null){return \Carbon\Carbon::now($tz);}
+    function auth($guard=null){return new class {public function user(){return $GLOBALS['actor'];}};}
+    function response(){return new class {public function json($body,$status=200){return new \Illuminate\Http\JsonResponse($body,$status);}};}
     function abort_unless($ok,$status,$message='BLOCKED'){if(!$ok)throw new \Symfony\Component\HttpKernel\Exception\HttpException($status,$message);}
     function route($name,$params=[]){if($name!=='meta-replies.temporary-media')throw new \RuntimeException('unexpected route');return 'https://dashboard.example.test/api/meta/messaging/media/'.$params['ticket'];}
     set_error_handler(function($s,$m,$f,$l){if($s&E_ALL)throw new \ErrorException($m,0,$s,$f,$l);return false;});
 }
 namespace App\Models {class User {public $id=1;public $active=true;public $account_type='admin';public $owner_resturant_id=null;}}
 namespace App\Services\Dashboard {class TakeawayAccess {public function actor($actor){\abort_unless($actor&&$actor->active,403);return $actor;}}}
+namespace App\Http\Controllers {class Controller extends \Illuminate\Routing\Controller {}}
 namespace {
     use Illuminate\Container\Container;
     use Illuminate\Config\Repository;
@@ -34,7 +37,8 @@ namespace {
     $c->instance('db',$db->getDatabaseManager());$c->instance('db.schema',$db->getConnection()->getSchemaBuilder());
     $c->instance('encrypter',new Encrypter($key,'AES-256-CBC'));Facade::setFacadeApplication($c);
     foreach(['Support/MetaMessagingProtocol','Services/Dashboard/WhatsAppInboxAccess','Services/Dashboard/MetaInboxAccess',
-        'Services/Dashboard/MetaUploadMedia','Services/Dashboard/MetaMediaService','Services/Dashboard/MetaReplyService'] as $file)require __DIR__.'/../app/'.$file.'.php';
+        'Services/Dashboard/MetaUploadMedia','Services/Dashboard/MetaMediaService','Services/Dashboard/MetaReplyService',
+        'Http/Controllers/Dashboard/MetaReplyController'] as $file)require __DIR__.'/../app/'.$file.'.php';
     foreach(['2026_10_11_160000_create_meta_webhook_events_table','2026_10_11_160001_create_meta_inbox_tables',
         '2026_10_11_160003_create_meta_reply_requests','2026_10_13_160000_create_meta_message_hides'] as $file)require __DIR__.'/../database/migrations/'.$file.'.php';
     foreach(['CreateMetaWebhookEventsTable','CreateMetaInboxTables','CreateMetaReplyRequests','CreateMetaMessageHides'] as $klass)(new $klass)->up();
@@ -48,10 +52,10 @@ namespace {
             'first_message_at'=>now('UTC'),'last_message_at'=>now('UTC'),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
         message($id,'inbound','سؤال العميل');return (int)$id;
     }
-    function message($thread,$direction='inbound',$text='Fixture text',$attachments=[]){
+    function message($thread,$direction='inbound',$text='Fixture text',$attachments=[],$native=null){
         global $serial;$serial++;$t=DB::table('meta_inbox_conversations')->where('id',$thread)->first();
         $customer=json_decode(Crypt::decryptString($t->customer),true);$peer=$customer['user_id'];$scope=$t->waba_id.':'.$t->phone_number_id.':';
-        $sent=gmdate('Y-m-d H:i:s',time()-2);$mid='fixture-mid-'.$serial;
+        $sent=gmdate('Y-m-d H:i:s',time()-2);$mid=$native??'fixture-mid-'.$serial;
         $kind=$text!==null?'text':($attachments[0]['type']??'other');if($kind==='file')$kind='document';
         $dto=['channel'=>$t->waba_id,'account_id'=>$t->phone_number_id,'peer_user_id'=>$peer,'peer_identity'=>'user:'.$peer,
             'direction'=>$direction,'sent_at'=>$sent,'message_id'=>$mid,'type'=>$kind,'text'=>$text,
@@ -70,6 +74,51 @@ namespace {
     $png=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ioAAAAASUVORK5CYII=');
     file_put_contents($fixture.'/image.png',$png);$file=new UploadedFile($fixture.'/image.png','picture.png','image/png',null,true);
     try {
+        $receiptThread=thread();$receiptCalls=0;
+        $receiptService=new Replies(function()use(&$receiptCalls){$receiptCalls++;return accepted();},$media);
+        $receiptInput=input($receiptThread,['text'=>'Accepted reply before echo']);
+        $receiptResult=$receiptService->send($actor,$receiptThread,$receiptInput);
+        $receipt=$receiptService->acceptedReply($actor,$receiptThread,$receiptResult['reply_id']);
+        check($receipt['id']===$receiptResult['reply_id']&&$receipt['reply_id']===$receiptResult['reply_id']&&$receipt['state']==='ACCEPTED','safe receipt has stable request identity');
+        check($receipt['text']==='Accepted reply before echo'&&$receipt['projected_message_id']===null&&!$receipt['hidden'],'accepted text visible before webhook projection');
+        check($receipt['projection_key']===hash('sha256','whatsapp-message-v1:messenger:101:sent-fixture'),'receipt projection key uses exact existing scoped native key');
+        check(is_string($receipt['created_at'])&&is_string($receipt['accepted_at'])&&$receipt['media']===null,'receipt timestamps use persisted claim and acceptance');
+        $receiptJson=json_encode($receipt);
+        foreach(['sent-fixture','recipient','response_details','request_hash',str_repeat('a',24)] as $private)check(strpos($receiptJson,$private)===false,'receipt excludes '.$private);
+        $receiptEcho=message($receiptThread,'outbound','Accepted reply before echo',[],'sent-fixture');
+        $receipt=$receiptService->acceptedReply($actor,$receiptThread,$receiptResult['reply_id']);
+        check($receipt['projected_message_id']===$receiptEcho&&$receipt['projection_key']===DB::table('meta_inbox_messages')->where('id',$receiptEcho)->value('message_key'),'receipt reconciles with scoped outbound echo');
+        $receiptState=$receiptService->state($actor,$receiptThread);
+        check($receiptState['recent_replies'][0]['projected_message_id']===$receiptEcho&&$receiptCalls===1,'state receipt hydration makes no provider call');
+        DB::table('meta_message_hides')->insert(['actor_id'=>1,'conversation_id'=>$receiptThread,'message_id'=>$receiptEcho,
+            'message_key'=>$receipt['projection_key'],'hidden_at'=>now('UTC')]);
+        $hiddenReceipt=$receiptService->acceptedReply($actor,$receiptThread,$receiptResult['reply_id']);
+        check($hiddenReceipt['hidden']&&$hiddenReceipt['text']===null&&$hiddenReceipt['media']===null,'hidden echo cannot resurrect private receipt content');
+        check($receiptService->state($actor,$receiptThread)['recent_replies'][0]['hidden'],'audit state honors actor-specific message hides');
+        $receiptOtherActor=new \App\Models\User;$receiptOtherActor->id=2;
+        check(!$receiptService->acceptedReply($receiptOtherActor,$receiptThread,$receiptResult['reply_id'])['hidden'],'another authorized actor keeps its own visibility');
+        check($receiptService->acceptedReply($actor,thread(),$receiptResult['reply_id'])===null,'receipt lookup cannot cross conversations');
+        $actor->active=false;expectHttp(fn()=>$receiptService->acceptedReply($actor,$receiptThread,$receiptResult['reply_id']),403,'receipt refreshes actor access');$actor->active=true;
+        config()->set('meta_messaging.accounts',array_slice($accounts,1));
+        expectHttp(fn()=>$receiptService->acceptedReply($actor,$receiptThread,$receiptResult['reply_id']),404,'receipt honors current provider account scope');config()->set('meta_messaging.accounts',$accounts);
+
+        $receiptController=new \App\Http\Controllers\Dashboard\MetaReplyController;
+        $controllerThread=thread();$controllerInput=input($controllerThread,['text'=>'Immediate controller receipt']);
+        $controllerResponse=$receiptController->send(\Illuminate\Http\Request::create('/','POST',$controllerInput),(string)$controllerThread,$receiptService);
+        $controllerData=$controllerResponse->getData(true);
+        check($controllerResponse->getStatusCode()===200&&$controllerData['state']==='ACCEPTED'&&$controllerData['accepted_reply']['text']==='Immediate controller receipt','send POST returns safe accepted receipt immediately');
+        \Illuminate\Support\Facades\Schema::rename('meta_message_hides','meta_message_hides_unavailable');
+        $controllerThread=thread();$controllerInput=input($controllerThread,['text'=>'Confirmed even if local lookup fails']);
+        $controllerData=$receiptController->send(\Illuminate\Http\Request::create('/','POST',$controllerInput),(string)$controllerThread,$receiptService)->getData(true);
+        check($controllerData['state']==='ACCEPTED'&&$controllerData['success']&&!isset($controllerData['accepted_reply']),'local projection failure never downgrades accepted send or bypasses hide checks');
+        \Illuminate\Support\Facades\Schema::rename('meta_message_hides_unavailable','meta_message_hides');
+        $controllerThread=thread();$controllerInput=input($controllerThread,['text'=>'Unknown stays unknown']);
+        $unknownReceiptService=new Replies(fn()=>['status'=>0,'body'=>''],$media);
+        $unknownResponse=$receiptController->send(\Illuminate\Http\Request::create('/','POST',$controllerInput),(string)$controllerThread,$unknownReceiptService);
+        $unknownData=$unknownResponse->getData(true);
+        check($unknownResponse->getStatusCode()===202&&$unknownData['state']==='UNKNOWN'&&!isset($unknownData['accepted_reply']),'uncertain transport cannot produce accepted transcript receipt');
+        check($unknownReceiptService->acceptedReply($actor,$controllerThread,$unknownData['reply_id'])===null,'public receipt API returns accepted states only');
+
         $t=thread();$calls=[];$request=input($t);
         $reply=new Replies(function($endpoint,$payload,$token)use(&$calls,$t){
             $calls[]=$endpoint;check(DB::connection()->transactionLevel()===0,'network outside DB transaction');
@@ -82,7 +131,8 @@ namespace {
                 return ['status'=>200,'body'=>'{"attachment_id":"700"}'];
             }
             check($r->state==='UNKNOWN'&&$r->send_started_at!==null,'durable uncertainty before native send');
-            check($payload['message']['attachment']['payload']['attachment_id']==='700'&&$payload['recipient']['id']==='900','send native uploaded attachment id');
+            $expectedPeer=json_decode(Crypt::decryptString(DB::table('meta_inbox_conversations')->where('id',$t)->value('customer')),true)['user_id'];
+            check($payload['message']['attachment']['payload']['attachment_id']==='700'&&$payload['recipient']['id']===$expectedPeer,'send native uploaded attachment id');
             return accepted();
         },$media);
         $firstReply=$reply->attachment($actor,$t,$request,$file);
@@ -90,6 +140,12 @@ namespace {
         check($reply->attachment($actor,$t,$request,$file)['replayed']&&count($calls)===2,'image UUID never repeats upload or send');
         $state=$reply->state($actor,$t,$request['client_request_id']);
         check($state['request_state']==='ACCEPTED'&&$state['recent_replies'][0]['kind']==='image'&&$state['recent_replies'][0]['media']['name']==='image.png','media state reconciliation');
+        $imageReceipt=$reply->acceptedReply($actor,$t,$firstReply['reply_id']);
+        check(array_keys($imageReceipt['media'])===['type','name']&&$imageReceipt['kind']==='image','accepted media receipt exposes label only');
+        $controllerRichService=new Replies(fn($endpoint)=>str_ends_with($endpoint,'/message_attachments')?['status'=>200,'body'=>'{"attachment_id":"799"}']:accepted(),$media);
+        $controllerThread=thread();$controllerRequest=\Illuminate\Http\Request::create('/','POST',input($controllerThread));$controllerRequest->files->set('attachment',\Illuminate\Http\UploadedFile::createFromBase($file,true));
+        $controllerData=$receiptController->attachment($controllerRequest,(string)$controllerThread,$controllerRichService)->getData(true);
+        check($controllerData['accepted_reply']['kind']==='image'&&$controllerData['accepted_reply']['media']['type']==='image','attachment POST includes accepted media-label receipt');
         check(strpos(json_encode($state),'private')===false&&strpos(json_encode($state),'input_sha256')===false,'no paths or private fingerprints in public state');
         file_put_contents($fixture.'/other.txt','changed input');$other=new UploadedFile($fixture.'/other.txt','other.txt','text/plain',null,true);
         expectHttp(fn()=>$reply->attachment($actor,$t,$request,$other),409,'UUID payload conflict blocks reuse');
@@ -161,6 +217,9 @@ namespace {
         $request=input($target,['source_message_id'=>$sourceMessage]);
         check($forward->forward($actor,$target,$request)['state']==='ACCEPTED','forward same-account text');
         check($forward->forward($actor,$target,$request)['replayed']&&$forwardCalls===1,'forward UUID idempotent');
+        $controllerThread=thread();$controllerRequest=\Illuminate\Http\Request::create('/','POST',input($controllerThread,['source_message_id'=>$sourceMessage]));
+        $controllerData=$receiptController->forward($controllerRequest,(string)$controllerThread,$forward)->getData(true);
+        check($controllerData['accepted_reply']['text']==='Forward text'&&$controllerData['accepted_reply']['forwarded'],'forward POST includes accepted grounded-text receipt');
         $audit=json_decode(Crypt::decryptString(DB::table('meta_reply_requests')->where('conversation_id',$target)->value('audit')),true);
         check($audit['source_message_id']===$sourceMessage&&is_string($audit['source_evidence_hash'])&&$audit['source_conversation_id']===$source,'forward source evidence encrypted');
         $foreign=thread('messenger','102');expectHttp(fn()=>$forward->forward($actor,$foreign,input($foreign,['source_message_id'=>$sourceMessage])),422,'forward cannot cross native accounts');
@@ -193,6 +252,9 @@ namespace {
                 check($payload['message']['attachment']['type']==='audio','voice native audio send');return accepted();
             },$media);
             check($voice->voice($actor,$t,input($t),$recording)['state']==='ACCEPTED'&&$voiceCalls===2,'real voice recording accepted');
+            $controllerThread=thread();$controllerRequest=\Illuminate\Http\Request::create('/','POST',input($controllerThread));$controllerRequest->files->set('audio',\Illuminate\Http\UploadedFile::createFromBase($recording,true));
+            $controllerData=$receiptController->voice($controllerRequest,(string)$controllerThread,$controllerRichService)->getData(true);
+            check($controllerData['accepted_reply']['kind']==='audio'&&$controllerData['accepted_reply']['media']['type']==='audio','voice POST includes accepted audio-label receipt');
             $prepared=$media->prepare($recording);copy($prepared['path'],$fixture.'/audio.m4a');$media->cleanup($prepared['path']);
             $m4a=new UploadedFile($fixture.'/audio.m4a','audio.m4a','audio/mp4',null,true);$prepared=$media->prepare($m4a);
             check($prepared['type']==='audio'&&$prepared['mime']==='audio/mp4','generic M4A attachment classified from actual streams');$media->cleanup($prepared['path']);
