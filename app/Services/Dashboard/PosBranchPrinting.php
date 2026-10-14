@@ -23,7 +23,8 @@ class PosBranchPrinting
             ->where('p.branch',$v['branch'])->where('t.branch',$v['branch'])->where('t.channel','phone')->where('t.status','!=','cancelled');
         $pending=(clone $jobs)->where('p.status','pending')->orderBy('p.id')->limit(10)->get(['p.id','p.ticket_id'])->map(fn($r)=>['id'=>(int)$r->id,'ticket_id'=>(int)$r->ticket_id])->all();
         $attention=(clone $jobs)->where(function($q){$q->where('p.status','failed')->orWhere(function($q){$q->where('p.status','claimed')->where('p.claimed_at','<',now('UTC')->subMinutes(2));});})->count();
-        $latest=DB::table('pos_service_tickets')->where('branch',$v['branch'])->where('channel','phone')->max('id');
+        // Alert only for a real kitchen/print delivery, excluding unsent drafts and cancellations.
+        $latest=(clone $jobs)->max('p.ticket_id');
         return ['success'=>true,'branch'=>$v['branch'],'jobs'=>$pending,'attention'=>$attention,'latest_ticket_id'=>(int)$latest];
     }
     public function claim(array $values,$actor): array

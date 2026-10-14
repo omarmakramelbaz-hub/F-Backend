@@ -103,6 +103,20 @@ class OrderBoardService
             'count'=>array_sum($counts)];
     }
 
+    /** Complete, actor-scoped new-order keys; UI filters and pagination never silence alerts. */
+    public function pendingAlertKeys($actor): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $keys = [];
+        foreach (['legacy', 'store', 'service', 'partner_service'] as $source) {
+            $query = $this->query($source, $actor, []);
+            if (!$query) continue;
+            $this->forGroup($query, $source, 'new');
+            foreach ($query->orderBy('id')->pluck('id') as $id) $keys[] = $source.':'.$id;
+        }
+        return $keys;
+    }
+
     /** Authorize a transition without hydrating receipt lines, payments or customer display data. */
     public function actionState(string $source, int $id, $actor, GoStoreBoardActions $stores): array
     {

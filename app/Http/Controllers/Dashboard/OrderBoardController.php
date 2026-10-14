@@ -33,10 +33,12 @@ class OrderBoardController extends Controller
 
     public function feed(Request $request, OrderBoardService $service)
     {
+        $alertKeys = $service->pendingAlertKeys(auth('admin')->user());
+        if ($request->boolean('alerts_only')) return response()->json(['pending_alert_keys'=>$alertKeys]);
         $board = $service->data($request, auth('admin')->user());
         $html = view('admin.orders.board_columns', compact('board'))->render();
         return response()->json(['html'=>$html, 'view'=>$html, 'count'=>$board['count'],
-            'counts'=>$board['counts'], 'updated_at'=>$board['updated_at']]);
+            'counts'=>$board['counts'], 'updated_at'=>$board['updated_at'], 'pending_alert_keys'=>$alertKeys]);
     }
 
     public function details(string $source, int $id, OrderBoardService $service)
