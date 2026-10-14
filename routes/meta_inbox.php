@@ -2,7 +2,17 @@
 
 use App\Http\Controllers\Dashboard\MetaInboxController;
 use App\Http\Controllers\Dashboard\MetaMessageActionsController;
+use App\Http\Controllers\Dashboard\MetaConnectionController;
+use App\Http\Middleware\MetaOAuthCallbackPrivacy;
 use Illuminate\Support\Facades\Route;
+
+// Scrub the callback before language or authentication middleware can retain its URL.
+Route::group(['prefix' => 'admin/meta/connection', 'middleware' => [MetaOAuthCallbackPrivacy::class, 'lang', 'IsAdmin']], function () {
+    Route::get('/', [MetaConnectionController::class, 'index'])->name('meta-connection.index');
+    Route::post('/start', [MetaConnectionController::class, 'start'])->name('meta-connection.start');
+    Route::get('/callback', [MetaConnectionController::class, 'callback'])->name('meta-connection.callback');
+    Route::post('/confirm', [MetaConnectionController::class, 'confirm'])->name('meta-connection.confirm');
+});
 
 Route::group(['prefix' => 'admin/meta', 'middleware' => ['lang', 'IsAdmin']], function () {
     Route::get('/', [MetaInboxController::class, 'index'])->name('meta-inbox.index');

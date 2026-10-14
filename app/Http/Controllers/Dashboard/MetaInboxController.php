@@ -22,12 +22,13 @@ class MetaInboxController extends Controller
     public function index(MetaInboxAccess $access)
     {
         try {
-            $access->actor(auth('admin')->user());
+            $actor = $access->actor(auth('admin')->user());
             $available = $access->available();
             return response()->view('admin.meta.index', ['waInbox' => [
                 'available' => $available,
                 'conversations_url' => route('meta-inbox.conversations'),
                 'messages_base_url' => url('/admin/meta/conversations'),
+                'connection_url' => $access->canConnect($actor) ? route('meta-connection.index') : null,
                 'labels' => $this->labels(),
             ]])->withHeaders($this->privateHeaders());
         } catch (HttpException $error) {

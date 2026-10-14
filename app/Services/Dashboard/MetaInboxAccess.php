@@ -7,6 +7,27 @@ use Illuminate\Support\Facades\Schema;
 /** Native identities remain separated by channel AND business account. */
 class MetaInboxAccess extends WhatsAppInboxAccess
 {
+    /** Only a persisted Owner may replace the business connection. */
+    public function owner($actor): \App\Models\User
+    {
+        $fresh = $this->actor($actor);
+        $owner = (int) $fresh->getKey() === 1
+            || $fresh->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists();
+        abort_unless($owner, 403);
+        return $fresh;
+    }
+
+    public function canConnect($actor): bool
+    {
+        try {
+            if (config('desktop_dashboard.local', false)) return false;
+            $this->owner($actor);
+            return true;
+        } catch (\Throwable $error) {
+            return false;
+        }
+    }
+
     public function available(): bool
     {
         return !config('desktop_dashboard.local', false)
@@ -19,6 +40,14 @@ class MetaInboxAccess extends WhatsAppInboxAccess
     {
         $accounts = config('meta_messaging.accounts', []);
         if (!is_array($accounts)) return [];
+        // Missing or invalid OAuth storage must not disable the existing connection.
+        try {
+            if (class_exists(MetaOAuthCredentials::class)) {
+                $accounts = app(MetaOAuthCredentials::class)->overlay($accounts);
+            }
+        } catch (\Throwable $error) {
+            // Keep the validated baseline accounts when private credentials are unavailable.
+        }
         return array_values(array_filter($accounts, static function ($a) {
             return is_array($a) && in_array($a['channel'] ?? null, ['messenger', 'instagram'], true)
                 && is_string($a['account_id'] ?? null) && preg_match('/\A[1-9][0-9]{0,31}\z/', $a['account_id']);
