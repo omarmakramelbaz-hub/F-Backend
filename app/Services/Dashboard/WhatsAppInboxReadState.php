@@ -10,6 +10,9 @@ class WhatsAppInboxReadState
 {
     private const TABLE = 'whatsapp_inbox_reads';
     private const THREAD_LIMIT = 1000;
+    private $authorizer;
+
+    public function __construct(?callable $authorizer = null) { $this->authorizer = $authorizer; }
 
     public function available(): bool
     {
@@ -27,13 +30,16 @@ class WhatsAppInboxReadState
             }, $ids)));
         }
         // One aggregate counts the actor's entire scoped inbox without loading chat history.
-        $total = (int) DB::table('whatsapp_inbox_messages as m')
+        $unread = DB::table('whatsapp_inbox_messages as m')
             ->join('whatsapp_inbox_conversations as c', 'c.id', '=', 'm.conversation_id')
             ->leftJoin(self::TABLE . ' as r', function ($join) use ($actor) {
                 $join->on('r.conversation_id', '=', 'm.conversation_id')->where('r.actor_id', '=', $actor->id);
             })
             ->where('c.waba_id', WhatsAppInboxAccess::WABA_ID)->where('c.phone_number_id', WhatsAppInboxAccess::PHONE_ID)
-            ->where('m.direction', 'inbound')->whereRaw('m.id > COALESCE(r.seen_message_id, 0)')->count();
+            ->where('m.direction', 'inbound')->whereRaw('m.id > COALESCE(r.seen_message_id, 0)');
+        $total = (int) (clone $unread)->count();
+        $visible = $this->visible(clone $unread, (int) $actor->id);
+        $conversationTotal = (int) $visible->distinct()->count('m.conversation_id');
         $query = $this->threads();
         if ($ids !== null) $query->whereIn('id', $ids);
         $limit = $ids === null ? self::THREAD_LIMIT : 100;
@@ -41,10 +47,11 @@ class WhatsAppInboxReadState
             ->limit($limit + 1)->pluck('id');
         $more = $threads->count() > $limit;
         $selected = $threads->take($limit)->map(fn ($id) => (int) $id)->all();
-        if (!$selected) return ['success' => true, 'total_unread' => $total,
+        if (!$selected) return ['success' => true, 'total_unread' => $total, 'total_unread_messages' => $total,
+            'total_unread_conversations' => $conversationTotal,
             'conversations' => [], 'has_more' => false];
 
-        $rows = DB::table('whatsapp_inbox_messages as m')
+        $rows = $this->visible(DB::table('whatsapp_inbox_messages as m'), (int) $actor->id)
             ->leftJoin(self::TABLE . ' as r', function ($join) use ($actor) {
                 $join->on('r.conversation_id', '=', 'm.conversation_id')->where('r.actor_id', '=', $actor->id);
             })
@@ -59,7 +66,8 @@ class WhatsAppInboxReadState
             $items[] = ['id' => $id, 'unread_count' => $count,
                 'latest_inbound_id' => (int) ($row->latest_inbound_id ?? 0)];
         }
-        return ['success' => true, 'total_unread' => $total, 'conversations' => $items, 'has_more' => $more];
+        return ['success' => true, 'total_unread' => $total, 'total_unread_messages' => $total,
+            'total_unread_conversations' => $conversationTotal, 'conversations' => $items, 'has_more' => $more];
     }
 
     public function markRead(int $conversation, $seenMessage, $actor): array
@@ -93,7 +101,18 @@ class WhatsAppInboxReadState
 
     private function actor($actor)
     {
-        return app(WhatsAppInboxAccess::class)->actor($actor);
+        return $this->authorizer !== null ? ($this->authorizer)($actor) : app(WhatsAppInboxAccess::class)->actor($actor);
+    }
+
+    private function visible($query, int $actor)
+    {
+        if (!Schema::hasTable(WhatsAppInboxMessage::HIDDEN)) return $query;
+        return $query->whereNotExists(function ($hidden) use ($actor) {
+            $hidden->selectRaw('1')->from(WhatsAppInboxMessage::HIDDEN . ' as h')
+                ->where('h.actor_id', $actor)->whereColumn('h.conversation_id', 'm.conversation_id')
+                ->where(function ($q) { $q->whereColumn('h.message_id', 'm.id')->orWhereColumn('h.native_message_key', 'm.message_key')
+                    ->orWhereColumn('h.message_cutoff', '>=', 'm.id'); });
+        });
     }
 
     private function threads()
