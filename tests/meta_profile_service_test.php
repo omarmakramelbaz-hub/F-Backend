@@ -80,6 +80,16 @@ namespace {
     check(strpos(DB::table('meta_inbox_conversations')->where('id', $messenger)->value('customer'), 'أحمد') === false, 'name remains encrypted');
     check($service->refresh()['attempted'] === 0 && count($calls) === 3, 'known profiles are not requested again');
 
+    resetThreads(); $requested = thread('messenger', '101', '905'); $other = thread('messenger', '101', '906');
+    $targetedCalls = 0;
+    $targeted = new Profiles(function ($endpoint) use (&$targetedCalls) {
+        $targetedCalls++; check(strpos($endpoint, '/905?') !== false, 'open chat targets only its own scoped peer');
+        return ['status' => 200, 'body' => '{"id":"905","first_name":"اسم","last_name":"السوشيال"}'];
+    });
+    check($targeted->refresh(1, $requested)['updated'] === 1 && $targetedCalls === 1
+        && customer($requested)['name'] === 'اسم السوشيال' && customer($other)['name'] === null,
+        'targeted social name hydration does not request another conversation');
+
     resetThreads(); $mismatch = thread('messenger', '101', '910'); $failedCalls = 0;
     $wrong = new Profiles(function () use (&$failedCalls) { $failedCalls++; return ['status' => 200, 'body' => '{"id":"999","first_name":"Wrong customer"}']; });
     check($wrong->refresh()['failed'] === 1 && customer($mismatch)['name'] === null && customer($mismatch)['meta_profile']['reason'] === 'ID_MISMATCH', 'returned identity mismatch cannot name customer');
