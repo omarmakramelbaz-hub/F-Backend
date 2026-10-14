@@ -38,10 +38,18 @@ namespace App\Services\Dashboard {
         private $calls=0;
         public function state(){
             $this->calls++;if(getenv('META_STATUS_CASE')==='unavailable')return['available'=>false,'effective'=>false,'status'=>'DISABLED','reason'=>'UNAVAILABLE'];
-            $policy=['enabled'=>getenv('META_STATUS_CASE')==='active','channels'=>['whatsapp','messenger','instagram'],
+            $case=getenv('META_STATUS_CASE');$enabled=in_array($case,['active','reply-only','dispatch-only'],true);
+            $policy=['enabled'=>$enabled,'channels'=>['whatsapp','messenger','instagram'],
                 'schedule'=>['enabled'=>false,'days'=>[0,1,2,3,4,5,6],'start'=>'09:00','end'=>'23:00','all_day'=>true]];
-            return['available'=>true,'effective'=>$policy['enabled'],'status'=>$policy['enabled']?'ACTIVE':'DISABLED','policy'=>$policy,
-                'revision'=>getenv('META_STATUS_CASE')==='drift'&&$this->calls>1?8:7,'local_time'=>'2026-10-15T01:10:00+03:00',
+            if($case==='dispatch-only')$policy['schedule']=['enabled'=>true,'days'=>[0,1,2,3,4,5,6],'start'=>'22:00','end'=>'23:00','all_day'=>false];
+            $local=in_array($case,['active','dispatch-only'],true)?'2026-10-15T10:10:00+03:00':'2026-10-15T01:10:00+03:00';
+            $reply=$enabled&&$case!=='dispatch-only';
+            $dispatch=\App\Support\MetaAiSchedule::dispatchStatus($policy,new \DateTimeImmutable($local));
+            if($dispatch['status']==='DISPATCH_OUTSIDE_HOURS')$dispatch['status']='SCHEDULED_OFF';
+            if($case==='bad-dispatch')$dispatch=['effective'=>'true','status'=>'PRIVATE_STATE','local_time'=>'PRIVATE_TIME','token'=>'PRIVATE_TOKEN'];
+            return['available'=>true,'effective'=>$reply,'status'=>$reply?'ACTIVE':($enabled?'SCHEDULED_OFF':'DISABLED'),'policy'=>$policy,
+                'dispatch_state'=>$dispatch,
+                'revision'=>getenv('META_STATUS_CASE')==='drift'&&$this->calls>1?8:7,'local_time'=>$local,
                 'handoff_method'=>'OWNER_ATTESTED','handoff_required'=>false,'updated_at_utc'=>'2026-10-14 22:10:00',
                 'api_key'=>'PRIVATE_API_KEY','actor'=>['name'=>'PRIVATE_CUSTOMER_NAME'],'unexpected'=>'PRIVATE_ADDRESS'];
         }
@@ -146,6 +154,15 @@ expect(count($one['drafts'][0]['erp']['print_jobs']),3,'print list bounded');exp
 expect($one['drafts'][0]['erp']['print_jobs'][0]['state'],'invoked','print invocation classified accurately');
 expect($one['replies'][0]['ownership'],'MANUAL','manual ownership separate');expect($one['replies'][1]['ownership'],'AUTOMATIC','verified marker ownership');
 [$exit,$value]=runStatus('active',['--channel','whatsapp','--conversation','7']);expect($exit,0,'selected thread probe successful');expect($value['selection']['matched'],1,'explicit scope selection');expect($value['control']['effective'],true,'enabled state exposed');
+expect($value['control']['dispatch_state']['effective'],true,'dispatch window exposed separately');
+[$exit,$value]=runStatus('reply-only');expect($exit,0,'reply-only schedule observable');
+expect($value['control']['effective'],true,'reply hours open independently');expect($value['control']['dispatch_state']['status'],'SCHEDULED_OFF','dispatch remains closed after midnight boundary');
+expect($value['control']['policy']['dispatch_schedule']['start'],'09:00','legacy policy exposes default dispatch opening');
+expect($value['control']['policy']['dispatch_schedule']['end'],'00:30','legacy policy exposes default dispatch ending');
+[$exit,$value]=runStatus('dispatch-only');expect($exit,0,'dispatch-only schedule observable');
+expect($value['control']['status'],'SCHEDULED_OFF','reply hours closed independently');expect($value['control']['dispatch_state']['effective'],true,'dispatch hours open while replies closed');
+[$exit,$value]=runStatus('bad-dispatch');expect($exit,0,'unsafe dispatch metadata remains observable');
+expect($value['control']['dispatch_state'],['effective'=>false,'status'=>'UNAVAILABLE','local_time'=>null],'dispatch metadata sanitized without private fields');
 foreach(['bad-marker','bad-cipher','huge-audit']as$case){[$exit,$value]=runStatus($case,['--channel','whatsapp','--conversation','7']);expect($exit,0,'unsafe receipt does not leak or abort '.$case);expect($value['conversations'][0]['replies'][1]['ownership'],'UNREADABLE','bad receipt explicit '.$case);}
 [$exit,$value]=runStatus('unknown',['--channel','whatsapp','--conversation','7']);expect($value['conversations'][0]['sender']['reason'],'UNKNOWN_PENDING','uncertainty window reason');
 [$exit,$value]=runStatus('closed',['--channel','whatsapp','--conversation','7']);expect($value['conversations'][0]['sender']['reason'],'WINDOW_CLOSED','closed window explicit');

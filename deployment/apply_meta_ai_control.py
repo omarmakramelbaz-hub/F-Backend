@@ -22,9 +22,9 @@ PREFIX = 'app/Services/Dashboard/'
 # Existing configuration, activation, cutoffs and order/reply rows are preserved.
 # Only the declared new disabled policy schema may be created by its pinned migration.
 SOURCE_PINS = {
-    'app/Support/MetaAiSchedule.php': (None, '739244b40c1115105a72c42534eba37d696bf4fe'),
+    'app/Support/MetaAiSchedule.php': (None, 'f05614f2b9f7db4c3596bac5a78d0e2de5e538df'),
     'app/Services/Dashboard/MetaBusinessAgent.php': (None, '4b2ad29c21ea092af94ad3fa1bace90ad4dd4672'),
-    'app/Services/Dashboard/MetaAiControl.php': (None, '66df1b61f9d47050a0d3ce870b560589f4e01824'),
+    'app/Services/Dashboard/MetaAiControl.php': (None, '86639b7cbac148006d9f93b2589412932d2c03e2'),
     'app/Support/WhatsAppOrderDialogue.php': (None, '33253285d24ba7110f58744cad9c3a87e1bef06a'),
     'app/Support/WhatsAppOrderExtraction.php': ('56d2b9575da152de3eac4876fd93140ee7bc9e39', '1b518728c5f63db4ba1ef84149fb0aafec02a98a'),
     'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php': ('1bd223861e3772e10658df2d555b4bb040243a4a', 'bfe69bb72cc586c68823463fd3f1885915774d02'),
@@ -34,14 +34,14 @@ SOURCE_PINS = {
     'app/Services/Dashboard/MetaOrderFollowupService.php': (None, 'd14a3c6e84624ee5b2d20997b7f11159b9101720'),
     'app/Services/Dashboard/MetaMediaService.php': ('bc97cf1170ef0e4aedb06cfb1a8954522f831ce4', 'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e'),
     'app/Services/Dashboard/MetaReplyService.php': ('84c686bba5acc0dd3696015f09854aae3f8c4448', 'c4226df516aa5f8b59999a8979f9f2ab43cf0e28'),
-    'app/Services/Dashboard/WhatsAppOrderWorkflow.php': ('e2b558a5de68080b85b12189e73239190aace507', 'ee4263c6b7bd827d9bf481db237779c189782b40'),
-    'app/Services/Dashboard/MetaOrderWorkflow.php': ('e13362de65706f9ee5e5dab8acc24220bca5cdb0', 'd6cbf86c96ad44a0e0a65c6894085500594ced8f'),
+    'app/Services/Dashboard/WhatsAppOrderWorkflow.php': ('e2b558a5de68080b85b12189e73239190aace507', '1093547d48befad671dddbe73b5684240504d107'),
+    'app/Services/Dashboard/MetaOrderWorkflow.php': ('e13362de65706f9ee5e5dab8acc24220bca5cdb0', '0bc341a40717428feb47a4d6f42232e7b82afa40'),
     'app/Services/Dashboard/MetaInboxConsumer.php': ('f7dda06f617de711a3f6a363edda0185e3973794', '3b7e9cb9abfabc85c0b78199d0bf9d2565424f42'),
     'app/Http/Controllers/Dashboard/MetaAiControlController.php': (None, '3cb87c03aaabdd7b1bb01f047caf201649c8db6f'),
-    'app/Console/Commands/ProcessMetaAiMessages.php': (None, 'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f'),
+    'app/Console/Commands/ProcessMetaAiMessages.php': (None, '9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7'),
     'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': (None, '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae'),
-    'resources/views/admin/meta/ai_controls.blade.php': (None, '9a560c33fd4d3f1a87390a56a72a372396db72fe'),
-    'public/js/dashboard-meta-ai-controls.js': (None, '00589d95df07646aaa8db71309e098bccd36bd2e'),
+    'resources/views/admin/meta/ai_controls.blade.php': (None, '05c991ec21144ae783104c089aea9f43fb3964a0'),
+    'public/js/dashboard-meta-ai-controls.js': (None, 'c3f33b423b6228ca679f5b7ec292213a22c7bd5b'),
     'public/css/dashboard-meta-ai-controls.css': (None, '293c1db7c3a4c3dc2720fd9216c450ac172c37e8'),
     'routes/meta_ai_controls.php': (None, '8a89374a33002b88f7ed593d6aab5817aa3cf2a4'),
     'resources/views/admin/meta/channels.blade.php': ('6c15d00e98405f2fa13cb4583b51bee175caeccf', 'c922fd431ca3df5b12f6aeef05c0885bc0da3049'),
@@ -63,8 +63,8 @@ SOURCE_PROFILE_PROTECTED = {
     'WHATSAPP_TAIL':'META_UNIFIED_MESSAGES', 'WHATSAPP_CONTEXTUAL':'META_UNIFIED_MESSAGES',
     'WHATSAPP_TAIL_HUB':'META_MESSAGE_HUB', 'WHATSAPP_CONTEXTUAL_HUB':'META_MESSAGE_HUB',
 }
-# Exact complete runtime of the installed AI-control release. Its only upgrade
-# target is the control JavaScript; never adopt arbitrary mixtures of old/new AI.
+# Exact complete runtimes of the installed AI-control releases. Upgrade only
+# these reviewed sets; never adopt arbitrary mixtures of old and new AI code.
 PREVIOUS_CONTROL_SOURCE_PROFILES = {
     'META_AI_CONTROL_V1': {
         'app/Support/MetaAiSchedule.php': '739244b40c1115105a72c42534eba37d696bf4fe',
@@ -87,6 +87,32 @@ PREVIOUS_CONTROL_SOURCE_PROFILES = {
         'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
         'resources/views/admin/meta/ai_controls.blade.php': '9a560c33fd4d3f1a87390a56a72a372396db72fe',
         'public/js/dashboard-meta-ai-controls.js': 'fc34fca42cf8dd80f7916bacc1780444a51afab4',
+        'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
+        'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
+        'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
+        'routes/meta_inbox.php': '2b5f992b8392be450a032d71d5a625a8aeed822e',
+    },
+    'META_AI_CONTROL_SAVE_BUTTON': {
+        'app/Support/MetaAiSchedule.php': '739244b40c1115105a72c42534eba37d696bf4fe',
+        'app/Services/Dashboard/MetaBusinessAgent.php': '4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
+        'app/Services/Dashboard/MetaAiControl.php': '66df1b61f9d47050a0d3ce870b560589f4e01824',
+        'app/Support/WhatsAppOrderDialogue.php': '33253285d24ba7110f58744cad9c3a87e1bef06a',
+        'app/Support/WhatsAppOrderExtraction.php': '1b518728c5f63db4ba1ef84149fb0aafec02a98a',
+        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php': 'bfe69bb72cc586c68823463fd3f1885915774d02',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php': 'b7b2797f1aad6747d1e4a34e546e4f6421c99a4c',
+        'app/Services/Dashboard/WhatsAppOrderFollowupService.php': 'be38be4938cf0fb6725baf38ebd4fcb69e6d692f',
+        'app/Services/Dashboard/MetaOrderNativeEvidence.php': 'f11710e1439867ba63571a690526496684120ef5',
+        'app/Services/Dashboard/MetaOrderFollowupService.php': 'd14a3c6e84624ee5b2d20997b7f11159b9101720',
+        'app/Services/Dashboard/MetaMediaService.php': 'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e',
+        'app/Services/Dashboard/MetaReplyService.php': 'c4226df516aa5f8b59999a8979f9f2ab43cf0e28',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'ee4263c6b7bd827d9bf481db237779c189782b40',
+        'app/Services/Dashboard/MetaOrderWorkflow.php': 'd6cbf86c96ad44a0e0a65c6894085500594ced8f',
+        'app/Services/Dashboard/MetaInboxConsumer.php': '3b7e9cb9abfabc85c0b78199d0bf9d2565424f42',
+        'app/Http/Controllers/Dashboard/MetaAiControlController.php': '3cb87c03aaabdd7b1bb01f047caf201649c8db6f',
+        'app/Console/Commands/ProcessMetaAiMessages.php': 'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f',
+        'database/migrations/2026_10_15_000001_create_meta_ai_controls.php': '3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
+        'resources/views/admin/meta/ai_controls.blade.php': '9a560c33fd4d3f1a87390a56a72a372396db72fe',
+        'public/js/dashboard-meta-ai-controls.js': '00589d95df07646aaa8db71309e098bccd36bd2e',
         'public/css/dashboard-meta-ai-controls.css': '293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
         'routes/meta_ai_controls.php': '8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php': 'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
@@ -353,7 +379,11 @@ try {
   if(!$row||(int)$row->handoff_oversized!==0||!is_string($row->policy)||!is_string($row->activations))throw new \RuntimeException();
   $policy=json_decode($row->policy,true,8,JSON_THROW_ON_ERROR);
   $activations=json_decode($row->activations,true,8,JSON_THROW_ON_ERROR);
-  if(!is_array($policy)||count($policy)!==3||!is_bool($policy['enabled']??null)
+  if(!is_array($policy))throw new \RuntimeException();
+  $policyKeys=array_keys($policy);sort($policyKeys);
+  if(!in_array($policyKeys,[['channels','enabled','schedule'],['channels','dispatch_schedule','enabled','schedule']],true)
+   ||(array_key_exists('dispatch_schedule',$policy)&&!is_array($policy['dispatch_schedule']))
+   ||!is_bool($policy['enabled']??null)
    ||!is_array($policy['channels']??null)||!is_array($policy['schedule']??null)||!is_array($activations))throw new \RuntimeException();
   $result['fingerprint']=hash('sha256',json_encode((array)$row,JSON_THROW_ON_ERROR));
   $result['enabled']=$policy['enabled'];
@@ -546,6 +576,9 @@ def apply(root, uid, release, check_only=False, runner=base.command, pins=None, 
         controls=control_state(root,runner)
         if expected_control!='UNSPECIFIED' and controls['fingerprint']!=expected_control:
             raise SafeError('META_AI_CONTROL_POLICY_CHANGED_SINCE_PREFLIGHT')
+        # Complete prior AI-control releases already enforce the persisted policy
+        # at processing/send boundaries. Preserve their active policy and cutoffs
+        # while workers are quiesced; legacy source profiles require policy OFF.
         if source_profile!='CURRENT' and source_profile not in PREVIOUS_CONTROL_SOURCE_PROFILES and controls['enabled']:
             raise SafeError('META_AI_CONTROL_ENABLED_WITH_LEGACY_RUNTIME_NEEDS_REVIEW')
         unchanged()

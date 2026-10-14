@@ -38,7 +38,7 @@ class MetaOrderWorkflow extends WhatsAppOrderWorkflow
         if (!$this->controlInstalled()) return $query;
         $floors=[];
         foreach (['messenger','instagram'] as $channel) {
-            try { $gate=app(MetaAiControl::class)->gate($channel); }
+            try { $gate=app(MetaAiControl::class)->processingGate($channel); }
             catch (\Throwable $ignore) { continue; }
             if (($gate['effective']??false)===true&&is_int($gate['floor']['message_floor']??null))
                 $floors[$channel]=$gate['floor'];
@@ -47,7 +47,7 @@ class MetaOrderWorkflow extends WhatsAppOrderWorkflow
             $scope->whereRaw('0 = 1');
             foreach ($floors as $channel=>$floor) $scope->orWhere(function($candidate) use($channel,$floor) {
                 $candidate->where('c.waba_id',$channel)->where('m.id','>',$floor['message_floor']);
-                $this->filterPrimaryInboundCandidates($candidate,$floor);
+                $this->filterDispatchOnlyCandidates($this->filterPrimaryInboundCandidates($candidate,$floor),$channel);
             });
         });
     }

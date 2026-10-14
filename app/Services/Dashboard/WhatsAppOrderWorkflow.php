@@ -24,7 +24,7 @@ class WhatsAppOrderWorkflow
         'NO_ORDER', 'CUSTOMER_CANCELLED', 'REVIEW_REQUIRED', 'PICKUP_REQUIRES_REVIEW', 'BRANCH_UNRESOLVED',
         'CATALOG_UNRESOLVED', 'LOCATION_UNCONFIRMED', 'PRICE_REQUIRES_REVIEW', 'CUSTOMER_CHANGE',
         'BRANCH_CLOSED', 'BRANCH_POLICY_UNAVAILABLE', 'AUTO_NOT_CONFIGURED', 'PROCESS_FAILED','CAPTURE_REVIEW_REQUIRED',
-        'RECOVERED_HISTORY_REVIEW'];
+        'RECOVERED_HISTORY_REVIEW','DISPATCH_OUTSIDE_HOURS'];
 
     public function available(): bool
     {
@@ -72,7 +72,7 @@ class WhatsAppOrderWorkflow
             if ($this->mode()==='auto') {
                 $activation=$this->activationBoundary('activation_message_id',$conversation);
                 abort_unless($activation!==null,403,'AUTO_NOT_CONFIGURED');
-                $floor=max($floor,$activation,(int)($scan->auto_floor??0));
+                $floor=max($floor,$activation,$this->controlInstalled()?0:(int)($scan->auto_floor??0));
             }
             if ($message<=$floor) return true;
             // The consumer must roll its correction back and retry after the current holder.
@@ -123,7 +123,7 @@ class WhatsAppOrderWorkflow
         return $this->dispatchInternal($draft, $review, $this->actor($actor), false);
     }
 
-    /** CLI only: newly observed threads are baselined rather than replaying historical orders. */
+    /** CLI only: bounded unanswered native turns, with immutable completed receipts. */
     public function process(int $limit = 10): array
     {
         abort_unless($limit >= 1 && $limit <= 20, 422, 'INVALID_LIMIT');
@@ -162,9 +162,11 @@ class WhatsAppOrderWorkflow
             ->groupBy('c.id', 's.analyzed_ceiling', 's.auto_floor', 's.claimed_ceiling', 's.attempts')
             ->havingRaw('MAX(m.created_at) <= ?', [$this->settledBefore()])
             ->havingRaw('MAX(m.id) > ?',[$activation])
-            ->havingRaw('MAX(m.id) > COALESCE(s.auto_floor, 0)')
-            ->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.static::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?) AND COALESCE(d.reason, ?) NOT IN (?, ?))))', ['REVIEW','READY','','INVALID_EXTRACTION','CONTEXT_INCOMPLETE'])
-            ->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3 OR s.auto_floor IS NULL OR s.auto_floor < ?)',[$activation])
+            ->when(!$controlled,fn($query)=>$query->havingRaw('MAX(m.id) > COALESCE(s.auto_floor, 0)'))
+            ->when($controlled,fn($query)=>$query->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.static::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?, ?))))',['REVIEW','READY','NONE']),
+                fn($query)=>$query->havingRaw('(MAX(m.id) > COALESCE(s.analyzed_ceiling, 0) OR (MAX(m.id) = s.analyzed_ceiling AND EXISTS (SELECT 1 FROM '.static::DRAFTS.' AS d WHERE d.conversation_id = c.id AND d.evidence_ceiling = s.analyzed_ceiling AND d.status IN (?, ?) AND COALESCE(d.reason, ?) NOT IN (?, ?))))', ['REVIEW','READY','','INVALID_EXTRACTION','CONTEXT_INCOMPLETE']))
+            ->when(!$controlled,fn($query)=>$query->havingRaw('(MAX(m.id) != COALESCE(s.claimed_ceiling, 0) OR COALESCE(s.attempts, 0) < 3 OR s.auto_floor IS NULL OR s.auto_floor < ?)',[$activation]))
+            ->when($controlled,fn($query)=>$query->orderByRaw('COALESCE(MIN(s.updated_at), MIN(c.created_at)) ASC'))
             ->orderBy('c.id')->limit($limit)->get();
         foreach ($rows as $thread) {
             $metrics['threads_seen']++;
@@ -176,20 +178,34 @@ class WhatsAppOrderWorkflow
                     $this->deferDispatch((int)$thread->id);
                     $metrics['deferred']++; continue;
                 }
-                $result = $this->analyzeInternal((int)$thread->id, $actor, false, true); $metrics['analyzed']++;
-                if ($result['baselined'] ?? false) $metrics['baselined']++;
-                $draft = $this->draft((int)$result['draft']['id']);
+                if ($controlled&&!$this->replyControlOpen((int)$thread->id)) {
+                    $scan=DB::table(static::SCANS)->where('conversation_id',$thread->id)->first();
+                    abort_if($scan&&$scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
+                    // Dispatch hours may be open while customer replies are scheduled off.
+                    // Only the exact cached, already approved turn may progress: no AI call.
+                    $draft=DB::table(static::DRAFTS)->where('conversation_id',$thread->id)
+                        ->where('evidence_ceiling',$thread->ceiling)->whereIn('status',['REVIEW','READY'])
+                                                ->orderByDesc('id')->first();
+                    if (!$draft) { $metrics['deferred']++; continue; }
+                } else {
+                    $result = $this->analyzeInternal((int)$thread->id, $actor, false, true); $metrics['analyzed']++;
+                    if ($result['baselined'] ?? false) $metrics['baselined']++;
+                    $draft = $this->draft((int)$result['draft']['id']);
+                }
                 if ($draft->status==='DISPATCHED') { $metrics['replayed']++; continue; }
                 if ($draft->status==='CANCELLED') continue;
                 if ($draft->status==='NONE') {
-                    if ($controlled&&$this->requestMissingInformation($draft,$actor)) $this->deferDispatch((int)$draft->conversation_id);
+                    if ($controlled) { $this->requestMissingInformation($draft,$actor); $this->deferDispatch((int)$draft->conversation_id); }
                     continue;
                 }
                 if ($draft->reason==='INVALID_EXTRACTION') {
-                    if ($this->requestMissingInformation($draft,$actor)) $this->deferDispatch((int)$draft->conversation_id);
+                    if ($this->requestMissingInformation($draft,$actor)||$controlled) $this->deferDispatch((int)$draft->conversation_id);
                     $metrics['review_required']++; continue;
                 }
-                if (in_array($draft->reason,['AI_UNAVAILABLE','CONTEXT_INCOMPLETE'],true)) { $metrics['review_required']++; continue; }
+                if (in_array($draft->reason,['AI_UNAVAILABLE','CONTEXT_INCOMPLETE'],true)) {
+                    if ($controlled) $this->deferDispatch((int)$draft->conversation_id);
+                    $metrics['review_required']++; continue;
+                }
                 if ($this->mode() !== 'auto') { $metrics['review_required']++; continue; }
                 $reason = null; $review = $this->automaticReview($draft, $actor, $reason);
                 if ($review === null) {
@@ -197,7 +213,10 @@ class WhatsAppOrderWorkflow
                     $this->requestMissingInformation($draft,$actor);
                     $this->deferDispatch((int)$draft->conversation_id); $metrics['review_required']++; continue;
                 }
-                if ($controlled) abort_unless($this->controlToken((int)$thread->id)===$authority,409,'AI_CONTROL_CHANGED');
+                if ($controlled) {
+                    abort_unless($this->controlToken((int)$thread->id)===$authority,409,'AI_CONTROL_CHANGED');
+                    $this->requireDispatchHours((int)$thread->id,$authority);
+                }
                 $quoted = $this->quote((int)$draft->id, $review, $actor);
                 $review = $quoted['draft']['review']; $review['expected_revision']=$quoted['draft']['revision'];
                 // A business estimate is advisory. The unpaid ticket uses the current ERP catalog
@@ -205,7 +224,12 @@ class WhatsAppOrderWorkflow
                 $sent = $this->dispatchInternal((int)$draft->id, $review, $this->automaticActor((int)$thread->id), true,$authority);
                 $metrics[$sent['replayed'] ? 'replayed' : 'dispatched']++;
             } catch (\Throwable $error) {
-                if ($error->getMessage()==='TRANSCRIPT_SETTLING') $metrics['deferred']++;
+                if ($error->getMessage()==='DISPATCH_OUTSIDE_HOURS') {
+                    $queued=DB::table(static::DRAFTS)->where('conversation_id',$thread->id)->orderByDesc('id')->first();
+                    if ($queued) $this->reviewReason($queued,'DISPATCH_OUTSIDE_HOURS');
+                    $this->deferDispatch((int)$thread->id); $metrics['deferred']++;
+                }
+                elseif (in_array($error->getMessage(),['TRANSCRIPT_SETTLING','ANALYSIS_BUSY'],true)) $metrics['deferred']++;
                 elseif (in_array($error->getMessage(),['CAPTURE_PENDING','ACCEPTED_REPLIES_PENDING'],true)) $metrics['capture_pending']=1;
                 else { $metrics['errors']++; $this->deferDispatch((int)$thread->id); }
             }
@@ -239,14 +263,15 @@ class WhatsAppOrderWorkflow
             if ($bounded) abort_unless($activation!==null && $eventActivation!==null && $activationTime!==null,403,'AUTO_NOT_CONFIGURED');
             $floor=$bounded ? $this->automaticFloor($conversation,$scan,true) : $this->dispatchedCeiling($conversation);
             if ($bounded) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
-            $baselined=$bounded && ($scan->auto_floor===null || (int)$scan->auto_floor<$activation);
+            $baselined=$bounded && ($scan->auto_floor===null || ($this->controlInstalled()
+                ? (int)$scan->auto_floor!==$activation : (int)$scan->auto_floor<$activation));
             $staleBounded=$bounded && $existing && (int)$existing->evidence_floor<$floor;
             $staleEvidence=$existing && !$staleBounded
                 && !hash_equals((string)$existing->evidence_hash,$this->snapshot($conversation,$floor,$ceiling)['hash']);
             if ($baselined || $staleBounded || $staleEvidence) {
                 // Never reset a live lease. Keep historical drafts and completed command receipts.
                 $updates=['claimed_ceiling'=>0,'attempts'=>0,'next_attempt_at'=>null,'updated_at'=>now('UTC')];
-                if ($bounded) $updates['auto_floor']=max($activation,(int)($scan->auto_floor??0));
+                if ($bounded) $updates['auto_floor']=$this->controlInstalled()?$activation:max($activation,(int)($scan->auto_floor??0));
                 DB::table(static::SCANS)->where('conversation_id',$conversation)->update($updates);
                 if ($bounded) $scan->auto_floor=$updates['auto_floor'];
                 $scan->claimed_ceiling=0; $scan->attempts=0; $scan->next_attempt_at=null;
@@ -268,6 +293,7 @@ class WhatsAppOrderWorkflow
             $snapshot = $this->snapshot($conversation, $claim['floor'], $claim['ceiling']);
             $authority=$automatic&&$this->controlInstalled()?$this->primaryAuthority($conversation,$snapshot):null;
             if ($automatic&&$this->controlInstalled()) abort_unless($authority!==null&&(int)$actor->id===$authority['actor_id'],403,'AI_CONTROL_BLOCKED');
+            if ($automatic&&$this->controlInstalled()) abort_unless($this->replyControlOpen($conversation),409,'AI_REPLY_SCHEDULE_CLOSED');
             $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract($snapshot['transcript'])
                 : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
             if (!is_array($result) || !($result['ok'] ?? false)) {
@@ -335,6 +361,11 @@ class WhatsAppOrderWorkflow
                 $this->branch((string)$row->assigned_branch,$actor);
                 return ['success'=>true,'replayed'=>true,'draft'=>$this->present($row),'ticket_id'=>(int)$row->ticket_id,'print_queued'=>true];
             }
+            if ($automatic&&$this->controlInstalled()) {
+                $scan=DB::table(static::SCANS)->where('conversation_id',$row->conversation_id)->lockForUpdate()->first();
+                abort_if($scan&&$scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
+                $this->requireDispatchHours((int)$row->conversation_id,$authority);
+            }
             $this->mutable($row,$v); abort_unless($row->status==='READY' && $row->sealed_payload && $row->confirmation_key,409,'QUOTE_REQUIRED');
             $this->conversation((int)$row->conversation_id,true);
             $this->current($row,true); $this->branch($v['branch'],$actor,true); $this->deliveryOrigin($v,$actor,true);
@@ -362,13 +393,16 @@ class WhatsAppOrderWorkflow
                 $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling,true);
                 abort_unless($authority!==null&&$this->primaryAuthority((int)$row->conversation_id,$snapshot)===$authority,409,'AI_CONTROL_CHANGED');
             }
+            if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
             $saved=$automatic&&$customer&&$this->sameCustomerValues($customer,$v)
                 ? ['customer'=>['id'=>(int)$customer->id]] : app(BranchCustomers::class)->save($customerValues,$actor);
             $payload=$v; unset($payload['expected_revision']);
             $payload+=['idempotency_key'=>$row->ticket_command_key,'customer_id'=>(int)$saved['customer']['id'],
                 'send_to_kitchen'=>true,'discount'=>'0.00','discount_reason'=>''];
             if ($automatic&&$this->controlInstalled()) abort_unless($this->controlToken((int)$row->conversation_id)===$authority,409,'AI_CONTROL_CHANGED');
+            if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
             $result=app(PosServiceTicket::class)->save('phone',$payload,$actor);
+            if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
             $ticket=(int)($result['ticket']['id'] ?? $result['operation']['ticket_id'] ?? 0); abort_unless($ticket>0,500,'DISPATCH_FAILED');
             DB::table(static::DRAFTS)->where('id',$draft)->update(['status'=>'DISPATCHED','reason'=>null,'revision'=>(int)$row->revision+1,
                 'ticket_id'=>$ticket,'dispatch_actor_id'=>(int)$actor->id,'assigned_branch'=>$v['branch'],'dispatched_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -516,6 +550,7 @@ class WhatsAppOrderWorkflow
     private function requestMissingInformation(object $row,$actor): bool
     {
         try {
+            if ($this->controlInstalled()&&!$this->replyControlOpen((int)$row->conversation_id)) return false;
             $service=$this->followupService(); if ($service===null) return false;
             $plan=$this->missingInformationPlan((int)$row->id,$actor);
             if ($plan===null) return false;
@@ -529,6 +564,7 @@ class WhatsAppOrderWorkflow
 
     private function missingInformationPlan(int $id,$actor): ?array
     {
+        if ($this->controlInstalled()&&!$this->replyControlOpen((int)$this->draft($id)->conversation_id)) return null;
         if ((!$this->controlInstalled()&&!(bool)$this->orderConfig('whatsapp_orders.enabled',false))||$this->mode()!=='auto'
             ||$this->pendingCapture()) return null;
         $row=$this->draft($id);
@@ -1451,7 +1487,9 @@ class WhatsAppOrderWorkflow
             if ($lock) $query->lockForUpdate();
             $scan=$query->first();
         }
-        return max($activation,(int)($scan->auto_floor??0),$this->dispatchedCeiling($conversation,$lock));
+        // Current owner activation explicitly authorizes the bounded unanswered backlog.
+        // A legacy larger scan watermark is not another activation and cannot hide it.
+        return max($activation,$this->controlInstalled()?0:(int)($scan->auto_floor??0),$this->dispatchedCeiling($conversation,$lock));
     }
     private function dispatchedCeiling(int $conversation,bool $lock=false): int
     {
@@ -1556,19 +1594,40 @@ class WhatsAppOrderWorkflow
     {
         $token=$this->controlToken();
         if ($token===null) return $query->whereRaw('0 = 1');
-        return $this->filterPrimaryInboundCandidates($query,$token);
+        return $this->filterDispatchOnlyCandidates($this->filterPrimaryInboundCandidates($query,$token),$this->automationChannel());
+    }
+
+    /** Queued ERP work can resume without reopening the separate customer reply schedule. */
+    protected function filterDispatchOnlyCandidates($query,string $channel)
+    {
+        try { $reply=app(MetaAiControl::class)->gate($channel); }
+        catch (\Throwable $ignore) { return $query->whereRaw('0 = 1'); }
+        if (($reply['effective']??false)===true) return $query;
+        return $query->whereExists(function($draft) {
+            $draft->selectRaw('1')->from(static::DRAFTS.' as ai_queued')
+                ->whereColumn('ai_queued.conversation_id','c.id')->whereIn('ai_queued.status',['REVIEW','READY'])
+                                ->whereRaw('ai_queued.evidence_ceiling = (SELECT MAX(ai_queue_message.id) FROM '.$this->table('whatsapp_inbox_messages').' AS ai_queue_message WHERE ai_queue_message.conversation_id = c.id)');
+        });
     }
 
     /** Cheap indexed metadata predicates run before the bounded thread limit. */
     protected function filterPrimaryInboundCandidates($query,array $token)
     {
         $messages=$this->table('whatsapp_inbox_messages');
-        $replies=$this->table('whatsapp_reply_requests');
+        $replies=$this->table('whatsapp_reply_requests'); $drafts=static::DRAFTS;
         if (!Schema::hasTable($replies)) return $query->whereRaw('0 = 1');
-        return $query->whereExists(function($inbound)use($messages,$replies,$token) {
+        return $query->whereExists(function($inbound)use($messages,$replies,$drafts,$token) {
             $inbound->selectRaw('1')->from($messages.' as ai_inbound')->whereColumn('ai_inbound.conversation_id','c.id')
                 ->where('ai_inbound.direction','inbound')->where('ai_inbound.id','>',$token['message_floor'])
-                ->where('ai_inbound.sent_at','>=',$token['started_at_utc'])->where('ai_inbound.sent_at','<=',now('UTC')->format('Y-m-d H:i:s'))
+                ->where('ai_inbound.sent_at','>=',$token['started_at_utc'])
+                ->where('ai_inbound.sent_at','>',now('UTC')->subHours(24)->format('Y-m-d H:i:s'))
+                ->where('ai_inbound.sent_at','<=',now('UTC')->format('Y-m-d H:i:s'))
+                ->whereNotExists(function($closed)use($drafts) {
+                    $closed->selectRaw('1')->from($drafts.' as ai_closed')
+                        ->whereColumn('ai_closed.conversation_id','ai_inbound.conversation_id')
+                        ->whereIn('ai_closed.status',['DISPATCHED','CANCELLED'])
+                        ->whereColumn('ai_closed.evidence_ceiling','>=','ai_inbound.id');
+                })
                 ->whereNotExists(function($later)use($messages) {
                     $later->selectRaw('1')->from($messages.' as ai_later')->whereColumn('ai_later.conversation_id','ai_inbound.conversation_id')
                         ->where(function($date) { $date->whereColumn('ai_later.sent_at','>','ai_inbound.sent_at')
@@ -1586,9 +1645,28 @@ class WhatsAppOrderWorkflow
     {
         if (!$this->controlInstalled()) return ['effective'=>false,'reason'=>'NOT_INSTALLED'];
         try {
-            return app(MetaAiControl::class)->gate($this->automationChannel($conversation),
+            return app(MetaAiControl::class)->processingGate($this->automationChannel($conversation),
                 $inbound['sent_at']??null,$inbound['id']??null);
         } catch (\Throwable $ignore) { return ['effective'=>false,'reason'=>'UNAVAILABLE']; }
+    }
+
+    private function replyControlOpen(int $conversation): bool
+    {
+        try { return (app(MetaAiControl::class)->gate($this->automationChannel($conversation))['effective']??false)===true; }
+        catch (\Throwable $ignore) { return false; }
+    }
+
+    /** This fresh business-clock guard is independent from composing a missing-data reply. */
+    private function requireDispatchHours(int $conversation,?array $authority): void
+    {
+        try { $gate=app(MetaAiControl::class)->dispatchGate($this->automationChannel($conversation)); }
+        catch (\Throwable $ignore) { abort_unless(false,409,'AI_CONTROL_CHANGED'); }
+        abort_unless(($gate['effective']??false)===true,409,
+            ($gate['reason']??null)==='DISPATCH_OUTSIDE_HOURS'?'DISPATCH_OUTSIDE_HOURS':'AI_CONTROL_CHANGED');
+        abort_unless($authority!==null&&($gate['revision']??null)===$authority['revision']
+            &&($gate['actor_id']??null)===$authority['actor_id']
+            &&($gate['floor']??null)===['message_floor'=>$authority['message_floor'],
+                'event_floor'=>$authority['event_floor'],'started_at_utc'=>$authority['started_at_utc']],409,'AI_CONTROL_CHANGED');
     }
 
     protected function controlToken(?int $conversation=null,?array $inbound=null): ?array
@@ -1667,16 +1745,46 @@ class WhatsAppOrderWorkflow
         try {
             if (WhatsAppOrderExtraction::hasProbe($snapshot['transcript']??[])) return null;
             $latest=$this->primaryInbound($conversation,$snapshot);
-            if ($latest===null||!$this->primaryHumanClear($conversation,$latest,$snapshot)
-                ||$this->primaryCancelled($latest['text'])) return null;
+            if ($latest===null||$latest['sent_at']<=now('UTC')->subHours(24)->format('Y-m-d H:i:s')
+                ||$latest['sent_at']>now('UTC')->format('Y-m-d H:i:s')||!$this->primaryHumanClear($conversation,$latest,$snapshot)
+                ||$this->primaryCancelled($latest['text'])||!$this->primaryCaptureClear($conversation,$latest)) return null;
             return $this->controlToken($conversation,$latest);
         } catch (\Throwable $ignore) { return null; }
+    }
+
+    /** A quarantined pre-activation cancellation cannot disappear from backlog proof. */
+    private function primaryCaptureClear(int $conversation,array $latest): bool
+    {
+        $gate=$this->controlGate($conversation,$latest); $floor=$gate['floor']??null;
+        if (($gate['effective']??false)!==true||!is_array($floor)) return false;
+        $failures=$this->table('whatsapp_inbox_ingestion_failures');
+        $events=$this->table('whatsapp_webhook_events');
+        if (!Schema::hasTable($failures)||!Schema::hasTable($events)) return false;
+        // Preserve the established forward raw-capture barrier for every turn.
+        $forward=DB::table($failures)->where('event_id','>',$floor['event_floor']);
+        if (DB::connection()->transactionLevel()>0) $forward->lockForUpdate();
+        if ($forward->first(['event_id'])) return false;
+        $original=$gate['original_activation_started_at_utc']??null;
+        if (($gate['backlog_version']??null)!==1||!is_string($original)||$latest['sent_at']>$original) return true;
+        if (!Schema::hasColumn($events,'received_at')) return !DB::table($failures)->exists();
+        $historical=DB::table($failures.' as ai_failure')->leftJoin($events.' as ai_event','ai_event.id','=','ai_failure.event_id')
+            ->where('ai_failure.event_id','<=',$floor['event_floor'])
+            ->where(function($q)use($floor,$original) {
+                $q->whereNull('ai_event.id')->orWhereNull('ai_event.received_at')
+                    ->orWhere(function($range)use($floor,$original) {
+                        $range->where('ai_event.received_at','>=',$floor['started_at_utc'])
+                            ->where('ai_event.received_at','<=',$original);
+                    });
+            });
+        if (DB::connection()->transactionLevel()>0) $historical->lockForUpdate();
+        return $historical->first(['ai_failure.event_id'])===null;
     }
 
     public function primaryPlanCurrent(array $plan): bool
     {
         try {
-            if (!$this->controlInstalled()||!isset($plan['primary_ai'])||$this->pendingCapture()) return false;
+            if (!$this->controlInstalled()||!isset($plan['primary_ai'])||$this->pendingCapture()
+                ||!$this->replyControlOpen((int)($plan['conversation_id']??0))) return false;
             $row=$this->draft($plan['draft_id']);
             if ((int)$row->conversation_id!==$plan['conversation_id']||$row->ticket_id!==null
                 ||$this->ceiling((int)$row->conversation_id)!==$plan['evidence_ceiling']) return false;

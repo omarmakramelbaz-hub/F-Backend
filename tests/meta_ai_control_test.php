@@ -84,7 +84,7 @@ namespace {
     check(DB::table('meta_ai_controls')->value('revision')===0,'missing external handoff never activates');
     foreach (['whatsapp','meta'] as $prefix) {
         Schema::create($prefix.'_inbox_conversations',function(Blueprint $t){$t->integer('id')->primary();$t->string('waba_id');$t->string('phone_number_id');});
-        Schema::create($prefix.'_inbox_messages',function(Blueprint $t){$t->integer('id')->primary();$t->integer('conversation_id');});
+        Schema::create($prefix.'_inbox_messages',function(Blueprint $t){$t->integer('id')->primary();$t->integer('conversation_id');$t->string('direction')->nullable();$t->string('source')->nullable();$t->timestamp('sent_at')->nullable();});
         Schema::create($prefix.'_webhook_events',function(Blueprint $t){$t->integer('id')->primary();});
     }
     DB::table('whatsapp_inbox_conversations')->insert([['id'=>1,'waba_id'=>WhatsAppInboxAccess::WABA_ID,'phone_number_id'=>WhatsAppInboxAccess::PHONE_ID],['id'=>2,'waba_id'=>'other','phone_number_id'=>'other']]);
@@ -99,10 +99,10 @@ namespace {
         && $state['handoff_method']==='OWNER_ATTESTED' && !str_contains(json_encode($state),'account_fingerprint'),'browser DTO exposes sanitized handoff method without internal owner or full record');
     $wa=$control->gate('whatsapp'); $ms=$control->gate('messenger'); $ig=$control->gate('instagram');
     check($wa['effective'] && $wa['actor'] instanceof User && $wa['actor_id']===1,'gate returns freshly authorized owner');
-    check($wa['floor']===['message_floor'=>10,'event_floor'=>800,'started_at_utc'=>'2026-10-15 10:00:00'],'WhatsApp authorized-account floor excludes foreign history');
+    check($wa['floor']===['message_floor'=>10,'event_floor'=>800,'started_at_utc'=>'2026-10-14 10:00:00'],'WhatsApp authorized-account floor excludes foreign history');
     check($ms['floor']['message_floor']===20 && $ig['floor']['message_floor']===30 && $ms['floor']['event_floor']===1000,'Meta channel/account scoped messages and conservative raw event floor');
     check($control->gate('whatsapp','2026-10-15 10:00:00',11,801)['effective'],'native new message at activation second accepted');
-    foreach ([['2026-10-15 10:00:00',10,801],['2026-10-15 09:59:59',11,801],['2026-10-15 10:00:01',11,801],['2026-10-15 10:00:00',11,800],[null,11,null],['2026-10-15 10:00:00',null,null],['2026-02-30 10:00:00',11,801],['2026-10-15T13:00:00+03:00',11,801]] as [$time,$id,$event]) check(!$control->gate('whatsapp',$time,$id,$event)['effective'],'native time/id/event activation guard');
+    foreach ([['2026-10-15 10:00:00',10,801],['2026-10-14 09:59:59',11,801],['2026-10-15 10:00:01',11,801],['2026-10-15 10:00:01',11,800],[null,11,null],['2026-10-15 10:00:00',null,null],['2026-02-30 10:00:00',11,801],['2026-10-15T13:00:00+03:00',11,801]] as [$time,$id,$event]) check(!$control->gate('whatsapp',$time,$id,$event)['effective'],'native time/id/event activation guard');
     check($control->gate('bogus')['reason']==='INVALID_CHANNEL','unknown channel denied');
     $calls=count($business->calls); blocked(fn()=>$control->update(new User,$policy,0,true),'REVISION_CONFLICT');
     check(count($business->calls)===$calls,'stale revision checked before external effects');
@@ -121,7 +121,7 @@ namespace {
     check($control->gate('whatsapp')['reason']==='SCHEDULED_OFF','current Cairo off-hours pause');
     $control->clock='2026-10-15 12:30:00';
     $queued=$control->gate('whatsapp','2026-10-15 11:00:00',12,801);
-    check($queued['effective'] && $queued['floor']['message_floor']===11 && $queued['floor']['started_at_utc']==='2026-10-15 10:05:00','off-hours arrival queues for current active window without resetting floor');
+    check($queued['effective'] && $queued['floor']['message_floor']===11 && $queued['floor']['started_at_utc']==='2026-10-14 10:05:00','off-hours arrival queues for current active window without resetting floor');
     $control->clock='2026-10-15 13:00:00'; check(!$control->gate('whatsapp')['effective'],'schedule end immediately pauses existing worker');
     $control->clock='2026-10-15 12:30:00';
     $only=$policy; $only['channels']=['whatsapp']; $control->update(new User,$only,4,true);
@@ -193,6 +193,105 @@ namespace {
     check($outside->lock===null && $inside->lock===true,'actual store read becomes a current locking read inside an existing work transaction');
     check(str_ends_with((new \Illuminate\Database\Query\Grammars\MySqlGrammar)->compileSelect($inside),' for update'),'actual in-transaction gate query compiles to MySQL current read rather than repeatable-read snapshot');
     $connection->setQueryGrammar($oldGrammar);
+
+    // Re-enabling includes the scoped native preceding day without mutating activation identity.
+    $offOne=$one; $offOne['enabled']=false; $control->update(new User,$offOne,12);
+    DB::table('whatsapp_inbox_messages')->insert([
+        ['id'=>1,'conversation_id'=>1,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-14 10:00:00'],
+        ['id'=>2,'conversation_id'=>2,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-15 11:00:00'],
+        ['id'=>3,'conversation_id'=>1,'direction'=>'inbound','source'=>'dashboard_api','sent_at'=>'2026-10-15 11:00:00'],
+        ['id'=>4,'conversation_id'=>1,'direction'=>'outbound','source'=>'messages','sent_at'=>'2026-10-15 11:00:00'],
+        ['id'=>5,'conversation_id'=>1,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-15 10:00:00'],
+        ['id'=>6,'conversation_id'=>1,'direction'=>'inbound','source'=>'standby','sent_at'=>'2026-10-16 09:00:00'],
+        ['id'=>12,'conversation_id'=>1,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-16 09:59:00'],
+    ]);
+    $control->clock='2026-10-16 10:00:00'; $control->update(new User,$one,13);
+    $activation=json_decode(DB::table('meta_ai_controls')->value('activations'),true)['whatsapp'];
+    check($activation['message_floor']===12 && $activation['event_floor']===800 && $activation['started_at_utc']==='2026-10-16 10:00:00','original activation and raw capture watermark preserved');
+    check($activation['backlog']===['version'=>1,'message_floor'=>4,'started_at_utc'=>'2026-10-15 10:00:00'],'bounded native inbound floor excludes stale foreign dashboard and outbound rows');
+    $backlog=$control->gate('whatsapp');
+    check($backlog['floor']===['message_floor'=>4,'event_floor'=>800,'started_at_utc'=>'2026-10-15 10:00:00'] && $backlog['backlog_version']===1 && $backlog['original_activation_started_at_utc']==='2026-10-16 10:00:00','gate exposes only authoritative bounded effective floor');
+    check($control->gate('whatsapp','2026-10-15 10:00:00',5,1)['effective'],'pre-enable native message can precede original raw activation event');
+    check(!$control->gate('whatsapp','2026-10-15 10:00:00',5,0)['effective'],'historical inclusion never accepts an invalid native event identifier');
+    check(!$control->gate('whatsapp','2026-10-15 09:59:59',5,1)['effective'],'bounded lookback never includes older native time');
+    check(!$control->gate('whatsapp','2026-10-16 09:59:59',4,1)['effective'],'bounded lookback preserves lower message bound');
+    $control->clock='2026-10-16 10:00:05';
+    check(!$control->gate('whatsapp','2026-10-16 10:00:01',13,1)['effective'],'new postactivation arrival still respects original raw event watermark');
+    check($control->gate('whatsapp','2026-10-16 10:00:01',13,801)['effective'],'new postactivation native event remains allowed');
+    $control->clock='2026-10-17 10:00:00';
+    check($control->gate('whatsapp')['floor']===$backlog['floor'],'effective floor does not slide or compound across processing time');
+    $control->clock='2026-10-16 10:00:05';
+    $storedActivations=DB::table('meta_ai_controls')->value('activations');
+    $legacyActivations=json_decode($storedActivations,true); unset($legacyActivations['whatsapp']['backlog']);
+    $legacyBytes=json_encode($legacyActivations,JSON_THROW_ON_ERROR);
+    DB::table('meta_ai_controls')->where('id',1)->update(['activations'=>$legacyBytes]);
+    $legacyControl=new ClockControl; $legacyControl->clock=$control->clock;
+    $dbBefore=DB::table('meta_ai_controls')->first();
+    DB::connection()->flushQueryLog(); DB::connection()->enableQueryLog();
+    $legacyGate=$legacyControl->gate('whatsapp');
+    $messageQueries=static fn()=>count(array_filter(DB::connection()->getQueryLog(),static fn($q)=>str_contains($q['query'],'inbox_messages')));
+    $firstQueries=$messageQueries(); $legacyAgain=$legacyControl->gate('whatsapp');
+    check($legacyGate['effective'] && $legacyGate['floor']===$backlog['floor'] && $legacyAgain['floor']===$legacyGate['floor'],'already enabled legacy activation gets same stable bounded semantics');
+    check($firstQueries===1 && $messageQueries()===$firstQueries,'legacy scoped lookback query cached across repeated native boundary checks');
+    DB::connection()->disableQueryLog();
+    check((array)DB::table('meta_ai_controls')->first()===(array)$dbBefore,'legacy transition read performs no policy revision activation or watermark writes');
+    DB::table('meta_ai_controls')->where('id',1)->update(['activations'=>$storedActivations]);
+    // Separate reply and dispatch schedules; pending approved orders can run with reply hours closed.
+    $split=$one; $split['schedule']=['enabled'=>true,'days'=>[5],'start'=>'15:00','end'=>'16:00','all_day'=>false];
+    $split['dispatch_schedule']=['enabled'=>true,'days'=>range(0,6),'start'=>'09:00','end'=>'00:30','all_day'=>false];
+    $control->update(new User,$split,14);
+    check($control->gate('whatsapp')['reason']==='SCHEDULED_OFF' && $control->dispatchGate('whatsapp')['effective'] && $control->processingGate('whatsapp')['effective'],'independent dispatch does not depend on current reply hours');
+    $separateState=$control->state(new User);
+    check(!$separateState['effective'] && $separateState['dispatch_state']===['effective'=>true,'status'=>'ACTIVE','local_time'=>'2026-10-16T13:00:05+03:00'],'browser state exposes distinct reply and dispatch status on same Cairo clock');
+    $control->clock='2026-10-16 21:29:59';
+    check($control->dispatchGate('whatsapp')['effective'],'default dispatch 00:29:59 Cairo is open');
+    $control->clock='2026-10-16 21:30:00';
+    check($control->dispatchGate('whatsapp')['reason']==='DISPATCH_OUTSIDE_HOURS' && !$control->processingGate('whatsapp')['effective'],'default dispatch 00:30 Cairo exclusive with closed reply hours');
+    $control->clock='2026-10-17 05:59:59';
+    check(!$control->dispatchGate('whatsapp')['effective'],'default dispatch before 09 Cairo is closed');
+    $control->clock='2026-10-17 06:00:00';
+    check($control->dispatchGate('whatsapp')['effective'],'default dispatch 09 Cairo inclusive');
+    check($control->dispatchGate('instagram')['reason']==='CHANNEL_DISABLED','independent dispatch retains selected channel guard');
+    $people->users[1]->active=false;
+    check($control->dispatchGate('whatsapp')['reason']==='ACTOR_UNAVAILABLE' && !$control->processingGate('whatsapp')['effective'],'revoked owner stops both independent schedule purposes');
+    $people->users[1]->active=true;
+    $custom=$split; $custom['dispatch_schedule']['start']='14:00'; $custom['dispatch_schedule']['end']='18:00';
+    $control->update(new User,$custom,15);
+    $legacySave=$custom; unset($legacySave['dispatch_schedule']); $legacySave['schedule']['start']='16:00'; $legacySave['schedule']['end']='17:00';
+    $control->update(new User,$legacySave,16);
+    check($control->state()['policy']['dispatch_schedule']===$custom['dispatch_schedule'],'legacy reply-only save preserves owner custom dispatch schedule');
+    check($control->gate('whatsapp')['floor']===null && $control->processingGate('whatsapp')['floor']===null,'both closed schedules stop before activation scan');
+    $control->clock='2026-10-17 12:00:00';
+    check($control->dispatchGate('whatsapp')['effective'] && $control->processingGate('whatsapp')['floor']===$backlog['floor'],'schedule edits never recapture or expand original backlog');
+    $offCustom=$custom; $offCustom['enabled']=false; $control->update(new User,$offCustom,17);
+    check($control->gate('whatsapp')['reason']==='DISABLED' && $control->dispatchGate('whatsapp')['reason']==='DISABLED' && $control->processingGate('whatsapp')['reason']==='DISABLED','master off immediately blocks replies scan and independently queued dispatch');
+    check($control->state()['dispatch_state']['status']==='DISABLED','disabled public dispatch status follows master');
+    $legacyPolicy=json_decode(DB::table('meta_ai_controls')->value('policy'),true); unset($legacyPolicy['dispatch_schedule']);
+    $legacyPolicyBytes=json_encode($legacyPolicy,JSON_THROW_ON_ERROR);
+    DB::table('meta_ai_controls')->where('id',1)->update(['policy'=>$legacyPolicyBytes]);
+    check($control->state()['policy']['dispatch_schedule']===\App\Support\MetaAiSchedule::defaultDispatchSchedule() && DB::table('meta_ai_controls')->value('policy')===$legacyPolicyBytes,'legacy stored policy defaults separate dispatch hours without database writes');
+
+    DB::table('meta_inbox_conversations')->insert(['id'=>4,'waba_id'=>'messenger','phone_number_id'=>'103']);
+    DB::table('meta_inbox_messages')->insert([
+        ['id'=>2,'conversation_id'=>3,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-17 11:00:00'],
+        ['id'=>3,'conversation_id'=>1,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-17 11:00:00'],
+        ['id'=>4,'conversation_id'=>4,'direction'=>'inbound','source'=>'messages','sent_at'=>'2026-10-17 11:00:00'],
+        ['id'=>5,'conversation_id'=>2,'direction'=>'inbound','source'=>'standby','sent_at'=>'2026-10-17 11:00:00'],
+    ]);
+    $allChannels=MetaAiControl::defaults(); $allChannels['enabled']=true;
+    $control->update(new User,$allChannels,18,true);
+    check($control->gate('messenger')['floor']===['message_floor'=>3,'event_floor'=>1000,'started_at_utc'=>'2026-10-16 12:00:00'],'Messenger backlog lookup excludes foreign and previously disconnected accounts');
+    check($control->gate('instagram')['floor']===['message_floor'=>4,'event_floor'=>1000,'started_at_utc'=>'2026-10-16 12:00:00'],'Instagram backlog has its own scoped native lower bound');
+    check($control->processingGate('messenger','2026-10-17 11:00:00',4,1)['effective'] && $control->processingGate('instagram','2026-10-17 11:00:00',5,1)['effective'],'both Meta channels admit bounded historical native candidates under current fresh policy');
+
+    // Malformed optional backlog bounds never silently lower an activation.
+    foreach ([['version'=>2],['message_floor'=>-1],['message_floor'=>13],['started_at_utc'=>'2026-10-14 10:00:00'],['extra'=>true]] as $changes) {
+        $bad=json_decode($storedActivations,true); $bad['whatsapp']['backlog']=array_replace($bad['whatsapp']['backlog'],$changes);
+        DB::table('meta_ai_controls')->where('id',1)->update(['activations'=>json_encode($bad,JSON_THROW_ON_ERROR)]);
+        check(!$control->state()['available'] && !$control->processingGate('whatsapp')['effective'],'strict versioned bounded activation validation');
+    }
+    DB::table('meta_ai_controls')->where('id',1)->update(['activations'=>$storedActivations]);
+
     app('config')->set('desktop_dashboard.local',true);
     check(!$control->state(new User)['available'] && !$control->gate('whatsapp')['effective'],'local desktop cannot run primary AI');
     app('config')->set('desktop_dashboard.local',false);

@@ -5,7 +5,9 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import types
@@ -13,6 +15,7 @@ import unittest
 from unittest import mock
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+TEST_PHP=os.environ.get('META_AI_TEST_PHP') or shutil.which('php')
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec)
     sys.modules[name]=module;spec.loader.exec_module(module);return module
@@ -81,9 +84,13 @@ class AppFixture:
                 (self.inner.root/path).unlink();self.inner.old[path]=None
                 self.inner.pins[path]=(None,self.inner.pins[path][1])
         self.baseline={path:pair[0] for path,pair in self.inner.pins.items()}
-        self.previous_targets=dict(self.inner.targets)
-        self.previous_targets['public/js/dashboard-meta-ai-controls.js']=b'/* reviewed AI controls version one */\n'
-        self.previous_profiles={'META_AI_CONTROL_V1':{path:repair.blob(data) for path,data in self.previous_targets.items()}}
+        self.previous_target_sets={}
+        for profile,pins in repair.PREVIOUS_CONTROL_SOURCE_PROFILES.items():
+            self.previous_target_sets[profile]={path:self.inner.targets[path] if pin==repair.SOURCE_PINS[path][1]
+                else ('<?php /* reviewed prior '+path+' '+pin+' */\n').encode() for path,pin in pins.items()}
+        self.previous_targets=self.previous_target_sets['META_AI_CONTROL_V1']
+        self.previous_profiles={profile:{path:repair.blob(data) for path,data in targets.items()}
+            for profile,targets in self.previous_target_sets.items()}
         self.profiles={'WHATSAPP_TAIL':dict(self.baseline),'WHATSAPP_CONTEXTUAL':dict(self.baseline)}
         self.context={}
         for path in list(self.baseline)[:3]:
@@ -194,13 +201,67 @@ class MetaAiInstallTests(unittest.TestCase):
                 dict(repair.PROTECTED_PROFILES[foundation],**repair.CATALOG_LOCK_OVERRIDE))
             self.assertEqual(repair.PROTECTED_PROFILE_FOUNDATIONS[profile],foundation)
         self.assertFalse(set(repair.CATALOG_LOCK_OVERRIDE)&set(repair.SOURCE_PINS))
-    def test_previous_ai_runtime_is_pinned_as_one_complete_javascript_only_upgrade(self):
-        self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),{'META_AI_CONTROL_V1'})
-        previous=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
-        self.assertEqual(tuple(previous),tuple(repair.SOURCE_PINS))
-        self.assertEqual(previous['public/js/dashboard-meta-ai-controls.js'],'fc34fca42cf8dd80f7916bacc1780444a51afab4')
-        self.assertEqual([path for path,(_,target) in repair.SOURCE_PINS.items() if previous[path]!=target],
-            ['public/js/dashboard-meta-ai-controls.js'])
+    def test_previous_ai_runtimes_are_complete_reviewed_upgrade_profiles(self):
+        self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),{'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON'})
+        first=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
+        saved=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_SAVE_BUTTON']
+        for previous in (first,saved):self.assertEqual(tuple(previous),tuple(repair.SOURCE_PINS))
+        self.assertEqual(first['public/js/dashboard-meta-ai-controls.js'],'fc34fca42cf8dd80f7916bacc1780444a51afab4')
+        self.assertEqual(saved['public/js/dashboard-meta-ai-controls.js'],'00589d95df07646aaa8db71309e098bccd36bd2e')
+        self.assertEqual([path for path in saved if saved[path]!=first[path]],['public/js/dashboard-meta-ai-controls.js'])
+        required={'app/Support/MetaAiSchedule.php','app/Services/Dashboard/MetaAiControl.php',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php',
+            'resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js'}
+        allowed=required|{'app/Console/Commands/ProcessMetaAiMessages.php'}
+        for previous in (first,saved):
+            changed={path for path,(_,target) in repair.SOURCE_PINS.items() if previous[path]!=target}
+            self.assertTrue(required<=changed<=allowed)
+    @unittest.skipUnless(TEST_PHP,'PHP is required for the raw database policy shape probe')
+    def test_control_probe_accepts_legacy_and_dispatch_schedules_without_normalizing_stored_rows(self):
+        stub=r'''<?php
+namespace Illuminate\Support\Facades {
+ class Schema {
+  static function hasTable($table){return in_array($table,['migrations','meta_ai_controls'],true);}
+  static function getColumnListing($table){return ['id','policy','activations','handoff','revision','actor_id','updated_by','created_at','updated_at'];}
+ }
+ class DB { static function table($table){return new \MetaAiProbe\Query();} }
+}
+namespace MetaAiProbe {
+ class Query {
+  function where(...$args){return $this;} function count(){return 1;}
+  function select(...$args){return $this;} function selectRaw(...$args){return $this;}
+  function first(){return json_decode(getenv('META_AI_TEST_ROW'),false,32,JSON_THROW_ON_ERROR);}
+ }
+ class App {function make($class){return new Kernel();}}
+ class Kernel {function bootstrap(){}}
+}
+'''
+        schedule={'enabled':True,'days':[0,1,2,3,4,5,6],'start':'09:00','end':'00:30','all_day':False}
+        legacy={'enabled':True,'channels':['whatsapp'],'schedule':schedule}
+        dispatch=dict(legacy,dispatch_schedule=schedule)
+        cases=[(legacy,True),(dispatch,True),(dict(legacy,unknown=schedule),False),
+            (dict(legacy,dispatch_schedule='09:00'),False),(dict(dispatch,extra=True),False)]
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);(root/'vendor').mkdir();(root/'bootstrap').mkdir()
+            (root/'vendor/autoload.php').write_text(stub)
+            (root/'bootstrap/app.php').write_text('<?php return new \\MetaAiProbe\\App();\n')
+            for policy,accepted in cases:
+                with self.subTest(policy_keys=list(policy)):
+                    row={'id':1,'revision':7,'actor_id':123,'updated_by':123,'created_at':'2026-10-14 00:00:00',
+                        'updated_at':'2026-10-15 00:00:00','policy':json.dumps(policy,indent=1),
+                        'activations':' {"whatsapp":{"floor":500,"revision":7}} ',
+                        'handoff':' {"confirmed":true} ','handoff_oversized':0}
+                    env=dict(os.environ,META_AI_TEST_ROW=json.dumps(row,separators=(',',':')))
+                    result=subprocess.run([TEST_PHP,'-r',repair.CONTROL_STATE_PHP],cwd=root,env=env,
+                        stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
+                    if not accepted:
+                        self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'');continue
+                    self.assertEqual(result.returncode,0)
+                    state=json.loads(result.stdout)
+                    self.assertTrue(state['present']);self.assertTrue(state['enabled'])
+                    self.assertFalse(state['default_disabled'])
+                    expected=hashlib.sha256(json.dumps(row,separators=(',',':')).encode()).hexdigest()
+                    self.assertEqual(state['fingerprint'],expected)
     def test_readonly_preflight_never_migrates_publishes_or_stops_workers(self):
         out=self.f.apply(True);self.assertEqual(out['status'],'META_AI_CONTROL_PREFLIGHT_READY')
         self.f.originals(self);self.f.unchanged_config(self)
@@ -344,52 +405,54 @@ class MetaAiInstallTests(unittest.TestCase):
                 state_calls=[args for args,kwargs in calls if args[5]=='state']
                 self.assertTrue(state_calls)
                 self.assertTrue(all(args[9]==foundation for args in state_calls))
-    def test_previous_ai_control_upgrade_changes_only_javascript_and_retains_active_or_off_policy(self):
-        js='public/js/dashboard-meta-ai-controls.js'
-        for profile in repair.PROTECTED_PROFILES:
-            for enabled in (False,True):
-                with self.subTest(profile=profile,enabled=enabled),tempfile.TemporaryDirectory() as folder:
-                    fixture=AppFixture(folder)
-                    for path,data in fixture.previous_targets.items():fixture.write(path,data)
-                    if profile.startswith('META_MESSAGE_HUB'):
-                        fixture.write('app/Support/Immutable.php',fixture.hub_foundation)
-                    if profile.endswith('_CATALOG_LOCK'):
-                        fixture.write(fixture.catalog_path,fixture.catalog_locked)
-                    fixture.controls={'present':True,'fingerprint':'e'*64,'enabled':enabled,'default_disabled':False}
-                    policy=dict(fixture.controls)
-                    before={path:repair.metadata(fixture.root/path) for path in fixture.pins}
-                    protected_before={path:repair.metadata(fixture.root/path) for path in fixture.protected}
-                    preflight=fixture.apply(True)
-                    self.assertEqual(preflight['source_profile'],'META_AI_CONTROL_V1')
-                    self.assertEqual(preflight['protected_profile'],profile)
-                    self.assertEqual(before,{path:repair.metadata(fixture.root/path) for path in fixture.pins})
-                    with fixture.patches(),mock.patch.object(repair.base,'command',fixture.runner):
-                        verified=repair.verify_state(fixture.root,fixture.uid,preflight['configuration_fingerprint'],
-                            preflight['sources'],preflight['protected_fingerprint'],expected_profile=profile,
-                            expected_control=preflight['control_fingerprint'])
-                    self.assertEqual(verified['sources'],fixture.previous_profiles['META_AI_CONTROL_V1'])
-                    original=repair.base.replace_file
-                    with mock.patch.object(repair.base,'replace_file',wraps=original) as replace:
-                        out=fixture.apply(expected_configuration=preflight['configuration_fingerprint'],
-                            expected_protected=preflight['protected_fingerprint'],expected_profile=profile,
-                            expected_control=preflight['control_fingerprint'])
-                    self.assertEqual([str(call.args[0].relative_to(fixture.root)) for call in replace.call_args_list],[js])
-                    self.assertEqual([path for path in fixture.pins if before[path]!=repair.metadata(fixture.root/path)],[js])
-                    self.assertEqual((fixture.root/js).read_bytes(),fixture.targets[js])
-                    self.assertEqual(policy,fixture.controls)
-                    self.assertEqual(out['control_fingerprint'],preflight['control_fingerprint'])
-                    self.assertFalse(out['migration_applied'])
-                    self.assertFalse(any('artisan' in args for args in fixture.calls))
-                    self.assertEqual(protected_before,{path:repair.metadata(fixture.root/path) for path in fixture.protected})
-                    fixture.unchanged_config(self)
-                    receipt=json.loads((pathlib.Path(out['backup'])/'receipt.json').read_text())
-                    self.assertEqual(receipt['source_profile'],'META_AI_CONTROL_V1')
-                    self.assertEqual(receipt['sources'],fixture.previous_profiles['META_AI_CONTROL_V1'])
-                    self.assertEqual(receipt['control_fingerprint'],policy['fingerprint'])
-                    with fixture.patches(),mock.patch.object(repair.base,'command',fixture.runner):
-                        current=repair.verify_state(fixture.root,fixture.uid,out['configuration_fingerprint'],out['sources'],
-                            out['protected_fingerprint'],expected_profile=profile,expected_control=out['control_fingerprint'])
-                    self.assertEqual(current['sources'],{path:pair[1] for path,pair in fixture.pins.items()})
+    def test_previous_ai_control_upgrade_changes_only_declared_targets_and_retains_active_or_off_policy(self):
+        for previous_profile in repair.PREVIOUS_CONTROL_SOURCE_PROFILES:
+            for profile in repair.PROTECTED_PROFILES:
+                for enabled in (False,True):
+                    with self.subTest(previous=previous_profile,profile=profile,enabled=enabled),tempfile.TemporaryDirectory() as folder:
+                        fixture=AppFixture(folder)
+                        for path,data in fixture.previous_target_sets[previous_profile].items():fixture.write(path,data)
+                        if profile.startswith('META_MESSAGE_HUB'):
+                            fixture.write('app/Support/Immutable.php',fixture.hub_foundation)
+                        if profile.endswith('_CATALOG_LOCK'):
+                            fixture.write(fixture.catalog_path,fixture.catalog_locked)
+                        fixture.controls={'present':True,'fingerprint':'e'*64,'enabled':enabled,'default_disabled':False}
+                        policy=dict(fixture.controls)
+                        changes=[path for path,pair in fixture.pins.items() if fixture.previous_profiles[previous_profile][path]!=pair[1]]
+                        self.assertTrue(changes)
+                        before={path:repair.metadata(fixture.root/path) for path in fixture.pins}
+                        protected_before={path:repair.metadata(fixture.root/path) for path in fixture.protected}
+                        preflight=fixture.apply(True)
+                        self.assertEqual(preflight['source_profile'],previous_profile)
+                        self.assertEqual(preflight['protected_profile'],profile)
+                        self.assertEqual(before,{path:repair.metadata(fixture.root/path) for path in fixture.pins})
+                        with fixture.patches(),mock.patch.object(repair.base,'command',fixture.runner):
+                            verified=repair.verify_state(fixture.root,fixture.uid,preflight['configuration_fingerprint'],
+                                preflight['sources'],preflight['protected_fingerprint'],expected_profile=profile,
+                                expected_control=preflight['control_fingerprint'])
+                        self.assertEqual(verified['sources'],fixture.previous_profiles[previous_profile])
+                        original=repair.base.replace_file
+                        with mock.patch.object(repair.base,'replace_file',wraps=original) as replace:
+                            out=fixture.apply(expected_configuration=preflight['configuration_fingerprint'],
+                                expected_protected=preflight['protected_fingerprint'],expected_profile=profile,
+                                expected_control=preflight['control_fingerprint'])
+                        self.assertEqual([str(call.args[0].relative_to(fixture.root)) for call in replace.call_args_list],changes)
+                        self.assertEqual([path for path in fixture.pins if before[path]!=repair.metadata(fixture.root/path)],changes)
+                        for path in changes:self.assertEqual((fixture.root/path).read_bytes(),fixture.targets[path])
+                        self.assertEqual(policy,fixture.controls)
+                        self.assertEqual(out['control_fingerprint'],preflight['control_fingerprint'])
+                        self.assertFalse(out['migration_applied'])
+                        self.assertFalse(any('artisan' in args for args in fixture.calls))
+                        self.assertEqual(protected_before,{path:repair.metadata(fixture.root/path) for path in fixture.protected})
+                        fixture.unchanged_config(self)
+                        receipt=json.loads((pathlib.Path(out['backup'])/'receipt.json').read_text())
+                        self.assertEqual(receipt['source_profile'],previous_profile)
+                        self.assertEqual(receipt['sources'],fixture.previous_profiles[previous_profile])
+                        self.assertEqual(receipt['control_fingerprint'],policy['fingerprint'])
+                        with fixture.patches(),mock.patch.object(repair.base,'command',fixture.runner):
+                            current=repair.verify_state(fixture.root,fixture.uid,out['configuration_fingerprint'],out['sources'],
+                                out['protected_fingerprint'],expected_profile=profile,expected_control=out['control_fingerprint'])
+                        self.assertEqual(current['sources'],{path:pair[1] for path,pair in fixture.pins.items()})
     def test_previous_ai_runtime_with_mixed_legacy_service_refuses_before_commands(self):
         for path,data in self.f.previous_targets.items():self.f.write(path,data)
         self.f.write('app/Services/Dashboard/WhatsAppOrderWorkflow.php',
@@ -397,6 +460,14 @@ class MetaAiInstallTests(unittest.TestCase):
         self.f.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
         with self.assertRaisesRegex(repair.SafeError,'LIVE_SOURCE_NEEDS_REVIEW'):self.f.apply()
         self.assertEqual(self.f.calls,[])
+    def test_old_and_new_ai_runtime_mixture_is_not_an_upgrade_profile(self):
+        for name,previous in self.f.previous_target_sets.items():
+            with self.subTest(previous=name):
+                for path,data in previous.items():self.f.write(path,data)
+                self.f.write('app/Services/Dashboard/MetaAiControl.php',self.f.targets['app/Services/Dashboard/MetaAiControl.php'])
+                self.f.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
+                with self.assertRaisesRegex(repair.SafeError,'LIVE_SOURCE_NEEDS_REVIEW'):self.f.apply()
+                self.assertEqual(self.f.calls,[])
     def test_previous_ai_runtime_with_unknown_javascript_refuses_before_commands(self):
         for path,data in self.f.previous_targets.items():self.f.write(path,data)
         self.f.write('public/js/dashboard-meta-ai-controls.js',b'/* unreviewed JavaScript */\n')
@@ -465,6 +536,23 @@ class MetaAiInstallTests(unittest.TestCase):
         self.f.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
         with self.assertRaisesRegex(repair.SafeError,'ENABLED_WITH_LEGACY_RUNTIME'):self.f.apply()
         self.f.originals(self);self.f.unchanged_config(self)
+    def test_all_legacy_source_foundations_still_require_policy_off(self):
+        for source_profile in repair.BASELINE_SOURCE_PROFILES:
+            for catalog_lock in (False,True):
+                with self.subTest(source=source_profile,catalog_lock=catalog_lock),tempfile.TemporaryDirectory() as folder:
+                    fixture=AppFixture(folder)
+                    if source_profile.startswith('WHATSAPP_CONTEXTUAL'):
+                        for path,data in fixture.context.items():fixture.write(path,data)
+                    if source_profile.endswith('_HUB'):
+                        for path,data in fixture.hub.items():fixture.write(path,data)
+                        fixture.write('app/Support/Immutable.php',fixture.hub_foundation)
+                    if catalog_lock:fixture.write(fixture.catalog_path,fixture.catalog_locked)
+                    before={path:repair.metadata(fixture.root/path) if (fixture.root/path).exists() else None for path in fixture.pins}
+                    fixture.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
+                    with self.assertRaisesRegex(repair.SafeError,'ENABLED_WITH_LEGACY_RUNTIME'):fixture.apply()
+                    self.assertEqual(before,{path:repair.metadata(fixture.root/path) if (fixture.root/path).exists() else None for path in fixture.pins})
+                    self.assertTrue(fixture.controls['enabled']);fixture.unchanged_config(self)
+                    self.assertFalse(any('artisan' in args or args[0]=='/usr/bin/systemctl' for args in fixture.calls))
     def test_lint_failure_touches_no_application_or_worker(self):
         self.f.inner.fail_lint=True
         with self.assertRaisesRegex(repair.SafeError,'CANDIDATE_LINT_FAILED'):self.f.apply()

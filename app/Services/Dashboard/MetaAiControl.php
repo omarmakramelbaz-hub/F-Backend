@@ -15,13 +15,14 @@ class MetaAiControl
 {
     private const CHANNELS = ['whatsapp', 'messenger', 'instagram'];
     private const MAX_REVISION = 9007199254740991;
+    private static array $backlogCache = [];
 
     public static function defaults(): array
     {
         return ['enabled' => false, 'channels' => self::CHANNELS, 'schedule' => [
             'enabled' => false, 'days' => [0, 1, 2, 3, 4, 5, 6],
             'start' => '09:00', 'end' => '23:00', 'all_day' => true,
-        ]];
+        ], 'dispatch_schedule' => MetaAiSchedule::defaultDispatchSchedule()];
     }
 
     /** Legacy fallback is allowed only before this schema is installed. */
@@ -33,7 +34,10 @@ class MetaAiControl
         $row = $this->read();
         if ($row === null) return ['available' => false, 'effective' => false,
             'status' => 'DISABLED', 'can_manage' => false, 'reason' => 'UNAVAILABLE'];
-        $status = MetaAiSchedule::status($row['policy'], $this->now());
+        $now = $this->now();
+        $status = MetaAiSchedule::status($row['policy'], $now);
+        $dispatch = MetaAiSchedule::dispatchStatus($row['policy'], $now);
+        if ($dispatch['status'] === 'DISPATCH_OUTSIDE_HOURS') $dispatch['status'] = 'SCHEDULED_OFF';
         $channels = [];
         foreach ($row['policy']['channels'] as $channel) {
             $gate = $this->gate($channel);
@@ -46,6 +50,7 @@ class MetaAiControl
         return ['available' => true, 'policy' => $row['policy'], 'revision' => $row['revision'],
             'effective' => $status['effective'], 'status' => $status['status'],
             'local_time' => $status['local_time'],
+            'dispatch_state' => $dispatch,
             'channels_state' => $channels,
             'handoff_method' => $handoffValid ? $row['handoff']['method'] : null,
             'handoff_required' => $row['policy']['enabled'] && !$handoffValid,
@@ -58,13 +63,17 @@ class MetaAiControl
     {
         $owner = app(MetaInboxAccess::class)->owner($actor);
         if (config('desktop_dashboard.local', false)) throw new RuntimeException('UNAVAILABLE');
+        $before = $this->read();
+        if ($before === null) throw new RuntimeException('UNAVAILABLE');
+        // Old browser clients can save reply settings without resetting a newer
+        // independently configured dispatch schedule to its default.
+        if (!array_key_exists('dispatch_schedule', $policy))
+            $policy['dispatch_schedule'] = $before['policy']['dispatch_schedule'];
         $policy = MetaAiSchedule::validate($policy);
         if ($policy === null || $expectedRevision < 0 || $expectedRevision >= self::MAX_REVISION)
             throw new RuntimeException('INVALID_POLICY');
         if (!$this->available()) throw new RuntimeException('UNAVAILABLE');
 
-        $before = $this->read();
-        if ($before === null) throw new RuntimeException('UNAVAILABLE');
         if ($before['revision'] !== $expectedRevision) throw new RuntimeException('REVISION_CONFLICT');
         $handoff = $before['handoff'];
         if ($policy['enabled'] && (!$before['policy']['enabled']
@@ -116,6 +125,17 @@ class MetaAiControl
      */
     public function gate(string $channel, ?string $inboundTime = null, ?int $inboundId = null, ?int $eventId = null): array
     {
+        return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'reply');
+    }
+
+    /** Scanning can serve a reply turn or a separately scheduled approved order. */
+    public function processingGate(string $channel, ?string $inboundTime = null, ?int $inboundId = null, ?int $eventId = null): array
+    {
+        return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'processing');
+    }
+
+    private function operationGate(string $channel, ?string $inboundTime, ?int $inboundId, ?int $eventId, string $purpose): array
+    {
         $result = ['effective' => false, 'reason' => 'UNAVAILABLE', 'revision' => null,
             'actor_id' => null, 'actor' => null, 'floor' => null];
         try {
@@ -125,6 +145,10 @@ class MetaAiControl
             $result['revision'] = $row['revision'];
             $now = $this->now();
             $status = MetaAiSchedule::status($row['policy'], $now);
+            if ($purpose !== 'reply') {
+                $dispatch = MetaAiSchedule::dispatchStatus($row['policy'], $now);
+                if ($purpose === 'dispatch' || (!$status['effective'] && $dispatch['effective'])) $status = $dispatch;
+            }
             if (!$status['effective']) return array_replace($result, ['reason' => $status['status']]);
             if (!in_array($channel, $row['policy']['channels'], true))
                 return array_replace($result, ['reason' => 'CHANNEL_DISABLED']);
@@ -135,7 +159,6 @@ class MetaAiControl
             if ($floor === null || $floor['scope'] !== $this->scope($channel)
                 || $this->utc($floor['started_at_utc']) > $now)
                 return array_replace($result, ['reason' => 'ACTIVATION_REQUIRED']);
-            $result['floor'] = array_diff_key($floor, ['scope' => true]);
             if ($channel !== 'whatsapp' && $this->accounts($channel) === [])
                 return array_replace($result, ['reason' => 'ACCOUNT_UNAVAILABLE']);
             if (!$this->captureAvailable($channel))
@@ -145,17 +168,30 @@ class MetaAiControl
             $identity->id = $row['actor_id'];
             try { $owner = app(MetaInboxAccess::class)->owner($identity); }
             catch (\Throwable $error) { return array_replace($result, ['reason' => 'ACTOR_UNAVAILABLE']); }
+            // Activation identity and raw capture watermark stay intact. Only native
+            // unanswered work from its bounded preceding platform window is admitted.
+            $effectiveFloor = $this->effectiveFloor($channel, $floor, $row['revision']);
+            $result['floor'] = $effectiveFloor;
             if ($inboundTime !== null || $inboundId !== null || $eventId !== null) {
                 $inbound = $this->utc($inboundTime);
-                $started = $this->utc($floor['started_at_utc']);
-                if ($inbound === null || $inboundId === null || $inboundId <= $floor['message_floor']
+                $started = $this->utc($effectiveFloor['started_at_utc']);
+                $backlog = $inbound !== null && $inbound <= $this->utc($floor['started_at_utc']);
+                if ($inbound === null || $inboundId === null || $inboundId <= $effectiveFloor['message_floor']
                     || $inbound < $started || $inbound > $now
-                    || ($eventId !== null && $eventId <= $floor['event_floor']))
+                    || ($eventId !== null && $eventId < 1)
+                    || (!$backlog && $eventId !== null && $eventId <= $floor['event_floor']))
                     return array_replace($result, ['reason' => 'BEFORE_ACTIVATION']);
             }
             return array_replace($result, ['effective' => true, 'reason' => null,
-                'actor_id' => (int)$owner->getKey(), 'actor' => $owner]);
+                'actor_id' => (int)$owner->getKey(), 'actor' => $owner, 'backlog_version' => 1,
+                'original_activation_started_at_utc' => $floor['started_at_utc']]);
         } catch (\Throwable $error) { return $result; }
+    }
+
+    /** Re-read master, schedule, owner, account and handoff at each ERP boundary. */
+    public function dispatchGate(string $channel): array
+    {
+        return $this->operationGate($channel, null, null, null, 'dispatch');
     }
 
     protected function now(): DateTimeImmutable { return new DateTimeImmutable('now', new DateTimeZone('UTC')); }
@@ -201,12 +237,22 @@ class MetaAiControl
             || $actorId === false || $actorId < 0 || !is_array($activations) || count($activations) > 3
             || $this->utc($stored->updated_at ?? null) === null) return null;
         foreach ($activations as $channel => $floor) {
-            if (!in_array($channel, self::CHANNELS, true) || !is_array($floor) || count($floor) !== 4
-                || array_diff(array_keys($floor), ['message_floor', 'event_floor', 'started_at_utc', 'scope']) !== []
+            if (!in_array($channel, self::CHANNELS, true) || !is_array($floor)
+                || !in_array(count($floor), [4, 5], true)
+                || array_diff(array_keys($floor), ['message_floor', 'event_floor', 'started_at_utc', 'scope', 'backlog']) !== []
                 || !is_int($floor['message_floor'] ?? null) || $floor['message_floor'] < 0
                 || !is_int($floor['event_floor'] ?? null) || $floor['event_floor'] < 0
                 || $this->utc($floor['started_at_utc'] ?? null) === null
                 || !is_string($floor['scope'] ?? null) || !preg_match('/\A[a-f0-9]{64}\z/D', $floor['scope'])) return null;
+            if (array_key_exists('backlog', $floor)) {
+                $backlog = $floor['backlog'];
+                if (!is_array($backlog) || count($backlog) !== 3
+                    || array_diff(array_keys($backlog), ['version', 'message_floor', 'started_at_utc']) !== []
+                    || ($backlog['version'] ?? null) !== 1 || !is_int($backlog['message_floor'] ?? null)
+                    || $backlog['message_floor'] < 0 || $backlog['message_floor'] > $floor['message_floor']
+                    || $this->utc($backlog['started_at_utc'] ?? null) === null
+                    || $backlog['started_at_utc'] !== $this->backlogStart($floor['started_at_utc'])) return null;
+            }
         }
         return ['policy' => $policy, 'activations' => $activations, 'revision' => $revision,
             'actor_id' => $actorId, 'handoff' => $handoff, 'updated_at_utc' => $stored->updated_at];
@@ -252,8 +298,48 @@ class MetaAiControl
         if ($channel === 'whatsapp') $query->where('c.waba_id', WhatsAppInboxAccess::WABA_ID)
             ->where('c.phone_number_id', WhatsAppInboxAccess::PHONE_ID);
         else MetaInboxAccess::scope($query, 'c.')->where('c.waba_id', $channel);
-        return ['message_floor' => (int)($query->max('m.id') ?? 0),
+        $floor = ['message_floor' => (int)($query->max('m.id') ?? 0),
             'event_floor' => (int)(DB::table($prefix.'_webhook_events')->max('id') ?? 0),
             'started_at_utc' => $now, 'scope' => $scope];
+        $floor['backlog'] = $this->captureBacklog($channel, $floor);
+        return $floor;
+    }
+
+    private function backlogStart(string $started): string
+    {
+        return $this->utc($started)->modify('-24 hours')->format('Y-m-d H:i:s');
+    }
+
+    private function captureBacklog(string $channel, array $floor): array
+    {
+        $started = $this->backlogStart($floor['started_at_utc']);
+        $prefix = $channel === 'whatsapp' ? 'whatsapp' : 'meta';
+        $query = DB::table($prefix.'_inbox_messages as m')
+            ->join($prefix.'_inbox_conversations as c', 'c.id', '=', 'm.conversation_id')
+            ->where('m.direction', 'inbound')->whereIn('m.source', ['messages', 'standby'])
+            ->where('m.sent_at', '>=', $started)->where('m.sent_at', '<=', $floor['started_at_utc'])
+            ->where('m.id', '<=', $floor['message_floor']);
+        if ($channel === 'whatsapp') $query->where('c.waba_id', WhatsAppInboxAccess::WABA_ID)
+            ->where('c.phone_number_id', WhatsAppInboxAccess::PHONE_ID);
+        else MetaInboxAccess::scope($query, 'c.')->where('c.waba_id', $channel);
+        $first = $query->min('m.id');
+        return ['version' => 1, 'message_floor' => $first === null ? $floor['message_floor'] : max(0, (int)$first - 1),
+            'started_at_utc' => $started];
+    }
+
+    private function effectiveFloor(string $channel, array $floor, int $revision): array
+    {
+        // Old installed activations receive the same bounded semantics without
+        // reactivation, writes or moving their original time/message/event bounds.
+        $connection = DB::connection();
+        $key = hash('sha256', json_encode([spl_object_id($connection), $connection->getDatabaseName(),
+            $channel, $revision, $floor], JSON_THROW_ON_ERROR));
+        if (!isset(self::$backlogCache[$key])) {
+            if (count(self::$backlogCache) >= 12) self::$backlogCache = [];
+            self::$backlogCache[$key] = $floor['backlog'] ?? $this->captureBacklog($channel, $floor);
+        }
+        $backlog = self::$backlogCache[$key];
+        return ['message_floor' => $backlog['message_floor'], 'event_floor' => $floor['event_floor'],
+            'started_at_utc' => $backlog['started_at_utc']];
     }
 }

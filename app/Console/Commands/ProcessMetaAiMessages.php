@@ -25,7 +25,7 @@ class ProcessMetaAiMessages extends Command
             try {
                 $enabled=false;
                 foreach ($channels as $channel) {
-                    $gate=$control->gate($channel);
+                    $gate=$control->processingGate($channel);
                     if (($gate['effective']??null)===true) $enabled=true;
                 }
                 if (!$enabled) continue;

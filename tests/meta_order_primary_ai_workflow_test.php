@@ -2,6 +2,8 @@
 // Actual Meta normalizer, encrypted capture, send reservation, projection, workflow and proof.
 // AI/Graph/control clock and existing ERP boundaries are isolated fixtures.
 require __DIR__.'/whatsapp_order_dialogue_workflow_test.php';
+require_once __DIR__.'/../app/Support/MetaAiSchedule.php';
+
 foreach (['Support/MetaMessagingProtocol','Services/Dashboard/MetaInboxAccess','Services/Dashboard/MetaInvalidEvent',
     'Services/Dashboard/MetaInboxConsumer','Services/Dashboard/MetaUploadMedia','Services/Dashboard/MetaReplyService',
     'Services/Dashboard/MetaOrderNativeEvidence','Services/Dashboard/MetaOrderFollowupService','Services/Dashboard/MetaOrderWorkflow'] as $file)
@@ -29,18 +31,38 @@ function metaPrimaryExpect($ok,string $label): void {
     $GLOBALS['metaPrimaryChecks']++; if(!$ok)throw new RuntimeException('META_PRIMARY_FAILED:'.$label);
 }
 class MetaPrimaryFixtureControl {
+    public static bool $backlogGuard=false;
+    public static bool $strictDispatchClock=false;
+    public static bool $replyClockClosed=false;
+    public function processingGate(string $channel,?string $time=null,?int $id=null,?int $event=null): array {
+        $replyClosed=self::$replyClockClosed; self::$replyClockClosed=false;
+        try { $gate=$this->gate($channel,$time,$id,$event); }
+        finally { self::$replyClockClosed=$replyClosed; }
+        if (!$replyClosed||($this->dispatchGate($channel)['effective']??false)) return $gate;
+        return array_replace($gate,['effective'=>false,'reason'=>'OUTSIDE_SCHEDULE']);
+    }
+    public function dispatchGate(string $channel): array {
+        $replyClosed=self::$replyClockClosed; self::$replyClockClosed=false;
+        try { $gate=$this->gate($channel); } finally { self::$replyClockClosed=$replyClosed; }
+        if (self::$strictDispatchClock&&($gate['effective']??false)===true) {
+            $clock=\App\Support\MetaAiSchedule::dispatchStatus(['enabled'=>true,'channels'=>[$channel],'schedule'=>['enabled'=>false,'days'=>[0,1,2,3,4,5,6],'start'=>'09:00','end'=>'23:00','all_day'=>true]],new \DateTimeImmutable(now('UTC')->format('Y-m-d H:i:s'),new \DateTimeZone('UTC')));
+            if (!$clock['effective']) { $gate['effective']=false; $gate['reason']='DISPATCH_OUTSIDE_HOURS'; }
+        }
+        return $gate;
+    }
+
     public static array $channels=['messenger','instagram'];
     public function gate(string $channel,?string $time=null,?int $id=null,?int $event=null): array {
         if (!in_array($channel,self::$channels,true)) return ['effective'=>false,'reason'=>'CHANNEL_DISABLED'];
         $row=MetaDB::table('meta_ai_controls')->where('id',1)->first();
         $out=['effective'=>false,'reason'=>'DISABLED','revision'=>$row?(int)$row->revision:null,'actor_id'=>null,'actor'=>null,'floor'=>null];
-        if (!$row||!$row->enabled||!$row->schedule_active) return $out;
+        if (!$row||!$row->enabled||!$row->schedule_active||self::$replyClockClosed) return $out;
         $actor=MetaDB::table('test_users')->where('id',$row->actor_id)->where('active',1)->first();
         if (!$actor||!$actor->can_checkout) return $out;
         $floor=['message_floor'=>(int)$row->message_floor,'event_floor'=>(int)$row->event_floor,'started_at_utc'=>$row->started_at_utc];
         if (($id!==null||$time!==null)&&($id===null||$time===null||$id<=$floor['message_floor']||$time<$floor['started_at_utc']
             ||$time>now('UTC')->format('Y-m-d H:i:s'))) return $out;
-        return array_replace($out,['effective'=>true,'reason'=>null,'actor_id'=>(int)$actor->id,'actor'=>$actor,'floor'=>$floor]);
+        return array_replace($out,['effective'=>true,'reason'=>null,'actor_id'=>(int)$actor->id,'actor'=>$actor,'floor'=>$floor],self::$backlogGuard?['backlog_version'=>1,'original_activation_started_at_utc'=>'2026-10-09 22:05:00']:[]);
     }
 }
 class MetaPrimaryFixtureProvider extends MetaAi {
@@ -56,6 +78,7 @@ class MetaPrimaryFixtureProvider extends MetaAi {
 }
 function metaPrimarySetup(): void {
     dialogueSetup();
+    MetaPrimaryFixtureControl::$backlogGuard=false; MetaPrimaryFixtureControl::$strictDispatchClock=false; MetaPrimaryFixtureControl::$replyClockClosed=false;
     MetaDB::table('meta_ai_controls')->delete();
     MetaDB::table('meta_ai_controls')->insert(['id'=>1,'revision'=>1,'enabled'=>true,'schedule_active'=>true,
         'actor_id'=>7,'message_floor'=>0,'event_floor'=>0,'started_at_utc'=>'2026-10-09 22:00:00']);
@@ -191,4 +214,31 @@ metaPrimarySetup();metaPrimaryMessage('messenger','mid.disabled','أهلاً');m
 MetaPrimaryFixtureControl::$channels=['instagram'];$r=metaPrimaryRun();
 metaPrimaryExpect($r['errors']===0&&MetaAi::$calls===1&&count($metaGraphs)===1&&str_contains($metaGraphs[0][0],'graph.instagram.com'),'disabled Messenger does not starve active Instagram');
 metaPrimaryNoErp('isolated channels cannot invent orders');
+foreach (['messenger','instagram'] as $channel) {
+    $conversation=metaPrimaryCompleteDraft($channel);MetaPrimaryFixtureControl::$strictDispatchClock=true;$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&$r['deferred']===1&&MetaDB::table('meta_order_drafts')->orderByDesc('id')->value('reason')==='DISPATCH_OUTSIDE_HOURS',
+        'native '.$channel.' approved delivery is queued at01:05 Cairo without ERP');
+    metaPrimaryNoErp('Meta after-hours approval waits');$calls=MetaAi::$calls;$graphs=count($metaGraphs);
+    MetaPrimaryFixtureControl::$replyClockClosed=true;
+    \Carbon\Carbon::setTestNow('2026-10-10 06:00:00');\Carbon\CarbonImmutable::setTestNow('2026-10-10 06:00:00');
+    $r=metaPrimaryRun();metaPrimaryExpect($r['errors']===0&&$r['dispatched']===1&&MetaAi::$calls===$calls&&count($metaGraphs)===$graphs
+        &&MetaDB::table('test_tickets')->count()===1&&MetaDB::table('test_print')->count()===1,
+        'native '.$channel.'09:00 queued approval dispatches with separate reply schedule closed and no repeated AI');
+    metaPrimaryRun();metaPrimaryExpect(MetaDB::table('test_tickets')->count()===1&&MetaDB::table('test_print')->count()===1,
+        'native '.$channel.' queued replay never duplicates ticket or print');
+
+    metaPrimarySetup();$conversation=metaPrimaryMessage($channel,'mid.old.cached','عايز فسيخ');MetaAi::$data=MetaExtraction::none();
+    MetaDB::table('meta_ai_controls')->update(['enabled'=>false]);app(MetaOrderWorkflow::class)->analyze($conversation,(object)['id'=>7]);
+    $calls=MetaAi::$calls;$ceiling=MetaDB::table('meta_inbox_messages')->max('id');
+    MetaDB::table('meta_order_scans')->where('conversation_id',$conversation)->update(['auto_floor'=>$ceiling,'attempts'=>3]);
+    MetaDB::table('meta_ai_controls')->update(['enabled'=>true,'revision'=>2]);$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&MetaAi::$calls===$calls&&count($metaGraphs)===1,
+        'native '.$channel.' cached NONE unanswered turn survives legacy higher scan floor without another extraction');
+    metaPrimaryNoErp('Meta backlog clarification cannot dispatch guessed orders');
+}
+metaPrimarySetup();metaPrimaryMessage('instagram','mid.only.erp.open','أهلاً');MetaAi::$data=MetaExtraction::none();
+MetaPrimaryFixtureControl::$strictDispatchClock=true;MetaPrimaryFixtureControl::$replyClockClosed=true;
+\Carbon\Carbon::setTestNow('2026-10-10 06:00:00');\Carbon\CarbonImmutable::setTestNow('2026-10-10 06:00:00');metaPrimaryRun();
+metaPrimaryExpect(MetaAi::$calls===0&&count($metaGraphs)===0,'Meta dispatch-only open window cannot analyze or reply to a new inbound');
+
 echo 'META_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$metaPrimaryChecks." PASS\n";

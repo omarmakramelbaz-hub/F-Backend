@@ -10,13 +10,20 @@ final class MetaAiSchedule
 {
     private const CHANNELS = ['whatsapp', 'messenger', 'instagram'];
 
+    public static function defaultDispatchSchedule(): array
+    {
+        return ['enabled' => true, 'days' => [0, 1, 2, 3, 4, 5, 6],
+            'start' => '09:00', 'end' => '00:30', 'all_day' => false];
+    }
+
     /** Unknown keys and implicit type conversions are deliberately rejected. */
     public static function validate(array $policy): ?array
     {
-        if (!self::exactKeys($policy, ['enabled', 'channels', 'schedule'])
+        if (!array_key_exists('dispatch_schedule', $policy)) $policy['dispatch_schedule'] = self::defaultDispatchSchedule();
+        if (!self::exactKeys($policy, ['enabled', 'channels', 'schedule', 'dispatch_schedule'])
             || !is_bool($policy['enabled']) || !is_array($policy['channels'])
             || !array_is_list($policy['channels']) || count($policy['channels']) > 3
-            || !is_array($policy['schedule'])) return null;
+            || !is_array($policy['schedule']) || !is_array($policy['dispatch_schedule'])) return null;
 
         $channels = [];
         foreach ($policy['channels'] as $channel) {
@@ -26,7 +33,20 @@ final class MetaAiSchedule
         }
         if ($policy['enabled'] && $channels === []) return null;
 
-        $schedule = $policy['schedule'];
+        $schedule = self::validateSchedule($policy['schedule']);
+        $dispatch = self::validateSchedule($policy['dispatch_schedule']);
+        if ($schedule === null || $dispatch === null) return null;
+
+        return [
+            'enabled' => $policy['enabled'],
+            'channels' => array_values(array_intersect(self::CHANNELS, $channels)),
+            'schedule' => $schedule,
+            'dispatch_schedule' => $dispatch,
+        ];
+    }
+
+    private static function validateSchedule(array $schedule): ?array
+    {
         if (!self::exactKeys($schedule, ['enabled', 'days', 'start', 'end', 'all_day'])
             || !is_bool($schedule['enabled']) || !is_bool($schedule['all_day'])
             || !is_array($schedule['days']) || !array_is_list($schedule['days'])
@@ -43,15 +63,11 @@ final class MetaAiSchedule
         sort($days, SORT_NUMERIC);
 
         return [
-            'enabled' => $policy['enabled'],
-            'channels' => array_values(array_intersect(self::CHANNELS, $channels)),
-            'schedule' => [
-                'enabled' => $schedule['enabled'],
-                'days' => $days,
-                'start' => $schedule['start'],
-                'end' => $schedule['end'],
-                'all_day' => $schedule['all_day'],
-            ],
+            'enabled' => $schedule['enabled'],
+            'days' => $days,
+            'start' => $schedule['start'],
+            'end' => $schedule['end'],
+            'all_day' => $schedule['all_day'],
         ];
     }
 
@@ -89,6 +105,16 @@ final class MetaAiSchedule
 
         return ['effective' => $state === 'ACTIVE', 'status' => $state,
             'local_time' => $local->format(DATE_ATOM)];
+    }
+
+    /** Dispatch uses its own Cairo schedule; reply hours do not constrain it. */
+    public static function dispatchStatus(array $policy, ?DateTimeImmutable $at = null): array
+    {
+        $validated = self::validate($policy);
+        if ($validated !== null) $validated['schedule'] = $validated['dispatch_schedule'];
+        $status = self::status($validated ?? [], $at);
+        if ($status['status'] === 'SCHEDULED_OFF') $status['status'] = 'DISPATCH_OUTSIDE_HOURS';
+        return $status;
     }
 
     private static function exactKeys(array $value, array $keys): bool

@@ -22,6 +22,7 @@ function policy(array $overrides = []): array
         'enabled' => true,
         'channels' => ['whatsapp', 'messenger', 'instagram'],
         'schedule' => ['enabled' => true, 'days' => [1], 'start' => '09:00', 'end' => '17:00', 'all_day' => false],
+        'dispatch_schedule' => MetaAiSchedule::defaultDispatchSchedule(),
     ], $overrides);
 }
 
@@ -45,7 +46,7 @@ $unordered = ['schedule' => ['end' => '17:00', 'start' => '09:00', 'days' => [6,
 $normalized = MetaAiSchedule::validate($unordered);
 scheduleCheck($normalized['channels'] === ['whatsapp', 'instagram'], 'canonical channel order');
 scheduleCheck($normalized['schedule']['days'] === [0, 3, 6], 'canonical day order');
-scheduleCheck(array_keys($normalized) === ['enabled', 'channels', 'schedule'], 'canonical top key order');
+scheduleCheck(array_keys($normalized) === ['enabled', 'channels', 'schedule', 'dispatch_schedule'], 'canonical top key order');
 scheduleCheck(array_keys($normalized['schedule']) === ['enabled', 'days', 'start', 'end', 'all_day'], 'canonical schedule key order');
 scheduleCheck(MetaAiSchedule::validate($normalized) === $normalized, 'canonicalization idempotent');
 
@@ -183,6 +184,47 @@ foreach ([[], ['enabled' => true], ['enabled' => true, 'channels' => ['whatsapp'
     $result = cairoStatus($invalid, '2026-10-12 12:00:00');
     scheduleCheck($result['status'] === 'DISABLED' && $result['effective'] === false, 'invalid status fails closed');
 }
+
+// Legacy reply policies gain dispatch defaults read-only; independent dispatch is configurable.
+$legacy = $canonical; unset($legacy['dispatch_schedule']);
+scheduleCheck(MetaAiSchedule::validate($legacy) === $canonical, 'legacy policy normalizes separate default dispatch hours');
+$dispatchDefault = $canonical; $dispatchDefault['schedule']['enabled'] = false;
+foreach (['2026-10-15 00:00:00', '2026-10-15 00:29:59', '2026-10-15 09:00:00', '2026-10-15 23:59:59'] as $time) {
+    $result = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo')));
+    scheduleCheck($result['effective'] && $result['status'] === 'ACTIVE', 'default daily dispatch open '.$time);
+}
+foreach (['2026-10-15 00:30:00', '2026-10-15 08:59:59'] as $time) {
+    $at = new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo'));
+    $result = MetaAiSchedule::dispatchStatus($dispatchDefault, $at);
+    scheduleCheck(!$result['effective'] && $result['status'] === 'DISPATCH_OUTSIDE_HOURS', 'default dispatch end exclusive '.$time);
+    scheduleCheck(MetaAiSchedule::status($dispatchDefault, $at)['effective'], 'reply schedule remains open while dispatch closed');
+}
+$independent = $canonical;
+$independent['dispatch_schedule'] = ['enabled' => true, 'days' => [6], 'start' => '22:00', 'end' => '02:00', 'all_day' => false];
+foreach (['2026-10-17 22:00:00', '2026-10-18 01:59:59'] as $time) {
+    $at = new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo'));
+    scheduleCheck(MetaAiSchedule::dispatchStatus($independent, $at)['effective'] && !MetaAiSchedule::status($independent, $at)['effective'], 'independent selected-day overnight dispatch '.$time);
+}
+scheduleCheck(!MetaAiSchedule::dispatchStatus($independent, new DateTimeImmutable('2026-10-18 02:00:00', new DateTimeZone('Africa/Cairo')))['effective'], 'custom dispatch overnight end exclusive');
+$independent['dispatch_schedule']['all_day'] = true;
+scheduleCheck(MetaAiSchedule::dispatchStatus($independent, new DateTimeImmutable('2026-10-17 08:00:00', new DateTimeZone('Africa/Cairo')))['effective'], 'dispatch all-day is explicit');
+$independent['dispatch_schedule']['enabled'] = false; $independent['dispatch_schedule']['days'] = [];
+scheduleCheck(MetaAiSchedule::dispatchStatus($independent, new DateTimeImmutable('2026-10-18T04:00:00Z'))['effective'], 'disabled dispatch scheduling means all hours');
+$independent['enabled'] = false;
+scheduleCheck(MetaAiSchedule::dispatchStatus($independent, new DateTimeImmutable('2026-10-18T04:00:00Z'))['status'] === 'DISABLED', 'master off wins dispatch');
+foreach ([null, true, [], ['enabled' => true], array_replace(MetaAiSchedule::defaultDispatchSchedule(), ['extra' => true]), array_replace(MetaAiSchedule::defaultDispatchSchedule(), ['end' => '24:30']), array_replace(MetaAiSchedule::defaultDispatchSchedule(), ['days' => []])] as $badSchedule) {
+    $bad = $canonical; $bad['dispatch_schedule'] = $badSchedule;
+    scheduleCheck(MetaAiSchedule::validate($bad) === null, 'malformed separate dispatch policy denied');
+    scheduleCheck(MetaAiSchedule::dispatchStatus($bad, new DateTimeImmutable('2026-10-15T10:00:00Z'))['status'] === 'DISABLED', 'malformed dispatch fails closed');
+}
+foreach ([['2026-01-12T07:00:00Z', '2026-01-12T09:00:00+02:00'], ['2026-07-13T06:00:00Z', '2026-07-13T09:00:00+03:00'], ['2026-10-29T20:30:00Z', '2026-10-29T23:30:00+03:00'], ['2026-10-29T21:30:00Z', '2026-10-29T23:30:00+02:00']] as [$utc, $local]) {
+    $result = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable($utc));
+    scheduleCheck($result === ['effective' => true, 'status' => 'ACTIVE', 'local_time' => $local], 'dispatch Cairo DST clock '.$utc);
+}
+$beforeSpring = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable('2026-04-23T21:59:59Z'));
+$afterSpring = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable('2026-04-23T22:00:00Z'));
+scheduleCheck($beforeSpring['effective'] && !$afterSpring['effective'] && $afterSpring['local_time'] === '2026-04-24T01:00:00+03:00', 'dispatch follows skipped spring midnight without assuming fixed UTC offset');
+
 scheduleCheck($canonical === policy(), 'input policy never mutated');
 
 echo 'Meta AI schedule: '.$checks." checks passed.\n";

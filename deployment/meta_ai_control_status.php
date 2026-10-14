@@ -54,9 +54,9 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/MetaAiSchedule.php'=>'739244b40c1115105a72c42534eba37d696bf4fe',
+        'app/Support/MetaAiSchedule.php'=>'f05614f2b9f7db4c3596bac5a78d0e2de5e538df',
         'app/Services/Dashboard/MetaBusinessAgent.php'=>'4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
-        'app/Services/Dashboard/MetaAiControl.php'=>'66df1b61f9d47050a0d3ce870b560589f4e01824',
+        'app/Services/Dashboard/MetaAiControl.php'=>'86639b7cbac148006d9f93b2589412932d2c03e2',
         'app/Support/WhatsAppOrderDialogue.php'=>'33253285d24ba7110f58744cad9c3a87e1bef06a',
         'app/Support/WhatsAppOrderExtraction.php'=>'1b518728c5f63db4ba1ef84149fb0aafec02a98a',
         'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php'=>'bfe69bb72cc586c68823463fd3f1885915774d02',
@@ -66,14 +66,14 @@ try{
         'app/Services/Dashboard/MetaOrderFollowupService.php'=>'d14a3c6e84624ee5b2d20997b7f11159b9101720',
         'app/Services/Dashboard/MetaMediaService.php'=>'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e',
         'app/Services/Dashboard/MetaReplyService.php'=>'c4226df516aa5f8b59999a8979f9f2ab43cf0e28',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'ee4263c6b7bd827d9bf481db237779c189782b40',
-        'app/Services/Dashboard/MetaOrderWorkflow.php'=>'d6cbf86c96ad44a0e0a65c6894085500594ced8f',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'1093547d48befad671dddbe73b5684240504d107',
+        'app/Services/Dashboard/MetaOrderWorkflow.php'=>'0bc341a40717428feb47a4d6f42232e7b82afa40',
         'app/Services/Dashboard/MetaInboxConsumer.php'=>'3b7e9cb9abfabc85c0b78199d0bf9d2565424f42',
         'app/Http/Controllers/Dashboard/MetaAiControlController.php'=>'3cb87c03aaabdd7b1bb01f047caf201649c8db6f',
-        'app/Console/Commands/ProcessMetaAiMessages.php'=>'b5b8bd556cab89ef0f44f6d1e8acff718f150a4f',
+        'app/Console/Commands/ProcessMetaAiMessages.php'=>'9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7',
         'database/migrations/2026_10_15_000001_create_meta_ai_controls.php'=>'3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
-        'resources/views/admin/meta/ai_controls.blade.php'=>'9a560c33fd4d3f1a87390a56a72a372396db72fe',
-        'public/js/dashboard-meta-ai-controls.js'=>'00589d95df07646aaa8db71309e098bccd36bd2e',
+        'resources/views/admin/meta/ai_controls.blade.php'=>'05c991ec21144ae783104c089aea9f43fb3964a0',
+        'public/js/dashboard-meta-ai-controls.js'=>'c3f33b423b6228ca679f5b7ec292213a22c7bd5b',
         'public/css/dashboard-meta-ai-controls.css'=>'293c1db7c3a4c3dc2720fd9216c450ac172c37e8',
         'routes/meta_ai_controls.php'=>'8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php'=>'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
@@ -97,13 +97,17 @@ try{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
     $stage='CONTROL';$control=app(\App\Services\Dashboard\MetaAiControl::class);$state=$control->state();
     $statusCodes=['ACTIVE','DISABLED','SCHEDULED_OFF','OUTSIDE_SCHEDULE','UNAVAILABLE','CHANNEL_DISABLED','INVALID_CHANNEL','STATE_CHANGED',
-        'EXTERNAL_AGENT_PAUSE_REQUIRED','ACTIVATION_REQUIRED','ACCOUNT_UNAVAILABLE','CAPTURE_UNAVAILABLE','ACTOR_UNAVAILABLE','BEFORE_ACTIVATION'];
+        'EXTERNAL_AGENT_PAUSE_REQUIRED','ACTIVATION_REQUIRED','ACCOUNT_UNAVAILABLE','CAPTURE_UNAVAILABLE','ACTOR_UNAVAILABLE','BEFORE_ACTIVATION','DISPATCH_OUTSIDE_HOURS'];
     $policy=is_array($state['policy']??null)?\App\Support\MetaAiSchedule::validate($state['policy']):null;
     $out['control']=['available'=>($state['available']??null)===true,'effective'=>($state['effective']??null)===true,
         'status'=>metaStatusCode($state['status']??null,$statusCodes,'UNAVAILABLE'),'revision'=>metaStatusInt($state['revision']??null),
         'policy'=>$policy,'local_time'=>metaStatusTime($state['local_time']??null),
         'handoff_method'=>metaStatusCode($state['handoff_method']??null,['OWNER_ATTESTED','VERIFIED_WHATSAPP_API']),
         'handoff_required'=>($state['handoff_required']??null)===true,'updated_at_utc'=>metaStatusTime($state['updated_at_utc']??null)];
+    $dispatch=is_array($state['dispatch_state']??null)?$state['dispatch_state']:[];
+    $out['control']['dispatch_state']=['effective'=>($dispatch['effective']??null)===true,
+        'status'=>metaStatusCode($dispatch['status']??null,['ACTIVE','DISABLED','SCHEDULED_OFF'],'UNAVAILABLE'),
+        'local_time'=>metaStatusTime($dispatch['local_time']??null)];
     $out['channels']=[];$out['conversations']=[];$revisions=[];
     foreach(['whatsapp','messenger','instagram']as$channel){
         $gate=$control->gate($channel);$revisions[]=metaStatusInt($gate['revision']??null);
@@ -146,7 +150,7 @@ try{
                 ->get(['id','status','reason','ticket_id','assigned_branch','updated_at'])as$row){
                 $draft=['id'=>(int)$row->id,'status'=>metaStatusCode($row->status,['REVIEW','READY','NONE','CANCELLED','DISPATCHED'],'OTHER'),
                     'reason'=>metaStatusCode($row->reason,['REVIEW_REQUIRED','LOCATION_UNCONFIRMED','BRANCH_UNRESOLVED','INVALID_EXTRACTION','AI_UNAVAILABLE',
-                        'CONTEXT_INCOMPLETE','PICKUP_REQUIRES_REVIEW','CAPTURE_PENDING','ACCEPTED_REPLIES_PENDING','DIALOGUE_INCOMPLETE','HUMAN_HANDOFF']),
+                        'CONTEXT_INCOMPLETE','PICKUP_REQUIRES_REVIEW','CAPTURE_PENDING','ACCEPTED_REPLIES_PENDING','DIALOGUE_INCOMPLETE','HUMAN_HANDOFF','DISPATCH_OUTSIDE_HOURS']),
                     'ticket_id'=>metaStatusInt($row->ticket_id),'branch'=>metaStatusBranch($row->assigned_branch),'updated_at'=>metaStatusTime($row->updated_at)];
                 if($draft['status']==='DISPATCHED'&&$draft['ticket_id']!==null&&$draft['ticket_id']>0&&$draft['branch']!==null)
                     $draft['erp']=metaStatusTicket($draft['ticket_id'],$draft['branch']);

@@ -8,6 +8,8 @@
     var words = {
         ar: {enable:'تشغيل ردود وتحليل AI', disable:'إيقاف ردود وتحليل AI', loading:'جارٍ تحميل حالة AI',
             save:'حفظ الإعدادات', saving:'جارٍ حفظ الإعدادات…',
+            dispatch_loading:'جارٍ تحميل حالة إرسال الطلبات', dispatch_unavailable:'حالة إرسال الطلبات غير متاحة حاليًا',
+            dispatch_DISABLED:'إرسال الطلبات متوقف', dispatch_ACTIVE:'إرسال الطلبات مفعّل حسب الجدول', dispatch_SCHEDULED_OFF:'إرسال الطلبات خارج مواعيد الإرسال',
             DISABLED:'AI متوقف', ACTIVE:'AI مفعّل حسب الجدول', SCHEDULED_OFF:'AI خارج مواعيد التشغيل', unavailable:'إعدادات AI غير متاحة حاليًا',
             failed:'تعذّر تحميل إعدادات AI. حدّث الحالة للمحاولة مرة أخرى.', save_failed:'تعذّر تأكيد الحفظ. حدّث الحالة قبل أي محاولة جديدة.',
             saved:'تم حفظ الإعدادات.', conflict:'تغيّرت الإعدادات من جلسة أخرى. حمّلنا أحدث نسخة؛ راجعها قبل الحفظ مجددًا.',
@@ -21,6 +23,8 @@
             OWNER_ATTESTED:'إيقاف المساعد الخارجي مؤكّد بإقرار المالك.', VERIFIED_WHATSAPP_API:'إيقاف مساعد واتساب مؤكّد عبر الاتصال بميتا.'},
         en: {enable:'Enable AI replies and analysis', disable:'Disable AI replies and analysis', loading:'Loading AI status',
             save:'Save settings', saving:'Saving settings…',
+            dispatch_loading:'Loading order dispatch status', dispatch_unavailable:'Order dispatch status is currently unavailable',
+            dispatch_DISABLED:'Order dispatch is off', dispatch_ACTIVE:'Order dispatch is enabled for these hours', dispatch_SCHEDULED_OFF:'Order dispatch is outside dispatch hours',
             DISABLED:'AI is off', ACTIVE:'AI is enabled for these hours', SCHEDULED_OFF:'AI is outside operating hours', unavailable:'AI settings are currently unavailable',
             failed:'AI settings could not be loaded. Refresh the status to try again.', save_failed:'The save could not be confirmed. Refresh the status before another attempt.',
             saved:'Settings saved.', conflict:'Settings changed in another session. The latest version has been loaded; review it before saving again.',
@@ -39,19 +43,27 @@
             && Object.keys(value).length === keys.length && Object.keys(value).every(function (key) { return keys.indexOf(key) !== -1; });
     }
     function validTime(value) { return typeof value === 'string' && /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(value) && value.length === 5; }
-    function validPolicy(policy) {
-        if (!exact(policy, ['enabled','channels','schedule']) || typeof policy.enabled !== 'boolean'
-            || !Array.isArray(policy.channels) || policy.channels.length > 3
-            || policy.channels.some(function (channel, i) { return channels.indexOf(channel) === -1 || policy.channels.indexOf(channel) !== i; })
-            || (policy.enabled && policy.channels.length === 0)) return false;
-        var schedule = policy.schedule;
+    function validSchedule(schedule) {
         return exact(schedule, ['enabled','days','start','end','all_day']) && typeof schedule.enabled === 'boolean'
             && typeof schedule.all_day === 'boolean' && Array.isArray(schedule.days) && schedule.days.length <= 7
             && !schedule.days.some(function (day, i) { return !Number.isInteger(day) || day < 0 || day > 6 || schedule.days.indexOf(day) !== i; })
             && (!schedule.enabled || schedule.days.length > 0) && validTime(schedule.start) && validTime(schedule.end)
             && (schedule.all_day || schedule.start !== schedule.end);
     }
-    function validState(value) {
+    function validPolicy(policy) {
+        return exact(policy, ['enabled','channels','schedule','dispatch_schedule']) && typeof policy.enabled === 'boolean'
+            && Array.isArray(policy.channels) && policy.channels.length <= 3
+            && !policy.channels.some(function (channel, i) { return channels.indexOf(channel) === -1 || policy.channels.indexOf(channel) !== i; })
+            && (!policy.enabled || policy.channels.length > 0)
+            && validSchedule(policy.schedule) && validSchedule(policy.dispatch_schedule);
+    }
+    function normalizePolicy(policy) {
+        if (!exact(policy, ['enabled','channels','schedule'])) return policy;
+        var normalized = clone(policy);
+        normalized.dispatch_schedule = {enabled:true, days:[0,1,2,3,4,5,6], start:'09:00', end:'00:30', all_day:false};
+        return normalized;
+    }
+    function validState(value, legacyPolicy) {
         if (!(value && value.available === true && validPolicy(value.policy)
             && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.can_manage === 'boolean'
             && ['DISABLED','ACTIVE','SCHEDULED_OFF'].indexOf(value.status) !== -1
@@ -62,6 +74,15 @@
         if (Object.prototype.hasOwnProperty.call(value, 'handoff_method')
             && value.handoff_method !== null && ['OWNER_ATTESTED','VERIFIED_WHATSAPP_API'].indexOf(value.handoff_method) === -1) return false;
         if (Object.prototype.hasOwnProperty.call(value, 'handoff_required') && typeof value.handoff_required !== 'boolean') return false;
+        if (!Object.prototype.hasOwnProperty.call(value, 'dispatch_state') && !legacyPolicy) return false;
+        if (Object.prototype.hasOwnProperty.call(value, 'dispatch_state')) {
+            var dispatch = value.dispatch_state;
+            if (!exact(dispatch, ['effective','status','local_time']) || typeof dispatch.effective !== 'boolean'
+                || ['DISABLED','ACTIVE','SCHEDULED_OFF'].indexOf(dispatch.status) === -1
+                || dispatch.effective !== (dispatch.status === 'ACTIVE') || (!value.policy.enabled && dispatch.status !== 'DISABLED')
+                || typeof dispatch.local_time !== 'string' || dispatch.local_time.length > 40
+                || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+(?:02|03):00$/.test(dispatch.local_time)) return false;
+        }
         if (!Object.prototype.hasOwnProperty.call(value, 'channels_state')) return true;
         var seen = [];
         return Array.isArray(value.channels_state) && value.channels_state.length <= 3 && value.channels_state.every(function (row) {
@@ -104,15 +125,20 @@
         var toggle = panel.querySelector('[data-meta-ai-toggle]'), save = panel.querySelector('[data-meta-ai-save]');
         var refresh = panel.querySelector('[data-meta-ai-refresh]'), form = panel.querySelector('[data-meta-ai-form]');
         var status = panel.querySelector('[data-meta-ai-status]'), message = panel.querySelector('[data-meta-ai-message]');
+        var dispatchStatus = panel.querySelector('[data-meta-ai-dispatch-status]');
         var settings = panel.querySelector('[data-meta-ai-settings]'), currentTime = panel.querySelector('[data-meta-ai-current-time]');
         var channelStatus = panel.querySelector('[data-meta-ai-channel-status]'), handoffState = panel.querySelector('[data-meta-ai-handoff-state]');
         var scheduleEnabled = panel.querySelector('[data-meta-ai-schedule]'), allDay = panel.querySelector('[data-meta-ai-all-day]');
         var externalPaused = panel.querySelector('[data-meta-ai-external-paused]');
         var start = panel.querySelector('[data-meta-ai-start]'), end = panel.querySelector('[data-meta-ai-end]');
+        var dispatchEnabled = panel.querySelector('[data-meta-ai-dispatch-schedule]'), dispatchAllDay = panel.querySelector('[data-meta-ai-dispatch-all-day]');
+        var dispatchStart = panel.querySelector('[data-meta-ai-dispatch-start]'), dispatchEnd = panel.querySelector('[data-meta-ai-dispatch-end]');
         var channelInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-channel]'));
         var dayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-day]'));
-        if (!toggle || !save || !refresh || !form || !status || !message || !settings || !currentTime || !channelStatus || !handoffState
-            || !scheduleEnabled || !allDay || !externalPaused || !start || !end || channelInputs.length !== 3 || dayInputs.length !== 7) return;
+        var dispatchDayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-dispatch-day]'));
+        if (!toggle || !save || !refresh || !form || !status || !dispatchStatus || !message || !settings || !currentTime || !channelStatus || !handoffState
+            || !scheduleEnabled || !allDay || !externalPaused || !start || !end || !dispatchEnabled || !dispatchAllDay
+            || !dispatchStart || !dispatchEnd || channelInputs.length !== 3 || dayInputs.length !== 7 || dispatchDayInputs.length !== 7) return;
         var run = {panel:panel, dead:false, busy:false, saving:false, dirty:false, saved:null, listeners:[], timer:null};
         active = run;
 
@@ -129,12 +155,17 @@
             dayInputs.forEach(function (input) { input.disabled = !editable || !scheduleEnabled.checked; });
             allDay.disabled = !editable || !scheduleEnabled.checked;
             start.disabled = end.disabled = !editable || !scheduleEnabled.checked || allDay.checked;
+            dispatchEnabled.disabled = !editable;
+            dispatchDayInputs.forEach(function (input) { input.disabled = !editable || !dispatchEnabled.checked; });
+            dispatchAllDay.disabled = !editable || !dispatchEnabled.checked;
+            dispatchStart.disabled = dispatchEnd.disabled = !editable || !dispatchEnabled.checked || dispatchAllDay.checked;
         }
         function render(value) {
             run.saved = clone(value);
             run.dirty = false;
             panel.hidden = false; settings.hidden = false; panel.dataset.status = value.status;
             status.textContent = labels[value.status];
+            dispatchStatus.textContent = value.dispatch_state ? labels['dispatch_' + value.dispatch_state.status] : labels.dispatch_unavailable;
             toggle.textContent = labels[value.policy.enabled ? 'disable' : 'enable'];
             toggle.setAttribute('aria-pressed', value.policy.enabled ? 'true' : 'false');
             channelInputs.forEach(function (input) { input.checked = value.policy.channels.indexOf(input.value) !== -1; });
@@ -143,6 +174,10 @@
             externalPaused.checked = false;
             start.value = schedule.start; end.value = schedule.end;
             dayInputs.forEach(function (input) { input.checked = schedule.days.indexOf(Number(input.value)) !== -1; });
+            var dispatchSchedule = value.policy.dispatch_schedule;
+            dispatchEnabled.checked = dispatchSchedule.enabled; dispatchAllDay.checked = dispatchSchedule.all_day;
+            dispatchStart.value = dispatchSchedule.start; dispatchEnd.value = dispatchSchedule.end;
+            dispatchDayInputs.forEach(function (input) { input.checked = dispatchSchedule.days.indexOf(Number(input.value)) !== -1; });
             currentTime.textContent = labels.current + value.local_time.slice(0, 16).replace('T', ' ');
             channelStatus.textContent = '';
             value.policy.channels.forEach(function (channel) {
@@ -161,6 +196,7 @@
         function unavailable(text) {
             run.saved = null; panel.hidden = false; settings.hidden = true;
             panel.dataset.status = 'DISABLED'; status.textContent = labels.unavailable;
+            dispatchStatus.textContent = labels.dispatch_unavailable;
             toggle.textContent = labels.enable; toggle.setAttribute('aria-pressed', 'false');
             currentTime.textContent = ''; showMessage(text); controls();
             channelStatus.textContent = ''; handoffState.textContent = ''; handoffState.hidden = true;
@@ -191,13 +227,15 @@
             if (!alive()) throw new Error('STALE');
             if (!value || typeof value.available !== 'boolean') throw new Error('RESPONSE');
             if (!value.available) return null;
-            if (!validState(value)) throw new Error('RESPONSE');
+            var legacyPolicy = exact(value.policy, ['enabled','channels','schedule']);
+            value.policy = normalizePolicy(value.policy);
+            if (!validState(value, legacyPolicy)) throw new Error('RESPONSE');
             return value;
         }
         async function load(note) {
             if (run.busy || !alive()) return;
             run.busy = true; panel.hidden = false; controls();
-            if (!run.saved) status.textContent = labels.loading;
+            if (!run.saved) { status.textContent = labels.loading; dispatchStatus.textContent = labels.dispatch_loading; }
             showMessage('');
             try {
                 var value = await request(readUrl);
@@ -236,7 +274,10 @@
                 channels:channelInputs.filter(function (input) { return input.checked; }).map(function (input) { return input.value; }),
                 schedule:{enabled:scheduleEnabled.checked,
                     days:dayInputs.filter(function (input) { return input.checked; }).map(function (input) { return Number(input.value); }),
-                    start:start.value, end:end.value, all_day:allDay.checked}};
+                    start:start.value, end:end.value, all_day:allDay.checked},
+                dispatch_schedule:{enabled:dispatchEnabled.checked,
+                    days:dispatchDayInputs.filter(function (input) { return input.checked; }).map(function (input) { return Number(input.value); }),
+                    start:dispatchStart.value, end:dispatchEnd.value, all_day:dispatchAllDay.checked}};
         }
         bind(toggle, 'click', function () {
             if (!run.saved || !run.saved.can_manage || run.busy) return;
@@ -256,8 +297,10 @@
         bind(refresh, 'click', function () { load(); });
         bind(scheduleEnabled, 'change', function () { dirty(); controls(); });
         bind(allDay, 'change', function () { dirty(); controls(); });
-        channelInputs.concat(dayInputs).concat([externalPaused]).forEach(function (input) { bind(input, 'change', dirty); });
-        [start,end].forEach(function (input) { bind(input, 'input', dirty); bind(input, 'change', dirty); });
+        bind(dispatchEnabled, 'change', function () { dirty(); controls(); });
+        bind(dispatchAllDay, 'change', function () { dirty(); controls(); });
+        channelInputs.concat(dayInputs).concat(dispatchDayInputs).concat([externalPaused]).forEach(function (input) { bind(input, 'change', dirty); });
+        [start,end,dispatchStart,dispatchEnd].forEach(function (input) { bind(input, 'input', dirty); bind(input, 'change', dirty); });
         bind(window, 'focus', backgroundRefresh);
         bind(document, 'visibilitychange', backgroundRefresh);
         run.timer = window.setInterval(backgroundRefresh, 30000);

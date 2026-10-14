@@ -9,7 +9,8 @@ namespace Illuminate\Console {
 namespace App\Services\Dashboard {
     class MetaAiControl {
         public array $states=[]; public array $calls=[];
-        public function gate($channel): array {
+        public function gate($channel): array { throw new \RuntimeException('REPLY_GATE_CANNOT_AUTHORIZE_THE_SHARED_WORKER'); }
+        public function processingGate($channel): array {
             $this->calls[]=$channel; $state=$this->states[$channel]??false;
             if ($state==='THROW') throw new \RuntimeException('PRIVATE_CONTROL_EXCEPTION');
             return ['effective'=>$state,'actor'=>'PRIVATE_OWNER','token'=>'PRIVATE_TOKEN'];

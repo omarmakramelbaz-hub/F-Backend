@@ -21,7 +21,7 @@ import time
 
 ROOT=pathlib.Path('/home/fasakha/public_html')
 SYSTEMCTL='/usr/bin/systemctl'
-PUBLISHER_BLOB='80032f81c4a847890d91737feb49ce6048cacbb6'
+PUBLISHER_BLOB='9704c3e89222b50e584291008a4ee000293298a3'
 BASE_BLOB='f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 HELPERS={'apply_meta_ai_control.py':PUBLISHER_BLOB,'install_whatsapp_inbox.py':BASE_BLOB}
 SOURCE_ROSTER=('app/Support/MetaAiSchedule.php', 'app/Services/Dashboard/MetaBusinessAgent.php', 'app/Services/Dashboard/MetaAiControl.php', 'app/Support/WhatsAppOrderDialogue.php', 'app/Support/WhatsAppOrderExtraction.php', 'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php', 'app/Services/Dashboard/WhatsAppOrderAiProvider.php', 'app/Services/Dashboard/WhatsAppOrderFollowupService.php', 'app/Services/Dashboard/MetaOrderNativeEvidence.php', 'app/Services/Dashboard/MetaOrderFollowupService.php', 'app/Services/Dashboard/MetaMediaService.php', 'app/Services/Dashboard/MetaReplyService.php', 'app/Services/Dashboard/WhatsAppOrderWorkflow.php', 'app/Services/Dashboard/MetaOrderWorkflow.php', 'app/Services/Dashboard/MetaInboxConsumer.php', 'app/Http/Controllers/Dashboard/MetaAiControlController.php', 'app/Console/Commands/ProcessMetaAiMessages.php', 'database/migrations/2026_10_15_000001_create_meta_ai_controls.php', 'resources/views/admin/meta/ai_controls.blade.php', 'public/js/dashboard-meta-ai-controls.js', 'public/css/dashboard-meta-ai-controls.css', 'routes/meta_ai_controls.php', 'resources/views/admin/meta/channels.blade.php', 'routes/meta_inbox.php')
