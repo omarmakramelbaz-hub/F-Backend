@@ -9,6 +9,11 @@
         destroy();
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
+        var namespace = '';
+        try {
+            var replyRoute = new URL(config.conversations_base_url, window.location.href);
+            namespace = replyRoute.origin + replyRoute.pathname.replace(/\/+$/, '');
+        } catch (error) {}
         var panel = host.querySelector('[data-wa-replies]'); if (!panel) return;
         var textLimit = Number(config.text_limit) || 4096;
         var labels = config.labels || {}, status = panel.querySelector('[data-wa-reply-status]');
@@ -19,16 +24,113 @@
         var cancel = panel.querySelector('[data-wa-voice-cancel]'), voiceSend = panel.querySelector('[data-wa-voice-send]');
         var preview = panel.querySelector('[data-wa-voice-preview]'), voiceTime = panel.querySelector('[data-wa-voice-time]');
         var voiceNote = panel.querySelector('[data-wa-voice-status]');
+        var attach = panel.querySelector('[data-wa-attachment-select]'), fileInput = panel.querySelector('[data-wa-attachment-input]');
+        var fileBox = panel.querySelector('[data-wa-attachment-preview]'), fileImage = panel.querySelector('[data-wa-attachment-image]');
+        var fileName = panel.querySelector('[data-wa-attachment-name]'), fileSize = panel.querySelector('[data-wa-attachment-size]');
+        var fileCancel = panel.querySelector('[data-wa-attachment-cancel]');
+        var quoteBox = panel.querySelector('[data-wa-reply-quote]'), quoteText = panel.querySelector('[data-wa-reply-quote-text]');
+        var quoteCancel = panel.querySelector('[data-wa-reply-quote-cancel]');
+        var emoji = panel.querySelector('[data-wa-reply-emoji]'), emojiPicker = panel.querySelector('[data-wa-reply-emoji-picker]');
+        var emojis = ['😀', '😊', '❤️', '👍', '🙏', '🎉', '✅', '🙂', '😂', '👋', '👌', '💬'];
         var audit = panel.querySelector('[data-wa-reply-audit]'), auditList = panel.querySelector('[data-wa-reply-audit-list]');
-        var controllers = new Map(), conversation = 0, generation = 0, closed = false, denied = false;
+        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, inboxChannel = '', inboxNamespace = '', closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
+        var quoted = null, composing = false, enterHeld = false;
+        var attachment = null, attachmentUrl = null, attachmentDialog = null;
+        var attachmentTypes = ['image/jpeg', 'image/png', 'application/pdf', 'text/plain'];
+        function clearAttachment() {
+            attachment = null; attachmentDialog = null;
+            if (attachmentUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(attachmentUrl);
+            attachmentUrl = null;
+            if (fileInput) fileInput.value = '';
+            if (fileImage) { fileImage.removeAttribute('src'); fileImage.hidden = true; }
+            if (fileName) fileName.textContent = '';
+            if (fileSize) fileSize.textContent = '';
+            if (fileBox) fileBox.hidden = true;
+            text.maxLength = textLimit; text.setAttribute('placeholder', labels.placeholder || '');
+        }
+        function attachmentAllowed() {
+            if (!attachment || !state || state.attachment_ready !== true || !Array.isArray(state.attachment_types)
+                || state.attachment_types.indexOf(attachment.mime) === -1) return false;
+            return attachment.file.size <= attachmentCap(attachment.mime.indexOf('image/') === 0);
+        }
+        function attachmentCap(image) {
+            var limit = state && Number(image ? state.image_max_bytes : state.attachment_max_bytes);
+            return Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, image ? 5242880 : 8388608) : 0;
+        }
+        function limitSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            var unit = bytes < 1048576 ? 1024 : 1048576;
+            return (Math.floor(bytes * 100 / unit) / 100) + (unit === 1024 ? ' KiB' : ' MiB');
+        }
+        function attachmentHelp() {
+            if (!state || state.attachment_ready !== true || !attachmentCap(true) || !attachmentCap(false)) return '';
+            return (labels.attachment_limits || 'JPG/PNG up to {image_limit} · PDF/TXT up to {file_limit}')
+                .replace('{image_limit}', limitSize(attachmentCap(true))).replace('{file_limit}', limitSize(attachmentCap(false)));
+        }
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
-        function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
+        function abort() { controllers.forEach(function (controller) { clearTimeout(controller.replyTimeout); controller.abort(); }); controllers.clear(); }
+        function closeEmoji() {
+            if (emojiPicker) emojiPicker.hidden = true;
+            if (emoji) emoji.setAttribute('aria-expanded', 'false');
+        }
+        function clearQuote() {
+            quoted = null;
+            if (quoteBox) quoteBox.hidden = true;
+            if (quoteText) quoteText.textContent = '';
+        }
+        function focusText() { if (!closed && !text.disabled && !document.hidden && typeof text.focus === 'function') text.focus(); }
+        function sizeText() {
+            if (!text.style || typeof text.scrollHeight !== 'number') return;
+            text.style.height = 'auto';
+            text.style.height = Math.min(120, Math.max(42, text.scrollHeight + 2)) + 'px';
+        }
+        function attachmentClick() {
+            if (attach && !attach.disabled && fileInput && typeof fileInput.click === 'function') {
+                attachmentDialog = {generation: generation, conversation: conversation}; fileInput.value = ''; fileInput.click();
+            }
+        }
+        function attachmentChanged() {
+            controls();
+            var selectedDialog = attachmentDialog; attachmentDialog = null;
+            if (!selectedDialog || selectedDialog.generation !== generation || selectedDialog.conversation !== conversation
+                || !attach || attach.disabled || !fileInput || !fileInput.files || !fileInput.files.length) {
+                if (fileInput) fileInput.value = ''; return;
+            }
+            var files = Array.from(fileInput.files); clearAttachment();
+            if (files.length !== 1) { note(labels.attachment_single || 'Choose one file at a time.', true); controls(); return; }
+            var file = files[0], mime = typeof file.type === 'string' ? file.type.toLowerCase() : '';
+            var name = typeof file.name === 'string' ? file.name : '';
+            if (!mime) {
+                var extension = name.split('.').pop().toLowerCase();
+                mime = ({jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf', txt: 'text/plain'})[extension] || '';
+            }
+            var image = mime.indexOf('image/') === 0;
+            var limit = attachmentCap(image);
+            if (attachmentTypes.indexOf(mime) === -1 || !Array.isArray(state.attachment_types) || state.attachment_types.indexOf(mime) === -1
+                || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > limit
+                || !name || Array.from(name).length > 120 || /[\u0000-\u001f\u007f/\\]/.test(name)) {
+                note((labels.attachment_invalid || 'Choose a supported image or file within the allowed size.') + ' ' + attachmentHelp(), true); controls(); return;
+            }
+            attachment = {file: file, mime: mime};
+            if (image && fileImage && typeof URL.createObjectURL === 'function') {
+                try { attachmentUrl = URL.createObjectURL(file); fileImage.src = attachmentUrl; fileImage.hidden = false; } catch (error) {}
+            }
+            if (fileName) fileName.textContent = name;
+            if (fileSize) fileSize.textContent = (file.size < 1024 * 1024 ? Math.ceil(file.size / 1024) + ' KB' : (file.size / (1024 * 1024)).toFixed(1) + ' MB');
+            if (fileBox) fileBox.hidden = false;
+            text.maxLength = 1024; text.setAttribute('placeholder', labels.attachment_caption || 'Add a caption…');
+            closeEmoji(); note(labels.attachment_ready || 'Review the attachment, then send.'); input(); focusText();
+        }
+        function cancelAttachment() { if (!sending && !uncertain) { clearAttachment(); note(state ? reason(state) : ''); input(); focusText(); } }
         function clear(reason) {
-            generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
-            clearVoice(); openingMicrophone = false;
-            text.value = ''; count.textContent = '0 / ' + textLimit; panel.hidden = true;
+            if (conversation) publishAcceptedReplies({recent_replies: []}, conversation, generation);
+            generation++; abort(); conversation = 0; inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
+            state = null; attempt = null; uncertain = false; sending = false; checking = false;
+            composing = false; enterHeld = false; clearQuote(); closeEmoji();
+            clearVoice(); clearAttachment(); openingMicrophone = false;
+            text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
         }
@@ -36,15 +138,33 @@
             var available = !closed && !denied && conversation && navigator.onLine !== false && !document.hidden;
             var recording = Boolean(voiceRun) || openingMicrophone;
             text.disabled = !available || sending || recording || !state || !state.available;
-            text.readOnly = uncertain || Boolean(state && !state.can_reply);
+            text.readOnly = uncertain || Boolean(voiceBlob) || Boolean(state && !state.can_reply);
+            var readyVoice = Boolean(voiceBlob && state && state.voice_ready);
+            var draftLimit = attachment ? 1024 : textLimit;
             send.disabled = !available || sending || recording || checking || uncertain || !state || !state.available || !state.can_reply
-                || !text.value.trim() || Array.from(text.value).length > textLimit;
+                || (voiceBlob ? !readyVoice : attachment ? !attachmentAllowed() || Array.from(text.value).length > draftLimit
+                    : !text.value.trim() || Array.from(text.value).length > draftLimit);
             refresh.disabled = !available || checking || sending || recording;
+            if (quoteCancel) quoteCancel.disabled = !available || sending || uncertain;
+            if (emoji) emoji.disabled = text.disabled || text.readOnly || checking;
+            if (attach) {
+                attach.disabled = !available || sending || recording || checking || uncertain || Boolean(voiceBlob)
+                    || !state || !state.available || !state.can_reply || state.attachment_ready !== true || !attachmentCap(true) || !attachmentCap(false);
+                var help = attachmentHelp(), attachmentLabel = labels.attachment || 'Attach an image or file';
+                var accessibleHelp = attachmentLabel + (help ? ' · ' + help : ' · ' + (labels.attachment_unavailable || 'Attachments are unavailable now.'));
+                attach.setAttribute('title', accessibleHelp); attach.setAttribute('aria-label', accessibleHelp);
+            }
+            if (fileInput) fileInput.disabled = !attach || attach.disabled;
+            if (fileCancel) fileCancel.disabled = !available || sending || uncertain;
             if (record) {
-                record.disabled = !available || sending || checking || uncertain || recording || Boolean(voiceBlob)
-                    || !state || !state.can_reply || !state.voice_ready;
+                record.disabled = !voiceRun && (!available || sending || checking || uncertain || openingMicrophone || Boolean(voiceBlob) || Boolean(attachment)
+                    || !state || !state.available || !state.can_reply || !state.voice_ready);
+                record.setAttribute('aria-pressed', String(Boolean(voiceRun)));
+                record.setAttribute('data-recording', String(Boolean(voiceRun)));
+                record.setAttribute('aria-label', voiceRun ? labels.stop || 'Stop recording' : labels.record || 'Record voice message');
+                record.setAttribute('title', voiceRun ? labels.stop || 'Stop recording' : labels.record || 'Record voice message');
                 stop.hidden = !voiceRun; cancel.hidden = !recording && !voiceBlob;
-                voiceSend.hidden = !voiceBlob; voiceSend.disabled = !voiceBlob || sending || checking || uncertain || !state || !state.can_reply;
+                voiceSend.hidden = !voiceBlob; voiceSend.disabled = !available || !readyVoice || sending || checking || uncertain || !state || !state.available || !state.can_reply;
                 if (voiceNote) {
                     var unsupported = available && state && (!state.voice_ready || !voiceMime());
                     voiceNote.textContent = unsupported ? labels.voice_unavailable : ''; voiceNote.hidden = !unsupported;
@@ -55,6 +175,8 @@
             if (closed || denied || navigator.onLine === false || document.hidden) return Promise.reject(new Error('Unavailable'));
             if (controllers.has(key)) controllers.get(key).abort();
             var controller = new AbortController(); controllers.set(key, controller);
+            var timedOut = false;
+            controller.replyTimeout = setTimeout(function () { timedOut = true; controller.abort(); }, key === 'send' ? 45000 : 15000);
             var options = {credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
                 headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}};
             if (body !== undefined) {
@@ -71,14 +193,20 @@
                     if (!response.ok || !data || data.success !== true) {
                         var error = new Error('Unavailable'); error.status = response.status;
                         if (data && data.state === 'FAILED' && data.reply_id === null
-                            && ['STALE_INBOUND', 'WINDOW_CLOSED', 'REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE'].indexOf(data.reason) !== -1) {
+                            && ['STALE_INBOUND', 'WINDOW_CLOSED', 'REPLIES_UNAVAILABLE', 'VOICE_UNAVAILABLE', 'ATTACHMENT_UNAVAILABLE'].indexOf(data.reason) !== -1) {
                             error.safeFailure = true; error.reason = data.reason;
                         }
                         throw error;
                     }
                     return data;
                 });
-            }).finally(function () { if (controllers.get(key) === controller) controllers.delete(key); });
+            }).catch(function (error) {
+                if (timedOut) throw new Error('Request timed out');
+                throw error;
+            }).finally(function () {
+                clearTimeout(controller.replyTimeout);
+                if (controllers.get(key) === controller) controllers.delete(key);
+            });
         }
         function failure(error, current, wasSending) {
             if (closed || current !== generation || error && error.name === 'AbortError') return;
@@ -123,9 +251,64 @@
             });
             audit.hidden = !replies.length;
         }
+        function publishAcceptedReplies(data, selected, current) {
+            if (closed || denied || current !== generation || selected !== conversation || !Number.isSafeInteger(inboxGeneration)
+                || inboxChannel !== 'whatsapp' || !namespace || inboxNamespace !== namespace
+                || !document.dispatchEvent || typeof CustomEvent === 'undefined') return;
+            var replies = Array.isArray(data.recent_replies) ? data.recent_replies.slice(0, 20).filter(function (reply) {
+                return reply && reply.state === 'ACCEPTED';
+            }).map(function (reply) {
+                var actions = {}, context = null, media = null;
+                ['copy', 'reply', 'forward', 'delete', 'react'].forEach(function (key) {
+                    actions[key] = Boolean(reply.actions && reply.actions[key] === true);
+                });
+                var target = reply.reply_to && quoteTarget(reply.reply_to);
+                if (target && typeof reply.reply_to.kind === 'string' && ['inbound', 'outbound'].indexOf(reply.reply_to.direction) !== -1) {
+                    context = {message_id: target.messageId, reply_id: target.replyId,
+                        text: typeof reply.reply_to.text === 'string' ? Array.from(reply.reply_to.text).slice(0, 160).join('') : null,
+                        kind: reply.reply_to.kind, direction: reply.reply_to.direction};
+                }
+                if (reply.kind === 'image' && Number.isSafeInteger(reply.reply_id) && reply.reply_id > 0
+                    && reply.media && reply.media.type === 'image' && typeof reply.media.url === 'string' && reply.media.url.length <= 2048
+                    && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].indexOf(reply.media.mime_type) !== -1) {
+                    try {
+                        var imageUrl = new URL(reply.media.url, window.location.href);
+                        var expectedUrl = new URL(namespace + '/' + selected + '/replies/' + reply.reply_id + '/media');
+                        if (imageUrl.origin === expectedUrl.origin && imageUrl.pathname === expectedUrl.pathname
+                            && !imageUrl.username && !imageUrl.password && !imageUrl.search && !imageUrl.hash) {
+                            media = {url: imageUrl.href, type: 'image', mime_type: reply.media.mime_type};
+                        }
+                    } catch (error) {}
+                }
+                if (reply.kind === 'document' && Number.isSafeInteger(reply.reply_id) && reply.reply_id > 0
+                    && reply.media && reply.media.type === 'document' && typeof reply.media.url === 'string' && reply.media.url.length <= 2048
+                    && ['application/pdf', 'text/plain'].indexOf(reply.media.mime_type) !== -1
+                    && typeof reply.media.filename === 'string' && reply.media.filename && Array.from(reply.media.filename).length <= 120
+                    && !/[\u0000-\u001f\u007f/\\]/.test(reply.media.filename)
+                    && Number.isSafeInteger(reply.media.size) && reply.media.size > 0 && reply.media.size <= 8388608) {
+                    try {
+                        var documentUrl = new URL(reply.media.url, window.location.href);
+                        var expectedDocument = new URL(namespace + '/' + selected + '/replies/' + reply.reply_id + '/attachment');
+                        if (documentUrl.origin === expectedDocument.origin && documentUrl.pathname === expectedDocument.pathname
+                            && !documentUrl.username && !documentUrl.password && !documentUrl.search && !documentUrl.hash) {
+                            media = {url: documentUrl.href, type: 'document', mime_type: reply.media.mime_type,
+                                filename: reply.media.filename, size: reply.media.size};
+                        }
+                    } catch (error) {}
+                }
+                return {id: reply.reply_id, kind: reply.kind, text: reply.text, state: reply.state, source: reply.source,
+                    created_at: reply.created_at, accepted_at: reply.accepted_at, projected_message_id: reply.projected_message_id,
+                    projection_id: Number.isSafeInteger(reply.projection_id) && reply.projection_id > 0 ? reply.projection_id : null,
+                    actions: actions, reply_to: context, media: media, reaction: acceptedReaction(reply.reaction)};
+            }) : [];
+            document.dispatchEvent(new CustomEvent('whatsapp:accepted-replies', {detail: {
+                conversation: selected, generation: inboxGeneration, channel: inboxChannel, namespace: inboxNamespace, replies: replies,
+                labels: {voice_message: labels.voice_message, accepted: labels.accepted, api_source: labels.api_source}
+            }}));
+        }
         function loadState(preserve) {
             if (!conversation || closed || denied || checking) return Promise.resolve();
-            var selected = conversation, current = generation;
+            var selected = conversation, current = generation, resolvedAccepted = false;
             var url = new URL(config.conversations_base_url + '/' + selected + '/reply-state', window.location.href);
             if (attempt) url.searchParams.set('client_request_id', attempt.id);
             checking = true; controls();
@@ -133,21 +316,29 @@
                 if (closed || current !== generation || selected !== conversation) return;
                 state = data;
                 renderAudit(data);
+                publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
-                    var accepted = data.request_state === 'ACCEPTED', wasText = attempt.kind === 'text'; uncertain = false; attempt = null;
-                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / ' + textLimit; }
+                    var accepted = data.request_state === 'ACCEPTED', wasText = ['text', 'attachment'].indexOf(attempt.kind) !== -1; uncertain = false; attempt = null;
+                    if (accepted && wasText) { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
+                    if (accepted) { clearQuote(); resolvedAccepted = true; }
                     note(accepted ? labels.accepted : labels.failed, !accepted);
                 } else if (uncertain || ['SEND_UNCERTAIN', 'UNKNOWN_PENDING'].indexOf(data.reason) !== -1 || data.request_state === 'UNKNOWN') {
                     uncertain = true; note(labels.unknown, true);
                 } else if (!preserve) note(reason(data), !data.can_reply);
             }).catch(function (error) { failure(error, current, false); }).finally(function () {
-                if (current === generation) { checking = false; controls(); }
+                if (current === generation) { checking = false; controls(); if (resolvedAccepted) focusText(); }
             });
         }
         function choose(event) {
             var id = Number(event && event.detail && event.detail.conversation);
             if (!Number.isSafeInteger(id) || id < 1 || closed || denied || document.hidden || navigator.onLine === false) return;
-            clear(); conversation = id; panel.hidden = false; note(labels.loading); loadState();
+            clear(); conversation = id;
+            inboxGeneration = event && event.detail && Number.isSafeInteger(event.detail.generation) ? event.detail.generation : null;
+            inboxChannel = event && event.detail && typeof event.detail.channel === 'string' ? event.detail.channel : '';
+            inboxNamespace = event && event.detail && typeof event.detail.namespace === 'string' ? event.detail.namespace : '';
+            panel.hidden = false; note(labels.loading);
+            var current = generation;
+            loadState().then(function () { if (current === generation && conversation === id) focusText(); });
         }
         function uuid() {
             if (!window.crypto) return null;
@@ -161,30 +352,49 @@
         function submit(event) {
             event.preventDefault(); controls();
             if (send.disabled || sending || uncertain || !state) return;
+            if (voiceBlob) { sendRecording(); return; }
+            if (attachment) { sendAttachment(); return; }
             var id = uuid(), inbound = Number(state.latest_inbound_id);
             if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
             var selected = conversation, current = generation;
-            attempt = {id: id, text: text.value.trim(), inbound: inbound, kind: 'text'};
-            sendRequest(selected, current, 'replies', {client_request_id: attempt.id, text: attempt.text, expected_inbound_id: attempt.inbound}, 'text');
+            attempt = {id: id, text: text.value.trim(), inbound: inbound, kind: 'text', quote: quoted && quoted.messageId, quoteReply: quoted && quoted.replyId};
+            var body = {client_request_id: attempt.id, text: attempt.text, expected_inbound_id: attempt.inbound};
+            if (attempt.quote) body.reply_to_message_id = attempt.quote;
+            if (attempt.quoteReply) body.reply_to_reply_id = attempt.quoteReply;
+            closeEmoji(); sendRequest(selected, current, 'replies', body, 'text');
         }
         function sendRequest(selected, current, path, body, kind) {
+            var acceptedSend = false;
             sending = true; controls(); note(labels.sending);
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
-                    if (kind === 'text') { text.value = ''; count.textContent = '0 / ' + textLimit; }
-                    attempt = null; uncertain = false; note(labels.accepted);
+                    if (kind === 'text' || kind === 'attachment') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
+                    clearQuote(); attempt = null; uncertain = false; acceptedSend = true; note(labels.accepted);
                 } else if (data.state === 'FAILED') {
                     attempt = null; uncertain = false; note(labels.failed, true);
                 } else { uncertain = true; note(labels.unknown, true); }
             }).catch(function (error) { failure(error, current, true); }).finally(function () {
-                if (current === generation) { sending = false; controls(); loadState(true); }
+                if (current === generation) { sending = false; controls(); if (acceptedSend) focusText(); loadState(true); }
             });
         }
         function releaseStream(stream) {
             if (stream && typeof stream.getTracks === 'function') stream.getTracks().forEach(function (track) {
                 if (track.readyState !== 'ended') track.stop();
             });
+        }
+        function sendAttachment() {
+            controls();
+            if (send.disabled || !attachment || sending || uncertain || !state || typeof FormData === 'undefined') return;
+            var id = uuid(), inbound = Number(state.latest_inbound_id), selected = conversation, current = generation;
+            if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
+            var body = new FormData(); body.append('attachment', attachment.file, attachment.file.name);
+            body.append('client_request_id', id); body.append('expected_inbound_id', String(inbound));
+            if (text.value.trim()) body.append('caption', text.value.trim());
+            if (quoted && quoted.messageId) body.append('reply_to_message_id', String(quoted.messageId));
+            if (quoted && quoted.replyId) body.append('reply_to_reply_id', String(quoted.replyId));
+            attempt = {id: id, inbound: inbound, kind: 'attachment', quote: quoted && quoted.messageId, quoteReply: quoted && quoted.replyId};
+            clearAttachment(); closeEmoji(); sendRequest(selected, current, 'attachment', body, 'attachment');
         }
         function clearVoice() {
             microphoneRequest++;
@@ -249,7 +459,7 @@
                         clearVoice(); note(labels.voice_unavailable, true); controls(); return;
                     }
                     voiceUrl = URL.createObjectURL(voiceBlob); preview.src = voiceUrl; preview.hidden = false;
-                    voiceTime.hidden = true; note(labels.voice_ready); controls();
+                    voiceTime.hidden = true; note(labels.voice_ready); controls(); focusText();
                 };
                 try { recorder.start(1000); }
                 catch (error) { clearVoice(); note(labels.voice_unavailable, true); controls(); return; }
@@ -268,6 +478,7 @@
             if (!voiceRun || voiceRun.recorder.state === 'inactive') return;
             try { voiceRun.recorder.stop(); } catch (error) { clearVoice(); note(labels.voice_unavailable, true); controls(); }
         }
+        function recordClick() { if (!record.disabled) { if (voiceRun) stopRecording(); else startRecording(); } }
         function cancelRecording() { openingMicrophone = false; clearVoice(); note(state ? reason(state) : ''); controls(); }
         function sendRecording() {
             controls();
@@ -277,10 +488,76 @@
             var body = new FormData(), mime = voiceBlob.type.toLowerCase();
             var extension = mime.indexOf('ogg') !== -1 ? 'ogg' : mime.indexOf('mp4') !== -1 ? 'm4a' : 'webm';
             body.append('audio', voiceBlob, 'reply.' + extension); body.append('client_request_id', id);
-            body.append('expected_inbound_id', String(inbound)); attempt = {id: id, inbound: inbound, kind: 'voice'};
+            body.append('expected_inbound_id', String(inbound));
+            if (quoted && quoted.messageId) body.append('reply_to_message_id', String(quoted.messageId));
+            if (quoted && quoted.replyId) body.append('reply_to_reply_id', String(quoted.replyId));
+            attempt = {id: id, inbound: inbound, kind: 'voice', quote: quoted && quoted.messageId, quoteReply: quoted && quoted.replyId};
             clearVoice(); sendRequest(selected, current, 'voice', body, 'voice');
         }
-        function input() { count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
+        function quoteTarget(data) {
+            if (!data) return null;
+            var messageId = data.message_id, replyId = data.reply_id;
+            if (messageId != null && (!Number.isSafeInteger(messageId) || messageId < 1)
+                || replyId != null && (!Number.isSafeInteger(replyId) || replyId < 1)
+                || (messageId != null) === (replyId != null)) return null;
+            return {messageId: messageId == null ? null : messageId, replyId: replyId == null ? null : replyId};
+        }
+        function acceptedReaction(data) {
+            if (!data || ['👍', '❤️', '😂', '😮', '😢', '🙏', '✅', ''].indexOf(data.emoji) === -1
+                || data.source !== 'dashboard_api' || data.state !== 'ACCEPTED'
+                || !Number.isSafeInteger(data.actor_id) || data.actor_id < 1
+                || !Number.isSafeInteger(data.reply_id) || data.reply_id < 1
+                || typeof data.accepted_at !== 'string'
+                || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)$/.test(data.accepted_at)
+                || isNaN(new Date(data.accepted_at).getTime())) return null;
+            return {emoji: data.emoji, actor_id: data.actor_id, accepted_at: data.accepted_at,
+                source: 'dashboard_api', state: 'ACCEPTED', reply_id: data.reply_id};
+        }
+        function quoteContext(event) {
+            var data = event && event.detail;
+            var target = quoteTarget(data);
+            if (!data || closed || denied || sending || uncertain || voiceRun || openingMicrophone || !conversation
+                || document.hidden || navigator.onLine === false
+                || data.conversation_id !== conversation || data.generation !== inboxGeneration || !Number.isSafeInteger(inboxGeneration)
+                || data.channel !== 'whatsapp' || inboxChannel !== 'whatsapp' || data.endpoint_namespace !== namespace || inboxNamespace !== namespace
+                || !target || typeof data.text !== 'string' || typeof data.kind !== 'string') return;
+            quoted = {messageId: target.messageId, replyId: target.replyId, text: Array.from(data.text).slice(0, 160).join(''), kind: data.kind};
+            if (quoteText) quoteText.textContent = quoted.text || (['audio', 'voice'].indexOf(quoted.kind) !== -1 ? labels.voice_message : labels.quote_reply) || '';
+            if (quoteBox) quoteBox.hidden = false;
+            closeEmoji(); controls(); focusText();
+        }
+        function removeQuote() { if (!sending && !uncertain) { clearQuote(); controls(); focusText(); } }
+        function emojiToggle() {
+            if (!emoji || !emojiPicker || emoji.disabled) return;
+            emojiPicker.hidden = !emojiPicker.hidden; emoji.setAttribute('aria-expanded', String(!emojiPicker.hidden));
+        }
+        function emojiSelect(event) {
+            var button = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-wa-emoji]') : null;
+            if (!button || !emojiPicker || typeof emojiPicker.contains !== 'function' || !emojiPicker.contains(button)
+                || text.disabled || text.readOnly) return;
+            var value = button.getAttribute('data-wa-emoji'); if (emojis.indexOf(value) === -1) return;
+            var from = Number.isInteger(text.selectionStart) ? text.selectionStart : text.value.length;
+            var to = Number.isInteger(text.selectionEnd) ? text.selectionEnd : from;
+            from = Math.max(0, Math.min(text.value.length, from)); to = Math.max(from, Math.min(text.value.length, to));
+            var draft = text.value.slice(0, from) + value + text.value.slice(to);
+            if (Array.from(draft).length > (attachment ? 1024 : textLimit)) return;
+            text.value = draft;
+            if (typeof text.setSelectionRange === 'function') text.setSelectionRange(from + value.length, from + value.length);
+            input(); closeEmoji(); focusText();
+        }
+        function composingStart() { composing = true; }
+        function composingEnd() { composing = false; input(); }
+        function keyboard(event) {
+            if (event.key === 'Escape') { if (emojiPicker && !emojiPicker.hidden) { event.preventDefault(); closeEmoji(); focusText(); } return; }
+            if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
+                || composing || event.isComposing || event.keyCode === 229) return;
+            if (event.target !== text && event.target !== send && event.target !== voiceSend && event.target !== form) return;
+            event.preventDefault(); if (event.repeat || enterHeld) return; enterHeld = true;
+            if (voiceRun || openingMicrophone || closed || denied) return;
+            submit({preventDefault: function () {}});
+        }
+        function keyReleased(event) { if (event.key === 'Enter') enterHeld = false; }
+        function input() { sizeText(); count.textContent = Array.from(text.value).length + ' / ' + (attachment ? 1024 : textLimit); controls(); }
         function refreshClick() { if (!refresh.disabled) loadState(false); }
         function reset(event) {
             var reason = event && event.detail && event.detail.reason;
@@ -291,32 +568,51 @@
             if (conversation && Number(event.detail && event.detail.conversation) === conversation && !sending) loadState(uncertain);
         }
         form.addEventListener('submit', submit); text.addEventListener('input', input); refresh.addEventListener('click', refreshClick);
+        panel.addEventListener('keydown', keyboard); document.addEventListener('keyup', keyReleased);
+        text.addEventListener('compositionstart', composingStart); text.addEventListener('compositionend', composingEnd);
+        if (quoteCancel) quoteCancel.addEventListener('click', removeQuote);
+        if (emoji) emoji.addEventListener('click', emojiToggle);
+        if (emojiPicker) emojiPicker.addEventListener('click', emojiSelect);
+        if (attach) attach.addEventListener('click', attachmentClick);
+        if (fileInput) fileInput.addEventListener('change', attachmentChanged);
+        if (fileCancel) fileCancel.addEventListener('click', cancelAttachment);
         if (record) {
-            record.addEventListener('click', startRecording); stop.addEventListener('click', stopRecording);
+            record.addEventListener('click', recordClick); stop.addEventListener('click', stopRecording);
             cancel.addEventListener('click', cancelRecording); voiceSend.addEventListener('click', sendRecording);
         }
         document.addEventListener('whatsapp:conversation-selected', choose);
         document.addEventListener('whatsapp:conversation-updated', updated);
         document.addEventListener('whatsapp:private-reset', reset);
+        document.addEventListener('whatsapp:reply-context', quoteContext);
         var session = {host: host, destroy: function () {
             if (closed) return; clear(); closed = true;
             form.removeEventListener('submit', submit); text.removeEventListener('input', input); refresh.removeEventListener('click', refreshClick);
+            panel.removeEventListener('keydown', keyboard); document.removeEventListener('keyup', keyReleased);
+            text.removeEventListener('compositionstart', composingStart); text.removeEventListener('compositionend', composingEnd);
+            if (quoteCancel) quoteCancel.removeEventListener('click', removeQuote);
+            if (emoji) emoji.removeEventListener('click', emojiToggle);
+            if (emojiPicker) emojiPicker.removeEventListener('click', emojiSelect);
+            if (attach) attach.removeEventListener('click', attachmentClick);
+            if (fileInput) fileInput.removeEventListener('change', attachmentChanged);
+            if (fileCancel) fileCancel.removeEventListener('click', cancelAttachment);
             if (record) {
-                record.removeEventListener('click', startRecording); stop.removeEventListener('click', stopRecording);
+                record.removeEventListener('click', recordClick); stop.removeEventListener('click', stopRecording);
                 cancel.removeEventListener('click', cancelRecording); voiceSend.removeEventListener('click', sendRecording);
             }
             document.removeEventListener('whatsapp:conversation-selected', choose);
             document.removeEventListener('whatsapp:conversation-updated', updated);
             document.removeEventListener('whatsapp:private-reset', reset);
+            document.removeEventListener('whatsapp:reply-context', quoteContext);
             config.csrf = ''; controls();
         }};
         active = session;
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
             if (active === session) destroy(); else session.destroy();
         });
-        var selected = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selection === 'function'
-            ? window.DashboardWhatsAppInbox.selection() : 0;
-        if (selected) choose({detail: {conversation: selected}});
+        var selection = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selectionState === 'function'
+            ? window.DashboardWhatsAppInbox.selectionState() : {conversation: window.DashboardWhatsAppInbox
+                && typeof window.DashboardWhatsAppInbox.selection === 'function' ? window.DashboardWhatsAppInbox.selection() : 0, generation: null};
+        if (selection.conversation) choose({detail: selection});
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardWhatsAppReplies = {mount: mount, destroy: destroy};
@@ -324,3 +620,4 @@
     document.addEventListener('dashboard:page-mounted', mount);
     mount();
 }());
+
