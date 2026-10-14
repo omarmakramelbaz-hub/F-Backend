@@ -168,8 +168,21 @@ function proofNormalized(array $rows): array
 function proofExpectGate(array $metadata,string $gate,int $ordinal=1): void
 {
     proofMetadata($metadata);
+    $facts=['posix_available'=>function_exists('posix_geteuid'),'cwd_is_real'=>realpath(getcwd())===getcwd()];
+    foreach ([
+        'EVIDENCE'=>['App\\Services\\Dashboard\\WhatsAppOrderConversationEvidence','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php','14521ca74822bb0359ccec81c5cb986feaa75da4'],
+        'SELECTION'=>['App\\Services\\Dashboard\\WhatsAppOrderSourceSelection','app/Services/Dashboard/WhatsAppOrderSourceSelection.php','03db3211b80da905f07415fd16f1e7a62e0395b1'],
+        'PROVIDER'=>['App\\Services\\Dashboard\\WhatsAppOrderAiProvider','app/Services/Dashboard/WhatsAppOrderAiProvider.php','39f644ff97c7cf6182666a5aff3f6fb231cb0733'],
+    ] as $label=>[$class,$relative,$pin]) {
+        $path=getcwd().'/'.$relative;$stat=lstat($path);$bytes=file_get_contents($path);
+        $facts[$label]=['owner_matches'=>function_exists('posix_geteuid')&&$stat['uid']===posix_geteuid(),
+            'regular'=>($stat['mode']&0170000)===0100000,'safe_mode'=>($stat['mode']&0022)===0,
+            'reflected_path_matches'=>(new ReflectionClass($class))->getFileName()===$path,
+            'real_path_matches'=>realpath($path)===$path,
+            'blob_matches'=>sha1('blob '.strlen($bytes)."\0".$bytes)===$pin];
+    }
     proofExpect([$metadata['status'],$metadata['subreason'],$metadata['field'],$metadata['item_ordinal']],['PROOF_FAILED',$gate,'ITEM',$ordinal],
-        'exact original proof rejection maps to its first reviewed gate and bounded item ordinal');
+        'exact original proof rejection maps to its first reviewed gate and bounded item ordinal '.json_encode(['metadata'=>Observer::sanitize($metadata),'facts'=>$facts],JSON_THROW_ON_ERROR));
 }
 function proofProbe(array $state,callable $safe,array $observed,bool $authorized=true,?callable $change=null): array
 {
