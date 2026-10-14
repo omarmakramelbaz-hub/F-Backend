@@ -20,6 +20,21 @@ class WhatsAppInboxController extends Controller
     private const THREAD_LIMIT = 25;
     private const MESSAGE_LIMIT = 50;
 
+    public function bootstrap(WhatsAppInboxAccess $access): array
+    {
+        $access->actor(auth('admin')->user());
+        return [
+            'available' => $access->available(),
+            'conversations_url' => route('whatsapp-inbox.conversations'),
+            'messages_base_url' => url('/admin/whatsapp/conversations'),
+            'actions_base_url' => url('/admin/whatsapp/conversations'),
+            'media_base_url' => url('/admin/whatsapp/conversations'),
+            'reply_history_base_url' => url('/admin/whatsapp/conversations'),
+            'message_updates_base_url' => url('/admin/whatsapp/conversations'),
+            'labels' => $this->labels(),
+        ];
+    }
+
     public function index(WhatsAppInboxAccess $access)
     {
         try {
