@@ -58,7 +58,7 @@ $notices = $ar ? [
         <h2 id="meta-connection-login-title">{{ $labels['start'] }}</h2>
         <p>{{ $labels['start_note'] }}</p>
         @if($metaConnection['configured'])
-        <form action="{{ $metaConnection['start_url'] }}" method="POST">@csrf
+        <form action="{{ $metaConnection['start_url'] }}" method="POST" data-spa-off>@csrf
             <button class="meta-connection-primary" type="submit"><i class="fab fa-facebook" aria-hidden="true"></i> {{ $labels['start'] }}</button>
         </form>
         <div class="meta-connection-callback"><h3>{{ $labels['callback'] }}</h3><input type="text" readonly value="{{ $metaConnection['callback_url'] }}" dir="ltr" aria-label="{{ $labels['callback'] }}"><p>{{ $labels['callback_note'] }}</p></div>
@@ -69,7 +69,7 @@ $notices = $ar ? [
     @if($metaConnection['has_pending'])
     <section class="meta-connection-card meta-connection-review" aria-labelledby="meta-connection-review-title">
         <h2 id="meta-connection-review-title">{{ $labels['review_title'] }}</h2><p>{{ $labels['review_note'] }}</p>
-        <form action="{{ $metaConnection['confirm_url'] }}" method="POST">@csrf
+        <form action="{{ $metaConnection['confirm_url'] }}" method="POST" data-spa-off>@csrf
             <div class="meta-connection-accounts">
             @foreach($metaConnection['pending_accounts'] as $account)
                 <label class="meta-connection-account"><input type="checkbox" name="accounts[]" value="{{ $account['key'] }}" checked><span class="meta-connection-channel"><i class="{{ $account['channel'] === 'instagram' ? 'fab fa-instagram' : 'fab fa-facebook-messenger' }}" aria-hidden="true"></i> {{ $account['channel'] === 'instagram' ? 'Instagram' : 'Messenger' }}</span><span class="meta-connection-account-name">{{ $account['label'] }}</span><span class="meta-connection-account-id">{{ $labels['id'] }}: <bdi>{{ $account['account_id'] }}</bdi></span></label>

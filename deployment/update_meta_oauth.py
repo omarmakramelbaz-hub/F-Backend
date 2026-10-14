@@ -20,6 +20,11 @@ BASELINE_BLOBS = {
     'routes/meta_inbox.php': '646634ef68604636bf05e07fc619ae722d6a5f02',
     'resources/views/admin/meta/index.blade.php': '79f6d85da843ec69a98c36728fc095c6eb22d645',
 }
+# The deployed OAuth view preceding the native-navigation correction. No other
+# installed source may differ from the requested release or its original baseline.
+UPGRADE_BLOBS = {
+    'resources/views/admin/meta/connection.blade.php': ('55bb51ceab07a6644a6b3c6f1ead3be0a1b40692',),
+}
 NEW_FILES = (
     'app/Http/Controllers/Dashboard/MetaConnectionController.php',
     'app/Http/Middleware/MetaOAuthCallbackPrivacy.php',
@@ -284,8 +289,10 @@ def install(root, release, php):
         releases[rel] = payload
         if state is None:
             if rel in BASELINE_BLOBS: raise RuntimeError('REQUIRED_BASELINE_MISSING: ' + rel)
-        elif state['content'] != payload and (rel not in BASELINE_BLOBS or blob(state['content']) != BASELINE_BLOBS[rel]):
-            raise RuntimeError('UNEXPECTED_META_OAUTH_SOURCE: ' + rel)
+        elif state['content'] != payload:
+            current_blob = blob(state['content'])
+            if current_blob != BASELINE_BLOBS.get(rel) and current_blob not in UPGRADE_BLOBS.get(rel, ()):
+                raise RuntimeError('UNEXPECTED_META_OAUTH_SOURCE: ' + rel)
         originals[rel] = state; constraints[rel] = (0o644, uid, True)
     for rel in ROUTE_CACHE_FILES:
         if snapshot(root / rel, uid) is not None: raise RuntimeError('CACHED_ROUTES_BLOCKED')

@@ -133,6 +133,44 @@ class MetaOAuthInstallTests(unittest.TestCase):
         self.assertEqual({rel: (self.root / rel).stat().st_ino for rel in before}, inodes)
         self.assertNotIn('encrypted-private', self.output)
 
+    def installed_view_upgrade(self):
+        self.update()
+        self.write(installer.CREDENTIALS_FILE, b'encrypted-private-credential', 0o600)
+        rel = 'resources/views/admin/meta/connection.blade.php'
+        previous = b'<?php // preceding reviewed OAuth connection view\n'
+        self.write(rel, previous)
+        return rel, previous
+
+    def test_reviewed_view_upgrade_writes_only_view_and_preserves_settings_credentials_and_other_inodes(self):
+        rel, previous = self.installed_view_upgrade()
+        before = self.files(); inodes = {path: (self.root / path).stat().st_ino for path in before}
+        with mock.patch.object(installer, 'UPGRADE_BLOBS', {rel: (installer.blob(previous),)}):
+            report = self.update()
+        expected = dict(before); expected[rel] = (self.payloads[rel], 0o644)
+        self.assertEqual(self.files(), expected); self.assertEqual(report['updated_files'], 1)
+        for path in before:
+            if path != rel: self.assertEqual((self.root / path).stat().st_ino, inodes[path], path)
+        backup = pathlib.Path(report['backup'])
+        self.assertEqual((backup / 'original' / rel).read_bytes(), previous)
+        self.assertEqual(json.loads((backup / 'manifest.json').read_bytes())['prior_blobs'][rel], installer.blob(previous))
+        self.assertNotIn('encrypted-private', self.output)
+        self.assertEqual(self.update()['updated_files'], 0)
+
+    def test_view_upgrade_verification_failure_restores_previous_view_and_preserves_credentials(self):
+        rel, previous = self.installed_view_upgrade(); before = self.files()
+        self.fail_verify = True
+        with mock.patch.object(installer, 'UPGRADE_BLOBS', {rel: (installer.blob(previous),)}):
+            with self.assertRaisesRegex(RuntimeError, 'SANITIZED_RUNTIME_PROBE_FAILED'): self.update()
+        self.assertEqual(self.files(), before); self.assertIn('RESTORED', self.output)
+        self.assertNotIn('encrypted-private', self.output)
+
+    def test_unreviewed_installed_connection_view_blocks_upgrade_before_changes(self):
+        rel, previous = self.installed_view_upgrade()
+        self.write(rel, previous + b'// operator edit\n'); before = self.files(); self.calls = []
+        with mock.patch.object(installer, 'UPGRADE_BLOBS', {rel: (installer.blob(previous),)}):
+            with self.assertRaisesRegex(RuntimeError, 'UNEXPECTED_META_OAUTH_SOURCE'): self.update()
+        self.assertEqual(self.files(), before); self.assertEqual(self.calls, [])
+
     def test_new_dependencies_precede_access_routes_views_controller_and_settings_activation(self):
         native_atomic = installer.atomic; publications = []
         def observe(path, content, mode):
