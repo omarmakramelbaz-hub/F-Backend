@@ -163,6 +163,7 @@ class WhatsAppOrderFollowupService
                 if (($row['speaker']??null)==='business') $after=true;
             }
             if ($after) return true;
+            if ($this->confirmedCustomerHandoff($plan)) return true;
             $anchor=DB::table('whatsapp_inbox_messages')->where('conversation_id',$plan['conversation_id'])
                 ->where('message_key',$plan['episode_customer_key'])->where('direction','inbound')->first(['id','sent_at']);
             if ($anchor && (int)$anchor->id>$plan['evidence_floor']) {
@@ -174,6 +175,29 @@ class WhatsAppOrderFollowupService
                 if ($record['marker']['episode_customer_key']===$plan['episode_customer_key']) return true;
             return false;
         } catch (\Throwable $ignore) { return false; }
+    }
+
+    /** A proved merchant recap followed by its actual customer approval is an established handoff. */
+    private function confirmedCustomerHandoff(array $plan): bool
+    {
+        $data=$plan['data']??[]; $transcript=$plan['transcript']??[];
+        if (!is_array($data)||!is_array($transcript)||($data['decision']??null)!=='CONFIRMED') return false;
+        $checked=WhatsAppOrderExtraction::validateDetailed($data,$transcript);
+        if (!$checked['ok']||($checked['data']['decision']??null)!=='CONFIRMED') return false;
+        $latest=null; $final=-1;
+        foreach (WhatsAppOrderConversationEvidence::episodeTranscript($transcript) as $position=>$row) {
+            if ($row['speaker']==='customer') $latest=['position'=>$position,'row'=>$row];
+            if ($row['speaker']==='business'&&in_array($row['id'],$data['evidence']['confirmation_ids'],true)) $final=$position;
+        }
+        return $latest!==null&&$final>=0&&$latest['position']>$final
+            &&in_array($latest['row']['id'],$data['evidence']['customer_acceptance_ids'],true)
+            &&self::positiveApproval($latest['row']['text']);
+    }
+
+    private static function positiveApproval($text): bool
+    {
+        return is_string($text)&&preg_match('/\A\s*(?:(?:(?:تمام|نعم)\s+)?(?:موافق|أوافق|اوافق)'
+            .'(?:\s+على\s+(?:الطلب|البيانات(?:\s+والطلب)?))?|تمام|حاضر|نعم|اوكي|أوكي|ماشي|ok|okay|yes)[.!]?\s*\z/iu',$text)===1;
     }
 
     private function unaskedFields(array $plan): array
@@ -257,8 +281,7 @@ class WhatsAppOrderFollowupService
             foreach ($snapshot['transcript'] as $row) {
                 if ($row['speaker']!=='customer'||($positions[$row['id']]??-1)<=($positions[$recapId]??PHP_INT_MAX)) continue;
                 // Any intervening customer turn can change the order, even if AI omits its citation.
-                if (!is_string($row['text'])||preg_match('/\A\s*(?:(?:(?:تمام|نعم)\s+)?(?:موافق|أوافق|اوافق)'
-                    .'(?:\s+على\s+(?:الطلب|البيانات(?:\s+والطلب)?))?|تمام|حاضر|نعم|اوكي|أوكي|ماشي|ok|okay|yes)[.!]?\s*\z/iu',$row['text'])!==1) return false;
+                if (!self::positiveApproval($row['text'])) return false;
                 if (in_array($row['id'],$data['evidence']['customer_acceptance_ids']??[],true)) $approved=true;
             }
             return $approved;

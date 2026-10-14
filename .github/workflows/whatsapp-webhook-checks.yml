@@ -2,7 +2,7 @@ name: WhatsApp webhook checks
 
 on:
   push:
-    branches: [codex/whatsapp-webhook-20261009, codex/whatsapp-messaging-cache-fix-20261012, codex/whatsapp-order-evidence-fix-20261013, codex/whatsapp-branch-area-20261014, codex/whatsapp-location-request-20261014]
+    branches: [codex/whatsapp-webhook-20261009, codex/whatsapp-messaging-cache-fix-20261012, codex/whatsapp-order-evidence-fix-20261013, codex/whatsapp-branch-area-20261014, codex/whatsapp-location-request-20261014, codex/whatsapp-followup-handoff-20261014]
   pull_request:
     paths:
       - 'app/Support/WhatsAppWebhookProtocol.php'
@@ -144,6 +144,7 @@ jobs:
           bash -n deployment/apply_whatsapp_order_fulfillment_repair_root.sh
           bash -n deployment/apply_whatsapp_order_address_branch_repair_root.sh
           bash -n deployment/apply_whatsapp_order_followup_repair_root.sh
+          bash -n deployment/apply_whatsapp_order_handoff_repair_root.sh
       - name: Exercise Meta protocol and account isolation
         run: php tests/whatsapp_webhook_protocol_test.php
       - name: Exercise inbox identity, replay and transactional quarantine
@@ -242,6 +243,8 @@ jobs:
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_address_branch_repair_install.py
       - name: Verify followup publication and unchanged pipeline configuration
         run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_followup_repair_install.py
+      - name: Verify handoff publication and unchanged pipeline configuration
+        run: python3 /tmp/whatsapp-terminal-fixtures/tests/test_whatsapp_order_handoff_repair_install.py
       - name: Verify forward recovery lifecycle and capture guard refresh
         env:
           WHATSAPP_CAPTURE_TEST_TMP: /var/lib/whatsapp-capture-tests
@@ -301,6 +304,7 @@ jobs:
           php tests/whatsapp_order_fragmented_workflow_test.php
           php tests/whatsapp_order_address_branch_workflow_test.php
           php tests/whatsapp_order_followup_workflow_test.php
+          php tests/whatsapp_order_handoff_workflow_test.php
           php tests/whatsapp_order_followup_service_test.php
           php tests/whatsapp_order_followup_status_test.php
           php tests/whatsapp_accepted_reply_evidence_test.php

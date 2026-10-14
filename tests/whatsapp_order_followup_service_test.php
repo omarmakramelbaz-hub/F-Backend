@@ -144,6 +144,22 @@ function followupSnapshot(): array {
     }
     return ['complete' => true, 'keys' => $keys, 'transcript' => $transcript];
 }
+function followupMerchantPlan(array $data, string $approval = 'تمام', ?string $summary = null): array {
+    $request = 'عايز 1.5 كيلو فسيخ كامل، اسمي عميل تجريبي ورقمي 01000000001 والعنوان المنصورة شارع المثال';
+    $summary ??= 'تم تأكيد الطلب: 1.5 كيلو فسيخ كامل؛ الاسم عميل تجريبي ورقم التواصل 01000000001 والعنوان المنصورة شارع المثال';
+    $plan = followupReset($request);
+    $business = DB::table('whatsapp_inbox_messages')->where('id', $plan['evidence_ceiling'])->first();
+    $dto = json_decode(Crypt::decryptString($business->content), true, 32, JSON_THROW_ON_ERROR);
+    $dto['text'] = $summary; $dto['content']['message']['text']['body'] = $summary;
+    DB::table('whatsapp_inbox_messages')->where('id', $business->id)->update(['content' => followupEnc($dto)]);
+    $latest = followupNative('inbound', $approval, '2026-10-13 10:02:00');
+    $plan['latest_customer_id'] = $latest; $plan['latest_customer_key'] = DB::table('whatsapp_inbox_messages')->where('id', $latest)->value('message_key');
+    $plan['evidence_ceiling'] = $latest; $plan['fields'] = ['LOCATION'];
+    $data['decision'] = 'CONFIRMED'; $data['issues'] = ['LOCATION_REQUIRED'];
+    $data['evidence'] = ['request_ids' => ['m1'], 'confirmation_ids' => ['m2'], 'customer_acceptance_ids' => ['m3'], 'location_id' => null];
+    $plan['data'] = $data; $plan['transcript'] = followupSnapshot()['transcript'];
+    return $plan;
+}
 function followupReset(string $text = 'عايز 1 كيلو فسيخ'): array {
     global $graphCalls, $aiCalls, $graphHook, $aiHook, $graphMode, $aiMode, $authHook, $authCalls, $fakeNow;
     $graphCalls = []; $aiCalls = []; $graphHook = null; $aiHook = null;
@@ -571,5 +587,52 @@ for ($i = 1; $i <= 21; $i++) {
 $before = count($graphCalls);
 followupExpect($service->request($actor, $plan, fn () => $plan)['status'], 'BLOCKED', 'overflow beyond bounded same-inbound receipts fails closed');
 followupExpect([count($aiCalls), count($graphCalls)], [0, $before], 'receipt scan overflow cannot generate or send another question');
+
+// An established merchant recap and its cited customer approval permit one missing-location follow-up.
+$plan = followupMerchantPlan($confirmationData);
+followupExpect(WhatsAppOrderExtraction::validateDetailed($plan['data'], $plan['transcript'])['ok'], true,
+    'real native merchant recap and latest contextual customer approval prove confirmed order');
+followupExpect($plan['transcript'][2]['speaker'], 'customer', 'confirmed handoff has no trailing merchant turn');
+followupExpect(DB::table('whatsapp_reply_requests')->count(), 0, 'confirmed handoff requires no prior own receipt');
+followupExpect($service->handoffAllowed($plan), true, 'proved final merchant recap and cited latest positive establish handoff');
+followupExpect($service->request($actor, $plan, fn () => $plan)['status'], 'ACCEPTED', 'established merchant handoff asks missing native location');
+followupExpect($aiCalls[0]['missing_fields'], ['LOCATION'], 'handoff selector receives only missing location label');
+followupExpect($graphCalls[0]['text']['body'], WhatsAppOrderFollowupService::question(['LOCATION'], 'SHORT', $plan['data']),
+    'handoff sends exact reviewed location request');
+followupExpect($service->request($secondActor, $plan, fn () => $plan)['status'], 'ALREADY_ASKED', 'repeat established handoff cannot ask again');
+followupExpect([count($aiCalls), count($graphCalls), DB::table('whatsapp_reply_requests')->count()], [1, 1, 1],
+    'merchant-approved native handoff selects and sends exactly once');
+
+foreach (['uncited_positive', 'quoted_positive', 'question', 'refusal', 'detail', 'new_order',
+    'older_approval_then_detail', 'draft_hint', 'forged_confirmation', 'no_final_marker', 'malformed_quantity', 'test_order'] as $mutation) {
+    $approval = ['quoted_positive' => 'هو قال تمام', 'question' => 'تمام؟', 'refusal' => 'لا مش موافق',
+        'detail' => 'القاهرة شارع آخر', 'new_order' => 'عايز 2 كيلو فسيخ كامل'][$mutation] ?? 'تمام';
+    $summary = $mutation === 'no_final_marker'
+        ? 'الأصناف: 1.5 كيلو فسيخ كامل؛ الاسم عميل تجريبي ورقم التواصل 01000000001 والعنوان المنصورة شارع المثال' : null;
+    $plan = followupMerchantPlan($confirmationData, $approval, $summary);
+    if ($mutation === 'uncited_positive') $plan['data']['evidence']['customer_acceptance_ids'] = [];
+    if ($mutation === 'older_approval_then_detail') {
+        $latest = followupNative('inbound', 'القاهرة شارع آخر', '2026-10-13 10:03:00');
+        $plan['latest_customer_id'] = $latest; $plan['latest_customer_key'] = DB::table('whatsapp_inbox_messages')->where('id', $latest)->value('message_key');
+        $plan['evidence_ceiling'] = $latest; $plan['transcript'] = followupSnapshot()['transcript'];
+    }
+    if ($mutation === 'draft_hint') $plan['data']['decision'] = 'DRAFT';
+    if ($mutation === 'forged_confirmation') $plan['data']['evidence']['confirmation_ids'] = ['m1'];
+    if ($mutation === 'malformed_quantity') $plan['data']['items'][0]['quantity'] = 'not-an-amount';
+    if ($mutation === 'test_order') {
+        $source = DB::table('whatsapp_inbox_messages')->where('message_key', $plan['episode_customer_key'])->first();
+        $dto = json_decode(Crypt::decryptString($source->content), true, 32, JSON_THROW_ON_ERROR);
+        $dto['text'] .= ' WA-1234'; $dto['content']['message']['text']['body'] = $dto['text'];
+        DB::table('whatsapp_inbox_messages')->where('id', $source->id)->update(['content' => followupEnc($dto)]);
+        $plan['transcript'] = followupSnapshot()['transcript'];
+        $validated = WhatsAppOrderExtraction::validateDetailed($plan['data'], $plan['transcript']);
+        followupExpect([$validated['ok'], $validated['data']['decision']], [true, 'NONE'],
+            'authoritative validator normalizes raw confirmed test-order hint to NONE');
+    }
+    followupExpect($service->handoffAllowed($plan), false, 'unproved merchant/customer handoff remains unavailable: ' . $mutation);
+    followupExpect($service->request($actor, $plan, fn () => $plan)['status'], 'BLOCKED', 'unproved handoff cannot ask a customer: ' . $mutation);
+    followupExpect([count($aiCalls), count($graphCalls), DB::table('whatsapp_reply_requests')->count()], [0, 0, 0],
+        'unproved handoff creates no AI spend, send or receipt: ' . $mutation);
+}
 
 echo "WHATSAPP_ORDER_FOLLOWUP_SERVICE_TESTS=$checks PASS\n";

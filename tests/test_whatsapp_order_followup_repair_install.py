@@ -51,7 +51,8 @@ class FollowupInstallTests(unittest.TestCase):
             ['cbaaa8ed7014da5bad05d429151afa5ff377ceab','1ef23df825287f8d3dedafcdb5d70ffeac7f1f29',
              None,'cf83ab9152167a613f7fc5667e30d2a59bb61c9a'])
         for target,(_,pin) in repair.SOURCE_PINS.items():
-            self.assertEqual(pin,repair.blob((ROOT/target).read_bytes()))
+            source=ROOT/'tests/fixtures/whatsapp_order_pre_handoff'/target if target==self.service else ROOT/target
+            self.assertEqual(pin,repair.blob(source.read_bytes()))
             self.assertNotIn(target,repair.PROTECTED_PINS)
         expected=dict(baseline.PROTECTED_PINS)
         expected.pop(prefix+'WhatsAppOrderWorkflow.php')
