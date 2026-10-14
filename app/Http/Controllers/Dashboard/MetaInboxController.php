@@ -24,14 +24,17 @@ class MetaInboxController extends Controller
         try {
             $actor = $access->actor(auth('admin')->user());
             $available = $access->available();
+            $whatsAppAccess = app(\App\Services\Dashboard\WhatsAppInboxAccess::class);
+            $whatsAppInbox = $whatsAppAccess->canAccess($actor)
+                ? app(WhatsAppInboxController::class)->bootstrap($whatsAppAccess) : null;
             return response()->view('admin.meta.index', ['waInbox' => [
                 'available' => $available,
                 'conversations_url' => route('meta-inbox.conversations'),
                 'messages_base_url' => url('/admin/meta/conversations'),
-                'initial_channel' => in_array(request()->query('channel'), ['messenger', 'instagram'], true) ? request()->query('channel') : '',
+                'initial_channel' => in_array(request()->query('channel'), ['messenger', 'instagram', 'whatsapp'], true) ? request()->query('channel') : '',
                 'connection_url' => $access->canConnect($actor) ? route('meta-connection.index') : null,
                 'labels' => $this->labels(),
-            ]])->withHeaders($this->privateHeaders());
+            ], 'whatsAppInbox' => $whatsAppInbox])->withHeaders($this->privateHeaders());
         } catch (HttpException $error) {
             return response(app()->getLocale() === 'ar' ? 'غير مسموح بعرض المحادثات.' : 'Inbox access denied.',
                 $error->getStatusCode())->withHeaders($this->privateHeaders());
