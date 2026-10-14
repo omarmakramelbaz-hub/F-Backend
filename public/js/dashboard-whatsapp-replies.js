@@ -369,6 +369,11 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
+                    if (Number.isSafeInteger(data.reply_id) && data.reply_id > 0 && Number.isSafeInteger(inboxGeneration)
+                        && inboxChannel === 'whatsapp' && namespace && inboxNamespace === namespace
+                        && document.dispatchEvent && typeof CustomEvent !== 'undefined') document.dispatchEvent(new CustomEvent('whatsapp:reply-accepted', {detail: {
+                            conversation: selected, generation: inboxGeneration, channel: inboxChannel, namespace: inboxNamespace
+                        }}));
                     if (kind === 'text' || kind === 'attachment') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     clearQuote(); attempt = null; uncertain = false; acceptedSend = true; note(labels.accepted);
                 } else if (data.state === 'FAILED') {
