@@ -13,6 +13,12 @@
         if (!config.meta_chat) return;
         if (!config.hub_chat && window.DashboardWhatsAppReplies && window.DashboardWhatsAppReplies !== window.DashboardMetaReplies) window.DashboardWhatsAppReplies.destroy();
         var eventPrefix = config.event_prefix === 'meta' ? 'meta' : 'whatsapp';
+        var namespace = '';
+        try {
+            var replyRoute = new URL(config.conversations_base_url, window.location.href);
+            if (replyRoute.origin === new URL(window.location.href).origin && !replyRoute.username && !replyRoute.password && !replyRoute.search && !replyRoute.hash
+                && replyRoute.pathname.replace(/\/+$/, '') === '/admin/meta/conversations') namespace = replyRoute.origin + replyRoute.pathname.replace(/\/+$/, '');
+        } catch (error) {}
         var panel = host.querySelector('[data-wa-replies]'); if (!panel) return;
         var textLimit = Number(config.text_limit) || 4096;
         var labels = config.labels || {}, status = panel.querySelector('[data-wa-reply-status]');
@@ -32,7 +38,7 @@
         var forwardPanel = panel.querySelector('[data-meta-forward-draft]'), forwardPreview = panel.querySelector('[data-meta-forward-preview]');
         var forwardSend = panel.querySelector('[data-meta-forward-send]'), forwardCancel = panel.querySelector('[data-meta-forward-cancel]');
         var attachmentFile = null, attachmentUrl = null, attachmentDialog = null, forwardDraft = null;
-        var controllers = new Map(), conversation = 0, generation = 0, closed = false, denied = false;
+        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, inboxChannel = '', inboxNamespace = '', closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
         var composing = false, enterHeld = false;
@@ -40,6 +46,7 @@
         function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
         function clear(reason) {
             generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
+            inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
             clearVoice(); clearAttachment(); clearForward(); closeEmoji(); openingMicrophone = false; composing = false; enterHeld = false;
             text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
@@ -161,6 +168,53 @@
             });
             audit.hidden = !replies.length;
         }
+        function acceptedReceipt(reply) {
+            if (!reply || typeof reply !== 'object' || !Number.isSafeInteger(reply.reply_id) || reply.reply_id < 1
+                || ['text', 'audio', 'image', 'video', 'file'].indexOf(reply.kind) === -1
+                || reply.state !== undefined && reply.state !== 'ACCEPTED'
+                || reply.hidden !== undefined && typeof reply.hidden !== 'boolean'
+                || reply.projected_message_id != null && (!Number.isSafeInteger(reply.projected_message_id) || reply.projected_message_id < 1)
+                || reply.projection_key != null && (typeof reply.projection_key !== 'string' || !/^[a-f0-9]{64}$/.test(reply.projection_key))
+                || !receiptTimestamp(reply.created_at) || reply.accepted_at != null && !receiptTimestamp(reply.accepted_at)) return null;
+            var body = reply.text;
+            if (body != null && (typeof body !== 'string' || Array.from(body).length > textLimit || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body))
+                || reply.hidden !== true && reply.kind === 'text' && (typeof body !== 'string' || !body.trim())) return null;
+            var media = null;
+            if (reply.media != null) {
+                if (typeof reply.media !== 'object' || reply.media.type !== reply.kind || reply.kind === 'text'
+                    || reply.media.name != null && (typeof reply.media.name !== 'string' || Array.from(reply.media.name).length > 120 || /[\u0000-\u001f\u007f/\\]/.test(reply.media.name))) return null;
+                media = {type: reply.media.type, name: reply.media.name == null ? null : reply.media.name};
+            }
+            return {reply_id: reply.reply_id, state: 'ACCEPTED', kind: reply.kind, text: body == null ? null : body,
+                created_at: reply.created_at, accepted_at: reply.accepted_at == null ? null : reply.accepted_at,
+                projected_message_id: reply.projected_message_id == null ? null : reply.projected_message_id,
+                projection_key: reply.projection_key == null ? null : reply.projection_key, hidden: reply.hidden === true, media: media};
+        }
+        function receiptTimestamp(value) {
+            return typeof value === 'string' && value.length <= 64 && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(value)
+                && Number.isFinite(new Date(value).getTime());
+        }
+        function receiptScope(selected, current) {
+            if (closed || denied || current !== generation || selected !== conversation || !Number.isSafeInteger(inboxGeneration)
+                || ['messenger', 'instagram'].indexOf(inboxChannel) === -1 || !namespace || inboxNamespace !== namespace
+                || !document.dispatchEvent || typeof CustomEvent === 'undefined') return null;
+            return {conversation: selected, generation: inboxGeneration, channel: inboxChannel, namespace: inboxNamespace};
+        }
+        function publishAcceptedReplies(data, selected, current) {
+            var scope = receiptScope(selected, current); if (!scope) return;
+            scope.replies = (Array.isArray(data.recent_replies) ? data.recent_replies.slice(0, 20) : []).filter(function (reply) {
+                return reply && reply.state === 'ACCEPTED';
+            }).map(acceptedReceipt).filter(Boolean);
+            scope.snapshot = true;
+            document.dispatchEvent(new CustomEvent('meta:accepted-replies', {detail: scope}));
+        }
+        function publishAcceptedSend(data, selected, current) {
+            var scope = receiptScope(selected, current); if (!scope || !data || data.state !== 'ACCEPTED'
+                || !Number.isSafeInteger(data.reply_id) || data.reply_id < 1) return;
+            var receipt = acceptedReceipt(data.accepted_reply);
+            if (receipt && receipt.reply_id === data.reply_id) scope.reply = receipt;
+            document.dispatchEvent(new CustomEvent('meta:reply-accepted', {detail: scope}));
+        }
         function loadState(preserve) {
             if (!conversation || closed || denied || checking) return Promise.resolve();
             var selected = conversation, current = generation;
@@ -171,6 +225,7 @@
                 if (closed || current !== generation || selected !== conversation) return;
                 state = data;
                 renderAudit(data);
+                publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
                     var accepted = data.request_state === 'ACCEPTED', resolvedKind = attempt.kind, wasText = resolvedKind === 'text'; uncertain = false; attempt = null;
                     if (accepted && resolvedKind === 'attachment') clearAttachment();
@@ -187,7 +242,11 @@
         function choose(event) {
             var id = Number(event && event.detail && event.detail.conversation);
             if (!Number.isSafeInteger(id) || id < 1 || closed || denied || document.hidden || navigator.onLine === false) return;
-            clear(); conversation = id; panel.hidden = false; note(labels.loading); loadState();
+            clear(); conversation = id;
+            inboxGeneration = event && event.detail && Number.isSafeInteger(event.detail.generation) ? event.detail.generation : null;
+            inboxChannel = event && event.detail && typeof event.detail.channel === 'string' ? event.detail.channel : '';
+            inboxNamespace = event && event.detail && typeof event.detail.namespace === 'string' ? event.detail.namespace : '';
+            panel.hidden = false; note(labels.loading); loadState();
         }
         function uuid() {
             if (!window.crypto) return null;
@@ -216,6 +275,7 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
+                    publishAcceptedSend(data, selected, current);
                     if (kind === 'text') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     if (kind === 'attachment') clearAttachment();
                     if (kind === 'forward') clearForward();
@@ -485,8 +545,9 @@
             if (active === session) destroy(); else session.destroy();
         });
         var inbox = config.hub_chat ? window.DashboardMetaInbox : window.DashboardWhatsAppInbox;
+        var selection = inbox && typeof inbox.selectionState === 'function' ? inbox.selectionState() : null;
         var selected = inbox && typeof inbox.selection === 'function' ? inbox.selection() : 0;
-        if (selected) choose({detail: {conversation: selected}});
+        if (selected) choose({detail: selection && selection.conversation === selected ? selection : {conversation: selected}});
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardMetaReplies = {mount: mount, destroy: destroy};
