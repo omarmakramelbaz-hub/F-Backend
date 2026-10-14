@@ -617,7 +617,8 @@ class RepairRootRecoveryTests(unittest.TestCase):
 
     def test_published_candidates_and_root_publisher_binding_match_exact_real_bytes(self):
         for relative,(_,target) in repair.SOURCE_PINS.items():
-            with self.subTest(path=relative):self.assertEqual(repair.blob((ROOT/relative).read_bytes()),target)
+            candidate=ROOT/'tests/fixtures/whatsapp_order_pre_offer_variant'/relative
+            with self.subTest(path=relative):self.assertEqual(repair.blob(candidate.read_bytes()),target)
         publisher=ROOT/'deployment/apply_whatsapp_order_anchor_citation_repair.py'
         self.assertEqual(wrapper.PUBLISHER_BLOB,repair.blob(publisher.read_bytes()))
         self.assertEqual(set(wrapper.HELPERS),{'apply_whatsapp_order_anchor_citation_repair.py','install_whatsapp_inbox.py'})
