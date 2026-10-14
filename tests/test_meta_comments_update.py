@@ -164,8 +164,7 @@ class InstallTests(unittest.TestCase):
         if arguments[5] == 'artisan':
             self.assertEqual(arguments[6:], ['migrate', '--path=' + updater.MIGRATION, '--force', '--no-interaction'])
             self.assertTrue((self.root / updater.MIGRATION).exists())
-            self.assertEqual((self.root / updater.WEB_ROUTES).read_bytes(),
-                             self.original[updater.WEB_ROUTES] if self.publications else (self.root / updater.WEB_ROUTES).read_bytes())
+            self.assertEqual((self.root / updater.WEB_ROUTES).read_bytes(), self.routes_before_update)
             return subprocess.CompletedProcess(arguments, int(self.fail_migration), b'PRIVATE_MIGRATION_SECRET=do-not-print', b'')
         self.assertTrue(arguments[5].endswith('/comments-runtime.php'))
         phase = arguments[7]
@@ -188,6 +187,7 @@ class InstallTests(unittest.TestCase):
 
     def update(self, manifest=None):
         output = io.StringIO()
+        self.routes_before_update = (self.root / updater.WEB_ROUTES).read_bytes()
         user = types.SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid())
         with mock.patch.object(updater, 'APP_ROOT', self.root), mock.patch.object(updater, 'PHP', PHP), \
              mock.patch.object(updater.pwd, 'getpwnam', return_value=user), \
@@ -231,6 +231,32 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(report['updated_files'], 0); self.assertEqual(self.files(), before)
         self.assertEqual({relative: (self.root / relative).stat().st_ino for relative in before}, inodes)
         self.assertEqual(self.publications, [])
+
+    def test_reviewed_diagnostic_upgrade_changes_only_diagnostic_and_rejects_unknown_bytes(self):
+        self.update()
+        relative = 'deployment/meta_comments_diagnostic.php'
+        previous = b'<?php // reviewed previous comments diagnostic\n'
+        self.write(relative, previous)
+        before = self.files()
+        inodes = {path: (self.root / path).stat().st_ino for path in before}
+        self.publications = []
+        with mock.patch.dict(updater.REVIEWED_PRIOR_FILES, {relative: (updater.blob(previous),)}):
+            report = self.update()
+        self.assertEqual(report['updated_files'], 1)
+        self.assertEqual(self.publications, [relative])
+        expected = dict(before); expected[relative] = (self.payloads[relative], 0o644)
+        self.assertEqual(self.files(), expected)
+        for path in before:
+            if path != relative:
+                self.assertEqual((self.root / path).stat().st_ino, inodes[path])
+        self.assertEqual((pathlib.Path(report['backup']) / 'original' / relative).read_bytes(), previous)
+        self.write(relative, previous + b'// unknown operator change\n')
+        before = self.files(); self.calls = []; self.publications = []
+        with mock.patch.dict(updater.REVIEWED_PRIOR_FILES, {relative: (updater.blob(previous),)}):
+            with self.assertRaisesRegex(RuntimeError, 'UNREVIEWED_COMMENTS_TARGET'):
+                self.update()
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.calls, []); self.assertEqual(self.publications, [])
 
     def test_lint_and_preflight_failure_leave_application_bytes_untouched(self):
         before = self.files()

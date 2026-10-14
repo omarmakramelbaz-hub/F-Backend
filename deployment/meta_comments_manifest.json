@@ -5,7 +5,7 @@
     "app/Services/Dashboard/MetaCommentsService.php": "7eb32215897388601c98d20473e321f30a2a9f73",
     "app/Http/Controllers/Dashboard/MetaCommentsController.php": "204d9411e83d3f6bc6cee81a8a6f8d6abd61923d",
     "database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php": "b7dfa555c58c86986914a147666f9ba2983a2c38",
-    "deployment/meta_comments_diagnostic.php": "ab1be0914a9fdc576e35a118445576bd4e483db1",
+    "deployment/meta_comments_diagnostic.php": "b767af2b1b745c90e5e671886dd6a7d8371f1b5c",
     "public/js/dashboard-meta-comments.js": "9962ae6f9376ba2aee5ee9fd5997e0d5a34ac72d",
     "public/css/dashboard-meta-comments.css": "6a904ee6d59f0d3459b47dd4024a7cf7fd79c7f3",
     "resources/views/admin/meta/comments.blade.php": "5f27d31e55b50c58a8613966ceae889900a967a2",

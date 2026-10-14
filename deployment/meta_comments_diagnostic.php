@@ -1,6 +1,7 @@
 <?php
 
 /** Read-only capability check. Never print tokens, Graph bodies, comment text, or exception messages. */
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 ini_set('display_errors', '0');
 ini_set('log_errors', '0');
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
@@ -39,25 +40,34 @@ try {
         if ($proof !== null) $params['appsecret_proof'] = $proof;
         try {
             $read = \Illuminate\Support\Facades\Http::withToken($token)
-                ->withOptions(['allow_redirects' => false, 'verify' => true])
-                ->connectTimeout(3)->timeout(8)->get($host.'/'.$version.'/'.$account['account_id'].'/'.
+                ->withOptions(['allow_redirects' => false, 'verify' => true, 'connect_timeout' => 3])
+                ->timeout(8)->get($host.'/'.$version.'/'.$account['account_id'].'/'.
                     ($channel === 'messenger' ? 'published_posts' : 'media'), $params);
             $data = strlen($read->body()) <= 65536 ? $read->json() : null;
+            $info['read_http_status'] = $read->status();
+            $info['read_error_code'] = is_int($data['error']['code'] ?? null) ? $data['error']['code'] : null;
+            $info['read_error_subcode'] = is_int($data['error']['error_subcode'] ?? null) ? $data['error']['error_subcode'] : null;
             $info['posts_readable'] = $read->successful() && is_array($data) && is_array($data['data'] ?? null);
             $code = (int) ($data['error']['code'] ?? 0);
             $info['read_status'] = $info['posts_readable'] ? 'READ_READY'
                 : (in_array($code, [10, 200], true) ? 'PERMISSION_REQUIRED'
                     : ($code === 190 ? 'TOKEN_EXPIRED' : 'READ_UNAVAILABLE'));
-        } catch (\Throwable $error) { $info['read_status'] = 'READ_UNAVAILABLE'; }
+        } catch (\Throwable $error) {
+            $info['read_status'] = 'READ_UNAVAILABLE';
+            $info['read_transport'] = metaCommentsDiagnosticTransport($error);
+        }
         if ($facebookLogin && $secret !== '') {
             try {
                 // Fixed configured application. The app token and account token stay in memory.
                 $appToken = '2177982783065133|'.$secret;
                 $debug = \Illuminate\Support\Facades\Http::withToken($appToken)
-                    ->withOptions(['allow_redirects' => false, 'verify' => true])
-                    ->connectTimeout(3)->timeout(8)->get('https://graph.facebook.com/'.$version.'/debug_token',
+                    ->withOptions(['allow_redirects' => false, 'verify' => true, 'connect_timeout' => 3])
+                    ->timeout(8)->get('https://graph.facebook.com/'.$version.'/debug_token',
                         ['input_token' => $token, 'appsecret_proof' => hash_hmac('sha256', $appToken, $secret)]);
                 $data = strlen($debug->body()) <= 65536 ? $debug->json() : null;
+                $info['debug_http_status'] = $debug->status();
+                $info['debug_error_code'] = is_int($data['error']['code'] ?? null) ? $data['error']['code'] : null;
+                $info['debug_error_subcode'] = is_int($data['error']['error_subcode'] ?? null) ? $data['error']['error_subcode'] : null;
                 $checked = $data['data'] ?? null;
                 if ($debug->successful() && is_array($checked)) {
                     $info['token_verified'] = ($checked['is_valid'] ?? false) === true
@@ -67,7 +77,7 @@ try {
                         $info['missing_permissions'] = array_values(array_diff($permissions, $checked['scopes']));
                     }
                 }
-            } catch (\Throwable $error) { /* Return fixed capability status only. */ }
+            } catch (\Throwable $error) { $info['debug_transport'] = metaCommentsDiagnosticTransport($error); }
         }
         $result['accounts'][] = $info;
     }
@@ -77,3 +87,19 @@ try {
 while (ob_get_level() > $level) ob_end_clean();
 echo 'META_COMMENTS_ACCESS='.json_encode($result, JSON_UNESCAPED_SLASHES).PHP_EOL;
 exit($exit);
+
+/** Expose only fixed transport categories; never exception messages or request URLs. */
+function metaCommentsDiagnosticTransport(\Throwable $error): string
+{
+    if ($error instanceof \BadMethodCallException) return 'CLIENT_INCOMPATIBLE';
+    for ($depth = 0; $depth < 4 && $error !== null; $depth++, $error = $error->getPrevious()) {
+        if (!method_exists($error, 'getHandlerContext')) continue;
+        try { $context = $error->getHandlerContext(); } catch (\Throwable $ignored) { continue; }
+        $errno = is_array($context) ? ($context['errno'] ?? null) : null;
+        if ($errno === 6) return 'DNS_FAILED';
+        if ($errno === 7) return 'CONNECT_FAILED';
+        if ($errno === 28) return 'TIMEOUT';
+        if (in_array($errno, [35, 51, 58, 60, 77, 83, 90], true)) return 'TLS_FAILED';
+    }
+    return 'TRANSPORT_OR_CLIENT_FAILED';
+}

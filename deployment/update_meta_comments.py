@@ -33,6 +33,10 @@ SOURCE_FILES = (
     SIDEBAR,
 )
 SIDEBAR_BASELINE = 'cb321326b61eeebb2f8c1276e7b1be217c273d51'
+REVIEWED_PRIOR_FILES = {
+    SIDEBAR: (SIDEBAR_BASELINE,),
+    'deployment/meta_comments_diagnostic.php': ('ab1be0914a9fdc576e35a118445576bd4e483db1',),
+}
 FOUNDATION_PINS = {
     'app/Services/Dashboard/WhatsAppInboxAccess.php': '186789d42113e81818de8d82a2327e3ee9d8d0b5',
     'app/Services/Dashboard/MetaInboxAccess.php': '7faaba6645308c1997bae8182fb4b26dbc5e3b9a',
@@ -387,7 +391,7 @@ def install_locked(root, release, php, manifest, uid, gid):
         if relative == SIDEBAR and old is None:
             raise RuntimeError('INSTALLED_META_SIDEBAR_REQUIRED')
         if old is not None and old['bytes'] != payload \
-                and not (relative == SIDEBAR and blob(old['bytes']) == SIDEBAR_BASELINE):
+                and blob(old['bytes']) not in REVIEWED_PRIOR_FILES.get(relative, ()):
             raise RuntimeError('UNREVIEWED_COMMENTS_TARGET: ' + relative)
         targets[relative] = payload; originals[relative] = old
     for relative, transform in ((WEB_ROUTES, web_contents), (NAVIGATION, navigation_contents)):
