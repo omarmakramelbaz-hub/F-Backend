@@ -26,6 +26,16 @@ EXISTING_FILES = (
     'app/Http/Controllers/Dashboard/OrderBoardController.php',
 )
 NEW_FILES = ('public/dashboard/js/dashboard-order-alerts.js',)
+# Exact known desktop overlays, packaged as verified installer inputs rather than
+# requiring the older release Git object to exist on the production server.
+COMPAT_BASELINES = {
+    'public/dashboard/js/branch-print-receiver.js': (
+        'deployment/compat/branch-print-receiver.e88.js',
+        'ed5d4c5ae5bc2dbe7c751cf96e2a606bbb8b78a1'),
+    'app/Services/Dashboard/PosBranchPrinting.php': (
+        'deployment/compat/PosBranchPrinting.e88.php',
+        '021a53ff471c594fcef75509327aace74bcbf86c'),
+}
 # Dependencies and consumers precede the footer which activates the shared engine.
 PUBLISH_ORDER = (*NEW_FILES, *EXISTING_FILES[1:], EXISTING_FILES[0])
 
@@ -120,6 +130,28 @@ def source(root, revision, relative):
     return data
 
 
+def patch_reviewed(root, release, relative, current, reviewed):
+    baselines = [source(root, BASE, relative)]
+    if relative in COMPAT_BASELINES:
+        packaged, expected = COMPAT_BASELINES[relative]
+        compatibility = source(root, release, packaged)
+        if blob(compatibility) != expected:
+            raise RuntimeError('COMPAT_BASELINE_BLOB_MISMATCH: ' + relative)
+        baselines.append(compatibility)
+    results = set()
+    for baseline in baselines:
+        try:
+            results.add(surgical_patch(current, baseline, reviewed, relative))
+        except RuntimeError as error:
+            if not str(error).startswith('SOURCE_PATCH_CONFLICT:'):
+                raise
+    if not results:
+        raise RuntimeError('SOURCE_PATCH_CONFLICT: ' + relative + ' current_blob=' + blob(current))
+    if len(results) != 1:
+        raise RuntimeError('SOURCE_PATCH_AMBIGUOUS: ' + relative)
+    return results.pop()
+
+
 PROBE = r'''<?php
 ini_set('display_errors','0');ini_set('log_errors','0');error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 $level=ob_get_level();ob_start();$exit=1;$result=['ok'=>false];
@@ -203,7 +235,7 @@ def _install_locked(root, release, php, check_only, uid, gid, repair_permissions
             if relative in EXISTING_FILES:
                 if old is None:
                     raise RuntimeError('BASELINE_FILE_MISSING: ' + relative)
-                payload = surgical_patch(old['bytes'], source(root, BASE, relative), reviewed, relative)
+                payload = patch_reviewed(root, release, relative, old['bytes'], reviewed)
             else:
                 if old and old['bytes'] != reviewed:
                     raise RuntimeError('NEW_FILE_COLLISION: ' + relative)

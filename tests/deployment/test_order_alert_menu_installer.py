@@ -54,6 +54,64 @@ class SourceIntegrityTest(unittest.TestCase):
                 installer.validated_caches({'view_caches': paths})
 
 
+class CompatibilityBaselineTest(unittest.TestCase):
+    relative = 'public/dashboard/js/branch-print-receiver.js'
+
+    def setUp(self):
+        self.packaged, self.expected_blob = installer.COMPAT_BASELINES[self.relative]
+        self.compatibility = (PACKAGE / self.packaged).read_bytes()
+        self.default = b'first\nold default receiver\nlast\n'
+        self.reviewed = self.compatibility.replace(b'timer = setTimeout(poll,500);',
+                                                   b'timer = setTimeout(poll,600);')
+
+    def source(self, root, revision, relative):
+        return self.default if revision == installer.BASE else self.compatibility
+
+    def patch(self, current, reviewed=None):
+        with mock.patch.object(installer, 'source', side_effect=self.source):
+            return installer.patch_reviewed(PACKAGE, 'a' * 40, self.relative, current, reviewed or self.reviewed)
+
+    def test_packaged_known_desktop_baselines_have_exact_pinned_blobs(self):
+        self.assertEqual(set(installer.COMPAT_BASELINES), {
+            'public/dashboard/js/branch-print-receiver.js', 'app/Services/Dashboard/PosBranchPrinting.php'})
+        for relative, (path, expected) in installer.COMPAT_BASELINES.items():
+            with self.subTest(relative=relative):
+                self.assertEqual(installer.blob((PACKAGE / path).read_bytes()), expected)
+                self.assertNotIn(path, installer.PUBLISH_ORDER)
+
+    def test_known_desktop_overlay_succeeds_without_older_git_object(self):
+        self.assertEqual(self.patch(self.compatibility), self.reviewed)
+        self.assertEqual(self.patch(self.reviewed), self.reviewed)
+
+    def test_compatibility_patch_preserves_unrelated_live_overlay(self):
+        live = self.compatibility.replace(b'var node = document.getElementById',
+                                         b'/* preserved operator comment */ var node = document.getElementById', 1)
+        expected = self.reviewed.replace(b'var node = document.getElementById',
+                                        b'/* preserved operator comment */ var node = document.getElementById', 1)
+        self.assertEqual(self.patch(live), expected)
+
+    def test_conflicting_operator_change_is_still_refused(self):
+        live = self.compatibility.replace(b'timer = setTimeout(poll,500);',
+                                         b'timer = setTimeout(poll,800);')
+        with self.assertRaisesRegex(RuntimeError, 'SOURCE_PATCH_CONFLICT'):
+            self.patch(live)
+
+    def test_mismatched_packaged_baseline_is_refused(self):
+        with mock.patch.object(installer, 'source', side_effect=[self.default, b'tampered desktop baseline']):
+            with self.assertRaisesRegex(RuntimeError, 'COMPAT_BASELINE_BLOB_MISMATCH'):
+                installer.patch_reviewed(PACKAGE, 'a' * 40, self.relative, self.compatibility, self.reviewed)
+
+    def test_successful_candidates_must_have_one_identical_result(self):
+        with mock.patch.object(installer, 'source', side_effect=self.source), \
+                mock.patch.object(installer, 'surgical_patch', side_effect=[b'candidate one', b'candidate two']):
+            with self.assertRaisesRegex(RuntimeError, 'SOURCE_PATCH_AMBIGUOUS'):
+                installer.patch_reviewed(PACKAGE, 'a' * 40, self.relative, self.compatibility, self.reviewed)
+        with mock.patch.object(installer, 'source', side_effect=self.source), \
+                mock.patch.object(installer, 'surgical_patch', return_value=b'identical candidate'):
+            self.assertEqual(installer.patch_reviewed(PACKAGE, 'a' * 40, self.relative,
+                                                     self.compatibility, self.reviewed), b'identical candidate')
+
+
 class AtomicFileTest(unittest.TestCase):
     def test_atomic_publish_keeps_old_hardlink_contents(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -148,6 +206,8 @@ class InstallerTransactionTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def source(self, root, revision, relative):
+        if relative in [entry[0] for entry in installer.COMPAT_BASELINES.values()]:
+            return (PACKAGE / relative).read_bytes()
         return (self.before if revision == installer.BASE else self.after)[relative]
 
     def command(self, root, arguments):
@@ -227,6 +287,28 @@ class InstallerTransactionTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'NEW_FILE_COLLISION'):
             self.execute()
         self.assertEqual(path.read_bytes(), b'operator new file')
+
+    def test_transaction_accepts_both_known_desktop_overlays_without_older_git_object(self):
+        default_sources = dict(self.before)
+        calls = []
+        for relative, (packaged, expected) in installer.COMPAT_BASELINES.items():
+            default_sources[relative] = subprocess.check_output(['git', 'show', installer.BASE + ':' + relative], cwd=PACKAGE)
+            self.before[relative] = (PACKAGE / packaged).read_bytes()
+            self.after[relative] = (PACKAGE / relative).read_bytes()
+            (self.root / relative).write_bytes(self.before[relative])
+        def exact_source(root, revision, relative):
+            calls.append(revision)
+            if relative in [entry[0] for entry in installer.COMPAT_BASELINES.values()]:
+                return (PACKAGE / relative).read_bytes()
+            return (default_sources if revision == installer.BASE else self.after)[relative]
+        with mock.patch.object(self, 'source', side_effect=exact_source):
+            self.execute()
+        for relative in installer.COMPAT_BASELINES:
+            self.assertEqual((self.root / relative).read_bytes(), self.after[relative])
+        self.assertEqual(set(calls), {installer.BASE, self.release})
+        backup = next((self.root.parent / 'order-alert-menu-backups').iterdir())
+        for relative in installer.COMPAT_BASELINES:
+            self.assertEqual((backup / relative).read_bytes(), self.before[relative])
 
     def test_runtime_failure_rolls_back_sources_new_file_and_changed_cache(self):
         def failure(root, php, probe, manifest):

@@ -135,6 +135,7 @@
     }
     window.DashboardOrderAlerts = {
         notify: notify, acknowledge: acknowledge, sync: sync, observeApp: observeApp, reconcileApp: reconcileApp, checkpoint: function () { return sequence; }, unlock: unlock,
+        isReady: function () { return enabled && unlocked && !blocked; },
         retry: function () { blocked = false; reconcile(); },
         state: function () { return { enabled: enabled, playing: playing, blocked: blocked, pending: Array.from(pending.keys()) }; }
     };
