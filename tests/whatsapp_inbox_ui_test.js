@@ -45,7 +45,7 @@ class Element {
     contains(element) { return true; }
 }
 
-function fixture(withUnread = false, withCart = false) {
+function fixture(withUnread = false, withCart = false, unreadPayload = null) {
     const elements = {};
     ['thread-list', 'list-status', 'count', 'messages', 'chat-status', 'title', 'customer', 'alert',
         'connection', 'scroll', 'older', 'more-threads', 'refresh', 'back', 'unread-total'].forEach(name => {
@@ -105,8 +105,10 @@ function fixture(withUnread = false, withCart = false) {
             assert.deepStrictEqual(JSON.parse(options.body), {seen_message_id: 1}, 'Only the inbound message in the visible viewport may be acknowledged');
             return {ok: true, status: 200, redirected: false, headers: {get: () => 'application/json'}, json: async () => ({success: true})};
         }
+        // The inbox badge counts unread conversations; total_unread remains the message count.
         if (parsed.pathname.endsWith('/unread')) return {ok: true, status: 200, redirected: false,
-            headers: {get: () => 'application/json'}, json: async () => ({success: true, total_unread: 3,
+            headers: {get: () => 'application/json'}, json: async () => unreadPayload || ({success: true,
+                total_unread: 3, total_unread_messages: 3, total_unread_conversations: 1,
                 conversations: [{id: 1, unread_count: 3, latest_inbound_id: 3}]})};
         const visibleRows = [{id: 1, direction: 'inbound', type: 'text', text: '<img src=x onerror=alert(1)>', sent_at: thread.last_message_at}];
         if (withCart) Object.assign(visibleRows[0], {type: 'order', text: 'Cart preview', cart: {
@@ -226,8 +228,12 @@ async function visibilityAndOffline() {
 
 async function unreadVisibility() {
     const test = fixture(true); await settle();
-    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 3');
-    assert(test.elements['[data-wa-thread-list]'].textContent.includes('3'), 'Thread badges include unread counts');
+    assert.strictEqual(test.elements['[data-wa-unread-total]'].textContent, 'Unread: 1', 'Three unread messages in one conversation count once');
+    const descendants = root => root.children.flatMap(child => [child, ...descendants(child)]);
+    const badges = descendants(test.elements['[data-wa-thread-list]']).filter(element => element.className === 'wa-inbox-unread');
+    assert.strictEqual(badges.length, 1, 'An unread conversation has one badge');
+    assert.strictEqual(badges[0].textContent, '1', 'Thread badge denotes one unread conversation, not three messages');
+    assert.strictEqual(badges[0].attributes['aria-label'], 'Unread conversation', 'Accessible badge names its conversation meaning');
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'Opening the thread list does not mark messages read');
     click(test, 'data-wa-thread', 1); await settle();
     assert.strictEqual(test.state.calls.filter(call => call.url.endsWith('/read')).length, 1);
@@ -244,6 +250,20 @@ async function unreadVisibility() {
     click(offscreen, 'data-wa-thread', 1); await settle();
     assert.strictEqual(offscreen.state.calls.filter(call => call.url.endsWith('/read')).length, 0, 'A chat panel outside the browser viewport cannot mark messages read');
     offscreen.state.cleanup();
+
+    const globalCount = fixture(true, false, {success: true, total_unread: 8, total_unread_messages: 8,
+        total_unread_conversations: 2, conversations: [{id: 1, unread_count: 3, latest_inbound_id: 3}]});
+    await settle();
+    assert.strictEqual(globalCount.elements['[data-wa-thread-list]'].children.length, 1, 'Only the visible conversation is returned');
+    assert.strictEqual(globalCount.elements['[data-wa-unread-total]'].textContent, 'Unread: 2', 'Global count includes a second unread conversation outside the visible list');
+    globalCount.state.cleanup();
+
+    const fallback = fixture(true, false, {success: true, total_unread: 8, total_unread_messages: 8,
+        conversations: [{id: 1, unread_count: 3, latest_inbound_id: 3}, {id: 2, unread_count: 5, latest_inbound_id: 8},
+            {id: 3, unread_count: 0, latest_inbound_id: 9}]});
+    await settle();
+    assert.strictEqual(fallback.elements['[data-wa-unread-total]'].textContent, 'Unread: 2', 'Legacy payload without global conversation count counts positive conversation rows, not eight messages or a read row');
+    fallback.state.cleanup();
 }
 
 async function cartRendering() {

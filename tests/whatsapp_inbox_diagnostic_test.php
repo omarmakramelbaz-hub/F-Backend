@@ -67,6 +67,7 @@ file_put_contents($temporary . '/setup.php', $setup);
 require $temporary . '/setup.php';
 $repo = realpath(__DIR__ . '/..');
 foreach (['app/Support/WhatsAppInboxProtocol.php', 'app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php',
+    'app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php',
     'app/Services/Dashboard/WhatsAppInboxConsumer.php', 'database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php'] as $file) {
     require $repo . '/' . $file;
 }

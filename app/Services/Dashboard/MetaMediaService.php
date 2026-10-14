@@ -27,6 +27,8 @@ class MetaMediaService
     public function descriptors(object $thread, object $message, ?array $dto): array
     {
         if (!$this->validMessage($thread, $message, $dto)) return [];
+        // An accepted text receipt has no native attachment envelope.
+        if (($message->source ?? null) === 'dashboard_api') return [];
         $attachments = $dto['content']['message']['meta']['attachments'] ?? [];
         if (!is_array($attachments) || !array_is_list($attachments) || count($attachments) > 30) return [];
         $items = [];
@@ -93,6 +95,16 @@ class MetaMediaService
 
     private function validMessage(object $thread, object $message, ?array $dto): bool
     {
+        if (($message->source ?? null) === 'dashboard_api') {
+            try {
+                if ($dto === null || ($message->direction ?? null) !== 'outbound' || ($message->type ?? null) !== 'text'
+                    || !is_string($message->content ?? null) || $dto !== $this->decrypt($message->content)) return false;
+                $receipt = app(MetaReplyService::class)->unwrapAcceptedEvidence($thread, $message);
+                // Keep the authenticated receipt capsule intact. Forwarding uses its text;
+                // neither media actions nor hide may manufacture a native Meta message.
+                return is_string($dto['text'] ?? null) && $dto['text'] === ($receipt['text'] ?? null);
+            } catch (\Throwable $error) { return false; }
+        }
         if ($dto === null || ($dto['channel'] ?? null) !== $thread->waba_id
             || ($dto['account_id'] ?? null) !== $thread->phone_number_id
             || (!is_int($message->id) && !ctype_digit((string) $message->id))

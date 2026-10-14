@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""Temporary application files and mocked workers; never external APIs or real services."""
+import hashlib
+import importlib.util
+import json
+import os
+import pathlib
+import stat
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+def load(name,path):
+    spec=importlib.util.spec_from_file_location(name,path);module=importlib.util.module_from_spec(spec)
+    sys.modules[name]=module;spec.loader.exec_module(module);return module
+repair=load('meta_ai_installer_tested',ROOT/'deployment/apply_meta_ai_control.py')
+class Fixture:
+    def __init__(self,directory,cached=True):
+        self.root=pathlib.Path(directory)/'app';self.root.mkdir(mode=0o700);(self.root/'.git').mkdir(mode=0o700)
+        self.uid=os.geteuid();self.calls=[];self.hook=None;self.fail_lint=False;self.fail_target=False;self.tree_mode=b'100644'
+        self.pins={};self.targets={};self.old={}
+        for index,relative in enumerate(repair.SOURCE_PINS):
+            old=('<?php /* original '+str(index)+' */\n').encode()
+            new=('<?php /* reviewed '+str(index)+' */\n').encode()
+            self.old[relative]=old;self.targets[relative]=new
+            self.pins[relative]=(None if old is None else repair.blob(old),repair.blob(new))
+            if old is not None:self.write(relative,old,0o640)
+        self.protected={'app/Support/Immutable.php':repair.blob(b'<?php /* immutable */\n')}
+        self.write('app/Support/Immutable.php',b'<?php /* immutable */\n',0o644)
+        self.write('.env',b'WHATSAPP_ORDERS_MODE=auto\nACTIVATION_ID=500\n',0o600)
+        self.write('config/whatsapp_orders.php',b'<?php return ["enabled"=>true,"mode"=>"auto"];\n',0o644)
+        self.write('config/other.php',b'<?php return ["important"=>7];\n',0o644)
+        if cached:self.write('bootstrap/cache/config.php',b'<?php return ["cached"=>true];\n',0o600)
+        else:(self.root/'bootstrap/cache').mkdir(parents=True)
+        self.config=repair.configuration_snapshot(self.root,self.uid)
+
+    def write(self,relative,content,mode=0o644):
+        path=self.root/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content);path.chmod(mode)
+
+    def runner(self,root,args,capture=False,timeout=60):
+        self.calls.append(tuple(args))
+        if self.hook:self.hook(args)
+        if args[:3]==['git','cat-file','-t']:return 0,b'commit\n'
+        if args[:3]==['git','ls-tree','-z']:
+            p=args[-1];return 0,self.tree_mode+b' blob '+self.pins[p][1].encode()+b'\t'+p.encode()+b'\0'
+        if args[:2]==['git','show']:return 0,self.targets[args[-1].split(':',1)[1]]
+        if args[:2]==[repair.PHP,'-l']:return (1 if self.fail_lint else 0),b''
+        if args[:3]==[repair.PHP,'-r',repair.READINESS_PHP]:
+            pins=json.loads(args[-1]);target=all(pins[p]==self.pins[p][1] for p in self.pins)
+            if target and self.fail_target:return 1,b'secret-error-must-not-escape'
+            return 0,json.dumps({'mode':'auto','fingerprint':hashlib.sha256(b'effective-stable').hexdigest()}).encode()
+        if args[:2]==['/usr/bin/systemctl','show']:
+            p=args[-1];value='LoadState=loaded\nActiveState=inactive\n'
+            if p.endswith('.service'):value+='MainPID=0\n'
+            return 0,value.encode()
+        raise AssertionError('Unexpected repair command '+repr(args[:2]))
+
+    def apply(self,check=False,expected=None):
+        with mock.patch.object(repair,'PROTECTED_PINS',self.protected):
+            return repair.apply(self.root,self.uid,RELEASE,check,runner=self.runner,pins=self.pins,expected_configuration=expected)
+
+    def unchanged_config(self,case):case.assertEqual(repair.configuration_snapshot(self.root,self.uid),self.config)
+    def originals(self,case):
+        for p,old in self.old.items():
+            if old is None:case.assertFalse((self.root/p).exists())
+            else:case.assertEqual((self.root/p).read_bytes(),old)
+
+
+
+wrapper=types.ModuleType('meta_ai_root_tested');wrapper.__file__=str(ROOT/'deployment/apply_meta_ai_control_root.sh')
+exec(compile(pathlib.Path(wrapper.__file__).read_text().split("<<'PY'\n",1)[1].rsplit('\nPY\n',1)[0],wrapper.__file__,'exec'),wrapper.__dict__)
+
+class AppFixture:
+    def __init__(self,folder,cached=True):
+        self.inner=Fixture(folder,cached=cached)
+        for path,(old,_) in repair.SOURCE_PINS.items():
+            if old is None:
+                (self.inner.root/path).unlink();self.inner.old[path]=None
+                self.inner.pins[path]=(None,self.inner.pins[path][1])
+        self.baseline={path:pair[0] for path,pair in self.inner.pins.items()}
+        self.profiles={'WHATSAPP_TAIL':dict(self.baseline),'WHATSAPP_CONTEXTUAL':dict(self.baseline)}
+        self.context={}
+        for path in list(self.baseline)[:3]:
+            data=('<?php /* reviewed prior context '+path+' */\n').encode()
+            self.context[path]=data;self.profiles['WHATSAPP_CONTEXTUAL'][path]=repair.blob(data)
+        self.hub={}
+        for path in repair.HUB_SOURCE_OVERRIDES:
+            data=('<?php /* shipped hub '+path+' */\n').encode()
+            self.hub[path]=data
+        for baseline in ('WHATSAPP_TAIL','WHATSAPP_CONTEXTUAL'):
+            self.profiles[baseline+'_HUB']=dict(self.profiles[baseline],**{path:repair.blob(data) for path,data in self.hub.items()})
+        self.hub_foundation=b'<?php /* shipped hub foundation */\n'
+        self.protected_profiles={'META_UNIFIED_MESSAGES':dict(self.protected),
+            'META_MESSAGE_HUB':{path:repair.blob(self.hub_foundation) for path in self.protected}}
+        self.controls={'present':False,'fingerprint':None,'enabled':False,'default_disabled':False}
+        self.fail_migrate=False;self.bad_seed=False
+        self.runner_original=self.inner.runner
+        def runner(root,args,**kwargs):
+            if args[:3]==[repair.PHP,'-r',repair.CONTROL_STATE_PHP]:
+                self.inner.calls.append(tuple(args));return 0,json.dumps(self.controls).encode()
+            if args[:3]==[repair.PHP,'artisan','migrate']:
+                self.inner.calls.append(tuple(args))
+                if self.fail_migrate:return 1,b'PRIVATE_SQL_EXCEPTION'
+                self.controls={'present':True,'fingerprint':'d'*64,'enabled':self.bad_seed,'default_disabled':not self.bad_seed}
+                return 0,b'PRIVATE_MIGRATION_OUTPUT'
+            return self.runner_original(root,args,**kwargs)
+        self.inner.runner=runner
+    def __getattr__(self,key):return getattr(self.inner,key)
+    def patches(self):
+        return mock.patch.multiple(repair,SOURCE_PINS=self.pins,PROTECTED_PINS=self.protected,
+            PROTECTED_PROFILES=self.protected_profiles,BASELINE_SOURCE_PROFILES=self.profiles)
+    def apply(self,check=False,**kwargs):
+        with self.patches():return repair.apply(self.root,self.uid,'a'*40,check,runner=self.runner,pins=self.pins,**kwargs)
+
+class WorkerFixture:
+    def __init__(self):
+        self.states={name:'inactive' for name in wrapper.UNITS};self.states[wrapper.UNITS[0]]='active';self.states[wrapper.UNITS[4]]='active'
+        self.new_present=False;self.calls=[];self.phases=[];self.state_safe=True;self.unit_changed=False;self.fail_enable=False;self.fail_publish=False
+        self.foundation='META_UNIFIED_MESSAGES'
+    def profile(self,name):
+        if name in wrapper.NEW_UNITS and not self.new_present:return None
+        return (name,'changed' if self.unit_changed else 'reviewed')
+    def runner(self,args):
+        self.calls.append(tuple(args));op=args[1]
+        if op=='show':
+            name=args[-1];absent=name in wrapper.NEW_UNITS and not self.new_present
+            data='LoadState='+('not-found' if absent else 'loaded')+'\nActiveState='+self.states[name]+'\nFragmentPath='+('' if absent else str(wrapper.SYSTEMD_DIR/name))+'\n'
+            if name.endswith('.service'):data+='MainPID=0\n'
+            return (1 if absent else 0),data.encode()
+        if op=='stop':
+            for name in args[2:]:self.states[name]='inactive'
+            return 0,b''
+        if op=='start':self.states[args[-1]]='active';return 0,b''
+        if op=='enable':return (1 if self.fail_enable else 0),b''
+        if op=='daemon-reload':return 0,b''
+        raise AssertionError(args)
+    def child(self,directory,release,uid,gid,held,check,expected=None,sources=None,protected=None,profile=None,control=None):
+        if check=='state':
+            if not self.state_safe:return {'ok':False,'status':'META_AI_CONTROL_STATE_CONTROL_CHANGED'}
+            return {'ok':True,'result':{'status':'META_AI_CONTROL_STATE_READY','configuration_fingerprint':expected,
+                'sources':sources,'protected_fingerprint':protected,'protected_profile':profile,'control_fingerprint':control}}
+        if check:return {'ok':True,'result':{'status':'META_AI_CONTROL_PREFLIGHT_READY','changed':True,'configuration_fingerprint':'b'*64,
+            'sources':{path:pair[0] for path,pair in repair.SOURCE_PINS.items()},'protected_fingerprint':'c'*64,
+            'protected_profile':self.foundation,'control_fingerprint':None}}
+        return {'ok':True,'result':{'status':'META_AI_CONTROL_REPAIR_READY','backup':'fixture','configuration_fingerprint':'b'*64,
+            'sources':{path:pair[1] for path,pair in repair.SOURCE_PINS.items()},'protected_fingerprint':'c'*64,
+            'protected_profile':self.foundation,'control_fingerprint':'d'*64}}
+    def record(self,*args):return types.SimpleNamespace(path=pathlib.Path('/fixture/pipeline'),mark=self.phases.append)
+    def publish(self,*args):
+        if self.fail_publish:raise wrapper.SafeError('META_AI_CONTROL_UNIT_PUBLICATION_REVIEW_REQUIRED')
+        self.new_present=True;return '/fixture/unit-backup'
+    def run(self,child=None):
+        return wrapper.orchestrate(pathlib.Path('/fixture'),'a'*40,0,0,[],self.runner,child or self.child,
+            self.profile,self.record,units=lambda *args:{name:b'reviewed' for name in wrapper.NEW_UNITS},publish=self.publish)
+
+class MetaAiInstallTests(unittest.TestCase):
+    def setUp(self):self.temp=tempfile.TemporaryDirectory();self.f=AppFixture(self.temp.name)
+    def tearDown(self):self.temp.cleanup()
+    def test_exact_declared_scope_has_one_specific_new_schema_and_no_configuration(self):
+        self.assertEqual(len(repair.SOURCE_PINS),24)
+        self.assertEqual(wrapper.SOURCE_ROSTER,tuple(repair.SOURCE_PINS))
+        self.assertEqual([path for path in repair.SOURCE_PINS if path.startswith('database/')],[repair.MIGRATION])
+        self.assertFalse(any(path.startswith('config/') or path=='.env' for path in repair.SOURCE_PINS))
+        self.assertFalse(set(repair.SOURCE_PINS)&set(repair.PROTECTED_PINS))
+        self.assertEqual(repair.PROTECTED_PINS['app/Services/Dashboard/WhatsAppInboxAccess.php'],'186789d42113e81818de8d82a2327e3ee9d8d0b5')
+    def test_final_pins_bind_all_runtime_and_unit_bytes(self):
+        for path,(_,pin) in repair.SOURCE_PINS.items():
+            with self.subTest(path=path):self.assertEqual(pin,repair.blob((ROOT/path).read_bytes()))
+        self.assertEqual(wrapper.PUBLISHER_BLOB,repair.blob((ROOT/'deployment/apply_meta_ai_control.py').read_bytes()))
+        for name,pin in wrapper.UNIT_PINS.items():self.assertEqual(pin,repair.blob((ROOT/'deployment/systemd'/name).read_bytes()))
+    def test_readonly_preflight_never_migrates_publishes_or_stops_workers(self):
+        out=self.f.apply(True);self.assertEqual(out['status'],'META_AI_CONTROL_PREFLIGHT_READY')
+        self.f.originals(self);self.f.unchanged_config(self)
+        self.assertFalse(any(args[0]=='/usr/bin/systemctl' or 'artisan' in args for args in self.f.calls))
+        self.assertIsNone(out['control_fingerprint'])
+    def test_publication_creates_only_disabled_new_policy_and_specific_migration(self):
+        out=self.f.apply();self.assertTrue(out['migration_applied']);self.assertFalse(self.f.controls['enabled'])
+        migrations=[args for args in self.f.calls if 'artisan' in args]
+        self.assertEqual(migrations,[(repair.PHP,'artisan','migrate','--force','--path='+repair.MIGRATION)])
+        self.f.unchanged_config(self)
+        self.assertEqual(out['source_profile'],'CURRENT')
+        for path,content in self.f.targets.items():self.assertEqual((self.f.root/path).read_bytes(),content)
+    def test_repeat_retains_all_inodes_policy_and_no_second_migration(self):
+        self.f.apply();before={path:repair.metadata(self.f.root/path) for path in self.f.pins};policy=dict(self.f.controls)
+        self.f.calls.clear();out=self.f.apply()
+        self.assertEqual(out['status'],'META_AI_CONTROL_ALREADY_CURRENT');self.assertIsNone(out['backup'])
+        self.assertEqual(policy,self.f.controls);self.assertEqual(before,{path:repair.metadata(self.f.root/path) for path in self.f.pins})
+        self.assertFalse(any('artisan' in args for args in self.f.calls));self.f.unchanged_config(self)
+    def test_full_reviewed_context_profile_is_accepted_without_per_file_mixing(self):
+        for path,content in self.f.context.items():self.f.write(path,content)
+        self.assertEqual(self.f.apply(True)['source_profile'],'WHATSAPP_CONTEXTUAL')
+    def test_mixed_old_reviewed_profiles_reject_before_commands(self):
+        path,content=next(iter(self.f.context.items()));self.f.write(path,content)
+        with self.assertRaisesRegex(repair.SafeError,'LIVE_SOURCE_NEEDS_REVIEW'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_complete_shipped_hub_profile_preserves_readonly_foundation(self):
+        for path,data in self.f.hub.items():self.f.write(path,data)
+        self.f.write('app/Support/Immutable.php',self.f.hub_foundation)
+        before=repair.metadata(self.f.root/'app/Support/Immutable.php')
+        result=self.f.apply()
+        self.assertEqual(result['protected_profile'],'META_MESSAGE_HUB')
+        self.assertEqual(repair.metadata(self.f.root/'app/Support/Immutable.php'),before)
+    def test_complete_contextual_hub_profile_is_accepted(self):
+        for path,data in dict(self.f.context,**self.f.hub).items():self.f.write(path,data)
+        self.f.write('app/Support/Immutable.php',self.f.hub_foundation)
+        self.assertEqual(self.f.apply(True)['source_profile'],'WHATSAPP_CONTEXTUAL_HUB')
+    def test_hub_targets_with_legacy_foundation_reject_before_commands(self):
+        for path,data in self.f.hub.items():self.f.write(path,data)
+        with self.assertRaisesRegex(repair.SafeError,'SOURCE_FOUNDATION_PAIR'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_hub_foundation_with_legacy_targets_reject_before_commands(self):
+        self.f.write('app/Support/Immutable.php',self.f.hub_foundation)
+        with self.assertRaisesRegex(repair.SafeError,'SOURCE_FOUNDATION_PAIR'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_state_restart_guard_rejects_a_crossed_complete_profile_pair(self):
+        with self.f.patches(),self.assertRaisesRegex(repair.SafeError,'STATE_PROFILE_PAIR_INVALID'):
+            repair.verify_state(self.f.root,self.f.uid,'b'*64,self.f.profiles['WHATSAPP_TAIL_HUB'],
+                'c'*64,expected_profile='META_UNIFIED_MESSAGES')
+    def test_partial_shipped_hub_target_set_is_not_adopted(self):
+        path,data=next(iter(self.f.hub.items()));self.f.write(path,data)
+        self.f.write('app/Support/Immutable.php',self.f.hub_foundation)
+        with self.assertRaisesRegex(repair.SafeError,'LIVE_SOURCE_NEEDS_REVIEW'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_root_orchestrator_preserves_hub_profile_through_restart_guards(self):
+        workers=WorkerFixture();workers.foundation='META_MESSAGE_HUB'
+        self.assertEqual(workers.run()['protected_profile'],'META_MESSAGE_HUB')
+    def test_unknown_protected_source_blocks_before_commands(self):
+        self.f.write('app/Support/Immutable.php',b'<?php /* unknown */\n')
+        with self.assertRaisesRegex(repair.SafeError,'PROTECTED_SOURCE_MISMATCH'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_readonly_foundation_hardlink_is_preserved_exactly(self):
+        path=self.f.root/'app/Support/Immutable.php';alias=self.f.root.parent/'foundation-alias';os.link(path,alias)
+        before=repair.metadata(path);self.f.apply()
+        self.assertEqual(repair.metadata(path),before);self.assertEqual(repair.metadata(alias),before);self.f.unchanged_config(self)
+    def test_source_hardlink_is_replaced_atomically_without_changing_legacy_alias(self):
+        path=next(path for path,data in self.f.old.items() if data is not None);live=self.f.root/path;alias=self.f.root.parent/'source-alias'
+        os.link(live,alias);before=repair.metadata(alias);content=alias.read_bytes();self.f.apply()
+        self.assertEqual(alias.read_bytes(),content);self.assertEqual(repair.metadata(alias)[:7],before[:7]);self.assertNotEqual(live.stat().st_ino,alias.stat().st_ino)
+    def test_private_environment_hardlink_is_still_rejected(self):
+        os.link(self.f.root/'.env',self.f.root.parent/'env-alias')
+        with self.assertRaisesRegex(repair.SafeError,'CONFIGURATION_LINK_UNSAFE'):self.f.apply()
+        self.assertEqual(self.f.calls,[])
+    def test_configuration_concurrency_is_retained_and_blocks_before_workers(self):
+        changed=[False]
+        def hook(args):
+            if args[:2]==[repair.PHP,'-l'] and not changed[0]:changed[0]=True;self.f.write('config/other.php',b'<?php /* foreign */\n')
+        self.inner_hook=hook;self.f.inner.hook=hook
+        with self.assertRaisesRegex(repair.SafeError,'CONFIGURATION_CHANGED'):self.f.apply()
+        self.f.originals(self);self.assertEqual((self.f.root/'config/other.php').read_bytes(),b'<?php /* foreign */\n')
+    def test_migration_failure_restores_code_without_replaying_or_dropping_schema(self):
+        self.f.fail_migrate=True
+        with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):self.f.apply()
+        self.f.originals(self);self.f.unchanged_config(self)
+        self.assertFalse(any(word in args for args in self.f.calls for word in ('rollback','reset','whatsapp:process-orders','meta:process-ai')))
+    def test_accidentally_enabled_new_seed_blocks_and_rolls_back_code(self):
+        self.f.bad_seed=True
+        with self.assertRaisesRegex(repair.SafeError,'ROLLBACK_REVIEW_REQUIRED'):self.f.apply()
+        self.f.originals(self);self.f.unchanged_config(self)
+    def test_policy_flip_during_lint_never_gets_overwritten(self):
+        changed=[False]
+        def hook(args):
+            if args[:2]==[repair.PHP,'-l'] and not changed[0]:
+                changed[0]=True;self.f.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
+        self.f.inner.hook=hook
+        with self.assertRaisesRegex(repair.SafeError,'POLICY_CHANGED_DURING_INSTALL'):self.f.apply()
+        self.f.originals(self);self.assertTrue(self.f.controls['enabled'])
+    def test_existing_active_policy_cannot_be_adopted_by_legacy_source_profile(self):
+        self.f.controls={'present':True,'fingerprint':'e'*64,'enabled':True,'default_disabled':False}
+        with self.assertRaisesRegex(repair.SafeError,'ENABLED_WITH_LEGACY_RUNTIME'):self.f.apply()
+        self.f.originals(self);self.f.unchanged_config(self)
+    def test_lint_failure_touches_no_application_or_worker(self):
+        self.f.inner.fail_lint=True
+        with self.assertRaisesRegex(repair.SafeError,'CANDIDATE_LINT_FAILED'):self.f.apply()
+        self.f.originals(self);self.f.unchanged_config(self)
+    def test_source_symlink_never_follows_private_configuration(self):
+        path=next(path for path,data in self.f.old.items() if data is not None);live=self.f.root/path;live.unlink();live.symlink_to(self.f.root/'.env')
+        with self.assertRaises(repair.SafeError):self.f.apply()
+        self.assertTrue(live.is_symlink());self.assertEqual(self.f.calls,[])
+    @unittest.skipUnless(os.geteuid()==0,'Root-owned system unit fixtures require root')
+    def test_real_new_unit_publication_is_atomic_private_and_single_link(self):
+        with tempfile.TemporaryDirectory() as folder:
+            systemd=pathlib.Path(folder)/'systemd';systemd.mkdir(mode=0o755)
+            contents={name:(ROOT/'deployment/systemd'/name).read_bytes() for name in wrapper.NEW_UNITS}
+            pins={name:repair.blob(data) for name,data in contents.items()}
+            with mock.patch.object(wrapper,'SYSTEMD_DIR',systemd),mock.patch.object(wrapper,'UNIT_PINS',pins):
+                backup=wrapper.publish_units(pathlib.Path(folder),0,contents,library=repair.base)
+                for name,data in contents.items():
+                    live=systemd/name
+                    self.assertEqual(live.read_bytes(),data);self.assertEqual(live.stat().st_nlink,1)
+                    self.assertEqual(stat.S_IMODE(live.stat().st_mode),0o644)
+                    self.assertEqual(live.stat().st_uid,0)
+                before={name:repair.metadata(systemd/name) for name in contents}
+                wrapper.publish_units(pathlib.Path(folder),0,contents,library=repair.base)
+                self.assertEqual(before,{name:repair.metadata(systemd/name) for name in contents})
+                self.assertEqual(stat.S_IMODE(pathlib.Path(backup).stat().st_mode),0o700)
+
+    @unittest.skipUnless(os.geteuid()==0,'Root-owned system unit fixtures require root')
+    def test_unknown_or_symlink_unit_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as folder:
+            systemd=pathlib.Path(folder)/'systemd';systemd.mkdir(mode=0o755)
+            contents={name:(ROOT/'deployment/systemd'/name).read_bytes() for name in wrapper.NEW_UNITS}
+            pins={name:repair.blob(data) for name,data in contents.items()}
+            path=systemd/wrapper.NEW_UNITS[0];path.write_bytes(b'PRIVATE_FOREIGN_UNIT');path.chmod(0o644)
+            with mock.patch.object(wrapper,'SYSTEMD_DIR',systemd),mock.patch.object(wrapper,'UNIT_PINS',pins):
+                with self.assertRaises(wrapper.SafeError):wrapper.publish_units(pathlib.Path(folder),0,contents,library=repair.base)
+                self.assertEqual(path.read_bytes(),b'PRIVATE_FOREIGN_UNIT')
+                path.unlink();outside=pathlib.Path(folder)/'foreign';outside.write_bytes(b'PRIVATE_FOREIGN_FILE');path.symlink_to(outside)
+                with self.assertRaises(Exception):wrapper.publish_units(pathlib.Path(folder),0,contents,library=repair.base)
+                self.assertTrue(path.is_symlink());self.assertEqual(outside.read_bytes(),b'PRIVATE_FOREIGN_FILE')
+
+    @unittest.skipUnless(os.geteuid()==0,'Root-owned system unit fixtures require root')
+    def test_interrupted_unit_publication_removes_only_our_new_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            systemd=pathlib.Path(folder)/'systemd';systemd.mkdir(mode=0o755)
+            contents={name:(ROOT/'deployment/systemd'/name).read_bytes() for name in wrapper.NEW_UNITS}
+            pins={name:repair.blob(data) for name,data in contents.items()};original=repair.base.replace_file
+            def interrupt(*args,**kwargs):original(*args,**kwargs);raise InterruptedError()
+            with mock.patch.object(wrapper,'SYSTEMD_DIR',systemd),mock.patch.object(wrapper,'UNIT_PINS',pins),mock.patch.object(repair.base,'replace_file',interrupt):
+                with self.assertRaises(wrapper.SafeError):wrapper.publish_units(pathlib.Path(folder),0,contents,library=repair.base)
+                self.assertTrue(all(not (systemd/name).exists() for name in contents))
+
+    def test_first_install_restores_existing_timers_and_only_enables_new_gated_poller(self):
+        worker=WorkerFixture();out=worker.run()
+        self.assertTrue(out['polling_installed'])
+        self.assertEqual([args[-1] for args in worker.calls if args[1]=='enable'],[wrapper.NEW_UNITS[0]])
+        self.assertEqual([args[-1] for args in worker.calls if args[1]=='start'],[wrapper.UNITS[0],wrapper.UNITS[4],wrapper.NEW_UNITS[0]])
+        self.assertFalse(any(args[1]=='start' and args[-1].endswith('.service') for args in worker.calls))
+    def test_repeat_preserves_existing_disabled_new_poller(self):
+        worker=WorkerFixture();worker.new_present=True;worker.run()
+        self.assertFalse(any(args[1]=='enable' for args in worker.calls));self.assertEqual(worker.states[wrapper.NEW_UNITS[0]],'inactive')
+    def test_unsafe_preflight_never_touches_workers(self):
+        worker=WorkerFixture()
+        with self.assertRaises(wrapper.SafeError):worker.run(child=lambda *args,**kwargs:{'ok':False,'status':'META_AI_CONTROL_LIVE_SOURCE_NEEDS_REVIEW'})
+        self.assertEqual(worker.calls,[])
+    def test_failed_root_unit_publication_holds_all_pipelines_quiet(self):
+        worker=WorkerFixture();worker.fail_publish=True
+        with self.assertRaisesRegex(wrapper.SafeError,'RECOVERY_NEEDS_REVIEW'):worker.run()
+        self.assertTrue(all(state=='inactive' for state in worker.states.values()));self.assertFalse(any(args[1]=='start' for args in worker.calls))
+    def test_failed_new_enable_never_restarts_orders_or_old_capture(self):
+        worker=WorkerFixture();worker.fail_enable=True
+        with self.assertRaisesRegex(wrapper.SafeError,'RECOVERY_NEEDS_REVIEW'):worker.run()
+        self.assertTrue(all(state=='inactive' for state in worker.states.values()));self.assertFalse(any(args[1]=='start' for args in worker.calls))
+    def test_changed_restart_guard_holds_all_pipelines_quiet(self):
+        worker=WorkerFixture();original=worker.child
+        def child(*args,**kwargs):
+            out=original(*args,**kwargs)
+            if args[5] is False:worker.state_safe=False
+            return out
+        with self.assertRaisesRegex(wrapper.SafeError,'RECOVERY_NEEDS_REVIEW'):worker.run(child)
+        self.assertTrue(all(state=='inactive' for state in worker.states.values()));self.assertFalse(any(args[1]=='start' for args in worker.calls))
+
+if __name__=='__main__':unittest.main()

@@ -1,0 +1,12 @@
+[Unit]
+Description=Fasakhansta controlled Meta AI polling
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=10
+AccuracySec=1
+Persistent=false
+Unit=fasakhansta-meta-ai.service
+
+[Install]
+WantedBy=timers.target

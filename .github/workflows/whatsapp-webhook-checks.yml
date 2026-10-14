@@ -2,19 +2,25 @@ name: WhatsApp webhook checks
 
 on:
   push:
-    branches: [codex/whatsapp-webhook-20261009, codex/meta-messages-20261011, codex/meta-inbound-names-20261013]
+    branches: [codex/whatsapp-webhook-20261009, codex/meta-messages-20261011, codex/meta-inbound-names-20261013, codex/meta-ai-control-20261015]
   pull_request:
     paths:
       - 'app/**/Meta*.php'
       - 'app/Console/Commands/ConfigureMetaMessages.php'
       - 'app/Console/Commands/ProcessMetaMessages.php'
+      - 'app/Console/Commands/ProcessMetaAiMessages.php'
+      - 'app/Console/Kernel.php'
       - 'config/meta*.php'
       - 'routes/meta*.php'
       - 'resources/views/admin/meta/**'
       - 'database/migrations/*create_meta*'
       - 'deployment/*meta_messaging*'
       - 'tests/meta_*'
+      - 'tests/meta_order_projected_message_actions_test.php'
+      - 'tests/fixtures/**'
+      - 'tests/test_meta_ai*'
       - 'deployment/*meta*'
+      - 'deployment/systemd/fasakhansta-meta-ai.*'
       - 'public/js/dashboard-meta*'
       - 'public/css/dashboard-meta*'
       - 'app/Support/WhatsAppWebhookProtocol.php'
@@ -35,6 +41,7 @@ on:
       - 'tests/whatsapp_webhook*'
       - 'tests/whatsapp_inbox*'
       - 'app/Support/WhatsAppOrderExtraction.php'
+      - 'app/Support/WhatsAppOrderDialogue.php'
       - 'app/Services/Dashboard/WhatsAppOrder*'
       - 'app/Http/Controllers/Dashboard/WhatsAppOrderController.php'
       - 'app/Console/Commands/ProcessWhatsAppOrders.php'
@@ -76,6 +83,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install UTF-8 extraction dependency
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libonig-dev
+          docker-php-ext-install mbstring
       - name: Check PHP syntax
         run: |
           php -l app/Support/WhatsAppWebhookProtocol.php
@@ -105,10 +117,16 @@ jobs:
           bash -n deployment/install_whatsapp_automatic_root.sh
           bash -n deployment/install_meta_messaging_root.sh
           bash -n deployment/apply_meta_admin_notices_root.sh
+          bash -n deployment/apply_meta_ai_control_root.sh
           php -l deployment/resolve_meta_admin_notices.php
           php -l deployment/meta_inbound_diagnostic.php
           php -l deployment/meta_event_identity_diagnostic.php
+          php -l deployment/meta_ai_control_status.php
+          php -l tests/meta_ai_control_status_test.php
           for file in app/Support/Meta*.php app/Services/Dashboard/Meta*.php app/Http/Controllers/Dashboard/Meta*.php app/Http/Controllers/Api/V1/MetaMessagingWebhookController.php app/Console/Commands/ConfigureMetaMessages.php app/Console/Commands/ProcessMetaMessages.php config/meta*.php routes/meta*.php database/migrations/*create_meta* deployment/meta_messaging_route_check.php tests/meta_messaging*.php; do
+            php -l "$file"
+          done
+          for file in app/Support/WhatsAppOrderDialogue.php app/Console/Commands/ProcessMetaAiMessages.php tests/meta_ai_schedule_test.php tests/meta_ai_control_test.php tests/meta_ai_greeting_test.php tests/meta_business_agent_test.php tests/meta_ai_worker_command_test.php tests/meta_order_native_evidence_test.php tests/whatsapp_order_primary_ai_workflow_test.php tests/meta_order_primary_ai_workflow_test.php tests/meta_order_projected_message_actions_test.php tests/whatsapp_order_dialogue_workflow_test.php; do
             php -l "$file"
           done
       - name: Exercise Meta protocol and account isolation
@@ -119,7 +137,18 @@ jobs:
           php tests/whatsapp_inbox_consumer_test.php
           php tests/whatsapp_inbox_access_test.php
       - name: Verify grounded order extraction and API isolation
-        run: php tests/whatsapp_order_extraction_test.php
+        run: |
+          php tests/whatsapp_order_extraction_test.php
+          php tests/whatsapp_order_provider_failure_test.php
+          php tests/whatsapp_order_fragmented_conversation_test.php
+          php tests/whatsapp_order_anchor_citation_test.php
+          php tests/whatsapp_order_offer_variant_test.php
+          php tests/whatsapp_order_fulfillment_policy_test.php
+          php tests/whatsapp_order_address_branch_test.php
+          php tests/whatsapp_order_followup_provider_test.php
+          php tests/whatsapp_order_dialogue_provider_test.php
+          php tests/whatsapp_order_fish_weight_size_test.php
+          php tests/whatsapp_order_menu_choice_evidence_test.php
 
   terminal-handoff:
     runs-on: ubuntu-latest
@@ -150,6 +179,8 @@ jobs:
         run: python3 -B tests/test_whatsapp_order_file_metadata.py
       - name: Verify exact order config owner repair
         run: python3 -B tests/test_whatsapp_order_config_owner_repair.py
+      - name: Verify atomic AI control installation, migration and worker preservation
+        run: python3 -B tests/test_meta_ai_control_install.py
       - name: Stage helpers under the test runner's ownership
         run: |
           mkdir -m 0700 /tmp/whatsapp-terminal-fixtures
@@ -179,6 +210,54 @@ jobs:
           node --check public/js/dashboard-meta-inbox.js
           node --check public/js/dashboard-meta-replies.js
           node tests/meta_chat_ui_test.js
+          node --check public/js/dashboard-meta-ai-controls.js
+          node tests/meta_ai_controls_ui_test.js
+
+  ai-control:
+    runs-on: ubuntu-latest
+    container: php:8.2-cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the production framework for AI controls and CSRF
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libsqlite3-dev libonig-dev libxml2-dev curl git unzip python3
+          docker-php-ext-install pdo_sqlite mbstring dom
+          curl -fsS https://getcomposer.org/download/2.8.12/composer.phar -o /usr/local/bin/composer
+          echo 'f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2  /usr/local/bin/composer' | sha256sum -c -
+          chmod 0755 /usr/local/bin/composer
+          mkdir -p /tmp/meta-ai-control-test
+          composer require --working-dir=/tmp/meta-ai-control-test --no-interaction --no-progress laravel/framework:8.83.29 guzzlehttp/guzzle:^7.0.1
+      - name: Verify Cairo scheduling, greeting, handoff and worker isolation
+        run: |
+          php tests/meta_ai_schedule_test.php
+          php -n tests/meta_ai_schedule_test.php
+          php tests/meta_ai_greeting_test.php
+          php tests/meta_business_agent_test.php
+          php tests/meta_ai_worker_command_test.php
+      - name: Verify owner-only policy writes, CSRF, revision conflicts and activation floors
+        env:
+          WA_INBOX_TEST_VENDOR: /tmp/meta-ai-control-test/vendor/autoload.php
+        run: |
+          php tests/meta_ai_control_test.php
+          php tests/meta_ai_control_status_test.php
+      - name: Verify contextual clarification and primary WhatsApp processing
+        env:
+          WA_INBOX_TEST_VENDOR: /tmp/meta-ai-control-test/vendor/autoload.php
+        run: |
+          php tests/whatsapp_order_dialogue_workflow_test.php
+          php tests/whatsapp_order_dialogue_catalog_test.php
+          php tests/whatsapp_order_question_recovery_test.php
+          php tests/whatsapp_order_primary_ai_workflow_test.php
+      - name: Verify native Meta evidence and primary conversation processing
+        env:
+          WA_INBOX_TEST_VENDOR: /tmp/meta-ai-control-test/vendor/autoload.php
+        run: |
+          php tests/meta_order_native_evidence_test.php
+          php tests/meta_order_primary_ai_workflow_test.php
+          php tests/meta_order_projected_message_actions_test.php
 
   inbox-database:
     runs-on: ubuntu-latest

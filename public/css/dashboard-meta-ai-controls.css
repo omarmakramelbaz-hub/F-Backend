@@ -1,0 +1,31 @@
+.meta-ai-controls { border:1px solid #d9e1ea; border-radius:10px; background:#fff; color:#243b53; margin:0 0 10px; padding:9px 12px; font-size:13px; }
+.meta-ai-controls[hidden],.meta-ai-controls [hidden] { display:none !important; }
+.meta-ai-controls-heading,.meta-ai-schedule-row,.meta-ai-fields { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; }
+.meta-ai-controls .wa-inbox-button { min-height:32px; padding:6px 10px; font-size:13px; }
+.meta-ai-toggle { background:#ff8b16; color:#142c42; border-color:#e7780c; font-weight:700; }
+.meta-ai-toggle[aria-pressed="true"] { background:#213c55; border-color:#213c55; color:#fff; }
+.meta-ai-controls button:disabled,.meta-ai-controls input:disabled { cursor:not-allowed; opacity:.6; }
+.meta-ai-controls input[type="checkbox"] { margin:0; accent-color:#ee7e15; }
+.meta-ai-controls label { display:inline-flex; align-items:center; gap:5px; margin:0; font-weight:400; }
+.meta-ai-schedule-row { margin-top:10px; }
+.meta-ai-controls input[type="time"] { color:inherit; background:transparent; border:1px solid #b9c7d6; border-radius:5px; padding:4px 5px; direction:ltr; }
+.meta-ai-status { font-weight:600; }
+.meta-ai-channel-status { display:flex; flex-wrap:wrap; gap:4px 18px; margin:6px 0 0; padding:0; list-style:none; font-size:11px; }
+.meta-ai-refresh { margin-inline-start:auto; }
+.meta-ai-settings { margin-top:7px; }
+.meta-ai-settings summary { cursor:pointer; color:#345676; width:max-content; max-width:100%; }
+.meta-ai-settings form { margin-top:10px; }
+.meta-ai-fields { border:0; padding:0; margin:10px 0; }
+.meta-ai-fields legend { width:100%; font-size:12px; color:#586b7d; margin:0 0 6px; padding:0; }
+.meta-ai-note { font-size:11px; line-height:1.6; color:#65778a; margin:7px 0 0; }
+.meta-ai-message { margin:7px 0 0; color:#9a4800; }
+.meta-ai-save { margin-top:8px; background:#ff8b16; border-color:#e7780c; color:#142c42; }
+.meta-ai-controls[data-status="ACTIVE"] .meta-ai-status { color:#18653b; }
+.meta-ai-controls[data-status="SCHEDULED_OFF"] .meta-ai-status { color:#935512; }
+.dark-mode .meta-ai-controls,[data-theme="dark"] .meta-ai-controls { background:#1b2c3e; color:#e3edf6; border-color:#405467; }
+.dark-mode .meta-ai-note,[data-theme="dark"] .meta-ai-note,.dark-mode .meta-ai-fields legend,[data-theme="dark"] .meta-ai-fields legend { color:#b3c4d5; }
+.dark-mode .meta-ai-settings summary,[data-theme="dark"] .meta-ai-settings summary { color:#c5d8ed; }
+.dark-mode .meta-ai-message,[data-theme="dark"] .meta-ai-message { color:#ffbc80; }
+.dark-mode .meta-ai-controls[data-status="ACTIVE"] .meta-ai-status,[data-theme="dark"] .meta-ai-controls[data-status="ACTIVE"] .meta-ai-status { color:#90d9ab; }
+.dark-mode .meta-ai-controls[data-status="SCHEDULED_OFF"] .meta-ai-status,[data-theme="dark"] .meta-ai-controls[data-status="SCHEDULED_OFF"] .meta-ai-status { color:#f3c98b; }
+@media(max-width:720px) { .meta-ai-controls { padding:8px; } .meta-ai-controls-heading { gap:7px; } .meta-ai-refresh { margin-inline-start:0; } .meta-ai-days { gap:8px 12px; } }

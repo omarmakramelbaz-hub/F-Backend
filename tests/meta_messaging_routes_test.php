@@ -51,6 +51,15 @@ namespace {
                             if (strpos($uri, '{'.$parameter.'}') !== false) $route->whereNumber($parameter);
                         }
                     }
+                } elseif ($file === 'meta_inbox') {
+                    // The immutable OAuth installer checker validates its f66ae47 29-route
+                    // release, before profile/AI additions. Current AI routes are exercised
+                    // by meta_ai_control_test.php; profile behavior has its own actual tests.
+                    $archived = __DIR__.'/fixtures/meta_inbox_pre_ai_control/routes/meta_inbox.php';
+                    $bytes = file_get_contents($archived);
+                    if (sha1('blob '.strlen($bytes)."\0".$bytes) !== '41821cad641ca60c7fb9c20bf20d3a3cacd7d74e')
+                        throw new \RuntimeException('INVALID_ARCHIVED_META_ROUTES');
+                    require $archived;
                 } else require __DIR__.'/../routes/'.$file.'.php';
             }
         });
@@ -65,7 +74,7 @@ namespace {
         }
     }
     $router = fixtureRouter();
-    routeCheck(MetaMessagingRouteCheck::verify($router) === ['ok' => true, 'verified_routes' => 29], 'All actual Meta route files and OAuth routes verified');
+    routeCheck(MetaMessagingRouteCheck::verify($router) === ['ok' => true, 'verified_routes' => 29], 'Pinned OAuth inbox contract and current unchanged shared Meta routes verified');
     routeCheck(MetaMessagingRouteCheck::verify(fixtureRouter(null, false, true)) === ['ok' => true, 'verified_routes' => 25], 'Pre-OAuth installed route set remains valid');
     routeCheck(LegacyBrokenController::$resolved === 0, 'Unrelated controller never resolved');
     try { $router->getRoutes()->getByName('legacy.broken')->gatherMiddleware(); routeCheck(false, 'Legacy fixture must fail'); }

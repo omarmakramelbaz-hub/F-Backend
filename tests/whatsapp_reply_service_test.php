@@ -41,6 +41,11 @@ $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder())
 $container->instance('encrypter', new Encrypter($key, 'AES-256-CBC')); unset($key);
 Facade::setFacadeApplication($container);
 require __DIR__ . '/../app/Support/WhatsAppInboxProtocol.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxAccess.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMessage.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMedia.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php';
+require __DIR__ . '/../app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxConsumer.php';
 require __DIR__ . '/../app/Services/Dashboard/WhatsAppVoiceMedia.php';
@@ -132,7 +137,10 @@ function replyOk(string $phone = '201111111111'): array
     return ['status' => 200, 'body' => json_encode(['messaging_product' => 'whatsapp',
         'contacts' => [['input' => $phone, 'wa_id' => $phone]], 'messages' => [['id' => 'wamid.acceptedfixture']]])];
 }
-$normalTransport = function ($endpoint, $payload, $token, $multipart) use (&$calls) {
+$claimReadsAtSend = [];
+$normalTransport = function ($endpoint, $payload, $token, $multipart) use (&$calls, &$claimReadsAtSend, $lockGrammar) {
+    // Accepted-reply projection has its own later transaction; inspect the send claim before Graph.
+    $claimReadsAtSend = $lockGrammar->claimReads;
     checkReply(DB::connection()->transactionLevel() === 0, 'customer network boundary outside SQL transaction');
     checkReply(DB::table('whatsapp_reply_requests')->orderByDesc('id')->value('state') === 'UNKNOWN', 'uncertainty durable before customer API');
     checkReply($endpoint === 'https://graph.facebook.com/v25.0/515388018324075/messages' && !$multipart,
@@ -151,7 +159,7 @@ checkReply($state['available'] && $state['can_reply'] && $state['latest_inbound_
 $input = replyInput($inbound); $result = $service->send($actor, $thread, $input);
 checkReply($result['state'] === 'ACCEPTED' && !$result['replayed'] && count($calls) === 1, 'accepted is one external call');
 $replyReadCount = 0;
-foreach ($lockGrammar->claimReads as $read) {
+foreach ($claimReadsAtSend as $read) {
     checkReply($read['locked'] && str_ends_with($read['sql'], 'for update'), 'claim SELECT uses a MySQL current locking read');
     if ($read['table'] === 'whatsapp_reply_requests') $replyReadCount++;
 }

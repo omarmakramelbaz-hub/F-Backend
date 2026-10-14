@@ -1,0 +1,12 @@
+[Unit]
+Description=Fasakhansta controlled Meta AI messages
+After=network.target
+
+[Service]
+Type=oneshot
+User=fasakha
+Group=fasakha
+WorkingDirectory=/home/fasakha/public_html
+ExecStart=/opt/cpanel/ea-php82/root/usr/bin/php artisan meta:process-ai --limit=5
+TimeoutStartSec=600
+UMask=0077

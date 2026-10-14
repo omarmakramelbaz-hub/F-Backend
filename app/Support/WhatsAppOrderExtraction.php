@@ -353,7 +353,7 @@ final class WhatsAppOrderExtraction
         if (count($data['items']) === 0) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_ITEMS', 'ITEM');
         if (!$data['evidence']['request_ids']) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_REQUEST', 'REQUEST_IDS');
         if (!$data['evidence']['confirmation_ids']) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_SUMMARY', 'CONFIRMATION_IDS');
-        $contextual=false; $contextQuantityIds=[];
+        $contextual=false; $contextQuantityIds=[]; $contextAmountIds=[];
         foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null) $contextual=true;
         if ($contextual) {
             $proof=WhatsAppOrderConversationEvidence::prove($data,array_values($rows));
@@ -364,8 +364,12 @@ final class WhatsAppOrderExtraction
                     ? $proof['reason'] : 'CONTEXT_REFERENCE_INVALID';
                 return self::notConfirmed($category,$field,$why,'ITEM');
             }
-            foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null)
+            foreach ($data['items'] as $item) if (($item['conversation_reference']??null)!==null) {
                 $contextQuantityIds[]=$item['conversation_reference']['customer_quantity_id'];
+                $contextAmountIds[]=$item['conversation_reference']['customer_quantity_id'];
+                if (($item['conversation_reference']['customer_option_id']??null)!==null)
+                    $contextAmountIds[]=$item['conversation_reference']['customer_option_id'];
+            }
         }
         // Only the independently proved post-test new-order boundary may exclude old history.
         // All rows within that epoch, including uncited changes/cancellations, remain visible.
@@ -389,6 +393,17 @@ final class WhatsAppOrderExtraction
             return self::notConfirmed($category, $field, 'SUMMARY_MARKER_MISSING', 'CONFIRMATION_IDS');
         }
         $committingRequest = null;
+        $orderPositions=array_flip(array_keys($rows)); $firstOrderPosition=null;
+        foreach ($rows as $id=>$row) {
+            if ($row['speaker']!=='customer'||strcmp($row['sent_at'],$summary)>=0) continue;
+            $text=self::rowText($row);
+            $named=preg_match('/(?<![\p{L}\p{N}])(?:طلب|الطلب|الأوردر|الاوردر|order)(?![\p{L}\p{N}])/iu',$text)===1;
+            foreach ($data['items'] as $candidate) if (self::backed($candidate['name'],[$text])) $named=true;
+            if (($named&&self::commitment($text)&&!self::instruction($text))
+                ||($row['cart']??null)!==null||in_array($id,$contextQuantityIds,true)) {
+                $firstOrderPosition=$orderPositions[$id]; break;
+            }
+        }
         $requestTexts = [];
         $cartRows = [];
         foreach ($data['evidence']['request_ids'] as $id) {
@@ -406,6 +421,33 @@ final class WhatsAppOrderExtraction
                 $committingRequest = $rows[$id]['sent_at'];
             }
         }
+        $quantityRequestRows=[];
+        foreach ($data['evidence']['request_ids'] as $id) {
+            $text=self::rowText($rows[$id]); $named=false;
+            foreach ($data['items'] as $candidate) if (self::backed($candidate['name'],[$text])) $named=true;
+            // Only a real quantity-row ID already proved for a contextual item may
+            // be absent from another item's direct proof. Text equality is no link.
+            if (!$named&&in_array($id,$contextAmountIds,true)) continue;
+            if (!$named&&$firstOrderPosition!==null&&$orderPositions[$id]<$firstOrderPosition
+                &&WhatsAppOrderConversationEvidence::quantities($text)) continue;
+            $quantityRequestRows[$id]=$text;
+        }
+        $quantityEvidenceRows=$quantityRequestRows;
+        $finalSummaryPosition=max(array_map(static fn($id)=>$orderPositions[$id],$data['evidence']['confirmation_ids']));
+        foreach ($rows as $id=>$row) {
+            if ($firstOrderPosition===null||$row['speaker']!=='customer'||$orderPositions[$id]<$firstOrderPosition
+                ||$orderPositions[$id]>=$finalSummaryPosition) continue;
+            $text=self::rowText($row); if (!WhatsAppOrderConversationEvidence::quantities($text)) continue;
+            $named=false;
+            foreach ($data['items'] as $candidate) if (self::backed($candidate['name'],[$text])) $named=true;
+            if (!$named&&in_array($id,$contextAmountIds,true)) continue;
+            $quantityEvidenceRows[$id]=$text;
+        }
+        $quantityRequestTexts=array_values($quantityRequestRows); $quantityEvidenceTexts=array_values($quantityEvidenceRows);
+        $hasNonCart=false;
+        foreach ($data['items'] as $candidate) if (($candidate['cart_reference']??null)===null) $hasNonCart=true;
+        if ($hasNonCart&&!self::quantityClausesAssigned($data['items'],$quantityEvidenceTexts))
+            return self::notConfirmed($category,$field,'ITEM_REQUEST_QUANTITY','ITEM_QUANTITY');
         $accounted = [];
         foreach ($data['items'] as $item) {
             $ref = $item['cart_reference'] ?? null;
@@ -420,10 +462,22 @@ final class WhatsAppOrderExtraction
                 return self::notConfirmed($category, $field, 'ITEM_SUMMARY_OPTION', 'ITEM_OPTION');
             if (!$contextBacked && $item['option_hint'] !== null && !$cartBacked && !self::optionBacked($item, $data['items'], $requestTexts))
                 return self::notConfirmed($category, $field, 'ITEM_REQUEST_OPTION', 'ITEM_OPTION');
-            if (!$contextBacked && $item['quantity'] !== null && !$cartBacked && !self::quantityBacked($item, $data['items'], $requestTexts))
+            if (!$contextBacked&&$item['quantity']!==null&&!$cartBacked
+                &&!self::quantityClausesAssigned($data['items'],$quantityEvidenceTexts))
+                return self::notConfirmed($category,$field,'ITEM_REQUEST_QUANTITY','ITEM_QUANTITY');
+            if (!$contextBacked && $item['quantity'] !== null && !$cartBacked
+                &&(!self::quantityBacked($item,$data['items'],$quantityRequestTexts)
+                    ||!self::quantityBacked($item,$data['items'],$quantityEvidenceTexts))
+                &&(!$contextual||!WhatsAppOrderConversationEvidence::sharedNamedQuantityBacked($item,$data,array_values($rows))))
                 return self::notConfirmed($category, $field, 'ITEM_REQUEST_QUANTITY', 'ITEM_QUANTITY');
             if (!$contextBacked && $item['quantity'] !== null && !self::quantityBacked($item, $data['items'], $summaryTexts))
                 return self::notConfirmed($category, $field, 'ITEM_SUMMARY_QUANTITY', 'ITEM_QUANTITY');
+            if (!$contextBacked && !$cartBacked) {
+                $requestSizes = self::itemFishSizes($item, $data['items'], $requestTexts);
+                $summarySizes = self::itemFishSizes($item, $data['items'], $summaryTexts);
+                if ($requestSizes === null || $summarySizes === null || $requestSizes !== $summarySizes)
+                    return self::notConfirmed($category, $field, 'ITEM_SUMMARY_OPTION', 'ITEM_OPTION');
+            }
             if ($cartBacked) $accounted[$ref['message_id']][$ref['product_retailer_id']] = true;
         }
         if ($data['customer']['phone'] !== null && !self::summaryPhoneConsistent($data['customer']['phone'], $summaryTexts))
@@ -709,7 +763,7 @@ final class WhatsAppOrderExtraction
         foreach (self::itemClauses($item, $items, $texts) as $part) {
             $hits = [];
             foreach (array_unique($liveLabels) as $label) {
-                preg_match_all('/(?<![\p{L}\p{N}])(?:ب)?(' . preg_quote($label, '/') . ')(?![\p{L}\p{N}])/iu',
+                preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(?:ب)?(' . preg_quote($label, '/') . ')(?![\p{L}\p{N}])/iu',
                     $part['text'], $matches, PREG_OFFSET_CAPTURE);
                 foreach ($matches[1] as [$match, $offset]) {
                     if (self::overlapsName($offset, strlen($match), $part['names'])) continue;
@@ -750,6 +804,50 @@ final class WhatsAppOrderExtraction
         return true;
     }
 
+    /** Strict sale-amount proof shared with question planning; never a consent proof. */
+    public static function itemQuantityBacked(array $item, array $items, array $texts): bool
+    {
+        if (!self::string($item['name'] ?? null, 200) || !is_string($item['quantity'] ?? null)
+            || !self::decimal($item['quantity'], self::QUANTITY_PATTERN, true)
+            || !in_array($item['quantity_mode'] ?? null, ['piece', 'weight'], true)
+            || count($items) > self::MAX_ITEMS || count($texts) > self::MAX_MESSAGES) return false;
+        foreach ($items as $other) if (!is_array($other) || !self::string($other['name'] ?? null, 200)) return false;
+        foreach ($texts as $text) if (!is_string($text) || strlen($text) > 65536 || preg_match('//u', $text) !== 1) return false;
+        return self::quantityBacked($item, $items, $texts);
+    }
+
+    /** [] means no size choice; null means a chosen size has no unique preserving live option. */
+    public static function fishSizeCatalogLabels(array $item, array $items, array $texts, array $liveLabels, bool $preservePreparation = true): ?array
+    {
+        if (!self::string($item['name'] ?? null, 200) || count($items) > self::MAX_ITEMS
+            || count($texts) > self::MAX_MESSAGES || count($liveLabels) > 100) return null;
+        foreach ($items as $other) if (!is_array($other) || !self::string($other['name'] ?? null, 200)) return null;
+        foreach ($texts as $text) if (!is_string($text) || strlen($text) > 65536 || preg_match('//u', $text) !== 1) return null;
+        foreach ($liveLabels as $label) if (!self::string($label, 200)) return null;
+        $found = [];
+        foreach (self::itemClauses($item, $items, $texts) as $part) {
+            $proof = WhatsAppOrderConversationEvidence::fishSizeOptions($part['text'], $liveLabels, [], $preservePreparation);
+            if ($proof === null || ($proof && $part['shared'])) return null;
+            foreach ($proof as $label) $found[$label] = true;
+        }
+        return count($found) <= 1 ? array_keys($found) : null;
+    }
+
+    public static function itemFishSizes(array $item, array $items, array $texts): ?array
+    {
+        if (!self::string($item['name'] ?? null, 200) || count($items) > self::MAX_ITEMS
+            || count($texts) > self::MAX_MESSAGES) return null;
+        foreach ($items as $other) if (!is_array($other) || !self::string($other['name'] ?? null, 200)) return null;
+        foreach ($texts as $text) if (!is_string($text) || strlen($text) > 65536 || preg_match('//u', $text) !== 1) return null;
+        $found = [];
+        foreach (self::itemClauses($item, $items, $texts) as $part) {
+            $sizes = WhatsAppOrderConversationEvidence::fishSizes($part['text']);
+            if ($part['shared'] && $sizes) return null;
+            foreach ($sizes as $size) $found[$size] = true;
+        }
+        return count($found) <= 1 ? array_map('strval', array_keys($found)) : null;
+    }
+
     /** A classification never proves a guessed quantity or a unit selected by the model. */
     private static function quantityBacked(array $item, array $items, array $texts): bool
     {
@@ -760,9 +858,11 @@ final class WhatsAppOrderExtraction
         if ($item['quantity_mode'] === 'piece' && $wanted % 1000 !== 0) {
             return false;
         }
+        if (!self::quantityClausesAssigned($items,$texts)) return false;
         $proofs = [];
         foreach (self::itemClauses($item, $items, $texts) as $part) {
             if ($part['shared']) continue;
+            if (count(WhatsAppOrderConversationEvidence::fishSizes($part['text'])) > 1) return false;
             $amounts = self::clauseAmounts($part['text'], $part['names']);
             if (count($amounts) > 1) return false;
             if (count($amounts) === 1) $proofs[] = $amounts[0];
@@ -778,13 +878,24 @@ final class WhatsAppOrderExtraction
         return true;
     }
 
+    private static function quantityClausesAssigned(array $items,array $texts): bool
+    {
+        foreach ($texts as $text) foreach (WhatsAppOrderConversationEvidence::clauses($text) as $clause) {
+            if (!WhatsAppOrderConversationEvidence::quantities($clause)) continue;
+            $named=false;
+            foreach ($items as $candidate) if (self::backed($candidate['name'],[$clause])) $named=true;
+            if (!$named) return false;
+        }
+        return true;
+    }
+
     private static function clauseAmounts(string $clause, array $names): array
     {
         $units = '(?:كيلو(?:جرام|غرام)?|كجم|كغ|kilograms?|kilos?|kg|جرام|غرام|جم|grams?|g|'
             . 'قطعة|قطع|سمكة|سمكات|علبة|علب|عدد|وجبة|وجبات|ساندوتش|سندوتش|ساندوتشات|سندوتشات|'
             . 'pieces?|pcs|units?|meals?|sandwich(?:es)?)';
         $numbers = '(?:[0-9]+(?:\.[0-9]{1,3})?|نصف|نص|ربع|half|quarter)';
-        $pattern = '/(?<![\p{L}\p{N}.])(' . $numbers . ')\s*(' . $units . ')(?![\p{L}\p{N}])/iu';
+        $pattern = '/(?<![\p{L}\p{N}.])(?:و)?(' . $numbers . ')\s*(' . $units . ')(?![\p{L}\p{N}])/iu';
         preg_match_all($pattern, $clause, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         $amounts = [];
         $covered = [];
@@ -798,7 +909,7 @@ final class WhatsAppOrderExtraction
             }
         }
         // An unqualified singular unit is one; never reuse the unit of an explicit amount.
-        preg_match_all('/(?<![\p{L}\p{N}])(' . $units . ')(?![\p{L}\p{N}])/iu', $clause, $matches,
+        preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(' . $units . ')(?![\p{L}\p{N}])/iu', $clause, $matches,
             PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         foreach ($matches as $match) {
             $insideExplicit = false;
@@ -814,6 +925,13 @@ final class WhatsAppOrderExtraction
             }
             $amounts[] = self::unitAmount('1', $match[1][0]);
         }
+        preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(?:سمكتين|سمكتان)(?![\p{L}\p{N}])/u', $clause, $duals, PREG_OFFSET_CAPTURE);
+        foreach ($duals[0] as [$dual, $offset]) if (!self::overlapsName($offset, strlen($dual), $names))
+            $amounts[] = ['quantity'=>2000, 'mode'=>'piece'];
+        $fish = WhatsAppOrderConversationEvidence::fishWeightSize($clause);
+        // The shared proof has independently excluded every additional sale amount;
+        // the amount must still occur outside the copied product-name span here.
+        if ($fish !== null && in_array($fish['amount'], $amounts, true)) return [$fish['amount']];
         return $amounts;
     }
 

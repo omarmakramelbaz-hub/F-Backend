@@ -72,6 +72,7 @@ namespace {
     $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
     Facade::setFacadeApplication($container);
     require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxAccess.php';
+    require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxMessage.php';
     require __DIR__ . '/../app/Services/Dashboard/WhatsAppInboxReadState.php';
     require __DIR__ . '/../database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';
     require __DIR__ . '/../database/migrations/2026_10_10_000004_create_whatsapp_inbox_reads.php';
@@ -111,7 +112,8 @@ namespace {
     $first = seedReadMessage($thread); $out = seedReadMessage($thread, 'outbound'); $latest = seedReadMessage($thread);
     $otherMessage = seedReadMessage($other); $foreignMessage = seedReadMessage($foreign); seedReadMessage($otherPhone); seedReadMessage($outboundOnly, 'outbound');
     $state = $reads->unread($one); $items = array_column($state['conversations'], null, 'id');
-    checkRead($reads->available() && $state['total_unread'] === 3 && $items[$thread]['unread_count'] === 2
+    checkRead($reads->available() && $state['total_unread'] === 3 && $state['total_unread_messages'] === 3
+        && $state['total_unread_conversations'] === 2 && $items[$thread]['unread_count'] === 2
         && $items[$thread]['latest_inbound_id'] === $latest && $items[$outboundOnly]['unread_count'] === 0
         && !isset($items[$foreign]) && !isset($items[$otherPhone]), 'scoped inbound count and actual migration'); $tests++;
     checkRead(strpos(json_encode($state), 'ciphertext') === false && strpos(json_encode($state), 'customer') === false,
@@ -122,7 +124,8 @@ namespace {
         && $reads->unread($one, [$thread])['total_unread'] === 2, 'markers belong to each actor and total covers unselected threads'); $tests++;
     $reads->markRead($thread, $latest, $one);
     $old = $reads->markRead($thread, $first, $one);
-    checkRead($old['seen_message_id'] === $latest && $reads->unread($one, [$thread])['conversations'][0]['unread_count'] === 0,
+    checkRead($old['seen_message_id'] === $latest && $reads->unread($one, [$thread])['conversations'][0]['unread_count'] === 0
+        && $reads->unread($one, [$thread])['total_unread_conversations'] === 1,
         'stale acknowledgement cannot decrease marker'); $tests++;
     $new = seedReadMessage($thread);
     checkRead($reads->unread($one, [$thread])['conversations'][0]['unread_count'] === 1
@@ -147,7 +150,8 @@ namespace {
     expectReadStatus(fn () => $reads->unread($one), 403, 'persisted revocation on counts'); $tests++;
     expectReadStatus(fn () => $reads->unread($two, array_fill(0, 101, $thread)), 422, 'explicit IDs bounded');
     expectReadStatus(fn () => $reads->unread($two, ['1.5']), 422, 'IDs are exact integers');
-    checkRead($reads->unread($two, [])['conversations'] === [] && $reads->unread($two, [])['total_unread'] === 4,
+    checkRead($reads->unread($two, [])['conversations'] === [] && $reads->unread($two, [])['total_unread'] === 4
+        && $reads->unread($two, [])['total_unread_conversations'] === 2,
         'empty selection keeps global aggregate without loading histories'); $tests++;
     $duplicateBlocked = false;
     try { DB::table('whatsapp_inbox_reads')->insert(['actor_id' => 1, 'conversation_id' => $thread, 'seen_message_id' => 0]); }
@@ -163,7 +167,8 @@ namespace {
     foreach (array_chunk($batch, 100) as $chunk) DB::table('whatsapp_inbox_conversations')->insert($chunk);
     $bounded = $reads->unread($two);
     checkRead(count($bounded['conversations']) === 1000 && $bounded['has_more'] === true
-        && $bounded['total_unread'] === 4 && !in_array($thread, array_column($bounded['conversations'], 'id'), true),
+        && $bounded['total_unread'] === 4 && $bounded['total_unread_conversations'] === 2
+        && !in_array($thread, array_column($bounded['conversations'], 'id'), true),
         'default reply is bounded while total includes older unread thread'); $tests++;
     echo 'WHATSAPP_INBOX_READS_TESTS=' . $tests . "\n";
 }

@@ -13,6 +13,325 @@ final class WhatsAppOrderConversationEvidence
     private const MAX_ROWS = 60;
     private const MAX_ITEMS = 30;
 
+    /**
+     * Prompt-only proof of the selected amounts before our factual recap exists.
+     * It cannot prove CONFIRMED, customer approval, live catalog identity or dispatch.
+     */
+    public static function draftItemQuantities(array $data, array $transcript, ?array &$sources = null, ?int &$unresolvedIndex = null): bool
+    {
+        $sources = []; $unresolvedIndex = null;
+        if (($data['decision'] ?? null) !== 'DRAFT') return false;
+        $checked = \App\Support\WhatsAppOrderExtraction::validateDetailed($data, $transcript);
+        if (($checked['ok'] ?? false) !== true || ($checked['data']['decision'] ?? null) !== 'DRAFT'
+            || !self::evidenceAfterTest($data, $transcript) || empty($data['items'])) return false;
+        $ledger = self::ledger(self::episodeRows($transcript));
+        if ($ledger === null) return false;
+        [$rows, $positions] = $ledger;
+        $items = $data['items']; $requests = []; $selections = []; $resolved = []; $deferredDirect=[];
+        foreach ($rows as $row) if ($row['speaker'] === 'customer' && preg_match('/(?:مش|لا)\s+(?:عايز|عاوز|موافق|أريد|اريد)|'
+            . '(?<![\p{L}\p{N}])(?:و)?(?:إلغاء|الغاء|إلغي|إلغى|الغي|الغى|الغيه|إلغيه|ألغي|ألغى|لغي|لغيه|إلغ|الغ|الغوا|إلغوا|الغيت|ألغيت|هلغي)(?![\p{L}\p{N}])|'
+            . '(?:بدل|بدّل|غيّر|غير)\s+(?:الطلب|الأوردر|الاوردر)|\b(?:cancel|not\s+want|change\s+the\s+order)\b/iu',$row['text'] ?? '')) return false;
+        foreach ($data['evidence']['request_ids'] as $id) {
+            if (!isset($rows[$id]) || $rows[$id]['speaker'] !== 'customer') return false;
+            $text=$rows[$id]['text']??'';
+            // Preserve each whole named message: an orphan second amount in the
+            // same message cannot disappear when another item answers later.
+            foreach ($items as $candidate) if (self::literal($candidate['name'],$text)) { $requests[]=$text; break; }
+        }
+        foreach ($items as $index => $item) {
+            $unresolvedIndex = $index;
+            $amount = self::declaredAmount($item);
+            if ($amount === null || ($item['cart_reference'] ?? null) !== null) return false;
+            $ref = $item['conversation_reference'] ?? null;
+            if ($ref === null) {
+                $option = self::pendingSelectedOption($item,$data,$transcript);
+                if ($option !== null) {
+                    $resolved[$index]=$option['reference'];
+                    continue;
+                }
+                if (\App\Support\WhatsAppOrderExtraction::itemQuantityBacked($item, $items, $requests)) { $resolved[$index]=null; continue; }
+                // Link only supplied labels for a prompt. These temporary links are
+                // never persisted into extraction and cannot authorize final proof.
+                $candidates = []; $ordered = array_values($rows);
+                foreach ($ordered as $p=>$quantityRow) {
+                    if ($p < 2 || $quantityRow['speaker'] !== 'customer'
+                        || !self::cited($data,'request_ids',$quantityRow['id'])
+                        || !self::shortText($quantityRow['text'] ?? null,16000)
+                        || !self::bareSelection($quantityRow['text'],$item['name'])
+                        || !self::oneAmount($quantityRow['text'],$amount)) continue;
+                    $offerRow = $ordered[$p - 1];
+                    if ($offerRow['speaker'] !== 'business' || !self::shortText($offerRow['text'] ?? null,16000)
+                        || !self::literal($item['name'],$offerRow['text']) || !self::quantityQuestion($offerRow['text'])
+                        || self::topics($offerRow['text'],$items) !== [$index]) continue;
+                    $anchorRow = null;
+                    for ($a=$p - 2;$a >= max(0,$p - 8);$a--) {
+                        if (($ordered[$a]['text']??null)===null&&($ordered[$a]['location']??null)!==null) continue;
+                        if (!self::shortText($ordered[$a]['text'] ?? null,16000)) break;
+                        if ($ordered[$a]['speaker'] === 'customer' && self::cited($data,'request_ids',$ordered[$a]['id'])
+                            && self::literal($item['name'],$ordered[$a]['text'])) { $anchorRow=$ordered[$a]; break; }
+                    }
+                    if ($anchorRow !== null) $candidates[]=['name_anchor_id'=>$anchorRow['id'],'business_offer_id'=>$offerRow['id'],
+                        'customer_quantity_id'=>$quantityRow['id'],'business_summary_id'=>$offerRow['id'],
+                        'summary_clause_index'=>0,'customer_option_id'=>null];
+                }
+                if (count($candidates) !== 1) {
+                    // A shared original row is considered only after every
+                    // other mentioned item has its own actual named question/answer.
+                    $deferredDirect[$index]=true; $resolved[$index]=null; continue;
+                }
+                $ref = $candidates[0];
+            }
+            if (!is_array($ref) || !self::exactKeys($ref, self::REFERENCE_KEYS)) return false;
+            foreach (['name_anchor_id'=>'customer','business_offer_id'=>'business','customer_quantity_id'=>'customer',
+                'customer_option_id'=>'customer'] as $key=>$speaker) {
+                $id = $ref[$key];
+                if ($key === 'customer_option_id' && $id === null) continue;
+                if (!is_string($id) || !isset($rows[$id]) || $rows[$id]['speaker'] !== $speaker
+                    || !self::shortText($rows[$id]['text'] ?? null,16000)
+                    || ($speaker === 'customer' && !self::cited($data,'request_ids',$id))) return false;
+            }
+            $anchor = $positions[$ref['name_anchor_id']]; $offer = $positions[$ref['business_offer_id']];
+            $quantity = $positions[$ref['customer_quantity_id']];
+            if ($quantity < $offer) {
+                $selected=self::pendingSelectedOption($item,$data,$transcript);
+                if ($selected===null) return false;
+                foreach (['name_anchor_id','business_offer_id','customer_quantity_id','customer_option_id'] as $key)
+                    if ($selected['reference'][$key]!==$ref[$key]) return false;
+                $resolved[$index]=$ref;
+                continue;
+            }
+            if (!($anchor < $offer && $offer < $quantity) || $quantity - $anchor > 8) return false;
+            $anchorText = $rows[$ref['name_anchor_id']]['text'];
+            $offerText = $rows[$ref['business_offer_id']]['text'];
+            $quantityText = $rows[$ref['customer_quantity_id']]['text'];
+            $directAnswer = $quantity === $offer + 1 && self::literal($item['name'],$offerText)
+                && self::quantityQuestion($offerText)
+                && (self::bareSelection($quantityText,$item['name'])
+                    || \App\Support\WhatsAppOrderExtraction::itemQuantityBacked($item,$items,[$quantityText]));
+            if (!self::literal($item['name'],$anchorText) || self::unsafe($anchorText) || self::unsafe($offerText)
+                || self::unsafe($quantityText) || self::amendment($quantityText) || self::alternatives($quantityText)
+                || preg_match('/[?؟"«»“”]/u',$quantityText) || (!self::selection($quantityText) && !$directAnswer)
+                || !self::oneAmount($quantityText,$amount)
+                || !self::offerFor($item,$index,$items,$rows,$positions,$ref)
+                || (!self::topicIs($anchorText,$index,$items)
+                    &&!self::namedQuestionDisambiguates($item,$index,$items,$rows,$positions,$ref))) return false;
+            $topicStart = self::literal($item['name'],$offerText) ? $offer : $anchor;
+            foreach ($rows as $id=>$row) {
+                $p = $positions[$id]; if ($p <= $topicStart || $p > $quantity) continue;
+                $topics = self::topics($row['text'] ?? '',$items);
+                if ($topics && $topics !== [$index]) return false;
+                if ($row['speaker'] === 'customer' && $p < $quantity && !$topics
+                    && preg_match('/\A\s*(?:في|عندكم|متاح)\s+\S+/u',$row['text'] ?? '')) return false;
+            }
+            $variants = self::variants($quantityText); $offered = self::variants($offerText);
+            if (count($variants) > 1 || (!$variants && count($offered) > 1)) return false;
+            $size = $variants[0] ?? ($offered[0] ?? null);
+            if ($size !== null && !in_array($size,$offered,true)) return false;
+            if (($item['option_hint'] ?? null) !== null) {
+                $optionId = $ref['customer_option_id'] ?? $ref['customer_quantity_id'];
+                $optionText = $rows[$optionId]['text'];
+                if ($positions[$optionId] < $quantity || !self::positiveOption($item['option_hint'],$optionText)
+                    || !self::oneAmount($optionText,$amount)) return false;
+                $topics = self::topics($optionText,$items);
+                if ($topics && $topics !== [$index]) return false;
+            }
+            $selections[$index] = ['id'=>$ref['customer_quantity_id'],'position'=>$quantity,'amount'=>$amount,'size'=>$size];
+            $resolved[$index] = $ref;
+        }
+        foreach ($deferredDirect as $index=>$unused) {
+            $unresolvedIndex=$index;
+            if (!self::sharedNamedQuantityFromRows($items[$index],$index,$data,$rows,$positions,$resolved)) return false;
+        }
+        $start=null;
+        foreach ($rows as $id=>$row) if ($row['speaker']==='customer'&&self::cited($data,'request_ids',$id)
+            &&self::selection($row['text']??'')&&!preg_match('/["«»“”]/u',$row['text']??'')) {
+            $named=preg_match('/(?<![\p{L}\p{N}])(?:ال)?(?:طلب|أوردر|اوردر|order)(?![\p{L}\p{N}])/iu',$row['text']??'')===1;
+            foreach ($items as $item) if (self::literal($item['name'],$row['text']??'')) $named=true;
+            if ($named) { $start=$positions[$id]; break; }
+        }
+        foreach ($resolved as $ref) if (is_array($ref)) $start=$start===null?$positions[$ref['customer_quantity_id']]
+            :min($start,$positions[$ref['customer_quantity_id']]);
+        $start=$start??0;
+        // Account for actual native sale amounts, including ones the model did
+        // not cite. Earlier price inquiries do not belong to this purchase.
+        foreach ($rows as $id=>$row) {
+            if ($row['speaker']!=='customer'||$positions[$id]<$start) continue;
+            $actual=[];
+            foreach (self::clauses($row['text']??'') as $clause) $actual=array_merge($actual,self::quantities($clause));
+            if (!$actual) continue;
+            $named=false;
+            foreach ($items as $item) if (self::literal($item['name'],$row['text']??'')) $named=true;
+            $covered=[];
+            if ($named) {
+                foreach ($items as $index=>$item) {
+                    if (\App\Support\WhatsAppOrderExtraction::itemQuantityBacked($item,$items,[$row['text']]))
+                        $covered[]=self::declaredAmount($item);
+                    elseif (isset($deferredDirect[$index])&&self::sharedNamedQuantityFromRows($item,$index,$data,$rows,$positions,$resolved,$id))
+                        $covered[]=self::declaredAmount($item);
+                }
+            } else {
+                $owners=[];
+                foreach ($resolved as $index=>$ref) if (is_array($ref)&&($ref['customer_quantity_id']===$id
+                    ||($ref['customer_option_id']??null)===$id)) $owners[]=$index;
+                if (count($owners)!==1||!self::cited($data,'request_ids',$id)) {
+                    $unresolvedIndex=$owners[0]??0; return false;
+                }
+                $covered[]=self::declaredAmount($items[$owners[0]]);
+            }
+            $encode=static fn($amount)=>json_encode($amount,JSON_THROW_ON_ERROR);
+            $actual=array_map($encode,$actual); $covered=array_map($encode,$covered); sort($actual); sort($covered);
+            if ($actual!==$covered) { $unresolvedIndex=0; return false; }
+        }
+        $unresolvedIndex = null;
+        foreach ($selections as $index=>$selection) foreach ($rows as $id=>$row) {
+            if ($positions[$id] <= $selection['position'] || $row['speaker'] !== 'customer') continue;
+            $text = $row['text'] ?? '';
+            if (self::unsafe($text) || self::amendment($text) || self::newOrder($text)) return false;
+            $amounts = self::quantities($text); if (!$amounts) continue;
+            $otherSelection = false;
+            foreach ($selections as $otherIndex=>$other)
+                if ($otherIndex !== $index && $id === $other['id']) $otherSelection = true;
+            if ($otherSelection) continue;
+            $topics = self::topics($text,$items);
+            if ($topics && !in_array($index,$topics,true)) {
+                foreach ($topics as $topic) if (!is_int($topic) || !isset($items[$topic])) return false;
+                continue;
+            }
+            if ($topics !== [$index] || !self::oneAmount($text,$selection['amount'])) return false;
+            $sizes = self::variants($text);
+            if (count($sizes) > 1 || ($sizes && $sizes !== [$selection['size']])) return false;
+        }
+        $sources = $resolved;
+        return true;
+    }
+
+    /** Native source labels for prompt-only inherited choices; never changes extraction. */
+    public static function draftItemQuantitySources(array $data,array $transcript): ?array
+    {
+        $sources=[];
+        return self::draftItemQuantities($data,$transcript,$sources) ? $sources : null;
+    }
+
+    /** Final callers must independently prove the contextual item, recap and approval first. */
+    public static function sharedNamedQuantityBacked(array $item,array $data,array $transcript): bool
+    {
+        $copy=$data; $copy['decision']='DRAFT'; $sources=[];
+        if (!self::draftItemQuantities($copy,array_values($transcript),$sources)) return false;
+        $index=array_search($item,$data['items']??[],true); if ($index===false) return false;
+        $ledger=self::ledger(self::episodeRows(array_values($transcript))); if ($ledger===null) return false;
+        [$rows,$positions]=$ledger;
+        return self::sharedNamedQuantityFromRows($item,$index,$copy,$rows,$positions,$sources);
+    }
+
+    /** A later uniquely named question can resolve names originally mentioned together. */
+    private static function namedQuestionDisambiguates(array $item,int $index,array $items,array $rows,array $positions,array $ref): bool
+    {
+        $anchor=$rows[$ref['name_anchor_id']]['text']??''; $offer=$rows[$ref['business_offer_id']]['text']??'';
+        $answer=$rows[$ref['customer_quantity_id']]['text']??'';
+        $topics=self::topics($anchor,$items);
+        foreach ($topics as $topic) if (!is_int($topic)) return false;
+        return count($topics)>1&&in_array($index,$topics,true)&&self::literal($item['name'],$anchor)
+            &&self::topics($offer,$items)===[$index]&&self::literal($item['name'],$offer)&&self::quantityQuestion($offer)
+            &&$positions[$ref['customer_quantity_id']]===$positions[$ref['business_offer_id']]+1
+            &&self::bareSelection($answer,$item['name'])&&self::oneAmount($answer,self::declaredAmount($item));
+    }
+
+    /** Exact AMOUNT FIRST-PRODUCT + bare other names, each later resolved independently. */
+    private static function sharedNamedQuantityFromRows(array $item,int $index,array $data,array $rows,array $positions,array $sources,?string $onlyId=null): bool
+    {
+        $others=[];
+        foreach ($data['items'] as $other=>$candidate) if ($other!==$index) $others[$candidate['name']]=$other;
+        if (!$others||count($others)!==count($data['items'])-1) return false;
+        $names=array_keys($others); usort($names,static fn($a,$b)=>strlen($b)<=>strlen($a));
+        $alternation=implode('|',array_map(static fn($name)=>preg_quote($name,'/'),$names));
+        $pattern='/\A\s*(?:(?:(?:أنا|انا)\s+)?(?:عايز|عاوز|أريد|اريد|اطلب|أطلب|هات|ابعت|اعملي|اعمللي|اعمل\s+لي)\s+)?'
+            .'(?<amount>.+?)\s+(?:ال)?'.preg_quote($item['name'],'/').'(?<others>(?:\s+و\s*(?:ال)?(?:'.$alternation.'))+)\s*\z/u';
+        $found=false;
+        foreach ($data['evidence']['request_ids']??[] as $id) {
+            if ($onlyId!==null&&$onlyId!==$id) continue;
+            $row=$rows[$id]??null; if (!$row||$row['speaker']!=='customer') continue;
+            foreach (self::clauses($row['text']??'') as $clause) {
+                if (!preg_match($pattern,$clause,$match)||self::unsafe($clause)||self::amendment($clause)||self::alternatives($clause)
+                    ||!self::bareSelection($match['amount'],$item['name'])
+                    ||!self::oneAmount($match['amount'],self::declaredAmount($item))) continue;
+                $mentioned=[];
+                preg_match_all('/(?:\A|\s+)و\s*(?:ال)?('.$alternation.')(?![\p{L}\p{N}])/u',$match['others'],$matches);
+                foreach ($matches[1] as $name) {
+                    $other=$others[$name]; $ref=$sources[$other]??null;
+                    if (isset($mentioned[$other])||!is_array($ref)||$ref['name_anchor_id']!==$id
+                        ||!isset($positions[$ref['business_offer_id']],$positions[$ref['customer_quantity_id']])
+                        ||$positions[$id]>=$positions[$ref['business_offer_id']]
+                        ||!self::namedQuestionDisambiguates($data['items'][$other],$other,$data['items'],$rows,$positions,$ref)) continue 3;
+                    $mentioned[$other]=true;
+                }
+                if ($mentioned) $found=true;
+            }
+        }
+        return $found;
+    }
+
+    /** Exact answer to our named menu question, after an independently named sale amount.
+     * These are source labels for a question/recap only; no customer fact is invented.
+     */
+    public static function pendingSelectedOption(array $item,array $data,array $transcript): ?array
+    {
+        try {
+            if (!\App\Support\WhatsAppOrderExtraction::validateTranscript(array_values($transcript))['ok']
+                ||\App\Support\WhatsAppOrderExtraction::hasProbe(array_values($transcript))
+                ||!self::evidenceAfterTest($data,$transcript)||!self::shortText($item['name']??null,200)
+                ||!self::shortText($item['option_hint']??null,200)||self::declaredAmount($item)===null
+                ||($item['cart_reference']??null)!==null||!is_array($data['items']??null)
+                ||count($data['items'])>self::MAX_ITEMS) return null;
+            $index=array_search($item,$data['items'],true);
+            if ($index===false||count(array_keys($data['items'],$item,true))!==1) return null;
+            $ledger=self::ledger(self::episodeRows(array_values($transcript))); if ($ledger===null) return null;
+            [$rows,$positions]=$ledger; $ordered=array_values($rows); $found=[];
+            foreach ($ordered as $p=>$answer) {
+                if ($p<2||$answer['speaker']!=='customer'||!self::cited($data,'request_ids',$answer['id'])
+                    ||!self::shortText($answer['text']??null,1000)) continue;
+                $question=$ordered[$p-1];
+                if ($question['speaker']!=='business'||!self::shortText($question['text']??null,4096)
+                    ||self::topics($item['name'],$data['items'])!==[$index]) continue;
+                $pattern='/\A(?:لو سمحت، )?بالنسبة لـ «'.preg_quote($item['name'],'/').'»، من الاختيارات المتاحة عندنا:\n'
+                    .'((?:• [^\n]+\n){1,6})اكتب اسم النوع اللي تحبه\.\z/u';
+                if (!preg_match($pattern,$question['text'],$match)) continue;
+                $labels=array_map(static fn($line)=>substr($line,strlen('• ')),explode("\n",rtrim($match[1],"\n")));
+                if (count(array_unique($labels))!==count($labels)||!in_array($item['option_hint'],$labels,true)) continue;
+                foreach ($labels as $label) if (!self::shortText($label,200)||self::unsafe($label)||self::alternatives($label)) continue 2;
+                $answerPattern='/\A\s*(?:تمام\s+)?(?:(?:عايز|عاوز|أختار|اختار|أريد|اريد)\s+)?'
+                    .preg_quote($item['option_hint'],'/').'(?:\s+(?:بس|فقط|يفندم|من\s+فضلك))*\s*[.!]*\s*\z/u';
+                if (!preg_match($answerPattern,$answer['text'])||!self::positiveOption($item['option_hint'],$answer['text'])
+                    ||self::amendment($answer['text'])||self::quantities($answer['text'])) continue;
+                $quantity=null;
+                for ($q=$p-2;$q>=max(0,$p-9);$q--) {
+                    $row=$ordered[$q];
+                    if ($row['speaker']!=='customer'||!self::cited($data,'request_ids',$row['id'])
+                        ||!self::shortText($row['text']??null,16000)||self::unsafe($row['text'])||self::amendment($row['text'])) continue;
+                    if (\App\Support\WhatsAppOrderExtraction::itemQuantityBacked($item,$data['items'],[$row['text']])) { $quantity=$row; break; }
+                }
+                if ($quantity===null) continue;
+                $stable=true;
+                foreach ($ordered as $later) {
+                    if ($positions[$later['id']]<=$positions[$quantity['id']]||$later['id']===$answer['id']) continue;
+                    $text=$later['text']??'';
+                    if (self::unsafe($text)||self::amendment($text)) { $stable=false; break; }
+                    if ($later['speaker']!=='customer') continue;
+                    if ($text===''&&($later['location']??null)!==null) continue;
+                    if (!self::shortText($text,16000)) { $stable=false; break; }
+                    if (self::acceptance($text)||self::customerDataRow($data,$text)) continue;
+                    // A second option/amount is not silently substituted for this answer.
+                    $stable=false; break;
+                }
+                if (!$stable) continue;
+                $found[]=['label'=>$item['option_hint'],'reference'=>[
+                    'name_anchor_id'=>$quantity['id'],'business_offer_id'=>$question['id'],
+                    'customer_quantity_id'=>$quantity['id'],'business_summary_id'=>$question['id'],
+                    'summary_clause_index'=>0,'customer_option_id'=>$answer['id']]];
+            }
+            return count($found)===1?$found[0]:null;
+        } catch (\Throwable $ignore) { return null; }
+    }
+
     public static function prove(array $data, array $rows): array
     {
         $ledger = self::ledger($rows);
@@ -22,7 +341,7 @@ final class WhatsAppOrderConversationEvidence
         $ledger = self::ledger(self::episodeRows($rows));
         if ($ledger === null) return self::failed('CONVERSATION_REFERENCE_INVALID');
         [$rows, $positions] = $ledger;
-        $items = $data['items']; $proofs = []; $contexts = []; $first = null; $lastSummary = null;
+        $items = $data['items']; $proofs = []; $contexts = []; $postOptions=[]; $first = null; $lastSummary = null;
         foreach ($items as $index => $item) {
             if (!is_array($item) || !self::shortText($item['name'] ?? null, 200)
                 || ($amount = self::declaredAmount($item)) === null) return self::failed('CONVERSATION_ITEM_UNGROUNDED');
@@ -45,6 +364,20 @@ final class WhatsAppOrderConversationEvidence
             }
             $anchor = $positions[$ref['name_anchor_id']]; $offer = $positions[$ref['business_offer_id']];
             $quantity = $positions[$ref['customer_quantity_id']]; $summary = $positions[$ref['business_summary_id']];
+            if ($quantity < $offer) {
+                $selected=self::pendingSelectedOption($item,$data,array_values($rows));
+                if ($selected===null||!isset($positions[$ref['customer_option_id']??''])
+                    ||$positions[$ref['customer_option_id']]>=$summary) return self::failed('CONVERSATION_ITEM_UNGROUNDED');
+                foreach (['name_anchor_id','business_offer_id','customer_quantity_id','customer_option_id'] as $key)
+                    if ($selected['reference'][$key]!==$ref[$key]) return self::failed('CONVERSATION_REFERENCE_INVALID');
+                $sizes=self::variants($rows[$ref['customer_quantity_id']]['text']);
+                if (count($sizes)>1) return self::failed('CONVERSATION_AMBIGUOUS_ITEM');
+                $proofs[$index]=['amount'=>$amount,'variant'=>$sizes[0]??null,'quantity_position'=>$quantity];
+                $contexts[$index]=$ref; $postOptions[$index]=true;
+                $first=$first===null?$anchor:min($first,$anchor);
+                $lastSummary=$lastSummary===null?$summary:max($lastSummary,$summary);
+                continue;
+            }
             if (!($anchor < $offer && $offer < $quantity && $quantity < $summary)
                 || $quantity - $anchor > 8) return self::failed('CONVERSATION_REFERENCE_INVALID');
             $anchorText = $rows[$ref['name_anchor_id']]['text']; $offerText = $rows[$ref['business_offer_id']]['text'];
@@ -58,7 +391,8 @@ final class WhatsAppOrderConversationEvidence
             // A name may be established by a price question. Only the later positive
             // customer quantity selection commits an item; an offer cannot commit it.
             if (!self::offerFor($item, $index, $items, $rows, $positions, $ref)
-                || !self::topicIs($anchorText, $index, $items)) return self::failed('CONVERSATION_AMBIGUOUS_ITEM');
+                || (!self::topicIs($anchorText, $index, $items)
+                    &&!self::namedQuestionDisambiguates($item,$index,$items,$rows,$positions,$ref))) return self::failed('CONVERSATION_AMBIGUOUS_ITEM');
             foreach ($rows as $id => $row) {
                 $p = $positions[$id];
                 // A later explicitly named offer re-establishes the product topic.
@@ -85,6 +419,7 @@ final class WhatsAppOrderConversationEvidence
         }
         if (!$contexts) return self::ready();
         $episode = self::acknowledgment($data, $rows, $positions, $lastSummary);
+        if ($episode===null) $episode=self::completeDialogueRecap($data,$rows,$positions,$contexts,$lastSummary);
         if ($episode === null) return self::failed('CONVERSATION_DATA_UNACKNOWLEDGED');
         $acceptance = self::acceptedBasket($data, $rows, $positions, $lastSummary, $episode['data_request']);
         if ($acceptance === null) return self::failed('CONVERSATION_EPISODE_UNCONFIRMED');
@@ -100,7 +435,9 @@ final class WhatsAppOrderConversationEvidence
             $variants = self::variants($clause);
             if (count($variants) > 1 || ($variants[0] ?? null) !== $proofs[$index]['variant'])
                 return self::failed('CONVERSATION_ITEM_UNGROUNDED');
-            $topics = self::topics($clause, $items);
+            $topicClause=isset($postOptions[$index])&&is_string($item['option_hint']??null)
+                ?str_replace($item['option_hint'],' ',$clause):$clause;
+            $topics = self::topics($topicClause, $items);
             if ($topics) {
                 if ($topics !== [$index]) return self::failed('CONVERSATION_AMBIGUOUS_ITEM');
             } else {
@@ -118,7 +455,7 @@ final class WhatsAppOrderConversationEvidence
                 $optionId = $ref['customer_option_id'] ?? $ref['customer_quantity_id'];
                 $optionText = $rows[$optionId]['text']; $optionPosition = $positions[$optionId];
                 if ($optionPosition < $proofs[$index]['quantity_position'] || $optionPosition >= $positions[$ref['business_summary_id']]
-                    || !self::positiveOption($hint, $optionText) || !self::oneAmount($optionText, $proofs[$index]['amount']))
+                    || !self::positiveOption($hint, $optionText) || (!isset($postOptions[$index])&&!self::oneAmount($optionText, $proofs[$index]['amount'])))
                     return self::failed('CONVERSATION_ITEM_UNGROUNDED');
                 $possible = [];
                 foreach ($proofs as $candidate => $proof) {
@@ -126,7 +463,7 @@ final class WhatsAppOrderConversationEvidence
                         && $proof['amount'] === $proofs[$index]['amount']) $possible[] = $candidate;
                 }
                 $optionTopics = self::topics($optionText, $items);
-                if (($optionTopics && $optionTopics !== [$index]) || (!$optionTopics && $possible !== [$index]))
+                if (!isset($postOptions[$index])&&(($optionTopics && $optionTopics !== [$index]) || (!$optionTopics && $possible !== [$index])))
                     return self::failed('CONVERSATION_AMBIGUOUS_ITEM');
                 // An intervening product inquiry can make a generic option answer
                 // ambiguous. The uniquely mapped recap plus its later explicit
@@ -274,6 +611,72 @@ final class WhatsAppOrderConversationEvidence
         return array_keys($positive);
     }
 
+    /** Map only a proved contextual choice; pending mode is restricted to question planning. */
+    public static function contextualOptionLabels(array $item,array $data,array $rows,array $liveLabels,
+        bool $pending=false,bool $preservePreparation=true,bool $requireSize=true): ?array
+    {
+        if (count($liveLabels)>100||!self::shortText($item['name']??null,200)) return null;
+        foreach ($liveLabels as $label) if (!self::shortText($label,200)) return null;
+        $index=array_search($item,$data['items']??[],true); if ($index===false) return null;
+        $ref=$item['conversation_reference']??null;
+        if ($pending) {
+            $sources=self::draftItemQuantitySources($data,array_values($rows));
+            if ($sources===null) return null;
+            $ref=$sources[$index]??null;
+        } elseif (!self::prove($data,$rows)['ok']) return null;
+        if (!is_array($ref)) return null;
+        $ledger=self::ledger($rows); if ($ledger===null) return null;
+        [$indexed,$positions]=$ledger;
+        $quantity=$indexed[$ref['customer_quantity_id']]['text']??null;
+        $offer=$indexed[$ref['business_offer_id']]['text']??null;
+        if (!is_string($quantity)||!is_string($offer)) return null;
+        $postOption=($positions[$ref['customer_quantity_id']]??PHP_INT_MAX)<($positions[$ref['business_offer_id']]??-1);
+        // A later explicit answer to the reviewed option question resolves the
+        // earlier offered alternatives; retain the quantity separately as size provenance.
+        $texts=$postOption?[]:[$quantity];
+        $option=$ref['customer_option_id']??null;
+        if ($option!==null) $texts[]=$indexed[$option]['text'];
+        if (!$pending) {
+            $summary=self::clauses($indexed[$ref['business_summary_id']]['text'])[$ref['summary_clause_index']]??null;
+            if (!is_string($summary)) return null;
+            $texts[]=$summary;
+        }
+        $positive=[]; $negative=[];
+        foreach ($texts as $text) {
+            $hits=[];
+            preg_match_all('/(?<![\p{L}\p{N}])(?:ال)?('.preg_quote($item['name'],'/').')(?![\p{L}\p{N}])/iu',$text,$names,PREG_OFFSET_CAPTURE);
+            foreach (array_unique($liveLabels) as $label) {
+                preg_match_all('/(?<![\p{L}\p{N}])(?:ب)?('.preg_quote($label,'/').')(?![\p{L}\p{N}])/iu',$text,$matches,PREG_OFFSET_CAPTURE);
+                foreach ($matches[1] as [$matched,$offset]) {
+                    $overlap=false;
+                    foreach ($names[1] as [$name,$nameOffset]) if ($offset<$nameOffset+strlen($name)&&$offset+strlen($matched)>$nameOffset) $overlap=true;
+                    if ($overlap) continue;
+                    $after=substr($text,$offset+strlen($matched));
+                    if ($label==='تنظيف'&&preg_match('/\A\s+(?:إضافي|اضافي)(?![\p{L}\p{N}])/u',$after)) continue;
+                    $declined=preg_match('/(?:بدون|دون|من\s+غير|غير|لا|مش|ليس|not|no|without)\s*(?:(?:أي|اي)\s+|ب)?\z/iu',substr($text,0,$offset))===1;
+                    $hits[]=['label'=>$label,'offset'=>$offset,'length'=>strlen($matched),'negative'=>$declined];
+                }
+            }
+            foreach ($hits as $hit) {
+                $contained=false;
+                foreach ($hits as $other) if ($other['length']>$hit['length']&&$hit['offset']>=$other['offset']
+                    &&$hit['offset']+$hit['length']<=$other['offset']+$other['length']) $contained=true;
+                if ($contained) continue;
+                if ($hit['negative']) $negative[$hit['label']]=true; else $positive[$hit['label']]=true;
+            }
+        }
+        if (array_intersect_key($positive,$negative)) return null;
+        $source=self::variants($quantity)?$quantity:$offer;
+        if ($requireSize&&self::variants($source)) {
+            $size=self::fishSizeOptions($source,$liveLabels,$texts,$preservePreparation);
+            if ($size===null||count($size)!==1) return null;
+            foreach (array_keys($positive) as $label) if (!self::literal($label,$size[0])
+                &&self::fishSizeOptions($source,[$label],$texts,$preservePreparation)!==[$label]) return null;
+            return $size;
+        }
+        return count($positive)<=1?array_keys($positive):null;
+    }
+
     /** Split item recaps after composing fractions; preserve original variants as text. */
     public static function clauses(string $text): array
     {
@@ -289,6 +692,96 @@ final class WhatsAppOrderConversationEvidence
     /** Exact sale amounts in thousandths. Fish per kilogram is a size, not an amount. */
     public static function quantities(string $text): array
     {
+        $amounts = self::rawQuantities($text);
+        $fish = self::fishWeightSize($text);
+        return $fish === null ? $amounts : [$fish['amount']];
+    }
+
+    /**
+     * One kilogram containing a named fish count establishes its size. Other
+     * weights require an explicit per-kilogram relationship. No native text or
+     * product facts are rewritten, and an additional ordered piece stays an amount.
+     */
+    public static function fishWeightSize(string $text): ?array
+    {
+        if (strlen($text) > 65536 || preg_match('//u', $text) !== 1) return null;
+        $text = self::normalize($text);
+        if (self::signedAmount($text) || self::unsupportedAmount($text) || self::unsafe($text)
+            || self::alternatives($text) || self::amendment($text) || preg_match('/[?؟"«»“”]/u', $text)) return null;
+        $fish = '(?:فسيخ|رنجة|رنجه|سردين|ماكريل|بوري|بورى|بلطي|بلطى)';
+        preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(?:ال)?' . $fish . '(?![\p{L}\p{N}])/u', $text, $topics);
+        if (count($topics[0]) !== 1) return null;
+        $amounts = self::rawQuantities($text);
+        $explicit = self::explicitVariants($text);
+        if (count($explicit) === 1 && count($amounts) === 1 && $amounts[0]['mode'] === 'weight') {
+            if (preg_match('/(?:بدون|دون|غير|مش|لا|ليس|not|no|without)\s+(?:(?:من|في|لكل)\s+)?(?:ال)?كيلو\s*[0-9]/iu', $text)) return null;
+            return ['amount' => $amounts[0], 'fish_per_kg' => $explicit[0]];
+        }
+        if ($explicit || count($amounts) !== 2) return null;
+        $qualifiers = '(?:نبروه|دسوق|بلدي|بلدى|هيرنج|بطارخ|ناعم|ناعمة|ناعمه|سمين|سمينة|سمينه|كبير|صغير|كامل|مخلي)';
+        $count = '(?:([0-9]{1,2})\s*(?:سمكات|سمكة|سمكه|حبات|حبة|حبه)|(سمكتين|سمكتان))';
+        $pattern = '/(?<![\p{L}\p{N}.])(?:(?:1(?:\.0{1,3})?)\s*)?كيلو(?:جرام|غرام)?\s+'
+            . '(?:ال)?' . $fish . '(?:\s+' . $qualifiers . '){0,3}\s*[:：]?\s+'
+            . $count . '(?![\p{L}\p{N}])/u';
+        preg_match_all($pattern, $text, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        if (count($matches) !== 1) return null;
+        $match = $matches[0];
+        $before = substr($text, 0, $match[0][1]);
+        if (preg_match('/(?:بدون|دون|غير|مش|لا|ليس|not|no|without)\s*\z/iu', $before)) return null;
+        $size = ($match[1][0] ?? '') !== '' ? (int) $match[1][0] : 2;
+        if ($size < 1 || $size > 99) return null;
+        $wanted = [['quantity'=>1000, 'mode'=>'weight'], ['quantity'=>$size * 1000, 'mode'=>'piece']];
+        foreach ($amounts as $amount) {
+            $index = array_search($amount, $wanted, true);
+            if ($index === false) return null;
+            unset($wanted[$index]);
+        }
+        return !$wanted ? ['amount'=>['quantity'=>1000, 'mode'=>'weight'], 'fish_per_kg'=>(string) $size] : null;
+    }
+
+    /** An explicit size must survive as one real catalog choice, including its preparation. */
+    public static function fishSizeOptions(string $clause, array $liveLabels, array $qualifierTexts = [], bool $preservePreparation = true): ?array
+    {
+        if (strlen($clause) > 65536 || preg_match('//u', $clause) !== 1 || count($liveLabels) > 100 || count($qualifierTexts)>60) return null;
+        foreach ($liveLabels as $label) if (!self::shortText($label, 200)) return null;
+        foreach ($qualifierTexts as $text) if (!is_string($text)||strlen($text)>65536||preg_match('//u',$text)!==1) return null;
+        $texts=[$clause,...$qualifierTexts];
+        $sizes = self::variants($clause);
+        if (!$sizes) return [];
+        if (count($sizes) !== 1 || self::unsafe($clause) || self::alternatives($clause)) return null;
+        $selected = [];
+        foreach (array_unique($liveLabels) as $label) {
+            if (!self::shortText($label, 200)) return null;
+            $normalized = self::normalize($label);
+            $normalized = preg_replace('/(?<![\p{L}\p{N}])(?:(?:من|في|لكل)\s+)?(?:ال)?كيلو(?=\s*(?:[0-9]|سمكت))/u', ' ', $normalized);
+            $pattern = '/(?<![\p{L}\p{N}])(?:([0-9]{1,2})\s*(?:سمكات|سمكة|سمكه|حبات|حبة|حبه)|(سمكتين|سمكتان))(?![\p{L}\p{N}])/u';
+            preg_match_all($pattern, $normalized, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+            if (count($matches) !== 1) continue;
+            $match = $matches[0];
+            if (preg_match('/(?:بدون|دون|غير|مش|لا|ليس|not|no|without)\s*\z/iu', substr($normalized,0,$match[0][1]))) continue;
+            $count = ($match[1][0] ?? '') !== '' ? (string) (int) $match[1][0] : '2';
+            if ($count !== $sizes[0]) continue;
+            $rest = substr_replace($normalized, ' ', $match[0][1], strlen($match[0][0]));
+            $rest = preg_replace('/(?<![\p{L}\p{N}])(?:(?:من|في|لكل)\s+)?(?:ال)?كيلو(?![\p{L}\p{N}])/u', ' ', $rest);
+            $rest = trim(preg_replace('/[\s:：\/()\-]+/u', ' ', $rest));
+            $restSeen=$rest==='';
+            foreach ($texts as $text) if (self::positiveOption($rest,self::normalize($text))||self::positiveOption($label,$text)) $restSeen=true;
+            if (!$restSeen) continue;
+            $missingPreparation = false;
+            if ($preservePreparation) foreach (['كامل', 'مخلي'] as $preparation) foreach ($texts as $text)
+                if (self::positiveOption($preparation, $text) && !self::literal($preparation, $normalized)) $missingPreparation = true;
+            if (!$missingPreparation) $selected[$label] = true;
+        }
+        return count($selected) === 1 ? array_keys($selected) : null;
+    }
+
+    public static function fishSizes(string $clause): array
+    {
+        return strlen($clause) <= 65536 && preg_match('//u', $clause) === 1 ? self::variants($clause) : [];
+    }
+
+    private static function rawQuantities(string $text): array
+    {
         if (strlen($text) > 65536 || preg_match('//u', $text) !== 1 || self::signedAmount($text)) return [];
         $text = self::normalize($text);
         if (self::unsupportedAmount($text)) return [];
@@ -297,7 +790,7 @@ final class WhatsAppOrderConversationEvidence
             . 'قطعة|قطع|حبة|حبه|حبات|سمكة|سمكه|سمكات|علبة|علب|عدد|وجبة|وجبات|ساندوتش|سندوتش|'
             . 'ساندوتشات|سندوتشات|pieces?|pcs|units?|meals?|sandwich(?:es)?)';
         $numbers = '(?:[0-9]{1,6}(?:\.[0-9]{1,3})?|نصف|نص|ربع|half|quarter)';
-        preg_match_all('/(?<![\p{L}\p{N}.])(' . $numbers . ')\s*(' . $units . ')(?![\p{L}\p{N}])/iu',
+        preg_match_all('/(?<![\p{L}\p{N}.])(?:و)?(' . $numbers . ')\s*(' . $units . ')(?![\p{L}\p{N}])/iu',
             $text, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         $result = []; $covered = [];
         foreach ($matches as $match) {
@@ -305,7 +798,7 @@ final class WhatsAppOrderConversationEvidence
             $amount = self::unitAmount($match[1][0], $match[2][0]);
             if ($amount !== null) $result[] = $amount;
         }
-        preg_match_all('/(?<![\p{L}\p{N}])(' . $units . ')(?![\p{L}\p{N}])/iu', $text,
+        preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(' . $units . ')(?![\p{L}\p{N}])/iu', $text,
             $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         foreach ($matches as $match) {
             $inside = false;
@@ -315,7 +808,62 @@ final class WhatsAppOrderConversationEvidence
                 if ($amount !== null) $result[] = $amount;
             }
         }
+        preg_match_all('/(?<![\p{L}\p{N}])(?:و)?(?:سمكتين|سمكتان)(?![\p{L}\p{N}])/u', $text, $dual);
+        foreach ($dual[0] as $ignored) $result[] = ['quantity'=>2000, 'mode'=>'piece'];
         return count($result) <= self::MAX_ITEMS ? $result : [];
+    }
+
+    /** The application's complete factual recap can replace the historical details-after-basket sequence.
+     * Receipt ownership/proposal authentication is a separate mandatory coordinator gate.
+     */
+    private static function completeDialogueRecap(array $data,array $rows,array $positions,array $contexts,?int $summary): ?array
+    {
+        if ($summary===null||!$contexts) return null;
+        $summaries=[];
+        foreach ($contexts as $index=>$ref) {
+            $item=$data['items'][$index]; $offer=$rows[$ref['business_offer_id']]['text']??null;
+            $prefix='بالنسبة لـ «'.$item['name'].'»، ';
+            if (!is_string($offer)||(!str_starts_with($offer,$prefix)&&!str_starts_with($offer,'لو سمحت، '.$prefix))) return null;
+            if (!self::quantityQuestion($offer)&&!str_contains($offer,"من الاختيارات المتاحة عندنا:\n")) return null;
+            $summaries[$ref['business_summary_id']]=true;
+        }
+        if (count($summaries)!==1) return null;
+        $id=array_key_first($summaries); $row=$rows[$id]??null;
+        if (!$row||$row['speaker']!=='business'||$positions[$id]!==$summary
+            ||!self::shortText($row['text']??null,4096)||self::unsafe($row['text'])||self::alternatives($row['text'])) return null;
+        $lines=explode("\n",$row['text']);
+        if (($lines[0]??null)!=='تأكيد الطلب:'||!isset($lines[1])||trim($lines[1])==='') return null;
+        $expected=[];
+        foreach (['name'=>'الاسم: ','phone'=>'رقم التواصل: ','address'=>'العنوان: '] as $field=>$label) {
+            $value=$data['customer'][$field]??null;
+            if (!self::shortText($value,$field==='address'?1000:200)) return null;
+            $expected[]=$label.$value; $backed=false;
+            foreach ($data['evidence']['request_ids']??[] as $request) {
+                $source=$rows[$request]??null;
+                if (!$source||$source['speaker']!=='customer'||$positions[$request]>=$summary) continue;
+                $text=$source['text']??'';
+                if ($field==='phone'?self::phoneLiteral($value,$text):self::literal($value,$text)) $backed=true;
+            }
+            if (!$backed) return null;
+        }
+        if (($data['customer']['area']??null)!==null) $expected[]='المنطقة: '.$data['customer']['area'];
+        if (($data['branch_hint']??null)!==null) $expected[]='الفرع: '.$data['branch_hint'];
+        if (($data['customer']['notes']??null)!==null) $expected[]='ملاحظات: '.$data['customer']['notes'];
+        if (array_slice($lines,2,count($expected))!==$expected||count($lines)!==count($expected)+4) return null;
+        $mode=$lines[count($lines)-2];
+        if (!in_array($mode,['طريقة الاستلام: دليفري.','طريقة الاستلام: من الفرع.'],true)
+            ||(($data['fulfillment']??'UNKNOWN')==='DELIVERY'&&$mode!=='طريقة الاستلام: دليفري.')
+            ||(($data['fulfillment']??'UNKNOWN')==='PICKUP'&&$mode!=='طريقة الاستلام: من الفرع.')) return null;
+        if (!in_array($lines[count($lines)-1],['اكتب موافق للموافقة على البيانات والطلب المذكور.',
+            'من فضلك اكتب موافق للموافقة على البيانات والطلب المذكور.'],true)) return null;
+        $acceptance=null;
+        foreach ($rows as $label=>$after) {
+            if ($positions[$label]<=$summary) continue;
+            if ($after['speaker']!=='customer'||!self::acceptance($after['text']??'')) return null;
+            if (self::cited($data,'customer_acceptance_ids',$label)) $acceptance=$positions[$label];
+        }
+        if ($acceptance===null||self::laterChanges($data,$rows,$positions,$summary)) return null;
+        return ['data_request'=>$acceptance+1,'ack'=>$summary,'final'=>$summary];
     }
 
     private static function acknowledgment(array $data, array $rows, array $positions, ?int $afterSummary): ?array
@@ -394,10 +942,12 @@ final class WhatsAppOrderConversationEvidence
     private static function episodeStable(array $data, array $rows, array $positions, array $items,
         array $proofs, array $contexts, int $first, int $lastSummary, int $final): bool
     {
-        $primary = []; $options = [];
-        foreach ($contexts as $ref) {
+        $primary = []; $options = []; $sharedAnchors=[];
+        foreach ($contexts as $index=>$ref) {
             $primary[$ref['customer_quantity_id']] = true;
             if ($ref['customer_option_id'] !== null) $options[$ref['customer_option_id']] = true;
+            if (self::namedQuestionDisambiguates($items[$index],$index,$items,$rows,$positions,$ref))
+                $sharedAnchors[$ref['name_anchor_id']]=true;
         }
         foreach ($rows as $id => $row) {
             $p = $positions[$id]; if ($p < $first || $p > $final) continue;
@@ -405,8 +955,17 @@ final class WhatsAppOrderConversationEvidence
             if (self::unsafe($text) || self::amendment($text)) return false;
             if ($row['speaker'] === 'customer' && $p > $first && self::newOrder($text)) return false;
             if ($row['speaker'] === 'business' && $p < $lastSummary && self::finalConfirm($text)) return false;
-            if ($row['speaker'] !== 'customer' || $p >= $lastSummary || isset($primary[$id]) || isset($options[$id])
-                || !self::selection($text)) continue;
+            if ($row['speaker']==='customer'&&isset($sharedAnchors[$id])) {
+                $actual=[]; $covered=[];
+                foreach (self::clauses($text) as $clause) $actual=array_merge($actual,self::quantities($clause));
+                foreach ($items as $index=>$item) if (($proofs[$index]['quantity_position']??null)===null
+                    &&self::sharedNamedQuantityFromRows($item,$index,$data,$rows,$positions,$contexts,$id))
+                    $covered[]=self::declaredAmount($item);
+                $encode=static fn($amount)=>json_encode($amount,JSON_THROW_ON_ERROR);
+                $actual=array_map($encode,$actual); $covered=array_map($encode,$covered); sort($actual); sort($covered);
+                if ($covered&&$actual===$covered) continue;
+            }
+            if ($row['speaker'] !== 'customer' || $p >= $lastSummary || isset($primary[$id]) || isset($options[$id])) continue;
             $amounts = self::quantities($text); if (!$amounts) continue;
             $topics = self::topics($text, $items); $possible = [];
             foreach ($proofs as $index => $proof) if ($proof['quantity_position'] !== null && $proof['quantity_position'] <= $p
@@ -548,10 +1107,19 @@ final class WhatsAppOrderConversationEvidence
 
     private static function variants(string $text): array
     {
+        $variants = self::explicitVariants($text);
+        $fish = self::fishWeightSize($text);
+        if ($fish !== null) $variants[] = $fish['fish_per_kg'];
+        return array_values(array_unique($variants));
+    }
+
+    private static function explicitVariants(string $text): array
+    {
         $text = self::normalize($text); preg_match_all(self::variantPattern(), $text, $matches, PREG_SET_ORDER);
         $variants = [];
         foreach ($matches as $match) {
             $number = ($match[1] ?? '') !== '' ? $match[1] : ($match[2] ?? '');
+            if ($number === '' && (($match[3] ?? '') !== '' || ($match[4] ?? '') !== '')) $number = '2';
             if ($number !== '' && (int) $number > 0) $variants[(string) (int) $number] = true;
         }
         return array_map('strval', array_keys($variants));
@@ -564,7 +1132,9 @@ final class WhatsAppOrderConversationEvidence
         return '/(?<![\p{L}\p{N}])(?:و)?(?:من\s+)?(?:ال)?كيلو\s*([0-9]{1,2})\s*'
             . '(?:حبات|حبة|حبه|سمكات|سمكة|سمكه)(?![\p{L}\p{N}])|'
             . '(?<![\p{L}\p{N}])([0-9]{1,2})\s*(?:حبات|حبة|حبه|سمكات|سمكة|سمكه)\s*'
-            . '(?:في|لكل|\/)\s*(?:ال)?كيلو(?![\p{L}\p{N}])/iu';
+            . '(?:في|لكل|\/)\s*(?:ال)?كيلو(?![\p{L}\p{N}])|'
+            . '(?<![\p{L}\p{N}])(?:و)?(?:من\s+)?(?:ال)?كيلو\s*(سمكتين|سمكتان)(?![\p{L}\p{N}])|'
+            . '(?<![\p{L}\p{N}])(سمكتين|سمكتان)\s*(?:في|لكل|\/)\s*(?:ال)?كيلو(?![\p{L}\p{N}])/iu';
     }
 
     private static function normalize(string $text): string
@@ -695,7 +1265,7 @@ final class WhatsAppOrderConversationEvidence
         return preg_match('/(?:تجاهل\s+(?:كل|التعليمات)|تعليمات\s+(?:النظام|المطور)|ignore\s+(?:all|previous|above)|'
             . 'system\s+prompt|developer\s+message|(?:return|decision).{0,30}CONFIRMED|'
             . '(?:مش|لا|مت|ما)\s*(?:عايز|عاوز|موافق|اعملي|اعمللي|اعمل\s+لي|هات|ابعت|ضيف|زود)|'
-            . 'لا\s+(?:أريد|اريد|تأكد|تاكد|تؤكد|ترسل)|إلغ|الغ|لغي|'
+            . 'لا\s+(?:أريد|اريد|تأكد|تاكد|تؤكد|ترسل)|(?<![\p{L}\p{N}])(?:و)?(?:إلغاء|الغاء|إلغي|إلغى|الغي|الغى|الغيه|إلغيه|ألغي|ألغى|لغي|لغيه|إلغ|الغ|الغوا|إلغوا|الغيت|ألغيت|هلغي)(?![\p{L}\p{N}])|'
             . '(?:لم|لن|مش|لسه)\s+(?:يتم\s+)?(?:تأكيد|تاكيد|اعتماد)|'
             . '(?:لو|إذا|اذا|لما).{0,40}(?:تأكيد|تاكيد|اكد|أكد)|'
             . '(?:فريق|موظف|زميل).{0,60}(?:لمراجعة|للمراجعة|للتحقق|لتأكيد|للتأكيد|للتاكيد)|'

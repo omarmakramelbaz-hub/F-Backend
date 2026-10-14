@@ -6,6 +6,8 @@ use App\Http\Controllers\Dashboard\MetaConnectionController;
 use App\Http\Middleware\MetaOAuthCallbackPrivacy;
 use Illuminate\Support\Facades\Route;
 
+require __DIR__.'/meta_ai_controls.php';
+
 // Scrub the callback before language or authentication middleware can retain its URL.
 Route::group(['prefix' => 'admin/meta/connection', 'middleware' => [MetaOAuthCallbackPrivacy::class, 'lang', 'IsAdmin']], function () {
     Route::get('/', [MetaConnectionController::class, 'index'])->name('meta-connection.index');
