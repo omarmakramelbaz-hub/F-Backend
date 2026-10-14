@@ -49,7 +49,7 @@
         var pollDelay = Math.max(1500, Math.min(5000, Number(config.poll_interval_ms) || 2000));
         var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = pollDelay, denied = false;
         var threadLoading = false, messageLoading = false, messageStarted = false, projectionWarning = false;
-        var hasPagedThreads = false;
+        var hasPagedThreads = false, threadTotal = 0;
         var threadJob = null, messageJob = null, unreadJob = null, edgeTimer = null, observers = [];
         var renderedMap = new Map(), scrollAnchor = null, newMessagesCount = 0;
         var pendingOlder = false;
@@ -206,6 +206,13 @@
                 document.dispatchEvent(new CustomEvent(name, {detail: detail || {}}));
             }
         }
+        function threadSnapshot() {
+            var unread = {};
+            unreadMap.forEach(function (value, id) { unread[id] = value; });
+            return {source: 'whatsapp', conversations: Array.from(threadMap.values()).map(function (thread) { return Object.assign({}, thread); }),
+                total: threadTotal, has_more: Boolean(nextCursor), unread: unread, available: Boolean(config.available && !closed && !denied)};
+        }
+        function publishThreads() { if (config.hub_chat === true) emit('meta-hub:threads', threadSnapshot()); }
 
         function node(tag, className, text) {
             var element = document.createElement(tag);
@@ -496,6 +503,7 @@
                 unreadMap.clear(); readSeen.clear(); readPending.clear();
                 if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
                 title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
+                threadTotal = 0; nextCursor = null; publishThreads();
                 older.hidden = true; more.hidden = true;
                 controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
                 listStatus.textContent = labels.denied; chatStatus.textContent = labels.denied;
@@ -568,6 +576,7 @@
             threads.textContent = ''; threads.appendChild(fragment);
             threadScroll.scrollTop = oldTop;
             listStatus.textContent = threadMap.size ? '' : labels.empty;
+            publishThreads();
         }
         function loadUnread() {
             if (!config.unread_url || !unreadTotal || closed || denied) return Promise.resolve();
@@ -653,9 +662,11 @@
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
-                renderThreads(); count.textContent = String(data.total || 0);
+                threadTotal = Number.isSafeInteger(data.total) && data.total >= 0 ? data.total : 0;
+                count.textContent = String(threadTotal);
                 if (previous || !hasPagedThreads) nextCursor = data.next_cursor && data.next_cursor !== page ? data.next_cursor : null;
                 if (previous) hasPagedThreads = true;
+                renderThreads();
                 more.hidden = true;
             }).finally(function () {
                 if (threadJob === job) threadJob = null;
@@ -954,6 +965,19 @@
             loadMessages('initial').catch(unavailable);
             loadReplyHistory('initial').catch(unavailable);
         }
+        function resetConversation() {
+            if (closed) return;
+            generation++; chosen = 0; selectedChannel = ''; beforeId = null; lastId = 0;
+            messageLoading = false; messageStarted = false; messageJob = null; pendingOlder = false;
+            closeActions(); resetSelection(); clearHistory(); clearHidden(); actionNotice = null;
+            renderedMap.clear(); scrollAnchor = null; newMessagesCount = 0; newMessagesIndicator();
+            clearTimeout(readTimer); readPending.clear();
+            ['messages', 'reply-history', 'visible-updates'].forEach(function (key) { if (controllers.has(key)) controllers.get(key).abort(); });
+            messageMap.clear(); apiReplyMap.clear(); releaseMessageMedia(); messages.textContent = '';
+            title.textContent = labels.choose_conversation; customer.textContent = ''; chatStatus.textContent = labels.choose_conversation;
+            older.hidden = true; panel.classList.remove('has-selection'); back.hidden = true;
+            notice('', false); emit('whatsapp:private-reset', {reason: 'selection'}); renderThreads();
+        }
         function success() {
             if (closed || denied) return;
             retryDelay = pollDelay;
@@ -1034,6 +1058,7 @@
                 clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
                 threadMap.clear(); messageMap.clear(); apiReplyMap.clear(); threads.textContent = ''; releaseMessageMedia(); messages.textContent = '';
                 nextCursor = null; hasPagedThreads = false; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false; messageStarted = false;
+                threadTotal = 0; publishThreads();
                 title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
                 panel.classList.remove('has-selection'); back.hidden = true;
                 panel.querySelectorAll('[data-meta-channel]').forEach(function (item) { item.setAttribute('aria-pressed', item === channelButton ? 'true' : 'false'); });
@@ -1044,7 +1069,10 @@
             if (event.target.closest('[data-wa-older]') && !older.disabled) loadMessages('older').catch(unavailable);
             if (event.target.closest('[data-wa-more-threads]') && !more.disabled) loadThreads(true).catch(unavailable);
             if (event.target.closest('[data-wa-refresh]')) wake();
-            if (event.target.closest('[data-wa-back]')) { rememberAnchor(); closeActions(); panel.classList.remove('has-selection'); back.hidden = true; }
+            if (event.target.closest('[data-wa-back]')) {
+                if (config.hub_chat === true) { resetConversation(); emit('meta-hub:conversation-reset', {source: 'whatsapp'}); }
+                else { rememberAnchor(); closeActions(); panel.classList.remove('has-selection'); back.hidden = true; }
+            }
         }
         function visibility() {
             if (document.hidden) { clearTimeout(timer); clearTimeout(edgeTimer); closeActions(); emit('whatsapp:private-reset', {reason: 'hidden'}); }
@@ -1071,7 +1099,13 @@
         document.addEventListener('whatsapp:private-reset', resetAcceptedReplies);
         window.addEventListener('offline', online); window.addEventListener('online', online);
         window.addEventListener('focus', wake);
-        var session = {panel: panel, selection: function () { return chosen; },
+        var session = {panel: panel, selection: function () { return chosen; }, snapshot: threadSnapshot,
+            openConversation: function (id) {
+                id = Number(id);
+                if (closed || denied || !Number.isSafeInteger(id) || id < 1 || !threadMap.has(id)) return false;
+                choose(id); return true;
+            }, resetSelection: resetConversation,
+            loadMore: function () { return loadThreads(true).then(loadUnread).catch(unavailable); },
             selectionState: function () { return {conversation: chosen, generation: generation, channel: selectedChannel, namespace: namespace}; }, destroy: function () {
             if (closed) return; closed = true; generation++; clearTimeout(timer);
             clearTimeout(readTimer); clearTimeout(edgeTimer); closeActions(); resetSelection(); clearHidden(); renderedMap.clear(); scrollAnchor = null; newMessagesCount = 0; newMessagesIndicator(); observers.forEach(function (observer) { observer.disconnect(); });
@@ -1090,9 +1124,11 @@
             if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
             config.csrf = '';
             title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
+            threadTotal = 0; nextCursor = null; publishThreads();
         }};
         active = session;
         updateSelection();
+        publishThreads();
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
             if (active === session) destroy(); else session.destroy();
         });
@@ -1102,6 +1138,11 @@
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardWhatsAppInbox = {mount: mount, destroy: destroy,
+        openConversation: function (id) { return active && active.openConversation ? active.openConversation(id) : false; },
+        resetSelection: function () { if (active && active.resetSelection) active.resetSelection(); },
+        loadMore: function () { return active && active.loadMore ? active.loadMore() : Promise.resolve(); },
+        snapshot: function () { return active && active.snapshot ? active.snapshot()
+            : {source: 'whatsapp', conversations: [], total: 0, has_more: false, unread: {}, available: false}; },
         selection: function () { return active && active.selection ? active.selection() : 0; },
         selectionState: function () { return active && active.selectionState ? active.selectionState() : {conversation: 0, generation: 0, channel: '', namespace: ''}; }};
     document.addEventListener('dashboard:before-unload', destroy);
