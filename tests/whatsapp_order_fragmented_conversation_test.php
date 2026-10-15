@@ -417,9 +417,9 @@ fragmentExpect($malformedResult['reason'],'INVALID_INPUT','malformed associative
 $codedBeforeTest=$newRows;$codedBeforeTest[0]['text'].=' WA-1234';$calls=0;
 $provider=new Provider(static function($body,$key)use(&$calls,$newData):array{$calls++;return fragmentResponse($newData);},fragmentConfig());
 $codedBeforeResult=$provider->extract($codedBeforeTest);
-fragmentExpect($calls,0,'global WA marker before explicit order-test/new-order boundary blocks HTTP before filtering');
-fragmentExpect($codedBeforeResult['data']['decision'],'NONE','post-test filter cannot hide preceding global WA marker');
-fragmentExpect($codedBeforeResult['data']['issues'],['TEST_MESSAGE'],'preceding global marker keeps legacy fixed test classification');
+fragmentExpect($calls,1,'historical coded marker cleared only by later strict new-order boundary allows one request');
+fragmentExpect($codedBeforeResult['data'],$newData,'current isolated evidence remains authoritative after historical coded marker');
+fragmentExpect(Evidence::episodeBoundary($codedBeforeTest),'m3','coded and operational predecessors share the same fresh boundary');
 foreach(['old-name','old-address','old-location','old-item-anchor','old-offer','old-acceptance']as$case) {
     $bad=$newData;$badRows=$newRows;
     if($case==='old-name') {$bad['customer']['name']='اسم سابق';$bad['evidence']['request_ids'][]='m1';}
@@ -442,8 +442,8 @@ foreach(['question','negative','quote','generic-quantity','bare-test-name']as$ca
     fragmentExpect($provider->extract($noReset)['data']['decision'],'NONE',$case.' cannot create a post-test confirmed order');
     fragmentExpect($calls,0,$case.' non-reset makes no paid request');
 }
-$codedTest=$newRows;$codedTest[1]['text']='WA-1234';
-fragmentExpect(Extraction::hasProbe($codedTest),true,'legacy WA-#### marker remains a global guard even after explicit new order');
+$codedTest=$newRows;$codedTest[3]['text'].=' WA-1234';
+fragmentExpect(Extraction::hasProbe($codedTest),true,'coded marker inside current episode still blocks despite earlier new order');
 $calls=0;$provider=new Provider(static function($body,$key)use(&$calls,$newData):array{$calls++;return fragmentResponse($newData);},fragmentConfig());
 fragmentExpect($provider->extract($codedTest)['data']['decision'],'NONE','legacy coded test cannot be reset by contextual references');
 fragmentExpect($calls,0,'legacy coded marker still prevents paid request');

@@ -155,12 +155,15 @@ final class WhatsAppOrderExtraction
 
     public static function hasProbe(array $transcript): bool
     {
-        foreach ($transcript as $row) {
-            if (preg_match('/\bWA-[0-9]{4}\b/i', self::rowText($row))) {
+        // The complete native snapshot must be valid before any historical rows are excluded.
+        $episode = self::validateTranscript($transcript)['ok']
+            ? WhatsAppOrderConversationEvidence::episodeTranscript($transcript) : $transcript;
+        foreach ($episode as $row) {
+            if (is_array($row) && preg_match('/\bWA-[0-9]{4}\b/i', self::rowText($row))) {
                 return true;
             }
         }
-        return WhatsAppOrderConversationEvidence::operationalTest($transcript);
+        return WhatsAppOrderConversationEvidence::operationalTest($episode);
     }
 
     /** The automatic cutover must use real commitment, never a recent name/address-only row. */

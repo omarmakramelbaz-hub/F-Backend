@@ -559,9 +559,14 @@ try {
     });
     sourceRejected($borrowed, 'old episode name and citation cannot be borrowed');
     $coded = $episodeRows; $coded[0]['text'] .= ' WA-1234';
-    $codedRun = sourceExtract($coded, static function (): array { throw new RuntimeException('Global coded test must not call fake HTTP.'); });
-    sourceExpect($codedRun['calls'], 0, 'global coded guard still inspects raw old rows before filtering current epoch');
-    sourceExpect($codedRun['result']['data']['issues'], ['TEST_MESSAGE'], 'global old-row coded test retains original classification');
+    $codedRun = sourceExtract($coded, static fn ($input) => sourceWire($input, $shiftedData));
+    sourceExpect($codedRun['calls'], 1, 'strict later new order isolates old coded marker before provider input');
+    sourceSame($codedRun['result'], Extraction::result(true, null, $shiftedData), 'current evidence survives historical coded marker without borrowing old facts');
+    sourceExpect($codedRun['input']['transcript'][0]['id'], 'm3', 'old coded marker does not alter current native labels');
+    $currentCoded = $episodeRows; $currentCoded[3]['text'] .= ' WA-1234';
+    $currentCodedRun = sourceExtract($currentCoded, static function (): array { throw new RuntimeException('Current coded marker must not call fake HTTP.'); });
+    sourceExpect($currentCodedRun['calls'], 0, 'coded marker after current new-order boundary still blocks HTTP');
+    sourceExpect($currentCodedRun['result']['data']['issues'], ['TEST_MESSAGE'], 'current coded marker keeps fixed test classification');
     echo 'WHATSAPP_ORDER_ANCHOR_CITATION_CHECKS=' . $checks . "\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . "\n");

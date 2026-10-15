@@ -294,7 +294,7 @@ class WhatsAppOrderWorkflow
             $authority=$automatic&&$this->controlInstalled()?$this->primaryAuthority($conversation,$snapshot):null;
             if ($automatic&&$this->controlInstalled()) abort_unless($authority!==null&&(int)$actor->id===$authority['actor_id'],403,'AI_CONTROL_BLOCKED');
             if ($automatic&&$this->controlInstalled()) abort_unless($this->replyControlOpen($conversation),409,'AI_REPLY_SCHEDULE_CLOSED');
-            $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract($snapshot['transcript'])
+            $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
                 : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
             if (!is_array($result) || !($result['ok'] ?? false)) {
                 $data = ['analysis_failure'=>$this->safeAnalysisFailure($result)];
@@ -474,13 +474,16 @@ class WhatsAppOrderWorkflow
             try { app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
             catch (\Throwable $error) { $reason='BRANCH_UNRESOLVED'; return null; }
         }
+        // Keep the authenticated full snapshot for currentness and consent, while
+        // location and catalog facts belong only to this independently started order.
+        $transcript=WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']);
         $customer=$data['customer']??[];
         foreach (['name','phone','address'] as $k) if (!is_string($customer[$k]??null)||trim($customer[$k])==='') { $reason='REVIEW_REQUIRED'; return null; }
         $savedQuery=DB::table('branch_customers')->where('branch',$branch)->where('phone_key',BranchCustomers::phoneKey($customer['phone']));
         if ($lock) $savedQuery->lockForUpdate(); $saved=$savedQuery->first();
         $location=null;
         $locationTime=null; $addressTime=null; $lastLocation=null; $summaryAddress=false;
-        foreach ($snapshot['transcript'] as $m) {
+        foreach ($transcript as $m) {
             if ($m['speaker']==='customer' && ((is_string($m['text']) && strpos($m['text'],$customer['address'])!==false)
                 || (is_string($m['cart']['text']??null)&&strpos($m['cart']['text'],$customer['address'])!==false))) $addressTime=$m['sent_at'];
             if ($m['speaker']==='customer' && $m['location']!==null) $lastLocation=$m['id'];
@@ -489,7 +492,7 @@ class WhatsAppOrderWorkflow
                 && is_string($m['text']) && strpos($m['text'],$customer['address'])!==false) $summaryAddress=true;
         }
         if (!$summaryAddress && WhatsAppOrderConversationEvidence::addressAcknowledged($data,
-                array_column($snapshot['transcript'],null,'id'))) $summaryAddress=true;
+                array_column($transcript,null,'id'))) $summaryAddress=true;
         if (!$addressTime || !$summaryAddress) { $reason='LOCATION_UNCONFIRMED'; return null; }
         if ($lastLocation!==null) {
             // A newer native pin cannot be replaced by an older saved customer address.
@@ -508,22 +511,22 @@ class WhatsAppOrderWorkflow
             if ($page===3) { $reason='CATALOG_UNRESOLVED'; return null; }
         }
         $summaryTexts=[];
-        foreach ($snapshot['transcript'] as $message) if ($message['speaker']==='business'&&in_array($message['id'],$data['evidence']['confirmation_ids']??[],true)&&is_string($message['text'])) $summaryTexts[]=$message['text'];
+        foreach ($transcript as $message) if ($message['speaker']==='business'&&in_array($message['id'],$data['evidence']['confirmation_ids']??[],true)&&is_string($message['text'])) $summaryTexts[]=$message['text'];
         $usedCartLines=[];
         foreach ($data['items'] as $item) {
             if (($item['cart_reference']??null)!==null) {
-                $resolved=$this->cartItem($item,$data['items'],$summaryTexts,$snapshot['transcript'],$catalog,$branch,$usedCartLines);
+                $resolved=$this->cartItem($item,$data['items'],$summaryTexts,$transcript,$catalog,$branch,$usedCartLines);
                 if ($resolved===null) { $reason='CATALOG_UNRESOLVED'; return null; }
                 $items[]=$resolved; continue;
             }
             $matches=array_values(array_filter($catalog,fn($p)=>($p['available']??false)&&$this->name($p['name'])===$this->name($item['name'])));
             if (count($matches)!==1 || !is_string($item['quantity']??null) || !in_array($item['quantity_mode'],['piece','weight'],true)
                 || !in_array($matches[0]['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) { $reason='CATALOG_UNRESOLVED'; return null; }
-            $p=$matches[0]; $option=$this->catalogOption($item,$data['items'],$summaryTexts,$p,$data,$snapshot['transcript']);
+            $p=$matches[0]; $option=$this->catalogOption($item,$data['items'],$summaryTexts,$p,$data,$transcript);
             if ($option===null) { $reason='CATALOG_UNRESOLVED'; return null; }
             $items[]=['product_id'=>$p['id'],'quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode'],'option_id'=>$option];
         }
-        if (!$this->completeCart($snapshot['transcript'],$data,$usedCartLines)) { $reason='CATALOG_UNRESOLVED'; return null; }
+        if (!$this->completeCart($transcript,$data,$usedCartLines)) { $reason='CATALOG_UNRESOLVED'; return null; }
         $sourceMatches=$saved&&BranchCustomers::phoneKey($saved->phone)===BranchCustomers::phoneKey($customer['phone'])
             &&$this->name($saved->address)===$this->name($customer['address'])&&$this->sourceAreaAgrees($saved->area??null,$customer['area']??null);
         $area=$customer['area']??($sourceMatches?trim((string)($saved->area??'')):($location['source_area']??''));
@@ -770,6 +773,7 @@ class WhatsAppOrderWorkflow
     /** Exact branch facts for a conversational answer; private prices are never ERP authority. */
     private function informationContext(array $turn,?array $catalog,array $transcript): ?array
     {
+        $episode=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
         $text=$turn['text']; $facts=[];
         $add=static function(string $subject,string $value)use(&$facts):void {
             if (count($facts)>=24||mb_strlen($subject)>240||mb_strlen($value)>500
@@ -784,7 +788,7 @@ class WhatsAppOrderWorkflow
         $deliveryFee=preg_match('/(?:سعر|تكلفه|تكلفة|رسوم).{0,15}(?:التوصيل|الدليفري)|(?:التوصيل|الدليفري).{0,15}(?:بكام|كام|سعر)|\\bdelivery.{0,15}(?:price|fee|cost)\\b/iu',$text)===1;
         $knowledge=$this->businessInformationFacts($text); $covered=[];
         $previous=null;
-        foreach ($transcript as $row) { if ($row['id']===$turn['id']) break; $previous=$row; }
+        foreach ($episode as $row) { if ($row['id']===$turn['id']) break; $previous=$row; }
         if ($meaning&&($previous['speaker']??null)==='business'&&is_string($previous['text']??null)) {
             $prior=$previous['text'];
             if (preg_match('/(?:رقم\\s+(?:هاتف|الهاتف|للتواصل|الموبايل)|رقمك|رقم\\s+تواصل)/u',$prior))
@@ -811,7 +815,7 @@ class WhatsAppOrderWorkflow
             // any offered product on the customer's behalf.
             if ($matched===[]&&$meaning) {
                 $business=null;
-                foreach ($transcript as $row) {
+                foreach ($episode as $row) {
                     if ($row['id']===$turn['id']) break;
                     if ($row['speaker']==='business'&&is_string($row['text'])) $business=$row['text'];
                 }
@@ -983,7 +987,7 @@ class WhatsAppOrderWorkflow
             if (($item['cart_reference']??null)!==null) continue;
             $exact=array_values(array_filter($catalog,fn($product)=>$product['available']&&$this->name($product['name'])===$this->name($item['name'])));
             if (count($exact)===1) {
-                if ($this->catalogOption($item,$data['items'],$texts,$exact[0],$data,$transcript)!==null) continue;
+                if ($this->catalogOption($item,$data['items'],$texts,$exact[0],$data,WhatsAppOrderConversationEvidence::episodeTranscript($transcript))!==null) continue;
                 $candidates=[];
                 foreach ($exact[0]['options'] as $option) if ($option['label']!==''&&!in_array($option['label'],array_column($candidates,'label'),true)) {
                     $candidates[]=['id'=>'c'.(count($candidates)+1),'label'=>$option['label']]; if (count($candidates)===12) break;
@@ -1053,6 +1057,7 @@ class WhatsAppOrderWorkflow
 
     private function followupHasPoint(array $data,array $transcript,string $branch,$actor): bool
     {
+        $transcript=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
         $addressAt=null; $lastPin=null;
         foreach ($transcript as $message) {
             if ($message['speaker']!=='customer') continue;
@@ -1068,6 +1073,7 @@ class WhatsAppOrderWorkflow
 
     private function followupItemQuantities(array $data,array $transcript,string $branch): bool
     {
+        $transcript=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
         if ($data['decision']==='CONFIRMED') return WhatsAppOrderExtraction::validateDetailed($data,$transcript)['ok'];
         if (count(array_filter($data['items'],static fn($item)=>($item['cart_reference']??null)!==null))===0)
             return WhatsAppOrderConversationEvidence::draftItemQuantities($data,$transcript);
@@ -1103,6 +1109,7 @@ class WhatsAppOrderWorkflow
 
     private function followupCatalogReady(array $data,array $transcript,string $branch,$actor): bool
     {
+        $transcript=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
         $catalog=[];
         for ($page=1;$page<=3;$page++) {
             $list=app(TakeawayCatalog::class)->listing(['branch'=>$branch,'page'=>$page,'per_page'=>100],$actor);
@@ -1570,7 +1577,7 @@ class WhatsAppOrderWorkflow
     {
         $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         $data=$this->decode($row->extraction); $ids=$data['evidence']['confirmation_ids']??[]; $anchor=null;
-        foreach ($snapshot['transcript'] as $m) if ($m['speaker']==='business' && (!$ids || in_array($m['id'],$ids,true))) $anchor=$snapshot['keys'][$m['id']];
+        foreach (WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']) as $m) if ($m['speaker']==='business' && (!$ids || in_array($m['id'],$ids,true))) $anchor=$snapshot['keys'][$m['id']];
         abort_unless(is_string($anchor),422,'BUSINESS_CONFIRMATION_REQUIRED');
         return hash('sha256','whatsapp-order-confirmation-v1:'.$this->scopeKey($this->conversation((int)$row->conversation_id)).$anchor);
     }

@@ -205,17 +205,21 @@ class MetaAiInstallTests(unittest.TestCase):
         self.assertFalse(set(repair.CATALOG_LOCK_OVERRIDE)&set(repair.SOURCE_PINS))
     def test_previous_ai_runtimes_are_complete_reviewed_upgrade_profiles(self):
         self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),
-            {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS','META_AI_CONTROL_INBOX_REPAIR'})
+            {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS',
+             'META_AI_CONTROL_INBOX_REPAIR','META_AI_CONTROL_CUSTOMER_ANSWERS'})
         first=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
         saved=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_SAVE_BUTTON']
         hours=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_UNANSWERED_HOURS']
         inbox=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_INBOX_REPAIR']
+        answers=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_CUSTOMER_ANSWERS']
         viewport='public/css/dashboard-meta-inbox-viewport.css'
         for previous in (first,saved,hours):
             self.assertEqual(tuple(previous),tuple(repair.SOURCE_PINS))
             self.assertIsNone(previous[viewport])
         self.assertEqual(tuple(inbox),tuple(repair.SOURCE_PINS))
         self.assertEqual(inbox[viewport],repair.SOURCE_PINS[viewport][1])
+        self.assertEqual(tuple(answers),tuple(repair.SOURCE_PINS))
+        self.assertEqual(answers[viewport],repair.SOURCE_PINS[viewport][1])
         self.assertEqual(first['public/js/dashboard-meta-ai-controls.js'],'fc34fca42cf8dd80f7916bacc1780444a51afab4')
         self.assertEqual(saved['public/js/dashboard-meta-ai-controls.js'],'00589d95df07646aaa8db71309e098bccd36bd2e')
         self.assertEqual([path for path in saved if saved[path]!=first[path]],['public/js/dashboard-meta-ai-controls.js'])
@@ -225,15 +229,18 @@ class MetaAiInstallTests(unittest.TestCase):
         required.add(viewport)
         dialogue={'app/Support/WhatsAppOrderDialogue.php','app/Services/Dashboard/WhatsAppOrderAiProvider.php',
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php'}
+        episode={'app/Support/WhatsAppOrderExtraction.php','app/Services/Dashboard/WhatsAppOrderConversationEvidence.php',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/WhatsAppOrderAiProvider.php'}
         optional={'app/Services/Dashboard/WhatsAppOrderFollowupService.php'}
-        required|=dialogue
+        required|=dialogue|episode
         allowed=required|{'app/Console/Commands/ProcessMetaAiMessages.php'}|optional
         for previous in (first,saved):
             changed={path for path,(_,target) in repair.SOURCE_PINS.items() if previous[path]!=target}
             self.assertTrue(required<=changed<=allowed)
-        hours_required=dialogue|{'resources/views/admin/meta/ai_controls.blade.php',viewport}
+        hours_required=dialogue|episode|{'resources/views/admin/meta/ai_controls.blade.php',viewport}
         self.assertTrue(hours_required<={path for path,(_,target) in repair.SOURCE_PINS.items() if hours[path]!=target}<=hours_required|optional)
-        self.assertTrue(dialogue<={path for path,(_,target) in repair.SOURCE_PINS.items() if inbox[path]!=target}<=dialogue|optional)
+        self.assertTrue(dialogue|episode<={path for path,(_,target) in repair.SOURCE_PINS.items() if inbox[path]!=target}<=dialogue|episode|optional)
+        self.assertEqual({path for path,(_,target) in repair.SOURCE_PINS.items() if answers[path]!=target},episode)
     @unittest.skipUnless(TEST_PHP,'PHP is required for the raw database policy shape probe')
     def test_control_probe_accepts_legacy_and_dispatch_schedules_without_normalizing_stored_rows(self):
         stub=r'''<?php
@@ -266,9 +273,9 @@ namespace MetaAiProbe {
             (root/'bootstrap/app.php').write_text('<?php return new \\MetaAiProbe\\App();\n')
             for policy,accepted in cases:
                 with self.subTest(policy_keys=list(policy)):
-                    row={'id':1,'revision':9,'actor_id':123,'updated_by':123,'created_at':'2026-10-14 00:00:00',
+                    row={'id':1,'revision':10,'actor_id':123,'updated_by':123,'created_at':'2026-10-14 00:00:00',
                         'updated_at':'2026-10-15 00:00:00','policy':json.dumps(policy,indent=1),
-                        'activations':' {"whatsapp":{"floor":500,"revision":9}} ',
+                        'activations':' {"whatsapp":{"floor":500,"revision":10}} ',
                         'handoff':' {"confirmed":true} ','handoff_oversized':0}
                     env=dict(os.environ,META_AI_TEST_ROW=json.dumps(row,separators=(',',':')))
                     result=subprocess.run([TEST_PHP,'-r',repair.CONTROL_STATE_PHP],cwd=root,env=env,

@@ -87,6 +87,10 @@ PROMPT;
                     'variant' => ['type' => 'string', 'enum' => ['SHORT', 'POLITE', 'FRIENDLY']]];
                 $required = ['action', 'candidate_ids', 'fact_ids', 'text', 'variant'];
             }
+            // The full context remains the local proof and choice-validation input.
+            // Historical test conversations are never sent as facts for this new order.
+            $promptContext = $context;
+            $promptContext['transcript'] = WhatsAppOrderConversationEvidence::episodeTranscript($context['transcript']);
             $request = ['model' => $model, 'store' => false, 'stream' => false, 'max_output_tokens' => 1024,
                 'instructions' => $information
                     ? 'Reply to the latest customer question for Fasakhansta in natural, brief, friendly Egyptian Arabic. '
@@ -126,7 +130,7 @@ PROMPT;
                     .'Never write a reply, product name, price, availability promise, coordinates, customer fact, ERP ID or tool call. '
                     .'One kilogram and fish count per kilogram are different facts: do not turn a size such as three fish per kilo '
                     .'into an ordered quantity of three pieces. Questions and menu choices do not confirm an order.',
-                'input' => [['role' => 'user', 'content' => json_encode($context,
+                'input' => [['role' => 'user', 'content' => json_encode($promptContext,
                     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)]],
                 'text' => ['format' => ['type' => 'json_schema', 'name' => $information ? 'whatsapp_order_dialogue_information_v1' : 'whatsapp_order_dialogue_v1', 'strict' => true,
                     'schema' => ['type' => 'object', 'additionalProperties' => false,

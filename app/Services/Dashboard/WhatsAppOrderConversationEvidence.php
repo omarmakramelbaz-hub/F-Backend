@@ -510,12 +510,12 @@ final class WhatsAppOrderConversationEvidence
         return $test !== null && self::newOrderAfter($rows, $positions, $test) === null;
     }
 
-    /** A later genuine order must not borrow evidence from before an operational test. */
+    /** A later genuine order must not borrow evidence from either kind of test episode. */
     public static function evidenceAfterTest(array $data, array $rows): bool
     {
         $ledger = self::ledger($rows);
         if ($ledger === null) return false;
-        [$rows, $positions] = $ledger; $test = self::lastTest($rows, $positions);
+        [$rows, $positions] = $ledger; $test = self::lastEpisodeTest($rows, $positions);
         if ($test === null) return true;
         $ids = [];
         foreach (['request_ids', 'confirmation_ids', 'customer_acceptance_ids'] as $field) {
@@ -539,12 +539,23 @@ final class WhatsAppOrderConversationEvidence
         return true;
     }
 
-    /** A genuine new order following an explicit test order is a separate episode. */
+    /** Original label of a genuine new order after the latest coded or operational test. */
+    public static function episodeBoundary(array $rows): ?string
+    {
+        if (!\App\Support\WhatsAppOrderExtraction::validateTranscript($rows)['ok']) return null;
+        $ledger = self::ledger($rows);
+        if ($ledger === null) return null;
+        [$indexed, $positions] = $ledger; $test = self::lastEpisodeTest($indexed, $positions);
+        $boundary = $test === null ? null : self::newOrderAfter($indexed, $positions, $test);
+        return $boundary === null ? null : array_keys($indexed)[$boundary];
+    }
+
+    /** A genuine new order after the latest test marker starts an isolated native episode. */
     public static function episodeRows(array $rows): array
     {
         $ledger = self::ledger($rows);
         if ($ledger === null) return $rows;
-        [$indexed, $positions] = $ledger; $test = self::lastTest($indexed, $positions);
+        [$indexed, $positions] = $ledger; $test = self::lastEpisodeTest($indexed, $positions);
         $boundary = $test === null ? null : self::newOrderAfter($indexed, $positions, $test);
         if ($boundary === null) return $rows;
         return array_values(array_filter($indexed, static fn ($row) => $positions[$row['id']] >= $boundary));
@@ -1276,6 +1287,17 @@ final class WhatsAppOrderConversationEvidence
     {
         $last = null;
         foreach ($rows as $id => $row) if ($row['speaker'] === 'customer' && self::testIntent($row['text'] ?? '')) $last = $positions[$id];
+        return $last;
+    }
+
+    private static function lastEpisodeTest(array $rows, array $positions): ?int
+    {
+        $last = self::lastTest($rows, $positions);
+        foreach ($rows as $id => $row) {
+            $text = implode("\n", array_filter([$row['text'] ?? null, $row['cart']['text'] ?? null], 'is_string'));
+            if (preg_match('/\bWA-[0-9]{4}\b/i', $text) === 1)
+                $last = $last === null ? $positions[$id] : max($last, $positions[$id]);
+        }
         return $last;
     }
 

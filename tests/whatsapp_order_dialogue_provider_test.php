@@ -399,6 +399,53 @@ try {
         dialogueFailure((new Provider(static fn()=>dialogueHttp(dialogueEnvelope($badJson)),$configuration))
             ->followupQuestion($info),'INVALID_RESPONSE','invalid generated answer is private and falls back at coordinator');
 
+    // A strict new order after an old test keeps full local proof but scopes both
+    // question-model paths to fresh native rows, with their original message IDs.
+    $episodeRows=[];
+    foreach([
+        ['customer','اسمي اسم سابق ورقمي 201000000002 وعنواني شارع سابق في المحلة. عايز 1 كيلو رنجة كامل. تمام موافق'],
+        ['business','WA-0121'],['business','أهلًا'],['customer',null],
+        ['customer','عايز طلب جديد. اسمي عميل حالي ورقمي 201000000001 وعنواني شارع حالي في المنصورة. عايز 0.5 كيلو فسيخ بدون شطة.'],
+        ['business','تحب تعرف تفاصيل عن أنهي صنف؟'],['customer','يعني ايه رنجه هيرنج'],
+    ] as $i=>[$speaker,$text]) $episodeRows[]=['id'=>'m'.($i+1),'speaker'=>$speaker,
+        'sent_at'=>'2026-10-15 00:00:'.sprintf('%02d',$i+1),'text'=>$text,'location'=>null];
+    $episodeContext=['field'=>'ITEMS','kind'=>'PRODUCT_INFORMATION','item_name'=>null,'candidates'=>[],
+        'transcript'=>$episodeRows,'facts'=>[['id'=>'f1','subject'=>'هيرنج','text'=>'هيرنج هو الاسم الإنجليزي لسمك الرنجة.']]];
+    $episodeAnswer=['action'=>'ANSWER','candidate_ids'=>[],'fact_ids'=>['f1'],
+        'text'=>'أكيد، هيرنج هو الاسم الإنجليزي لسمك الرنجة. تحب أوضح لك إيه كمان؟','variant'=>'FRIENDLY'];
+    $episodeChoice=$episodeAnswer; $episodeCalls=0; $episodeInputs=[];
+    $episodeProvider=new Provider(static function($body)use(&$episodeCalls,&$episodeInputs,&$episodeChoice) {
+        $episodeCalls++; $request=json_decode($body,true,32,JSON_THROW_ON_ERROR);
+        $episodeInputs[]=json_decode($request['input'][0]['content'],true,32,JSON_THROW_ON_ERROR);
+        return dialogueHttp(dialogueEnvelope(json_encode($episodeChoice,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)));
+    },$configuration);
+    $episodeBefore=$episodeContext;
+    dialogueExpect(Dialogue::validContext($episodeContext),true,'fresh information context remains valid after historical coded marker');
+    $episodeResult=$episodeProvider->followupQuestion($episodeContext);
+    dialogueExpect($episodeResult['ok'],true,'fresh information question reaches actual provider');
+    dialogueExpect($episodeResult['choice'],$episodeAnswer,'fresh episode retains natural factual FAQ answer');
+    dialogueExpect(Dialogue::render($episodeContext,$episodeResult['choice']),$episodeAnswer['text'],'fresh FAQ render unchanged');
+    dialogueExpect($episodeContext,$episodeBefore,'information full canonical proof stays unchanged');
+    dialogueExpect(array_column($episodeContext['transcript'],'id'),['m1','m2','m3','m4','m5','m6','m7'],
+        'historical canonical labels retained locally');
+    dialogueExpect(array_column($episodeInputs[0]['transcript'],'id'),['m5','m6','m7'],
+        'information model receives only fresh original native message IDs');
+    $episodeEncoded=json_encode($episodeInputs[0],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+    foreach(['اسم سابق','201000000002','شارع سابق','المحلة','WA-0121']as$old)
+        dialogueExpect(str_contains($episodeEncoded,$old),false,'old facts excluded from information model request');
+    dialogueExpect($episodeInputs[0]['facts'],$episodeContext['facts'],'actual supplied FAQ facts preserved');
+    $episodeContext=['field'=>'QUANTITY','kind'=>'MISSING','item_name'=>'فسيخ','candidates'=>[],'transcript'=>$episodeRows];
+    $episodeBefore=$episodeContext; $episodeChoice=['action'=>'ASK','candidate_ids'=>[],'variant'=>'SHORT'];
+    $episodeResult=$episodeProvider->followupQuestion($episodeContext);
+    dialogueExpect($episodeResult['ok']===true&&$episodeResult['choice']===$episodeChoice,true,'ordinary question schema preserved');
+    dialogueExpect(array_column($episodeInputs[1]['transcript'],'id'),['m5','m6','m7'],
+        'ordinary question model receives only fresh original native message IDs');
+    dialogueExpect($episodeContext,$episodeBefore,'ordinary full canonical proof stays unchanged');
+    $episodeContext['transcript'][6]['text'].=' WA-1234';
+    $episodeResult=$episodeProvider->followupQuestion($episodeContext);
+    dialogueExpect($episodeResult['ok']===false&&$episodeResult['reason']==='INVALID_INPUT',true,'current coded marker still blocks generation');
+    dialogueExpect($episodeCalls,2,'current marker spends no additional fake provider call');
+
     $prompt = (new ReflectionClass(Provider::class))->getReflectionConstant('INSTRUCTIONS')->getValue();
     foreach (['do not relax', 'latest answer', 'distinguish ordered weight from fish size',
         'name_source selects the original named-quantity customer row',

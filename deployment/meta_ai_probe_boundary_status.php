@@ -78,7 +78,11 @@ function metaProbeBoundaryObserve($db,$workflow,$control,int $conversation): arr
         [$indexed,$positions]=$ledger; $test=metaProbeBoundaryCall($evidence,'lastTest',[$indexed,$positions]);
         $boundary=$test===null?null:metaProbeBoundaryCall($evidence,'newOrderAfter',[$indexed,$positions,$test]);
         $episode=$evidence::episodeTranscript($transcript);
+        $coded=null;
+        foreach ($rows as $row) if ($row['coded_text']||$row['coded_cart']) $coded=$row['ordinal'];
         $classification=['snapshot_probe_present'=>\App\Support\WhatsAppOrderExtraction::hasProbe($transcript),
+            'historical_coded_probe_present'=>$coded!==null,
+            'last_coded_probe_ordinal'=>$coded,
             'operational_test_unresolved'=>$evidence::operationalTest($transcript),
             'last_operational_test_ordinal'=>$test===null?null:$test+1,
             'new_order_after_test_ordinal'=>$boundary===null?null:$boundary+1,
@@ -114,9 +118,9 @@ try {
     if (!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html')) throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'966b012ae89e5ce2aef4f6c8c08dcbebb1b8ee54',
-        'app/Support/WhatsAppOrderExtraction.php'=>'1b518728c5f63db4ba1ef84149fb0aafec02a98a',
-        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php'=>'bfe69bb72cc586c68823463fd3f1885915774d02',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'a9e75b9a4b2406f5eefa4c5cfc4d117fd29e4a59',
+        'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
+        'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php'=>'478d620d36d801b5fc38bab8e8be2afcfdf5dd8c',
         'app/Services/Dashboard/MetaAiControl.php'=>'86639b7cbac148006d9f93b2589412932d2c03e2',
         'app/Support/MetaAiSchedule.php'=>'f05614f2b9f7db4c3596bac5a78d0e2de5e538df',
         'app/Services/Dashboard/MetaBusinessAgent.php'=>'4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',

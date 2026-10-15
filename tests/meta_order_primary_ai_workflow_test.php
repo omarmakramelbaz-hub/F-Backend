@@ -307,4 +307,68 @@ foreach (['messenger','instagram'] as $channel) {
     metaPrimaryNoErp('Meta information veto protects cached approved ERP work');
 }
 
+// Actual Meta capture and accepted-reply projection keep chronological labels even when
+// an old business echo arrives after a later native customer order.
+function metaPrimaryEpisodeDraft(string $channel,bool $withPin=true): int {
+    metaPrimarySetup();$conversation=metaPrimaryMessage($channel,'mid.episode.new','عايز طلب جديد. اسمي عميل جديد ورقمي 201000000002 وعنواني شارع الجديد المنصوره. عايز 1 كيلو فسيخ.',100);
+    metaPrimaryMessage($channel,'mid.episode.old','اسمي عميل قديم ورقمي 201000000001 وعنواني شارع القديم المنصوره. عايز 2 كيلو فسيخ.',1);
+    metaPrimaryMessage($channel,'mid.episode.old-pin',null,2,['lat'=>30.2,'long'=>30.4]);
+    metaPrimaryMessage($channel,'mid.episode.marker','WA-4321',3,null,true);
+    metaPrimaryMessage($channel,'mid.episode.continuation',$withPin?null:'دليفري لو سمحت',101,$withPin?['lat'=>31,'long'=>31.4]:null);
+    MetaAi::$data=extractionData();MetaAi::$data['decision']='DRAFT';
+    MetaAi::$data['customer']=['name'=>'عميل جديد','phone'=>'201000000002','address'=>'شارع الجديد المنصوره','area'=>'المنصوره','notes'=>null];
+    MetaAi::$data['branch_hint']=null;MetaAi::$data['approximate_total']=null;MetaAi::$data['issues']=['UNCONFIRMED'];
+    MetaAi::$data['evidence']=['request_ids'=>['m4'],'confirmation_ids'=>[],'customer_acceptance_ids'=>[],'location_id'=>$withPin?'m5':null];
+    return $conversation;
+}
+foreach (['messenger','instagram'] as $channel) {
+    $conversation=metaPrimaryEpisodeDraft($channel);$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&MetaAi::$calls===1&&array_column(MetaAi::$lastTranscript,'id')===['m4','m5'],
+        'actual '.$channel.' extraction receives only fresh episode original labels after old coded business echo');
+    metaPrimaryExpect(count($metaGraphs)===1&&str_contains(metaPrimaryLastText(),'عميل جديد')&&!str_contains(metaPrimaryLastText(),'عميل قديم'),
+        'actual '.$channel.' creates only the new episode factual recap');
+    $row=MetaDB::table('meta_order_drafts')->first();$reflect=new ReflectionMethod(MetaOrderWorkflow::class,'snapshot');$reflect->setAccessible(true);
+    $full=$reflect->invoke(app(MetaOrderWorkflow::class),$conversation,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
+    metaPrimaryExpect(count($full['transcript'])===5&&$full['transcript'][2]['text']==='WA-4321'&&$full['hash']===$row->evidence_hash,
+        'actual '.$channel.' full native snapshot/hash retains old echo and pin despite scoped model input');
+    metaPrimaryNoErp('Meta fresh recap is never consent');
+    metaPrimaryMessage($channel,'mid.episode.approve','موافق',302);dialogueAdvance(303);
+    MetaAi::$data['decision']='CONFIRMED';MetaAi::$data['issues']=[];
+    MetaAi::$data['evidence']['confirmation_ids']=['m6'];MetaAi::$data['evidence']['customer_acceptance_ids']=['m7'];$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&$r['dispatched']===1&&MetaDB::table('test_tickets')->count()===1&&MetaDB::table('test_print')->count()===1,
+        'actual '.$channel.' new request and owned recap plus later genuine approval execute exactly one order');
+    metaPrimaryExpect(MetaDB::table('branch_customers')->value('phone_key')===\App\Services\Dashboard\BranchCustomers::phoneKey('201000000002')
+        &&MetaDB::table('branch_customers')->value('address')==='شارع الجديد المنصوره','actual '.$channel.' ERP has only new episode customer');
+    metaPrimaryRun();metaPrimaryExpect(MetaDB::table('test_tickets')->count()===1&&MetaDB::table('test_print')->count()===1,'actual '.$channel.' replay cannot duplicate ERP');
+    $conversation=metaPrimaryEpisodeDraft($channel,false);$r=metaPrimaryRun();
+    $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===1&&$context['field']==='LOCATION','actual '.$channel.' cannot borrow an old episode pin');
+    metaPrimaryNoErp('Meta old location cannot authorize fresh order');
+    $conversation=metaPrimaryEpisodeDraft($channel);MetaAi::$data['customer']['name']='عميل قديم';
+    MetaAi::$data['customer']['phone']='201000000001';MetaAi::$data['customer']['address']='شارع القديم المنصوره';MetaAi::$data['items'][0]['quantity']='2';
+    MetaAi::$data['evidence']['request_ids']=['m1'];MetaAi::$data['evidence']['location_id']='m2';$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&MetaDB::table('meta_order_drafts')->value('reason')==='INVALID_EXTRACTION',
+        'actual '.$channel.' rejects model reuse of old customer, basket and location references');metaPrimaryNoErp('Meta stale facts cannot execute');
+    $conversation=metaPrimaryEpisodeDraft($channel);metaPrimaryRun();
+    metaPrimaryMessage($channel,'mid.episode.cached-approval','موافق',302);dialogueAdvance(303);
+    MetaAi::$data['decision']='CONFIRMED';MetaAi::$data['issues']=[];
+    MetaAi::$data['evidence']['confirmation_ids']=['m6'];MetaAi::$data['evidence']['customer_acceptance_ids']=['m7'];
+    app(MetaOrderWorkflow::class)->analyze($conversation,(object)['id'=>7]);$calls=MetaAi::$calls;
+    $stale=MetaAi::$data;$stale['evidence']['request_ids']=['m1'];$stale['evidence']['location_id']='m2';
+    $stale['customer']=['name'=>'عميل قديم','phone'=>'201000000001','address'=>'شارع القديم المنصوره','area'=>'المنصوره','notes'=>null];
+    $draftId=MetaDB::table('meta_order_drafts')->where('conversation_id',$conversation)->max('id');
+    MetaDB::table('meta_order_drafts')->where('id',$draftId)->update(['extraction'=>MetaCrypt::encryptString(json_encode($stale,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR))]);
+    $r=metaPrimaryRun();metaPrimaryExpect($r['dispatched']===0&&MetaAi::$calls===$calls,'actual '.$channel.' cached old facts cannot borrow new episode approval');
+    metaPrimaryNoErp('Meta cache must revalidate the fresh episode boundary');
+    foreach (['عايز 1 كيلو فسيخ','عايز طلب جديد؟','قال لي "عايز طلب جديد"','مش عايز طلب جديد','إلغاء الطلب'] as $text) {
+        metaPrimarySetup();metaPrimaryMessage($channel,'mid.episode.block.marker','WA-4321',1,null,true);
+        metaPrimaryMessage($channel,'mid.episode.block.customer',$text,2);MetaAi::$data=MetaExtraction::none();$r=metaPrimaryRun();
+        metaPrimaryExpect(MetaAi::$calls===0&&count($metaGraphs)===0,'actual '.$channel.' no strict new episode cannot bypass coded marker: '.$text);
+        metaPrimaryNoErp('Meta uncleared marker blocks ERP');
+    }
+    $conversation=metaPrimaryEpisodeDraft($channel);metaPrimaryMessage($channel,'mid.episode.new-marker','WA-7654',102,null,true);
+    metaPrimaryMessage($channel,'mid.episode.after-marker','تمام',103);$r=metaPrimaryRun();
+    metaPrimaryExpect(MetaAi::$calls===0&&count($metaGraphs)===0,'actual '.$channel.' current newer marker closes the fresh episode');metaPrimaryNoErp('Meta current marker vetoes ERP');
+}
+
 echo 'META_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$metaPrimaryChecks." PASS\n";

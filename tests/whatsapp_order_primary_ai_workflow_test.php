@@ -650,4 +650,71 @@ foreach (['رقم هاتف للتواصل بخصوص الطلب؟'=>'رقم تو
     primaryNoErp('explaining a contact or location request cannot confirm an order');
 }
 
+// Native insertion ids deliberately disagree with chronology. Historical carts, pins and
+// coded business replies remain authenticated in the full proof but never join the new order.
+function primaryEpisodeDraft(bool $withPin=true): int {
+    primarySetup(); $c=addConversation('US.fixture');
+    insertMessage($c,'wamid.episode.new','inbound','عايز طلب جديد. اسمي عميل جديد ورقمي 201000000002 وعنواني شارع الجديد المنصوره. عايز 1 كيلو فسيخ.',100);
+    insertMessage($c,'wamid.episode.old','inbound','اسمي عميل قديم ورقمي 201000000001 وعنواني شارع القديم المنصوره. عايز 2 كيلو فسيخ.',1);
+    insertCartMessage($c,'wamid.episode.old-cart',2,[['product_retailer_id'=>'old-fish','quantity'=>2,'item_price'=>'45.00','currency'=>'EGP']]);
+    insertMessage($c,'wamid.episode.old-pin','inbound','',3,['lat'=>30.2,'long'=>30.4]);
+    insertMessage($c,'wamid.episode.marker','outbound','تم اختبار WA-4321',4);
+    // A final genuine customer row advances the ceiling after the delayed old echoes.
+    insertMessage($c,'wamid.episode.continuation','inbound',$withPin?'':'دليفري لو سمحت',101,$withPin?['lat'=>31,'long'=>31.4]:null);
+    PrimaryAi::$data=extractionData(); PrimaryAi::$data['decision']='DRAFT';
+    PrimaryAi::$data['customer']=['name'=>'عميل جديد','phone'=>'201000000002','address'=>'شارع الجديد المنصوره','area'=>'المنصوره','notes'=>null];
+    PrimaryAi::$data['branch_hint']=null;PrimaryAi::$data['approximate_total']=null;PrimaryAi::$data['issues']=['UNCONFIRMED'];
+    PrimaryAi::$data['evidence']=['request_ids'=>['m5'],'confirmation_ids'=>[],'customer_acceptance_ids'=>[],'location_id'=>$withPin?'m6':null];
+    return $c;
+}
+$c=primaryEpisodeDraft();$r=primaryRun();
+primaryExpect($r['errors']===0&&PrimaryAi::$calls===1&&array_column(PrimaryAi::$lastTranscript,'id')===['m5','m6'],
+    'fresh order after coded business marker sends only its chronologically scoped original labels to extraction');
+primaryExpect(count($dialogueGraphs)===1&&str_contains(dialogueLastText(),'عميل جديد')&&!str_contains(dialogueLastText(),'عميل قديم'),
+    'new episode receives a recap from its own customer facts');
+$row=PrimaryDB::table('whatsapp_order_drafts')->first();$reflect=new ReflectionMethod(PrimaryWorkflow::class,'snapshot');$reflect->setAccessible(true);
+$full=$reflect->invoke($workflow,$c,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
+primaryExpect(count($full['transcript'])===6&&str_contains($full['transcript'][3]['text'],'WA-4321')&&$full['hash']===$row->evidence_hash,
+    'full authenticated snapshot and hash retain historical marker, cart and pin for currentness proof');
+primaryNoErp('new-episode recap cannot itself approve execution');
+insertMessage($c,'wamid.episode.approve','inbound','موافق',302);dialogueAdvance(303);
+PrimaryAi::$data['decision']='CONFIRMED';PrimaryAi::$data['issues']=[];
+PrimaryAi::$data['evidence']['confirmation_ids']=['m7'];PrimaryAi::$data['evidence']['customer_acceptance_ids']=['m8'];$r=primaryRun();
+primaryExpect($r['errors']===0&&$r['dispatched']===1&&PrimaryDB::table('test_tickets')->count()===1&&PrimaryDB::table('test_print')->count()===1,
+    'new native request, new pin, owned recap and genuine later approval execute despite unrelated old cart');
+primaryExpect(PrimaryDB::table('branch_customers')->value('phone_key')===\App\Services\Dashboard\BranchCustomers::phoneKey('201000000002')
+    &&PrimaryDB::table('branch_customers')->value('address')==='شارع الجديد المنصوره','only new episode customer reaches ERP');
+primaryRun();primaryExpect(PrimaryDB::table('test_tickets')->count()===1&&PrimaryDB::table('test_print')->count()===1,'episode replay cannot duplicate ERP');
+$c=primaryEpisodeDraft(false);$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['field']==='LOCATION',
+    'old episode native pin is never borrowed to satisfy a new order location');
+primaryNoErp('historical location cannot authorize new order');
+$c=primaryEpisodeDraft();PrimaryAi::$data['customer']['name']='عميل قديم';PrimaryAi::$data['customer']['phone']='201000000001';
+PrimaryAi::$data['customer']['address']='شارع القديم المنصوره';PrimaryAi::$data['items'][0]['quantity']='2';
+PrimaryAi::$data['evidence']['request_ids']=['m1'];PrimaryAi::$data['evidence']['location_id']='m3';$r=primaryRun();
+primaryExpect($r['errors']===0&&PrimaryDB::table('whatsapp_order_drafts')->value('reason')==='INVALID_EXTRACTION',
+    'model or cached old identity, basket and pin citations fail validation against the full episode boundary');
+primaryNoErp('old episode data never executes');
+$c=primaryEpisodeDraft();primaryRun();
+insertMessage($c,'wamid.episode.cached-approval','inbound','موافق',302);dialogueAdvance(303);
+PrimaryAi::$data['decision']='CONFIRMED';PrimaryAi::$data['issues']=[];
+PrimaryAi::$data['evidence']['confirmation_ids']=['m7'];PrimaryAi::$data['evidence']['customer_acceptance_ids']=['m8'];
+$workflow->analyze($c,(object)['id'=>7]);$calls=PrimaryAi::$calls;
+$stale=PrimaryAi::$data;$stale['evidence']['request_ids']=['m1'];$stale['evidence']['location_id']='m3';
+$stale['customer']=['name'=>'عميل قديم','phone'=>'201000000001','address'=>'شارع القديم المنصوره','area'=>'المنصوره','notes'=>null];
+$draftId=PrimaryDB::table('whatsapp_order_drafts')->where('conversation_id',$c)->max('id');
+PrimaryDB::table('whatsapp_order_drafts')->where('id',$draftId)->update(['extraction'=>PrimaryCrypt::encryptString(json_encode($stale,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR))]);
+$r=primaryRun();
+primaryExpect($r['dispatched']===0&&PrimaryAi::$calls===$calls,'unchanged authenticated snapshot cannot dispatch a cached result citing old episode facts');
+primaryNoErp('cached old episode cannot reuse later genuine approval');
+foreach (['عايز 1 كيلو فسيخ','عايز طلب جديد؟','قال لي "عايز طلب جديد"','مش عايز طلب جديد','إلغاء الطلب'] as $text) {
+    primarySetup();$c=addConversation('US.fixture');insertMessage($c,'wamid.episode.block.marker','outbound','WA-4321',1);
+    insertMessage($c,'wamid.episode.block.customer','inbound',$text,2);PrimaryAi::$data=PrimaryExtraction::none();$r=primaryRun();
+    primaryExpect(PrimaryAi::$calls===0&&count($dialogueGraphs)===0,'coded history needs strict genuine new order, never quoted, cancelled or question intent: '.$text);
+    primaryNoErp('blocked marker episode has no ERP');
+}
+$c=primaryEpisodeDraft();insertMessage($c,'wamid.episode.new-marker','outbound','WA-7654',102);
+insertMessage($c,'wamid.episode.after-marker','inbound','تمام',103);$r=primaryRun();
+primaryExpect(PrimaryAi::$calls===0&&count($dialogueGraphs)===0,'newer coded marker closes an otherwise clean fresh episode');primaryNoErp('current coded marker vetoes all order effects');
+
 fwrite(STDOUT,'WHATSAPP_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$primaryChecks." PASS\n");

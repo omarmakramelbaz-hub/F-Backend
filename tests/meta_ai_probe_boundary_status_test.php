@@ -37,14 +37,14 @@ foreach ($pinRows as $pin) if (is_file(__DIR__.'/../'.$pin[1])) {
     probeExpect(sha1('blob '.strlen($bytes)."\0".$bytes)===$pin[2],'guard pin matches actual runtime source '.$pin[1]);
 }
 
-foreach (['coded','operational','operational-new-order','coded-new-order','connection-check'] as $case) {
+foreach (['coded','operational','operational-new-order','coded-new-order','business-coded-new-order','connection-check'] as $case) {
     primarySetup();$peer='US.probe-private';$conversation=addConversation($peer);
     $first=match($case) {
-        'coded','coded-new-order'=>'PRIVATE_CUSTOMER_PHONE_ADDRESS WA-1234',
+        'coded','coded-new-order','business-coded-new-order'=>'PRIVATE_CUSTOMER_PHONE_ADDRESS WA-1234',
         'connection-check'=>'اختبار اتصال PRIVATE_CUSTOMER_PHONE_ADDRESS',
         default=>'هذا الطلب اختبار لا ترسله',
     };
-    insertMessage($conversation,'wamid.PRIVATE_MARKER_OLD','inbound',$first,1,null,$peer);
+    insertMessage($conversation,'wamid.PRIVATE_MARKER_OLD',$case==='business-coded-new-order'?'outbound':'inbound',$first,1,null,$peer);
     insertMessage($conversation,'wamid.PRIVATE_BUSINESS','outbound','PRIVATE_BUSINESS_REPLY',2,null,$peer);
     insertMessage($conversation,'wamid.PRIVATE_MARKER_LATEST','inbound',str_contains($case,'new-order')?'عايز طلب جديد':'PRIVATE_LATEST_GREETING',3,null,$peer);
     $db=\Illuminate\Support\Facades\DB::class;$ceiling=(int)$db::table('whatsapp_inbox_messages')->max('id');
@@ -55,13 +55,16 @@ foreach (['coded','operational','operational-new-order','coded-new-order','conne
     probeExpect(($out['status']??null)==='READ_READY'&&$out['read_only_session']===true&&$out['driver']==='sqlite','actual bounded native observation succeeds '.$case);
     probeExpect($out['observation_unchanged']===true&&$out['scan_unchanged']===true&&$out['floor_unchanged']===true
         &&$out['control_revision_unchanged']===true,'scope floor scan control and snapshot stay unchanged '.$case);
-    probeExpect($out['classification']['snapshot_probe_present']===in_array($case,['coded','coded-new-order','operational'],true),'coded and operational boundaries classified distinctly '.$case);
+    probeExpect($out['classification']['snapshot_probe_present']===in_array($case,['coded','operational'],true),'only unresolved coded and operational boundaries block the effective episode '.$case);
+    $coded=str_contains($case,'coded');
+    probeExpect($out['classification']['historical_coded_probe_present']===$coded
+        &&$out['classification']['last_coded_probe_ordinal']===($coded?1:null),'historical coded marker remains observable after the new episode '.$case);
     probeExpect($out['classification']['operational_test_unresolved']===($case==='operational'),'exact unresolved operational test identified '.$case);
     probeExpect($out['classification']['latest_customer_ordinal']===3&&$out['classification']['latest_customer_probe_present']===false,'latest native customer remains independently clean '.$case);
-    probeExpect($out['rows'][0]['coded_text']===str_starts_with($case,'coded')&&$out['rows'][0]['coded_cart']===false,'coded marker source is text only '.$case);
+    probeExpect($out['rows'][0]['coded_text']===$coded&&$out['rows'][0]['coded_cart']===false,'coded marker source is text only '.$case);
     probeExpect($out['rows'][0]['operational_test_statement']===str_starts_with($case,'operational'),'only exact customer test statement classified '.$case);
     probeExpect($out['classification']['new_order_after_test_ordinal']===($case==='operational-new-order'?3:null),'explicit order boundary is only after an operational test '.$case);
-    probeExpect($out['classification']['episode_first_ordinal']===($case==='operational-new-order'?3:1),'global coded marker never disappears through episode filtering '.$case);
+    probeExpect($out['classification']['episode_first_ordinal']===(str_contains($case,'new-order')?3:1),'only an explicit new order after the latest marker separates the episode '.$case);
     probeExpect(!str_contains($json,'PRIVATE')&&!str_contains($json,'WA-1234')&&!str_contains($json,'اختبار اتصال')
         &&!str_contains($json,'message_key')&&!str_contains($json,'recipient')&&!str_contains($json,'extraction'),'no raw text keys marker values customer data or exception prose emitted '.$case);
     probeExpect($db::table('whatsapp_order_scans')->first()==$scan&&$db::table('meta_ai_controls')->first()==$policy
