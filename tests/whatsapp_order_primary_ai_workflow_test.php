@@ -34,19 +34,23 @@ class PrimaryInformationProvider extends DialogueFixtureProvider {
     }
 }
 class PrimaryFixtureControl {
+    public static bool $analysisOnly=false;
+    public function analysisOnly(string $channel): bool { return self::$analysisOnly; }
     public static bool $backlogGuard=false;
     public static bool $strictDispatchClock=false;
     public static bool $replyClockClosed=false;
     public function processingGate(string $channel,?string $time=null,?int $id=null,?int $event=null): array {
-        $replyClosed=self::$replyClockClosed; self::$replyClockClosed=false;
+        $replyClosed=self::$replyClockClosed; $analysisOnly=self::$analysisOnly;
+        self::$replyClockClosed=false; self::$analysisOnly=false;
         try { $gate=$this->gate($channel,$time,$id,$event); }
-        finally { self::$replyClockClosed=$replyClosed; }
-        if (!$replyClosed||($this->dispatchGate($channel)['effective']??false)) return $gate;
+        finally { self::$replyClockClosed=$replyClosed; self::$analysisOnly=$analysisOnly; }
+        if ($analysisOnly||!$replyClosed||($this->dispatchGate($channel)['effective']??false)) return $gate;
         return array_replace($gate,['effective'=>false,'reason'=>'OUTSIDE_SCHEDULE']);
     }
     public function dispatchGate(string $channel): array {
-        $replyClosed=self::$replyClockClosed; self::$replyClockClosed=false;
-        try { $gate=$this->gate($channel); } finally { self::$replyClockClosed=$replyClosed; }
+        $replyClosed=self::$replyClockClosed; $analysisOnly=self::$analysisOnly;
+        self::$replyClockClosed=false; self::$analysisOnly=false;
+        try { $gate=$this->gate($channel); } finally { self::$replyClockClosed=$replyClosed; self::$analysisOnly=$analysisOnly; }
         if (self::$strictDispatchClock&&($gate['effective']??false)===true) {
             $clock=\App\Support\MetaAiSchedule::dispatchStatus(['enabled'=>true,'channels'=>[$channel],'schedule'=>['enabled'=>false,'days'=>[0,1,2,3,4,5,6],'start'=>'09:00','end'=>'23:00','all_day'=>true]],new \DateTimeImmutable(now('UTC')->format('Y-m-d H:i:s'),new \DateTimeZone('UTC')));
             if (!$clock['effective']) { $gate['effective']=false; $gate['reason']='DISPATCH_OUTSIDE_HOURS'; }
@@ -61,6 +65,7 @@ class PrimaryFixtureControl {
         $out=['effective'=>false,'reason'=>'DISABLED','revision'=>$row?(int)$row->revision:null,
             'actor_id'=>null,'actor'=>null,'floor'=>null];
         if (!$row||!$row->enabled||!$row->schedule_active||self::$replyClockClosed||$channel!=='whatsapp') return $out;
+        if (self::$analysisOnly) return array_replace($out,['reason'=>'ANALYZE_ONLY']);
         $actor=PrimaryDB::table('test_users')->where('id',$row->actor_id)->where('active',1)->first();
         if (!$actor||!$actor->can_checkout) return $out;
         $floor=['message_floor'=>(int)$row->message_floor,'event_floor'=>(int)$row->event_floor,'started_at_utc'=>$row->started_at_utc];
@@ -76,7 +81,7 @@ PrimarySchema::create('meta_ai_controls',function($t){
 app()->instance('App\\Services\\Dashboard\\MetaAiControl',new PrimaryFixtureControl());
 function primarySetup(): void {
     dialogueSetup();
-    PrimaryFixtureControl::$backlogGuard=false; PrimaryFixtureControl::$strictDispatchClock=false; PrimaryFixtureControl::$replyClockClosed=false;
+    PrimaryFixtureControl::$analysisOnly=false; PrimaryFixtureControl::$backlogGuard=false; PrimaryFixtureControl::$strictDispatchClock=false; PrimaryFixtureControl::$replyClockClosed=false;
     PrimaryDB::table('meta_ai_controls')->delete();
     PrimaryDB::table('meta_ai_controls')->insert(['id'=>1,'revision'=>1,'enabled'=>true,'schedule_active'=>true,
         'actor_id'=>7,'message_floor'=>0,'event_floor'=>0,'started_at_utc'=>'2026-10-09 22:00:00']);

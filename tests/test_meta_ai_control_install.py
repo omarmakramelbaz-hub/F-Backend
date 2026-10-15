@@ -206,12 +206,16 @@ class MetaAiInstallTests(unittest.TestCase):
     def test_previous_ai_runtimes_are_complete_reviewed_upgrade_profiles(self):
         self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),
             {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS',
-             'META_AI_CONTROL_INBOX_REPAIR','META_AI_CONTROL_CUSTOMER_ANSWERS'})
+             'META_AI_CONTROL_INBOX_REPAIR','META_AI_CONTROL_CUSTOMER_ANSWERS','META_AI_CONTROL_CODED_PROBE_EPISODE'})
         first=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
         saved=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_SAVE_BUTTON']
         hours=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_UNANSWERED_HOURS']
         inbox=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_INBOX_REPAIR']
         answers=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_CUSTOMER_ANSWERS']
+        coded=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_CODED_PROBE_EPISODE']
+        self.assertEqual(tuple(coded),tuple(repair.SOURCE_PINS))
+        self.assertEqual(coded['app/Services/Dashboard/WhatsAppOrderWorkflow.php'],'a9e75b9a4b2406f5eefa4c5cfc4d117fd29e4a59')
+        self.assertEqual(coded['app/Support/WhatsAppOrderExtraction.php'],'a44f791013642aeca4b4f50dd96ec96b59eda012')
         viewport='public/css/dashboard-meta-inbox-viewport.css'
         for previous in (first,saved,hours):
             self.assertEqual(tuple(previous),tuple(repair.SOURCE_PINS))
@@ -235,14 +239,24 @@ class MetaAiInstallTests(unittest.TestCase):
         required|=dialogue|episode
         allowed=required|{'app/Console/Commands/ProcessMetaAiMessages.php'}|optional
         for previous in (first,saved):
-            changed={path for path,(_,target) in repair.SOURCE_PINS.items() if previous[path]!=target}
+            changed={path for path,target in coded.items() if previous[path]!=target}
             self.assertTrue(required<=changed<=allowed)
         hours_required=dialogue|episode|{'resources/views/admin/meta/ai_controls.blade.php',viewport}
-        self.assertTrue(hours_required<={path for path,(_,target) in repair.SOURCE_PINS.items() if hours[path]!=target}<=hours_required|optional)
-        self.assertTrue(dialogue|episode<={path for path,(_,target) in repair.SOURCE_PINS.items() if inbox[path]!=target}<=dialogue|episode|optional)
-        self.assertEqual({path for path,(_,target) in repair.SOURCE_PINS.items() if answers[path]!=target},episode)
+        self.assertTrue(hours_required<={path for path,target in coded.items() if hours[path]!=target}<=hours_required|optional)
+        self.assertTrue(dialogue|episode<={path for path,target in coded.items() if inbox[path]!=target}<=dialogue|episode|optional)
+        self.assertEqual({path for path,target in coded.items() if answers[path]!=target},episode)
+        analysis_mode={
+            'app/Support/MetaAiSchedule.php','app/Services/Dashboard/MetaAiControl.php',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php',
+            'app/Http/Controllers/Dashboard/MetaAiControlController.php',
+            'resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js',
+            'public/css/dashboard-meta-ai-controls.css',
+        }
+        mode_optional={'app/Services/Dashboard/WhatsAppOrderFollowupService.php','app/Services/Dashboard/MetaOrderFollowupService.php'}
+        changed={path for path,(_,target) in repair.SOURCE_PINS.items() if coded[path]!=target}
+        self.assertTrue(analysis_mode<=changed<=analysis_mode|mode_optional)
     @unittest.skipUnless(TEST_PHP,'PHP is required for the raw database policy shape probe')
-    def test_control_probe_accepts_legacy_and_dispatch_schedules_without_normalizing_stored_rows(self):
+    def test_control_probe_accepts_legacy_schedules_and_explicit_modes_without_normalizing_stored_rows(self):
         stub=r'''<?php
 namespace Illuminate\Support\Facades {
  class Schema {
@@ -265,7 +279,11 @@ namespace MetaAiProbe {
         legacy={'enabled':True,'channels':['whatsapp'],'schedule':schedule}
         dispatch=dict(legacy,dispatch_schedule=dict(schedule,days=[2,3],start='10:00',end='23:40'))
         dispatch_all_day=dict(dispatch,dispatch_schedule=dict(dispatch['dispatch_schedule'],all_day=True))
-        cases=[(legacy,True),(dispatch,True),(dispatch_all_day,True),(dict(dispatch,enabled=False),True),(dict(legacy,unknown=schedule),False),
+        cases=[(legacy,True),(dispatch,True),(dispatch_all_day,True),(dict(dispatch,enabled=False),True),
+            (dict(legacy,mode='REPLY_AND_ANALYZE'),True),(dict(legacy,mode='ANALYZE_ONLY'),True),
+            (dict(dispatch_all_day,mode='REPLY_AND_ANALYZE'),True),(dict(dispatch_all_day,mode='ANALYZE_ONLY'),True),
+            (dict(legacy,mode=None),False),(dict(legacy,mode=''),False),(dict(dispatch,mode='analysis_only'),False),
+            (dict(dispatch,mode=True),False),(dict(legacy,unknown=schedule),False),
             (dict(legacy,dispatch_schedule='09:00'),False),(dict(dispatch,extra=True),False)]
         with tempfile.TemporaryDirectory() as folder:
             root=pathlib.Path(folder);(root/'vendor').mkdir();(root/'bootstrap').mkdir()

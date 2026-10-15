@@ -7,6 +7,10 @@
     var channels = ['whatsapp', 'messenger', 'instagram'];
     var words = {
         ar: {enable:'تشغيل ردود وتحليل AI', disable:'إيقاف ردود وتحليل AI', loading:'جارٍ تحميل حالة AI',
+            enable_analysis:'تشغيل تحليل وإرسال الطلبات', disable_analysis:'إيقاف تحليل وإرسال الطلبات',
+            analysis_DISABLED:'تحليل AI متوقف', analysis_ACTIVE:'AI مفعّل للتحليل وإرسال الطلبات فقط',
+            reply_DISABLED:'ردود AI متوقفة', reply_ACTIVE:'ردود AI مفعّلة حسب الجدول', reply_SCHEDULED_OFF:'ردود AI خارج مواعيد الرد', reply_ANALYZE_ONLY:'ردود AI متوقفة؛ مساعد ميتا يتولى المحادثة',
+            replies_pending:'توجد رسالة AI جارٍ إرسالها أو لم تتأكد نتيجتها بعد. انتظر تأكيد حالتها ثم حدّث الحالة وأعد حفظ الوضع. لا تُعد إرسال الرسالة.',
             save:'حفظ الإعدادات', saving:'جارٍ حفظ الإعدادات…',
             dispatch_loading:'جارٍ تحميل حالة إرسال الطلبات', dispatch_unavailable:'حالة إرسال الطلبات غير متاحة حاليًا',
             dispatch_DISABLED:'إرسال الطلبات متوقف', dispatch_ACTIVE:'إرسال الطلبات مفعّل حسب الجدول', dispatch_SCHEDULED_OFF:'إرسال الطلبات خارج مواعيد الإرسال',
@@ -22,6 +26,10 @@
             ACTIVATION_REQUIRED:'القناة تحتاج إلى تفعيل', EXTERNAL_AGENT_PAUSE_REQUIRED:'يلزم إيقاف المساعد الخارجي', STATE_CHANGED:'حالة القناة تغيّرت؛ حدّث الحالة', UNAVAILABLE:'الجاهزية غير متاحة',
             OWNER_ATTESTED:'إيقاف المساعد الخارجي مؤكّد بإقرار المالك.', VERIFIED_WHATSAPP_API:'إيقاف مساعد واتساب مؤكّد عبر الاتصال بميتا.'},
         en: {enable:'Enable AI replies and analysis', disable:'Disable AI replies and analysis', loading:'Loading AI status',
+            enable_analysis:'Enable analysis and order dispatch', disable_analysis:'Disable analysis and order dispatch',
+            analysis_DISABLED:'AI analysis is off', analysis_ACTIVE:'AI is enabled for analysis and order dispatch only',
+            reply_DISABLED:'AI replies are off', reply_ACTIVE:'AI replies are enabled for these hours', reply_SCHEDULED_OFF:'AI replies are outside reply hours', reply_ANALYZE_ONLY:'AI replies are off; Meta assistant handles the conversation',
+            replies_pending:'An AI message is being sent or its result is still uncertain. Wait for its status to be confirmed, refresh the status, then save the mode again. Do not resend the message.',
             save:'Save settings', saving:'Saving settings…',
             dispatch_loading:'Loading order dispatch status', dispatch_unavailable:'Order dispatch status is currently unavailable',
             dispatch_DISABLED:'Order dispatch is off', dispatch_ACTIVE:'Order dispatch is enabled for these hours', dispatch_SCHEDULED_OFF:'Order dispatch is outside dispatch hours',
@@ -51,19 +59,22 @@
             && (schedule.all_day || schedule.start !== schedule.end);
     }
     function validPolicy(policy) {
-        return exact(policy, ['enabled','channels','schedule','dispatch_schedule']) && typeof policy.enabled === 'boolean'
+        return exact(policy, ['enabled','channels','schedule','dispatch_schedule','mode']) && typeof policy.enabled === 'boolean'
+            && ['REPLY_AND_ANALYZE','ANALYZE_ONLY'].indexOf(policy.mode) !== -1
             && Array.isArray(policy.channels) && policy.channels.length <= 3
             && !policy.channels.some(function (channel, i) { return channels.indexOf(channel) === -1 || policy.channels.indexOf(channel) !== i; })
             && (!policy.enabled || policy.channels.length > 0)
             && validSchedule(policy.schedule) && validSchedule(policy.dispatch_schedule);
     }
     function normalizePolicy(policy) {
-        if (!exact(policy, ['enabled','channels','schedule'])) return policy;
+        if (!exact(policy, ['enabled','channels','schedule']) && !exact(policy, ['enabled','channels','schedule','dispatch_schedule'])) return policy;
         var normalized = clone(policy);
-        normalized.dispatch_schedule = {enabled:true, days:[0,1,2,3,4,5,6], start:'09:00', end:'00:30', all_day:false};
+        if (!Object.prototype.hasOwnProperty.call(normalized, 'dispatch_schedule'))
+            normalized.dispatch_schedule = {enabled:true, days:[0,1,2,3,4,5,6], start:'09:00', end:'00:30', all_day:false};
+        normalized.mode = 'REPLY_AND_ANALYZE';
         return normalized;
     }
-    function validState(value, legacyPolicy) {
+    function validState(value, legacyPolicy, legacyDispatch) {
         if (!(value && value.available === true && validPolicy(value.policy)
             && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.can_manage === 'boolean'
             && ['DISABLED','ACTIVE','SCHEDULED_OFF'].indexOf(value.status) !== -1
@@ -74,7 +85,20 @@
         if (Object.prototype.hasOwnProperty.call(value, 'handoff_method')
             && value.handoff_method !== null && ['OWNER_ATTESTED','VERIFIED_WHATSAPP_API'].indexOf(value.handoff_method) === -1) return false;
         if (Object.prototype.hasOwnProperty.call(value, 'handoff_required') && typeof value.handoff_required !== 'boolean') return false;
-        if (!Object.prototype.hasOwnProperty.call(value, 'dispatch_state') && !legacyPolicy) return false;
+        if (!Object.prototype.hasOwnProperty.call(value, 'reply_state') && !legacyPolicy) return false;
+        if (Object.prototype.hasOwnProperty.call(value, 'reply_state')) {
+            var reply = value.reply_state;
+            if (!exact(reply, ['effective','status','local_time']) || typeof reply.effective !== 'boolean'
+                || ['DISABLED','ACTIVE','SCHEDULED_OFF','ANALYZE_ONLY'].indexOf(reply.status) === -1
+                || reply.effective !== (reply.status === 'ACTIVE') || (!value.policy.enabled && reply.status !== 'DISABLED')
+                || (reply.effective && !value.effective)
+                || (value.policy.enabled && value.policy.mode === 'ANALYZE_ONLY' && reply.status !== 'ANALYZE_ONLY')
+                || (value.policy.mode === 'REPLY_AND_ANALYZE' && reply.status === 'ANALYZE_ONLY')
+                || typeof reply.local_time !== 'string' || reply.local_time.length > 40
+                || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+(?:02|03):00$/.test(reply.local_time)) return false;
+        }
+        if (value.policy.mode === 'ANALYZE_ONLY' && value.policy.enabled && value.status !== 'ACTIVE') return false;
+        if (!Object.prototype.hasOwnProperty.call(value, 'dispatch_state') && !legacyDispatch) return false;
         if (Object.prototype.hasOwnProperty.call(value, 'dispatch_state')) {
             var dispatch = value.dispatch_state;
             if (!exact(dispatch, ['effective','status','local_time']) || typeof dispatch.effective !== 'boolean'
@@ -126,6 +150,9 @@
         var refresh = panel.querySelector('[data-meta-ai-refresh]'), form = panel.querySelector('[data-meta-ai-form]');
         var status = panel.querySelector('[data-meta-ai-status]'), message = panel.querySelector('[data-meta-ai-message]');
         var dispatchStatus = panel.querySelector('[data-meta-ai-dispatch-status]');
+        var replyStatus = panel.querySelector('[data-meta-ai-reply-status]'), mode = panel.querySelector('[data-meta-ai-mode]');
+        var replySettings = panel.querySelector('[data-meta-ai-reply-settings]'), analysisNote = panel.querySelector('[data-meta-ai-analysis-note]');
+        var handoffSettings = panel.querySelector('[data-meta-ai-handoff-settings]'), unansweredNote = panel.querySelector('[data-meta-ai-unanswered-note]');
         var settings = panel.querySelector('[data-meta-ai-settings]'), currentTime = panel.querySelector('[data-meta-ai-current-time]');
         var channelStatus = panel.querySelector('[data-meta-ai-channel-status]'), handoffState = panel.querySelector('[data-meta-ai-handoff-state]');
         var scheduleEnabled = panel.querySelector('[data-meta-ai-schedule]'), allDay = panel.querySelector('[data-meta-ai-all-day]');
@@ -136,7 +163,7 @@
         var channelInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-channel]'));
         var dayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-day]'));
         var dispatchDayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-dispatch-day]'));
-        if (!toggle || !save || !refresh || !form || !status || !dispatchStatus || !message || !settings || !currentTime || !channelStatus || !handoffState
+        if (!toggle || !save || !refresh || !form || !status || !dispatchStatus || !replyStatus || !mode || !replySettings || !analysisNote || !handoffSettings || !unansweredNote || !message || !settings || !currentTime || !channelStatus || !handoffState
             || !scheduleEnabled || !allDay || !externalPaused || !start || !end || !dispatchEnabled || !dispatchAllDay
             || !dispatchStart || !dispatchEnd || channelInputs.length !== 3 || dayInputs.length !== 7 || dispatchDayInputs.length !== 7) return;
         var run = {panel:panel, dead:false, busy:false, saving:false, dirty:false, saved:null, listeners:[], timer:null};
@@ -146,15 +173,23 @@
         function showMessage(text) { message.textContent = text || ''; message.hidden = !text; }
         function controls() {
             var editable = !run.busy && run.saved && run.saved.can_manage;
+            var analysisOnly = mode.value === 'ANALYZE_ONLY';
             toggle.disabled = !editable; save.disabled = !editable;
+            if (run.saved) {
+                var buttonMode = run.saved.policy.enabled ? run.saved.policy.mode : mode.value;
+                toggle.textContent = labels[(run.saved.policy.enabled ? 'disable' : 'enable') + (buttonMode === 'ANALYZE_ONLY' ? '_analysis' : '')];
+            }
             save.textContent = labels[run.saving ? 'saving' : 'save'];
             refresh.disabled = run.busy;
             channelInputs.forEach(function (input) { input.disabled = !editable; });
-            scheduleEnabled.disabled = !editable;
-            externalPaused.disabled = !editable;
-            dayInputs.forEach(function (input) { input.disabled = !editable || !scheduleEnabled.checked; });
-            allDay.disabled = !editable || !scheduleEnabled.checked;
-            start.disabled = end.disabled = !editable || !scheduleEnabled.checked || allDay.checked;
+            mode.disabled = !editable;
+            replySettings.hidden = analysisOnly; handoffSettings.hidden = analysisOnly; analysisNote.hidden = !analysisOnly;
+            unansweredNote.hidden = !!(run.saved && run.saved.policy.mode === 'ANALYZE_ONLY');
+            scheduleEnabled.disabled = !editable || analysisOnly;
+            externalPaused.disabled = !editable || analysisOnly;
+            dayInputs.forEach(function (input) { input.disabled = !editable || analysisOnly || !scheduleEnabled.checked; });
+            allDay.disabled = !editable || analysisOnly || !scheduleEnabled.checked;
+            start.disabled = end.disabled = !editable || analysisOnly || !scheduleEnabled.checked || allDay.checked;
             dispatchEnabled.disabled = !editable;
             dispatchDayInputs.forEach(function (input) { input.disabled = !editable || !dispatchEnabled.checked; });
             dispatchAllDay.disabled = !editable || !dispatchEnabled.checked;
@@ -164,10 +199,13 @@
             run.saved = clone(value);
             run.dirty = false;
             panel.hidden = false; settings.hidden = false; panel.dataset.status = value.status;
-            status.textContent = labels[value.status];
+            var analysisOnly = value.policy.mode === 'ANALYZE_ONLY';
+            status.textContent = labels[(analysisOnly ? 'analysis_' : '') + value.status];
+            replyStatus.textContent = analysisOnly ? labels.reply_ANALYZE_ONLY : (value.reply_state ? labels['reply_' + value.reply_state.status] : '');
             dispatchStatus.textContent = value.dispatch_state ? labels['dispatch_' + value.dispatch_state.status] : labels.dispatch_unavailable;
-            toggle.textContent = labels[value.policy.enabled ? 'disable' : 'enable'];
+            toggle.textContent = labels[(value.policy.enabled ? 'disable' : 'enable') + (analysisOnly ? '_analysis' : '')];
             toggle.setAttribute('aria-pressed', value.policy.enabled ? 'true' : 'false');
+            mode.value = value.policy.mode;
             channelInputs.forEach(function (input) { input.checked = value.policy.channels.indexOf(input.value) !== -1; });
             var schedule = value.policy.schedule;
             scheduleEnabled.checked = schedule.enabled; allDay.checked = schedule.all_day;
@@ -189,7 +227,7 @@
                         : (!value.policy.enabled ? labels.DISABLED : (value.status === 'SCHEDULED_OFF' ? labels.SCHEDULED_OFF : labels.UNAVAILABLE)));
                 var item = document.createElement('li'); item.textContent = labels[channel] + ': ' + text; channelStatus.appendChild(item);
             });
-            var handoff = value.handoff_required ? labels.EXTERNAL_AGENT_PAUSE_REQUIRED : labels[value.handoff_method];
+            var handoff = analysisOnly ? null : (value.handoff_required ? labels.EXTERNAL_AGENT_PAUSE_REQUIRED : labels[value.handoff_method]);
             handoffState.textContent = handoff || ''; handoffState.hidden = !handoff;
             controls();
         }
@@ -197,6 +235,7 @@
             run.saved = null; panel.hidden = false; settings.hidden = true;
             panel.dataset.status = 'DISABLED'; status.textContent = labels.unavailable;
             dispatchStatus.textContent = labels.dispatch_unavailable;
+            replyStatus.textContent = '';
             toggle.textContent = labels.enable; toggle.setAttribute('aria-pressed', 'false');
             currentTime.textContent = ''; showMessage(text); controls();
             channelStatus.textContent = ''; handoffState.textContent = ''; handoffState.hidden = true;
@@ -212,11 +251,12 @@
             if (response.redirected) throw new Error('REDIRECT');
             if (!response.ok) {
                 var error = new Error('HTTP'); error.status = response.status;
-                if (response.status === 422) {
+                if (response.status === 422 || response.status === 409) {
                     try {
                         var failure = await response.json();
                         error.handoff = failure && (failure.reason === 'HANDOFF_REQUIRED' || failure.code === 'HANDOFF_REQUIRED'
                             || failure.error === 'HANDOFF_REQUIRED' || failure.error === 'EXTERNAL_AGENT_PAUSE_REQUIRED');
+                        error.repliesPending = failure && (failure.reason === 'REPLIES_PENDING' || failure.code === 'REPLIES_PENDING' || failure.error === 'REPLIES_PENDING');
                     } catch (ignored) { /* Only a known reason may be shown. */ }
                 }
                 throw error;
@@ -227,9 +267,10 @@
             if (!alive()) throw new Error('STALE');
             if (!value || typeof value.available !== 'boolean') throw new Error('RESPONSE');
             if (!value.available) return null;
-            var legacyPolicy = exact(value.policy, ['enabled','channels','schedule']);
+            var legacyDispatch = exact(value.policy, ['enabled','channels','schedule']);
+            var legacyPolicy = legacyDispatch || exact(value.policy, ['enabled','channels','schedule','dispatch_schedule']);
             value.policy = normalizePolicy(value.policy);
-            if (!validState(value, legacyPolicy)) throw new Error('RESPONSE');
+            if (!validState(value, legacyPolicy, legacyDispatch)) throw new Error('RESPONSE');
             return value;
         }
         async function load(note) {
@@ -250,12 +291,14 @@
             var revision = run.saved.revision;
             run.busy = true; run.saving = true; showMessage(''); controls();
             try {
-                var value = await request(updateUrl, {policy:policy, expected_revision:revision, external_agent_paused:externalPaused.checked === true});
+                var value = await request(updateUrl, {policy:policy, expected_revision:revision, external_agent_paused:policy.mode === 'REPLY_AND_ANALYZE' && externalPaused.checked === true});
                 if (value === null) unavailable(labels.unavailable);
                 else { render(value); showMessage(value.can_manage ? labels.saved : labels.denied); }
             } catch (error) {
                 if (!alive()) return;
-                if (error.status === 409) {
+                if ((error.status === 409 || error.status === 422) && error.repliesPending) {
+                    settings.open = true; showMessage(labels.replies_pending);
+                } else if (error.status === 409) {
                     // Reload once to review the newer policy. Never retry the mutation.
                     run.busy = false; run.saving = false;
                     await load(labels.conflict);
@@ -270,9 +313,9 @@
             if (alive() && !document.hidden && !run.dirty && !run.busy) load();
         }
         function collectPolicy(enabled) {
-            return {enabled:enabled,
+            return {enabled:enabled, mode:mode.value,
                 channels:channelInputs.filter(function (input) { return input.checked; }).map(function (input) { return input.value; }),
-                schedule:{enabled:scheduleEnabled.checked,
+                schedule:mode.value === 'ANALYZE_ONLY' ? clone(run.saved.policy.schedule) : {enabled:scheduleEnabled.checked,
                     days:dayInputs.filter(function (input) { return input.checked; }).map(function (input) { return Number(input.value); }),
                     start:start.value, end:end.value, all_day:allDay.checked},
                 dispatch_schedule:{enabled:dispatchEnabled.checked,
@@ -295,6 +338,7 @@
             update(collectPolicy(run.saved.policy.enabled));
         });
         bind(refresh, 'click', function () { load(); });
+        bind(mode, 'change', function () { externalPaused.checked = false; dirty(); controls(); });
         bind(scheduleEnabled, 'change', function () { dirty(); controls(); });
         bind(allDay, 'change', function () { dirty(); controls(); });
         bind(dispatchEnabled, 'change', function () { dirty(); controls(); });

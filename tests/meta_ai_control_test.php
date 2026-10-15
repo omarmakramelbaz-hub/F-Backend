@@ -74,6 +74,7 @@ namespace {
     check($control->installed() && DB::table('meta_ai_controls')->count()===1,'single seeded policy row');
     $initial=$control->state(new User);
     check($initial['revision']===0 && !$initial['policy']['enabled'] && $initial['policy']['channels']===['whatsapp','messenger','instagram'],'default disabled all channels');
+    check($initial['policy']['mode']==='REPLY_AND_ANALYZE'&&!$control->analysisOnly('whatsapp'),'initial legacy-compatible full mode');
     check($initial['can_manage'] && !$control->state(new User(2))['can_manage'],'owner writes and central Admin read-only');
     foreach ([new User(2,'admin',null,true),new User(4),new User(5)] as $actor) {
         try { $control->update($actor,MetaAiControl::defaults(),0); check(false,'unauthorized write'); } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) { check($e->getStatusCode()===403,'persisted ownership on every write'); }
@@ -267,9 +268,11 @@ namespace {
     check($control->gate('whatsapp')['reason']==='DISABLED' && $control->dispatchGate('whatsapp')['reason']==='DISABLED' && $control->processingGate('whatsapp')['reason']==='DISABLED','master off immediately blocks replies scan and independently queued dispatch');
     check($control->state()['dispatch_state']['status']==='DISABLED','disabled public dispatch status follows master');
     $legacyPolicy=json_decode(DB::table('meta_ai_controls')->value('policy'),true); unset($legacyPolicy['dispatch_schedule']);
+    unset($legacyPolicy['mode']);
     $legacyPolicyBytes=json_encode($legacyPolicy,JSON_THROW_ON_ERROR);
     DB::table('meta_ai_controls')->where('id',1)->update(['policy'=>$legacyPolicyBytes]);
-    check($control->state()['policy']['dispatch_schedule']===\App\Support\MetaAiSchedule::defaultDispatchSchedule() && DB::table('meta_ai_controls')->value('policy')===$legacyPolicyBytes,'legacy stored policy defaults separate dispatch hours without database writes');
+    check($control->state()['policy']['dispatch_schedule']===\App\Support\MetaAiSchedule::defaultDispatchSchedule()
+        &&$control->state()['policy']['mode']==='REPLY_AND_ANALYZE'&&DB::table('meta_ai_controls')->value('policy')===$legacyPolicyBytes,'legacy stored policy defaults separate dispatch hours and full mode without database writes');
 
     DB::table('meta_inbox_conversations')->insert(['id'=>4,'waba_id'=>'messenger','phone_number_id'=>'103']);
     DB::table('meta_inbox_messages')->insert([
@@ -283,6 +286,86 @@ namespace {
     check($control->gate('messenger')['floor']===['message_floor'=>3,'event_floor'=>1000,'started_at_utc'=>'2026-10-16 12:00:00'],'Messenger backlog lookup excludes foreign and previously disconnected accounts');
     check($control->gate('instagram')['floor']===['message_floor'=>4,'event_floor'=>1000,'started_at_utc'=>'2026-10-16 12:00:00'],'Instagram backlog has its own scoped native lower bound');
     check($control->processingGate('messenger','2026-10-17 11:00:00',4,1)['effective'] && $control->processingGate('instagram','2026-10-17 11:00:00',5,1)['effective'],'both Meta channels admit bounded historical native candidates under current fresh policy');
+
+    // Mode changes never reuse an old external-agent pause receipt or rewrite an
+    // uncertain customer-facing send. Existing activation identity is retained.
+    $beforeMode=DB::table('meta_ai_controls')->first();
+    $analysis=$allChannels; $analysis['mode']=\App\Support\MetaAiSchedule::ANALYZE_ONLY;
+    $analysis['schedule']=['enabled'=>true,'days'=>[1],'start'=>'15:00','end'=>'16:00','all_day'=>false];
+    foreach (['whatsapp','meta'] as $prefix) Schema::create($prefix.'_reply_requests',function(Blueprint $t){
+        $t->integer('id')->primary(); $t->string('waba_id'); $t->string('phone_number_id'); $t->string('state');
+    });
+    class ModeSwitchReadGrammar extends \Illuminate\Database\Query\Grammars\SQLiteGrammar {
+        public $reads=[];
+        public function compileSelect(\Illuminate\Database\Query\Builder $query) {
+            if (in_array($query->from,['meta_ai_controls','whatsapp_reply_requests','meta_reply_requests'],true))
+                $this->reads[]=['query'=>clone $query,'transaction'=>DB::connection()->transactionLevel()];
+            return parent::compileSelect($query);
+        }
+    }
+    $connection=DB::connection(); $oldGrammar=$connection->getQueryGrammar(); $modeGrammar=new ModeSwitchReadGrammar;
+    $connection->setQueryGrammar($modeGrammar);
+    foreach ([['whatsapp',WhatsAppInboxAccess::WABA_ID,WhatsAppInboxAccess::PHONE_ID],['meta','messenger','103'],['meta','instagram','202']] as [$prefix,$waba,$phone]) {
+        foreach (['CLAIMED','UNKNOWN'] as $pending) {
+            DB::table($prefix.'_reply_requests')->insert(['id'=>1,'waba_id'=>$waba,'phone_number_id'=>$phone,'state'=>$pending]);
+            $pendingBefore=(array)DB::table($prefix.'_reply_requests')->first();
+            blocked(fn()=>$control->update(new User,$analysis,19),'REPLIES_PENDING');
+            $pendingResponse=$controller->update($req(['policy'=>$analysis,'expected_revision'=>19]),$access,$control);
+            check($pendingResponse->getStatusCode()===409&&json_decode($pendingResponse->getContent(),true)['error']==='REPLIES_PENDING',
+                'actual controller exposes unsettled mode transition without retry '.$prefix.' '.$waba.' '.$pending);
+            check((array)DB::table('meta_ai_controls')->first()===(array)$beforeMode
+                &&(array)DB::table($prefix.'_reply_requests')->first()===$pendingBefore,'unsettled mode switch changes neither policy nor receipt '.$prefix.' '.$waba.' '.$pending);
+            $locked=array_values(array_filter($modeGrammar->reads,static fn($read)=>$read['query']->lock===true));
+            $policyLock=array_values(array_filter($locked,static fn($read)=>$read['query']->from==='meta_ai_controls'));
+            $receiptLock=array_values(array_filter($locked,static fn($read)=>$read['query']->from===$prefix.'_reply_requests'));
+            check($policyLock!==[]&&$receiptLock!==[]&&end($policyLock)['transaction']>0&&end($receiptLock)['transaction']>0,
+                'mode settlement uses current policy and receipt locks inside transaction '.$prefix.' '.$pending);
+            $modeGrammar->reads=[];
+            DB::table($prefix.'_reply_requests')->delete();
+        }
+    }
+    $connection->setQueryGrammar($oldGrammar);
+    DB::table('whatsapp_reply_requests')->insert(['id'=>1,'waba_id'=>'foreign','phone_number_id'=>'other','state'=>'UNKNOWN']);
+    DB::table('meta_reply_requests')->insert(['id'=>1,'waba_id'=>'messenger','phone_number_id'=>'999','state'=>'UNKNOWN']);
+    $control->clock='2026-10-18 02:00:00'; $prepareBefore=count($business->calls); $networkBefore=count($transportCalls);
+    $analysisState=$control->update(new User,$analysis,19);
+    check($analysisState['policy']['mode']==='ANALYZE_ONLY'&&$analysisState['effective']&&$analysisState['status']==='ACTIVE'
+        &&$analysisState['reply_state']===['effective'=>false,'status'=>'ANALYZE_ONLY','local_time'=>'2026-10-18T05:00:00+03:00'],'analysis-only status distinguishes active analysis from deliberately disabled replies');
+    check(count($business->calls)===$prepareBefore&&count($transportCalls)===$networkBefore
+        &&DB::table('meta_ai_controls')->value('handoff')===null&&!$analysisState['handoff_required']&&$analysisState['handoff_method']===null,'analysis-only invalidates stale pause receipt without external side effects');
+    check(DB::table('meta_ai_controls')->value('activations')===$beforeMode->activations,'switching enabled mode preserves all original activation floors and backlog');
+    foreach (['whatsapp','messenger','instagram'] as $channel) {
+        $processing=$control->processingGate($channel);
+        check($control->analysisOnly($channel)&&$processing['effective']&&$processing['mode']==='ANALYZE_ONLY'
+            &&$processing['revision']===20,'fresh analysis authority for '.$channel);
+        check(!$control->gate($channel)['effective']&&$control->gate($channel)['reason']==='ANALYZE_ONLY','automatic reply authority closed for '.$channel);
+        check($control->dispatchGate($channel)['reason']==='DISPATCH_OUTSIDE_HOURS','dispatch hours remain separate for '.$channel);
+    }
+    check(!$control->analysisOnly('bogus'),'unknown channel never inherits analysis-only mode');
+    check($control->processingGate('whatsapp','2026-10-18 01:00:00',1001,801)['effective']
+        &&!$control->processingGate('whatsapp','2026-10-18 02:00:01',1001,801)['effective'],'analysis-only retains exact native message time and event bounds');
+    $people->users[1]->active=false;
+    check($control->processingGate('whatsapp')['reason']==='ACTOR_UNAVAILABLE','analysis-only cannot bypass revoked owner');
+    $people->users[1]->active=true;
+    app('config')->set('meta_messaging.accounts',[['channel'=>'messenger','account_id'=>'999'],['channel'=>'instagram','account_id'=>'202']]);
+    check($control->processingGate('messenger')['reason']==='ACTIVATION_REQUIRED','analysis-only account change cannot inherit another scoped activation');
+    app('config')->set('meta_messaging.accounts',[['channel'=>'messenger','account_id'=>'103'],['channel'=>'instagram','account_id'=>'202']]);
+    blocked(fn()=>$control->update(new User,$allChannels,20),'EXTERNAL_AGENT_PAUSE_REQUIRED');
+    check(DB::table('meta_ai_controls')->value('revision')===20&&$control->analysisOnly('whatsapp'),'return to full requires fresh external-agent handoff and remains analysis-only on failure');
+    $oldClient=$analysis; unset($oldClient['mode']); $control->update(new User,$oldClient,20);
+    check($control->state()['policy']['mode']==='ANALYZE_ONLY','old browser save cannot accidentally re-enable dashboard replies');
+    $analysisOff=$analysis; $analysisOff['enabled']=false; $control->update(new User,$analysisOff,21);
+    check($control->processingGate('whatsapp')['reason']==='DISABLED'&&$control->gate('whatsapp')['reason']==='DISABLED'
+        &&$control->dispatchGate('whatsapp')['reason']==='DISABLED','analysis-only still obeys master off for every purpose');
+    $control->update(new User,$analysis,22);
+    check($control->processingGate('whatsapp')['effective']&&DB::table('meta_ai_controls')->value('handoff')===null,'explicit analysis-only enable needs no paused external agent');
+    $beforeReturn=DB::table('meta_ai_controls')->value('activations'); $freshCalls=count($business->calls);
+    $control->update(new User,$allChannels,23,true);
+    check(count($business->calls)===$freshCalls+1&&$control->gate('whatsapp')['effective']
+        &&$control->state()['handoff_method']==='OWNER_ATTESTED'&&!$control->analysisOnly('whatsapp'),'returning to full requires and stores a newly prepared pause handoff');
+    check(DB::table('meta_ai_controls')->value('activations')===$beforeReturn,'mode return never rebaselines existing enabled activation');
+    DB::table('meta_ai_controls')->where('id',1)->update((array)$beforeMode); $control->clock='2026-10-17 12:00:00';
+    foreach (['whatsapp','meta'] as $prefix) Schema::drop($prefix.'_reply_requests');
 
     // Malformed optional backlog bounds never silently lower an activation.
     foreach ([['version'=>2],['message_floor'=>-1],['message_floor'=>13],['started_at_utc'=>'2026-10-14 10:00:00'],['extra'=>true]] as $changes) {

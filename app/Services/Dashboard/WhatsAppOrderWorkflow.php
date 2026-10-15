@@ -178,7 +178,7 @@ class WhatsAppOrderWorkflow
                     $this->deferDispatch((int)$thread->id);
                     $metrics['deferred']++; continue;
                 }
-                if ($controlled&&!$this->replyControlOpen((int)$thread->id)) {
+                if ($controlled&&!$this->analysisOnly((int)$thread->id)&&!$this->replyControlOpen((int)$thread->id)) {
                     $scan=DB::table(static::SCANS)->where('conversation_id',$thread->id)->first();
                     abort_if($scan&&$scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
                     // Dispatch hours may be open while customer replies are scheduled off.
@@ -293,7 +293,7 @@ class WhatsAppOrderWorkflow
             $snapshot = $this->snapshot($conversation, $claim['floor'], $claim['ceiling']);
             $authority=$automatic&&$this->controlInstalled()?$this->primaryAuthority($conversation,$snapshot):null;
             if ($automatic&&$this->controlInstalled()) abort_unless($authority!==null&&(int)$actor->id===$authority['actor_id'],403,'AI_CONTROL_BLOCKED');
-            if ($automatic&&$this->controlInstalled()) abort_unless($this->replyControlOpen($conversation),409,'AI_REPLY_SCHEDULE_CLOSED');
+            if ($automatic&&$this->controlInstalled()) abort_unless($this->analysisOnly($conversation)||$this->replyControlOpen($conversation),409,'AI_REPLY_SCHEDULE_CLOSED');
             $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
                 : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
             if (!is_array($result) || !($result['ok'] ?? false)) {
@@ -460,7 +460,10 @@ class WhatsAppOrderWorkflow
         }
         if (!$this->freshAutomaticEvidence($data,$snapshot['transcript'],null,(int)$row->conversation_id)) { $reason='STALE_TRANSCRIPT'; return null; }
         $followup=$this->followupService();
-        if ($followup!==null&&!$followup->approvalSatisfied((int)$row->conversation_id,$data,$snapshot,$lock)) {
+        $approved=$this->analysisOnly((int)$row->conversation_id)
+            ?$this->externalRecapApproved($data,$snapshot)
+            :($followup===null||$followup->approvalSatisfied((int)$row->conversation_id,$data,$snapshot,$lock));
+        if (!$approved) {
             $reason='REVIEW_REQUIRED'; return null;
         }
         if (($data['fulfillment']??null)!=='DELIVERY') { $reason='PICKUP_REQUIRES_REVIEW'; return null; }
@@ -548,6 +551,7 @@ class WhatsAppOrderWorkflow
 
     private function waitingForCustomer(int $conversation,int $analyzed,int $ceiling): bool
     {
+        if ($this->analysisOnly($conversation)) return false;
         try { $service=$this->followupService(); return $service!==null&&$service->waitingForCustomer($conversation,$analyzed,$ceiling); }
         catch (\Throwable $ignore) { return false; }
     }
@@ -556,6 +560,7 @@ class WhatsAppOrderWorkflow
     private function requestMissingInformation(object $row,$actor): bool
     {
         try {
+            if ($this->analysisOnly((int)$row->conversation_id)) return false;
             if ($this->controlInstalled()&&!$this->replyControlOpen((int)$row->conversation_id)) return false;
             $service=$this->followupService(); if ($service===null) return false;
             $plan=$this->missingInformationPlan((int)$row->id,$actor);
@@ -570,6 +575,7 @@ class WhatsAppOrderWorkflow
 
     private function missingInformationPlan(int $id,$actor): ?array
     {
+        if ($this->analysisOnly((int)$this->draft($id)->conversation_id)) return null;
         if ($this->controlInstalled()&&!$this->replyControlOpen((int)$this->draft($id)->conversation_id)) return null;
         if ((!$this->controlInstalled()&&!(bool)$this->orderConfig('whatsapp_orders.enabled',false))||$this->mode()!=='auto'
             ||$this->pendingCapture()) return null;
@@ -1805,6 +1811,8 @@ class WhatsAppOrderWorkflow
     /** Queued ERP work can resume without reopening the separate customer reply schedule. */
     protected function filterDispatchOnlyCandidates($query,string $channel)
     {
+        try { if (app(MetaAiControl::class)->analysisOnly($channel)) return $query; }
+        catch (\Throwable $ignore) {}
         try { $reply=app(MetaAiControl::class)->gate($channel); }
         catch (\Throwable $ignore) { return $query->whereRaw('0 = 1'); }
         if (($reply['effective']??false)===true) return $query;
@@ -1835,7 +1843,10 @@ class WhatsAppOrderWorkflow
                         ->whereIn('ai_budget_draft.status',['REVIEW','READY','NONE']);
                 });
         });
-        return $query->whereExists(function($inbound)use($messages,$replies,$drafts,$token) {
+        $analysisOnly=false;
+        try { $analysisOnly=app(MetaAiControl::class)->analysisOnly($token['channel']??$this->automationChannel()); }
+        catch (\Throwable $ignore) {}
+        return $query->whereExists(function($inbound)use($messages,$replies,$drafts,$token,$analysisOnly) {
             $inbound->selectRaw('1')->from($messages.' as ai_inbound')->whereColumn('ai_inbound.conversation_id','c.id')
                 ->where('ai_inbound.direction','inbound')->where('ai_inbound.id','>',$token['message_floor'])
                 ->where('ai_inbound.sent_at','>=',$token['started_at_utc'])
@@ -1847,14 +1858,15 @@ class WhatsAppOrderWorkflow
                         ->whereIn('ai_closed.status',['DISPATCHED','CANCELLED'])
                         ->whereColumn('ai_closed.evidence_ceiling','>=','ai_inbound.id');
                 })
-                ->whereNotExists(function($later)use($messages) {
+                ->whereNotExists(function($later)use($messages,$analysisOnly) {
                     $later->selectRaw('1')->from($messages.' as ai_later')->whereColumn('ai_later.conversation_id','ai_inbound.conversation_id')
                         ->where(function($date) { $date->whereColumn('ai_later.sent_at','>','ai_inbound.sent_at')
                             ->orWhere(function($tie) { $tie->whereColumn('ai_later.sent_at','ai_inbound.sent_at')->whereColumn('ai_later.id','>','ai_inbound.id'); }); });
-                })->whereNotExists(function($reply)use($replies) {
+                    if ($analysisOnly) $later->where('ai_later.direction','inbound');
+                })->whereNotExists(function($reply)use($replies,$analysisOnly) {
                     $reply->selectRaw('1')->from($replies.' as ai_reply')->whereColumn('ai_reply.conversation_id','ai_inbound.conversation_id')
-                        ->whereIn('ai_reply.state',['CLAIMED','UNKNOWN','ACCEPTED'])->where('ai_reply.kind','!=','reaction')
-                        ->where(function($date) { $date->whereColumn('ai_reply.completed_at','>=','ai_inbound.sent_at')
+                        ->whereIn('ai_reply.state',$analysisOnly?['CLAIMED','UNKNOWN']:['CLAIMED','UNKNOWN','ACCEPTED'])->where('ai_reply.kind','!=','reaction');
+                    if (!$analysisOnly) $reply->where(function($date) { $date->whereColumn('ai_reply.completed_at','>=','ai_inbound.sent_at')
                             ->orWhereColumn('ai_reply.created_at','>=','ai_inbound.sent_at'); });
                 });
         });
@@ -1872,6 +1884,14 @@ class WhatsAppOrderWorkflow
     private function replyControlOpen(int $conversation): bool
     {
         try { return (app(MetaAiControl::class)->gate($this->automationChannel($conversation))['effective']??false)===true; }
+        catch (\Throwable $ignore) { return false; }
+    }
+
+    /** A configured mode is never authority on its own: callers still bind processingGate. */
+    protected function analysisOnly(int $conversation): bool
+    {
+        if (!$this->controlInstalled()) return false;
+        try { return app(MetaAiControl::class)->analysisOnly($this->automationChannel($conversation))===true; }
         catch (\Throwable $ignore) { return false; }
     }
 
@@ -1958,6 +1978,107 @@ class WhatsAppOrderWorkflow
             .'\b(?:do\s+not|don[’\x27]t|not\s+want|cancel|please\s+stop)\b/iu',$text)===1;
     }
 
+    /** A mode change cannot overtake an uncertain or still reserved dashboard send. */
+    private function analysisRepliesSettled(int $conversation): bool
+    {
+        $table=$this->table('whatsapp_reply_requests');
+        if (!Schema::hasTable($table)) return false;
+        $query=DB::table($table)->where('conversation_id',$conversation)->whereIn('state',['CLAIMED','UNKNOWN'])
+            ->where('kind','!=','reaction');
+        if (DB::connection()->transactionLevel()>0) $query->lockForUpdate();
+        return $query->first(['id'])===null;
+    }
+
+    /**
+     * The external assistant's fixed recap is a proposal, never customer consent.
+     * Its entire basket is bound to literal field/item lines. The authenticated
+     * snapshot and the normal extraction, catalog, location and CAS guards remain
+     * authoritative; a marker, a copied recap or an AI CONFIRMED flag is insufficient.
+     */
+    private function externalRecapApproved(array $data,array $snapshot): bool
+    {
+        if (($snapshot['complete']??false)!==true||($data['decision']??null)!=='CONFIRMED'
+            ||WhatsAppOrderExtraction::hasProbe($snapshot['transcript']??[])) return false;
+        $checked=WhatsAppOrderExtraction::validate($data,$snapshot['transcript']);
+        if (($checked['ok']??false)!==true) return false;
+        $episode=WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']);
+        $recap=null; $position=null;
+        $ack='جاري مراجعة البيانات لإرسال الطلب للفرع.';
+        foreach ($episode as $i=>$row) if (($row['speaker']??null)==='business'
+            &&is_string($row['text']??null)&&str_starts_with(trim($row['text']),'ملخص الطلب النهائي:')) {
+            $recap=$row; $position=$i;
+        }
+        if ($recap===null||!in_array($recap['id'],$data['evidence']['confirmation_ids']??[],true)) return false;
+        $lines=preg_split('/\R/u',trim($recap['text']));
+        if (!is_array($lines)||count($lines)>120) return false;
+        $lines=array_map(static fn($line)=>trim(preg_replace('/[\p{Z}\t]+/u',' ',$line)),$lines);
+        if (array_shift($lines)!=='ملخص الطلب النهائي:') return false;
+        $fields=[]; $itemLines=[];
+        foreach ($lines as $line) {
+            if ($line==='') continue;
+            if (str_starts_with($line,'- ')) { $itemLines[]=$line; continue; }
+            if (in_array($line,['تأكيد الطلب:','الأصناف:','للموافقة على هذه البيانات اكتب: موافق على الطلب'],true)) continue;
+            if (!preg_match('/\A(الاسم|رقم الهاتف|نوع الطلب|الفرع|العنوان|المنطقة|ملاحظات|الإجمالي التقريبي):\s*(.+)\z/u',$line,$match)
+                ||isset($fields[$match[1]])) return false;
+            $fields[$match[1]]=$match[2];
+        }
+        $normalize=static fn($text)=>trim(preg_replace('/[\p{Z}\t]+/u',' ',(string)$text));
+        foreach (['الاسم'=>'name','العنوان'=>'address','المنطقة'=>'area'] as $label=>$key) {
+            if (!is_string($data['customer'][$key]??null)||$normalize($data['customer'][$key])===''
+                ||($fields[$label]??null)!==$normalize($data['customer'][$key])) return false;
+        }
+        if (!is_string($data['customer']['phone']??null)||!isset($fields['رقم الهاتف'])
+            ||BranchCustomers::phoneKey($fields['رقم الهاتف'])!==BranchCustomers::phoneKey($data['customer']['phone'])
+            ||BranchCustomers::phoneKey($data['customer']['phone'])==='') return false;
+        if (($data['fulfillment']??null)!=='DELIVERY'||($fields['نوع الطلب']??null)!=='دليفري'
+            ||!is_string($data['branch_hint']??null)||$normalize($data['branch_hint'])===''
+            ||($fields['الفرع']??null)!==$normalize($data['branch_hint'])) return false;
+        $notes=$data['customer']['notes']??null;
+        if ($notes!==null&&(!is_string($notes)||($fields['ملاحظات']??null)!==$normalize($notes))) return false;
+        if ($notes===null&&isset($fields['ملاحظات'])&&!in_array($fields['ملاحظات'],['لا يوجد','بدون ملاحظات'],true)) return false;
+        $digits=static fn($value)=>strtr((string)$value,['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9',
+            '۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+        $decimal=static function($value,bool $money=false)use($digits) {
+            $value=$digits($value);
+            if (!preg_match($money?'/\A(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?\z/':'/\A[0-9]{1,4}(?:\.[0-9]{1,3})?\z/',$value)) return null;
+            $parts=explode('.',$value,2); $whole=ltrim($parts[0],'0'); $fraction=rtrim($parts[1]??'','0');
+            return ($whole===''?'0':$whole).($fraction===''?'':'.'.$fraction);
+        };
+        $total=$data['approximate_total']??null;
+        if ($total!==null) {
+            if (!isset($fields['الإجمالي التقريبي'])||$decimal($total,true)===null
+                ||$decimal(preg_replace('/\s*(?:جنيه|ج)\.?\z/u','',$fields['الإجمالي التقريبي']),true)!==$decimal($total,true)) return false;
+        } elseif (isset($fields['الإجمالي التقريبي'])&&!in_array($fields['الإجمالي التقريبي'],['غير محدد','لا يوجد'],true)) return false;
+        if (count($itemLines)!==count($data['items']??[])||$itemLines===[]) return false;
+        $actual=[];
+        foreach ($itemLines as $line) {
+            if (!preg_match('/\A- (.+?) \| الكمية: ([^|]+?) (كيلو|قطعة)(?: \| الاختيار: (.+))?\z/u',$line,$item)
+                ||($quantity=$decimal(trim($item[2])))===null) return false;
+            $actual[]=[$item[1],$quantity,$item[3],$item[4]??null];
+        }
+        foreach ($data['items'] as $item) {
+            $unit=['weight'=>'كيلو','piece'=>'قطعة'][$item['quantity_mode']??'']??null;
+            $quantity=$decimal($item['quantity']??'');
+            $expected=[$normalize($item['name']??''),$quantity,$unit,
+                isset($item['option_hint'])&&$item['option_hint']!==null?$normalize($item['option_hint']):null];
+            $index=array_search($expected,$actual,true);
+            if ($unit===null||$quantity===null||$index===false) return false;
+            unset($actual[$index]);
+        }
+        $approved=false; $acknowledged=false;
+        foreach (array_slice($episode,$position+1) as $row) {
+            if ($row['speaker']==='business') {
+                if (!$approved||$acknowledged||!is_string($row['text'])||trim($row['text'])!==$ack) return false;
+                $acknowledged=true; continue;
+            }
+            if (!is_string($row['text'])||!preg_match('/\A\s*(?:(?:(?:تمام|نعم)\s+)?(?:موافق|أوافق|اوافق)'
+                .'(?:\s+على\s+(?:الطلب|البيانات(?:\s+والطلب)?))?|تمام|حاضر|نعم|اوكي|أوكي|ماشي|ok|okay|yes)[.!]?\s*\z/iu',$row['text'])
+                ||!in_array($row['id'],$data['evidence']['customer_acceptance_ids']??[],true)) return false;
+            $approved=true;
+        }
+        return $approved;
+    }
+
     protected function primaryAuthority(int $conversation,array $snapshot): ?array
     {
         if (!$this->controlInstalled()) return null;
@@ -1965,7 +2086,8 @@ class WhatsAppOrderWorkflow
             if (WhatsAppOrderExtraction::hasProbe($snapshot['transcript']??[])) return null;
             $latest=$this->primaryInbound($conversation,$snapshot);
             if ($latest===null||$latest['sent_at']<=now('UTC')->subHours(24)->format('Y-m-d H:i:s')
-                ||$latest['sent_at']>now('UTC')->format('Y-m-d H:i:s')||!$this->primaryHumanClear($conversation,$latest,$snapshot)
+                ||$latest['sent_at']>now('UTC')->format('Y-m-d H:i:s')
+                ||($this->analysisOnly($conversation)?!$this->analysisRepliesSettled($conversation):!$this->primaryHumanClear($conversation,$latest,$snapshot))
                 ||$this->primaryCancelled($latest['text'])||!$this->primaryCaptureClear($conversation,$latest)) return null;
             return $this->controlToken($conversation,$latest);
         } catch (\Throwable $ignore) { return null; }

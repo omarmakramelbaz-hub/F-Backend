@@ -9,6 +9,8 @@ use DateTimeZone;
 final class MetaAiSchedule
 {
     private const CHANNELS = ['whatsapp', 'messenger', 'instagram'];
+    public const REPLY_AND_ANALYZE = 'REPLY_AND_ANALYZE';
+    public const ANALYZE_ONLY = 'ANALYZE_ONLY';
 
     public static function defaultDispatchSchedule(): array
     {
@@ -20,9 +22,11 @@ final class MetaAiSchedule
     public static function validate(array $policy): ?array
     {
         if (!array_key_exists('dispatch_schedule', $policy)) $policy['dispatch_schedule'] = self::defaultDispatchSchedule();
-        if (!self::exactKeys($policy, ['enabled', 'channels', 'schedule', 'dispatch_schedule'])
+        if (!array_key_exists('mode', $policy)) $policy['mode'] = self::REPLY_AND_ANALYZE;
+        if (!self::exactKeys($policy, ['enabled', 'channels', 'schedule', 'dispatch_schedule', 'mode'])
             || !is_bool($policy['enabled']) || !is_array($policy['channels'])
             || !array_is_list($policy['channels']) || count($policy['channels']) > 3
+            || !is_string($policy['mode']) || !in_array($policy['mode'], [self::REPLY_AND_ANALYZE, self::ANALYZE_ONLY], true)
             || !is_array($policy['schedule']) || !is_array($policy['dispatch_schedule'])) return null;
 
         $channels = [];
@@ -42,7 +46,21 @@ final class MetaAiSchedule
             'channels' => array_values(array_intersect(self::CHANNELS, $channels)),
             'schedule' => $schedule,
             'dispatch_schedule' => $dispatch,
+            'mode' => $policy['mode'],
         ];
+    }
+
+    /** Analysis-only is independent of reply hours; dispatch keeps its own clock. */
+    public static function processingStatus(array $policy, ?DateTimeImmutable $at = null): array
+    {
+        $policy = self::validate($policy);
+        if ($policy !== null && $policy['mode'] === self::ANALYZE_ONLY) {
+            $policy['schedule']['enabled'] = false;
+            return self::status($policy, $at);
+        }
+        $reply = self::status($policy ?? [], $at);
+        $dispatch = self::dispatchStatus($policy ?? [], $at);
+        return !$reply['effective'] && $dispatch['effective'] ? $dispatch : $reply;
     }
 
     private static function validateSchedule(array $schedule): ?array

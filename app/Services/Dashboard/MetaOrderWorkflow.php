@@ -47,7 +47,7 @@ class MetaOrderWorkflow extends WhatsAppOrderWorkflow
             $scope->whereRaw('0 = 1');
             foreach ($floors as $channel=>$floor) $scope->orWhere(function($candidate) use($channel,$floor) {
                 $candidate->where('c.waba_id',$channel)->where('m.id','>',$floor['message_floor']);
-                $this->filterDispatchOnlyCandidates($this->filterPrimaryInboundCandidates($candidate,$floor),$channel);
+                $this->filterDispatchOnlyCandidates($this->filterPrimaryInboundCandidates($candidate,$floor+['channel'=>$channel]),$channel);
             });
         });
     }

@@ -23,6 +23,7 @@ function policy(array $overrides = []): array
         'channels' => ['whatsapp', 'messenger', 'instagram'],
         'schedule' => ['enabled' => true, 'days' => [1], 'start' => '09:00', 'end' => '17:00', 'all_day' => false],
         'dispatch_schedule' => MetaAiSchedule::defaultDispatchSchedule(),
+        'mode' => MetaAiSchedule::REPLY_AND_ANALYZE,
     ], $overrides);
 }
 
@@ -46,7 +47,7 @@ $unordered = ['schedule' => ['end' => '17:00', 'start' => '09:00', 'days' => [6,
 $normalized = MetaAiSchedule::validate($unordered);
 scheduleCheck($normalized['channels'] === ['whatsapp', 'instagram'], 'canonical channel order');
 scheduleCheck($normalized['schedule']['days'] === [0, 3, 6], 'canonical day order');
-scheduleCheck(array_keys($normalized) === ['enabled', 'channels', 'schedule', 'dispatch_schedule'], 'canonical top key order');
+scheduleCheck(array_keys($normalized) === ['enabled', 'channels', 'schedule', 'dispatch_schedule', 'mode'], 'canonical top key order');
 scheduleCheck(array_keys($normalized['schedule']) === ['enabled', 'days', 'start', 'end', 'all_day'], 'canonical schedule key order');
 scheduleCheck(MetaAiSchedule::validate($normalized) === $normalized, 'canonicalization idempotent');
 
@@ -188,6 +189,21 @@ foreach ([[], ['enabled' => true], ['enabled' => true, 'channels' => ['whatsapp'
 // Legacy reply policies gain dispatch defaults read-only; independent dispatch is configurable.
 $legacy = $canonical; unset($legacy['dispatch_schedule']);
 scheduleCheck(MetaAiSchedule::validate($legacy) === $canonical, 'legacy policy normalizes separate default dispatch hours');
+$legacyMode = $canonical; unset($legacyMode['mode']);
+scheduleCheck(MetaAiSchedule::validate($legacyMode) === $canonical, 'legacy mode is reply and analyze without writes');
+foreach ([null, true, false, 0, 1, [], new stdClass(), '', 'analysis_only', 'ANALYSE_ONLY', 'ANALYZE_ONLY ', "ANALYZE_ONLY\n"] as $badMode) {
+    $bad = $canonical; $bad['mode'] = $badMode;
+    scheduleCheck(MetaAiSchedule::validate($bad) === null, 'strict finite processing mode');
+    scheduleCheck(!MetaAiSchedule::processingStatus($bad, new DateTimeImmutable('2026-10-15T10:00:00Z'))['effective'], 'malformed mode never authorizes analysis');
+}
+$analysis = $canonical; $analysis['mode'] = MetaAiSchedule::ANALYZE_ONLY;
+foreach (['2026-10-12 08:59:59', '2026-10-12 17:00:00', '2026-10-18 03:00:00'] as $time) {
+    $at = new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo'));
+    scheduleCheck(MetaAiSchedule::processingStatus($analysis, $at)['effective'], 'analysis-only does not depend on reply schedule '.$time);
+}
+scheduleCheck(!MetaAiSchedule::dispatchStatus($analysis, new DateTimeImmutable('2026-10-18 03:00:00', new DateTimeZone('Africa/Cairo')))['effective'], 'analysis-only retains independently closed dispatch hours');
+$analysis['enabled'] = false;
+scheduleCheck(MetaAiSchedule::processingStatus($analysis, new DateTimeImmutable('2026-10-15T10:00:00Z'))['status'] === 'DISABLED', 'master off blocks analysis-only');
 $dispatchDefault = $canonical; $dispatchDefault['schedule']['enabled'] = false;
 foreach (['2026-10-15 00:00:00', '2026-10-15 00:29:59', '2026-10-15 09:00:00', '2026-10-15 23:59:59'] as $time) {
     $result = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo')));

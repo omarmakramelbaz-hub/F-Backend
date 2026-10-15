@@ -41,6 +41,7 @@ class MetaAiControlController extends Controller
             return $this->json(['error' => 'EXTERNAL_AGENT_PAUSE_REQUIRED'], 422);
         if ($error instanceof HttpExceptionInterface) return $this->json(['error' => 'FORBIDDEN'], 403);
         $reason = $error->getMessage();
+        if ($reason === 'REPLIES_PENDING') return $this->json(['error' => $reason], 409);
         if ($reason === 'REVISION_CONFLICT') return $this->json(['error' => $reason], 409);
         if ($reason === 'INVALID_POLICY') return $this->json(['error' => $reason], 422);
         return $this->json(['error' => 'UNAVAILABLE'], 503);

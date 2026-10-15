@@ -9,19 +9,22 @@ $start=strpos($source,"    \$stage='READ_ONLY_SESSION';");$end=strpos($source," 
 if($start===false||$end===false)throw new RuntimeException('DIAGNOSTIC_BODY_LAYOUT');
 $body=substr($source,$start,$end-$start);$checks=0;$GLOBALS['pins']=[];
 $check=static function($ok,string$label)use(&$checks){$checks++;if(!$ok)throw new RuntimeException('WORKER_DIAGNOSTIC_FAILED:'.$label);};
-foreach(['retry','broken-native']as$case){
+foreach(['retry','broken-native','analysis-only']as$case){
     primarySetup();$conversation=primaryInbound('SECRET_CUSTOMER_MESSAGE');$channel='whatsapp';
+    \PrimaryFixtureControl::$analysisOnly=$case==='analysis-only';
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
     $ceiling=(int)$db::table('whatsapp_inbox_messages')->max('id');
     $db::table('whatsapp_order_scans')->insert(['conversation_id'=>$conversation,'analyzed_ceiling'=>0,'claimed_ceiling'=>$ceiling,
-        'attempts'=>3,'auto_floor'=>0,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        'attempts'=>$case==='analysis-only'?0:3,'auto_floor'=>0,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     if($case==='broken-native')$db::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->update(['content'=>'SECRET_BAD_CIPHERTEXT']);
     $before=$db::table('whatsapp_order_scans')->first();$content=$db::table('whatsapp_inbox_messages')->value('content');
     $out=['writes'=>0,'ai_calls'=>0,'message_sends'=>0,'graph_gets'=>0];$stage='TEST';eval($body);
     $row=$out['threads'][0]??[];$json=json_encode($out,JSON_THROW_ON_ERROR);
     $check($out['read_only_session']===true&&$out['driver']==='sqlite','actual query_only session enabled');
-    $check($row['status']==='OBSERVATION_BLOCKED','pre-AI blocker identified');
-    $check($case==='retry'?($row['error']['reason']==='ANALYSIS_RETRY_LIMIT'&&$row['stage']==='CACHE_OR_CLAIM'):$row['stage']==='SNAPSHOT','exact known retry or invalid native stage');
+    $check($row['status']===($case==='analysis-only'?'READ_READY':'OBSERVATION_BLOCKED'),'typed pre-AI observation identified');
+    $check($case==='analysis-only'?($out['mode']==='ANALYZE_ONLY'&&$out['processing_allowed']===true&&$out['reply_allowed']===false)
+        :($case==='retry'?($row['error']['reason']==='ANALYSIS_RETRY_LIMIT'&&$row['stage']==='CACHE_OR_CLAIM'):$row['stage']==='SNAPSHOT'),
+        'analysis-only is never misreported as reply-schedule blocked; other stages remain exact');
     $check(!str_contains($json,'SECRET')&&!str_contains($json,'text')&&!str_contains($json,'ciphertext'),'no customer or exception prose in output');
     $check(\App\Services\Dashboard\WhatsAppOrderAiProvider::$calls===0&&count($GLOBALS['dialogueGraphs'])===0&&\App\Services\Dashboard\PosServiceTicket::$saveCalls===0,'no AI Graph or ERP boundary invoked');
     $check($db::table('whatsapp_order_scans')->first()==$before&&$db::table('whatsapp_inbox_messages')->value('content')===$content,'scan lease counters and native bytes unchanged');

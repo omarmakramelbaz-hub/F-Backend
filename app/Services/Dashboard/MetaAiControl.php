@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
-/** One fresh database policy controls both automatic analysis and automatic replies. */
+/** Fresh, separate authority for analysis, customer replies and order dispatch. */
 class MetaAiControl
 {
     private const CHANNELS = ['whatsapp', 'messenger', 'instagram'];
@@ -22,7 +22,8 @@ class MetaAiControl
         return ['enabled' => false, 'channels' => self::CHANNELS, 'schedule' => [
             'enabled' => false, 'days' => [0, 1, 2, 3, 4, 5, 6],
             'start' => '09:00', 'end' => '23:00', 'all_day' => true,
-        ], 'dispatch_schedule' => MetaAiSchedule::defaultDispatchSchedule()];
+        ], 'dispatch_schedule' => MetaAiSchedule::defaultDispatchSchedule(),
+            'mode' => MetaAiSchedule::REPLY_AND_ANALYZE];
     }
 
     /** Legacy fallback is allowed only before this schema is installed. */
@@ -36,11 +37,15 @@ class MetaAiControl
             'status' => 'DISABLED', 'can_manage' => false, 'reason' => 'UNAVAILABLE'];
         $now = $this->now();
         $status = MetaAiSchedule::status($row['policy'], $now);
+        $analysisOnly = $row['policy']['mode'] === MetaAiSchedule::ANALYZE_ONLY;
+        $replyStatus = $analysisOnly && $row['policy']['enabled']
+            ? ['effective' => false, 'status' => 'ANALYZE_ONLY', 'local_time' => $status['local_time']] : $status;
+        if ($analysisOnly) $status = MetaAiSchedule::processingStatus($row['policy'], $now);
         $dispatch = MetaAiSchedule::dispatchStatus($row['policy'], $now);
         if ($dispatch['status'] === 'DISPATCH_OUTSIDE_HOURS') $dispatch['status'] = 'SCHEDULED_OFF';
         $channels = [];
         foreach ($row['policy']['channels'] as $channel) {
-            $gate = $this->gate($channel);
+            $gate = $analysisOnly ? $this->processingGate($channel) : $this->gate($channel);
             $sameRevision = $gate['revision'] === $row['revision'];
             $channels[] = ['channel' => $channel, 'effective' => $sameRevision && $gate['effective'],
                 'reason' => $sameRevision ? $gate['reason'] : 'STATE_CHANGED'];
@@ -50,10 +55,11 @@ class MetaAiControl
         return ['available' => true, 'policy' => $row['policy'], 'revision' => $row['revision'],
             'effective' => $status['effective'], 'status' => $status['status'],
             'local_time' => $status['local_time'],
+            'reply_state' => $replyStatus,
             'dispatch_state' => $dispatch,
             'channels_state' => $channels,
-            'handoff_method' => $handoffValid ? $row['handoff']['method'] : null,
-            'handoff_required' => $row['policy']['enabled'] && !$handoffValid,
+            'handoff_method' => !$analysisOnly && $handoffValid ? $row['handoff']['method'] : null,
+            'handoff_required' => !$analysisOnly && $row['policy']['enabled'] && !$handoffValid,
             'can_manage' => $actor !== null && app(MetaInboxAccess::class)->canConnect($actor),
             'updated_at_utc' => $row['updated_at_utc']];
     }
@@ -69,14 +75,18 @@ class MetaAiControl
         // independently configured dispatch schedule to its default.
         if (!array_key_exists('dispatch_schedule', $policy))
             $policy['dispatch_schedule'] = $before['policy']['dispatch_schedule'];
+        if (!array_key_exists('mode', $policy)) $policy['mode'] = $before['policy']['mode'];
         $policy = MetaAiSchedule::validate($policy);
         if ($policy === null || $expectedRevision < 0 || $expectedRevision >= self::MAX_REVISION)
             throw new RuntimeException('INVALID_POLICY');
         if (!$this->available()) throw new RuntimeException('UNAVAILABLE');
 
         if ($before['revision'] !== $expectedRevision) throw new RuntimeException('REVISION_CONFLICT');
-        $handoff = $before['handoff'];
-        if ($policy['enabled'] && (!$before['policy']['enabled']
+        $analysisOnly = $policy['mode'] === MetaAiSchedule::ANALYZE_ONLY;
+        // An old pause attestation cannot survive an interval in which the external
+        // agent is allowed to respond. Returning to full mode requires a new handoff.
+        $handoff = $analysisOnly ? null : $before['handoff'];
+        if (!$analysisOnly && $policy['enabled'] && (!$before['policy']['enabled']
             || !MetaBusinessAgent::validReceipt($handoff, $policy['channels'])
             || ($handoff['actor_id'] ?? null) !== (int)$owner->getKey())) {
             // The external agent is paused or explicitly attested before automation is enabled.
@@ -94,6 +104,10 @@ class MetaAiControl
             $row = $this->decode($stored);
             if ($row === null) throw new RuntimeException('UNAVAILABLE');
             if ($row['revision'] !== $expectedRevision) throw new RuntimeException('REVISION_CONFLICT');
+            if ($policy['enabled'] && $policy['mode'] === MetaAiSchedule::ANALYZE_ONLY
+                && (!$row['policy']['enabled'] || $row['policy']['mode'] !== MetaAiSchedule::ANALYZE_ONLY)
+                && $this->unsettledReplies(array_values(array_unique(array_merge($row['policy']['channels'], $policy['channels'])))))
+                throw new RuntimeException('REPLIES_PENDING');
             $activations = $row['activations'];
             $now = $this->now()->format('Y-m-d H:i:s');
             if ($policy['enabled']) {
@@ -134,26 +148,36 @@ class MetaAiControl
         return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'processing');
     }
 
+    /** Configured mode only. Callers must still obtain a fresh processing gate. */
+    public function analysisOnly(string $channel): bool
+    {
+        $row = $this->read();
+        return $row !== null && in_array($channel, $row['policy']['channels'], true)
+            && $row['policy']['mode'] === MetaAiSchedule::ANALYZE_ONLY;
+    }
+
     private function operationGate(string $channel, ?string $inboundTime, ?int $inboundId, ?int $eventId, string $purpose): array
     {
         $result = ['effective' => false, 'reason' => 'UNAVAILABLE', 'revision' => null,
-            'actor_id' => null, 'actor' => null, 'floor' => null];
+            'actor_id' => null, 'actor' => null, 'floor' => null, 'mode' => null];
         try {
             if (!in_array($channel, self::CHANNELS, true)) return array_replace($result, ['reason' => 'INVALID_CHANNEL']);
             $row = $this->read();
             if ($row === null) return $result;
             $result['revision'] = $row['revision'];
+            $result['mode'] = $row['policy']['mode'];
+            $analysisOnly = $row['policy']['mode'] === MetaAiSchedule::ANALYZE_ONLY;
             $now = $this->now();
             $status = MetaAiSchedule::status($row['policy'], $now);
-            if ($purpose !== 'reply') {
-                $dispatch = MetaAiSchedule::dispatchStatus($row['policy'], $now);
-                if ($purpose === 'dispatch' || (!$status['effective'] && $dispatch['effective'])) $status = $dispatch;
-            }
+            if ($purpose === 'processing') $status = MetaAiSchedule::processingStatus($row['policy'], $now);
+            elseif ($purpose === 'dispatch') $status = MetaAiSchedule::dispatchStatus($row['policy'], $now);
+            if ($purpose === 'reply' && $analysisOnly && $row['policy']['enabled'])
+                return array_replace($result, ['reason' => 'ANALYZE_ONLY']);
             if (!$status['effective']) return array_replace($result, ['reason' => $status['status']]);
             if (!in_array($channel, $row['policy']['channels'], true))
                 return array_replace($result, ['reason' => 'CHANNEL_DISABLED']);
-            if (!MetaBusinessAgent::validReceipt($row['handoff'], $row['policy']['channels'])
-                || ($row['handoff']['actor_id'] ?? null) !== $row['actor_id'])
+            if (!$analysisOnly && (!MetaBusinessAgent::validReceipt($row['handoff'], $row['policy']['channels'])
+                || ($row['handoff']['actor_id'] ?? null) !== $row['actor_id']))
                 return array_replace($result, ['reason' => 'EXTERNAL_AGENT_PAUSE_REQUIRED']);
             $floor = $row['activations'][$channel] ?? null;
             if ($floor === null || $floor['scope'] !== $this->scope($channel)
@@ -192,6 +216,28 @@ class MetaAiControl
     public function dispatchGate(string $channel): array
     {
         return $this->operationGate($channel, null, null, null, 'dispatch');
+    }
+
+    /**
+     * The policy row is locked before this check. Automatic reply claims obtain
+     * that same current-read lock, so a claim either settles before the switch or
+     * observes ANALYZE_ONLY. Uncertain delivery is never rewritten or replayed.
+     */
+    private function unsettledReplies(array $channels): bool
+    {
+        if (in_array('whatsapp', $channels, true) && Schema::hasTable('whatsapp_reply_requests')) {
+            $pending = DB::table('whatsapp_reply_requests')->where('waba_id', WhatsAppInboxAccess::WABA_ID)
+                ->where('phone_number_id', WhatsAppInboxAccess::PHONE_ID)->whereIn('state', ['CLAIMED', 'UNKNOWN'])
+                ->lockForUpdate()->first(['id']);
+            if ($pending !== null) return true;
+        }
+        $meta = array_values(array_intersect(['messenger', 'instagram'], $channels));
+        if ($meta !== [] && Schema::hasTable('meta_reply_requests')) {
+            $pending = MetaInboxAccess::scope(DB::table('meta_reply_requests'), '')
+                ->whereIn('waba_id', $meta)->whereIn('state', ['CLAIMED', 'UNKNOWN'])->lockForUpdate()->first(['id']);
+            if ($pending !== null) return true;
+        }
+        return false;
     }
 
     protected function now(): DateTimeImmutable { return new DateTimeImmutable('now', new DateTimeZone('UTC')); }

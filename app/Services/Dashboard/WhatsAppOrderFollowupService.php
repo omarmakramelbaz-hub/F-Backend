@@ -171,7 +171,8 @@ class WhatsAppOrderFollowupService
     {
         $out=['status'=>'BLOCKED','reply_id'=>null,'field_count'=>0];
         try {
-            if (!static::validPlan($plan)||$refresh()!==$plan) return $out;
+            if (!static::validPlan($plan)||!$this->automaticReplyAllowed($plan)||$refresh()!==$plan
+                ||!$this->automaticReplyAllowed($plan)) return $out;
             $this->replies=$this->replies??$this->replyService();
             $uuid=static::requestUuid($plan,Crypt::getKey()); $cid=$plan['conversation_id']; $inbound=$plan['latest_customer_id'];
             $prior=$this->replies->orderFollowupState($actor,$cid,$uuid,$inbound);
@@ -185,7 +186,11 @@ class WhatsAppOrderFollowupService
             $marker=['version'=>static::MARKER_VERSION,'kind'=>$fields===['CONFIRMATION']?'confirmation':'question','fields'=>$fields,
                 'latest_customer_id'=>$inbound,'latest_customer_key'=>$plan['latest_customer_key'],'episode_customer_key'=>$plan['episode_customer_key'],
                 'proposal_hash'=>$fields===['CONFIRMATION']?static::proposalHash($plan['data'],$plan['transcript']):null];
-            $guard=fn():bool=>$refresh()===$plan&&$this->handoffAllowed($plan);
+            // This guard is also called inside the sender's reservation transaction.
+            // Its current policy read shares the owner's mode-change lock: a new
+            // claim cannot overtake a completed switch to analysis-only.
+            $guard=fn():bool=>$this->automaticReplyAllowed($plan)&&$refresh()===$plan
+                &&$this->handoffAllowed($plan)&&$this->automaticReplyAllowed($plan);
             $compose=function() use($plan,$fields,$guard,$text,$dialogue):string {
                 if (!$guard()) throw new \RuntimeException();
                 $this->provider=$this->provider??$this->providerService($plan);
@@ -209,6 +214,21 @@ class WhatsAppOrderFollowupService
             return ['status'=>($sent['replayed']??false)?'ALREADY_ASKED':(($sent['state']??null)==='ACCEPTED'?'ACCEPTED':'BLOCKED'),
                 'reply_id'=>$sent['reply_id']??null,'field_count'=>count($fields)];
         } catch (\Throwable $ignore) { return $out; }
+    }
+
+    /** Automatic sends require reply authority even when a caller retained an old plan. */
+    private function automaticReplyAllowed(array $plan): bool
+    {
+        try {
+            if (!Schema::hasTable('meta_ai_controls')) return true;
+            $token=$plan['primary_ai']??null;
+            if (!self::validPrimaryToken($token)) return false;
+            $gate=app(MetaAiControl::class)->gate($token['channel']);
+            return ($gate['effective']??false)===true&&($gate['revision']??null)===$token['revision']
+                &&($gate['actor_id']??null)===$token['actor_id']
+                &&($gate['floor']??null)===['message_floor'=>$token['message_floor'],
+                    'event_floor'=>$token['event_floor'],'started_at_utc'=>$token['started_at_utc']];
+        } catch (\Throwable $ignore) { return false; }
     }
 
     public function handoffAllowed(array $plan): bool

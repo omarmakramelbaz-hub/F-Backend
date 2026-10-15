@@ -44,13 +44,16 @@ function attachLegacySubmit(f) {
     f.nodes.form.addEventListener('submit', legacy);
 }
 function policy() {
-    return {enabled: false, channels: ['whatsapp', 'messenger', 'instagram'],
+    return {enabled: false, mode: 'REPLY_AND_ANALYZE', channels: ['whatsapp', 'messenger', 'instagram'],
         schedule: {enabled: false, days: [0,1,2,3,4,5,6], start: '09:00', end: '23:00', all_day: false},
         dispatch_schedule: {enabled: true, days: [0,1,2,3,4,5,6], start: '09:00', end: '00:30', all_day: false}};
 }
 function state(change = {}) {
     const value = Object.assign({available: true, policy: policy(), revision: 0, effective: false, status: 'DISABLED', can_manage: true,
         updated_at_utc: null, local_time: '2026-10-14T21:00:00+03:00'}, change);
+    if (!Object.prototype.hasOwnProperty.call(change, 'reply_state')) value.reply_state = {
+        effective: value.policy && value.policy.mode === 'ANALYZE_ONLY' ? false : value.effective,
+        status: !value.policy || !value.policy.enabled ? 'DISABLED' : value.policy.mode === 'ANALYZE_ONLY' ? 'ANALYZE_ONLY' : value.status, local_time:value.local_time};
     if (!Object.prototype.hasOwnProperty.call(change, 'dispatch_state')) value.dispatch_state = {
         effective: !!(value.policy && value.policy.enabled), status:value.policy && value.policy.enabled ? 'ACTIVE' : 'DISABLED', local_time:value.local_time};
     return value;
@@ -62,7 +65,8 @@ function response(value, status = 200, options = {}) {
 function fixture(first = state(), changes = {}) {
     const nodes = {};
     ['toggle','save','refresh','form','status','message','settings','current-time','schedule','all-day','start','end','external-paused','channel-status','handoff-state',
-        'dispatch-status','dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end']
+        'dispatch-status','dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end',
+        'mode','reply-status','reply-settings','analysis-note','handoff-settings','unanswered-note']
         .forEach(name => { nodes[name] = new Element(); });
     const channels = ['whatsapp','messenger','instagram'].map(value => Object.assign(new Element(), {value}));
     const days = [0,1,2,3,4,5,6].map(value => Object.assign(new Element(), {value: String(value)}));
@@ -119,10 +123,13 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     check(f.dispatchDays.every(input => input.checked && !input.disabled), 'all seven dispatch start days are independently editable');
     check(!f.nodes['dispatch-start'].disabled && !f.nodes['dispatch-end'].disabled, 'dispatch clocks remain editable when reply scheduling is off');
     equal(f.nodes['dispatch-status'].textContent, 'إرسال الطلبات متوقف', 'master off also describes dispatch as off');
+    equal(f.nodes.mode.value, 'REPLY_AND_ANALYZE', 'full role follows the saved policy');
+    equal(f.nodes['reply-status'].textContent, 'ردود AI متوقفة', 'reply state is displayed separately from processing');
+    check(!f.nodes['reply-settings'].hidden && !f.nodes['handoff-settings'].hidden && f.nodes['analysis-note'].hidden, 'full role displays reply hours and handoff');
 
     // A previously stored reply-only policy can be displayed without any automatic save or activation.
-    const oldPolicy = policy(); delete oldPolicy.dispatch_schedule;
-    const oldState = state({policy:oldPolicy}); delete oldState.dispatch_state;
+    const oldPolicy = policy(); delete oldPolicy.dispatch_schedule; delete oldPolicy.mode;
+    const oldState = state({policy:oldPolicy}); delete oldState.dispatch_state; delete oldState.reply_state;
     let separate = fixture(oldState); await settle();
     equal(separate.calls.length, 1, 'reading a legacy policy does not write a migration');
     equal([separate.nodes['dispatch-start'].value, separate.nodes['dispatch-end'].value], ['09:00','00:30'], 'legacy policy receives the requested dispatch defaults in the form');
@@ -131,6 +138,91 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     equal(sent(separate).policy, policy(), 'explicit legacy save posts the normalized four-key policy');
     check(!sent(separate).policy.enabled, 'normalizing a legacy policy never enables AI');
 
+    // Four-key deployed policies keep their mode and reply hours until the owner explicitly saves.
+    const legacyFour = policy(); delete legacyFour.mode;
+    const legacyFourState = state({policy:legacyFour}); delete legacyFourState.reply_state;
+    separate = fixture(legacyFourState); await settle();
+    equal(separate.nodes.mode.value, 'REPLY_AND_ANALYZE', 'legacy four-key policies retain the full reply role');
+    equal(separate.calls.length, 1, 'reading a four-key policy performs no migration write');
+    separate.queue.push(response(state({revision:1}))); separate.nodes.form.fire('submit'); await settle();
+    equal(sent(separate).policy, policy(), 'explicit save upgrades a legacy four-key policy to the strict mode contract');
+
+    // Analysis-only is selected explicitly; activation uses that selection rather than the old saved mode.
+    const analysisPolicy = policy(); analysisPolicy.mode = 'ANALYZE_ONLY'; analysisPolicy.enabled = true;
+    let analysis = fixture(); await settle();
+    analysis.nodes['external-paused'].checked = true;
+    analysis.nodes.mode.value = 'ANALYZE_ONLY'; analysis.nodes.mode.fire('change');
+    equal(analysis.calls.length, 1, 'changing the role never automatically saves or activates');
+    check(!analysis.nodes['external-paused'].checked, 'changing role clears any earlier takeover attestation');
+    check(analysis.nodes['reply-settings'].hidden && analysis.nodes['handoff-settings'].hidden && !analysis.nodes['analysis-note'].hidden, 'analysis-only hides reply settings and explains assistant ownership');
+    check(analysis.nodes.schedule.disabled && analysis.nodes['external-paused'].disabled && analysis.days.every(input => input.disabled), 'analysis-only cannot edit reply hours or attest a takeover');
+    check(!analysis.nodes['dispatch-start'].disabled && analysis.dispatchDays.every(input => !input.disabled), 'analysis-only retains independent dispatch controls');
+    equal(analysis.nodes.toggle.textContent, 'تشغيل تحليل وإرسال الطلبات', 'master-off toggle names the role currently selected for activation');
+    analysis.nodes.schedule.checked = true; analysis.nodes.start.value = 'invalid'; analysis.nodes.end.value = 'invalid';
+    analysis.days.forEach(input => { input.checked = false; });
+    analysis.nodes['external-paused'].checked = true; // Synthetic events cannot force a reply takeover through analysis mode.
+    analysis.queue.push(response(state({policy:analysisPolicy, revision:1, effective:true, status:'ACTIVE'})));
+    analysis.nodes.toggle.fire('click'); await settle();
+    equal(sent(analysis), {policy:analysisPolicy, expected_revision:0, external_agent_paused:false}, 'analysis activation ignores disabled reply edits, preserves saved schedule and sends no pause attestation');
+    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'main status describes active analysis without claiming reply availability');
+    equal(analysis.nodes['reply-status'].textContent, 'ردود AI متوقفة؛ مساعد ميتا يتولى المحادثة', 'analysis role clearly assigns replies to the external assistant');
+    equal(analysis.nodes.toggle.textContent, 'إيقاف تحليل وإرسال الطلبات', 'active analysis toggle labels the processing stop');
+    check(analysis.nodes['unanswered-note'].hidden && analysis.nodes['handoff-state'].hidden, 'analysis role hides full-reply and old takeover status notes');
+    equal(analysis.nodes['dispatch-status'].textContent, 'إرسال الطلبات مفعّل حسب الجدول', 'analysis can dispatch while automatic replies are disabled');
+
+    // Saving analysis-only preserves the raw reply schedule even when it contains overnight and all-day settings.
+    const overnightAnalysis = JSON.parse(JSON.stringify(analysisPolicy));
+    overnightAnalysis.schedule = {enabled:true, days:[2,5], start:'22:00', end:'04:30', all_day:true};
+    analysis = fixture(state({policy:overnightAnalysis, revision:2, effective:true, status:'ACTIVE', handoff_method:'OWNER_ATTESTED', handoff_required:false})); await settle();
+    check(analysis.nodes['handoff-state'].hidden, 'a stale full-mode handoff receipt is never shown as analysis authority');
+    analysis.nodes['dispatch-start'].value = '09:15'; analysis.nodes['dispatch-end'].value = '00:15';
+    const analysisDispatch = JSON.parse(JSON.stringify(overnightAnalysis)); analysisDispatch.dispatch_schedule.start = '09:15'; analysisDispatch.dispatch_schedule.end = '00:15';
+    analysis.queue.push(response(state({policy:analysisDispatch, revision:3, effective:true, status:'ACTIVE',
+        dispatch_state:{effective:false,status:'SCHEDULED_OFF',local_time:'2026-10-14T21:00:00+03:00'}})));
+    analysis.nodes.form.fire('submit'); await settle();
+    equal(sent(analysis).policy, analysisDispatch, 'analysis-only save edits only dispatch and preserves every saved reply-schedule flag');
+    equal(analysis.nodes['dispatch-status'].textContent, 'إرسال الطلبات خارج مواعيد الإرسال', 'dispatch schedule can be closed while analysis stays active');
+    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'closed dispatch hours do not mark analysis as off');
+
+    // Returning to full replies requires a fresh explicit pause, not an old attestation or automatic retry.
+    analysis.nodes.mode.value = 'REPLY_AND_ANALYZE'; analysis.nodes.mode.fire('change');
+    check(!analysis.nodes['reply-settings'].hidden && !analysis.nodes['handoff-settings'].hidden && !analysis.nodes['external-paused'].checked, 'returning to full replies exposes a new unchecked handoff');
+    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'editing the mode cannot claim a saved transition before confirmation');
+    analysis.queue.push(response({error:'EXTERNAL_AGENT_PAUSE_REQUIRED'}, 422));
+    analysis.nodes.form.fire('submit'); await settle();
+    equal(sent(analysis).policy.mode, 'REPLY_AND_ANALYZE', 'full-mode save transmits the chosen new role');
+    check(!sent(analysis).external_agent_paused && analysis.nodes.message.textContent.includes('أوقف ردود مساعد ميتا'), 'backend takeover refusal explains the fresh attestation');
+    equal(analysis.calls.filter(call => call.options.method === 'POST').length, 2, 'handoff refusal makes no implicit transition retry');
+    analysis.nodes['external-paused'].checked = true;
+    const resumedFull = JSON.parse(JSON.stringify(analysisDispatch)); resumedFull.mode = 'REPLY_AND_ANALYZE';
+    analysis.queue.push(response(state({policy:resumedFull, revision:4, effective:true, status:'ACTIVE'})));
+    analysis.nodes.form.fire('submit'); await settle();
+    equal(sent(analysis), {policy:resumedFull, expected_revision:3, external_agent_paused:true}, 'owner explicitly submits the new full-mode handoff');
+    equal(analysis.nodes.status.textContent, 'AI مفعّل حسب الجدول', 'confirmed full role restores the full-mode header');
+
+    // A pending send rejection is distinct from stale revision and never triggers either a GET or a retry.
+    for (const pendingStatus of [409,422]) {
+        analysis = fixture(state({policy:resumedFull, revision:4, effective:true, status:'ACTIVE'})); await settle();
+        analysis.nodes.mode.value = 'ANALYZE_ONLY'; analysis.nodes.mode.fire('change');
+        analysis.queue.push(response({error:'REPLIES_PENDING'}, pendingStatus));
+        analysis.nodes.form.fire('submit'); await settle();
+        equal(analysis.calls.length, 2, 'pending replies do not reload or retry: ' + pendingStatus);
+        check(analysis.nodes.message.textContent.includes('لم تتأكد نتيجتها') && analysis.nodes.settings.open, 'pending send uncertainty has a fixed helpful explanation: ' + pendingStatus);
+        check(!analysis.nodes.save.disabled && analysis.nodes.mode.value === 'ANALYZE_ONLY', 'pending transition remains reviewable with the selected role: ' + pendingStatus);
+        equal(analysis.nodes.status.textContent, 'AI مفعّل حسب الجدول', 'rejected transition keeps the confirmed full-mode state: ' + pendingStatus);
+        const pendingTimer = [...analysis.timers.values()][0]; pendingTimer.callback(); await settle();
+        equal(analysis.calls.length, 2, 'dirty rejected mode prevents background refresh from discarding the review: ' + pendingStatus);
+    }
+
+    const stoppedAnalysis = JSON.parse(JSON.stringify(analysisPolicy)); stoppedAnalysis.enabled = false;
+    analysis = fixture(state({policy:stoppedAnalysis})); await settle();
+    equal(analysis.nodes.status.textContent, 'تحليل AI متوقف', 'master-off analysis describes the processing state accurately');
+    equal(analysis.nodes['reply-status'].textContent, 'ردود AI متوقفة؛ مساعد ميتا يتولى المحادثة', 'analysis role continues to identify the external reply owner while processing is off');
+    analysis = fixture(state({policy:analysisPolicy, effective:true, status:'ACTIVE', can_manage:false})); await settle();
+    check(analysis.nodes.mode.disabled && analysis.nodes.save.disabled && analysis.nodes['dispatch-start'].disabled, 'read-only users cannot select an analysis role or change its dispatch schedule');
+    analysis.nodes.mode.value = 'REPLY_AND_ANALYZE'; analysis.nodes.mode.fire('change'); analysis.nodes.form.fire('submit'); await settle();
+    equal(analysis.calls.length, 1, 'synthetic read-only mode changes never send a request');
+
     // Reply and dispatch schedules collect different days and overnight hours in one atomic save.
     separate = fixture(); await settle();
     separate.nodes.schedule.checked = true; separate.nodes.schedule.fire('change');
@@ -138,7 +230,7 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     separate.days.forEach(input => { input.checked = ['1','3'].includes(input.value); });
     separate.nodes['dispatch-start'].value = '10:15'; separate.nodes['dispatch-end'].value = '00:45';
     separate.dispatchDays.forEach(input => { input.checked = ['2','6'].includes(input.value); });
-    const separatePolicy = {enabled:false, channels:policy().channels,
+    const separatePolicy = {enabled:false, mode:'REPLY_AND_ANALYZE', channels:policy().channels,
         schedule:{enabled:true, days:[1,3], start:'21:00', end:'06:00', all_day:false},
         dispatch_schedule:{enabled:true, days:[2,6], start:'10:15', end:'00:45', all_day:false}};
     separate.queue.push(response(state({policy:separatePolicy, revision:2})));
@@ -256,7 +348,7 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     f.nodes.schedule.checked = true; f.nodes.start.value = '22:00'; f.nodes.end.value = '03:00';
     f.days.forEach(input => { input.checked = input.value === '5'; }); f.nodes['external-paused'].checked = true;
     const enabled = policy(); enabled.enabled = true;
-    const selectedEnabled = {enabled:true, channels:['whatsapp'], schedule:{enabled:true, days:[5], start:'22:00', end:'03:00', all_day:false}, dispatch_schedule:policy().dispatch_schedule};
+    const selectedEnabled = {enabled:true, mode:'REPLY_AND_ANALYZE', channels:['whatsapp'], schedule:{enabled:true, days:[5], start:'22:00', end:'03:00', all_day:false}, dispatch_schedule:policy().dispatch_schedule};
     f.queue.push(response(state({policy: selectedEnabled, revision: 1, effective: true, status: 'ACTIVE'})));
     f.nodes.toggle.fire('click');
     check(f.nodes.toggle.disabled && f.nodes.save.disabled, 'mutation disables controls immediately');
@@ -277,7 +369,7 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     check(f.days.every(input => !input.disabled) && !f.nodes.start.disabled, 'schedule fields follow enabled switch');
     f.days.forEach(input => { input.checked = input.value === '5'; });
     f.nodes.start.value = '22:00'; f.nodes.end.value = '03:00'; f.nodes['external-paused'].checked = true;
-    const edited = {enabled: true, channels: ['whatsapp','instagram'], schedule: {enabled: true, days: [5], start: '22:00', end: '03:00', all_day: false}, dispatch_schedule:policy().dispatch_schedule};
+    const edited = {enabled: true, mode:'REPLY_AND_ANALYZE', channels: ['whatsapp','instagram'], schedule: {enabled: true, days: [5], start: '22:00', end: '03:00', all_day: false}, dispatch_schedule:policy().dispatch_schedule};
     f.queue.push(response(state({policy: edited, revision: 2, status: 'SCHEDULED_OFF', effective: false})));
     check(f.nodes.form.fire('submit').prevented, 'form does not navigate'); await settle();
     equal(sent(f), {policy: edited, expected_revision: 1, external_agent_paused: true}, 'save captures form and revision');
@@ -340,6 +432,8 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     const invalid = [state({revision:-1}), state({revision:1.5}), state({revision:'1'}), state({revision:Number.MAX_SAFE_INTEGER+1}),
         state({can_manage:1}), state({effective:true}), state({status:'UNKNOWN'}), state({local_time:'<img onerror=alert(1)>'}),
         state({policy:{...policy(), extra:true}}), state({policy:{...policy(), enabled:'true'}}),
+        ...[null, '', 'analyze_only', 'REPLY_ONLY', true, ['ANALYZE_ONLY'], {mode:'ANALYZE_ONLY'}]
+            .map(mode => state({policy:{...policy(), mode}})),
         state({policy:{...policy(), channels:['whatsapp','whatsapp']}}),
         state({policy:{...policy(), schedule:{...policy().schedule, days:['1']}}}),
         state({policy:{...policy(), schedule:{...policy().schedule, end:'24:00'}}}),
@@ -352,8 +446,21 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
             {effective:false,status:'UNKNOWN',local_time:'2026-10-14T21:00:00+03:00'},
             {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00Z'},
             {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00',extra:true}]
-            .map(dispatch_state => state({dispatch_state})), {}, null];
+            .map(dispatch_state => state({dispatch_state})),
+        ...[null, {effective:true,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00'},
+            {effective:false,status:'UNKNOWN',local_time:'2026-10-14T21:00:00+03:00'},
+            {effective:false,status:'ANALYZE_ONLY',local_time:'2026-10-14T21:00:00+03:00'},
+            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00Z'},
+            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00',extra:true},
+            {effective:'false',status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00'}]
+            .map(reply_state => state({reply_state})),
+        state({policy:analysisPolicy, effective:true,status:'ACTIVE',reply_state:{effective:true,status:'ACTIVE',local_time:'2026-10-14T21:00:00+03:00'}}),
+        state({policy:analysisPolicy,effective:false,status:'SCHEDULED_OFF'}),
+        state({policy:{...policy(), mode:'ANALYZE_ONLY'},reply_state:{effective:false,status:'ANALYZE_ONLY',local_time:'2026-10-14T21:00:00+03:00'}}), {}, null];
     const missingDispatchState = state(); delete missingDispatchState.dispatch_state; invalid.push(missingDispatchState);
+    const missingReplyState = state(); delete missingReplyState.reply_state; invalid.push(missingReplyState);
+    const legacyFourMissingDispatch = state({policy:legacyFour}); delete legacyFourMissingDispatch.dispatch_state; invalid.push(legacyFourMissingDispatch);
+    const mixedSchemaPolicy = policy(); delete mixedSchemaPolicy.dispatch_schedule; invalid.push(state({policy:mixedSchemaPolicy}));
     for (const value of invalid) {
         f = fixture(value); await settle();
         check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'malformed response cannot enable');
@@ -374,6 +481,12 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     f.dispatchDays[4].checked = true; f.nodes['dispatch-end'].value = '09:00';
     f.nodes.form.fire('submit'); await settle(); equal(f.calls.length, 1, 'equal dispatch times independently need explicit all day');
     equal(f.nodes.save.textContent, 'حفظ الإعدادات', 'dispatch validation never leaves save busy');
+    for (const badMode of ['', 'analyze_only', 'REPLY_ONLY', '<img onerror=alert(1)>']) {
+        const badRole = fixture(); await settle(); badRole.nodes.mode.value = badMode; badRole.nodes.mode.fire('change');
+        badRole.nodes.form.fire('submit'); badRole.nodes.toggle.fire('click'); await settle();
+        equal(badRole.calls.length, 1, 'unknown edited role never posts: ' + badMode);
+        check(badRole.nodes.message.textContent.includes('راجع'), 'invalid edited role has a fixed validation message: ' + badMode);
+    }
 
     // A failed or uncertain mutation cannot be automatically retried with stale revision.
     f = fixture(); await settle(); f.queue.push(new Error('offline'));
@@ -497,6 +610,14 @@ function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].option
     const channelView = fs.readFileSync(path.join(__dirname, '../resources/views/admin/meta/channels.blade.php'), 'utf8');
     check(blade.includes("Route::has('meta-ai-control.state')") && blade.includes("Route::has('meta-ai-control.update')"), 'missing routes hide partial before migration');
     check(blade.includes('JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT'), 'bootstrap encoded for script context');
+    equal((blade.match(/data-meta-ai-mode(?:[ >])/g) || []).length, 1, 'one shared mode picker');
+    check(blade.includes('value="REPLY_AND_ANALYZE"') && blade.includes('الرد والتحليل وإرسال الطلبات') && blade.includes('Replies, analysis and order dispatch'), 'full role is explicit in both languages');
+    check(blade.includes('value="ANALYZE_ONLY"') && blade.includes('تحليل وإرسال الطلبات فقط') && blade.includes('Analysis and order dispatch only'), 'analysis role is explicit in both languages');
+    check(blade.includes('بدون إرسال أي ردود تلقائية') && blade.includes('without sending automatic replies'), 'analysis note does not imply dashboard replies');
+    check(blade.includes('التحليل يعمل دون التقيد بمواعيد الردود') && blade.includes('Analysis is independent of reply hours'), 'analysis-only clock independence is stated in both languages');
+    check(blade.includes('يتولى مساعد ميتا الرد وجمع البيانات وتأكيد الطلب') && blade.includes('Meta assistant replies, collects details and confirms the order'), 'analysis note tells the owner who gathers missing customer information');
+    const controller = fs.readFileSync(path.join(__dirname, '../app/Http/Controllers/Dashboard/MetaAiControlController.php'), 'utf8');
+    check(controller.includes("$reason === 'REPLIES_PENDING'") && controller.includes("['error' => $reason], 409"), 'unresolved send transition exposes the fixed controller reason');
     check(blade.includes('القنوات ومواعيد الردود وإرسال الطلبات') && blade.includes('Channels, reply hours and order dispatch hours'), 'settings summary names the separate reply and dispatch hours in both languages');
     check(blade.includes('تحديد مواعيد ردود وتحليل AI') && blade.includes('Schedule AI replies and analysis'), 'schedule switch explains that it controls replies and analysis');
     const unansweredNote = blade.match(/<p[^>]* data-meta-ai-unanswered-note>([\s\S]*?)<\/p>/);

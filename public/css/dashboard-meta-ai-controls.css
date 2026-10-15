@@ -4,9 +4,12 @@
 .meta-ai-controls .wa-inbox-button { min-height:32px; padding:6px 10px; font-size:13px; }
 .meta-ai-toggle { background:#ff8b16; color:#142c42; border-color:#e7780c; font-weight:700; }
 .meta-ai-toggle[aria-pressed="true"] { background:#213c55; border-color:#213c55; color:#fff; }
-.meta-ai-controls button:disabled,.meta-ai-controls input:disabled { cursor:not-allowed; opacity:.6; }
+.meta-ai-controls button:disabled,.meta-ai-controls input:disabled,.meta-ai-controls select:disabled { cursor:not-allowed; opacity:.6; }
 .meta-ai-controls input[type="checkbox"] { margin:0; accent-color:#ee7e15; }
 .meta-ai-controls label { display:inline-flex; align-items:center; gap:5px; margin:0; font-weight:400; }
+.meta-ai-controls .meta-ai-mode { display:flex; flex-wrap:wrap; gap:6px 10px; }
+.meta-ai-mode select { max-width:100%; color:inherit; background:transparent; border:1px solid #b9c7d6; border-radius:5px; padding:5px 8px; }
+.meta-ai-mode option { color:#243b53; background:#fff; }
 .meta-ai-schedule-row { margin-top:10px; }
 .meta-ai-controls input[type="time"] { color:inherit; background:transparent; border:1px solid #b9c7d6; border-radius:5px; padding:4px 5px; direction:ltr; }
 .meta-ai-status { font-weight:600; }
