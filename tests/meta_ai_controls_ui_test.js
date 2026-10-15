@@ -44,18 +44,19 @@ function attachLegacySubmit(f) {
     f.nodes.form.addEventListener('submit', legacy);
 }
 function policy() {
-    return {enabled: false, mode: 'REPLY_AND_ANALYZE', channels: ['whatsapp', 'messenger', 'instagram'],
+    return {enabled: false, mode: 'ANALYZE_ONLY', channels: ['whatsapp', 'messenger', 'instagram'],
         schedule: {enabled: false, days: [0,1,2,3,4,5,6], start: '09:00', end: '23:00', all_day: false},
         dispatch_schedule: {enabled: true, days: [0,1,2,3,4,5,6], start: '09:00', end: '00:30', all_day: false}};
 }
 function state(change = {}) {
     const value = Object.assign({available: true, policy: policy(), revision: 0, effective: false, status: 'DISABLED', can_manage: true,
         updated_at_utc: null, local_time: '2026-10-14T21:00:00+03:00'}, change);
+    if (!Object.prototype.hasOwnProperty.call(change, 'analysis_state')) value.analysis_state = {effective:value.effective, status:value.status, local_time:value.local_time};
     if (!Object.prototype.hasOwnProperty.call(change, 'reply_state')) value.reply_state = {
         effective: value.policy && value.policy.mode === 'ANALYZE_ONLY' ? false : value.effective,
         status: !value.policy || !value.policy.enabled ? 'DISABLED' : value.policy.mode === 'ANALYZE_ONLY' ? 'ANALYZE_ONLY' : value.status, local_time:value.local_time};
     if (!Object.prototype.hasOwnProperty.call(change, 'dispatch_state')) value.dispatch_state = {
-        effective: !!(value.policy && value.policy.enabled), status:value.policy && value.policy.enabled ? 'ACTIVE' : 'DISABLED', local_time:value.local_time};
+        effective:value.effective, status:value.status, local_time:value.local_time};
     return value;
 }
 function response(value, status = 200, options = {}) {
@@ -64,9 +65,9 @@ function response(value, status = 200, options = {}) {
 }
 function fixture(first = state(), changes = {}) {
     const nodes = {};
-    ['toggle','save','refresh','form','status','message','settings','current-time','schedule','all-day','start','end','external-paused','channel-status','handoff-state',
+    ['toggle','save','refresh','form','status','message','settings','current-time','schedule','all-day','start','end','channel-status',
         'dispatch-status','dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end',
-        'mode','reply-status','reply-settings','analysis-note','handoff-settings','unanswered-note']
+        'analysis-status','analysis-note','compatibility-note','analysis-settings']
         .forEach(name => { nodes[name] = new Element(); });
     const channels = ['whatsapp','messenger','instagram'].map(value => Object.assign(new Element(), {value}));
     const days = [0,1,2,3,4,5,6].map(value => Object.assign(new Element(), {value: String(value)}));
@@ -102,545 +103,360 @@ async function settle() { for (let i = 0; i < 5; i++) await new Promise(resolve 
 function sent(f, at = f.calls.length - 1) { return JSON.parse(f.calls[at].options.body); }
 
 (async function () {
+    const processingOn = 'معالجة الرسائل والطلبات مفعّلة حسب الجدول';
+    const processingOff = 'معالجة الرسائل والطلبات متوقفة';
+    const processingScheduledOff = 'معالجة الرسائل والطلبات خارج المواعيد';
+    const clock = '2026-10-14T21:00:00+03:00';
+    const purpose = (status, local_time = clock) => ({effective:status === 'ACTIVE', status, local_time});
+    const enabled = policy(); enabled.enabled = true;
     let f = fixture(); await settle();
     equal(f.calls.length, 1, 'one initial GET');
-    check(f.calls[0].url === 'https://dashboard.example/admin/meta/ai-control', 'same origin endpoint');
+    equal(f.calls[0].url, 'https://dashboard.example/admin/meta/ai-control', 'same origin endpoint');
     equal(f.calls[0].options.credentials, 'same-origin', 'session credentials scoped');
     equal(f.calls[0].options.cache, 'no-store', 'policy never cached');
     equal(f.calls[0].options.redirect, 'error', 'no sign-in redirect accepted');
     check(!f.calls[0].options.method && !f.calls[0].options.body, 'initial read never mutates');
     check(!f.panel.hidden && !f.nodes.settings.hidden, 'valid state revealed');
-    equal(f.nodes.toggle.textContent, 'تشغيل ردود وتحليل AI', 'disabled toggle label');
-    equal(f.nodes.status.textContent, 'AI متوقف', 'disabled status');
+    equal(f.nodes.toggle.textContent, 'تشغيل تحليل وإرسال الطلبات', 'only analysis activation is offered');
+    equal(f.nodes.status.textContent, processingOff, 'disabled processing status');
+    equal(f.nodes['analysis-status'].textContent, 'تحليل الرسائل متوقف', 'analysis status shown independently');
+    equal(f.nodes['dispatch-status'].textContent, 'إرسال الطلبات متوقف', 'dispatch master off');
     check(!f.nodes.toggle.disabled && !f.nodes.save.disabled, 'owner controls usable');
-    check(f.channels.every(input => input.checked), 'default three channels from persisted state');
-    check(f.days.every(input => input.disabled) && f.nodes.start.disabled && f.nodes.end.disabled, 'dormant schedule disabled');
-    check(!f.nodes['external-paused'].checked, 'attestation not preselected');
+    check(f.channels.every(input => input.checked), 'saved channel selection rendered');
+    check(f.days.every(input => input.disabled) && f.nodes.start.disabled && f.nodes.end.disabled, 'dormant analysis schedule disabled');
+    check(f.dispatchDays.every(input => input.checked && !input.disabled), 'dispatch days independently editable');
+    check(!f.nodes['dispatch-start'].disabled, 'dispatch clocks editable while analysis scheduling off');
+    equal([f.nodes['dispatch-start'].value, f.nodes['dispatch-end'].value], ['09:00','00:30'], 'dispatch preserves overnight default');
     equal(f.nodes['current-time'].textContent, 'الوقت في القاهرة: 2026-10-14 21:00', 'server Cairo time shown');
-    equal(f.nodes.save.textContent, 'حفظ الإعدادات', 'save label belongs to the async control');
-    check(f.nodes['dispatch-schedule'].checked && !f.nodes['dispatch-all-day'].checked, 'dispatch starts with a separate enabled schedule');
-    equal([f.nodes['dispatch-start'].value, f.nodes['dispatch-end'].value], ['09:00','00:30'], 'default dispatch hours cross midnight independently of reply hours');
-    check(f.dispatchDays.every(input => input.checked && !input.disabled), 'all seven dispatch start days are independently editable');
-    check(!f.nodes['dispatch-start'].disabled && !f.nodes['dispatch-end'].disabled, 'dispatch clocks remain editable when reply scheduling is off');
-    equal(f.nodes['dispatch-status'].textContent, 'إرسال الطلبات متوقف', 'master off also describes dispatch as off');
-    equal(f.nodes.mode.value, 'REPLY_AND_ANALYZE', 'full role follows the saved policy');
-    equal(f.nodes['reply-status'].textContent, 'ردود AI متوقفة', 'reply state is displayed separately from processing');
-    check(!f.nodes['reply-settings'].hidden && !f.nodes['handoff-settings'].hidden && f.nodes['analysis-note'].hidden, 'full role displays reply hours and handoff');
+    check(f.nodes['compatibility-note'].hidden, 'saved analysis mode has no compatibility warning');
 
-    // A previously stored reply-only policy can be displayed without any automatic save or activation.
-    const oldPolicy = policy(); delete oldPolicy.dispatch_schedule; delete oldPolicy.mode;
-    const oldState = state({policy:oldPolicy}); delete oldState.dispatch_state; delete oldState.reply_state;
-    let separate = fixture(oldState); await settle();
-    equal(separate.calls.length, 1, 'reading a legacy policy does not write a migration');
-    equal([separate.nodes['dispatch-start'].value, separate.nodes['dispatch-end'].value], ['09:00','00:30'], 'legacy policy receives the requested dispatch defaults in the form');
-    equal(separate.nodes['dispatch-status'].textContent, 'حالة إرسال الطلبات غير متاحة حاليًا', 'legacy state never borrows the reply effective status for dispatch');
-    separate.queue.push(response(state({revision:1}))); separate.nodes.form.fire('submit'); await settle();
-    equal(sent(separate).policy, policy(), 'explicit legacy save posts the normalized four-key policy');
-    check(!sent(separate).policy.enabled, 'normalizing a legacy policy never enables AI');
-
-    // Four-key deployed policies keep their mode and reply hours until the owner explicitly saves.
-    const legacyFour = policy(); delete legacyFour.mode;
-    const legacyFourState = state({policy:legacyFour}); delete legacyFourState.reply_state;
-    separate = fixture(legacyFourState); await settle();
-    equal(separate.nodes.mode.value, 'REPLY_AND_ANALYZE', 'legacy four-key policies retain the full reply role');
-    equal(separate.calls.length, 1, 'reading a four-key policy performs no migration write');
-    separate.queue.push(response(state({revision:1}))); separate.nodes.form.fire('submit'); await settle();
-    equal(sent(separate).policy, policy(), 'explicit save upgrades a legacy four-key policy to the strict mode contract');
-
-    // Analysis-only is selected explicitly; activation uses that selection rather than the old saved mode.
-    const analysisPolicy = policy(); analysisPolicy.mode = 'ANALYZE_ONLY'; analysisPolicy.enabled = true;
-    let analysis = fixture(); await settle();
-    analysis.nodes['external-paused'].checked = true;
-    analysis.nodes.mode.value = 'ANALYZE_ONLY'; analysis.nodes.mode.fire('change');
-    equal(analysis.calls.length, 1, 'changing the role never automatically saves or activates');
-    check(!analysis.nodes['external-paused'].checked, 'changing role clears any earlier takeover attestation');
-    check(analysis.nodes['reply-settings'].hidden && analysis.nodes['handoff-settings'].hidden && !analysis.nodes['analysis-note'].hidden, 'analysis-only hides reply settings and explains assistant ownership');
-    check(analysis.nodes.schedule.disabled && analysis.nodes['external-paused'].disabled && analysis.days.every(input => input.disabled), 'analysis-only cannot edit reply hours or attest a takeover');
-    check(!analysis.nodes['dispatch-start'].disabled && analysis.dispatchDays.every(input => !input.disabled), 'analysis-only retains independent dispatch controls');
-    equal(analysis.nodes.toggle.textContent, 'تشغيل تحليل وإرسال الطلبات', 'master-off toggle names the role currently selected for activation');
-    analysis.nodes.schedule.checked = true; analysis.nodes.start.value = 'invalid'; analysis.nodes.end.value = 'invalid';
-    analysis.days.forEach(input => { input.checked = false; });
-    analysis.nodes['external-paused'].checked = true; // Synthetic events cannot force a reply takeover through analysis mode.
-    analysis.queue.push(response(state({policy:analysisPolicy, revision:1, effective:true, status:'ACTIVE'})));
-    analysis.nodes.toggle.fire('click'); await settle();
-    equal(sent(analysis), {policy:analysisPolicy, expected_revision:0, external_agent_paused:false}, 'analysis activation ignores disabled reply edits, preserves saved schedule and sends no pause attestation');
-    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'main status describes active analysis without claiming reply availability');
-    equal(analysis.nodes['reply-status'].textContent, 'ردود AI متوقفة؛ مساعد ميتا يتولى المحادثة', 'analysis role clearly assigns replies to the external assistant');
-    equal(analysis.nodes.toggle.textContent, 'إيقاف تحليل وإرسال الطلبات', 'active analysis toggle labels the processing stop');
-    check(analysis.nodes['unanswered-note'].hidden && analysis.nodes['handoff-state'].hidden, 'analysis role hides full-reply and old takeover status notes');
-    equal(analysis.nodes['dispatch-status'].textContent, 'إرسال الطلبات مفعّل حسب الجدول', 'analysis can dispatch while automatic replies are disabled');
-
-    // Saving analysis-only preserves the raw reply schedule even when it contains overnight and all-day settings.
-    const overnightAnalysis = JSON.parse(JSON.stringify(analysisPolicy));
-    overnightAnalysis.schedule = {enabled:true, days:[2,5], start:'22:00', end:'04:30', all_day:true};
-    analysis = fixture(state({policy:overnightAnalysis, revision:2, effective:true, status:'ACTIVE', handoff_method:'OWNER_ATTESTED', handoff_required:false})); await settle();
-    check(analysis.nodes['handoff-state'].hidden, 'a stale full-mode handoff receipt is never shown as analysis authority');
-    analysis.nodes['dispatch-start'].value = '09:15'; analysis.nodes['dispatch-end'].value = '00:15';
-    const analysisDispatch = JSON.parse(JSON.stringify(overnightAnalysis)); analysisDispatch.dispatch_schedule.start = '09:15'; analysisDispatch.dispatch_schedule.end = '00:15';
-    analysis.queue.push(response(state({policy:analysisDispatch, revision:3, effective:true, status:'ACTIVE',
-        dispatch_state:{effective:false,status:'SCHEDULED_OFF',local_time:'2026-10-14T21:00:00+03:00'}})));
-    analysis.nodes.form.fire('submit'); await settle();
-    equal(sent(analysis).policy, analysisDispatch, 'analysis-only save edits only dispatch and preserves every saved reply-schedule flag');
-    equal(analysis.nodes['dispatch-status'].textContent, 'إرسال الطلبات خارج مواعيد الإرسال', 'dispatch schedule can be closed while analysis stays active');
-    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'closed dispatch hours do not mark analysis as off');
-
-    // Returning to full replies requires a fresh explicit pause, not an old attestation or automatic retry.
-    analysis.nodes.mode.value = 'REPLY_AND_ANALYZE'; analysis.nodes.mode.fire('change');
-    check(!analysis.nodes['reply-settings'].hidden && !analysis.nodes['handoff-settings'].hidden && !analysis.nodes['external-paused'].checked, 'returning to full replies exposes a new unchecked handoff');
-    equal(analysis.nodes.status.textContent, 'AI مفعّل للتحليل وإرسال الطلبات فقط', 'editing the mode cannot claim a saved transition before confirmation');
-    analysis.queue.push(response({error:'EXTERNAL_AGENT_PAUSE_REQUIRED'}, 422));
-    analysis.nodes.form.fire('submit'); await settle();
-    equal(sent(analysis).policy.mode, 'REPLY_AND_ANALYZE', 'full-mode save transmits the chosen new role');
-    check(!sent(analysis).external_agent_paused && analysis.nodes.message.textContent.includes('أوقف ردود مساعد ميتا'), 'backend takeover refusal explains the fresh attestation');
-    equal(analysis.calls.filter(call => call.options.method === 'POST').length, 2, 'handoff refusal makes no implicit transition retry');
-    analysis.nodes['external-paused'].checked = true;
-    const resumedFull = JSON.parse(JSON.stringify(analysisDispatch)); resumedFull.mode = 'REPLY_AND_ANALYZE';
-    analysis.queue.push(response(state({policy:resumedFull, revision:4, effective:true, status:'ACTIVE'})));
-    analysis.nodes.form.fire('submit'); await settle();
-    equal(sent(analysis), {policy:resumedFull, expected_revision:3, external_agent_paused:true}, 'owner explicitly submits the new full-mode handoff');
-    equal(analysis.nodes.status.textContent, 'AI مفعّل حسب الجدول', 'confirmed full role restores the full-mode header');
-
-    // A pending send rejection is distinct from stale revision and never triggers either a GET or a retry.
-    for (const pendingStatus of [409,422]) {
-        analysis = fixture(state({policy:resumedFull, revision:4, effective:true, status:'ACTIVE'})); await settle();
-        analysis.nodes.mode.value = 'ANALYZE_ONLY'; analysis.nodes.mode.fire('change');
-        analysis.queue.push(response({error:'REPLIES_PENDING'}, pendingStatus));
-        analysis.nodes.form.fire('submit'); await settle();
-        equal(analysis.calls.length, 2, 'pending replies do not reload or retry: ' + pendingStatus);
-        check(analysis.nodes.message.textContent.includes('لم تتأكد نتيجتها') && analysis.nodes.settings.open, 'pending send uncertainty has a fixed helpful explanation: ' + pendingStatus);
-        check(!analysis.nodes.save.disabled && analysis.nodes.mode.value === 'ANALYZE_ONLY', 'pending transition remains reviewable with the selected role: ' + pendingStatus);
-        equal(analysis.nodes.status.textContent, 'AI مفعّل حسب الجدول', 'rejected transition keeps the confirmed full-mode state: ' + pendingStatus);
-        const pendingTimer = [...analysis.timers.values()][0]; pendingTimer.callback(); await settle();
-        equal(analysis.calls.length, 2, 'dirty rejected mode prevents background refresh from discarding the review: ' + pendingStatus);
+    // Old saved modes are observed without a write. Every explicit save or activation adopts analysis-only.
+    const legacyFull = policy(); legacyFull.mode = 'REPLY_AND_ANALYZE';
+    const legacyFour = JSON.parse(JSON.stringify(legacyFull)); delete legacyFour.mode;
+    for (const generation of [3,4,5]) {
+        const previous = JSON.parse(JSON.stringify(generation === 5 ? legacyFull : legacyFour));
+        if (generation === 3) delete previous.dispatch_schedule;
+        previous.schedule = {enabled:true, days:[2,5], start:'22:00', end:'04:30', all_day:true};
+        const previousState = state({policy:previous, revision:10});
+        if (generation < 5) { delete previousState.reply_state; delete previousState.analysis_state; }
+        if (generation === 3) delete previousState.dispatch_state;
+        const old = fixture(previousState); await settle();
+        equal(old.calls.length, 1, 'legacy ' + generation + '-key GET performs no migration');
+        check(!old.nodes['compatibility-note'].hidden && old.nodes['compatibility-note'].textContent.includes('لم يتغير الوضع'), 'legacy role truthfully remains unchanged until save: ' + generation);
+        equal([old.nodes.start.value,old.nodes.end.value], ['22:00','04:30'], 'legacy schedule clocks preserved: ' + generation);
+        check(old.nodes.schedule.checked && old.nodes['all-day'].checked, 'legacy schedule raw flags preserved: ' + generation);
+        check(!old.nodes.schedule.disabled && old.days.filter(input => input.checked).every(input => !input.disabled), 'analysis schedule editable for explicit conversion: ' + generation);
+        if (generation < 5) equal(old.nodes['analysis-status'].textContent, 'حالة تحليل الرسائل غير متاحة حاليًا', 'legacy missing purpose state is never guessed');
+        const converted = JSON.parse(JSON.stringify(previous)); converted.mode = 'ANALYZE_ONLY';
+        if (generation === 3) converted.dispatch_schedule = policy().dispatch_schedule;
+        old.queue.push(response(state({policy:converted, revision:11})));
+        old.nodes.form.fire('submit'); await settle();
+        equal(sent(old), {policy:converted, expected_revision:10, external_agent_paused:false}, 'explicit save converts legacy role without changing untouched schedule or activating: ' + generation);
+        check(old.nodes['compatibility-note'].hidden, 'confirmed role conversion clears compatibility note: ' + generation);
     }
+    // Reading enabled legacy replies must never claim they have stopped, or silently change that mode.
+    const enabledFull = JSON.parse(JSON.stringify(legacyFull)); enabledFull.enabled = true;
+    const activeConversion = fixture(state({policy:enabledFull,effective:true,status:'ACTIVE',revision:4})); await settle();
+    const convertedActive = JSON.parse(JSON.stringify(enabledFull)); convertedActive.mode = 'ANALYZE_ONLY';
+    activeConversion.queue.push(response(state({policy:convertedActive,effective:true,status:'ACTIVE',revision:5})));
+    activeConversion.nodes.form.fire('submit'); await settle();
+    equal(sent(activeConversion),{policy:convertedActive,expected_revision:4,external_agent_paused:false},'explicit SAVE converts an enabled legacy role while preserving activation and untouched schedules');
+    check(activeConversion.nodes['compatibility-note'].hidden,'only successful active conversion clears the old reply-mode notice');
+    let legacy = fixture(state({policy:enabledFull, effective:true,status:'ACTIVE',revision:5})); await settle();
+    equal(legacy.calls.length, 1, 'enabled full role GET does not mutate');
+    check(!legacy.nodes['compatibility-note'].hidden && legacy.nodes['compatibility-note'].textContent.includes('يتضمن ردود'), 'enabled full role remains visible as a compatibility state');
+    equal(legacy.nodes.toggle.textContent, 'إيقاف AI', 'emergency stop names all existing AI processing');
+    legacy.nodes.start.value = 'invalid'; legacy.nodes['dispatch-start'].value = 'invalid'; legacy.channels.forEach(input => { input.checked = false; });
+    const stoppedFull = JSON.parse(JSON.stringify(enabledFull)); stoppedFull.enabled = false;
+    legacy.queue.push(response(state({policy:stoppedFull,revision:6})));
+    legacy.nodes.toggle.fire('click'); await settle();
+    equal(sent(legacy), {policy:stoppedFull,expected_revision:5,external_agent_paused:false}, 'emergency OFF clones persisted legacy policy and bypasses invalid dirty edits');
+    const newlyEnabledAnalysis = JSON.parse(JSON.stringify(stoppedFull)); newlyEnabledAnalysis.enabled = true; newlyEnabledAnalysis.mode = 'ANALYZE_ONLY';
+    legacy.queue.push(response(state({policy:newlyEnabledAnalysis,revision:7,effective:true,status:'ACTIVE'})));
+    legacy.nodes.toggle.fire('click'); await settle();
+    equal(sent(legacy), {policy:newlyEnabledAnalysis,expected_revision:6,external_agent_paused:false}, 'subsequent explicit enable can only activate analysis-only');
 
-    const stoppedAnalysis = JSON.parse(JSON.stringify(analysisPolicy)); stoppedAnalysis.enabled = false;
-    analysis = fixture(state({policy:stoppedAnalysis})); await settle();
-    equal(analysis.nodes.status.textContent, 'تحليل AI متوقف', 'master-off analysis describes the processing state accurately');
-    equal(analysis.nodes['reply-status'].textContent, 'ردود AI متوقفة؛ مساعد ميتا يتولى المحادثة', 'analysis role continues to identify the external reply owner while processing is off');
-    analysis = fixture(state({policy:analysisPolicy, effective:true, status:'ACTIVE', can_manage:false})); await settle();
-    check(analysis.nodes.mode.disabled && analysis.nodes.save.disabled && analysis.nodes['dispatch-start'].disabled, 'read-only users cannot select an analysis role or change its dispatch schedule');
-    analysis.nodes.mode.value = 'REPLY_AND_ANALYZE'; analysis.nodes.mode.fire('change'); analysis.nodes.form.fire('submit'); await settle();
-    equal(analysis.calls.length, 1, 'synthetic read-only mode changes never send a request');
-
-    // Reply and dispatch schedules collect different days and overnight hours in one atomic save.
-    separate = fixture(); await settle();
+    // Analysis schedule edits are collected rather than cloned from the old read-only reply schedule.
+    let separate = fixture(); await settle();
     separate.nodes.schedule.checked = true; separate.nodes.schedule.fire('change');
     separate.nodes.start.value = '21:00'; separate.nodes.end.value = '06:00';
     separate.days.forEach(input => { input.checked = ['1','3'].includes(input.value); });
     separate.nodes['dispatch-start'].value = '10:15'; separate.nodes['dispatch-end'].value = '00:45';
     separate.dispatchDays.forEach(input => { input.checked = ['2','6'].includes(input.value); });
-    const separatePolicy = {enabled:false, mode:'REPLY_AND_ANALYZE', channels:policy().channels,
-        schedule:{enabled:true, days:[1,3], start:'21:00', end:'06:00', all_day:false},
-        dispatch_schedule:{enabled:true, days:[2,6], start:'10:15', end:'00:45', all_day:false}};
-    separate.queue.push(response(state({policy:separatePolicy, revision:2})));
+    const separatePolicy = {enabled:false, mode:'ANALYZE_ONLY', channels:policy().channels,
+        schedule:{enabled:true,days:[1,3],start:'21:00',end:'06:00',all_day:false},
+        dispatch_schedule:{enabled:true,days:[2,6],start:'10:15',end:'00:45',all_day:false}};
+    separate.queue.push(response(state({policy:separatePolicy,revision:2})));
     separate.nodes.form.fire('submit'); await settle();
-    equal(sent(separate).policy, separatePolicy, 'saving while master off preserves both distinct schedules without enabling');
-    check(!separate.nodes['dispatch-schedule'].disabled && !separate.nodes.schedule.disabled, 'both schedules remain configurable while master off');
-    equal(separate.days.filter(input => input.checked).map(input => Number(input.value)), [1,3], 'reply days render independently');
-    equal(separate.dispatchDays.filter(input => input.checked).map(input => Number(input.value)), [2,6], 'dispatch days render independently');
+    equal(sent(separate), {policy:separatePolicy,expected_revision:0,external_agent_paused:false}, 'one explicit atomic save retains two independent editable schedules and leaves master off');
+    equal(separate.days.filter(input => input.checked).map(input => Number(input.value)), [1,3], 'analysis days retained');
+    equal(separate.dispatchDays.filter(input => input.checked).map(input => Number(input.value)), [2,6], 'dispatch days retained');
+    check(!separate.nodes.start.disabled && !separate.nodes['dispatch-start'].disabled, 'both enabled schedule clocks editable');
 
-    separate.nodes['dispatch-start'].value = '12:00'; separate.nodes['dispatch-end'].value = '13:00';
-    separate.dispatchDays.forEach(input => { input.checked = input.value === '4'; });
     const separateEnabled = JSON.parse(JSON.stringify(separatePolicy)); separateEnabled.enabled = true;
-    separateEnabled.dispatch_schedule = {enabled:true, days:[4], start:'12:00', end:'13:00', all_day:false};
-    separate.queue.push(response(state({policy:separateEnabled, revision:3, status:'SCHEDULED_OFF', effective:false,
-        local_time:'2026-10-15T12:30:00+03:00', dispatch_state:{status:'ACTIVE', effective:true, local_time:'2026-10-15T12:30:00+03:00'}})));
+    separate.queue.push(response(state({policy:separateEnabled,revision:3,effective:true,status:'ACTIVE',
+        analysis_state:purpose('SCHEDULED_OFF'),dispatch_state:purpose('ACTIVE')})));
     separate.nodes.toggle.fire('click'); await settle();
-    equal(sent(separate).policy, separateEnabled, 'enable uses unsaved dispatch days and hours while retaining reply schedule');
-    equal(separate.nodes.status.textContent, 'AI خارج مواعيد التشغيل', 'reply status can be outside its hours');
-    equal(separate.nodes['dispatch-status'].textContent, 'إرسال الطلبات مفعّل حسب الجدول', 'dispatch status can be open while replies are closed');
-    separate.queue.push(response(state({policy:separateEnabled, revision:3, status:'ACTIVE', effective:true,
-        local_time:'2026-10-12T22:00:00+03:00', dispatch_state:{status:'SCHEDULED_OFF', effective:false, local_time:'2026-10-12T22:00:00+03:00'}})));
-    separate.nodes.refresh.fire('click'); await settle();
-    equal(separate.nodes['dispatch-status'].textContent, 'إرسال الطلبات خارج مواعيد الإرسال', 'dispatch status can be closed while replies are open');
-
+    equal(sent(separate).policy, separateEnabled, 'enable uses the visible independent schedules');
+    equal(separate.nodes.status.textContent, processingOn, 'processing remains active when dispatch alone is open');
+    equal(separate.nodes['analysis-status'].textContent, 'تحليل الرسائل خارج مواعيد التحليل', 'analysis purpose state describes closed analysis hours');
+    equal(separate.nodes['dispatch-status'].textContent, 'إرسال الطلبات مفعّل حسب الجدول', 'dispatch-only readiness remains separately clear');
+    for (const [analysisState,dispatchState,overall] of [['ACTIVE','SCHEDULED_OFF','ACTIVE'],['SCHEDULED_OFF','SCHEDULED_OFF','SCHEDULED_OFF'],['ACTIVE','ACTIVE','ACTIVE']]) {
+        separate.queue.push(response(state({policy:separateEnabled,revision:3,effective:overall === 'ACTIVE',status:overall,
+            analysis_state:purpose(analysisState),dispatch_state:purpose(dispatchState)})));
+        separate.nodes.refresh.fire('click'); await settle();
+        check(!separate.nodes.settings.hidden, 'public independent clock states remain usable: ' + analysisState + '/' + dispatchState);
+        equal(separate.nodes.status.textContent, overall === 'ACTIVE' ? processingOn : processingScheduledOff, 'overall status uses processing union');
+        equal(separate.nodes['analysis-status'].textContent, analysisState === 'ACTIVE' ? 'تحليل الرسائل مفعّل حسب الجدول' : 'تحليل الرسائل خارج مواعيد التحليل', 'analysis purpose status exact');
+        equal(separate.nodes['dispatch-status'].textContent, dispatchState === 'ACTIVE' ? 'إرسال الطلبات مفعّل حسب الجدول' : 'إرسال الطلبات خارج مواعيد الإرسال', 'dispatch purpose status exact');
+    }
     separate.nodes['all-day'].checked = true; separate.nodes['all-day'].fire('change');
-    check(separate.nodes.start.disabled && !separate.nodes['dispatch-start'].disabled, 'reply all-day affects only reply clocks');
+    check(separate.nodes.start.disabled && !separate.nodes['dispatch-start'].disabled, 'analysis all-day disables only its clocks');
     separate.nodes['all-day'].checked = false; separate.nodes['all-day'].fire('change');
     separate.nodes['dispatch-all-day'].checked = true; separate.nodes['dispatch-all-day'].fire('change');
-    check(separate.nodes['dispatch-start'].disabled && !separate.nodes.start.disabled, 'dispatch all-day affects only dispatch clocks');
-    check(separate.dispatchDays.every(input => !input.disabled), 'dispatch all-day still uses the selected dispatch days');
-    const allDayPolicy = JSON.parse(JSON.stringify(separateEnabled)); allDayPolicy.dispatch_schedule.all_day = true;
-    separate.queue.push(response(state({policy:allDayPolicy, revision:4, status:'ACTIVE', effective:true})));
-    separate.nodes.form.fire('submit'); await settle();
-    equal(sent(separate).policy, allDayPolicy, 'all-day dispatch saves without changing reply hours or its own selected days');
+    check(!separate.nodes.start.disabled && separate.nodes['dispatch-start'].disabled, 'dispatch all-day disables only its clocks');
+    check(separate.dispatchDays.every(input => !input.disabled), 'all-day dispatch still uses selected days');
     separate.nodes['dispatch-schedule'].checked = false; separate.nodes['dispatch-schedule'].fire('change');
-    check(separate.dispatchDays.every(input => input.disabled) && separate.nodes['dispatch-all-day'].disabled
-        && separate.nodes['dispatch-start'].disabled && separate.nodes['dispatch-end'].disabled, 'turning off dispatch scheduling disables only dispatch schedule fields');
-    check(separate.days.every(input => !input.disabled) && !separate.nodes.start.disabled, 'reply scheduling remains enabled independently');
-    const unrestrictedDispatch = JSON.parse(JSON.stringify(allDayPolicy)); unrestrictedDispatch.dispatch_schedule.enabled = false;
-    separate.queue.push(response(state({policy:unrestrictedDispatch, revision:5, status:'ACTIVE', effective:true})));
+    check(separate.dispatchDays.every(input => input.disabled) && separate.nodes['dispatch-all-day'].disabled, 'dispatch scheduling off disables only its form');
+    check(!separate.nodes.start.disabled && separate.days.every(input => !input.disabled), 'analysis stays independently editable');
+    const unrestricted = JSON.parse(JSON.stringify(separateEnabled)); unrestricted.dispatch_schedule.enabled = false; unrestricted.dispatch_schedule.all_day = true;
+    separate.queue.push(response(state({policy:unrestricted,revision:4,effective:true,status:'ACTIVE'})));
     separate.nodes.form.fire('submit'); await settle();
-    equal(sent(separate).policy, unrestrictedDispatch, 'turning off dispatch scheduling retains its configured hours and days');
-
-    // Immediate master stop always uses the persisted complete policy, even when both forms are invalid.
-    separate.nodes.start.value = 'invalid'; separate.nodes.end.value = 'invalid';
-    separate.nodes['dispatch-start'].value = 'invalid'; separate.nodes['dispatch-end'].value = 'invalid';
-    separate.dispatchDays.forEach(input => { input.checked = false; });
-    const stoppedSeparate = JSON.parse(JSON.stringify(unrestrictedDispatch)); stoppedSeparate.enabled = false;
-    separate.queue.push(response(state({policy:stoppedSeparate, revision:6})));
+    equal(sent(separate).policy, unrestricted, 'unscheduling retains saved clocks, days and all-day flag exactly');
+    separate.nodes.start.value = 'invalid'; separate.nodes['dispatch-start'].value = 'invalid'; separate.channels.forEach(input => {input.checked = false;});
+    const stopped = JSON.parse(JSON.stringify(unrestricted)); stopped.enabled = false;
+    separate.queue.push(response(state({policy:stopped,revision:5})));
     separate.nodes.toggle.fire('click'); await settle();
-    equal(sent(separate).policy, stoppedSeparate, 'master stop ignores invalid dirty reply and dispatch edits while preserving both saved schedules');
-    equal(separate.nodes['dispatch-status'].textContent, 'إرسال الطلبات متوقف', 'master stop resets dispatch status');
+    equal(sent(separate), {policy:stopped,expected_revision:4,external_agent_paused:false}, 'analysis emergency OFF ignores all dirty invalid edits and preserves both schedules');
 
-    for (const field of ['dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end','dispatch-day']) {
-        separate = fixture(); await settle();
-        const input = field === 'dispatch-day' ? separate.dispatchDays[2] : separate.nodes[field];
-        input.fire(field === 'dispatch-start' || field === 'dispatch-end' ? 'input' : 'change');
-        const idleTimer = [...separate.timers.values()][0]; idleTimer.callback(); separate.window.fire('focus'); separate.document.fire('visibilitychange'); await settle();
-        equal(separate.calls.length, 1, field + ' dirty state suppresses background refreshes');
-        separate.cleanup();
-        check((input.listeners.change || []).length === 0 && (input.listeners.input || []).length === 0, field + ' listeners are removed by SPA cleanup');
-        input.fire('change'); input.fire('input'); idleTimer.callback(); await settle();
-        equal(separate.calls.length, 1, field + ' cannot trigger reads after cleanup');
+    // Inflight old replies cannot cause an implicit role switch, reload or duplicate send.
+    for (const pendingStatus of [409,422]) {
+        const pending = fixture(state({policy:enabledFull,revision:8,effective:true,status:'ACTIVE'})); await settle();
+        pending.nodes.start.value = '10:15'; pending.nodes.start.fire('input');
+        pending.queue.push(response({error:'REPLIES_PENDING'},pendingStatus));
+        pending.nodes.form.fire('submit'); await settle();
+        equal(pending.calls.length, 2, 'pending replies cause no retry or GET: ' + pendingStatus);
+        equal(sent(pending).policy.mode, 'ANALYZE_ONLY', 'pending transition cannot request full replies');
+        check(!sent(pending).external_agent_paused, 'pending transition sends no takeover claim');
+        check(pending.nodes.message.textContent.includes('لم تتأكد نتيجتها') && pending.nodes.settings.open, 'uncertain old send explained without resend');
+        check(!pending.nodes['compatibility-note'].hidden, 'rejected transition keeps persisted full mode visible');
+        check(!pending.nodes.save.disabled, 'rejected conversion stays editable');
+        [...pending.timers.values()][0].callback(); await settle();
+        equal(pending.calls.length, 2, 'dirty rejected conversion is not discarded by polling');
     }
 
-    // The real legacy footer must neither leave a spinner nor cause another async mutation.
-    // Exercise both listener orders, including the footer writing before this form handles submit.
-    for (const order of ['before', 'after']) {
-        let legacy = fixture(state(), {legacySubmit:order}); await settle();
-        let finishSave;
-        legacy.queue.push(() => new Promise(resolve => { finishSave = resolve; }));
-        const submitted = legacy.nodes.form.fire('submit');
-        check(submitted.prevented && submitted.immediateStopped, 'async form owns submit propagation: ' + order);
-        equal(legacy.nodes.save.textContent, 'جارٍ حفظ الإعدادات…', 'pending save has its own label: ' + order);
-        check(legacy.nodes.save.disabled, 'pending save is disabled: ' + order);
-        legacy.nodes.form.fire('submit'); await settle();
-        equal(legacy.calls.filter(call => call.options.method === 'POST').length, 1, 'double submit posts once: ' + order);
+    // Actual shared submit-spinner callback is tested in both listener orders.
+    for (const order of ['before','after']) {
+        let legacyForm = fixture(state(),{legacySubmit:order}); await settle();
+        let finishSave; legacyForm.queue.push(() => new Promise(resolve => {finishSave = resolve;}));
+        const submitted = legacyForm.nodes.form.fire('submit');
+        check(submitted.prevented && submitted.immediateStopped, 'form owns async submit: ' + order);
+        equal(legacyForm.nodes.save.textContent,'جارٍ حفظ الإعدادات…','pending save label: ' + order);
+        check(legacyForm.nodes.save.disabled,'pending save disabled: ' + order);
+        legacyForm.nodes.form.fire('submit'); await settle();
+        equal(legacyForm.calls.filter(call => call.options.method === 'POST').length,1,'double submit posts once: ' + order);
         finishSave(response(state({revision:1}))); await settle();
-        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'successful save restores label: ' + order);
-        check(!legacy.nodes.save.disabled && legacy.nodes.message.textContent.includes('تم حفظ'), 'save completion is visible and usable: ' + order);
-        equal(legacy.legacySubmitCalls, order === 'before' ? 2 : 0, 'later generic callback is stopped while earlier callback is safely overwritten: ' + order);
-
-        for (const failure of ['network', 'http', 'handoff', 'conflict']) {
-            legacy = fixture(state(), {legacySubmit:order}); await settle();
-            if (failure === 'network') legacy.queue.push(new Error('offline'));
-            if (failure === 'http') legacy.queue.push(response({}, 500));
-            if (failure === 'handoff') legacy.queue.push(response({reason:'HANDOFF_REQUIRED'}, 422));
-            if (failure === 'conflict') legacy.queue.push(response({reason:'STALE_REVISION'}, 409), response(state({revision:3})));
-            legacy.nodes.form.fire('submit'); await settle();
-            equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', failure + ' restores label: ' + order);
-            equal(legacy.calls.filter(call => call.options.method === 'POST').length, 1, failure + ' never retries a mutation: ' + order);
-            equal(legacy.calls.length, failure === 'conflict' ? 3 : 2, failure + ' only conflict reloads one read: ' + order);
-            check(legacy.nodes.save.disabled === (failure === 'network' || failure === 'http'), failure + ' retains correct edit permissions: ' + order);
-            if (failure === 'handoff') check(legacy.nodes.message.textContent.includes('أوقف ردود مساعد ميتا'), '422 keeps handoff instructions: ' + order);
-            if (failure === 'conflict') check(legacy.nodes.message.textContent.includes('جلسة أخرى'), '409 keeps conflict instructions: ' + order);
+        equal(legacyForm.nodes.save.textContent,'حفظ الإعدادات','save completion restores label: ' + order);
+        check(!legacyForm.nodes.save.disabled && legacyForm.nodes.message.textContent.includes('تم حفظ'),'completion visible: ' + order);
+        equal(legacyForm.legacySubmitCalls,order === 'before' ? 2 : 0,'earlier spinner overwritten and later spinner stopped: ' + order);
+        for (const failure of ['network','http','pending','conflict']) {
+            legacyForm = fixture(state(),{legacySubmit:order}); await settle();
+            if (failure === 'network') legacyForm.queue.push(new Error('offline'));
+            if (failure === 'http') legacyForm.queue.push(response({},500));
+            if (failure === 'pending') legacyForm.queue.push(response({error:'REPLIES_PENDING'},409));
+            if (failure === 'conflict') legacyForm.queue.push(response({error:'STALE_REVISION'},409),response(state({revision:3})));
+            legacyForm.nodes.form.fire('submit'); await settle();
+            equal(legacyForm.nodes.save.textContent,'حفظ الإعدادات',failure + ' restores label: ' + order);
+            equal(legacyForm.calls.filter(call => call.options.method === 'POST').length,1,failure + ' never retries mutation: ' + order);
+            equal(legacyForm.calls.length,failure === 'conflict' ? 3 : 2,failure + ' only conflict reloads: ' + order);
+            equal(legacyForm.nodes.save.disabled,failure === 'network' || failure === 'http',failure + ' correct permissions: ' + order);
         }
-
-        const enabledPolicy = policy(); enabledPolicy.enabled = true;
-        legacy = fixture(state({policy:enabledPolicy, status:'ACTIVE', effective:true}), {legacySubmit:order}); await settle();
-        legacy.channels.forEach(input => { input.checked = false; });
-        legacy.nodes.form.fire('submit'); await settle();
-        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'synchronous validation restores label: ' + order);
-        equal(legacy.calls.length, 1, 'invalid policy never posts: ' + order);
-        check(!legacy.nodes.save.disabled && legacy.nodes.message.textContent.includes('راجع'), 'invalid policy remains editable with explanation: ' + order);
-
-        legacy = fixture(state({can_manage:false}), {legacySubmit:order}); await settle();
-        legacy.nodes.form.fire('submit'); await settle();
-        equal(legacy.nodes.save.textContent, 'حفظ الإعدادات', 'read-only synthetic submit restores label: ' + order);
-        check(legacy.nodes.save.disabled, 'read-only submit remains disabled: ' + order);
-        equal(legacy.calls.length, 1, 'read-only submit never posts: ' + order);
+        legacyForm = fixture(state({policy:enabled,effective:true,status:'ACTIVE'}),{legacySubmit:order}); await settle();
+        legacyForm.channels.forEach(input => {input.checked = false;}); legacyForm.nodes.form.fire('submit'); await settle();
+        equal(legacyForm.calls.length,1,'invalid form never posts: ' + order);
+        equal(legacyForm.nodes.save.textContent,'حفظ الإعدادات','validation restores save label: ' + order);
+        check(!legacyForm.nodes.save.disabled && legacyForm.nodes.message.textContent.includes('راجع'),'invalid form stays editable: ' + order);
     }
 
-    // Enabling uses exactly the channels/hours shown beside the owner's current attestation.
+    // Exact owner-approved scope, CSRF, revision and no duplicate activation.
+    f = fixture(); await settle();
     f.channels[1].checked = false; f.channels[2].checked = false;
     f.nodes.schedule.checked = true; f.nodes.start.value = '22:00'; f.nodes.end.value = '03:00';
-    f.days.forEach(input => { input.checked = input.value === '5'; }); f.nodes['external-paused'].checked = true;
-    const enabled = policy(); enabled.enabled = true;
-    const selectedEnabled = {enabled:true, mode:'REPLY_AND_ANALYZE', channels:['whatsapp'], schedule:{enabled:true, days:[5], start:'22:00', end:'03:00', all_day:false}, dispatch_schedule:policy().dispatch_schedule};
-    f.queue.push(response(state({policy: selectedEnabled, revision: 1, effective: true, status: 'ACTIVE'})));
-    f.nodes.toggle.fire('click');
-    check(f.nodes.toggle.disabled && f.nodes.save.disabled, 'mutation disables controls immediately');
+    f.days.forEach(input => {input.checked = input.value === '5';});
+    const selected = {enabled:true,mode:'ANALYZE_ONLY',channels:['whatsapp'],schedule:{enabled:true,days:[5],start:'22:00',end:'03:00',all_day:false},dispatch_schedule:policy().dispatch_schedule};
+    f.queue.push(response(state({policy:selected,revision:1,effective:true,status:'ACTIVE'})));
+    f.nodes.toggle.fire('click'); check(f.nodes.save.disabled && f.nodes.toggle.disabled,'activation disables controls immediately');
     f.nodes.toggle.fire('click'); await settle();
-    equal(f.calls.length, 2, 'double click never duplicates POST');
-    equal(sent(f), {policy: selectedEnabled, expected_revision: 0, external_agent_paused: true}, 'enable sends current selected WhatsApp-only policy and attestation with exact contract');
-    equal(f.calls[1].options.method, 'POST', 'toggle POST');
-    equal(f.calls[1].options.headers['X-CSRF-TOKEN'], 'fixture-csrf', 'CSRF header');
-    equal(f.calls[1].options.headers['Content-Type'], 'application/json', 'JSON content type');
-    equal(f.nodes.toggle.textContent, 'إيقاف ردود وتحليل AI', 'enabled toggle label');
-    equal(f.nodes.toggle.attributes['aria-pressed'], 'true', 'pressed follows saved master state');
-    equal(f.nodes.status.textContent, 'AI مفعّل حسب الجدول', 'active describes policy, not an actual AI call');
-    check(f.channels[0].checked && !f.channels[1].checked && !f.channels[2].checked && !f.days[2].checked
-        && f.nodes.start.value === '22:00', 'confirmed enable retains exactly the selected scope and hours');
-
-    // Form save uses edits while retaining master enabled and the new revision.
-    f.channels[2].checked = true; f.nodes.schedule.checked = true; f.nodes.schedule.fire('change');
-    check(f.days.every(input => !input.disabled) && !f.nodes.start.disabled, 'schedule fields follow enabled switch');
-    f.days.forEach(input => { input.checked = input.value === '5'; });
-    f.nodes.start.value = '22:00'; f.nodes.end.value = '03:00'; f.nodes['external-paused'].checked = true;
-    const edited = {enabled: true, mode:'REPLY_AND_ANALYZE', channels: ['whatsapp','instagram'], schedule: {enabled: true, days: [5], start: '22:00', end: '03:00', all_day: false}, dispatch_schedule:policy().dispatch_schedule};
-    f.queue.push(response(state({policy: edited, revision: 2, status: 'SCHEDULED_OFF', effective: false})));
-    check(f.nodes.form.fire('submit').prevented, 'form does not navigate'); await settle();
-    equal(sent(f), {policy: edited, expected_revision: 1, external_agent_paused: true}, 'save captures form and revision');
-    equal(f.nodes.status.textContent, 'AI خارج مواعيد التشغيل', 'scheduled off shown independently of master');
-    check(!f.nodes['external-paused'].checked, 'attestation reset after persisted state load');
-    f.nodes['all-day'].checked = true; f.nodes['all-day'].fire('change');
-    check(f.nodes.start.disabled && f.nodes.end.disabled, 'all day disables clock inputs');
-
-    // Conflict reloads current server state exactly once and never retries a write.
+    equal(f.calls.length,2,'double activation sends one POST');
+    equal(sent(f),{policy:selected,expected_revision:0,external_agent_paused:false},'activation sends exact analysis role, scope and hours without pause attestation');
+    equal(f.calls[1].options.headers['X-CSRF-TOKEN'],'fixture-csrf','CSRF header');
+    equal(f.calls[1].options.headers['Content-Type'],'application/json','JSON body');
+    equal(f.nodes.toggle.attributes['aria-pressed'],'true','pressed follows saved master');
+    equal(f.nodes.toggle.textContent,'إيقاف تحليل وإرسال الطلبات','active stop labels analysis role');
+    f.nodes.start.value = '21:45'; f.nodes.start.fire('input');
+    const edited = JSON.parse(JSON.stringify(selected)); edited.schedule.start = '21:45';
+    f.queue.push(response(state({policy:edited,revision:2,status:'SCHEDULED_OFF',effective:false})));
+    check(f.nodes.form.fire('submit').prevented,'form does not navigate'); await settle();
+    equal(sent(f),{policy:edited,expected_revision:1,external_agent_paused:false},'save captures current analysis edits and revision');
     const newer = policy(); newer.channels = ['messenger'];
-    f.queue.push(response({reason: 'STALE_REVISION'}, 409), response(state({policy: newer, revision: 7})));
+    f.queue.push(response({reason:'STALE_REVISION'},409),response(state({policy:newer,revision:7})));
     f.nodes.form.fire('submit'); await settle();
-    equal(f.calls.slice(-2).map(call => call.options.method || 'GET'), ['POST','GET'], '409 reload without mutation retry');
-    check(f.nodes.message.textContent.includes('جلسة أخرى'), 'conflict explanation retained after reload');
-    check(!f.channels[0].checked && f.channels[1].checked && !f.channels[2].checked, 'conflict renders latest policy');
-    f.queue.push(response(state({policy: enabled, revision: 8, status: 'ACTIVE', effective: true})));
-    f.nodes.toggle.fire('click'); await settle();
-    equal(sent(f).expected_revision, 7, 'next explicit operation uses reloaded revision');
+    equal(f.calls.slice(-2).map(call => call.options.method || 'GET'),['POST','GET'],'conflict reloads once and never retries mutation');
+    check(f.nodes.message.textContent.includes('جلسة أخرى') && f.channels[1].checked && !f.channels[0].checked,'conflict shows latest server state');
+    f.queue.push(response(state({policy:enabled,revision:8,status:'ACTIVE',effective:true})));
+    f.nodes.toggle.fire('click'); await settle(); equal(sent(f).expected_revision,7,'next explicit operation uses reloaded revision');
 
-    // Handoff rejection is actionable and never infers that enabling succeeded.
-    f = fixture(); await settle(); f.queue.push(response({reason:'HANDOFF_REQUIRED'}, 422));
-    f.nodes.toggle.fire('click'); await settle();
-    equal(f.calls.length, 2, 'handoff rejection does not retry');
-    check(f.nodes.settings.open && f.nodes.message.textContent.includes('أوقف ردود مساعد ميتا'), 'handoff rejection opens explicit attestation');
-    equal(f.nodes.status.textContent, 'AI متوقف', 'handoff rejection preserves disabled state');
-    check(!f.nodes.toggle.disabled, 'owner may explicitly resolve handoff');
-    f.queue.push(response({error:'EXTERNAL_AGENT_PAUSE_REQUIRED'}, 422));
-    f.nodes.toggle.fire('click'); await settle();
-    equal(f.calls.length, 3, 'backend handoff reason makes no automatic retry');
-    check(f.nodes.message.textContent.includes('محادثات واتساب الحالية'), 'backend exact handoff reason explained');
-    check(f.nodes.message.textContent.includes('اضغط تشغيل AI') && !f.nodes.message.textContent.includes('احفظ'), 'disabled handoff rejection directs the owner to enable, not save an off policy');
-
-    // Immediate stop uses persisted policy and cannot be blocked by incomplete unsaved edits.
-    f = fixture(state({policy:enabled, status:'ACTIVE', effective:true, revision:5})); await settle();
-    f.channels.forEach(input => { input.checked = false; }); f.nodes.start.value = 'invalid'; f.nodes.end.value = 'invalid';
-    f.days.forEach(input => { input.checked = false; }); f.nodes['external-paused'].checked = false;
-    const stopped = JSON.parse(JSON.stringify(enabled)); stopped.enabled = false;
-    f.queue.push(response(state({policy:stopped, revision:6})));
-    f.nodes.toggle.fire('click'); await settle();
-    equal(sent(f), {policy:stopped, expected_revision:5, external_agent_paused:false}, 'disable ignores invalid dirty form and stops the persisted policy');
-    equal(f.nodes.status.textContent, 'AI متوقف', 'immediate stop confirmed');
-
-    // Read-only accounts can read status but cannot mutate via synthetic events either.
+    // Read-only roles cannot edit or force a POST with synthetic events.
     f = fixture(state({can_manage:false})); await settle();
-    check(f.nodes.toggle.disabled && f.nodes.save.disabled && f.channels.every(input => input.disabled), 'read-only controls disabled');
-    check(f.nodes['external-paused'].disabled, 'read-only cannot attest takeover');
-    check(['dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end'].every(key => f.nodes[key].disabled)
-        && f.dispatchDays.every(input => input.disabled), 'read-only cannot edit any dispatch schedule field');
-    f.nodes.toggle.fire('click'); f.nodes.form.fire('submit'); await settle();
-    equal(f.calls.length, 1, 'read-only handlers cannot POST');
-    check(f.nodes.message.textContent.includes('عرض فقط'), 'owner-only explanation');
+    check(f.nodes.save.disabled && f.nodes.toggle.disabled && f.channels.every(input => input.disabled),'read-only controls disabled');
+    check(['schedule','all-day','start','end','dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end'].every(name => f.nodes[name].disabled),'both schedule forms read-only');
+    f.nodes.form.fire('submit'); f.nodes.toggle.fire('click'); await settle();
+    equal(f.calls.length,1,'read-only synthetic events never POST'); check(f.nodes.message.textContent.includes('عرض فقط'),'owner-only explanation');
 
-    // Backend unavailable may omit all policy fields; status remains fail closed.
-    f = fixture({available:false, reason:'UNAVAILABLE'}); await settle();
-    check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'unavailable controls fail closed');
-    f.nodes.toggle.fire('click'); f.nodes.form.fire('submit'); await settle();
-    equal(f.calls.length, 1, 'unavailable never mutates');
-
-    // Invalid revisions, schema, local clock, status and explicit types cannot arm controls.
-    const invalid = [state({revision:-1}), state({revision:1.5}), state({revision:'1'}), state({revision:Number.MAX_SAFE_INTEGER+1}),
-        state({can_manage:1}), state({effective:true}), state({status:'UNKNOWN'}), state({local_time:'<img onerror=alert(1)>'}),
-        state({policy:{...policy(), extra:true}}), state({policy:{...policy(), enabled:'true'}}),
-        ...[null, '', 'analyze_only', 'REPLY_ONLY', true, ['ANALYZE_ONLY'], {mode:'ANALYZE_ONLY'}]
-            .map(mode => state({policy:{...policy(), mode}})),
-        state({policy:{...policy(), channels:['whatsapp','whatsapp']}}),
-        state({policy:{...policy(), schedule:{...policy().schedule, days:['1']}}}),
-        state({policy:{...policy(), schedule:{...policy().schedule, end:'24:00'}}}),
-        state({policy:{...policy(), schedule:{...policy().schedule, end:'09:00'}}}),
-        ...[null, {...policy().dispatch_schedule, days:['1']}, {...policy().dispatch_schedule, days:[1,1]},
-            {...policy().dispatch_schedule, days:[]}, {...policy().dispatch_schedule, end:'24:00'},
-            {...policy().dispatch_schedule, end:'09:00'}, {...policy().dispatch_schedule, all_day:1},
-            {...policy().dispatch_schedule, extra:true}].map(dispatch_schedule => state({policy:{...policy(), dispatch_schedule}})),
-        ...[null, {effective:true,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00'},
-            {effective:false,status:'UNKNOWN',local_time:'2026-10-14T21:00:00+03:00'},
-            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00Z'},
-            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00',extra:true}]
-            .map(dispatch_state => state({dispatch_state})),
-        ...[null, {effective:true,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00'},
-            {effective:false,status:'UNKNOWN',local_time:'2026-10-14T21:00:00+03:00'},
-            {effective:false,status:'ANALYZE_ONLY',local_time:'2026-10-14T21:00:00+03:00'},
-            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00Z'},
-            {effective:false,status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00',extra:true},
-            {effective:'false',status:'DISABLED',local_time:'2026-10-14T21:00:00+03:00'}]
-            .map(reply_state => state({reply_state})),
-        state({policy:analysisPolicy, effective:true,status:'ACTIVE',reply_state:{effective:true,status:'ACTIVE',local_time:'2026-10-14T21:00:00+03:00'}}),
-        state({policy:analysisPolicy,effective:false,status:'SCHEDULED_OFF'}),
-        state({policy:{...policy(), mode:'ANALYZE_ONLY'},reply_state:{effective:false,status:'ANALYZE_ONLY',local_time:'2026-10-14T21:00:00+03:00'}}), {}, null];
-    const missingDispatchState = state(); delete missingDispatchState.dispatch_state; invalid.push(missingDispatchState);
-    const missingReplyState = state(); delete missingReplyState.reply_state; invalid.push(missingReplyState);
-    const legacyFourMissingDispatch = state({policy:legacyFour}); delete legacyFourMissingDispatch.dispatch_state; invalid.push(legacyFourMissingDispatch);
-    const mixedSchemaPolicy = policy(); delete mixedSchemaPolicy.dispatch_schedule; invalid.push(state({policy:mixedSchemaPolicy}));
+    // Strict response contract: malformed purpose states cannot arm any mutation.
+    const invalid = [state({revision:-1}),state({revision:1.5}),state({revision:'1'}),state({revision:Number.MAX_SAFE_INTEGER+1}),
+        state({can_manage:1}),state({effective:true}),state({status:'UNKNOWN'}),state({local_time:'<img onerror=alert(1)>'}),
+        state({policy:{...policy(),extra:true}}),state({policy:{...policy(),enabled:'true'}}),
+        ...[null,'','analyze_only','REPLY_ONLY',true,['ANALYZE_ONLY'],{mode:'ANALYZE_ONLY'}].map(mode => state({policy:{...policy(),mode}})),
+        state({policy:{...policy(),channels:['whatsapp','whatsapp']}}),
+        ...['schedule','dispatch_schedule'].flatMap(key => [null,{...policy()[key],days:['1']},{...policy()[key],days:[1,1]},
+            {...policy()[key],enabled:true,days:[]},{...policy()[key],end:'24:00'},{...policy()[key],end:'09:00'},
+            {...policy()[key],all_day:1},{...policy()[key],extra:true}].map(value => state({policy:{...policy(),[key]:value}}))),
+        ...['analysis_state','dispatch_state'].flatMap(key => [null,purpose('UNKNOWN'),purpose('ANALYSIS_OUTSIDE_HOURS'),
+            {...purpose('DISABLED'),effective:true},{...purpose('DISABLED'),effective:'false'},
+            {...purpose('DISABLED'),local_time:'2026-10-14T21:00:00Z'},{...purpose('DISABLED'),extra:true}].map(value => state({[key]:value}))),
+        ...[null,purpose('UNKNOWN'),{...purpose('DISABLED'),effective:true},purpose('ANALYZE_ONLY'),
+            {...purpose('DISABLED'),local_time:'2026-10-14T21:00:00Z'},{...purpose('DISABLED'),extra:true}].map(reply_state => state({reply_state})),
+        state({policy:enabled,effective:true,status:'ACTIVE',reply_state:purpose('ACTIVE')}),
+        state({policy:enabled,effective:true,status:'ACTIVE',analysis_state:purpose('SCHEDULED_OFF'),dispatch_state:purpose('SCHEDULED_OFF')}),
+        state({policy:enabled,effective:false,status:'SCHEDULED_OFF',analysis_state:purpose('ACTIVE')}),
+        state({policy:enabled,effective:false,status:'SCHEDULED_OFF',dispatch_state:purpose('ACTIVE')}),{},null];
+    for (const key of ['analysis_state','reply_state','dispatch_state']) {const missing = state(); delete missing[key]; invalid.push(missing);}
+    const mixed = policy(); delete mixed.dispatch_schedule; invalid.push(state({policy:mixed}));
     for (const value of invalid) {
         f = fixture(value); await settle();
-        check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'malformed response cannot enable');
-        f.nodes.toggle.fire('click'); equal(f.calls.length, 1, 'malformed state never mutates');
+        check(f.nodes.toggle.disabled && f.nodes.settings.hidden,'malformed response fails closed');
+        f.nodes.toggle.fire('click'); f.nodes.form.fire('submit'); await settle(); equal(f.calls.length,1,'malformed state never mutates');
+    }
+    f = fixture({available:false,reason:'UNAVAILABLE'}); await settle();
+    check(f.nodes.toggle.disabled && f.nodes.settings.hidden,'missing schema unavailable fails closed');
+    f.nodes.toggle.fire('click'); f.nodes.form.fire('submit'); await settle(); equal(f.calls.length,1,'unavailable never mutates');
+
+    // Invalid edits, including either schedule independently, never reach the endpoint.
+    for (const invalidEdit of ['channels','analysis-days','analysis-equal','analysis-time','dispatch-days','dispatch-equal','dispatch-time']) {
+        f = fixture(state({policy:enabled,effective:true,status:'ACTIVE'})); await settle();
+        if (invalidEdit === 'channels') f.channels.forEach(input => {input.checked = false;});
+        if (invalidEdit.startsWith('analysis-')) f.nodes.schedule.checked = true;
+        if (invalidEdit === 'analysis-days') f.days.forEach(input => {input.checked = false;});
+        if (invalidEdit === 'analysis-equal') f.nodes.end.value = f.nodes.start.value;
+        if (invalidEdit === 'analysis-time') f.nodes.start.value = 'bad';
+        if (invalidEdit === 'dispatch-days') f.dispatchDays.forEach(input => {input.checked = false;});
+        if (invalidEdit === 'dispatch-equal') f.nodes['dispatch-end'].value = f.nodes['dispatch-start'].value;
+        if (invalidEdit === 'dispatch-time') f.nodes['dispatch-start'].value = 'bad';
+        f.nodes.form.fire('submit'); await settle(); equal(f.calls.length,1,invalidEdit + ' never posts');
+        check(f.nodes.message.textContent.includes('راجع') && !f.nodes.save.disabled,invalidEdit + ' explained with form usable');
+        equal(f.nodes.save.textContent,'حفظ الإعدادات',invalidEdit + ' validation never leaves spinner');
     }
 
-    // Client checks invalid edits instead of sending an unusable schedule.
-    f = fixture(state({policy:enabled, effective:true, status:'ACTIVE'})); await settle();
-    f.channels.forEach(input => { input.checked = false; }); f.nodes.form.fire('submit'); await settle();
-    equal(f.calls.length, 1, 'enabled requires a selected channel');
-    check(f.nodes.message.textContent.includes('راجع'), 'invalid form explained');
-    f.channels[0].checked = true; f.nodes.schedule.checked = true; f.days.forEach(input => { input.checked = false; });
-    f.nodes.form.fire('submit'); await settle(); equal(f.calls.length, 1, 'scheduled mode requires days');
-    f.days[1].checked = true; f.nodes.end.value = '09:00'; f.nodes.form.fire('submit'); await settle();
-    equal(f.calls.length, 1, 'equal times need explicit all day');
-    f.nodes.end.value = '23:00'; f.dispatchDays.forEach(input => { input.checked = false; });
-    f.nodes.form.fire('submit'); await settle(); equal(f.calls.length, 1, 'dispatch scheduling independently requires selected days');
-    f.dispatchDays[4].checked = true; f.nodes['dispatch-end'].value = '09:00';
-    f.nodes.form.fire('submit'); await settle(); equal(f.calls.length, 1, 'equal dispatch times independently need explicit all day');
-    equal(f.nodes.save.textContent, 'حفظ الإعدادات', 'dispatch validation never leaves save busy');
-    for (const badMode of ['', 'analyze_only', 'REPLY_ONLY', '<img onerror=alert(1)>']) {
-        const badRole = fixture(); await settle(); badRole.nodes.mode.value = badMode; badRole.nodes.mode.fire('change');
-        badRole.nodes.form.fire('submit'); badRole.nodes.toggle.fire('click'); await settle();
-        equal(badRole.calls.length, 1, 'unknown edited role never posts: ' + badMode);
-        check(badRole.nodes.message.textContent.includes('راجع'), 'invalid edited role has a fixed validation message: ' + badMode);
-    }
-
-    // A failed or uncertain mutation cannot be automatically retried with stale revision.
-    f = fixture(); await settle(); f.queue.push(new Error('offline'));
-    f.nodes.toggle.fire('click'); await settle();
-    check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'uncertain update locks edits until a fresh read');
-    equal(f.calls.length, 2, 'network failure does not retry');
-    f.nodes.toggle.fire('click'); await settle(); equal(f.calls.length, 2, 'no stale synthetic retry');
-    f.queue.push(response(state({revision:4}))); f.nodes.refresh.fire('click'); await settle();
-    check(!f.nodes.toggle.disabled, 'explicit refresh recovers state');
-    equal(f.calls.length, 3, 'recovery only GET');
-
-    // Redirect/HTML/error responses stay fail closed without rendering remote content.
-    for (const reply of [response({}, 500), response({}, 401), response(state(), 200, {redirected:true}),
-        response(state(), 200, {headers:{get: () => 'text/html'}})]) {
+    // Uncertain saves never retry; redirect and unsafe bootstrap responses never expose credentials.
+    f = fixture(); await settle(); f.queue.push(new Error('offline')); f.nodes.toggle.fire('click'); await settle();
+    check(f.nodes.toggle.disabled && f.nodes.settings.hidden,'uncertain save locks mutation until new read');
+    f.nodes.toggle.fire('click'); await settle(); equal(f.calls.length,2,'uncertain save never automatically retries');
+    f.queue.push(response(state({revision:4}))); f.nodes.refresh.fire('click'); await settle(); check(!f.nodes.toggle.disabled,'explicit read recovers state');
+    equal(f.calls[2].options.method,undefined,'recovery is GET only');
+    for (const reply of [response({},500),response({},401),response(state(),200,{redirected:true}),response(state(),200,{headers:{get:() => 'text/html'}})]) {
         f = fixture(); await settle(); f.queue.push(reply); f.nodes.refresh.fire('click'); await settle();
-        check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'HTTP response cannot bypass state validation');
+        check(f.nodes.toggle.disabled && f.nodes.settings.hidden,'untrusted HTTP response fails closed');
     }
-
-    // No cross-origin credentials or tokens may be sent even if bootstrap were replaced.
-    for (const config of [{state_url:'https://evil.example/admin/meta/ai-control'}, {update_url:'https://evil.example/admin/meta/ai-control'},
-        {state_url:'/admin/meta/ai-control?token=secret'}, {state_url:'/admin/meta/ai-control#x'}, {state_url:'/other'}, {csrf:''}]) {
-        f = fixture(state(), {config}); await settle(); equal(f.calls.length, 0, 'unsafe bootstrap makes no requests');
+    for (const config of [{state_url:'https://evil.example/admin/meta/ai-control'},{update_url:'https://evil.example/admin/meta/ai-control'},
+        {state_url:'/admin/meta/ai-control?token=secret'},{state_url:'/admin/meta/ai-control#x'},{state_url:'/other'},{csrf:''}]) {
+        f = fixture(state(),{config}); await settle(); equal(f.calls.length,0,'unsafe bootstrap sends no requests');
     }
-    f = fixture(state(), {current:false}); await settle(); equal(f.calls.length, 0, 'inactive SPA page makes no requests');
-    f = fixture(state(), {missing:true}); await settle(); equal(f.calls.length, 0, 'other page makes no requests');
+    for (const changes of [{current:false},{missing:true}]) {f = fixture(state(),changes); await settle(); equal(f.calls.length,0,'unrelated SPA page never requests control');}
 
-    // Cached script mount is idempotent; cleanup removes listeners and rejects late async responses.
-    f = fixture(); await settle(); f.run(); await settle(); equal(f.calls.length, 1, 'cached script does not double mount');
-    check(typeof f.cleanup === 'function', 'SPA cleanup registered');
-    f.cleanup(); f.nodes.toggle.fire('click'); f.nodes.refresh.fire('click'); await settle();
-    equal(f.calls.length, 1, 'destroy removes event handlers');
-    equal(f.timers.size, 0, 'cleanup removes periodic timer');
-    let release;
-    f = fixture(); f.queue.length = 0;
-    await settle(); // the first successful initial fetch has already captured its response
-    f.queue.push(() => new Promise(resolve => { release = resolve; }));
-    f.nodes.refresh.fire('click'); await settle();
-    check(typeof release === 'function', 'held read started');
-    f.cleanup(); const before = f.nodes.status.textContent;
-    release(response(state({policy:enabled, status:'ACTIVE', effective:true}))); await settle();
-    equal(f.nodes.status.textContent, before, 'destroyed read cannot update stale page');
+    // Schedule edits block background reads; cleanup removes each listener and timer.
+    for (const field of ['schedule','all-day','start','end','day','dispatch-schedule','dispatch-all-day','dispatch-start','dispatch-end','dispatch-day']) {
+        f = fixture(); await settle();
+        const input = field === 'day' ? f.days[2] : field === 'dispatch-day' ? f.dispatchDays[2] : f.nodes[field];
+        input.fire(field.endsWith('start') || field.endsWith('end') ? 'input' : 'change');
+        const idleTimer = [...f.timers.values()][0]; idleTimer.callback(); f.window.fire('focus'); f.document.fire('visibilitychange'); await settle();
+        equal(f.calls.length,1,field + ' dirty edit prevents polling from overwriting form');
+        f.cleanup(); check((input.listeners.change || []).length === 0 && (input.listeners.input || []).length === 0,field + ' listeners removed on navigation');
+        input.fire('change'); input.fire('input'); idleTimer.callback(); await settle(); equal(f.calls.length,1,field + ' detached events do nothing');
+    }
+    f = fixture(); await settle(); f.run(); await settle(); equal(f.calls.length,1,'cached script mount idempotent');
+    check(typeof f.cleanup === 'function','SPA cleanup registered'); f.cleanup(); equal(f.timers.size,0,'cleanup removes timer');
+    for (const mutation of [false,true]) {
+        let release; f = fixture(); await settle(); f.queue.push(() => new Promise(resolve => {release = resolve;}));
+        f.nodes[mutation ? 'toggle' : 'refresh'].fire('click'); await settle(); check(typeof release === 'function','held async request started');
+        const before = f.nodes.status.textContent, beforeStart = f.nodes['dispatch-start'].value; f.cleanup();
+        release(response(state({policy:enabled,status:'ACTIVE',effective:true,revision:1}))); await settle();
+        equal(f.nodes.status.textContent,before,'late ' + (mutation ? 'save' : 'read') + ' cannot rewrite unmounted status');
+        equal(f.nodes['dispatch-start'].value,beforeStart,'late result cannot rewrite detached schedule'); equal(f.calls.length,2,'late result creates no retries');
+    }
+    const scheduled = JSON.parse(JSON.stringify(enabled)); scheduled.schedule.enabled = true;
+    f = fixture(state({policy:scheduled,status:'ACTIVE',effective:true,revision:2})); await settle();
+    const timer = [...f.timers.values()][0]; equal(timer.delay,30000,'bounded status refresh interval');
+    f.queue.push(response(state({policy:scheduled,status:'SCHEDULED_OFF',effective:false,revision:2,local_time:'2026-10-14T23:00:00+03:00'})));
+    timer.callback(); await settle(); equal(f.nodes.status.textContent,processingScheduledOff,'idle schedule boundary refreshes processing status');
+    equal(f.nodes['analysis-status'].textContent,'تحليل الرسائل خارج مواعيد التحليل','idle schedule boundary refreshes analysis purpose');
+    equal(f.calls[1].options.method,undefined,'background refresh read only');
+    f.document.hidden = true; timer.callback(); await settle(); equal(f.calls.length,2,'hidden page does not poll');
+    f.document.hidden = false; f.queue.push(response(state({policy:scheduled,status:'ACTIVE',effective:true,revision:3})));
+    f.document.fire('visibilitychange'); await settle(); equal(f.calls.length,3,'visible page refreshes idle policy');
+    f.queue.push(response(state({policy:scheduled,status:'ACTIVE',effective:true,revision:3}))); f.window.fire('focus'); await settle(); equal(f.calls.length,4,'focus refreshes idle policy');
+    f.nodes.start.value = '10:15'; f.nodes.start.fire('input'); timer.callback(); await settle(); equal(f.calls.length,4,'dirty input suppresses polling');
+    f.queue.push(response(state({policy:scheduled,status:'ACTIVE',effective:true,revision:4}))); f.nodes.refresh.fire('click'); await settle(); equal(f.nodes.start.value,'09:00','explicit refresh may replace dirty form');
+    f.cleanup(); f.window.fire('focus'); f.document.fire('visibilitychange'); timer.callback(); await settle(); equal(f.calls.length,5,'no background events after cleanup');
 
-    // A late successful save cannot remount or rewrite a page left through SPA navigation.
-    f = fixture(); await settle();
-    f.queue.push(() => new Promise(resolve => { release = resolve; }));
-    f.nodes.toggle.fire('click'); await settle();
-    f.cleanup(); const previousToggle = f.nodes.toggle.textContent, previousDispatch = f.nodes['dispatch-start'].value;
-    release(response(state({policy:enabled, status:'ACTIVE', effective:true, revision:1}))); await settle();
-    equal(f.nodes.toggle.textContent, previousToggle, 'late mutation response cannot touch unmounted panel');
-    equal(f.nodes['dispatch-start'].value, previousDispatch, 'late mutation cannot rewrite detached dispatch schedule');
-    equal(f.calls.length, 2, 'late save does not create retry requests');
-
-    f = fixture(state(), {config:{lang:'en'}}); await settle();
-    equal(f.nodes.toggle.textContent, 'Enable AI replies and analysis', 'English label supported');
-    equal(f.nodes.save.textContent, 'Save settings', 'English save label supported');
-    equal(f.nodes['dispatch-status'].textContent, 'Order dispatch is off', 'English dispatch status supported');
+    // Per-channel readiness uses fixed labels, never remote HTML or raw backend reasons.
+    f = fixture(state({policy:enabled,status:'ACTIVE',effective:true,channels_state:[{channel:'whatsapp',effective:true,reason:null},
+        {channel:'messenger',effective:false,reason:'ACCOUNT_UNAVAILABLE'},{channel:'instagram',effective:false,reason:'<img onerror=alert(1)>'}]})); await settle();
+    equal(f.nodes['channel-status'].children.length,3,'each selected channel has status');
+    check(f.nodes['channel-status'].textContent.includes('واتساب: مسموح بالمعالجة حسب الإعدادات'),'channel readiness avoids execution claim');
+    check(f.nodes['channel-status'].textContent.includes('ماسنجر: ربط القناة غير متاح'),'known account reason labeled');
+    check(f.nodes['channel-status'].textContent.includes('إنستجرام: الجاهزية غير متاحة') && !f.nodes['channel-status'].textContent.includes('<img'),'unknown reasons safely generalized');
+    for (const change of [{channels_state:[{channel:'other',effective:false,reason:null}]},{channels_state:[{channel:'whatsapp',effective:true,reason:null}]},
+        {channels_state:[{channel:'whatsapp',effective:false,reason:null},{channel:'whatsapp',effective:false,reason:null}]},{handoff_method:'UNVERIFIED'},{handoff_required:'true'}]) {
+        f = fixture(state(change)); await settle(); check(f.nodes.toggle.disabled && f.nodes.settings.hidden,'malformed channel readiness fails closed');
+    }
+    f = fixture(state(),{config:{lang:'en'}}); await settle();
+    equal(f.nodes.toggle.textContent,'Enable analysis and order dispatch','English activation labels analysis-only');
+    equal(f.nodes['analysis-status'].textContent,'Message analysis is off','English analysis purpose label');
+    equal(f.nodes['dispatch-status'].textContent,'Order dispatch is off','English dispatch purpose label');
     f.window.DashboardMetaAiControls.destroy(); f.queue.push(response(state({revision:Number.MAX_SAFE_INTEGER})));
-    f.window.DashboardMetaAiControls.mount(); await settle();
-    check(!f.nodes.toggle.disabled, 'maximum safe revision accepted');
-    f.queue.push(response(state({revision:Number.MAX_SAFE_INTEGER})));
-    f.nodes.toggle.fire('click');
-    equal(f.nodes.save.textContent, 'Saving settings…', 'English pending save label supported');
-    await settle();
-    equal(f.nodes.save.textContent, 'Save settings', 'English completed save label restored');
-    equal(sent(f).expected_revision, Number.MAX_SAFE_INTEGER, 'revision integer preserved exactly');
+    f.window.DashboardMetaAiControls.mount(); await settle(); check(!f.nodes.toggle.disabled,'maximum safe revision accepted');
+    f.queue.push(response(state({revision:Number.MAX_SAFE_INTEGER}))); f.nodes.toggle.fire('click');
+    equal(f.nodes.save.textContent,'Saving settings…','English pending label'); await settle();
+    equal(f.nodes.save.textContent,'Save settings','English save restored'); equal(sent(f).expected_revision,Number.MAX_SAFE_INTEGER,'revision remains exact');
 
-    // Idle status changes at the next schedule boundary without a manual refresh.
-    const scheduled = policy(); scheduled.enabled = true; scheduled.schedule.enabled = true;
-    f = fixture(state({policy:scheduled, status:'ACTIVE', effective:true, revision:2})); await settle();
-    equal(f.timers.size, 1, 'one status interval mounted');
-    const timer = [...f.timers.values()][0]; equal(timer.delay, 30000, 'bounded 30-second status refresh');
-    f.queue.push(response(state({policy:scheduled, status:'SCHEDULED_OFF', effective:false, revision:2, local_time:'2026-10-14T23:00:00+03:00'})));
-    timer.callback(); await settle();
-    equal(f.nodes.status.textContent, 'AI خارج مواعيد التشغيل', 'periodic read updates schedule boundary status');
-    equal(f.calls[1].options.method, undefined, 'background status is read only');
-    f.nodes.start.value = '10:15'; f.nodes.start.fire('input');
-    timer.callback(); f.window.fire('focus'); f.document.fire('visibilitychange'); await settle();
-    equal(f.calls.length, 2, 'dirty inputs suppress background reads');
-    equal(f.nodes.start.value, '10:15', 'unsaved edits preserved across background triggers');
-    f.queue.push(response(state({policy:scheduled, status:'ACTIVE', effective:true, revision:3})));
-    f.nodes.refresh.fire('click'); await settle();
-    equal(f.nodes.start.value, '09:00', 'explicit refresh may replace unsaved edits');
-    f.document.hidden = true; timer.callback(); await settle(); equal(f.calls.length, 3, 'hidden document does not poll');
-    f.document.hidden = false; f.queue.push(response(state({policy:scheduled, status:'SCHEDULED_OFF', effective:false, revision:3})));
-    f.document.fire('visibilitychange'); await settle();
-    equal(f.calls.length, 4, 'returning to visible page refreshes idle status');
-    f.queue.push(response(state({policy:scheduled, status:'ACTIVE', effective:true, revision:3})));
-    f.window.fire('focus'); await settle(); equal(f.calls.length, 5, 'focus refreshes idle status');
-    f.nodes['external-paused'].checked = true; f.nodes['external-paused'].fire('change');
-    timer.callback(); await settle(); equal(f.calls.length, 5, 'takeover attestation is also an unsaved edit');
-    f.cleanup(); equal(f.timers.size, 0, 'background timer removed on final cleanup');
-    f.window.fire('focus'); f.document.fire('visibilitychange'); timer.callback(); await settle();
-    equal(f.calls.length, 5, 'no focus/visibility/timer reads after cleanup');
-
-    // Per-channel readiness is separate from schedule policy, with fixed reason labels.
-    f = fixture(state({policy:enabled, status:'ACTIVE', effective:true, handoff_method:'OWNER_ATTESTED', handoff_required:false,
-        channels_state:[{channel:'whatsapp', effective:true, reason:null},
-            {channel:'messenger', effective:false, reason:'ACCOUNT_UNAVAILABLE'},
-            {channel:'instagram', effective:false, reason:'<img src=x onerror=alert(1)>'}]})); await settle();
-    equal(f.nodes['channel-status'].children.length, 3, 'selected channels have individual status');
-    check(f.nodes['channel-status'].textContent.includes('واتساب: مسموح بالمعالجة حسب الإعدادات'), 'channel policy avoids model readiness or actual execution claim');
-    check(f.nodes['channel-status'].textContent.includes('ماسنجر: ربط القناة غير متاح'), 'fixed account failure reason');
-    check(f.nodes['channel-status'].textContent.includes('إنستجرام: الجاهزية غير متاحة'), 'unknown reason safely generalized');
-    check(!f.nodes['channel-status'].textContent.includes('<img'), 'remote reason never displayed');
-    check(f.nodes['handoff-state'].textContent.includes('بإقرار المالك'), 'owner attestation clearly identified');
-    f.queue.push(response(state({handoff_method:'VERIFIED_WHATSAPP_API', handoff_required:false})));
-    f.nodes.refresh.fire('click'); await settle();
-    check(f.nodes['handoff-state'].textContent.includes('عبر الاتصال بميتا'), 'verified API handoff distinct from attestation');
-    f.queue.push(response(state({handoff_method:null, handoff_required:true})));
-    f.nodes.refresh.fire('click'); await settle();
-    check(f.nodes['handoff-state'].textContent.includes('يلزم إيقاف'), 'required handoff explicit');
-    for (const change of [{channels_state:[{channel:'other', effective:false, reason:null}]},
-        {channels_state:[{channel:'whatsapp', effective:true, reason:null}]},
-        {channels_state:[{channel:'whatsapp', effective:false, reason:null}, {channel:'whatsapp', effective:false, reason:null}]},
-        {handoff_method:'UNVERIFIED'}, {handoff_required:'true'}]) {
-        f = fixture(state(change)); await settle();
-        check(f.nodes.toggle.disabled && f.nodes.settings.hidden, 'malformed readiness state fails closed');
-    }
-
-    const blade = fs.readFileSync(path.join(__dirname, '../resources/views/admin/meta/ai_controls.blade.php'), 'utf8');
-    const channelView = fs.readFileSync(path.join(__dirname, '../resources/views/admin/meta/channels.blade.php'), 'utf8');
-    check(blade.includes("Route::has('meta-ai-control.state')") && blade.includes("Route::has('meta-ai-control.update')"), 'missing routes hide partial before migration');
-    check(blade.includes('JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT'), 'bootstrap encoded for script context');
-    equal((blade.match(/data-meta-ai-mode(?:[ >])/g) || []).length, 1, 'one shared mode picker');
-    check(blade.includes('value="REPLY_AND_ANALYZE"') && blade.includes('الرد والتحليل وإرسال الطلبات') && blade.includes('Replies, analysis and order dispatch'), 'full role is explicit in both languages');
-    check(blade.includes('value="ANALYZE_ONLY"') && blade.includes('تحليل وإرسال الطلبات فقط') && blade.includes('Analysis and order dispatch only'), 'analysis role is explicit in both languages');
-    check(blade.includes('بدون إرسال أي ردود تلقائية') && blade.includes('without sending automatic replies'), 'analysis note does not imply dashboard replies');
-    check(blade.includes('التحليل يعمل دون التقيد بمواعيد الردود') && blade.includes('Analysis is independent of reply hours'), 'analysis-only clock independence is stated in both languages');
-    check(blade.includes('يتولى مساعد ميتا الرد وجمع البيانات وتأكيد الطلب') && blade.includes('Meta assistant replies, collects details and confirms the order'), 'analysis note tells the owner who gathers missing customer information');
-    const controller = fs.readFileSync(path.join(__dirname, '../app/Http/Controllers/Dashboard/MetaAiControlController.php'), 'utf8');
-    check(controller.includes("$reason === 'REPLIES_PENDING'") && controller.includes("['error' => $reason], 409"), 'unresolved send transition exposes the fixed controller reason');
-    check(blade.includes('القنوات ومواعيد الردود وإرسال الطلبات') && blade.includes('Channels, reply hours and order dispatch hours'), 'settings summary names the separate reply and dispatch hours in both languages');
-    check(blade.includes('تحديد مواعيد ردود وتحليل AI') && blade.includes('Schedule AI replies and analysis'), 'schedule switch explains that it controls replies and analysis');
-    const unansweredNote = blade.match(/<p[^>]* data-meta-ai-unanswered-note>([\s\S]*?)<\/p>/);
-    check(unansweredNote && unansweredNote[1].includes('يراجع الرسائل التي لم يُرد عليها') && unansweredNote[1].includes('AI reviews unanswered messages'), 'enable note includes existing unanswered messages in both languages');
-    check(unansweredNote[1].includes('ما دامت مهلة الرد على المنصة تسمح بذلك') && unansweredNote[1].includes('while the platform reply window permits'), 'unanswered message note preserves platform reply limits');
-    check(unansweredNote[1].includes('الردود وطلب البيانات الناقصة والتحليل تعمل حسب مواعيد الردود') && unansweredNote[1].includes('requests for missing information and analysis follow the reply hours'), 'missing information and analysis follow the selected reply schedule');
-    const dispatchNote = blade.match(/<p[^>]* data-meta-ai-dispatch-note>([\s\S]*?)<\/p>/);
-    check(dispatchNote && dispatchNote[1].includes('الموعد الافتراضي يوميًا من 9 صباحًا إلى 12:30 بعد منتصف الليل (09:00–00:30) بتوقيت القاهرة') && dispatchNote[1].includes('The default is daily from 9:00 AM to 12:30 AM after midnight (09:00–00:30), Cairo time'), 'default dispatch hours state the editable overnight Cairo boundary in both languages');
-    check(dispatchNote[1].includes('بعد تأكيد العميل') && dispatchNote[1].includes('after customer confirmation'), 'dispatch hours never imply bypassing customer confirmation');
-    equal((blade.match(/data-meta-ai-start/g) || []).length, 1, 'one existing configurable reply start field remains');
-    equal((blade.match(/data-meta-ai-end/g) || []).length, 1, 'one existing configurable reply end field remains');
-    check(blade.includes('جدول إرسال الطلبات مستقل عن جدول الردود والتحليل') && blade.includes('Order dispatch has its own schedule, separate from replies and analysis'), 'dispatch scheduling independence is explained in both languages');
-    check(blade.includes('عند إيقاف جدولة الإرسال، يمكن إرسال الطلبات طوال اليوم') && blade.includes('Turning off dispatch scheduling allows orders to be sent all day'), 'turning off dispatch scheduling has an explicit all-day meaning');
+    // Production Blade has no route for full-reply activation or hidden takeover controls.
+    const blade = fs.readFileSync(path.join(__dirname,'../resources/views/admin/meta/ai_controls.blade.php'),'utf8');
+    const channelView = fs.readFileSync(path.join(__dirname,'../resources/views/admin/meta/channels.blade.php'),'utf8');
+    check(blade.includes("Route::has('meta-ai-control.state')") && blade.includes("Route::has('meta-ai-control.update')"),'absent routes hide partial');
+    check(blade.includes('JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT'),'bootstrap script encoded');
+    for (const removed of ['data-meta-ai-mode','data-meta-ai-reply-status','data-meta-ai-reply-settings','data-meta-ai-external-paused','data-meta-ai-handoff-settings','data-meta-ai-handoff-state','data-meta-ai-unanswered-note','value="REPLY_AND_ANALYZE"']) check(!blade.includes(removed),'obsolete reply control removed: ' + removed);
+    for (const removed of ['schedule:mode.value',"mode:mode.value",'externalPaused.checked',"bind(mode, 'change'"]) check(!source.includes(removed),'script has no full-reply selection or attestation path: ' + removed);
+    check(source.includes("mode:'ANALYZE_ONLY'") && source.includes('external_agent_paused:false'),'every collected save and enable pins analysis-only without takeover');
+    check(blade.includes('مساعد ميتا مسؤول عن الرد وجمع البيانات وتأكيد الطلب') && blade.includes('Meta assistant is responsible for replies, collecting details and confirming the order'),'role note assigns external conversation owner');
+    check(blade.includes('بدون إرسال أي ردود تلقائية من الداشبورد') && blade.includes('without sending automatic dashboard replies'),'role note describes no dashboard automatic replies');
+    check(blade.includes('احفظ الإعدادات لتطبيق هذا الدور') && blade.includes('Save the settings to apply this role'),'role note cannot imply an unsaved transition');
+    check(blade.includes('القنوات ومواعيد تحليل الرسائل وإرسال الطلبات') && blade.includes('Channels, message analysis hours and order dispatch hours'),'summary describes requested schedules');
+    check(blade.includes('جدولة تحليل الرسائل') && blade.includes('Schedule message analysis'),'analysis schedule correctly labeled');
+    check(blade.includes('أيام بداية تحليل الرسائل') && blade.includes('Days when message analysis starts'),'analysis start days labeled');
+    check(blade.includes('جدول إرسال الطلبات مستقل عن جدول تحليل الرسائل') && blade.includes('Order dispatch has its own schedule, separate from message analysis'),'independent purposes explained');
+    check(blade.includes('عند إيقاف جدولة التحليل، يمكن تحليل الرسائل طوال اليوم') && blade.includes('Turning off analysis scheduling allows messages to be analysed all day'),'unscheduling analysis means all-day');
+    check(blade.includes('عند إيقاف جدولة الإرسال، يمكن إرسال الطلبات طوال اليوم') && blade.includes('Turning off dispatch scheduling allows orders to be sent all day'),'unscheduling dispatch means all-day');
     for (const field of ['schedule','all-day','start','end','day','status']) {
-        equal((blade.match(new RegExp('data-meta-ai-dispatch-' + field + '(?:[ >])', 'g')) || []).length, 1, 'dispatch form has its own unique ' + field + ' field');
+        const prefix = field === 'status' ? 'analysis-' : '';
+        equal((blade.match(new RegExp('data-meta-ai-' + prefix + field + '(?:[ >])','g')) || []).length,1,'unique analysis ' + field + ' field');
+        equal((blade.match(new RegExp('data-meta-ai-dispatch-' + field + '(?:[ >])','g')) || []).length,1,'unique dispatch ' + field + ' field');
     }
-    equal((channelView.match(/@include\('admin\.meta\.ai_controls'\)/g) || []).length, 1, 'shared channel navigation includes AI controls exactly once');
-    for (const channel of ['', 'whatsapp', 'messenger', 'instagram']) {
-        equal((channelView.match(new RegExp('data-hub-channel="' + channel + '"', 'g')) || []).length, 1,
-            'shared template retains the unique hub control for ' + (channel || 'all channels'));
-    }
-    for (const file of ['meta/index.blade.php','whatsapp/index.blade.php']) {
-        check(fs.readFileSync(path.join(__dirname, '../resources/views/admin/', file), 'utf8').includes("@include('admin.meta.channels'"), 'both inboxes receive shared controls');
-    }
+    check(blade.includes('الموعد الافتراضي يوميًا من 9 صباحًا إلى 12:30 بعد منتصف الليل (09:00–00:30) بتوقيت القاهرة') && blade.includes('The default is daily from 9:00 AM to 12:30 AM after midnight (09:00–00:30), Cairo time'),'dispatch overnight default explained');
+    check(blade.includes('بعد تأكيد العميل') && blade.includes('after customer confirmation'),'schedules do not bypass confirmation');
+    check(blade.includes('الرد اليدوي متاح دائمًا') && blade.includes('Manual replies remain available'),'manual replies remain separate');
+    equal((channelView.match(/@include\('admin\.meta\.ai_controls'\)/g) || []).length,1,'shared navigation includes controls once');
+    for (const channel of ['','whatsapp','messenger','instagram']) equal((channelView.match(new RegExp('data-hub-channel="' + channel + '"','g')) || []).length,1,'hub navigation retained for ' + (channel || 'all'));
+    for (const file of ['meta/index.blade.php','whatsapp/index.blade.php']) check(fs.readFileSync(path.join(__dirname,'../resources/views/admin/',file),'utf8').includes("@include('admin.meta.channels'"),'both inboxes share controls');
     console.log('Meta AI controls UI: ' + checks + ' checks passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

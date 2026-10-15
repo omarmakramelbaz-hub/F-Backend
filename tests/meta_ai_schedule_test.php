@@ -197,13 +197,40 @@ foreach ([null, true, false, 0, 1, [], new stdClass(), '', 'analysis_only', 'ANA
     scheduleCheck(!MetaAiSchedule::processingStatus($bad, new DateTimeImmutable('2026-10-15T10:00:00Z'))['effective'], 'malformed mode never authorizes analysis');
 }
 $analysis = $canonical; $analysis['mode'] = MetaAiSchedule::ANALYZE_ONLY;
-foreach (['2026-10-12 08:59:59', '2026-10-12 17:00:00', '2026-10-18 03:00:00'] as $time) {
+$analysis['dispatch_schedule'] = ['enabled' => true, 'days' => [1], 'start' => '18:00', 'end' => '19:00', 'all_day' => false];
+$analysisBefore = $analysis;
+foreach ([['2026-10-12 08:59:59', false, false], ['2026-10-12 09:00:00', true, false],
+    ['2026-10-12 16:59:59', true, false], ['2026-10-12 17:00:00', false, false],
+    ['2026-10-12 18:00:00', false, true], ['2026-10-12 18:59:59', false, true],
+    ['2026-10-12 19:00:00', false, false], ['2026-10-13 10:00:00', false, false]] as [$time, $canAnalyze, $canDispatch]) {
     $at = new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo'));
-    scheduleCheck(MetaAiSchedule::processingStatus($analysis, $at)['effective'], 'analysis-only does not depend on reply schedule '.$time);
+    $analysisResult = MetaAiSchedule::analysisStatus($analysis, $at);
+    scheduleCheck($analysisResult['effective'] === $canAnalyze
+        && $analysisResult['status'] === ($canAnalyze ? 'ACTIVE' : 'ANALYSIS_OUTSIDE_HOURS'), 'analysis-only obeys selected analysis clock '.$time);
+    scheduleCheck(MetaAiSchedule::dispatchStatus($analysis, $at)['effective'] === $canDispatch, 'analysis dispatch clock stays independent '.$time);
+    scheduleCheck(MetaAiSchedule::processingStatus($analysis, $at)['effective'] === ($canAnalyze || $canDispatch), 'worker union supports only allowed purposes '.$time);
 }
-scheduleCheck(!MetaAiSchedule::dispatchStatus($analysis, new DateTimeImmutable('2026-10-18 03:00:00', new DateTimeZone('Africa/Cairo')))['effective'], 'analysis-only retains independently closed dispatch hours');
+$analysisOvernight = $analysis; $analysisOvernight['schedule'] = ['enabled' => true, 'days' => [6], 'start' => '22:00', 'end' => '03:00', 'all_day' => false];
+foreach ([['2026-10-17 21:59:59', false], ['2026-10-17 22:00:00', true], ['2026-10-18 02:59:59', true],
+    ['2026-10-18 03:00:00', false], ['2026-10-18 22:00:00', false]] as [$time, $active]) {
+    $at = new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo'));
+    scheduleCheck(MetaAiSchedule::analysisStatus($analysisOvernight, $at)['effective'] === $active, 'analysis overnight belongs to selected start day '.$time);
+}
+$analysisAllDay = $analysis; $analysisAllDay['schedule']['all_day'] = true;
+scheduleCheck(MetaAiSchedule::analysisStatus($analysisAllDay, new DateTimeImmutable('2026-10-12T00:00:00+03:00'))['effective']
+    && !MetaAiSchedule::analysisStatus($analysisAllDay, new DateTimeImmutable('2026-10-13T00:00:00+03:00'))['effective'], 'explicit analysis all-day retains selected-day boundary');
+$analysisAlways = $analysis; $analysisAlways['schedule']['enabled'] = false; $analysisAlways['schedule']['days'] = [];
+scheduleCheck(MetaAiSchedule::analysisStatus($analysisAlways, new DateTimeImmutable('2026-10-18T03:00:00+03:00'))['effective'], 'disabling analysis scheduling means every hour');
+$analysisClock = $analysis; $analysisClock['schedule']['days'] = range(0, 6);
+foreach ([['2026-01-12T07:00:00Z', '2026-01-12T09:00:00+02:00'], ['2026-07-13T06:00:00Z', '2026-07-13T09:00:00+03:00']] as [$utc, $local]) {
+    $result = MetaAiSchedule::analysisStatus($analysisClock, new DateTimeImmutable($utc));
+    scheduleCheck($result === ['effective' => true, 'status' => 'ACTIVE', 'local_time' => $local], 'analysis uses real Cairo seasonal offset '.$utc);
+}
 $analysis['enabled'] = false;
-scheduleCheck(MetaAiSchedule::processingStatus($analysis, new DateTimeImmutable('2026-10-15T10:00:00Z'))['status'] === 'DISABLED', 'master off blocks analysis-only');
+foreach (['analysisStatus', 'processingStatus', 'dispatchStatus'] as $purpose)
+    scheduleCheck(MetaAiSchedule::$purpose($analysis, new DateTimeImmutable('2026-10-15T10:00:00Z'))['status'] === 'DISABLED', 'master off blocks analysis-only '.$purpose);
+scheduleCheck($analysisBefore === array_replace($analysis, ['enabled' => true]), 'analysis status never rewrites raw policy or all-day flags');
+scheduleCheck(MetaAiSchedule::analysisStatus($canonical, new DateTimeImmutable('2026-10-12T05:59:59Z'))['status'] === 'SCHEDULED_OFF', 'legacy full mode keeps old analysis schedule reason');
 $dispatchDefault = $canonical; $dispatchDefault['schedule']['enabled'] = false;
 foreach (['2026-10-15 00:00:00', '2026-10-15 00:29:59', '2026-10-15 09:00:00', '2026-10-15 23:59:59'] as $time) {
     $result = MetaAiSchedule::dispatchStatus($dispatchDefault, new DateTimeImmutable($time, new DateTimeZone('Africa/Cairo')));

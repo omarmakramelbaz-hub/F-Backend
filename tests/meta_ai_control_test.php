@@ -291,7 +291,7 @@ namespace {
     // uncertain customer-facing send. Existing activation identity is retained.
     $beforeMode=DB::table('meta_ai_controls')->first();
     $analysis=$allChannels; $analysis['mode']=\App\Support\MetaAiSchedule::ANALYZE_ONLY;
-    $analysis['schedule']=['enabled'=>true,'days'=>[1],'start'=>'15:00','end'=>'16:00','all_day'=>false];
+    $analysis['schedule']=['enabled'=>true,'days'=>[0],'start'=>'05:00','end'=>'06:00','all_day'=>false];
     foreach (['whatsapp','meta'] as $prefix) Schema::create($prefix.'_reply_requests',function(Blueprint $t){
         $t->integer('id')->primary(); $t->string('waba_id'); $t->string('phone_number_id'); $t->string('state');
     });
@@ -330,22 +330,67 @@ namespace {
     $control->clock='2026-10-18 02:00:00'; $prepareBefore=count($business->calls); $networkBefore=count($transportCalls);
     $analysisState=$control->update(new User,$analysis,19);
     check($analysisState['policy']['mode']==='ANALYZE_ONLY'&&$analysisState['effective']&&$analysisState['status']==='ACTIVE'
-        &&$analysisState['reply_state']===['effective'=>false,'status'=>'ANALYZE_ONLY','local_time'=>'2026-10-18T05:00:00+03:00'],'analysis-only status distinguishes active analysis from deliberately disabled replies');
+        &&$analysisState['reply_state']===['effective'=>false,'status'=>'ANALYZE_ONLY','local_time'=>'2026-10-18T05:00:00+03:00']
+        &&$analysisState['analysis_state']===['effective'=>true,'status'=>'ACTIVE','local_time'=>'2026-10-18T05:00:00+03:00'],'analysis-only status distinguishes scheduled analysis from deliberately disabled replies');
     check(count($business->calls)===$prepareBefore&&count($transportCalls)===$networkBefore
         &&DB::table('meta_ai_controls')->value('handoff')===null&&!$analysisState['handoff_required']&&$analysisState['handoff_method']===null,'analysis-only invalidates stale pause receipt without external side effects');
     check(DB::table('meta_ai_controls')->value('activations')===$beforeMode->activations,'switching enabled mode preserves all original activation floors and backlog');
     foreach (['whatsapp','messenger','instagram'] as $channel) {
         $processing=$control->processingGate($channel);
         check($control->analysisOnly($channel)&&$processing['effective']&&$processing['mode']==='ANALYZE_ONLY'
-            &&$processing['revision']===20,'fresh analysis authority for '.$channel);
+            &&$processing['revision']===20&&$control->analysisGate($channel)['effective'],'fresh scheduled analysis authority for '.$channel);
         check(!$control->gate($channel)['effective']&&$control->gate($channel)['reason']==='ANALYZE_ONLY','automatic reply authority closed for '.$channel);
         check($control->dispatchGate($channel)['reason']==='DISPATCH_OUTSIDE_HOURS','dispatch hours remain separate for '.$channel);
     }
     check(!$control->analysisOnly('bogus'),'unknown channel never inherits analysis-only mode');
     check($control->processingGate('whatsapp','2026-10-18 01:00:00',1001,801)['effective']
         &&!$control->processingGate('whatsapp','2026-10-18 02:00:01',1001,801)['effective'],'analysis-only retains exact native message time and event bounds');
+    check($control->analysisGate('whatsapp','2026-10-18 01:00:00',1001,801)['effective']
+        &&$control->analysisGate('whatsapp','2026-10-18 02:00:01',1001,801)['reason']==='BEFORE_ACTIVATION'
+        &&$control->analysisGate('bogus')['reason']==='INVALID_CHANNEL','separate analysis purpose retains native time and channel guards');
+    // Exercise actual owner schedule saves under a rollback so subsequent mode
+    // transition checks retain their original revision and activation fixtures.
+    DB::beginTransaction();
+    try {
+        $timedAnalysis=$analysis;
+        $timedAnalysis['schedule']=['enabled'=>true,'days'=>[0],'start'=>'06:00','end'=>'07:00','all_day'=>false];
+        $timedAnalysis['dispatch_schedule']=['enabled'=>true,'days'=>[0],'start'=>'09:00','end'=>'10:00','all_day'=>false];
+        $savedAnalysis=$control->update(new User,$timedAnalysis,20);
+        check(DB::table('meta_ai_controls')->value('activations')===$beforeMode->activations
+            &&$savedAnalysis['revision']===21,'analysis and dispatch schedule save preserves activation floors');
+        foreach ([['2026-10-18 02:00:00',false,false], ['2026-10-18 03:00:00',true,false],
+            ['2026-10-18 04:00:00',false,false], ['2026-10-18 06:00:00',false,true],
+            ['2026-10-18 07:00:00',false,false], ['2026-10-19 03:00:00',false,false]] as [$clock,$analyze,$dispatch]) {
+            $control->clock=$clock;
+            foreach (['whatsapp','messenger','instagram'] as $channel) {
+                $analysisGate=$control->analysisGate($channel); $dispatchGate=$control->dispatchGate($channel);
+                $workerGate=$control->processingGate($channel);
+                check($analysisGate['effective']===$analyze && $analysisGate['reason']===($analyze?null:'ANALYSIS_OUTSIDE_HOURS'),
+                    'analysis schedule inclusive start exclusive end and selected day '.$channel.' '.$clock);
+                check($dispatchGate['effective']===$dispatch && $workerGate['effective']===($analyze||$dispatch)
+                    &&$control->gate($channel)['reason']==='ANALYZE_ONLY','independent cached dispatch worker never reopens customer replies '.$channel.' '.$clock);
+                if ($dispatch&&!$analyze) check($analysisGate['floor']===null&&$workerGate['floor']!==null,
+                    'dispatch-only hours supply scan authority without new-extraction authority '.$channel);
+            }
+            $timedState=$control->state();
+            check($timedState['analysis_state']['effective']===$analyze&&$timedState['dispatch_state']['effective']===$dispatch
+                &&$timedState['effective']===($analyze||$dispatch),'separate browser purpose states follow one Cairo instant '.$clock);
+            check($timedState['analysis_state']['status']===($analyze?'ACTIVE':'SCHEDULED_OFF')
+                &&$timedState['dispatch_state']['status']===($dispatch?'ACTIVE':'SCHEDULED_OFF')
+                &&$timedState['status']===($analyze||$dispatch?'ACTIVE':'SCHEDULED_OFF'),
+                'browser statuses retain the finite presentation contract outside each purpose window '.$clock);
+        }
+        $timedAnalysis['schedule']['all_day']=true;
+        $allDayState=$control->update(new User,$timedAnalysis,21);
+        $control->clock='2026-10-18 02:00:00';
+        check($control->analysisGate('whatsapp')['effective']&&$control->state()['policy']['schedule']['all_day']===true,
+            'explicit analysis all-day remains supported');
+    } finally { DB::rollBack(); $control->clock='2026-10-18 02:00:00'; }
+    check(DB::table('meta_ai_controls')->value('revision')===20
+        &&DB::table('meta_ai_controls')->value('activations')===$beforeMode->activations,'schedule checks leave mode fixture activation unchanged');
     $people->users[1]->active=false;
-    check($control->processingGate('whatsapp')['reason']==='ACTOR_UNAVAILABLE','analysis-only cannot bypass revoked owner');
+    check($control->processingGate('whatsapp')['reason']==='ACTOR_UNAVAILABLE'
+        &&$control->analysisGate('whatsapp')['reason']==='ACTOR_UNAVAILABLE','analysis-only cannot bypass revoked owner');
     $people->users[1]->active=true;
     app('config')->set('meta_messaging.accounts',[['channel'=>'messenger','account_id'=>'999'],['channel'=>'instagram','account_id'=>'202']]);
     check($control->processingGate('messenger')['reason']==='ACTIVATION_REQUIRED','analysis-only account change cannot inherit another scoped activation');
@@ -356,7 +401,7 @@ namespace {
     check($control->state()['policy']['mode']==='ANALYZE_ONLY','old browser save cannot accidentally re-enable dashboard replies');
     $analysisOff=$analysis; $analysisOff['enabled']=false; $control->update(new User,$analysisOff,21);
     check($control->processingGate('whatsapp')['reason']==='DISABLED'&&$control->gate('whatsapp')['reason']==='DISABLED'
-        &&$control->dispatchGate('whatsapp')['reason']==='DISABLED','analysis-only still obeys master off for every purpose');
+        &&$control->dispatchGate('whatsapp')['reason']==='DISABLED'&&$control->analysisGate('whatsapp')['reason']==='DISABLED','analysis-only still obeys master off for every purpose');
     $control->update(new User,$analysis,22);
     check($control->processingGate('whatsapp')['effective']&&DB::table('meta_ai_controls')->value('handoff')===null,'explicit analysis-only enable needs no paused external agent');
     $beforeReturn=DB::table('meta_ai_controls')->value('activations'); $freshCalls=count($business->calls);

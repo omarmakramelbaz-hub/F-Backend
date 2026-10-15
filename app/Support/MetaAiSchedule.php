@@ -50,17 +50,23 @@ final class MetaAiSchedule
         ];
     }
 
-    /** Analysis-only is independent of reply hours; dispatch keeps its own clock. */
+    /** Workers may analyze a new turn or dispatch an already approved order. */
     public static function processingStatus(array $policy, ?DateTimeImmutable $at = null): array
     {
         $policy = self::validate($policy);
-        if ($policy !== null && $policy['mode'] === self::ANALYZE_ONLY) {
-            $policy['schedule']['enabled'] = false;
-            return self::status($policy, $at);
-        }
-        $reply = self::status($policy ?? [], $at);
+        $analysis = self::status($policy ?? [], $at);
         $dispatch = self::dispatchStatus($policy ?? [], $at);
-        return !$reply['effective'] && $dispatch['effective'] ? $dispatch : $reply;
+        return !$analysis['effective'] && $dispatch['effective'] ? $dispatch : $analysis;
+    }
+
+    /** In analysis-only mode the existing schedule governs new AI analysis. */
+    public static function analysisStatus(array $policy, ?DateTimeImmutable $at = null): array
+    {
+        $validated = self::validate($policy);
+        $status = self::status($validated ?? [], $at);
+        if (($validated['mode'] ?? null) === self::ANALYZE_ONLY && $status['status'] === 'SCHEDULED_OFF')
+            $status['status'] = 'ANALYSIS_OUTSIDE_HOURS';
+        return $status;
     }
 
     private static function validateSchedule(array $schedule): ?array

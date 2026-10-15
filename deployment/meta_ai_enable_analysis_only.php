@@ -72,8 +72,8 @@ try {
     if (!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html')) throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Services/Dashboard/MetaAiControl.php'=>'de6ee70e06e95b2c7381215b52f698f45e86b34a',
-        'app/Support/MetaAiSchedule.php'=>'d1acd2541253d4e7746af502592a04411cf11795',
+        'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
+        'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaInboxAccess.php'=>'7faaba6645308c1997bae8182fb4b26dbc5e3b9a',
         'app/Services/Dashboard/MetaBusinessAgent.php'=>'4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
         'app/Services/Dashboard/WhatsAppInboxAccess.php'=>'186789d42113e81818de8d82a2327e3ee9d8d0b5',

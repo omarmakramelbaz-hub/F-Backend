@@ -178,10 +178,10 @@ class WhatsAppOrderWorkflow
                     $this->deferDispatch((int)$thread->id);
                     $metrics['deferred']++; continue;
                 }
-                if ($controlled&&!$this->analysisOnly((int)$thread->id)&&!$this->replyControlOpen((int)$thread->id)) {
+                if ($controlled&&!$this->analysisControlOpen((int)$thread->id)) {
                     $scan=DB::table(static::SCANS)->where('conversation_id',$thread->id)->first();
                     abort_if($scan&&$scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
-                    // Dispatch hours may be open while customer replies are scheduled off.
+                    // Dispatch hours may be open while automatic analysis is scheduled off.
                     // Only the exact cached, already approved turn may progress: no AI call.
                     $draft=DB::table(static::DRAFTS)->where('conversation_id',$thread->id)
                         ->where('evidence_ceiling',$thread->ceiling)->whereIn('status',['REVIEW','READY'])
@@ -229,7 +229,7 @@ class WhatsAppOrderWorkflow
                     if ($queued) $this->reviewReason($queued,'DISPATCH_OUTSIDE_HOURS');
                     $this->deferDispatch((int)$thread->id); $metrics['deferred']++;
                 }
-                elseif (in_array($error->getMessage(),['TRANSCRIPT_SETTLING','ANALYSIS_BUSY'],true)) $metrics['deferred']++;
+                elseif (in_array($error->getMessage(),['TRANSCRIPT_SETTLING','ANALYSIS_BUSY','ANALYSIS_OUTSIDE_HOURS'],true)) $metrics['deferred']++;
                 elseif (in_array($error->getMessage(),['CAPTURE_PENDING','ACCEPTED_REPLIES_PENDING'],true)) $metrics['capture_pending']=1;
                 else { $metrics['errors']++; $this->deferDispatch((int)$thread->id); }
             }
@@ -280,20 +280,27 @@ class WhatsAppOrderWorkflow
             if ($existing && !$staleBounded && !$staleEvidence && !$force && !$retry) return ['existing'=>$existing,'baselined'=>$baselined];
             if (!$force) abort_if($scan->next_attempt_at && $scan->next_attempt_at > now('UTC')->format('Y-m-d H:i:s')
                 && !($this->controlInstalled()&&$ceiling>(int)$scan->analyzed_ceiling), 409, 'ANALYSIS_BACKOFF');
+            // A closed automatic-analysis clock never consumes a fresh attempt. Exact
+            // cached results above remain readable for independently scheduled dispatch.
+            $analysisAuthority=$automatic&&$this->controlInstalled()?$this->requireAnalysisHours($conversation):null;
             $attempts = (int)$scan->claimed_ceiling === $ceiling ? (int)$scan->attempts+1 : 1;
             abort_if($attempts > 3 && !$force, 409, 'ANALYSIS_RETRY_LIMIT');
             $nonce = bin2hex(random_bytes(32));
             DB::table(static::SCANS)->where('conversation_id', $conversation)->update(['claimed_ceiling'=>$ceiling, 'claim_nonce'=>$nonce,
                 'lease_until'=>now('UTC')->addSeconds(180), 'attempts'=>min(3,$attempts), 'next_attempt_at'=>null, 'updated_at'=>now('UTC')]);
             return ['nonce'=>$nonce, 'floor'=>$floor, 'ceiling'=>$ceiling, 'existing_id'=>$existing ? (int)$existing->id : null,
-                'activation'=>$activation,'event_activation'=>$eventActivation,'activation_time'=>$activationTime,'baselined'=>$baselined];
+                'activation'=>$activation,'event_activation'=>$eventActivation,'activation_time'=>$activationTime,'baselined'=>$baselined,
+                'analysis_authority'=>$analysisAuthority];
         }, 3);
         if (isset($claim['existing'])) return ['success'=>true, 'draft'=>$this->present($claim['existing']),'baselined'=>$claim['baselined']];
         try {
             $snapshot = $this->snapshot($conversation, $claim['floor'], $claim['ceiling']);
             $authority=$automatic&&$this->controlInstalled()?$this->primaryAuthority($conversation,$snapshot):null;
             if ($automatic&&$this->controlInstalled()) abort_unless($authority!==null&&(int)$actor->id===$authority['actor_id'],403,'AI_CONTROL_BLOCKED');
-            if ($automatic&&$this->controlInstalled()) abort_unless($this->analysisOnly($conversation)||$this->replyControlOpen($conversation),409,'AI_REPLY_SCHEDULE_CLOSED');
+            if ($automatic&&$this->controlInstalled()) {
+                abort_unless($authority===$claim['analysis_authority'],409,'AI_CONTROL_CHANGED');
+                $this->requireAnalysisHours($conversation,$authority);
+            }
             $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
                 : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
             if (!is_array($result) || !($result['ok'] ?? false)) {
@@ -313,6 +320,7 @@ class WhatsAppOrderWorkflow
             abort_unless($this->projectAcceptedReplies($conversation,$bounded?$claim['activation_time']:null),409,'ACCEPTED_REPLIES_PENDING');
             $id = DB::transaction(function () use ($conversation, $actor, $claim, $snapshot, $data, $reason, $status,$automatic,$bounded,$authority) {
                 $this->actor($actor);
+                if ($automatic&&$this->controlInstalled()) $this->requireAnalysisHours($conversation,$authority);
                 if ($automatic&&$this->controlInstalled()) abort_unless($authority!==null&&$this->primaryAuthority($conversation,$snapshot)===$authority,409,'AI_CONTROL_CHANGED');
                 $scan = DB::table(static::SCANS)->where('conversation_id', $conversation)->lockForUpdate()->first();
                 abort_unless($scan && hash_equals((string)$scan->claim_nonce, $claim['nonce']) && $scan->lease_until >= now('UTC')->format('Y-m-d H:i:s'), 409, 'ANALYSIS_LEASE_LOST');
@@ -1808,14 +1816,12 @@ class WhatsAppOrderWorkflow
         return $this->filterDispatchOnlyCandidates($this->filterPrimaryInboundCandidates($query,$token),$this->automationChannel());
     }
 
-    /** Queued ERP work can resume without reopening the separate customer reply schedule. */
+    /** Queued ERP work can resume without reopening the automatic-analysis schedule. */
     protected function filterDispatchOnlyCandidates($query,string $channel)
     {
-        try { if (app(MetaAiControl::class)->analysisOnly($channel)) return $query; }
-        catch (\Throwable $ignore) {}
-        try { $reply=app(MetaAiControl::class)->gate($channel); }
+        try { $analysis=app(MetaAiControl::class)->analysisGate($channel); }
         catch (\Throwable $ignore) { return $query->whereRaw('0 = 1'); }
-        if (($reply['effective']??false)===true) return $query;
+        if (($analysis['effective']??false)===true) return $query;
         return $query->whereExists(function($draft) {
             $draft->selectRaw('1')->from(static::DRAFTS.' as ai_queued')
                 ->whereColumn('ai_queued.conversation_id','c.id')->whereIn('ai_queued.status',['REVIEW','READY'])
@@ -1885,6 +1891,27 @@ class WhatsAppOrderWorkflow
     {
         try { return (app(MetaAiControl::class)->gate($this->automationChannel($conversation))['effective']??false)===true; }
         catch (\Throwable $ignore) { return false; }
+    }
+
+    private function analysisControlOpen(int $conversation): bool
+    {
+        try { return (app(MetaAiControl::class)->analysisGate($this->automationChannel($conversation))['effective']??false)===true; }
+        catch (\Throwable $ignore) { return false; }
+    }
+
+    /** Automatic extraction binds its own clock to the same fresh processing authority. */
+    private function requireAnalysisHours(int $conversation,?array $authority=null): array
+    {
+        try { $gate=app(MetaAiControl::class)->analysisGate($this->automationChannel($conversation)); }
+        catch (\Throwable $ignore) { abort_unless(false,409,'AI_CONTROL_CHANGED'); }
+        abort_unless(($gate['effective']??false)===true,409,
+            ($gate['reason']??null)==='ANALYSIS_OUTSIDE_HOURS'?'ANALYSIS_OUTSIDE_HOURS':'AI_CONTROL_CHANGED');
+        $token=$this->controlToken($conversation);
+        abort_unless($token!==null&&($authority===null||$token===$authority)
+            &&($gate['revision']??null)===$token['revision']&&($gate['actor_id']??null)===$token['actor_id']
+            &&($gate['floor']??null)===['message_floor'=>$token['message_floor'],
+                'event_floor'=>$token['event_floor'],'started_at_utc'=>$token['started_at_utc']],409,'AI_CONTROL_CHANGED');
+        return $token;
     }
 
     /** A configured mode is never authority on its own: callers still bind processingGate. */

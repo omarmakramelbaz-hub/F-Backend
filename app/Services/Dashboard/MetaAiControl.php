@@ -40,6 +40,8 @@ class MetaAiControl
         $analysisOnly = $row['policy']['mode'] === MetaAiSchedule::ANALYZE_ONLY;
         $replyStatus = $analysisOnly && $row['policy']['enabled']
             ? ['effective' => false, 'status' => 'ANALYZE_ONLY', 'local_time' => $status['local_time']] : $status;
+        $analysisStatus = MetaAiSchedule::analysisStatus($row['policy'], $now);
+        if ($analysisStatus['status'] === 'ANALYSIS_OUTSIDE_HOURS') $analysisStatus['status'] = 'SCHEDULED_OFF';
         if ($analysisOnly) $status = MetaAiSchedule::processingStatus($row['policy'], $now);
         $dispatch = MetaAiSchedule::dispatchStatus($row['policy'], $now);
         if ($dispatch['status'] === 'DISPATCH_OUTSIDE_HOURS') $dispatch['status'] = 'SCHEDULED_OFF';
@@ -56,6 +58,7 @@ class MetaAiControl
             'effective' => $status['effective'], 'status' => $status['status'],
             'local_time' => $status['local_time'],
             'reply_state' => $replyStatus,
+            'analysis_state' => $analysisStatus,
             'dispatch_state' => $dispatch,
             'channels_state' => $channels,
             'handoff_method' => !$analysisOnly && $handoffValid ? $row['handoff']['method'] : null,
@@ -142,10 +145,16 @@ class MetaAiControl
         return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'reply');
     }
 
-    /** Scanning can serve a reply turn or a separately scheduled approved order. */
+    /** Scanning can serve new analysis or a separately scheduled approved order. */
     public function processingGate(string $channel, ?string $inboundTime = null, ?int $inboundId = null, ?int $eventId = null): array
     {
         return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'processing');
+    }
+
+    /** New AI extraction has its own clock, independent of cached order dispatch. */
+    public function analysisGate(string $channel, ?string $inboundTime = null, ?int $inboundId = null, ?int $eventId = null): array
+    {
+        return $this->operationGate($channel, $inboundTime, $inboundId, $eventId, 'analysis');
     }
 
     /** Configured mode only. Callers must still obtain a fresh processing gate. */
@@ -171,6 +180,7 @@ class MetaAiControl
             $status = MetaAiSchedule::status($row['policy'], $now);
             if ($purpose === 'processing') $status = MetaAiSchedule::processingStatus($row['policy'], $now);
             elseif ($purpose === 'dispatch') $status = MetaAiSchedule::dispatchStatus($row['policy'], $now);
+            elseif ($purpose === 'analysis') $status = MetaAiSchedule::analysisStatus($row['policy'], $now);
             if ($purpose === 'reply' && $analysisOnly && $row['policy']['enabled'])
                 return array_replace($result, ['reason' => 'ANALYZE_ONLY']);
             if (!$status['effective']) return array_replace($result, ['reason' => $status['status']]);

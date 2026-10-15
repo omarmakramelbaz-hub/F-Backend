@@ -54,9 +54,9 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/MetaAiSchedule.php'=>'d1acd2541253d4e7746af502592a04411cf11795',
+        'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaBusinessAgent.php'=>'4b2ad29c21ea092af94ad3fa1bace90ad4dd4672',
-        'app/Services/Dashboard/MetaAiControl.php'=>'de6ee70e06e95b2c7381215b52f698f45e86b34a',
+        'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderDialogue.php'=>'994acc368929036b2ed82197ea4eb48aa5c65f39',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
         'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php'=>'478d620d36d801b5fc38bab8e8be2afcfdf5dd8c',
@@ -66,15 +66,15 @@ try{
         'app/Services/Dashboard/MetaOrderFollowupService.php'=>'d14a3c6e84624ee5b2d20997b7f11159b9101720',
         'app/Services/Dashboard/MetaMediaService.php'=>'cfde72fdeb12f308e15daa81ec0ae7ce196aef9e',
         'app/Services/Dashboard/MetaReplyService.php'=>'c4226df516aa5f8b59999a8979f9f2ab43cf0e28',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'a6d4477d4f50107dd60fa15aec30a02d863f4998',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'bd0e1cc3536f7d84f3c31bc956317d3374004937',
         'app/Services/Dashboard/MetaOrderWorkflow.php'=>'337cd9db9c3493be0af00a32cf7692e8dca9268d',
         'app/Services/Dashboard/MetaInboxConsumer.php'=>'3b7e9cb9abfabc85c0b78199d0bf9d2565424f42',
         'app/Http/Controllers/Dashboard/MetaAiControlController.php'=>'5b21e15e8519f31994b4bc3145c118adb070d79e',
         'app/Console/Commands/ProcessMetaAiMessages.php'=>'9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7',
         'database/migrations/2026_10_15_000001_create_meta_ai_controls.php'=>'3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae',
-        'resources/views/admin/meta/ai_controls.blade.php'=>'351ccc3e1fc4fdf1a27b0867d010adf363ecd195',
-        'public/js/dashboard-meta-ai-controls.js'=>'dc2c2fb7351ba5ffac3103a7cf2b8ac0d66c0bb3',
-        'public/css/dashboard-meta-ai-controls.css'=>'d8c229626f8a74568ef168bd477625f2a94e9e4e',
+        'resources/views/admin/meta/ai_controls.blade.php'=>'a2bc85e508763eccb249791861d8a0ea25bc8292',
+        'public/js/dashboard-meta-ai-controls.js'=>'c941a55a442d5994c941fcbaa35ee4a5b549709c',
+        'public/css/dashboard-meta-ai-controls.css'=>'0928502f344567b20599cf0216352a1e7b76da97',
         'public/css/dashboard-meta-inbox-viewport.css'=>'1d3c4c9360619c6e3d7ab6a23d4188de36e96732',
         'routes/meta_ai_controls.php'=>'8a89374a33002b88f7ed593d6aab5817aa3cf2a4',
         'resources/views/admin/meta/channels.blade.php'=>'c922fd431ca3df5b12f6aeef05c0885bc0da3049',
@@ -98,7 +98,7 @@ try{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
     $stage='CONTROL';$control=app(\App\Services\Dashboard\MetaAiControl::class);$state=$control->state();
     $statusCodes=['ACTIVE','DISABLED','SCHEDULED_OFF','OUTSIDE_SCHEDULE','UNAVAILABLE','CHANNEL_DISABLED','INVALID_CHANNEL','STATE_CHANGED',
-        'EXTERNAL_AGENT_PAUSE_REQUIRED','ACTIVATION_REQUIRED','ACCOUNT_UNAVAILABLE','CAPTURE_UNAVAILABLE','ACTOR_UNAVAILABLE','BEFORE_ACTIVATION','DISPATCH_OUTSIDE_HOURS','ANALYZE_ONLY'];
+        'EXTERNAL_AGENT_PAUSE_REQUIRED','ACTIVATION_REQUIRED','ACCOUNT_UNAVAILABLE','CAPTURE_UNAVAILABLE','ACTOR_UNAVAILABLE','BEFORE_ACTIVATION','DISPATCH_OUTSIDE_HOURS','ANALYSIS_OUTSIDE_HOURS','ANALYZE_ONLY'];
     $policy=is_array($state['policy']??null)?\App\Support\MetaAiSchedule::validate($state['policy']):null;
     $out['control']=['available'=>($state['available']??null)===true,'effective'=>($state['effective']??null)===true,
         'status'=>metaStatusCode($state['status']??null,$statusCodes,'UNAVAILABLE'),'revision'=>metaStatusInt($state['revision']??null),
@@ -109,6 +109,10 @@ try{
     $out['control']['reply_state']=['effective'=>($reply['effective']??null)===true,
         'status'=>metaStatusCode($reply['status']??null,['ACTIVE','DISABLED','SCHEDULED_OFF','ANALYZE_ONLY'],'UNAVAILABLE'),
         'local_time'=>metaStatusTime($reply['local_time']??null)];
+    $analysis=is_array($state['analysis_state']??null)?$state['analysis_state']:[];
+    $out['control']['analysis_state']=['effective'=>($analysis['effective']??null)===true,
+        'status'=>metaStatusCode($analysis['status']??null,['ACTIVE','DISABLED','SCHEDULED_OFF'],'UNAVAILABLE'),
+        'local_time'=>metaStatusTime($analysis['local_time']??null)];
     $dispatch=is_array($state['dispatch_state']??null)?$state['dispatch_state']:[];
     $out['control']['dispatch_state']=['effective'=>($dispatch['effective']??null)===true,
         'status'=>metaStatusCode($dispatch['status']??null,['ACTIVE','DISABLED','SCHEDULED_OFF'],'UNAVAILABLE'),
@@ -117,10 +121,11 @@ try{
     foreach(['whatsapp','messenger','instagram']as$channel){
         $analysisOnly=($policy['mode']??null)==='ANALYZE_ONLY';
         $gate=$analysisOnly?$control->processingGate($channel):$control->gate($channel);$revisions[]=metaStatusInt($gate['revision']??null);
-        $replyGate=$analysisOnly?$control->gate($channel):$gate;
+        $replyGate=$analysisOnly?$control->gate($channel):$gate;$analysisGate=$control->analysisGate($channel);
         $out['channels'][]=['channel'=>$channel,'effective'=>($gate['effective']??null)===true,
             'reason'=>metaStatusCode($gate['reason']??null,$statusCodes),'revision'=>metaStatusInt($gate['revision']??null),
-            'operation'=>$analysisOnly?'ANALYSIS':'REPLIES','automatic_replies_effective'=>($replyGate['effective']??null)===true,
+            'operation'=>$analysisOnly?'PROCESSING':'REPLIES','analysis_effective'=>($analysisGate['effective']??null)===true,
+            'analysis_reason'=>metaStatusCode($analysisGate['reason']??null,$statusCodes),'automatic_replies_effective'=>($replyGate['effective']??null)===true,
             'automatic_replies_reason'=>metaStatusCode($replyGate['reason']??null,$statusCodes)];
     }
     $stage='READINESS';$keyReady=static function($value):bool{return is_string($value)&&strlen($value)>=16&&strlen($value)<=4096&&!preg_match('/[\s\x00-\x1f\x7f]/',$value);};

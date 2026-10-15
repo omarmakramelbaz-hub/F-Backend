@@ -206,13 +206,22 @@ class MetaAiInstallTests(unittest.TestCase):
     def test_previous_ai_runtimes_are_complete_reviewed_upgrade_profiles(self):
         self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),
             {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS',
-             'META_AI_CONTROL_INBOX_REPAIR','META_AI_CONTROL_CUSTOMER_ANSWERS','META_AI_CONTROL_CODED_PROBE_EPISODE'})
+             'META_AI_CONTROL_INBOX_REPAIR','META_AI_CONTROL_CUSTOMER_ANSWERS','META_AI_CONTROL_CODED_PROBE_EPISODE',
+             'META_AI_CONTROL_ANALYSIS_ONLY'})
         first=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
         saved=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_SAVE_BUTTON']
         hours=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_UNANSWERED_HOURS']
         inbox=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_INBOX_REPAIR']
         answers=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_CUSTOMER_ANSWERS']
         coded=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_CODED_PROBE_EPISODE']
+        analysis=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_ANALYSIS_ONLY']
+        self.assertEqual(tuple(analysis),tuple(repair.SOURCE_PINS))
+        self.assertEqual(analysis['app/Support/MetaAiSchedule.php'],'d1acd2541253d4e7746af502592a04411cf11795')
+        self.assertEqual(analysis['app/Services/Dashboard/MetaAiControl.php'],'de6ee70e06e95b2c7381215b52f698f45e86b34a')
+        self.assertEqual(analysis['app/Services/Dashboard/WhatsAppOrderWorkflow.php'],'a6d4477d4f50107dd60fa15aec30a02d863f4998')
+        self.assertEqual(analysis['app/Services/Dashboard/MetaOrderWorkflow.php'],'337cd9db9c3493be0af00a32cf7692e8dca9268d')
+        self.assertEqual(analysis['resources/views/admin/meta/ai_controls.blade.php'],'351ccc3e1fc4fdf1a27b0867d010adf363ecd195')
+        self.assertEqual(analysis['public/js/dashboard-meta-ai-controls.js'],'dc2c2fb7351ba5ffac3103a7cf2b8ac0d66c0bb3')
         self.assertEqual(tuple(coded),tuple(repair.SOURCE_PINS))
         self.assertEqual(coded['app/Services/Dashboard/WhatsAppOrderWorkflow.php'],'a9e75b9a4b2406f5eefa4c5cfc4d117fd29e4a59')
         self.assertEqual(coded['app/Support/WhatsAppOrderExtraction.php'],'a44f791013642aeca4b4f50dd96ec96b59eda012')
@@ -255,6 +264,12 @@ class MetaAiInstallTests(unittest.TestCase):
         mode_optional={'app/Services/Dashboard/WhatsAppOrderFollowupService.php','app/Services/Dashboard/MetaOrderFollowupService.php'}
         changed={path for path,(_,target) in repair.SOURCE_PINS.items() if coded[path]!=target}
         self.assertTrue(analysis_mode<=changed<=analysis_mode|mode_optional)
+        schedule_changes={path for path,(_,target) in repair.SOURCE_PINS.items() if analysis[path]!=target}
+        schedule_required={'app/Support/MetaAiSchedule.php','app/Services/Dashboard/MetaAiControl.php',
+            'resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js'}
+        schedule_optional={'app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php',
+            'public/css/dashboard-meta-ai-controls.css'}
+        self.assertTrue(schedule_required<=schedule_changes<=schedule_required|schedule_optional)
     @unittest.skipUnless(TEST_PHP,'PHP is required for the raw database policy shape probe')
     def test_control_probe_accepts_legacy_schedules_and_explicit_modes_without_normalizing_stored_rows(self):
         stub=r'''<?php
@@ -280,6 +295,9 @@ namespace MetaAiProbe {
         dispatch=dict(legacy,dispatch_schedule=dict(schedule,days=[2,3],start='10:00',end='23:40'))
         dispatch_all_day=dict(dispatch,dispatch_schedule=dict(dispatch['dispatch_schedule'],all_day=True))
         cases=[(legacy,True),(dispatch,True),(dispatch_all_day,True),(dict(dispatch,enabled=False),True),
+            (dict(dispatch_all_day,enabled=False),True),
+            (dict(dispatch_all_day,enabled=False,mode='ANALYZE_ONLY'),True),
+            (dict(dispatch,enabled=False,mode='ANALYZE_ONLY'),True),
             (dict(legacy,mode='REPLY_AND_ANALYZE'),True),(dict(legacy,mode='ANALYZE_ONLY'),True),
             (dict(dispatch_all_day,mode='REPLY_AND_ANALYZE'),True),(dict(dispatch_all_day,mode='ANALYZE_ONLY'),True),
             (dict(legacy,mode=None),False),(dict(legacy,mode=''),False),(dict(dispatch,mode='analysis_only'),False),
@@ -291,7 +309,7 @@ namespace MetaAiProbe {
             (root/'bootstrap/app.php').write_text('<?php return new \\MetaAiProbe\\App();\n')
             for policy,accepted in cases:
                 with self.subTest(policy_keys=list(policy)):
-                    row={'id':1,'revision':10,'actor_id':123,'updated_by':123,'created_at':'2026-10-14 00:00:00',
+                    row={'id':1,'revision':11,'actor_id':123,'updated_by':123,'created_at':'2026-10-14 00:00:00',
                         'updated_at':'2026-10-15 00:00:00','policy':json.dumps(policy,indent=1),
                         'activations':' {"whatsapp":{"floor":500,"revision":10}} ',
                         'handoff':' {"confirmed":true} ','handoff_oversized':0}
