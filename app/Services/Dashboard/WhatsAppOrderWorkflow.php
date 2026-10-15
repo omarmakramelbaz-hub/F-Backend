@@ -450,6 +450,9 @@ class WhatsAppOrderWorkflow
         if ($failures->first(['event_id'])) { $reason='CAPTURE_REVIEW_REQUIRED'; return null; }
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         if ($this->controlInstalled()&&$this->primaryAuthority((int)$row->conversation_id,$snapshot)===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
+        // An unanswered product question never consents to execute an older basket,
+        // including when a cached model result still calls that basket CONFIRMED.
+        if ($this->controlInstalled()&&$this->informationTurn($snapshot['transcript'])!==null) { $reason='REVIEW_REQUIRED'; return null; }
         if (!$snapshot['complete'] || !$data || ($data['decision']??null)!=='CONFIRMED'
             || array_diff($data['issues']??[],['PRICE_ESTIMATE_ONLY','LOCATION_REQUIRED','MISSING_BRANCH','MISSING_AREA'])!==[]) { $reason='REVIEW_REQUIRED'; return null; }
         if ($snapshot['recovered_at']!==null && !$this->freshAutomaticEvidence($data,$snapshot['transcript'],$snapshot['recovered_at'],(int)$row->conversation_id)) {
@@ -629,12 +632,13 @@ class WhatsAppOrderWorkflow
             if ($item['quantity_mode']==='unknown') $fields[]='QUANTITY_MODE';
         }
         $routing=null; $routeData=$data;
-        $inquiry=$noOrder&&$this->primaryCatalogInquiry($transcript);
+        $information=$primary===null?null:$this->informationTurn($transcript);
+        $inquiry=$noOrder&&$information===null&&$this->primaryCatalogInquiry($transcript);
         if ($inquiry) {
             $nativeTexts=[]; foreach ($transcript as $message) if ($message['speaker']==='customer'&&is_string($message['text'])) $nativeTexts[]=$message['text'];
             $routeData['customer']['address']=implode(' ',$nativeTexts);
         }
-        $resolved=$this->automaticBranch($routeData,$fresh,$routing);
+        $resolved=$this->automaticBranch($routeData,$fresh,$routing,$information['text']??null);
         if ($resolved===null&&($primary!==null||$fields===[])&&in_array($routing,['MISSING','UNKNOWN_HINT'],true)) $fields[]='BRANCH';
         if ($resolved===null&&in_array($routing,['AMBIGUOUS','CONFLICTING'],true)) {
             $fields=['BRANCH'];
@@ -689,6 +693,16 @@ class WhatsAppOrderWorkflow
                 'CUSTOMER_PHONE'=>'PHONE','CUSTOMER_ADDRESS'=>'ADDRESS','LOCATION_REFERENCE'=>'LOCATION'][$recoveryField??'']??'ITEMS');
             $dialogue=$this->dialogueContext($field,'UNREADABLE',null,[],$snapshot['transcript']);
         }
+        // Answer the actual latest customer question before resuming any missing
+        // field or menu choice. This changes only the reply plan, never stored facts.
+        if ($information!==null) {
+            if ($resolved!==null&&$catalog===null) {
+                $catalog=$this->dialogueCatalog($resolved['fulfillment_branch']??$resolved['value'],$fresh);
+                if ($catalog===null) return null;
+            }
+            $dialogue=$this->informationContext($information,$catalog,$snapshot['transcript']);
+            if ($dialogue===null) return null;
+        }
         if ($dialogue!==null) $fields=[$dialogue['field']];
         if ($fields===[]) return null;
         $fields=array_values(array_unique($fields)); sort($fields);
@@ -725,6 +739,178 @@ class WhatsAppOrderWorkflow
         foreach ($transcript as $message) if ($message['speaker']==='customer'&&is_string($message['text'])
             &&preg_match('/(?:منيو|مينيو|قائمة|الأسعار|الاسعار|بكام|سعر|أسعار|اسعار|موجود|متاح|بتبيع)|\b(?:menu|price|prices|available|availability)\b/iu',$message['text'])) return true;
         return false;
+    }
+
+    /** Latest native text intent only; these hints never select a product or approve an order. */
+    private function informationTurn(array $transcript): ?array
+    {
+        $latest=null; $preceding=null; $previous=null;
+        foreach (WhatsAppOrderConversationEvidence::episodeTranscript($transcript) as $row) {
+            if (($row['speaker']??null)==='customer') { $latest=$row; $preceding=$previous; }
+            $previous=$row;
+        }
+        if ($latest===null||!is_string($latest['text']??null)||trim($latest['text'])==='') return null;
+        $text=$latest['text'];
+        $quantityAnswer=preg_match('/\\A\\s*(?:تمام\\s+)?(?:(?:[0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?|نص|نصف|ربع)\\s*)?(?:كيلو(?:جرام|غرام)?|كجم|كغ|جرام|غرام|جم|قطعة|قطعه|حبة|حبه|علبة|علبه|سمكة|سمكه)(?:\\s+(?:ونص|ونصف|وربع|لو\\s+سمحت|بس|فقط))*\\s*[?؟.!،]*\\s*\\z/u',$text)===1;
+        if ($quantityAnswer&&($preceding['speaker']??null)==='business'&&is_string($preceding['text']??null)
+            &&preg_match('/(?:تحب|عايز|عاوز|تحتاج).{0,30}(?:قد\\s+إيه|قد\\s+ايه|قد\\s+أيه|كام|كم)|(?:how\\s+(?:much|many)|what\\s+quantity)/iu',$preceding['text'])) return null;
+        $information=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل|نوعها|نوعه|بكام|سعر|أسعار|اسعار|متاح|موجود|بتبيع|اعرف|أعرف|منيو|مينيو|كتالوج|تطبيق|رقمكم|رقم\\s+(?:فرع|الفرع|فسخانستا)|عنوان\\s+(?:فرع|الفرع))|(?<![\\p{L}\\p{N}])(?:إيه|ايه|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|mean|meaning|explain|difference|description|ingredients|price|prices|available|availability)\\b/iu',$text)===1;
+        // A courteous question mark does not turn an actual purchase request into
+        // a product-definition question. It still supplies no final approval.
+        $purchase=preg_match('/\\A\\s*(?:(?:أنا|انا)\\s+)?(?:عايز|عاوز|أريد|اريد|اطلب|أطلب|هات|ابعت|اعملي|اعمللي|ضيف|زود)(?![\\p{L}\\p{N}])|'
+            .'\\A\\s*ممكن\\s+(?:[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?|نص|نصف|ربع|تلات|ثلاث|اتنين|اثنين)?\\s*(?:كيلو|كجم|جرام|جم|قطعة|قطعه|حبة|حبه|سمكة|سمكه|علبة|علبه|وجبة|وجبه)(?![\\p{L}\\p{N}])|'
+            .'\\A\\s*(?:I\\s+want|please\\s+(?:send|order)|order|send)\\b/iu',$text)===1;
+        if ($purchase&&!$information) return null;
+        $question=preg_match('/[?؟]|(?:مش\\s+فاهم|قصدك|تقصد)|(?<![\\p{L}\\p{N}])(?:يعني|معن[ىي]|معناه|معناها|إيه|ايه|بكام|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى|اعرف|أعرف)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|explain|difference)\\b/iu',$text)===1;
+        if (!$question&&preg_match('/\\A\\s*(?:تمام\\s+)?(?:موافق|اتفقنا|أؤكد|اؤكد|أكد|اكد|yes|confirm|ok(?:ay)?)(?![\\p{L}\\p{N}])/iu',$text)) return null;
+        if (!$question&&!$information&&!preg_match('/(?:مواعيد|ساعات\\s+العمل|(?:أرقام|ارقام|أماكن|اماكن|عناوين)\\s+الفروع|عنوانكم|طرق\\s+(?:الطلب|الدفع)|طريقة\\s+الطلب)/u',$text)) return null;
+        return $latest;
+    }
+
+    /** Exact branch facts for a conversational answer; private prices are never ERP authority. */
+    private function informationContext(array $turn,?array $catalog,array $transcript): ?array
+    {
+        $text=$turn['text']; $facts=[];
+        $add=static function(string $subject,string $value)use(&$facts):void {
+            if (count($facts)>=24||mb_strlen($subject)>240||mb_strlen($value)>500
+                ||preg_match('/[\\x00-\\x1f\\x7f]/u',$subject.$value)) return;
+            $facts[]=['id'=>'f'.(count($facts)+1),'text'=>$value,'subject'=>$subject];
+        };
+        $meaning=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل)|(?<!\\p{L})(?:إيه\\s+ده|ايه\\s+ده|ليه|ازاي|إزاي)(?!\\p{L})|\\b(?:mean|meaning|explain|difference|description|ingredients|why|how)\\b/iu',$text)===1;
+        $price=preg_match('/(?:بكام|سعر|أسعار|اسعار)|\\b(?:price|prices|cost)\\b/iu',$text)===1;
+        $availability=preg_match('/(?:متاح|موجود|بتبيع|منيو|مينيو)|\\b(?:menu|available|availability)\\b/iu',$text)===1;
+        $ordering=preg_match('/(?:ازاي|إزاي|كيف).{0,35}(?:أطلب|اطلب|أوردر|اوردر|طلب)|(?:أطلب|اطلب|طلب|أوردر|اوردر).{0,35}(?:ازاي|إزاي|كيف)|\\bhow.{0,25}order\\b/iu',$text)===1;
+        $hours=preg_match('/(?:شغال|فاتح|بتفتح|بتقفل|مواعيد|موعد|امتى|امتي|إمتى)|\\b(?:hours|open|close|when)\\b/iu',$text)===1;
+        $deliveryFee=preg_match('/(?:سعر|تكلفه|تكلفة|رسوم).{0,15}(?:التوصيل|الدليفري)|(?:التوصيل|الدليفري).{0,15}(?:بكام|كام|سعر)|\\bdelivery.{0,15}(?:price|fee|cost)\\b/iu',$text)===1;
+        $knowledge=$this->businessInformationFacts($text); $covered=[];
+        $previous=null;
+        foreach ($transcript as $row) { if ($row['id']===$turn['id']) break; $previous=$row; }
+        if ($meaning&&($previous['speaker']??null)==='business'&&is_string($previous['text']??null)) {
+            $prior=$previous['text'];
+            if (preg_match('/(?:رقم\\s+(?:هاتف|الهاتف|للتواصل|الموبايل)|رقمك|رقم\\s+تواصل)/u',$prior))
+                $knowledge[]=['topic'=>'CONTACT','subject'=>'سبب رقم التواصل','text'=>'نحتاج رقم تواصل واحد للتواصل مع حضرتك بخصوص تفاصيل الطلب والتوصيل. رقم إضافي اختياري.'];
+            elseif (preg_match('/(?:لوكيشن|الموقع|موقع\\s+التوصيل|location)/iu',$prior))
+                $knowledge[]=['topic'=>'LOCATION','subject'=>'سبب موقع التوصيل','text'=>'نحتاج تأكيد نقطة التوصيل على الخريطة لحساب المسافة ومراجعة وصول الطلب إلى العنوان المقصود. مشاركة الموقع لا تعني الموافقة على تنفيذ الطلب.'];
+            elseif (preg_match('/(?:عنوان\\s+التوصيل|عنوانك|العنوان)/u',$prior))
+                $knowledge[]=['topic'=>'ADDRESS','subject'=>'سبب عنوان التوصيل','text'=>'عنوان التوصيل يحدد المكان المقصود لإيصال الطلب ويساعد على مراجعة بيانات الدليفري. كتابة العنوان وحدها لا تؤكد الطلب.'];
+        }
+        foreach ($knowledge as $fact) { $add($fact['subject'],$fact['text']); $covered[$fact['topic']]=true; }
+        if ($ordering&&!isset($covered['ORDER'])) $add('طريقة الطلب','لبداية الطلب بنحدد الصنف والكمية، والفرع وطريقة الاستلام، ثم بيانات التواصل. للدليفري نحتاج عنوان التوصيل. بعد اكتمال البيانات بنراجع ملخص الطلب مع العميل للموافقة قبل التنفيذ.');
+        elseif ($hours&&!isset($covered['HOURS'])&&$knowledge===[]) $add('مواعيد الفرع','مواعيد عمل الفرع غير موجودة في بيانات المنيو لهذا الاستفسار. لا يمكن تأكيد وقت فتح أو إغلاق الفرع من هذه البيانات.');
+        if ($deliveryFee) $add('رسوم التوصيل','رسوم التوصيل النهائية غير موجودة في بيانات المنيو لهذا الاستفسار، وتحتاج إلى عنوان العميل وحساب التوصيل الفعلي. لا يمكن تخمين مبلغها.');
+        if ($meaning&&preg_match('/(?:هيرنج|هيرينج|herring)/iu',$text))
+            $add('هيرنج','هيرنج هو الاسم الإنجليزي لسمك الرنجة. الاسم وحده لا يحدد طريقة تجهيز الصنف أو مكوناته.');
+        if ($catalog===null) {
+            if ($price) $add('سعر الفرع','لا يوجد فرع محدد للاستفسار الحالي، ولذلك لا تتوفر قيمة سعر مؤكدة له. يلزم معرفة الفرع أو المدينة أولاً.');
+            elseif ($knowledge===[]&&$facts===[]) $add('تفاصيل المنيو','تفاصيل الصنف وتوفره في فرع معين غير مؤكدة قبل تحديد الفرع أو المدينة.');
+        } else {
+            $tokens=$this->menuTokens($text); $matched=[];
+            foreach ($catalog as $product)
+                if ($this->relatedMenuTokens($tokens,$this->menuTokens($product['name']))) $matched[]=$product;
+            // A short "مش فاهم" follows the actual business topic, without selecting
+            // any offered product on the customer's behalf.
+            if ($matched===[]&&$meaning) {
+                $business=null;
+                foreach ($transcript as $row) {
+                    if ($row['id']===$turn['id']) break;
+                    if ($row['speaker']==='business'&&is_string($row['text'])) $business=$row['text'];
+                }
+                if ($business!==null) foreach ($catalog as $product)
+                    if (strpos($business,$product['name'])!==false) $matched[]=$product;
+                if ($knowledge===[]&&$business!==null) {
+                    foreach ($this->businessInformationFacts($text.' '.$business) as $fact) {
+                        if (!in_array($fact['topic'],['SALT','PREPARATION','ROE','MIX'],true)) continue;
+                        $add($fact['subject'],$fact['text']); $covered[$fact['topic']]=true;
+                    }
+                }
+            }
+            if ($matched===[]&&$availability) $matched=array_values(array_filter($catalog,static fn($p)=>$p['available']));
+            if ($matched===[]&&!$ordering&&!$hours&&!$deliveryFee&&$knowledge===[]&&$covered===[]) $add('التفصيل المطلوب','لا توجد بيانات مؤكدة تجيب التفصيل المحدد في السؤال الحالي. يمكن سؤال العميل عن الجزئية المقصودة لتوضيحها دون تخمين.');
+            if ($ordering||$hours||$deliveryFee) $matched=[];
+            foreach (array_slice($matched,0,6) as $product) {
+                $name=$product['name'];
+                if ($meaning&&$product['description']===null&&!array_intersect(array_keys($covered),['SALT','PREPARATION','ROE','MIX']))
+                    $add($name,'لا يوجد وصف تفصيلي مسجل لـ «'.$name.'». لا يمكن استنتاج طريقة التجهيز أو المكونات أو الفرق عن صنف آخر من الاسم فقط.');
+                $add($name,'اسم الصنف في منيو الفرع هو «'.$name.'»، وحالته '.($product['available']?'متاح':'غير متاح').' في هذا الفرع وقت الاستفسار.');
+                if ($product['description']!==null) $add($name,'الوصف المسجل لـ «'.$name.'»: '.$product['description']);
+                $unit=['weight'=>'كيلو','piece'=>'قطعة'][$product['quantity_mode']]??null;
+                if ($price) {
+                    if ($product['price']!==null&&$unit!==null)
+                        $add($name,'سعر «'.$name.'» المسجل في منيو هذا الفرع هو '.$product['price'].' جنيه مصري لكل '.$unit.'. هذا سعر الصنف وليس إجمالي الطلب أو التوصيل.');
+                    else $add($name,'لا يوجد سعر مؤكد مع وحدة بيع واضحة لـ «'.$name.'» في البيانات المتاحة؛ لا يمكن تخمينه.');
+                    foreach ($product['options'] as $option) if ($option['price']!==null)
+                        $add($name,'قيمة السعر المسجلة بجوار اختيار «'.$option['label'].'» للصنف «'.$name.'» هي '.$option['price'].' جنيه مصري. '
+                            .($unit===null?'وحدة البيع غير موضحة. ':'وحدة بيع الصنف '.$unit.'. ')
+                            .'البيانات لا توضح هل هذه القيمة سعر نهائي أم إضافة، ولذلك لا تمثل سعراً نهائياً مؤكداً للطلب.');
+                } elseif ($unit!==null) $add($name,'وحدة بيع «'.$name.'» المسجلة هي '.$unit.'.');
+                if ($product['options']!==[]) $add($name,'الاختيارات المسجلة لـ «'.$name.'»: '.implode('، ',array_column($product['options'],'label')).'. الأسماء وحدها لا توضح تفاصيل تجهيزها.');
+            }
+        }
+        if ($facts===[]) return null;
+        $context=['field'=>'ITEMS','kind'=>'PRODUCT_INFORMATION','item_name'=>null,'candidates'=>[],
+            'transcript'=>$transcript,'facts'=>$facts];
+        return WhatsAppOrderDialogue::validContext($context)?$context:null;
+    }
+
+    /** Curated owner FAQ, reviewed 2026-10-15. Knowledge is never inventory, policy or ERP authority. */
+    private function businessInformationFacts(string $text): array
+    {
+        $facts=[];
+        $add=static function(string $topic,string $subject,string $value)use(&$facts):void {
+            $facts[]=['topic'=>$topic,'subject'=>$subject,'text'=>$value];
+        };
+        $normalized=$this->routingName($text);
+        if (preg_match('/(?:مواعيد|ساعات\\s+العمل|شغال|فاتح|فاتحين|بتفتح|بتقفل|وقت\\s+(?:العمل|التجهيز))|(?:تجهيز|بتجهز).{0,25}(?:امتي|امتى|متي|من|لحد)|\\b(?:working\\s+hours|opening|closing|open|close)\\b/iu',$normalized))
+            $add('HOURS','مواعيد العمل والتجهيز','بنفتح وبنجهز الطلبات كل يوم من 10:00 الصبح لحد 01:00 بعد نص الليل بتوقيت القاهرة.');
+        if (preg_match('/(?:التوصيل|الدليفري|الطلب).{0,30}(?:وقت|مده|بيوصل|هيوصل|يوصل|امتي|امتى)|(?:وقت|مده|امتي|امتى|هيوصل|يوصل).{0,30}(?:التوصيل|الدليفري|الطلب)|\\b(?:delivery\\s+time|delivery\\s+eta|when.*arrive)\\b/iu',$normalized))
+            $add('ETA','مدة التوصيل المحلي','الدليفري المحلي بياخد تقريباً من 60 إلى 90 دقيقة حسب المنطقة وظروف التوصيل؛ المدة تقديرية ومش موعد مضمون.');
+        if (preg_match('/(?:ازاي|كيف).{0,35}(?:اطلب|اوردر|طلب)|(?:اطلب|طلب|اوردر).{0,35}(?:ازاي|كيف)|طريقه\\s+الطلب|طرق\\s+الطلب|\\bhow.{0,25}order\\b/iu',$normalized))
+            $add('ORDER','طريقة الطلب','يمكن بدء الطلب في محادثة واتساب أو ماسنجر أو من تطبيق فسخانستا. نحدد الصنف والكمية والفرع وطريقة الاستلام، ثم الاسم ورقم تواصل واحد وعنوان التوصيل للدليفري. رقم إضافي اختياري. بعد اكتمال البيانات نراجع الملخص مع العميل للموافقة قبل التنفيذ.');
+        if (preg_match('/(?:منيو|مينيو|كتالوج|كتالوك|قائمه\\s+(?:الطعام|الاصناف))|\\b(?:menu|catalog)\\b/iu',$normalized))
+            $add('MENU','كتالوج واتساب الرسمي','حضرتك تقدر تتصفح كتالوج واتساب الرسمي. السعر والتوفر والاختيارات النهائية من منيو الفرع الحالي. الرابط https://wa.me/c/201285545554');
+        if (preg_match('/(?:تطبيق|ابليكيشن|ابلكيشن|تنزيل|تحميل)|\\b(?:app|application|download)\\b/iu',$normalized))
+            $add('APP','تطبيق فسخانستا الرسمي','رابط تحميل تطبيق فسخانستا الرسمي https://fasakhaninja.com/downloadApp');
+        if (preg_match('/(?:فرع|فروع|عناوين|عنوانكم|اماكن|مقر|تليفون|هاتف|ارقام|رقم\\s+(?:الفرع|فسخانستا))|\\b(?:branch|branches|address|phone)\\b/iu',$normalized)) {
+            $branches=[['نبروه','نبروه','طريق نبروه قبل البوابة بجوار مصنع أبو أمين','01055644633'],
+                ['المنصوره','المنصورة','عبد السلام عارف','0502353511'],
+                ['المحله','المحلة','ميدان البندر','0402253800'],
+                ['شبرا','شبرا الخيمة','الشارع الجديد','0248272734']];
+            $selected=array_values(array_filter($branches,static fn($branch)=>strpos($normalized,$branch[0])!==false));
+            foreach ($selected?:$branches as $branch) $add('BRANCHES','فرع '.$branch[1],'فرع '.$branch[1].': '.$branch[2].'. رقم التواصل: '.$branch[3].'.');
+            if (preg_match('/(?:المقطم|التجمع|زايد|مدينتي)/u',$normalized))
+                $add('ONLINE','مناطق الخدمة عبر التطبيق','المقطم والتجمع وزايد ومدينتي مناطق خدمة عبر التطبيق، وليست فروعاً فعلية لاستقبال الزوار.');
+        }
+        if (preg_match('/(?:صاله|صالة|جلوس|قاعدين|قعده|داخل\\s+الفرع|dine)/iu',$normalized))
+            $add('DINE_IN','الصالة','الصالة للضيوف متاحة في الفروع الفعلية فقط، وليست في مناطق الخدمة عبر التطبيق.');
+        if (preg_match('/(?:مناطق|اماكن|محافظات|محافظه|طنطا|شرقيه|دقهليه|شحن|موقف).{0,30}(?:توصيل|بتوصل|شحن)|(?:توصيل|بتوصل|شحن).{0,30}(?:مناطق|اماكن|محافظات|محافظه|طنطا|شرقيه|دقهليه|موقف)|\\bdelivery\\s+areas\\b/iu',$normalized))
+            $add('AREAS','مناطق وخيارات التوصيل','توجد خدمة توصيل في القاهرة الكبرى والمنصورة والمحلة ونبروه. الشحن للمحافظات يكون إلى موقف أو محطة متفق عليها، وتحتاج نقطة الاستلام إلى تأكيد؛ لا يعني ذلك التوصيل إلى باب المنزل.');
+        if (preg_match('/(?:فسيخ|فسخ)/u',$normalized)&&preg_match('/(?:نبروه|دسوق|ملح|ملوحه|الفرق|يفرق)/u',$normalized))
+            $add('SALT','فسيخ نبروه ودسوق','فسيخ نبروه ملحه خفيف، وفسيخ دسوق ملحه مظبوط. النوعان من نفس المصنع وبنفس مستوى الجودة. درجة الملح مختلفة عن طريقة التنظيف أو التجهيز.');
+        if (preg_match('/(?:مخلي|مخليه|متنضف|متنظف|تنظيف|تجهيز)/u',$normalized)
+            &&(!array_intersect(array_column($facts,'topic'),['HOURS','ORDER'])||preg_match('/(?:مخلي|مخليه|متنضف|متنظف|تنظيف)/u',$normalized)))
+            $add('PREPARATION','التنظيف والتخلية','مخلي يعني بدون عظم. متنضف يعني فتح السمكة وتنظيف البطن وفصل الرأس. طريقة التجهيز غير درجة الملح، والاختيارات اللي تقدر تطلبها من منيو الفرع الحالي.');
+        if (preg_match('/(?:مبطرخ|مبطرخه|بطارخ)/u',$normalized))
+            $add('ROE','الرنجة المبطرخة','مبطرخة تعني مع البطارخ. النوع والاختيارات والتوفر الفعلي يرجع إلى منيو الفرع الحالي.');
+        if (preg_match('/(?:ميكس|mix)/iu',$normalized))
+            $add('MIX','الوجبة الميكس','الوجبة الميكس فيها فسيخ ورنجة وسردين. حجم الحصة والإضافات والسعر والاختيارات الفعلية من منيو الفرع الحالي.');
+        if (preg_match('/(?:عيش|خبز).{0,25}(?:منفصل|لوحده|لوحدها|تغليف)|(?:منفصل|لوحده|تغليف).{0,25}(?:عيش|خبز)|زيت.{0,20}(?:فقط|بس|بدون|من\\s+غير)/u',$normalized))
+            $add('PREFERENCE','تفضيلات التجهيز والتغليف','حضرتك تقدر تطلب الخبز متغلف لوحده، أو الزيت بس من غير شطة. بنسجل الرغبة ونراجع الاختيارات المتاحة للصنف.');
+        if (preg_match('/(?:حجز|احجز|مسبق|بكره|بكرا|يوم\\s+(?:تاني|اخر|آخر))|\\b(?:preorder|reservation|tomorrow)\\b/iu',$normalized))
+            $add('PREORDER','الحجز والطلب ليوم لاحق','الطلب المسبق ليوم لاحق غير متاح؛ يرجى التواصل يوم الطلب. زيارة الفرع لا تحتاج إلى حجز مسبق.');
+        if (preg_match('/(?:جمله|جملة|بالجمله|بالجملة)|\\bwholesale\\b/iu',$normalized))
+            $add('WHOLESALE','طلبات الجملة','الحد الأدنى للجملة 50 كيلو. معلومات وأسعار الجملة يراجعها الموظف مباشرة مع العميل.');
+        if (preg_match('/(?:طلب|اوردر).{0,25}(?:اضافه|ازود|تعديل|المندوب|خرج)|(?:اضافه|ازود|تعديل|المندوب).{0,25}(?:طلب|اوردر)/u',$normalized))
+            $add('EXISTING_ORDER','تعديل طلب قائم','إضافة أصناف أو تعديل طلب قائم يحتاج إلى مراجعة الموظف. بعد خروج المندوب لا يمكن الوعد بإمكانية التعديل، والاستفسار وحده لا ينفذ إضافة على طلب سابق.');
+        if (preg_match('/(?:طرق|طريقه|وسائل).{0,15}(?:دفع|سداد)|(?:فودافون|انستاباي|انستا\\s+باي)|\\b(?:Vodafone|InstaPay|payment\\s+methods)\\b/iu',$normalized))
+            $add('METHODS','الوسائل المتاحة','الوسائل المتاحة: Vodafone Cash و InstaPay.');
+        return array_slice($facts,0,12);
+    }
+
+    private function informationPrice($value): ?string
+    {
+        if (is_int($value)&&$value>=0) $value=(string)$value;
+        elseif (is_float($value)&&is_finite($value)&&$value>=0&&round($value,2)===$value) $value=number_format($value,2,'.','');
+        return is_string($value)&&preg_match('/\\A(?:0|[1-9][0-9]{0,6})(?:\\.[0-9]{1,2})?\\z/',$value)?$value:null;
     }
 
     private function dialogueContext(string $field,string $kind,?string $name,array $candidates,array $transcript): ?array
@@ -771,10 +957,14 @@ class WhatsAppOrderWorkflow
                     $normalizedLabel=$this->name($option['label']);
                     if ($normalizedLabel===''||isset($optionIds[$option['id']])||isset($optionLabels[$normalizedLabel])) return null;
                     $optionIds[$option['id']]=true; $optionLabels[$normalizedLabel]=true;
-                    $options[]=['id'=>$option['id'],'label'=>$option['label']];
+                    $options[]=['id'=>$option['id'],'label'=>$option['label'],'price'=>$this->informationPrice($option['price']??null)];
                 }
+                $description=$product['description']??null;
+                if (!is_string($description)||trim($description)===''||mb_strlen($description)>400
+                    ||preg_match('/[\\x00-\\x1f\\x7f<>]/u',$description)) $description=null;
                 $catalog[]=['id'=>(int)$product['id'],'name'=>$product['name'],'available'=>$available,
-                    'quantity_mode'=>$product['quantity_mode']??'select','options'=>$options];
+                    'quantity_mode'=>$product['quantity_mode']??'select','options'=>$options,
+                    'price'=>$this->informationPrice($product['price']??null),'description'=>$description];
             }
             if ((int)$list['pagination']['last_page']<=$page) break;
             if ($page===3) return null;
@@ -975,7 +1165,7 @@ class WhatsAppOrderWorkflow
     }
 
     /** Recognized place labels in supplied customer text can select only one authorized branch. */
-    private function automaticBranch(array $data,$actor,?string &$routing=null): ?array
+    private function automaticBranch(array $data,$actor,?string &$routing=null,?string $informationText=null): ?array
     {
         $routing='MISSING';
         $available=[]; $all=app(TakeawayAccess::class)->branches($actor);
@@ -1035,7 +1225,10 @@ class WhatsAppOrderWorkflow
         }
         $byArea=$this->placeBranches($area,$labels,true);
         $byAddress=$this->placeBranches($address,$labels,true);
-        $byPlace=$byArea+$byAddress;
+        // A menu question may name its branch. It is routing input for this answer
+        // only and never becomes a stored customer address or basket fact.
+        $byInquiry=$informationText===null?[]:$this->placeBranches($informationText,$labels,false);
+        $byPlace=$byArea+$byAddress+$byInquiry;
         if ($hint!=='') {
             if (count($byHint)!==1) { $routing=count($byHint)>1?'AMBIGUOUS':'UNKNOWN_HINT'; return null; }
             $branch=array_values($byHint)[0];

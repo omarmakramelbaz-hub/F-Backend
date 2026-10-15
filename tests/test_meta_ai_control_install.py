@@ -205,14 +205,17 @@ class MetaAiInstallTests(unittest.TestCase):
         self.assertFalse(set(repair.CATALOG_LOCK_OVERRIDE)&set(repair.SOURCE_PINS))
     def test_previous_ai_runtimes_are_complete_reviewed_upgrade_profiles(self):
         self.assertEqual(set(repair.PREVIOUS_CONTROL_SOURCE_PROFILES),
-            {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS'})
+            {'META_AI_CONTROL_V1','META_AI_CONTROL_SAVE_BUTTON','META_AI_CONTROL_UNANSWERED_HOURS','META_AI_CONTROL_INBOX_REPAIR'})
         first=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_V1']
         saved=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_SAVE_BUTTON']
         hours=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_UNANSWERED_HOURS']
+        inbox=repair.PREVIOUS_CONTROL_SOURCE_PROFILES['META_AI_CONTROL_INBOX_REPAIR']
         viewport='public/css/dashboard-meta-inbox-viewport.css'
         for previous in (first,saved,hours):
             self.assertEqual(tuple(previous),tuple(repair.SOURCE_PINS))
             self.assertIsNone(previous[viewport])
+        self.assertEqual(tuple(inbox),tuple(repair.SOURCE_PINS))
+        self.assertEqual(inbox[viewport],repair.SOURCE_PINS[viewport][1])
         self.assertEqual(first['public/js/dashboard-meta-ai-controls.js'],'fc34fca42cf8dd80f7916bacc1780444a51afab4')
         self.assertEqual(saved['public/js/dashboard-meta-ai-controls.js'],'00589d95df07646aaa8db71309e098bccd36bd2e')
         self.assertEqual([path for path in saved if saved[path]!=first[path]],['public/js/dashboard-meta-ai-controls.js'])
@@ -220,12 +223,17 @@ class MetaAiInstallTests(unittest.TestCase):
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php','app/Services/Dashboard/MetaOrderWorkflow.php',
             'resources/views/admin/meta/ai_controls.blade.php','public/js/dashboard-meta-ai-controls.js'}
         required.add(viewport)
-        allowed=required|{'app/Console/Commands/ProcessMetaAiMessages.php'}
+        dialogue={'app/Support/WhatsAppOrderDialogue.php','app/Services/Dashboard/WhatsAppOrderAiProvider.php',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php'}
+        optional={'app/Services/Dashboard/WhatsAppOrderFollowupService.php'}
+        required|=dialogue
+        allowed=required|{'app/Console/Commands/ProcessMetaAiMessages.php'}|optional
         for previous in (first,saved):
             changed={path for path,(_,target) in repair.SOURCE_PINS.items() if previous[path]!=target}
             self.assertTrue(required<=changed<=allowed)
-        self.assertEqual({path for path,(_,target) in repair.SOURCE_PINS.items() if hours[path]!=target},
-            {'app/Services/Dashboard/WhatsAppOrderWorkflow.php','resources/views/admin/meta/ai_controls.blade.php',viewport})
+        hours_required=dialogue|{'resources/views/admin/meta/ai_controls.blade.php',viewport}
+        self.assertTrue(hours_required<={path for path,(_,target) in repair.SOURCE_PINS.items() if hours[path]!=target}<=hours_required|optional)
+        self.assertTrue(dialogue<={path for path,(_,target) in repair.SOURCE_PINS.items() if inbox[path]!=target}<=dialogue|optional)
     @unittest.skipUnless(TEST_PHP,'PHP is required for the raw database policy shape probe')
     def test_control_probe_accepts_legacy_and_dispatch_schedules_without_normalizing_stored_rows(self):
         stub=r'''<?php
@@ -249,7 +257,8 @@ namespace MetaAiProbe {
         schedule={'enabled':True,'days':[0,1,2,3,4,5,6],'start':'09:00','end':'00:30','all_day':False}
         legacy={'enabled':True,'channels':['whatsapp'],'schedule':schedule}
         dispatch=dict(legacy,dispatch_schedule=dict(schedule,days=[2,3],start='10:00',end='23:40'))
-        cases=[(legacy,True),(dispatch,True),(dict(dispatch,enabled=False),True),(dict(legacy,unknown=schedule),False),
+        dispatch_all_day=dict(dispatch,dispatch_schedule=dict(dispatch['dispatch_schedule'],all_day=True))
+        cases=[(legacy,True),(dispatch,True),(dispatch_all_day,True),(dict(dispatch,enabled=False),True),(dict(legacy,unknown=schedule),False),
             (dict(legacy,dispatch_schedule='09:00'),False),(dict(dispatch,extra=True),False)]
         with tempfile.TemporaryDirectory() as folder:
             root=pathlib.Path(folder);(root/'vendor').mkdir();(root/'bootstrap').mkdir()

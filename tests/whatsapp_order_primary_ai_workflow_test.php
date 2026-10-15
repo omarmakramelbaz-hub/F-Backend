@@ -19,6 +19,20 @@ function primaryExpect($ok,string $label): void {
     $GLOBALS['primaryChecks']++;
     if (!$ok) throw new RuntimeException('PRIMARY_AI_FAILED:'.$label);
 }
+class PrimaryInformationProvider extends DialogueFixtureProvider {
+    public function followupQuestion(array $context): array {
+        if (($context['kind']??null)!=='PRODUCT_INFORMATION') return parent::followupQuestion($context);
+        primaryExpect(PrimaryDB::connection()->transactionLevel()===0,'information composition outside transaction');
+        primaryExpect(PrimaryDB::table('whatsapp_reply_requests')->orderByDesc('id')->value('state')==='CLAIMED','information reservation precedes AI');
+        primaryExpect(\App\Support\WhatsAppOrderDialogue::validContext($context),'bounded grounded information context');
+        DialogueFixtureProvider::$contexts[]=$context;
+        if (DialogueFixtureProvider::$duringQuestion) (DialogueFixtureProvider::$duringQuestion)();
+        $choice=\App\Support\WhatsAppOrderDialogue::fallback($context);
+        if (($context['facts'][0]['subject']??null)==='هيرنج') $choice=['action'=>'ANSWER','candidate_ids'=>[],
+            'fact_ids'=>[$context['facts'][0]['id']],'text'=>'هيرنج ده الاسم الإنجليزي لسمك الرنجة. الاسم لوحده مش بيوضح طريقة التجهيز. تحب أوضح لك حاجة تانية قبل ما نكمل طلبك؟','variant'=>'FRIENDLY'];
+        return ['ok'=>true,'choice'=>$choice];
+    }
+}
 class PrimaryFixtureControl {
     public static bool $backlogGuard=false;
     public static bool $strictDispatchClock=false;
@@ -73,6 +87,8 @@ function primarySetup(): void {
     app('config')->set('whatsapp_orders.activation_event_id',null);
     app('config')->set('whatsapp_cart.activated_at',null);
     app()->instance(PrimaryAi::class,new PrimaryAi());
+    $followup=new ReflectionProperty(\App\Services\Dashboard\WhatsAppOrderFollowupService::class,'provider');$followup->setAccessible(true);
+    $followup->setValue(app(\App\Services\Dashboard\WhatsAppOrderFollowupService::class),new PrimaryInformationProvider());
     PrimaryFixtureControl::$reads=0;
     app()->instance(PrimaryDelivery::class,new PrimaryDelivery());
 }
@@ -191,7 +207,7 @@ primarySetup();$c=primaryInbound('الغاء الطلب');$r=primaryRun();
 primaryExpect(PrimaryAi::$calls===0&&count($dialogueGraphs)===0,'native cancellation cannot become a first clarification');
 
 primarySetup();$c=primaryInbound('ممكن المنيو والأسعار؟');$r=primaryRun();
-primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['field']==='BRANCH',
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION'&&str_contains(dialogueLastText(),'الفرع'),
     'first menu inquiry asks the actual branch before showing catalog');
 insertMessage($c,'wamid.primary.branch-answer','inbound','المنصورة',302,null,'US.primary-fixture');dialogueAdvance(303);
 $r=primaryRun();
@@ -206,9 +222,9 @@ primarySetup();$c=primaryInbound('بكام الرنجة في المنصورة؟'
 DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'فسيخ','available'=>true,'quantity_mode'=>'weight','options'=>[]],
     ['id'=>12,'name'=>'رنجة','available'=>false,'quantity_mode'=>'weight','options'=>[]]];
 $r=primaryRun();
-primaryExpect($r['errors']===0&&dialogueLastContext()['kind']==='CATALOG_INFORMATION'
-    &&array_column(dialogueLastContext()['candidates'],'label')===['فسيخ']&&!preg_match('/[0-9]/u',dialogueLastText()),
-    'price inquiry uses actual available names and never guesses missing price or units');
+primaryExpect($r['errors']===0&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION'
+    &&str_contains(dialogueLastText(),'غير متاح')&&str_contains(dialogueLastText(),'لا يوجد سعر مؤكد')&&!preg_match('/[0-9]/u',dialogueLastText()),
+    'price inquiry addresses the actual named unavailable product and honestly reports missing price or units');
 primaryNoErp('price inquiry cannot create an order');
 
 function primaryCompleteDraft(): int {
@@ -513,5 +529,125 @@ PrimaryFixtureControl::$strictDispatchClock=true;$graphs=count($dialogueGraphs);
 primaryExpect($r['dispatched']===0&&PrimaryDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('reason')==='BRANCH_CLOSED'
     &&count($dialogueGraphs)===$graphs,'closed branch still blocks a complete approved ERP order without repeating its recap');
 primaryNoErp('primary question-hours bypass does not bypass ERP branch-open policy');
+
+// Screenshot regression: choosing from names and asking what a name means are
+// different customer turns. The latter answers first and preserves the basket.
+primarySetup();$c=primaryInbound('عايز رنجه تيك أواي من المنصورة');
+DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'رنجة هيرنج','available'=>true,'quantity_mode'=>'weight','price'=>'220.00','options'=>[]],
+    ['id'=>12,'name'=>'رنجة هيرنج مطبخ','available'=>true,'quantity_mode'=>'weight','price'=>'240.00','options'=>[]]];
+PrimaryAi::$data=PrimaryExtraction::none('MISSING_QUANTITY');PrimaryAi::$data['decision']='DRAFT';
+PrimaryAi::$data['branch_hint']='المنصورة';PrimaryAi::$data['fulfillment']='PICKUP';
+PrimaryAi::$data['items']=[['name'=>'رنجه','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+PrimaryAi::$data['evidence']['request_ids']=['m1'];$r=primaryRun();
+primaryExpect($r['errors']===0&&dialogueLastContext()['kind']==='PRODUCT_CHOICE','actual menu choices precede the screenshot meaning question');
+$basket=PrimaryAi::$data;
+insertMessage($c,'wamid.primary.meaning','inbound','يعني ايه رنجه هيرنج',302,null,'US.primary-fixture');dialogueAdvance(303);$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===2&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION'
+    &&str_contains(dialogueLastText(),'الاسم الإنجليزي')&&!str_contains(dialogueLastText(),'اكتب اسم الصنف')
+    &&!str_contains(dialogueLastText(),'من الاختيارات'),'meaning question receives a natural actual answer instead of repeating the two choices');
+$stored=json_decode(PrimaryCrypt::decryptString(PrimaryDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('extraction')),true);
+primaryExpect($stored===$basket,'meaning answer does not change product quantity customer facts or approvals');
+primaryExpect(PrimaryDB::table('whatsapp_reply_requests')->orderByDesc('id')->value('state')==='ACCEPTED','information reply uses the existing accepted reservation ledger');
+primaryNoErp('meaning question cannot execute an order');$graphs=count($dialogueGraphs);primaryRun();
+primaryExpect(count($dialogueGraphs)===$graphs,'same meaning question cannot receive duplicate answers');
+insertMessage($c,'wamid.primary.actual-choice','inbound','عايز رنجة هيرنج',304,null,'US.primary-fixture');dialogueAdvance(305);
+PrimaryAi::$data['items'][0]['name']='رنجة هيرنج';PrimaryAi::$data['evidence']['request_ids']=['m1','m5'];$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===3&&dialogueLastContext()['field']==='QUANTITY'
+    &&dialogueLastContext()['kind']==='MISSING','genuine product choice after explanation resumes the basket quantity question');
+primaryNoErp('actual product choice still needs quantity and customer approval');
+
+foreach (['يعني ايه رنجه هيرنج','مش فاهم قصدك ايه','ايه الفرق بين رنجة هيرنج ورنجة هيرنج مطبخ'] as $question) {
+    primarySetup();$c=primaryInbound($question);$r=primaryRun();
+    primaryExpect($r['errors']===0&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION'&&count($dialogueGraphs)===1,
+        'fresh standalone meaning or deictic question is answered without pretending it is a purchase: '.$question);
+    primaryNoErp('standalone informational turn has no ERP');
+}
+primarySetup();$c=primaryInbound('رنجة هيرنج بكام في المنصورة؟');
+DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'رنجة هيرنج','available'=>true,'quantity_mode'=>'weight','price'=>'220.00',
+    'description'=>'اسم الصنف كما يظهر في المنيو.','options'=>[['id'=>'base','label'=>'كامل','price'=>'220.00']]]];$r=primaryRun();
+primaryExpect($r['errors']===0&&str_contains(implode(' ',array_column(dialogueLastContext()['facts'],'text')),'220.00 جنيه مصري لكل كيلو'),
+    'price answer receives the actual current branch price and explicit sale unit');
+$stored=json_decode(PrimaryCrypt::decryptString(PrimaryDB::table('whatsapp_order_drafts')->value('extraction')),true);
+primaryExpect($stored['decision']==='NONE'&&$stored['customer']['address']===null,'question city is routing only and is never invented as a customer address');
+primaryNoErp('branch-scoped price answer does not create an order');
+
+primarySetup();$c=primaryInbound('رنجة هيرنج بكام في المنصورة؟');
+DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'رنجة هيرنج','available'=>true,'quantity_mode'=>'weight','price'=>'220.00','options'=>[]]];
+DialogueFixtureProvider::$duringQuestion=static function(){DialogueFixtureCatalog::$products[0]['price']='260.00';};$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===0&&PrimaryDB::table('whatsapp_reply_requests')->value('state')==='FAILED',
+    'price changes while information is composed invalidate its fresh fingerprint before Graph');
+primaryNoErp('price-drift information cannot execute or send stale prices');
+
+$c=primaryCompleteDraft();insertMessage($c,'wamid.primary.confirmed-question','inbound','يعني ايه فسيخ',304,null,'US.primary-complete');dialogueAdvance(305);
+$workflow->analyze($c,(object)['id'=>7]);$calls=PrimaryAi::$calls;$r=primaryRun();
+primaryExpect($r['errors']===0&&$r['dispatched']===0&&PrimaryAi::$calls===$calls&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION',
+    'cached CONFIRMED older basket yields an answer when the actual latest turn is a question');
+primaryNoErp('informational latest turn vetoes cached confirmation at the ERP review boundary');
+$reviewer=new ReflectionMethod(PrimaryWorkflow::class,'automaticReview');$reviewer->setAccessible(true);$reason=null;
+$row=PrimaryDB::table('whatsapp_order_drafts')->orderByDesc('id')->first();$arguments=[$row,(object)['id'=>7],&$reason,true];
+primaryExpect($reviewer->invokeArgs($workflow,$arguments)===null&&$reason==='REVIEW_REQUIRED','locked ERP review independently rejects the informational latest turn');
+$intent=new ReflectionMethod(PrimaryWorkflow::class,'informationTurn');$intent->setAccessible(true);
+$snapshot=new ReflectionMethod(PrimaryWorkflow::class,'snapshot');$snapshot->setAccessible(true);
+$transcript=$snapshot->invoke($workflow,$c,(int)$row->evidence_floor,(int)$row->evidence_ceiling)['transcript'];
+foreach(['تمام موافق بنفس السعر','عايز فسيخ كامل','عايز كيلو رنجة','عايز كيلو رنجة؟','عايز رنجة هيرنج لو سمحت؟','ممكن نص كيلو رنجة؟'] as $approval) {
+    $copy=$transcript;$copy[count($copy)-1]['text']=$approval;
+    primaryExpect($intent->invoke($workflow,$copy)===null,'normal affirmative selection is not diverted by incidental price or كامل: '.$approval);
+}
+foreach(['نص كيلو؟','٢ كيلو؟','ربع كيلو لو سمحت؟'] as $amount) {
+    $copy=$transcript;$copy[count($copy)-2]['speaker']='business';$copy[count($copy)-2]['text']='بالنسبة لـ «رنجة هيرنج»، تحب قد إيه؟';$copy[count($copy)-1]['text']=$amount;
+    primaryExpect($intent->invoke($workflow,$copy)===null,'direct quantity answer with courteous punctuation is not a definition question: '.$amount);
+}
+primarySetup();$c=primaryInbound('عايز فسيخ تيك أواي من المنصورة؟');
+PrimaryAi::$data=PrimaryExtraction::none('MISSING_QUANTITY');PrimaryAi::$data['decision']='DRAFT';
+PrimaryAi::$data['branch_hint']='المنصورة';PrimaryAi::$data['fulfillment']='PICKUP';
+PrimaryAi::$data['items']=[['name'=>'فسيخ','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+PrimaryAi::$data['evidence']['request_ids']=['m1'];$r=primaryRun();
+primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['field']==='QUANTITY'
+    &&dialogueLastContext()['kind']==='MISSING','courteous purchase question resumes normal missing quantity flow without informational diversion');
+primaryNoErp('courteous purchase punctuation never grants order approval');
+foreach(['أطلب إزاي؟','انتو شغالين امتى؟','إيه ده؟','ليه؟','عايز أعرف معنى هيرنج'] as $question) {
+    primarySetup();$c=primaryInbound($question);$r=primaryRun();
+    primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION',
+        'common Egyptian information turn does not repeat a missing-field question: '.$question);
+    $context=dialogueLastContext();
+    primaryExpect(\App\Support\WhatsAppOrderDialogue::render($context,\App\Support\WhatsAppOrderDialogue::fallback($context))!=='',
+        'actual procedural or missing business facts survive deterministic fallback rendering: '.$question);
+    primaryNoErp('general question never supplies an order or approval');
+}
+
+$faqCases=[
+    ['مواعيد العمل والتجهيز؟','10:00','01:00'],
+    ['بتجهزوا امتى؟','10:00','01:00'],
+    ['مدة التوصيل قد إيه؟','60','90'],
+    ['إيه الفرق بين فسيخ نبروه ودسوق؟','ملحه خفيف','ملحه مظبوط'],
+    ['يعني إيه مخلي ومتنضف؟','بدون عظم','فصل الرأس'],
+    ['مبطرخة يعني إيه؟','مع البطارخ','منيو الفرع'],
+    ['وجبة الميكس فيها إيه؟','فسيخ ورنجة وسردين','منيو الفرع'],
+    ['هات رقم فرع المنصورة','0502353511','عبد السلام عارف'],
+    ['عندكم فرع في زايد؟','مناطق خدمة عبر التطبيق','ليست فروعاً فعلية'],
+    ['ممكن المنيو؟','https://wa.me/c/201285545554','منيو الفرع'],
+    ['لينك تطبيق فسخانستا؟','https://fasakhaninja.com/downloadApp','تطبيق فسخانستا'],
+    ['الجملة تبدأ من كام كيلو؟','50','الموظف'],
+    ['إيه طرق الدفع؟','Vodafone Cash','InstaPay'],
+];
+foreach ($faqCases as [$question,$expected,$second]) {
+    primarySetup();$c=primaryInbound($question);$r=primaryRun();
+    primaryExpect($r['errors']===0&&count($dialogueGraphs)===1&&dialogueLastContext()['kind']==='PRODUCT_INFORMATION',
+        'approved FAQ topic is answered through the actual reserved workflow: '.$question);
+    $context=dialogueLastContext();$facts=implode(' ',array_column($context['facts'],'text'));
+    primaryExpect(str_contains($facts,$expected)&&str_contains($facts,$second),'approved FAQ facts cover the requested topic: '.$question);
+    primaryExpect(\App\Support\WhatsAppOrderDialogue::render($context,\App\Support\WhatsAppOrderDialogue::fallback($context))!=='',
+        'actual curated FAQ context has a valid literal fallback: '.$question);
+    primaryNoErp('FAQ answer never supplies an order or approval');
+}
+foreach (['رقم هاتف للتواصل بخصوص الطلب؟'=>'رقم تواصل واحد','عنوان التوصيل بالتفصيل إيه؟'=>'عنوان التوصيل',
+    'ممكن تبعت لوكيشن عنوان التوصيل؟'=>'نقطة التوصيل'] as $business=>$expected) {
+    primarySetup();$c=primaryInbound('أهلاً');primaryRun();
+    insertMessage($c,'wamid.primary.faq.business','outbound',$business,302,null,'US.primary-fixture');
+    insertMessage($c,'wamid.primary.faq.why','inbound','ليه؟',304,null,'US.primary-fixture');dialogueAdvance(305);$r=primaryRun();
+    primaryExpect($r['errors']===0&&count($dialogueGraphs)===2&&str_contains(dialogueLastText(),$expected),
+        'deictic why explains the immediately preceding business request: '.$business);
+    primaryNoErp('explaining a contact or location request cannot confirm an order');
+}
 
 fwrite(STDOUT,'WHATSAPP_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$primaryChecks." PASS\n");

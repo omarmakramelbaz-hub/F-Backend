@@ -72,6 +72,12 @@ class MetaPrimaryFixtureProvider extends MetaAi {
         metaPrimaryExpect(MetaDB::table('meta_reply_requests')->orderByDesc('id')->value('state')==='CLAIMED','Meta reservation precedes AI');
         metaPrimaryExpect(MetaDialogue::validContext($context),'bounded actual menu context');self::$contexts[]=$context;
         if ($GLOBALS['metaQuestionCallback']) ($GLOBALS['metaQuestionCallback'])();
+        if (($context['kind']??null)==='PRODUCT_INFORMATION') {
+            $choice=MetaDialogue::fallback($context);
+            if (($context['facts'][0]['subject']??null)==='هيرنج') $choice=['action'=>'ANSWER','candidate_ids'=>[],
+                'fact_ids'=>[$context['facts'][0]['id']],'text'=>'هيرنج ده الاسم الإنجليزي لسمك الرنجة. الاسم لوحده مش بيوضح طريقة التجهيز. تحب أوضح لك حاجة تانية قبل ما نكمل طلبك؟','variant'=>'FRIENDLY'];
+            return ['ok'=>true,'choice'=>$choice];
+        }
         return ['ok'=>true,'choice'=>['action'=>'ASK','candidate_ids'=>array_slice(array_column($context['candidates'],'id'),0,6),'variant'=>'POLITE']];
     }
     public function followupVariant(array $fields): array { return ['ok'=>true,'variant'=>'SHORT']; }
@@ -134,7 +140,8 @@ foreach (['messenger','instagram'] as $channel) {
     metaPrimaryNoErp('Meta greeting never executes');metaPrimaryRun();metaPrimaryExpect(count($metaGraphs)===1,'same Meta inbound never sends twice');
     metaPrimaryMessage($channel,'mid.second','ممكن المنيو والأسعار؟',302);dialogueAdvance(303);$r=metaPrimaryRun();
     metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===2,'second genuine '.$channel.' turn continues');
-    metaPrimaryExpect(MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1]['field']==='BRANCH','Meta menu inquiry asks actual branch');
+    metaPrimaryExpect(MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1]['kind']==='PRODUCT_INFORMATION'
+        &&str_contains(metaPrimaryLastText(),'الفرع'),'Meta menu price inquiry honestly asks the actual branch');
     metaPrimaryMessage($channel,'mid.third','المنصورة',304);dialogueAdvance(305);$r=metaPrimaryRun();
     $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
     metaPrimaryExpect($r['errors']===0&&$context['kind']==='CATALOG_INFORMATION'&&array_column($context['candidates'],'label')===['فسيخ'],'Meta branch answer lists only actual available catalog');
@@ -240,5 +247,64 @@ metaPrimarySetup();metaPrimaryMessage('instagram','mid.only.erp.open','أهلا�
 MetaPrimaryFixtureControl::$strictDispatchClock=true;MetaPrimaryFixtureControl::$replyClockClosed=true;
 \Carbon\Carbon::setTestNow('2026-10-10 06:00:00');\Carbon\CarbonImmutable::setTestNow('2026-10-10 06:00:00');metaPrimaryRun();
 metaPrimaryExpect(MetaAi::$calls===0&&count($metaGraphs)===0,'Meta dispatch-only open window cannot analyze or reply to a new inbound');
+
+foreach (['messenger','instagram'] as $channel) {
+    metaPrimarySetup();metaPrimaryMessage($channel,'mid.info.fresh-meaning','يعني ايه رنجه هيرنج');MetaAi::$data=MetaExtraction::none();$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===1&&str_contains(metaPrimaryLastText(),'الاسم الإنجليزي'),
+        'actual '.$channel.' first informational turn answers the general meaning without a branch or invented order');
+    metaPrimaryNoErp('Meta first definition never starts an order');
+    metaPrimarySetup();metaPrimaryMessage($channel,'mid.info.faq-hours','بتجهزوا امتى؟');MetaAi::$data=MetaExtraction::none();$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===1&&str_contains(metaPrimaryLastText(),'10:00')&&str_contains(metaPrimaryLastText(),'01:00'),
+        'actual '.$channel.' approved preparation hours are knowledge only and preserve existing control configuration');
+    metaPrimaryNoErp('Meta FAQ hours do not authorize order execution');
+
+    metaPrimarySetup();metaPrimaryMessage($channel,'mid.info.polite-purchase','عايز فسيخ تيك أواي من المنصورة؟');
+    MetaAi::$data=MetaExtraction::none('MISSING_QUANTITY');MetaAi::$data['decision']='DRAFT';
+    MetaAi::$data['branch_hint']='المنصورة';MetaAi::$data['fulfillment']='PICKUP';
+    MetaAi::$data['items']=[['name'=>'فسيخ','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+    MetaAi::$data['evidence']['request_ids']=['m1'];$r=metaPrimaryRun();
+    $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===1&&$context['field']==='QUANTITY'&&$context['kind']==='MISSING',
+        'actual '.$channel.' courteous purchase question follows normal missing quantity instead of product explanation');
+    metaPrimaryNoErp('Meta courteous purchase is not order approval');
+
+    metaPrimarySetup();$conversation=metaPrimaryMessage($channel,'mid.info.initial','عايز رنجه تيك أواي من المنصورة');
+    DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'رنجة هيرنج','available'=>true,'quantity_mode'=>'weight','price'=>'220.00','options'=>[]],
+        ['id'=>12,'name'=>'رنجة هيرنج مطبخ','available'=>true,'quantity_mode'=>'weight','price'=>'240.00','options'=>[]]];
+    MetaAi::$data=MetaExtraction::none('MISSING_QUANTITY');MetaAi::$data['decision']='DRAFT';
+    MetaAi::$data['branch_hint']='المنصورة';MetaAi::$data['fulfillment']='PICKUP';
+    MetaAi::$data['items']=[['name'=>'رنجه','quantity'=>null,'quantity_mode'=>'unknown','option_hint'=>null]];
+    MetaAi::$data['evidence']['request_ids']=['m1'];$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&MetaPrimaryFixtureProvider::$contexts[0]['kind']==='PRODUCT_CHOICE','actual '.$channel.' choice precedes meaning request');
+    $basket=MetaAi::$data;metaPrimaryMessage($channel,'mid.info.meaning','يعني ايه رنجه هيرنج',302);dialogueAdvance(303);$r=metaPrimaryRun();
+    $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===2&&$context['kind']==='PRODUCT_INFORMATION'
+        &&str_contains(metaPrimaryLastText(),'الاسم الإنجليزي')&&!str_contains(metaPrimaryLastText(),'اكتب اسم الصنف'),
+        'actual '.$channel.' screenshot question receives a natural explanation instead of repeating choices');
+    $stored=json_decode(MetaCrypt::decryptString(MetaDB::table('meta_order_drafts')->orderByDesc('id')->value('extraction')),true);
+    metaPrimaryExpect($stored===$basket,'actual '.$channel.' explanation preserves stored basket and missing quantities');
+    metaPrimaryNoErp('Meta information is never purchase approval');$graphs=count($metaGraphs);metaPrimaryRun();
+    metaPrimaryExpect(count($metaGraphs)===$graphs,'same '.$channel.' meaning inbound cannot be answered twice');
+    metaPrimaryMessage($channel,'mid.info.selected','عايز رنجة هيرنج',304);dialogueAdvance(305);
+    MetaAi::$data['items'][0]['name']='رنجة هيرنج';MetaAi::$data['evidence']['request_ids']=['m1','m5'];$r=metaPrimaryRun();
+    $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===3&&$context['kind']==='MISSING'&&$context['field']==='QUANTITY',
+        'actual '.$channel.' affirmative product choice after explanation resumes the quantity question');
+    metaPrimaryNoErp('Meta selected product still needs genuine amount and later basket consent');
+
+    metaPrimarySetup();metaPrimaryMessage($channel,'mid.info.price','رنجة هيرنج بكام في المنصورة؟');MetaAi::$data=MetaExtraction::none();
+    DialogueFixtureCatalog::$products=[['id'=>11,'name'=>'رنجة هيرنج','available'=>true,'quantity_mode'=>'weight','price'=>'220.00','options'=>[]]];
+    $GLOBALS['metaQuestionCallback']=static function(){DialogueFixtureCatalog::$products[0]['price']='260.00';};$r=metaPrimaryRun();
+    metaPrimaryExpect($r['errors']===0&&count($metaGraphs)===0&&MetaDB::table('meta_reply_requests')->value('state')==='FAILED',
+        'actual '.$channel.' live price change during composition prevents stale Graph reply');
+    metaPrimaryNoErp('Meta price drift cannot create an order');
+
+    $conversation=metaPrimaryCompleteDraft($channel);metaPrimaryMessage($channel,'mid.info.cached-confirmed','يعني ايه فسيخ',304);dialogueAdvance(305);
+    app(MetaOrderWorkflow::class)->analyze($conversation,(object)['id'=>7]);$calls=MetaAi::$calls;$r=metaPrimaryRun();
+    $context=MetaPrimaryFixtureProvider::$contexts[count(MetaPrimaryFixtureProvider::$contexts)-1];
+    metaPrimaryExpect($r['errors']===0&&$r['dispatched']===0&&MetaAi::$calls===$calls&&$context['kind']==='PRODUCT_INFORMATION',
+        'actual '.$channel.' cached CONFIRMED basket is not executed while customer asks for explanation');
+    metaPrimaryNoErp('Meta information veto protects cached approved ERP work');
+}
 
 echo 'META_ORDER_PRIMARY_AI_WORKFLOW_TESTS='.$metaPrimaryChecks." PASS\n";
