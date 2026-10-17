@@ -492,3 +492,11 @@
  #phone-orders.ph-unified .ph-new-order{padding:6px 8px;font-size:10px}
  #phone-orders.ph-unified .ph-board-cards{grid-auto-rows:minmax(112px,max-content)}
 }
+
+/* Product selection uses the complete workspace; tracking returns with the customer steps. */
+#phone-orders.ph-unified.ph-step-products [data-phone-orders]{display:none!important}
+@media(min-width:1000px){
+ .content-wrapper.phone-orders-wrapper:has(.ph-unified.ph-step-products){height:calc(100dvh - 109px);min-height:0!important;overflow:hidden}
+ #phone-orders.ph-unified.ph-step-products{height:100%}
+ #phone-orders.ph-unified.ph-step-products .ph-compose-panel{flex:1 1 0;min-height:0;height:auto}
+}

@@ -48,7 +48,7 @@
         try{var results=await Promise.all([get(urls.delivery_settings,{branch:selected,delivery_origin_branch:origin||undefined},controller.signal).then(function(r){return read(r,'load_error');}),get(urls.companies,{branch:selected,active:1},controller.signal).then(function(r){return read(r,'load_error');})]);if(disposed||selected!==branch||origin!==deliveryOriginBranch||generation!==contextGeneration)return;
             var settings=results[0].settings;if(!settings||!settings.branch||settings.branch.value!==selected||!validDeliveryOrigin(settings,origin))throw new Error(text('load_error'));deliverySettings=settings;if(origin)deliveryOriginContext=settings;selectedCompany=companySelect.value;companySelect.replaceChildren(element('option','','توصيل الفرع'));companySelect.options[0].value='';results[1].items.forEach(function(c){var o=element('option','',c.name);o.value=String(c.id);companySelect.appendChild(o);});if(selectedCompany&&!Array.from(companySelect.options).some(function(option){return option.value===selectedCompany;})){var preservedOption=element('option','',companyName);preservedOption.value=selectedCompany;companySelect.appendChild(preservedOption);}companySelect.value=selectedCompany;
             var originLabel=deliveryOriginLabel(deliverySettings);root.querySelector('[data-phone-selected-branch]').textContent=branchLabel();
-            if(!deliverySettings.ready)root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'يجب ضبط دبوس '+(origin?'الأستور':'الفرع')+' وسعر الكيلومتر في إعدادات المطعم.';else root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'سعر الكيلومتر: '+deliverySettings.km_price+' جنيه. '+(boot.open_phone_maps?'الخدمة من مسافة الطريق.':'الخدمة من المسافة المباشرة بين الدبوسين.')+'';
+            if(!deliverySettings.ready)root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'يجب ضبط دبوس '+(origin?'الأستور':'الفرع')+' وسعر الكيلومتر في إعدادات المطعم.';else root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+(deliverySettings.pricing_rates?text('branch_tariff_hint'):'سعر الكيلومتر: '+deliverySettings.km_price+' جنيه. '+(boot.open_phone_maps?'الخدمة من مسافة الطريق.':'الخدمة من المسافة المباشرة بين الدبوسين.'));
             if(locationPicker){locationPicker.destroy();locationPicker=null;}if(step==='details')ensureLocation();
         }catch(e){if(!disposed&&selected===branch&&origin===deliveryOriginBranch&&generation===contextGeneration&&e.name!=='AbortError')notify(e.message||'تعذر تحميل إعدادات التوصيل.');}
     }
@@ -62,13 +62,18 @@
         else if(!DashboardLocationPicker.valid(latInput.value,lngInput.value))locateAddress();
     }
     function locateAddress(){if(!addressSearch)return;addressSearch.search();}
+    function deliveryPriceText(data) {
+        if(data.method!=='app_direct')return (data.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+data.distance_km+' كم × '+data.km_price+' جنيه = '+data.delivery_fee+' جنيه';
+        var rule=data.pricing_rule==='app_branch_tier'?text('branch_tariff_fixed'):data.pricing_rule==='app_zero_rate'?text('branch_tariff_free'):text('branch_tariff_per_km')+' '+data.km_price;
+        return text('app_delivery_distance')+': '+data.distance_km+' '+text('kg_distance')+' · '+rule+' = '+data.delivery_fee+' '+text('currency')+(data.road_distance_km?' · '+text('route_display_distance')+': '+data.road_distance_km+' '+text('kg_distance'):'');
+    }
     addressSearch=PhoneAddressSearch.create({cache:false,attribution:'Google Maps',input:fields.address,box:root.querySelector('[data-phone-address-options]'),status:root.querySelector('[data-phone-address-status]'),locked:locked,query:function(){return fields.address.value.trim();},search:async function(query,signal){
         if(!locationPicker)throw Error('انتظر تحميل خريطة الفرع.');return locationPicker.suggest(query);
     },resolve:function(item){return locationPicker.resolve(item);},select:function(point){
         fields.address.value=point.label;fields.area.value=point.area||'';invalidateLocation();latInput.value=point.latitude;lngInput.value=point.longitude;if(locationPicker)locationPicker.set(point.latitude,point.longitude);previewLocation();
     }});
     async function confirmLocation(preview){if(locked()||!branch)return;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch,origin=deliveryOriginBranch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
-        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=(r.delivery.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+r.delivery.distance_km+' كم × '+r.delivery.km_price+' جنيه = '+r.delivery.delivery_fee+' جنيه'+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
+        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=deliveryPriceText(r.delivery)+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
         catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
     }
     async function pollReceiver() {
@@ -84,7 +89,7 @@
         var phoneLabel = root.querySelector('[data-phone-phone-field]'), phoneSlot = root.querySelector(next === 'number' ? '[data-phone-number-slot]' : '[data-phone-customer-phone-slot]');
         if (phoneLabel && phoneSlot && phoneLabel.parentNode !== phoneSlot) phoneSlot.appendChild(phoneLabel);
         root.querySelector(next === 'number' ? '[data-phone-number-matches]' : '[data-phone-detail-matches]').appendChild(root.querySelector('[data-phone-lookup-result]'));
-        step = next; root.querySelectorAll('[data-phone-progress]').forEach(function(item,index){var active=['number','details','products'].indexOf(next);item.classList.toggle('is-current',index===active);item.classList.toggle('is-complete',index<active);if(index===active)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');}); ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
+        step = next; root.querySelector('[data-phone-orders]').hidden = next === 'products'; root.querySelectorAll('[data-phone-progress]').forEach(function(item,index){var active=['number','details','products'].indexOf(next);item.classList.toggle('is-current',index===active);item.classList.toggle('is-complete',index<active);if(index===active)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');}); ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
         root.querySelector('[data-phone-step-label]').textContent = text(view==='orders'?'saved_orders':'step_' + next);
         root.querySelector('[data-phone-selected-branch]').textContent = branchLabel();
         root.querySelector('[data-phone-customer-summary]').textContent = fields.customer_name.value + ' · ' + fields.customer_phone.value + ' · ' + fields.address.value;
@@ -296,9 +301,10 @@
         if (Array.isArray(product.preparation_options)) return product.preparation_options;
         return [{ id: '', label: text('base'), price: product.unit_price || product.price }].concat(product.options || []);
     }
+    function pendingProductQuantity() { var value=quantityInput.value; return !value.trim() || scaled(value,3)===0n ? '1' : value; }
     function chooseProduct(product) {
         if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing() || !modal.hidden) return;
-        if (!quantity(quantityInput.value, automaticQuantity(product))) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+        if (!quantity(pendingProductQuantity(), automaticQuantity(product))) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
         var choices = productChoices(product);
         if (choices.length <= 1) { addProduct(product); return; }
         var content = openModal(text('options') + ' · ' + product.name), generation = modalGeneration, selected = false, selectedBranch = branch;
@@ -316,12 +322,12 @@
     function addProduct(product, option) {
         if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing()) return;
         var itemMode = automaticQuantity(product);
-        var amount = quantity(quantityInput.value, itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+        var amount = quantity(pendingProductQuantity(), itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
         var pending = { product: product, option: option || null, quantity: amount.value, mode: itemMode };
         var existing = cart.find(function (line) { return lineKey(line) === lineKey(pending); });
         if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), itemMode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
         else cart.push(pending);
-        quantityInput.value = '0'; quantityInput.setSelectionRange(0, 1); replaceQuantity = true;
+        quantityInput.value = '1'; quantityInput.setSelectionRange(0, 1); replaceQuantity = true;
         changed(true); notify('');
     }
     function productNode(product) {

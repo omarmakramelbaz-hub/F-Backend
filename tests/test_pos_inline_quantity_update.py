@@ -35,6 +35,7 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         self.view = 'resources/views/admin/orders/board_detail.blade.php'
         self.menu = 'resources/views/admin/layouts/menu.blade.php'
         self.model = 'app/Models/Order.php'
+        self.workflow_style = 'public/dashboard/css/phone-orders.css'
         self.manifest = {self.helper: ('new', 'A'), self.script: ('new', 'A'),
                          self.editor: ('app', 'M'), self.service: ('composite', 'M'),
                          self.client: ('live', 'M'), self.brand: ('brand', 'M'),
@@ -42,6 +43,7 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         service_body = 'Foundation: old\n' + ''.join('// Separate OperatingDay context %s\n' % n for n in range(12)) + '// OperatingDay: old'
         common = {self.service: self.body(service_body),
                   self.model: self.body('Zero overrides: old'),
+                  self.workflow_style: self.body('Workflow style: old'),
                   self.client: self.body('Quantity: old'), self.view: self.body('View: old'),
                   self.menu: b"@include('admin.partials.go_erp_logo')\n"}
         self.publish(common)
@@ -66,7 +68,7 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
                        self.service: foundation[self.service].replace(b'OperatingDay: old', b'OperatingDay: live'),
                        self.client: common[self.client], self.brand: self.body('Brand: installed'),
                        self.view: common[self.view], self.menu: common[self.menu],
-                       self.model: foundation[self.model]}
+                       self.model: foundation[self.model], self.workflow_style: common[self.workflow_style]}
         self.after = dict(self.before)
         self.after[self.helper] = self.body('Print helper: installed')
         self.after[self.script] = self.body('Detail script: installed')
@@ -138,6 +140,8 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         self.git('switch', '-q', '-c', 'unified-fixture', installer.BASE_REVISION)
         unified = self.before[self.client].replace(b'Quantity: old', b'Quantity: old\n// Unified board: preserved')
         self.publish({self.client: unified})
+        self.workflow_style = 'public/dashboard/css/phone-orders.css'
+        self.publish({self.workflow_style: self.body('Workflow style: unified')})
         unified_revision = self.commit('Known installed unified phone release')
         self.git('switch', '-q', 'live-fixture')
         self.before[self.service] = lifecycle.replace(b'OperatingDay: old', b'OperatingDay: live')
@@ -157,6 +161,67 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         self.publish(self.after)
         self.revision = self.commit('Feature preserving independently installed releases')
         self.publish(self.before)
+
+    def released_workflow_fixture(self):
+        self.released_overlay_fixture()
+        self.publish(self.after)
+        self.git('switch', '-q', '-c', 'workflow-fixture', installer.UNIFIED_PHONE_REVISION)
+        workflow = (self.root / self.client).read_bytes().replace(
+            b'Stable trailing 5', b'Stable trailing 5\n// Branch tariff workflow: preserved')
+        style = self.body('Workflow style: branch tariff')
+        self.workflow_helper = 'app/Services/Dashboard/BranchDeliveryTariff.php'
+        helper = self.body('Existing branch tariff helper')
+        self.publish({self.client: workflow, self.workflow_style: style, self.workflow_helper: helper})
+        workflow_revision = self.commit('Known installed branch tariff workflow')
+        self.git('switch', '-q', 'live-fixture')
+        self.before[self.client] = workflow
+        self.after[self.client] = workflow.replace(b'Quantity: old', b'Quantity: inline')
+        for path, body in ((self.workflow_style, style), (self.workflow_helper, helper)):
+            self.before[path] = self.after[path] = body
+        self.manifest[self.client] = ('workflow', 'M')
+        settings = {'WORKFLOW_PHONE_REVISION': workflow_revision,
+                    'WORKFLOW_PHONE_PREREQUISITES': (self.client, self.workflow_style, self.workflow_helper),
+                    'UNIFIED_PHONE_PREREQUISITES': (self.workflow_style,)}
+        for name, value in settings.items():
+            previous = getattr(installer, name)
+            setattr(installer, name, value)
+            self.addCleanup(setattr, installer, name, previous)
+        self.publish(self.after)
+        self.revision = self.commit('Inline quantities preserving installed branch tariffs')
+        self.publish(self.before)
+
+    def test_known_workflow_partial_install_preserves_readonly_pricing_and_noop(self):
+        self.released_workflow_fixture()
+        custom = b'// Existing independent workflow customization\n'
+        (self.root / self.client).write_bytes(self.before[self.client] + custom)
+        (self.root / self.workflow_style).write_bytes(self.before[self.workflow_style] + custom)
+        (self.root / self.script).write_bytes(self.after[self.script])
+        self.apply()
+        expected = dict(self.after)
+        expected[self.client] += custom
+        expected[self.workflow_style] += custom
+        self.assertEqual(self.snapshots(), expected)
+        self.assertIn(b'Branch tariff workflow: preserved', expected[self.client])
+        receipt = json.loads(self.receipts()[0].read_text())
+        targets = {entry['path'] for entry in receipt['files']}
+        self.assertTrue(targets <= set(self.manifest))
+        self.assertNotIn(self.workflow_helper, targets)
+        self.assertNotIn(self.workflow_style, targets)
+        self.assertIsNone(self.apply())
+        self.assertEqual(len(self.receipts()), 1)
+
+    def test_known_workflow_unknown_helper_or_missing_phone_hunk_stops(self):
+        self.released_workflow_fixture()
+        for path, changed in ((self.workflow_helper, self.before[self.workflow_helper] + b'// Unknown helper edit\n'),
+                              (self.client, self.before[self.client].replace(
+                                  b'Branch tariff workflow: preserved', b'Branch tariff workflow: changed'))):
+            self.publish(self.before)
+            (self.root / path).write_bytes(changed)
+            before = self.snapshots()
+            with self.assertRaisesRegex(RuntimeError, 'PHONE_WORKFLOW_PREREQUISITE_CONFLICT|LIVE_CHANGE_NEEDS_REVIEW'):
+                self.apply()
+            self.assertEqual(self.snapshots(), before)
+            self.assertEqual(self.receipts(), [])
 
     def test_known_lifecycle_and_unified_release_install_preserves_customizations(self):
         self.released_overlay_fixture()
