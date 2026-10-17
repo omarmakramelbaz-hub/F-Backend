@@ -35,7 +35,7 @@
             </div>
             <div class="tp-payment-consent-row">
                 <fieldset class="tp-payments tp-payments-compact"><legend class="tp-sr-only">{{ __('takeaway.payment_method') }}</legend><div data-pos-payments></div></fieldset>
-                <label class="tp-payment-confirmation tp-customer-consent"><input type="checkbox" data-pos-customer-consent><span>{{ __('takeaway.customer_consent') }}</span></label>
+                <label class="tp-payment-confirmation tp-customer-consent"><input type="checkbox" required aria-required="true" data-pos-customer-consent><span>{{ __('takeaway.customer_consent_required') }}</span></label>
             </div>
             <label class="tp-payment-reference tp-cash-received" data-pos-cash-wrap><span class="tp-cash-title">{{ __('takeaway.cash_paid') }}</span><input data-pos-cash-received type="text" inputmode="decimal" maxlength="14" autocomplete="off" aria-label="{{ __('takeaway.cash_paid') }}" placeholder=" "></label>
             <label class="tp-payment-confirmation" data-pos-payment-confirm-wrap hidden><input type="checkbox" data-pos-payment-confirmed><span>{{ __('takeaway.payment_confirmed') }}</span></label>

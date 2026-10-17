@@ -82,7 +82,7 @@
                     || ['discount', 'discountReason', 'notes', 'cash', 'reference', 'category', 'search'].some(function (key) { return typeof value[key] !== 'string'; })) throw new Error('Invalid draft fields');
                 if (value.uncertain || value.frozenPayload) throw new Error('Invalid pending sale');
                 if (!fresh && !value.uncertain) return newInvoice(value.branch);
-                return Object.assign(newInvoice(value.branch), value, { quarantined: false, paymentMethod: 'cash', confirmed: false, reference: '', products: [], categories: [], register: null, today: null });
+                return Object.assign(newInvoice(value.branch), value, { quarantined: false, paymentMethod: 'cash', confirmed: false, serviceConsent: false, marketingConsent: false, reference: '', products: [], categories: [], register: null, today: null });
                 } catch (_) { return newInvoice(String(boot.selected_branch || '')); }
             });
             invoices = restored; activeInvoice = Number.isInteger(savedState.active) && savedState.active >= 0 && savedState.active < 5 ? savedState.active : 0; return true;
@@ -179,8 +179,8 @@
         return phone;
     }
     function showConsent() {
-        customerConsent.checked = serviceConsent && marketingConsent;
-        customerConsent.indeterminate = serviceConsent !== marketingConsent;
+        customerConsent.checked = serviceConsent;
+        customerConsent.indeterminate = false;
     }
     function checkoutEnter(event) {
         if (event.key !== 'Enter') return false;
@@ -231,10 +231,8 @@
             customerConsent.focus(); return true;
         }
         if (consentField) {
-            if (!consentEnterAffirmed) {
-                // This Enter is the cashier's explicit affirmation, never a side effect of focus.
-                serviceConsent = marketingConsent = true; showConsent(); renderInvoiceTabs(); consentEnterAffirmed = true;
-            } else { consentEnterAffirmed = false; cashInput.focus(); cashInput.select(); }
+            if (!customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return true; }
+            consentEnterAffirmed = false; cashInput.focus(); cashInput.select();
             return true;
         }
         consentEnterAffirmed = false; customerName.focus(); return true;
@@ -577,11 +575,12 @@
         if (!uncertain) {
             if (!quote) { notify(label('quote_required'), false, true); return; }
             var phone = normalizedCustomerPhone(customerPhone.value); if (!phone) { notify(label('customer_phone_required')); customerPhone.focus(); return; }
+            if (!serviceConsent || !customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return; }
             if (paymentMethod === 'cash') { var received = minor(cashInput.value), total = minor(quote.total); if (received === null) { notify(label('invalid_money')); cashInput.focus(); return; } if (received < total) { notify(label('cash_insufficient')); cashInput.focus(); return; } }
             else if (!confirmedInput.checked) { notify(label('confirm_payment')); confirmedInput.focus(); return; }
             frozenPayload = Object.assign(draft(), { quote_hash: quote.quote_hash, idempotency_key: saleKey, payment_method: paymentMethod,
                 cash_received: paymentMethod === 'cash' ? decimal(minor(cashInput.value), 2) : null, payment_confirmed: paymentMethod === 'cash' ? false : true,
-                customer_phone: phone, customer_name: customerName.value.trim(), service_consent: serviceConsent, marketing_consent: marketingConsent, payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
+                customer_phone: phone, customer_name: customerName.value.trim(), service_consent: true, marketing_consent: false, payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
         }
         selling = true; lock(); notify(label('saving'));
         if (uncertain && await recoverSale()) return;
@@ -735,8 +734,9 @@
         if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
         if (event.target === customerConsent) {
             if (isLocked()) { showConsent(); return; }
-            // Keep legacy per-purpose approvals until the cashier explicitly changes this combined control.
-            serviceConsent = marketingConsent = customerConsent.checked; showConsent();
+            // Service follow-up is required; this control never grants promotional approval.
+            serviceConsent = customerConsent.checked; marketingConsent = false; showConsent();
+            if (serviceConsent && message.querySelector('span').textContent === label('consent_required')) notify('');
         }
         if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
     });

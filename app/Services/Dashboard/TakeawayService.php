@@ -33,7 +33,7 @@ class TakeawayService
         return $this->price($cart, $branch, $permissions, (int) $till->tax_bps, $lock, $context);
     }
 
-    public function checkout(array $values, $actor, array $context = []): array
+    public function checkout(array $values, $actor, array $context = [], bool $requireServiceConsent = false): array
     {
         $cart = $this->cart($values);
         $payment = Validator::make($values, [
@@ -82,14 +82,26 @@ class TakeawayService
         }
         $this->requireReady();
         if ($context) abort_unless($this->access->has('takeaway_orders','channel'),503,'قنوات نقطة البيع لم تُجهز بعد.');
-        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor, $context, $tenders, $customer, $customerChannel) {
+        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor, $context, $tenders, $customer, $customerChannel, $requireServiceConsent) {
             $actor = $this->access->actor($actor);
             $branch = $this->access->branch($cart['branch'], $actor, true);
             $permissions = $this->access->permissions($actor);
             abort_unless($permissions['can_checkout'], 403);
-            $till = $this->till($branch['value'], true);
             $existing = DB::table('takeaway_orders')->where('branch', $branch['value'])->where('actor_id', $actor->id)
                 ->where('request_key', $payment['idempotency_key'])->first();
+            if ($existing) {
+                abort_unless(hash_equals($existing->request_hash, $requestHash), 409, 'تم استخدام رقم العملية لفاتورة مختلفة.');
+                return $this->checkoutResult($existing, $actor, true);
+            }
+            // Exact legacy retries are read-only; every new dashboard collection needs its current checkbox.
+            if ($requireServiceConsent && !in_array($payment['service_consent'] ?? null, [true, 1, '1'], true)) {
+                throw ValidationException::withMessages(['service_consent'=>'يجب تأكيد موافقة العميل على متابعة الخدمة قبل إنهاء الفاتورة.']);
+            }
+            $till = $this->till($branch['value'], true);
+            // A request may have committed while this transaction waited for the register lock.
+            // Use a current read rather than its earlier repeatable-read snapshot.
+            $existing = DB::table('takeaway_orders')->where('branch', $branch['value'])->where('actor_id', $actor->id)
+                ->where('request_key', $payment['idempotency_key'])->lockForUpdate()->first();
             if ($existing) {
                 abort_unless(hash_equals($existing->request_hash, $requestHash), 409, 'تم استخدام رقم العملية لفاتورة مختلفة.');
                 return $this->checkoutResult($existing, $actor, true);

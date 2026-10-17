@@ -1,6 +1,8 @@
 <?php
 return [
     'cash_paid'=>'Amount paid',
+    'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to complete the invoice).',
+    'consent_required'=>'Confirm the customer’s follow-up consent before completing the invoice.',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
     'quantity_auto_title'=>'Weight / quantity',
     'quantity_auto_hint'=>'Enter kilograms or a piece count, then choose the product; its unit is selected automatically.',

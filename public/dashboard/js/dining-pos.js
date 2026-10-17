@@ -92,8 +92,8 @@
             customerConsent.focus(); return true;
         }
         if (consentField) {
-            if (!consentEnterAffirmed) { customerConsent.checked = true; consentEnterAffirmed = true; }
-            else { consentEnterAffirmed = false; if (billLocked()) { cashInput.focus(); cashInput.select(); } else focusKitchenAction(); }
+            if (!customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return true; }
+            consentEnterAffirmed = false; if (billLocked()) { cashInput.focus(); cashInput.select(); } else focusKitchenAction();
             return true;
         }
         if (metadataField) { consentEnterAffirmed = false; focusKitchenAction(); return true; }
@@ -269,15 +269,16 @@
         if (!uncertain && continuation && ticket && openTicket()) { await runAction(continuation); }
         if (!busy && !uncertain) { loadTables(); if (committed && op.kind === 'settle') loadCatalog(catalogPage); }
     }
-    function saveAndSend() { if (billLocked() || locked() || !permissions.can_operate || !selectedTable || !cart.length) return; if (!quote) { notify(label('quote_required'), false, true); return; } if (!customerInput.value.trim()) { openCustomer(); return; } if (!waiterInput.value.trim()) { notify(label('waiter_required')); waiterInput.focus(); return; } if (customerConsent.checked && !normalizedCustomerPhone(customerPhone.value)) { notify(label('customer_phone_required')); customerPhone.focus(); return; } var guests = Number(guestsInput.value); if (!Number.isInteger(guests) || guests < 1 || guests > Number(guestsInput.max)) { guestsInput.reportValidity(); return; } var payload = Object.assign(draft(), { table_id: selectedTable.id, customer_name: customerInput.value.trim(), customer_phone: customerPhone.value.trim() || null, service_consent: customerConsent.checked, marketing_consent: customerConsent.checked, waiter_name: waiterInput.value.trim(), guest_count: guests, notes: notesInput.value.trim(), quote_hash: quote.quote_hash, idempotency_key: uuid() }); if (ticket) { payload.ticket_id = ticket.id; payload.expected_revision = ticket.revision; if (pricingDirty) payload.reprice = true; } commit({ kind: 'save', id: null, payload: payload, after: 'send_kitchen', expectedTotal: scaled(quote.total, 2) }); }
+    function saveAndSend() { if (billLocked() || locked() || !permissions.can_operate || !selectedTable || !cart.length) return; if (!quote) { notify(label('quote_required'), false, true); return; } if (!customerInput.value.trim()) { openCustomer(); return; } if (!waiterInput.value.trim()) { notify(label('waiter_required')); waiterInput.focus(); return; } if (customerConsent.checked && !normalizedCustomerPhone(customerPhone.value)) { notify(label('customer_phone_required')); customerPhone.focus(); return; } var guests = Number(guestsInput.value); if (!Number.isInteger(guests) || guests < 1 || guests > Number(guestsInput.max)) { guestsInput.reportValidity(); return; } var payload = Object.assign(draft(), { table_id: selectedTable.id, customer_name: customerInput.value.trim(), customer_phone: customerPhone.value.trim() || null, service_consent: customerConsent.checked, marketing_consent: false, waiter_name: waiterInput.value.trim(), guest_count: guests, notes: notesInput.value.trim(), quote_hash: quote.quote_hash, idempotency_key: uuid() }); if (ticket) { payload.ticket_id = ticket.id; payload.expected_revision = ticket.revision; if (pricingDirty) payload.reprice = true; } commit({ kind: 'save', id: null, payload: payload, after: 'send_kitchen', expectedTotal: scaled(quote.total, 2) }); }
     function runAction(action) { if (billLocked() || locked() || !openTicket() || !permissions.can_operate) return; if (dirty) { notify(label('save_first')); return; } return commit({ kind: 'action', id: ticket.id, payload: { branch: branch, expected_revision: ticket.revision, idempotency_key: uuid(), action: action }, expectedQuoteHash: ticket.quote_hash }); }
     function settle() {
         if (locked() || !openTicket() || !permissions.can_operate || !quote) return;
         if (dirty) { notify(label('save_first')); return; }
         var phone = normalizedCustomerPhone(customerPhone.value); if (!phone) { notify(label('customer_phone_required')); customerPhone.focus(); return; }
+        if (!customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return; }
         var total = scaled(quote.total, 2), received = scaled(cashInput.value, 2);
         if (received === null || received < total) { notify(label(received === null ? 'invalid_money' : 'cash_insufficient')); cashInput.focus(); return; }
-        var payload = { branch: branch, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: quote.quote_hash, customer_phone: phone, service_consent: customerConsent.checked, marketing_consent: customerConsent.checked, payment_method: 'cash', cash_received: decimal(received, 2), payment_confirmed: true, payment_reference: '' };
+        var payload = { branch: branch, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: quote.quote_hash, customer_phone: phone, service_consent: customerConsent.checked, marketing_consent: false, payment_method: 'cash', cash_received: decimal(received, 2), payment_confirmed: true, payment_reference: '' };
         commit({ kind: 'settle', id: ticket.id, payload: payload, expectedTotal: total });
     }
     function openModal(title) { consentEnterAffirmed = false; modalGeneration++; if (modalController) modalController.abort(); if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title; var content = root.querySelector('[data-dining-modal-content]'); content.replaceChildren(node('p', 'dp-empty', label('loading'))); modal.querySelector('[role="dialog"]').focus(); return content; }
@@ -354,6 +355,7 @@
         var input = event.target, index = input.dataset.diningLineQuantity;
         if (input === customerPhone || input === customerInput || input === customerConsent) consentEnterAffirmed = false;
         if (input === customerPhone && !locked()) customerConsent.checked = false;
+        if (input === customerConsent && customerConsent.checked && !locked() && message.querySelector('span').textContent === label('consent_required')) notify('');
         if (index === undefined || locked() || billLocked() || !permissions.can_operate) return;
         var line = cart[Number(index)]; if (!line) return;
         var checked = quantity(input.value, line.mode);
