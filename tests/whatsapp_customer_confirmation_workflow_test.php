@@ -124,6 +124,22 @@ customerRecapExpect($r['dispatched']===1&&($sealed['quote']['total']??null)==='1
     'copied customer prices never override live ERP product or delivery quote values');
 customerRecapSilent('live quote calculation composes no automatic reply');
 
+// Keep the exact observed agent wording compatible while preserving the need
+// for a distinct customer approval and rejecting material instructions in a footer.
+$observedFooter="التوصيل خلال 60 دقيقة وسعر التوصيل بيأكده المندوب لما يكلمك.\n"
+    .'انسخ الرسالة دي وابعتها هنا تاني واكتب معاها كل شئ تمام عشان نأكد طلبك نهائياً.';
+$observedRecap=str_replace('انسخ الرسالة دي وابعتها هنا تاني واكتب معاها كل شيء تمام عشان تأكد طلبك نهائيًا.',
+    $observedFooter,customerRecapText());
+customerRecapSetup($observedRecap,'كل شئ تمام');$r=primaryRun();
+customerRecapExpect($r['errors']===0&&$r['dispatched']===1&&CustomerRecapAi::$calls===0
+    &&CustomerRecapDB::table('test_tickets')->count()===1&&CustomerRecapDB::table('test_print')->count()===1,
+    'exact observed نأكد recap footer plus separate customer كل شئ تمام dispatches once without extraction AI');
+customerRecapSilent('observed agent footer stays analysis-only without any automatic AI reply');
+customerRecapSetup($observedRecap,null);primaryRun();
+customerRecapNoErp('approval phrase copied inside observed footer cannot substitute for a separate customer approval');
+customerRecapSetup($observedRecap."\nبس خلي الطلب 2 كيلو.",'كل شئ تمام');primaryRun();
+customerRecapNoErp('material quantity instruction appended to observed footer invalidates customer recap');
+
 // Coordinates in the labeled location field retain standard latitude/longitude
 // order exactly as written; there is no guess, geocoding lookup or silent swap.
 foreach([null,'31.04، 31.37']as$location){

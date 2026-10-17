@@ -266,7 +266,7 @@ final class WhatsAppCustomerOrderConfirmation
     {
         $text = self::matchingText($footer);
         return preg_match('/\A(?:التوصيل خلال [0-9]{1,3} دقيقه وسعر التوصيل بياكده المندوب لما يكلمك[.!]?\s*)?'
-            .'(?:انسخ الرساله دي وابعتها هنا تاني واكتب معاها كل (?:شيء|شئ|شي) تمام عشان (?:تاكد|تؤكد) طلبك نهائيا[.!]?)?\z/u', $text) === 1;
+            .'(?:انسخ الرساله دي وابعتها هنا تاني واكتب معاها كل (?:شيء|شئ|شي) تمام عشان (?:تاكد|تؤكد|ناكد) طلبك نهائيا[.!]?)?\z/u', $text) === 1;
     }
 
     private static function fieldKey(string $label): string

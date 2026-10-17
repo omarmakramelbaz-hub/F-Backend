@@ -40,4 +40,10 @@ the reviewed CRM receipt-projection extension. The extension only adds validated
 delivery-status DTOs; message, cart and location parsing are unchanged. Neither
 protocol variant is published or replaced by this installer.
 
+The recap footer also accepts the observed copy instruction `عشان نأكد طلبك`.
+This is only a spelling/phrasing alternative; the copied instruction never
+replaces the separate customer approval. Unknown or material footer changes,
+including cancellation, quantities, delivery-time or fee conditions, still
+require review.
+
 This workaround does not restore missing native-agent reply bodies to the inbox.

@@ -19,11 +19,20 @@ APP_ROOT = pathlib.Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 LIBRARY_BLOB = '65cad14ba90b505be88649da73da045746429abc'
 BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
-# Refresh these two reviewed target hashes after the application changes land.
+# Initial installations publish both declared targets. Reviewed upgrades skip
+# any target whose exact bytes are already current, retaining its original inode.
 TARGET_PINS = {
-    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '558440a772a7798c4f9c11a713685c79b7fdabda'),
+    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
         ('bd0e1cc3536f7d84f3c31bc956317d3374004937', 'd91ea2f4c84357e16e0556b205484d64cfce1079'),
+}
+INSTALLED_SOURCE_PROFILES = {
+    # The verified d6b404 installation contains this exact parser/workflow pair.
+    # Do not infer an upgrade profile from independently allowed file hashes.
+    'INSTALLED_V1': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '558440a772a7798c4f9c11a713685c79b7fdabda',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079',
+    },
 }
 RUNTIME_PINS = {
     'app/Support/MetaAiSchedule.php': ('667ffd6530444ef00dc6a05f76a5700d217fff80',),
@@ -142,8 +151,12 @@ def source_hashes(values):
 
 
 def profiles():
-    return {'BASELINE': {path: pair[0] for path, pair in TARGET_PINS.items()},
-            'CURRENT': {path: pair[1] for path, pair in TARGET_PINS.items()}}
+    for pins in INSTALLED_SOURCE_PROFILES.values():
+        if tuple(pins) != tuple(TARGET_PINS):
+            raise SafeError('WA_CONFIRMATION_INSTALLED_PROFILE_SCOPE_INVALID')
+    return dict({'BASELINE': {path: pair[0] for path, pair in TARGET_PINS.items()}},
+                **INSTALLED_SOURCE_PROFILES,
+                CURRENT={path: pair[1] for path, pair in TARGET_PINS.items()})
 
 
 def readiness(root, runner, targets, dependencies):
@@ -254,11 +267,16 @@ def apply(root, uid, release, check_only=False, expected=None, held_locks=None, 
         publications = backup/'publications'; publications.mkdir(mode=0o700)
         base.probe_atomic_exchange(publications)
         library.private_write(backup/'receipt.json', (json.dumps(dict(public_before,
-            release=release, targets=profiles()['CURRENT'], publication_targets=list(TARGET_PINS)),
+            release=release, targets=profiles()['CURRENT'], publication_targets=list(TARGET_PINS),
+            changed_targets=[path for path in TARGET_PINS if public_before['sources'][path] != TARGET_PINS[path][1]]),
             sort_keys=True)+'\n').encode())
         written = {}; created = []
         try:
             for path, content in candidates.items():
+                if public_before['sources'][path] == TARGET_PINS[path][1]:
+                    if library.guarded_snapshot(root/path, uid, root) != before['sources'][path]:
+                        raise SafeError('WA_CONFIRMATION_CURRENT_TARGET_CHANGED')
+                    continue
                 require_unchanged(root, uid, runner, before, sources=False)
                 base.replace_file(root/path, content, before['sources'][path][0], uid, root, created,
                     journal=written, relative=path, private_directory=publications)
@@ -267,8 +285,11 @@ def apply(root, uid, release, check_only=False, expected=None, held_locks=None, 
             after = current_state(root, uid, runner)
             if after['profile'] != 'CURRENT' or after['readiness'] != before['readiness']:
                 raise SafeError('WA_CONFIRMATION_FINAL_RUNTIME_OR_CONFIGURATION_CHANGED')
-            for path, publication in written.items():
-                base.assert_snapshot(root/path, publication.after, uid, root)
+            for path in TARGET_PINS:
+                if path in written:
+                    base.assert_snapshot(root/path, written[path].after, uid, root)
+                elif library.guarded_snapshot(root/path, uid, root) != before['sources'][path]:
+                    raise SafeError('WA_CONFIRMATION_CURRENT_TARGET_CHANGED')
             require_unchanged(root, uid, runner, after)
         except BaseException:
             restored = True

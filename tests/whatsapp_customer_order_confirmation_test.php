@@ -66,6 +66,19 @@ confirmationExpect(array_key_exists('evidence',$data), false, 'no fake old busin
 confirmationExpect($rows, confirmationRows(), 'input rows and customer speaker stay unchanged');
 confirmationExpect(Confirmation::inspect([$rows[0]])['reason'], 'CUSTOMER_APPROVAL_REQUIRED', 'embedded copied instruction does not approve');
 
+// Production's native agent uses "we confirm" in its copy instruction. That
+// wording is a non-authoritative footer, never the customer's separate approval.
+$observedFooter = str_replace('كل شيء تمام* عشان تأكد طلبك نهائياً.', 'كل شئ تمام* عشان نأكد طلبك نهائياً.', $text);
+confirmationExpect($observedFooter !== $text, true, 'observed native footer variant fixture actually differs');
+confirmationExpect(Confirmation::parseRecap($observedFooter)['ok'], true, 'observed we-confirm footer parses as copied facts');
+$observedRows = confirmationWithText($observedFooter);
+confirmationExpect(Confirmation::inspect($observedRows)['ok'], true, 'observed footer plus distinct whole-positive customer approval');
+confirmationExpect(Confirmation::inspect([$observedRows[0]])['reason'], 'CUSTOMER_APPROVAL_REQUIRED', 'observed footer phrase alone remains no customer approval');
+foreach (['الغي الطلب.', 'غير الكمية لنصف كيلو.', 'لا ترسل الطلب قبل الساعة التاسعة.', 'التوصيل مجاني بشرط خصم قيمة الرنجة.'] as $materialTail) {
+    confirmationExpect(Confirmation::inspect(confirmationWithText($observedFooter."\n".$materialTail))['ok'], false,
+        'observed footer does not permit appended cancellation changes or delivery constraints');
+}
+
 foreach (['كل شيء تمام','كل شئ تمام','كل شيء تمام.','موافق على الطلب','أؤكد طلبي','تمام موافق'] as $approval) {
     $candidate = $rows; $candidate[1]['text'] = $approval;
     confirmationExpect(Confirmation::inspect($candidate)['ok'], true, 'whole positive approval '.$approval);
