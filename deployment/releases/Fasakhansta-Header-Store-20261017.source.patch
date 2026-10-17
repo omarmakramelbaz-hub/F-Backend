@@ -1,0 +1,185 @@
+diff --git a/deployment/install_web_customer_addresses.py b/deployment/install_web_customer_addresses.py
+index 9f47a23..86af314 100644
+--- a/deployment/install_web_customer_addresses.py
++++ b/deployment/install_web_customer_addresses.py
+@@ -15,11 +15,10 @@ import subprocess
+ import tempfile
+ 
+ APP_ROOT = pathlib.Path('/home/fasakha/public_html')
+-BASELINE = '2c597530e88c78e39f54bc68351246732a566fa2'
++BASELINE = 'b2ec35c91224af06bf1c8f9c2f0e54402f2291f9'
+ HOME = 'resources/views/site/home.blade.php'
+-ASSETS = ('public/storefront/storefront.js', 'public/storefront/storefront.css')
+-SERVICE = 'app/Services/Site/WebStorefront.php'
+-EXACT_FILES = ASSETS + (SERVICE,)
++ASSETS = ('public/storefront/storefront.css',)
++EXACT_FILES = ASSETS
+ PUBLISH_ORDER = EXACT_FILES + (HOME,)
+ PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
+ BUNDLE_ROOT = pathlib.Path(__file__).resolve().parent
+@@ -248,10 +247,10 @@ def _install_locked(root, release, check_only, uid):
+         previous = snapshot(root / relative, uid)
+         targets[relative] = plan_target(root, release, relative, None if previous is None else previous['bytes'])
+         originals[relative] = previous
+-    # Syntax-check the service and merged Blade source without booting the application.
++    # Syntax-check the merged Blade source without booting the application.
+     with tempfile.TemporaryDirectory(prefix='web-customer-addresses-lint-') as directory:
+         os.chmod(directory, 0o755)
+-        for relative in (SERVICE, HOME):
++        for relative in (HOME,):
+             candidate = pathlib.Path(directory) / pathlib.Path(relative).name
+             candidate.write_bytes(targets[relative])
+             candidate.chmod(0o644)
+diff --git a/docs/web-storefront.md b/docs/web-storefront.md
+index b7aa93b..a2d858a 100644
+--- a/docs/web-storefront.md
++++ b/docs/web-storefront.md
+@@ -39,3 +39,6 @@ Use the dedicated `deployment/install_web_customer_addresses.py` patch for this
+ Returning visitors now activate the last saved address with an automatic server discovery request; they do not resubmit or reconfirm registration. The address selector lives in the persistent site header. Selecting another saved address with an empty cart immediately rediscovers eligible stores. A nonempty cart keeps the existing clear-cart confirmation, and adding/editing an address still opens the data form. Failed automatic discovery keeps the saved summary and offers retry without asking for registration again. An uncertain prior order must be resolved before automatic discovery starts. This incremental patch requires the previous customer/address release `2c597530e88c78e39f54bc68351246732a566fa2`; it preserves its browser storage schema and saved data.
+ 
+ The automatic-return patch additionally preserves the server session context nonce when normalized delivery fields are unchanged. Reopening the same address in another tab therefore does not invalidate an in-flight quote. Different or invalid delivery details still invalidate the former context, and every automatic discovery still rechecks current coverage. The incremental installer scopes its four files to home, storefront JS/CSS, and the existing WebStorefront service; it syntax-checks both PHP targets and performs no migration.
++
++
++The header now groups the existing store selector next to the saved destination selector. Its existing ID and event bindings are unchanged, so eligible-store filtering, selected-store state and cart-change confirmation keep their behavior. The menu heading no longer duplicates the selector. Both labels and selected values use readable colors on navy, and the controls share a compact row below the navigation on narrower screens. The layout-only incremental installer updates just home/CSS from baseline `b2ec35c91224af06bf1c8f9c2f0e54402f2291f9`.
+diff --git a/public/storefront/storefront.css b/public/storefront/storefront.css
+index eaabb95..0df96f1 100644
+--- a/public/storefront/storefront.css
++++ b/public/storefront/storefront.css
+@@ -10,8 +10,7 @@
+ /* Address comes before serviceable stores, matching the customer app. */
+ .delivery-section{padding-top:44px;padding-bottom:12px}.delivery-card{display:grid;grid-template-columns:.85fr 1.15fr;gap:55px;padding:38px;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px #09132005;align-items:start}.delivery-intro{padding:18px 0;position:sticky;top:130px}.delivery-intro .eyebrow{color:#a44a00}.delivery-intro h2{font-size:42px;margin-bottom:16px}.delivery-intro>p{font-size:15px;color:var(--muted);max-width:350px}.delivery-steps{display:flex;flex-direction:column;gap:18px;margin-top:32px;font-size:14px;font-weight:700}.delivery-steps span{display:flex;align-items:center;gap:13px}.delivery-steps b{display:grid;place-items:center;border:1px solid #f8c294;background:#fff2e8;color:#a44a00;width:32px;height:32px;border-radius:50%;font-size:13px}.delivery-form .checkout-fields{margin-top:0}.delivery-form label{position:relative}.delivery-form .location-heading{font-size:13px;margin-top:22px}.delivery-form .delivery-map{height:270px;z-index:0}.delivery-form #location-help{font-size:12px;margin-top:10px;line-height:1.8}.delivery-form .confirm-location{margin-top:12px;font-size:12px}.delivery-form .privacy-note{font-size:11px}.delivery-form .button{margin-top:8px}.delivery-form[inert]{opacity:.7}.delivery-summary{display:grid;grid-template-columns:auto 1fr;align-items:start;gap:16px;padding:25px;background:#f3f6fa;border-radius:12px;align-self:center}.delivery-summary-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--navy);color:#ff9b4b;font-size:26px}.delivery-summary strong{font-size:16px}.delivery-summary p{font-size:14px;margin:8px 0;color:var(--muted);overflow-wrap:anywhere}.delivery-summary #delivery-phone{font-size:13px;display:inline-block;color:var(--ink)}.delivery-summary .button{grid-column:2;font-size:12px;min-height:40px;padding:10px 15px;justify-self:start;margin-top:7px}.checkout-location-note{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;margin:20px 0;padding:15px;background:#f1f5fa;border-radius:9px;font-size:12px}.checkout-location-note .text-link{font-size:12px}#checkout-form input[readonly]{background:#f2f5f9;color:#4d627b;cursor:default}.menu-status .button,.store-empty .button{margin-top:18px}.store-empty p{max-width:570px;margin:auto}.branch-picker select:disabled{cursor:not-allowed;color:var(--muted)}
+ @media(max-width:1000px){.delivery-card{gap:30px;padding:28px}.delivery-intro h2{font-size:34px}.delivery-intro>p{font-size:14px}.delivery-form .location-heading{flex-wrap:wrap;gap:10px}}@media(max-width:760px){.delivery-section{padding-top:27px}.delivery-card{grid-template-columns:1fr;gap:23px;padding:23px 18px;border-radius:13px}.delivery-intro{position:static;padding:0}.delivery-intro h2{font-size:30px;margin-bottom:10px}.delivery-intro>p{max-width:none;font-size:13px}.delivery-steps{flex-direction:row;flex-wrap:wrap;gap:12px;margin-top:19px;font-size:10px}.delivery-steps span{gap:6px}.delivery-steps b{width:23px;height:23px;font-size:10px}.delivery-form .delivery-map{height:240px}.delivery-form .location-heading strong{font-size:11px}.delivery-form .location-heading .text-link{font-size:11px}.delivery-summary{padding:18px;gap:12px}.delivery-summary strong{font-size:14px}.delivery-summary p{font-size:12px}.delivery-summary-icon{width:34px;height:34px;font-size:22px}.delivery-summary .button{font-size:11px;padding:10px}.delivery-form .confirm-location{font-size:11px}}
+-/* The saved destination stays available in the header while browsing. */
+-.site-header .saved-customer{display:flex;flex-direction:column;gap:4px;min-width:0;width:220px;max-width:27vw}.saved-customer>span{font-size:11px;font-weight:600;color:var(--muted)}.saved-customer select{width:100%;min-width:0;max-width:100%;border:0;background:transparent;padding:3px 0 3px 18px;font-size:13px;font-weight:700;text-overflow:ellipsis}.saved-customer select:disabled{opacity:.65}.delivery-form #forget-customer{font-size:11px;color:#8d420a;margin-bottom:12px}#saved-address-status{font-size:12px;margin-top:12px}.delivery-summary #retry-saved-address{font-size:12px}.delivery-summary .text-link{color:#a44a00}
+-@media(max-width:1000px){.site-header .saved-customer{width:175px;max-width:24vw}.header-actions{gap:14px}}
+-@media(max-width:760px){.site-header .saved-customer{width:145px;max-width:38vw}.saved-customer>span{font-size:10px}.saved-customer select{font-size:11px}.header-actions{gap:10px}.site-header .brand>span{font-size:20px}.site-header .brand img{width:40px;height:40px}.site-header .brand{gap:5px}.site-header{gap:12px;padding-inline:14px}}
+-@media(max-width:760px){.site-header.has-saved-address .brand>span{display:none}.site-header.has-saved-address .header-actions{min-width:0;flex:1;justify-content:flex-end}.site-header.has-saved-address .saved-customer{width:160px;max-width:calc(100vw - 150px);flex:1}}
++/* Address and eligible-store selectors stay together in the header. */
++.site-header{height:auto;min-height:97px;flex-wrap:wrap;padding-block:16px;row-gap:12px}.site-header .header-actions{gap:18px;min-width:0}.header-destinations{display:flex;align-items:center;gap:16px;min-width:0}.site-header .saved-customer{display:flex;flex-direction:column;gap:4px;min-width:0;width:200px;max-width:none}.saved-customer>span,.site-header .header-store-picker>span{font-size:11px;font-weight:600;color:#aabdd3}.saved-customer select{width:100%;min-width:0;max-width:100%;border:0;background:transparent;padding:3px 0 3px 18px;font-size:13px;font-weight:700;text-overflow:ellipsis}.site-header .saved-customer select,.site-header .header-store-picker select{color:#f4f7fc;max-width:100%;text-overflow:ellipsis}.saved-customer select:disabled{opacity:.65}.saved-customer select option{color:#10243b;background:#fff}.site-header .header-store-picker{min-width:0;width:180px;margin:0;padding:0;border:0;background:transparent;gap:4px}.site-header .header-store-picker select{font-size:13px;padding:3px 0 3px 18px}.site-header .header-store-picker select:disabled{color:#aabdd3;opacity:.8}.delivery-form #forget-customer{font-size:11px;color:#8d420a;margin-bottom:12px}#saved-address-status{font-size:12px;margin-top:12px}.delivery-summary #retry-saved-address{font-size:12px}.delivery-summary .text-link{color:#a44a00}
++@media(max-width:1280px){html{scroll-padding-top:165px}.site-header .header-actions{flex-basis:100%;justify-content:space-between}.site-header nav{margin-inline-start:auto}.header-destinations{flex:0 1 70%}.site-header .saved-customer,.site-header .header-store-picker{flex:1;width:220px}.delivery-intro{top:165px}}
++@media(max-width:760px){html{scroll-padding-top:145px}.site-header{min-height:76px;padding:12px 14px;gap:10px 12px}.site-header .header-actions{gap:10px}.header-destinations{flex:1;gap:10px}.site-header .saved-customer,.site-header .header-store-picker{flex:1;width:0;max-width:none}.saved-customer>span,.site-header .header-store-picker>span{font-size:10px}.saved-customer select,.site-header .header-store-picker select{font-size:11px}.site-header .cart-label{display:none}.site-header .brand>span{font-size:20px}.site-header .brand img{width:40px;height:40px}.site-header .brand{gap:5px}}
+diff --git a/resources/views/site/home.blade.php b/resources/views/site/home.blade.php
+index 483264d..b2f12d2 100755
+--- a/resources/views/site/home.blade.php
++++ b/resources/views/site/home.blade.php
+@@ -17,7 +17,7 @@
+     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+     <link rel="preload" as="image" href="{{ asset('storefront/hero.webp') }}">
+     <link rel="stylesheet" href="{{ asset('dashboard/vendor/leaflet/leaflet.css') }}">
+-    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-5">
++    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-6">
+     <script id="storefront-data" type="application/json">{!! json_encode(['branches'=>$storefrontBranches,'info'=>$storefrontInfo,'endpoints'=>['branches'=>route('storefront.branches'),'catalog'=>route('storefront.catalog'),'addresses'=>route('storefront.addresses'),'quote'=>route('storefront.quote'),'checkout'=>route('storefront.checkout')]], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
+     <script src="{{ asset('dashboard/vendor/leaflet/leaflet.js') }}" defer></script>
+     <script src="{{ asset('storefront/storefront.js') }}?v=20261017-5" defer></script>
+@@ -28,7 +28,7 @@
+ <header class="site-header">
+     <a href="#" class="brand" aria-label="فسخانستا الرئيسية"><img src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="" width="58" height="58"><span>فسخانستا<small>FASAKHANSTA</small></span></a>
+     <nav aria-label="القائمة الرئيسية"><a class="active" href="#menu">المنيو</a><a href="#story">حكايتنا</a><a href="#branches">المتاجر</a><a href="#app">التطبيق</a></nav>
+-    <div class="header-actions"><label id="saved-customer" class="saved-customer" hidden><span>⌖ عنوان التوصيل</span><select id="saved-address-select" aria-label="اختار عنوان التوصيل المحفوظ"></select></label><button id="location-shortcut" class="branch-shortcut" data-action="choose-branch"><span aria-hidden="true">⌖</span><span id="header-branch">حدد عنوانك</span></button><button class="cart-trigger" data-action="cart" aria-label="افتح سلة الطلب"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 7h14l1 14H4L5 7Z M8 8V6a4 4 0 0 1 8 0v2"/></svg><span class="cart-label">سلة الطلب</span><b id="cart-count">0</b></button></div>
++    <div class="header-actions"><div class="header-destinations"><label id="saved-customer" class="saved-customer" hidden><span>⌖ عنوان التوصيل</span><select id="saved-address-select" aria-label="اختار عنوان التوصيل المحفوظ"></select></label><button id="location-shortcut" class="branch-shortcut" data-action="choose-branch"><span aria-hidden="true">⌖</span><span id="header-branch">حدد عنوانك</span></button><label class="branch-picker header-store-picker"><span>المتجر</span><select id="branch-select" aria-label="اختر المتجر أو الفرع" disabled><option value="">حدد عنوانك الأول</option></select></label></div><button class="cart-trigger" data-action="cart" aria-label="افتح سلة الطلب"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 7h14l1 14H4L5 7Z M8 8V6a4 4 0 0 1 8 0v2"/></svg><span class="cart-label">سلة الطلب</span><b id="cart-count">0</b></button></div>
+ </header>
+ <main>
+     <section class="hero" aria-labelledby="hero-title">
+@@ -59,7 +59,7 @@
+         </div>
+     </section>
+     <section id="menu" class="menu-section section-wrap" aria-labelledby="menu-title">
+-        <div class="section-top"><div><span class="eyebrow">كل مزاج وليه اختياره</span><h2 id="menu-title">المنيو اللي يجمعنا.</h2></div><label class="branch-picker"><span>المتاجر اللي بتخدم عنوانك</span><select id="branch-select" aria-label="اختر المتجر أو الفرع" disabled><option value="">حدد عنوانك الأول</option></select></label></div>
++        <div class="section-top"><div><span class="eyebrow">كل مزاج وليه اختياره</span><h2 id="menu-title">المنيو اللي يجمعنا.</h2></div></div>
+         <div class="menu-tools"><div id="categories" class="categories" aria-label="أقسام المنيو"></div><label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" placeholder="بتدور على إيه؟" aria-label="ابحث عن منتج"></label></div>
+         <div id="menu-status" class="menu-status" role="status"><span class="empty-symbol" aria-hidden="true">⌖</span><h3>حدد مكان التوصيل الأول</h3><p>بعد تأكيد موقعك وعنوانك ورقمك، هتظهر المتاجر اللي تقدر تخدمك.</p><a class="button secondary" href="#delivery">حدد عنوانك ←</a></div>
+         <div id="product-grid" class="product-grid"></div>
+diff --git a/tests/web_customer_addresses_installer_test.py b/tests/web_customer_addresses_installer_test.py
+index 68cccc0..cf275fc 100644
+--- a/tests/web_customer_addresses_installer_test.py
++++ b/tests/web_customer_addresses_installer_test.py
+@@ -43,11 +43,9 @@ def parallel_seo(payload):
+ 
+ 
+ class InstallerTests(unittest.TestCase):
+-    def test_scope_is_only_existing_three_ui_files_and_discovery_service(self):
+-        self.assertEqual(m.BASELINE, '2c597530e88c78e39f54bc68351246732a566fa2')
+-        self.assertEqual(set(m.PUBLISH_ORDER), {m.HOME, 'public/storefront/storefront.js',
+-                                              'public/storefront/storefront.css',
+-                                              'app/Services/Site/WebStorefront.php'})
++    def test_scope_is_only_existing_home_and_css(self):
++        self.assertEqual(m.BASELINE, 'b2ec35c91224af06bf1c8f9c2f0e54402f2291f9')
++        self.assertEqual(set(m.PUBLISH_ORDER), {m.HOME, 'public/storefront/storefront.css'})
+         self.assertTrue(all((ROOT / relative).is_file() for relative in m.PUBLISH_ORDER))
+ 
+     def test_home_merge_preserves_adjacent_independent_seo(self):
+@@ -122,7 +120,7 @@ class InstallerTests(unittest.TestCase):
+         self.assertEqual(m.surgical_patch(b'A\nB\nC\nD\nLIVE\n', old, b'A\nB\nD\n'),
+                          b'A\nB\nD\nLIVE\n')
+ 
+-    def test_only_exact_known_assets_and_service_are_replaced_and_missing_files_refused(self):
++    def test_only_exact_known_css_is_replaced_and_missing_files_refused(self):
+         for relative in m.EXACT_FILES:
+             old = baseline(relative)
+             reviewed = old + b'\n/* reviewed UI */\n'
+@@ -137,7 +135,7 @@ class InstallerTests(unittest.TestCase):
+         with self.assertRaisesRegex(RuntimeError, 'FILE_NOT_REVIEWED'):
+             m.plan_target(ROOT, RELEASE, '.env', b'')
+ 
+-    def test_bundle_verifies_eight_exact_blobs_and_release_binding(self):
++    def test_bundle_verifies_four_exact_blobs_and_release_binding(self):
+         with tempfile.TemporaryDirectory() as directory:
+             bundle = pathlib.Path(directory)
+             manifest = {'schema': 1, 'release': RELEASE, 'baseline': m.BASELINE, 'blobs': {}}
+@@ -217,10 +215,10 @@ class InstallerTests(unittest.TestCase):
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                 m._install_locked(app, RELEASE, True, os.getuid())
+             self.assertIn('WEB_CUSTOMER_ADDRESSES_PREFLIGHT_OK', output.getvalue())
+-            self.assertEqual(command.call_count, 2)
++            self.assertEqual(command.call_count, 1)
+             self.assertTrue(all(call.args[1][:2] == [m.PHP, '-l'] for call in command.call_args_list))
+             self.assertEqual({pathlib.Path(call.args[1][2]).name for call in command.call_args_list},
+-                             {'WebStorefront.php', 'home.blade.php'})
++                             {'home.blade.php'})
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), originals[path])
+                 self.assertEqual((app / path).stat(), before[path])
+@@ -236,28 +234,28 @@ class InstallerTests(unittest.TestCase):
+                 m._install_locked(app, RELEASE, False, os.getuid())
+             result = json.loads(output.getvalue())
+             self.assertEqual(result['status'], 'WEB_CUSTOMER_ADDRESSES_READY')
+-            self.assertEqual(result['updated_files'], 4)
++            self.assertEqual(result['updated_files'], 2)
+             backup = pathlib.Path(result['backup'])
+             self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o700)
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), targets[path])
+                 self.assertEqual((backup / path).read_bytes(), originals[path])
+                 self.assertEqual(stat.S_IMODE((backup / path).stat().st_mode), 0o600)
+-            self.assertEqual(command.call_count, 3)
+-            self.assertTrue(all(call.args[1][:2] == [m.PHP, '-l'] for call in command.call_args_list[:2]))
+-            self.assertEqual(command.call_args_list[2].args[1], [m.PHP, str(app / 'artisan'), 'view:clear'])
++            self.assertEqual(command.call_count, 2)
++            self.assertEqual(command.call_args_list[0].args[1][:2], [m.PHP, '-l'])
++            self.assertEqual(command.call_args_list[1].args[1], [m.PHP, str(app / 'artisan'), 'view:clear'])
+ 
+     def test_view_clear_failure_rolls_back_all_files(self):
+         with tempfile.TemporaryDirectory() as directory:
+             app, originals, targets = self.stage(directory)
+             with mock.patch.object(m, 'safe_directories'), \
+                     mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
+-                    mock.patch.object(m, 'owned_command', side_effect=[b'', b'', RuntimeError('view failure'), b'']) as command:
++                    mock.patch.object(m, 'owned_command', side_effect=[b'', RuntimeError('view failure'), b'']) as command:
+                 with self.assertRaisesRegex(RuntimeError, 'WEB_CUSTOMER_ADDRESSES_ROLLED_BACK'):
+                     m._install_locked(app, RELEASE, False, os.getuid())
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), originals[path])
+-            self.assertEqual(command.call_count, 4)
++            self.assertEqual(command.call_count, 3)
+ 
+     def test_rollback_does_not_overwrite_new_concurrent_edits(self):
+         with tempfile.TemporaryDirectory() as directory:
+@@ -287,7 +285,7 @@ class InstallerTests(unittest.TestCase):
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                 m._install_locked(app, RELEASE, False, os.getuid())
+             self.assertEqual(json.loads(output.getvalue())['updated_files'], 0)
+-            self.assertEqual(command.call_count, 2)
++            self.assertEqual(command.call_count, 1)
+ 
+     def test_fixed_root_and_release_are_enforced_before_actions(self):
+         with mock.patch.object(m, '_install_locked') as apply:
