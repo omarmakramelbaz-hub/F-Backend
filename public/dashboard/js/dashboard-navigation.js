@@ -19,14 +19,17 @@
     });
     const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
     // Move only links rendered by the server's existing access checks.
-    function placeShortcut(route, afterRoute) {
+    function placeShortcut(route, anchorRoute, position = 'after') {
         const find = value => rootNodes.find(node => paths(node).some(path => path.replace(/\/$/, '') === '/admin/' + value));
         const shortcut = find(route);
-        const anchor = find(afterRoute);
-        if (shortcut && anchor) anchor.after(shortcut);
+        const anchor = find(anchorRoute);
+        if (shortcut && anchor) {
+            if (position === 'before') anchor.before(shortcut);
+            else anchor.after(shortcut);
+        }
     }
     placeShortcut('whatsapp', 'dashboard');
-    placeShortcut('desktop-pos', 'go-stores');
+    placeShortcut('desktop-pos', 'print-settings', 'before');
     function section(node) {
         const routes = paths(node).join(' ');
         if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';
