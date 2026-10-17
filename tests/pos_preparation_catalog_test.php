@@ -54,6 +54,12 @@ function productFor(array $extras): array {
     $fixture->price = json_encode($extras);
     return $present->invoke($catalog, $branch, $fixture, '/test-fish.png');
 }
+function lineFor(array $extras, array $item = []): array {
+    global $catalog, $branch, $row;
+    $fixture = clone $row;
+    $fixture->price = json_encode($extras);
+    return $catalog->line($branch, $fixture, $item + ['option_id'=>'', 'quantity_mode'=>'weight', 'quantity_millis'=>1000]);
+}
 
 $product = $present->invoke($catalog, $branch, $row, '/test-fish.png');
 $preparations = $product['preparation_options'];
@@ -94,9 +100,46 @@ $line = $catalog->line($branch, $row, ['option_id'=>'f:0:extra_clean', 'quantity
 check($line['option_id'] === 'f:0:extra_clean' && $line['unit_price'] === '470.00'
     && $line['quantity'] === '0.250' && $line['total'] === '117.50', 'selected preparation uses server price before applying the requested weight');
 $whole = $catalog->line($branch, $row, ['option_id'=>'', 'quantity_mode'=>'weight', 'quantity_millis'=>500]);
-check($whole['unit_price'] === '450.00' && $whole['total'] === '225.00', 'whole retains the empty base option identity and weighted pricing');
+check($whole['option_id'] === '' && $whole['option_label'] === 'كامل'
+    && $whole['unit_price'] === '450.00' && $whole['total'] === '225.00', 'whole has its invoice label while retaining empty base option identity and weighted pricing');
+check(lineFor(['extra_clean'=>0])['option_label'] === 'كامل'
+    && lineFor(['extra_clear'=>'0.00'])['option_label'] === 'كامل', 'a valid zero-cost cleaned or filleted choice still labels the base as whole');
+$explicitBase = lineFor(['extra_clean'=>'20.00'], ['option_id'=>'f:0:base']);
+check($explicitBase['option_id'] === '' && $explicitBase['option_label'] === 'كامل', 'an explicit legacy base option normalizes to the same whole identity');
+foreach ([[], ['extra_vacuim'=>'5.00'], ['extra_clean'=>null, 'extra_clear'=>'']] as $extras) {
+    check(lineFor($extras)['option_label'] === '', 'plain, vacuum-only and unconfigured SKUs have no whole preparation label: '.json_encode($extras));
+}
+$drink = clone $row;
+$drink->product_id = null;
+$drink->product_name = 'مياه';
+$drink->product_price = '20.00';
+$drink->price = '{}';
+$drinkLine = $catalog->line($branch, $drink, ['quantity_mode'=>'piece', 'quantity_millis'=>1000]);
+check($drinkLine['option_id'] === '' && $drinkLine['option_label'] === '' && $drinkLine['total'] === '20.00', 'a drink without preparation extras keeps a blank invoice option label');
+foreach (['not-a-price', '-1.00', '1000000.01', '1.001'] as $invalid) {
+    check(lineFor(['extra_clean'=>$invalid, 'extra_clear'=>$invalid])['option_label'] === '',
+        'invalid preparation configuration cannot label a plain base as whole: '.$invalid);
+}
+$overLimit = clone $row;
+$overLimit->product_price = '1000000.00';
+$overLimit->price = json_encode(['extra_clean'=>'0.01']);
+check($catalog->line($branch, $overLimit, ['quantity_mode'=>'weight', 'quantity_millis'=>1000])['option_label'] === '',
+    'a preparation whose combined price exceeds the limit does not label the base as whole');
+$half = $catalog->line($branch, $row, ['option_id'=>'f:10:base', 'quantity_mode'=>'weight', 'quantity_millis'=>1000]);
+$quarter = $catalog->line($branch, $row, ['option_id'=>'f:11:base', 'quantity_mode'=>'weight', 'quantity_millis'=>1000]);
+check($half['option_id'] === 'f:10:base' && $half['option_label'] === 'نصف' && $half['unit_price'] === '225.00'
+    && $quarter['option_id'] === 'f:11:base' && $quarter['option_label'] === 'ربع' && $quarter['unit_price'] === '112.50',
+    'legacy half and quarter lines retain their own labels, identities and prices');
+$filleted = lineFor(['extra_clear'=>'50.00'], ['option_id'=>'f:0:extra_clear']);
+check($line['option_label'] === 'تنظيف' && $filleted['option_id'] === 'f:0:extra_clear' && $filleted['option_label'] === 'مخلي'
+    && $filleted['unit_price'] === '500.00', 'cleaned and filleted invoice labels and identities remain distinct from whole');
+$app->locale = 'en';
+check(lineFor(['extra_clean'=>'20.00'])['option_label'] === 'Whole', 'whole invoice label follows application locale');
+$app->locale = 'ar';
 $goLine = $catalog->line(['kind'=>'gs'], $go, ['option_id'=>'large', 'quantity_mode'=>'select', 'quantity_millis'=>2000]);
 check($goLine['unit_price'] === '29.99' && $goLine['total'] === '59.98', 'Go selected-option quantity pricing is unchanged');
+$goBase = $catalog->line(['kind'=>'gs'], $go, ['option_id'=>'', 'quantity_mode'=>'piece', 'quantity_millis'=>1000]);
+check($goBase['option_id'] === '' && $goBase['option_label'] === '' && $goBase['unit_price'] === '19.99', 'Go base products keep their existing empty label and identity');
 try {
     $catalog->line($branch, $row, ['option_id'=>'f:0:extra_clear', 'product_clean'=>'extra_clean', 'quantity_mode'=>'weight', 'quantity_millis'=>1000]);
     throw new RuntimeException('A conflicting option must not be accepted');
