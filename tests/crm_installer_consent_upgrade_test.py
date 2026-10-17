@@ -20,7 +20,8 @@ from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[1]
-DEPLOYED = 'd6be69b37a8e5815be498b2bedd6daacbea2b68f'
+DEPLOYED = '162635ae19fcf825093570385b643d54975743c0'
+PREVIOUS_DEPLOYED = 'd6be69b37a8e5815be498b2bedd6daacbea2b68f'
 SPEC = importlib.util.spec_from_file_location('crm_consent_installer', PROJECT / 'deployment/apply_customer_crm.py')
 INSTALLER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(INSTALLER)
@@ -104,25 +105,40 @@ class ConsentReleaseInstallerTest(unittest.TestCase):
                 self.assertEqual((root / relative).read_bytes(), release + custom.get(relative, b''))
 
     def test_upgrade_complete_deployed_release_and_replay(self):
-        with self.application(DEPLOYED) as (root, _originals, commands):
-            INSTALLER.main()
-            self.assert_release(root)
-            INSTALLER.main()
-            self.assert_release(root)
-            self.assertEqual(2, sum(command[1:] == ['crm:check', '--activate-phone-cutover'] for command in commands))
+        for revision in (PREVIOUS_DEPLOYED, DEPLOYED):
+            with self.subTest(revision=revision):
+                with self.application(revision) as (root, _originals, commands):
+                    INSTALLER.main()
+                    self.assert_release(root)
+                    INSTALLER.main()
+                    self.assert_release(root)
+                    self.assertEqual(2, sum(command[1:] == ['crm:check', '--activate-phone-cutover'] for command in commands))
 
     def test_upgrade_keeps_independent_live_php_and_javascript_comments(self):
         custom = {
             'app/Services/Dashboard/BranchCustomers.php': b'\n// Retained site-specific customer extension.\n',
             'public/dashboard/js/customer-crm.js': b'\n// Retained site-specific CRM enhancement.\n',
         }
-        with self.application(DEPLOYED, custom) as (root, _originals, _commands):
+        with self.application(PREVIOUS_DEPLOYED, custom) as (root, _originals, _commands):
             INSTALLER.main()
             self.assert_release(root, custom)
             INSTALLER.main()
             self.assert_release(root, custom)
             for relative, comment in custom.items():
                 self.assertEqual((root / relative).read_bytes().count(comment), 1)
+
+    def test_upgrade_current_release_keeps_live_takeaway_css_and_javascript_extensions(self):
+        custom = {
+            'public/dashboard/css/takeaway-pos.css': b'\n/* Retained site-specific takeaway styling. */\n.takeaway-site-extension { --live-accent: #f58220; }\n',
+            'public/dashboard/js/takeaway-pos.js': b'\n/* Retained site-specific takeaway integration. */\nwindow.takeawaySiteExtension = true;\n',
+        }
+        with self.application(DEPLOYED, custom) as (root, _originals, _commands):
+            INSTALLER.main()
+            self.assert_release(root, custom)
+            INSTALLER.main()
+            self.assert_release(root, custom)
+            for relative, extension in custom.items():
+                self.assertEqual((root / relative).read_bytes().count(extension), 1)
 
     def test_fresh_install_on_reviewed_manifest_baseline_and_replay(self):
         with self.application(reviewed=self.reviewed_baseline()) as (root, originals, _commands):

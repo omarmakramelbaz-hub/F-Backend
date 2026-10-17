@@ -11,7 +11,7 @@
     var products = new Map(), cart = [], category = '', catalogPage = 1, pagination = {};
     var policy = {}, permissions = {}, quote = null, quoteGeneration = 0, catalogGeneration = 0;
     var catalogController, quoteController, searchTimer, quoteTimer;
-    var quantityMode = 'piece', quantityInput = '1', replaceQuantity = true;
+    var quantityMode = 'weight', quantityInput = '1', replaceQuantity = true;
     var paymentMethod = 'cash', loaded = false, disposed = false, selling = false, uncertain = false, sold = false, quarantined = false;
     var saleKey = uuid(), frozenPayload = null, lastReceipt = null, lastQuotedTotal = null, register = null, modalFocus, modalController, modalGeneration = 0, registerLocked = false;
     var listeners = [], navigationGuardRegistered = false;
@@ -20,7 +20,7 @@
     var finish = root.querySelector('[data-pos-finish]');
     var cashInput = root.querySelector('[data-pos-cash-received]');
     var customerPhone = root.querySelector('[data-pos-customer-phone]'), customerName = root.querySelector('[data-pos-customer-name]');
-    var serviceConsent = root.querySelector('[data-pos-service-consent]'), marketingConsent = root.querySelector('[data-pos-marketing-consent]');
+    var customerConsent = root.querySelector('[data-pos-customer-consent]'), serviceConsent = false, marketingConsent = false;
     var discountInput = root.querySelector('[data-pos-discount]');
     var confirmedInput = root.querySelector('[data-pos-payment-confirmed]');
     var activeInvoice = 0;
@@ -33,13 +33,13 @@
         var selected = (boot.branches || []).find(function (item) { return String(item.value || item.id) === selectedBranch; });
         return { branch: selectedBranch, branchName: selected && selected.name || selectedBranch, quarantined: false, cart: [], quote: null, saleKey: uuid(), frozenPayload: null, uncertain: false, sold: false, lastReceipt: null, lastQuotedTotal: null,
             customerPhone: '', customerName: '', serviceConsent: false, marketingConsent: false, discount: '0.00', discountReason: '', notes: '', cash: '', reference: '', confirmed: false, paymentMethod: 'cash',
-            quantityMode: 'piece', quantityInput: '1', replaceQuantity: true, category: '', search: '', catalogPage: 1,
+            quantityMode: 'weight', quantityInput: '1', replaceQuantity: true, category: '', search: '', catalogPage: 1,
             policy: {}, permissions: boot.permissions || {}, products: [], categories: [], pagination: {}, register: null, today: null };
     }
     function captureInvoice() {
         return { branch: branch, branchName: branchSelect.selectedOptions[0] && branchSelect.selectedOptions[0].textContent || invoices[activeInvoice].branchName, quarantined: quarantined,
             cart: cart, quote: quote, saleKey: saleKey, frozenPayload: frozenPayload, uncertain: uncertain, sold: sold, lastReceipt: lastReceipt, lastQuotedTotal: lastQuotedTotal,
-            customerPhone: customerPhone.value, customerName: customerName.value, serviceConsent: serviceConsent.checked, marketingConsent: marketingConsent.checked, discount: discountInput.value, discountReason: root.querySelector('[data-pos-discount-reason]').value, notes: root.querySelector('[data-pos-notes]').value,
+            customerPhone: customerPhone.value, customerName: customerName.value, serviceConsent: serviceConsent, marketingConsent: marketingConsent, discount: discountInput.value, discountReason: root.querySelector('[data-pos-discount-reason]').value, notes: root.querySelector('[data-pos-notes]').value,
             cash: cashInput.value, reference: root.querySelector('[data-pos-payment-reference]').value, confirmed: confirmedInput.checked, paymentMethod: paymentMethod,
             quantityMode: quantityMode, quantityInput: quantityInput, replaceQuantity: replaceQuantity, category: category,
             search: root.querySelector('[data-pos-search]').value, catalogPage: catalogPage, policy: policy, permissions: permissions,
@@ -147,7 +147,7 @@
         uncertain = invoice.uncertain; sold = invoice.sold; lastReceipt = invoice.lastReceipt; lastQuotedTotal = invoice.lastQuotedTotal || invoice.quote && invoice.quote.total || null; selling = false;
         paymentMethod = invoice.paymentMethod; quantityMode = invoice.quantityMode; quantityInput = invoice.quantityInput; replaceQuantity = invoice.replaceQuantity;
         category = invoice.category; catalogPage = invoice.catalogPage; policy = invoice.policy; permissions = invoice.permissions; register = invoice.register; pagination = invoice.pagination; loaded = false;
-        customerPhone.value = invoice.customerPhone || ''; customerName.value = invoice.customerName || ''; serviceConsent.checked = !!invoice.serviceConsent; marketingConsent.checked = !!invoice.marketingConsent;
+        customerPhone.value = invoice.customerPhone || ''; customerName.value = invoice.customerName || ''; serviceConsent = !!invoice.serviceConsent; marketingConsent = !!invoice.marketingConsent; showConsent();
         discountInput.value = invoice.discount; root.querySelector('[data-pos-discount-reason]').value = invoice.discountReason;
         root.querySelector('[data-pos-notes]').value = invoice.notes; cashInput.value = invoice.cash; root.querySelector('[data-pos-payment-reference]').value = invoice.reference;
         confirmedInput.checked = invoice.confirmed; root.querySelector('[data-pos-search]').value = invoice.search;
@@ -176,6 +176,10 @@
         else if (/^[1-9][0-9]{7,14}$/.test(phone)) phone = '+' + phone;
         if (!/^\+[1-9][0-9]{7,14}$/.test(phone) || phone.indexOf('+20') === 0 && !/^\+20(?:1[0125][0-9]{8}|[2-9][0-9]{7,8})$/.test(phone)) return null;
         return phone;
+    }
+    function showConsent() {
+        customerConsent.checked = serviceConsent && marketingConsent;
+        customerConsent.indeterminate = serviceConsent !== marketingConsent;
     }
     function label(key) { return labels[key] || key; }
     function node(tag, className, text) {
@@ -253,7 +257,7 @@
     function isLocked() { return selling || uncertain || sold || registerLocked || quarantined; }
     function lock() {
         root.classList.toggle('is-checkout-locked', isLocked()); root.classList.toggle('is-sold', sold);
-        root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-service-consent],[data-pos-marketing-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-unit],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category]').forEach(function (control) {
+        root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-customer-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category]').forEach(function (control) {
             control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options]') && !permissions.can_checkout;
         });
         if (branchSelect.selectize) { if (isLocked()) branchSelect.selectize.disable(); else branchSelect.selectize.enable(); }
@@ -271,22 +275,24 @@
             var count = root.querySelector('[data-pos-day-count]'); count.hidden = false; count.textContent = today.count;
         }
     }
-    function unitText(mode) { return label(mode === 'weight' ? 'kg' : 'piece'); }
+    function unitText(mode, product) {
+        return label(product && ['piece', 'weight'].indexOf(product.quantity_mode) < 0 ? 'automatic_unit' : mode === 'weight' ? 'kg' : 'piece');
+    }
     function showQuantity() {
         root.querySelector('[data-pos-quantity] bdi').textContent = quantityInput;
-        root.querySelector('[data-pos-quantity-title]').textContent = label(quantityMode === 'weight' ? 'current_weight' : 'current_quantity');
-        root.querySelector('[data-pos-quantity-unit]').textContent = unitText(quantityMode);
-        root.querySelector('[data-pos-confirm-label]').textContent = label(quantityMode === 'weight' ? 'confirm_weight' : 'confirm_quantity');
-        root.querySelectorAll('[data-pos-unit]').forEach(function (button) { button.setAttribute('aria-pressed', String(button.dataset.posUnit === quantityMode)); });
-        root.querySelector('[data-pos-key="."]').disabled = quantityMode === 'piece' || isLocked();
+        root.querySelector('[data-pos-quantity-title]').textContent = label('quantity_auto_title');
+        root.querySelector('[data-pos-quantity-unit]').textContent = label('automatic_unit');
+        root.querySelector('[data-pos-confirm-label]').textContent = label('confirm_amount');
+        root.querySelector('[data-pos-key="."]').disabled = isLocked();
         storeInvoice();
     }
     function key(value) {
         if (isLocked()) return;
-        if (value === 'confirm') { if (!quantity(quantityInput, quantityMode)) notify(label('invalid_quantity')); else { replaceQuantity = true; notify(label('confirmed'), true); } return; }
-        if (value === 'clear') quantityInput = quantityMode === 'piece' ? '1' : '0';
+        // The next product decides its own unit; the previous product must not block decimal entry.
+        if (value === 'confirm') { if (!quantity(quantityInput, 'weight')) notify(label('invalid_quantity')); else { replaceQuantity = true; storeInvoice(); notify(label('confirmed'), true); } return; }
+        if (value === 'clear') quantityInput = '0';
         else if (value === 'backspace') quantityInput = quantityInput.slice(0, -1) || '0';
-        else if (value === '.') { if (quantityMode !== 'weight') return; if (replaceQuantity) quantityInput = '0'; if (quantityInput.indexOf('.') === -1) quantityInput += '.'; }
+        else if (value === '.') { if (replaceQuantity) quantityInput = '0'; if (quantityInput.indexOf('.') === -1) quantityInput += '.'; }
         else {
             if (replaceQuantity || quantityInput === '0') quantityInput = value;
             else if (quantityInput.length < 10 && (quantityInput.indexOf('.') === -1 || quantityInput.split('.')[1].length < 3)) quantityInput += value;
@@ -307,9 +313,9 @@
             var snapshot = quote && quote.items && quote.items.find(function (item) { return Number(item.product_id) === Number(line.product.id) && String(item.option_id || '') === optionKey && item.quantity_mode === line.mode; }) || {};
             var row = node('tr'); var productCell = node('td'); var copy = node('div', 'tp-line-product');
             if (line.product.image_url) { var image = node('img'); image.src = line.product.image_url; image.alt = ''; image.addEventListener('error', function () { image.remove(); }, { once: true }); copy.appendChild(image); }
-            var title = node('span'); title.appendChild(node('span', 'tp-line-name', snapshot.name || line.product.name));
-            if (line.option) title.appendChild(node('small', 'tp-line-option', line.option.label)); copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
-            var amount = node('td'); amount.appendChild(node('bdi', 'tp-line-quantity', line.quantity)); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode))); row.appendChild(amount);
+            var title = node('span'), fullName = snapshot.name || line.product.name, nameNode = node('span', 'tp-line-name', fullName); nameNode.title = fullName; title.appendChild(nameNode);
+            if (line.option) { var optionNode = node('small', 'tp-line-option', line.option.label); optionNode.title = line.option.label; title.appendChild(optionNode); } copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
+            var amount = node('td'); amount.appendChild(node('bdi', 'tp-line-quantity', line.quantity)); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode, line.product))); row.appendChild(amount);
             var price = snapshot.unit_price || line.option && line.option.price || line.product.unit_price || line.product.price;
             var priceCell = node('td'); priceCell.appendChild(node('bdi', '', money(price))); row.appendChild(priceCell);
             var cents = minor(price), scaled = decimalInput(line.quantity, 3);
@@ -349,16 +355,17 @@
     }
     function addProduct(product, option) {
         if (!product || isLocked() || !permissions.can_checkout || !product.available) return;
-        var mode = product.quantity_mode === 'piece' || product.quantity_mode === 'weight' ? product.quantity_mode : quantityMode;
-        var input = mode === quantityMode ? quantityInput : mode === 'piece' ? '1' : '1.000';
-        var amount = quantity(input, mode); if (!amount) { notify(label('invalid_quantity')); return; }
+        // Stock metadata is authoritative. Older untracked catalog items have no unit metadata:
+        // retain decimal amounts with weight mode and display a generic unit, without guessing from names.
+        var mode = product.quantity_mode === 'piece' ? 'piece' : 'weight';
+        var amount = quantity(quantityInput, mode); if (!amount) { notify(label('invalid_quantity')); return; }
         var optionKey = option && option.id !== undefined ? String(option.id) : '';
         var existing = cart.find(function (line) { return line.product.id === product.id && line.mode === mode && String(line.option && line.option.id || '') === optionKey; });
         if (existing) {
             var sum = decimalInput(existing.quantity, 3) + amount.scaled;
             var checked = quantity(decimal(sum, 3), mode); if (!checked) { notify(label('invalid_quantity')); return; } existing.quantity = checked.value;
         } else { if (cart.length >= 100) { notify(label('cart_limit')); return; } cart.push({ product: product, option: option || null, mode: mode, quantity: amount.value }); }
-        replaceQuantity = true; renderLines(); invalidateQuote(); notify(label('item_added') + ' · ' + product.name, true);
+        quantityMode = mode; replaceQuantity = true; showQuantity(); renderLines(); invalidateQuote(); notify(label('item_added') + ' · ' + product.name, true);
     }
     function productNode(product) {
         var card = node('article', 'tp-product-card');
@@ -369,7 +376,7 @@
         else { var placeholder = node('span', 'tp-product-image tp-product-no-image'); placeholder.appendChild(node('i', 'fas fa-fish')); button.appendChild(placeholder); }
         var copy = node('span', 'tp-product-copy'); copy.appendChild(node('strong', 'tp-product-name', product.name));
         var price = node('span', 'tp-product-price'); price.appendChild(node('bdi', '', money(product.unit_price || product.price))); price.appendChild(document.createTextNode(' ' + label('currency'))); copy.appendChild(price);
-        var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('flexible_unit'));
+        var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('automatic_unit'));
         if(product.stock){unit.textContent=(product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label);unit.style.color=product.stock.negative||product.stock.quantity==='0'?'#b42318':product.stock.tracked===false?'#64748b':'#158346';}
         unit.classList.toggle('is-unavailable', !product.available); unit.classList.toggle('is-weight', product.quantity_mode === 'weight' || product.unit === 'kg'); copy.appendChild(unit);
         if (product.options && product.options.length) copy.appendChild(node('small', 'tp-product-base', label('base_option')));
@@ -418,8 +425,8 @@
     }
     function resetDraft() {
         cart = []; quote = null; frozenPayload = null; uncertain = false; sold = false; saleKey = uuid(); lastReceipt = null; lastQuotedTotal = null; quoteGeneration++; if (quoteController) quoteController.abort(); clearTimeout(quoteTimer);
-        paymentMethod = 'cash'; quantityMode = 'piece'; quantityInput = '1'; replaceQuantity = true;
-        customerPhone.value = ''; customerName.value = ''; serviceConsent.checked = false; marketingConsent.checked = false;
+        paymentMethod = 'cash'; quantityMode = 'weight'; quantityInput = '1'; replaceQuantity = true;
+        customerPhone.value = ''; customerName.value = ''; serviceConsent = false; marketingConsent = false; showConsent();
         root.querySelector('[data-pos-notes]').value = ''; root.querySelector('[data-pos-payment-reference]').value = ''; discountInput.value = '0.00'; root.querySelector('[data-pos-discount-reason]').value = ''; root.querySelector('[data-pos-discount-reason-wrap]').hidden = true; cashInput.value = ''; confirmedInput.checked = false; root.querySelector('[data-pos-saved]').hidden = true; applyPayment(); renderLines(); totals(null); lock(); showQuantity();
     }
     function changeBranch() {
@@ -490,7 +497,7 @@
             else if (!confirmedInput.checked) { notify(label('confirm_payment')); confirmedInput.focus(); return; }
             frozenPayload = Object.assign(draft(), { quote_hash: quote.quote_hash, idempotency_key: saleKey, payment_method: paymentMethod,
                 cash_received: paymentMethod === 'cash' ? decimal(minor(cashInput.value), 2) : null, payment_confirmed: paymentMethod === 'cash' ? false : true,
-                customer_phone: phone, customer_name: customerName.value.trim(), service_consent: serviceConsent.checked, marketing_consent: marketingConsent.checked, payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
+                customer_phone: phone, customer_name: customerName.value.trim(), service_consent: serviceConsent, marketing_consent: marketingConsent, payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
         }
         selling = true; lock(); notify(label('saving'));
         if (uncertain && await recoverSale()) return;
@@ -599,8 +606,7 @@
         if (button.hasAttribute('data-pos-retry')) { if (uncertain) return checkout(); if (branch) return quote === null && cart.length && loaded ? requestQuote() : loadCatalog(catalogPage); }
         if (isLocked()) return;
         if (button.dataset.posKey !== undefined) return key(button.dataset.posKey);
-        if (button.dataset.posUnit) { quantityMode = button.dataset.posUnit; quantityInput = quantityMode === 'piece' ? '1' : '0'; replaceQuantity = true; showQuantity(); return; }
-        if (button.hasAttribute('data-pos-weight-reset')) { quantityInput = quantityMode === 'piece' ? '1' : '0'; replaceQuantity = true; showQuantity(); return; }
+        if (button.hasAttribute('data-pos-weight-reset')) { quantityInput = '0'; replaceQuantity = true; showQuantity(); return; }
         if (button.dataset.posPayment) return setPayment(button.dataset.posPayment);
         if (button.dataset.posProduct) return addProduct(products.get(button.dataset.posProduct));
         if (button.dataset.posOptions) return chooseProduct(products.get(button.dataset.posOptions));
@@ -611,7 +617,14 @@
     });
     listen(branchSelect, 'change', changeBranch);
     listen(root, 'input', function (event) { if (event.target.matches('input,textarea,select')) renderInvoiceTabs(); });
-    listen(root, 'change', function (event) { if (event.target.matches('input,textarea,select')) renderInvoiceTabs(); });
+    listen(root, 'change', function (event) {
+        if (event.target === customerConsent) {
+            if (isLocked()) { showConsent(); return; }
+            // Keep legacy per-purpose approvals until the cashier explicitly changes this combined control.
+            serviceConsent = marketingConsent = customerConsent.checked; showConsent();
+        }
+        if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
+    });
     if (window.jQuery) window.jQuery(branchSelect).on('change.takeawayPos', changeBranch);
     listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
@@ -631,7 +644,7 @@
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; clearTimeout(searchTimer); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
-    var restored = restoreInvoices(); storageReady = true;
+    var restored = restoreInvoices(); storageReady = true; showConsent();
     if (restored) switchInvoice(activeInvoice, true);
     else { renderLines(); renderPayments(); showQuantity(); lock(); if (branch) loadCatalog(1); }
 }());
