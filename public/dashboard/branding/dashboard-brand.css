@@ -733,4 +733,34 @@ html:has(.app-order-board-page) {
 @media (max-width: 400px) {
     .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
 }
+/* The native logo bursts once on mount, then rests as the leather stamp. */
+.go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
+.go-erp-logo-fragments { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-rest {
+        animation: go-erp-logo-rest 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragments {
+        animation: go-erp-logo-fragments 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragment {
+        transform-box: view-box;
+        transform-origin: 530px 311px;
+        animation: go-erp-fragment-flight 1.45s cubic-bezier(.2, .7, .2, 1) 1 both;
+    }
+    @keyframes go-erp-logo-rest {
+        0%, 4% { opacity: 1; }
+        5%, 87.9% { opacity: 0; }
+        88%, 100% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-fragments {
+        0%, 4% { opacity: 0; }
+        5%, 87.9% { opacity: 1; }
+        88%, 100% { opacity: 0; }
+    }
+    @keyframes go-erp-fragment-flight {
+        0%, 4%, 86%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+        30%, 40% { transform: translate(var(--go-x), var(--go-y)) rotate(var(--go-r)) scale(.94); }
+    }
+}
 /* go-erp-logo-stamp:end */

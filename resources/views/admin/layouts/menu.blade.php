@@ -2,10 +2,10 @@
 <aside id="dashboard-sidebar" class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
+    <div class="brand-link dashboard-brand">
         @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-brand-logo go-erp-platform-logo'])
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
-    </a>
+    </div>
     <hr>
     <!-- Sidebar -->
     <div class="sidebar">
