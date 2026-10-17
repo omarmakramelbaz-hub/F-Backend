@@ -40,6 +40,7 @@ SOURCE_MANIFEST = {
     'resources/views/admin/orders/board_detail.blade.php': ('lifecycle', 'M'),
 }
 BRAND_MENU = 'resources/views/admin/layouts/menu.blade.php'
+PHONE_LAYOUT_STYLE = 'public/dashboard/css/phone-orders.css'
 LIFECYCLE_PROOF_PATHS = (
     'app/Services/Dashboard/OrderBoardService.php',
     'app/Http/Controllers/Dashboard/OrderBoardController.php',
@@ -47,7 +48,6 @@ LIFECYCLE_PROOF_PATHS = (
     'resources/views/admin/orders/board_card.blade.php',
 )
 UNIFIED_PHONE_PREREQUISITES = (
-    'public/dashboard/css/phone-orders.css',
     'resources/views/admin/phone_orders/index.blade.php',
     'resources/lang/ar/phone_orders.php',
     'resources/lang/en/phone_orders.php',
@@ -57,7 +57,6 @@ WORKFLOW_PHONE_PREREQUISITES = (
     'app/Services/Dashboard/BranchDeliveryTariff.php',
     'app/Services/Dashboard/PhoneDelivery.php',
     'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php',
-    'public/dashboard/css/phone-orders.css',
     'resources/lang/ar/phone_orders.php',
     'resources/lang/en/phone_orders.php',
     'resources/views/admin/pos_service/context.blade.php',
@@ -270,6 +269,12 @@ def prove_prerequisites(root, plan):
         lifecycle = LIFECYCLE_PROOF_PATHS if origins & {'lifecycle', 'lifecycle-live'} else ()
         unified = UNIFIED_PHONE_PREREQUISITES if origins & {'unified', 'workflow'} else ()
         workflow = WORKFLOW_PHONE_PREREQUISITES if 'workflow' in origins else ()
+        # Layout is independently editable and does not establish any quantity,
+        # print, DOM, or pricing contract. Require the existing usable file only;
+        # never reverse historical layout patches or publish this stylesheet.
+        if origins & {'unified', 'workflow'}:
+            style = content(root / PHONE_LAYOUT_STYLE)
+            require(style is not None and style.strip(), 'PHONE_LAYOUT_STYLE_REQUIRED')
         paths = tuple(dict.fromkeys((*FOUNDATION_MANIFEST, *UPGRADE_PATHS, *SOURCE_MANIFEST, BRAND_MENU,
                                     *lifecycle, *unified, *workflow)))
         for relative in paths:
@@ -292,7 +297,7 @@ def prove_prerequisites(root, plan):
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
         # The confirmed branch-tariff workflow is already installed. Normalize
         # only its pinned changes in proof copies before checking the earlier
-        # unified board. Its seven pricing companions are never publication targets.
+        # unified board. Its readonly pricing companions are never publication targets.
         for index, relative in enumerate(workflow):
             patch = stage / ('workflow-' + str(index) + '.diff')
             patch.write_bytes(commit_patch(root, UNIFIED_PHONE_REVISION, WORKFLOW_PHONE_REVISION, relative))
