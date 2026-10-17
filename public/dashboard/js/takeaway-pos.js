@@ -231,8 +231,11 @@
             customerConsent.focus(); return true;
         }
         if (consentField) {
-            if (!customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return true; }
-            consentEnterAffirmed = false; cashInput.focus(); cashInput.select();
+            if (customerConsent.disabled) return true;
+            customerConsent.checked = true;
+            customerConsent.dispatchEvent(new Event('change', { bubbles: true }));
+            consentEnterAffirmed = false;
+            if (!finish.disabled && !finish.hidden) finish.focus();
             return true;
         }
         consentEnterAffirmed = false; customerName.focus(); return true;
