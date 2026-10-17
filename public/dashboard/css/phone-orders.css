@@ -380,3 +380,115 @@
 .ph-option-list{display:grid;gap:10px}.ph-option-list>button{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:58px;padding:14px 16px;border:1px solid #e3e8f0;border-radius:7px;background:#fff;color:#253449;text-align:start}.ph-option-list>button:hover{border-color:#ef7725;background:#fff7ed}.ph-option-list>button span{font-weight:700}.ph-option-list>button bdi{color:#d56e24;font-weight:800;white-space:nowrap}
 
 .ph-line-option-label{display:block;font-size:10px;color:#657186;margin-top:4px;overflow-wrap:anywhere}
+
+/* Intake and live delivery queues share one workspace. */
+#phone-orders.ph-unified{gap:8px}
+#phone-orders.ph-unified .ph-header{padding:0;min-height:36px}
+#phone-orders.ph-unified .ph-header .ph-branch{margin:0;min-height:34px;min-width:155px;padding:5px 8px}
+#phone-orders.ph-unified .ph-new-order{display:flex;align-items:center;justify-content:center;gap:7px;margin-inline-start:auto;border:1px solid #d9660b;border-radius:7px;background:#ed790d;color:#fff;min-height:34px;padding:6px 12px;white-space:nowrap;font-size:11px;font-weight:700}
+#phone-orders.ph-unified .ph-compose-panel{display:flex;flex-direction:column;gap:6px;min-height:0;min-width:0;flex:0 0 auto}
+#phone-orders.ph-unified .ph-flow{min-height:34px;padding:5px 10px;margin:0;gap:6px 12px}
+#phone-orders.ph-unified .ph-steps{gap:12px}
+#phone-orders.ph-unified .ph-steps b{width:22px;height:22px;flex-basis:22px}
+#phone-orders.ph-unified .ph-workspace{min-width:0;min-height:0;padding:0;overflow:hidden}
+#phone-orders.ph-unified .ph-notice{padding:5px 9px}
+#phone-orders.ph-unified.ph-step-number .ph-customer{width:100%;min-height:0;max-height:none;box-shadow:none;border-radius:9px;overflow:visible}
+#phone-orders.ph-unified.ph-step-number .ph-workspace{overflow:visible;flex:none}
+#phone-orders.ph-unified.ph-step-number .ph-customer-scroll{padding:9px 12px;overflow:visible}
+#phone-orders.ph-unified.ph-step-number [data-phone-number-panel]{display:flex;align-items:center;gap:12px;position:relative}
+#phone-orders.ph-unified.ph-step-number .ph-number-intro{margin:0;text-align:start;flex:0 1 190px}
+#phone-orders.ph-unified.ph-step-number .ph-number-intro h2{font-size:15px;margin:0 0 4px}
+#phone-orders.ph-unified.ph-step-number .ph-number-intro>p:last-child{font-size:10px;line-height:1.5;margin:0;max-width:210px}
+#phone-orders.ph-unified.ph-step-number .ph-number-icon,#phone-orders.ph-unified.ph-step-number .ph-eyebrow,#phone-orders.ph-unified.ph-step-number .ph-number-hint{display:none}
+#phone-orders.ph-unified.ph-step-number [data-phone-number-slot]{flex:1;min-width:120px}
+#phone-orders.ph-unified.ph-step-number .ph-field>span{font-size:10px;margin:0}
+#phone-orders.ph-unified.ph-step-number [data-phone-field=customer_phone]{min-height:36px;height:36px;padding:6px 10px;font-size:19px}
+#phone-orders.ph-unified.ph-step-number .ph-lookup button{flex-basis:34px;font-size:13px}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number]{width:auto;min-height:36px;margin:0;padding:7px 12px;flex-shrink:0;font-size:12px}
+#phone-orders.ph-unified.ph-step-number [data-phone-number-matches]{position:absolute;inset-inline:0;top:100%;z-index:8}
+#phone-orders.ph-unified.ph-step-number [data-phone-number-matches]:has([hidden]){display:none}
+#phone-orders.ph-unified .ph-orders{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto minmax(0,1fr);flex:1;min-height:200px;overflow:hidden}
+#phone-orders.ph-unified .ph-orders>.ph-panel-heading{grid-column:2;grid-row:1;padding:4px 8px;border:0;justify-content:flex-end}
+#phone-orders.ph-unified .ph-orders>.ph-panel-heading h2{font-size:11px}
+#phone-orders.ph-unified .ph-batch-bar{grid-column:1;grid-row:1;min-height:30px;padding:3px 8px;gap:8px;flex-wrap:nowrap;font-size:10px}
+#phone-orders.ph-unified .ph-batch-bar small{display:none}
+#phone-orders.ph-unified .ph-batch-finish{min-height:24px;padding:3px 9px;font-size:10px;white-space:nowrap;width:auto}
+#phone-orders.ph-unified .ph-delivery-board{grid-column:1/-1;grid-row:2;min-height:0;gap:8px;padding:0 6px 6px;align-items:stretch;overflow:hidden;grid-template-columns:repeat(3,minmax(0,1fr))}
+#phone-orders.ph-unified .ph-board-column{display:flex;flex-direction:column;min-height:0;border-radius:7px}
+#phone-orders.ph-unified .ph-board-column>h3{min-height:26px;padding:3px 9px;border-top-width:3px;font-size:12px;font-weight:800;flex-shrink:0}
+#phone-orders.ph-unified .ph-board-column>h3 bdi{font-size:10px;padding:2px 7px}
+#phone-orders.ph-unified .ph-board-column>.ph-pagination{min-height:20px;padding:1px;gap:5px}
+#phone-orders.ph-unified .ph-board-column>.ph-pagination button,#phone-orders.ph-unified .ph-board-column>.ph-pagination span{padding:2px 6px;font-size:9px}
+#phone-orders.ph-unified .ph-board-cards{flex:1;min-height:0;max-height:none;gap:1px;padding:4px;align-content:start;grid-auto-rows:minmax(50px,max-content);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin}
+
+@media(min-width:1000px){
+ .content-wrapper.phone-orders-wrapper:has(.ph-unified){height:calc(100dvh - 109px);min-height:0!important;overflow:hidden;padding:8px 12px}
+ #phone-orders.ph-unified.ph-step-details .ph-compose-panel,#phone-orders.ph-unified.ph-step-products .ph-compose-panel{flex:1.6 1 0;min-height:300px}
+ #phone-orders.ph-unified.ph-step-details .ph-orders,#phone-orders.ph-unified.ph-step-products .ph-orders{flex:1 1 0}
+ #phone-orders.ph-unified.ph-step-details .ph-customer{width:100%;height:100%;max-height:none}
+ #phone-orders.ph-unified.ph-step-details .ph-customer-scroll{overflow:auto;padding:9px 12px}
+ #phone-orders.ph-unified.ph-step-details [data-phone-details-panel]{flex:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:250px}
+ #phone-orders.ph-unified.ph-step-details .ph-details-fields{gap:6px}
+ #phone-orders.ph-unified.ph-step-details .ph-details-fields>*{grid-column:auto;grid-row:auto}
+ #phone-orders.ph-unified.ph-step-details [data-phone-detail-matches]{width:49%}
+ #phone-orders.ph-unified.ph-step-details [data-phone-map]{height:150px;min-height:150px!important;flex:1}
+ #phone-orders.ph-unified.ph-step-details .ph-location{grid-column:auto;gap:5px;padding:7px}
+ #phone-orders.ph-unified.ph-step-details .ph-customer>.ph-panel-heading{display:none}
+ #phone-orders.ph-unified.ph-step-details .ph-customer>[data-phone-next-details]{min-height:32px;margin:4px 12px 7px;padding:5px}
+ #phone-orders.ph-unified.ph-step-products .ph-workspace{display:grid;grid-template-columns:minmax(270px,.95fr) minmax(190px,1fr) minmax(180px,.65fr);grid-template-rows:minmax(0,1fr);gap:8px;flex:1}
+ #phone-orders.ph-unified.ph-step-products .ph-invoice,#phone-orders.ph-unified.ph-step-products .ph-catalog,#phone-orders.ph-unified.ph-step-products .ph-customer{grid-row:1;grid-column:auto;height:100%;min-height:0;max-height:none}
+ #phone-orders.ph-unified.ph-step-products .ph-lines{min-height:50px}
+ #phone-orders.ph-unified.ph-step-products .ph-customer-scroll{overflow:auto;padding:6px;gap:5px}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity{flex:1 0 170px;gap:5px}
+ #phone-orders.ph-unified.ph-step-products .ph-keypad{grid-template-rows:repeat(4,minmax(26px,1fr));gap:4px}
+ #phone-orders.ph-unified.ph-step-products .ph-keypad button{font-size:22px;padding:3px;border-radius:5px}
+ #phone-orders.ph-unified.ph-step-products .ph-keypad .ph-key-confirm{font-size:10px;gap:5px}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity-display{flex-direction:row;justify-content:center;gap:5px;flex-wrap:wrap}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity-display>span{font-size:10px}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity-display input{height:36px;width:95px;font-size:30px}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity-display small{font-size:9px}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity-hint{display:none}
+ #phone-orders.ph-unified.ph-step-products [data-phone-customer-summary]{max-height:32px;margin:0;font-size:9px;padding:3px 5px}
+ #phone-orders.ph-unified.ph-step-products [data-phone-edit-customer]{min-height:24px;padding:3px 5px;font-size:9px}
+ #phone-orders.ph-unified.ph-step-products .ph-products{grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:6px}
+ #phone-orders.ph-unified.ph-step-products .ph-product-image{min-height:48px;max-height:72px}
+ #phone-orders.ph-unified.ph-step-products .ph-product-copy{padding:4px;gap:2px}
+ #phone-orders.ph-unified.ph-step-products .ph-checkout>.ph-totals{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(min-width:1000px) and (max-height:700px){
+ .content-wrapper.phone-orders-wrapper:has(.ph-unified){height:auto;min-height:calc(100dvh - 109px)!important;overflow:visible}
+ #phone-orders.ph-unified .ph-compose-panel{flex:none;min-height:0}
+ #phone-orders.ph-unified.ph-step-details .ph-compose-panel,#phone-orders.ph-unified.ph-step-products .ph-compose-panel{flex:none;height:350px}
+ #phone-orders.ph-unified .ph-orders{flex:none;height:320px}
+}
+@media(max-width:999px){
+ .content-wrapper.phone-orders-wrapper:has(.ph-unified){height:auto;min-height:calc(100dvh - 109px)!important;overflow:visible;padding:9px}
+ #phone-orders.ph-unified{height:auto}
+ #phone-orders.ph-unified .ph-header{flex-wrap:wrap}
+ #phone-orders.ph-unified .ph-heading p{display:none}
+ #phone-orders.ph-unified .ph-flow{flex-wrap:wrap}
+ #phone-orders.ph-unified .ph-workspace{overflow:visible}
+ #phone-orders.ph-unified.ph-step-details .ph-customer{max-height:none}
+ #phone-orders.ph-unified.ph-step-details [data-phone-details-panel]{grid-template-columns:minmax(0,1fr)}
+ #phone-orders.ph-unified.ph-step-details .ph-customer-scroll{overflow:visible}
+ #phone-orders.ph-unified.ph-step-products .ph-workspace{display:flex;flex-direction:column}
+ #phone-orders.ph-unified.ph-step-products .ph-customer{height:480px;min-height:480px}
+ #phone-orders.ph-unified.ph-step-products .ph-catalog{height:360px;min-height:360px}
+ #phone-orders.ph-unified.ph-step-products .ph-invoice{height:450px;min-height:450px;max-height:450px}
+ #phone-orders.ph-unified.ph-step-products .ph-lines{min-height:0}
+ #phone-orders.ph-unified.ph-step-products .ph-customer-scroll{overflow:auto}
+ #phone-orders.ph-unified.ph-step-products .ph-quantity{flex:1 0 330px}
+ #phone-orders.ph-unified .ph-orders{flex:none;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;min-height:0}
+ #phone-orders.ph-unified .ph-orders>.ph-panel-heading{grid-column:1;grid-row:1;justify-content:space-between}
+ #phone-orders.ph-unified .ph-batch-bar{grid-column:1;grid-row:2;flex-wrap:wrap}
+ #phone-orders.ph-unified .ph-delivery-board{grid-row:3;grid-template-columns:repeat(3,minmax(240px,1fr));overflow-x:auto;align-items:stretch}
+ #phone-orders.ph-unified .ph-board-cards{height:360px;flex:none}
+}
+@media(max-width:599px){
+ #phone-orders.ph-unified.ph-step-number [data-phone-number-panel]{flex-wrap:wrap;gap:8px}
+ #phone-orders.ph-unified.ph-step-number .ph-number-intro{flex:1 0 100%}
+ #phone-orders.ph-unified.ph-step-number .ph-number-intro>p:last-child{max-width:none}
+ #phone-orders.ph-unified.ph-step-number [data-phone-next-number] kbd{display:none}
+ #phone-orders.ph-unified .ph-new-order{padding:6px 8px;font-size:10px}
+ #phone-orders.ph-unified .ph-board-cards{grid-auto-rows:minmax(112px,max-content)}
+}
