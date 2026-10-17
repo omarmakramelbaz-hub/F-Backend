@@ -44,7 +44,11 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(observer.blob(source), observer.MANIFEST_BLOB)
         runtime, targets, profiles = observer.parse_manifest(source)
         self.assertEqual(len(runtime), 14); self.assertEqual(tuple(targets), observer.TARGETS)
-        self.assertEqual(set(profiles), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'CURRENT'})
+        self.assertEqual(observer.RELEASE, '0f7b9c141f3fb339624887aca76797e50e859ea4')
+        self.assertEqual(observer.MANIFEST_BLOB, 'c5f04fded5a6806e70ec677d43067c20af17193e')
+        self.assertEqual(set(profiles), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'CURRENT'})
+        self.assertEqual(profiles['INSTALLED_V3']['app/Services/Dashboard/WhatsAppOrderWorkflow.php'],
+                         '63c1e6e7e48c500227e0285707611b268e50b3ad')
         with self.assertRaisesRegex(observer.Blocked, 'MANIFEST_HASH_MISMATCH'):
             observer.parse_manifest(source+b'\n# unknown change\n')
         malicious = b"RUNTIME_PINS = __import__('os').system('false')\nTARGET_PINS = {}\nINSTALLED_SOURCE_PROFILES = {}\n"

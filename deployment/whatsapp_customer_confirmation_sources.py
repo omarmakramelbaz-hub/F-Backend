@@ -12,9 +12,9 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path('/home/fasakha/public_html')
-RELEASE = '94befa10cab10c29cbeb504dc13b67256f28f102'
+RELEASE = '0f7b9c141f3fb339624887aca76797e50e859ea4'
 MANIFEST = 'deployment/apply_whatsapp_customer_confirmation.py'
-MANIFEST_BLOB = '6a2e413bf51da394b3a66301dfafcb82ac7a2d25'
+MANIFEST_BLOB = 'c5f04fded5a6806e70ec677d43067c20af17193e'
 MAX_MANIFEST = 1048576
 MAX_SOURCE = 8388608
 TARGETS = ('app/Support/WhatsAppCustomerOrderConfirmation.php',
