@@ -20,6 +20,30 @@ SPEC.loader.exec_module(INSTALLER)
 
 
 class InstallerTest(unittest.TestCase):
+    def test_all_live_conflicts_are_reported_before_publication(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'app'
+            files = ['routes/first.php', 'routes/second.php']
+            original = b'<?php\n// custom live behavior\n'
+            release = b'<?php\n// expected baseline\n// customer hook\n'
+            entries = []
+            for relative in files:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(original)
+                entries.append({'path': relative, 'before': '0' * 64, 'after': hashlib.sha256(release).hexdigest(),
+                    'patch': f'--- a/{relative}\n+++ b/{relative}\n@@ -2 +2,2 @@\n // expected baseline\n+// customer hook\n'})
+            manifest = {'version': 1, 'files': entries, 'migrations': []}
+            with patch.object(INSTALLER, 'source', side_effect=lambda _r, _v, p: json.dumps(manifest).encode() if p.endswith('manifest.json') else release), \
+                 patch.object(INSTALLER.pwd, 'getpwnam', return_value=types.SimpleNamespace(pw_uid=os.geteuid())), \
+                 patch.object(sys, 'argv', ['apply', '--root', str(root), '--revision', 'a' * 40]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW: routes/first.php, routes/second.php'):
+                    INSTALLER.main()
+            for relative in files:
+                self.assertEqual((root / relative).read_bytes(), original)
+            self.assertEqual(list((root.parent / 'customer-crm-release-backups').glob('*/receipt.json')), [])
+
     def test_reviewed_go_lifecycle_variants_keep_every_existing_byte(self):
         project = Path(__file__).parents[1]
         entry = next(item for item in json.loads((project / 'deployment/customer_crm_manifest.json').read_text())['files']

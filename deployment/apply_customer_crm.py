@@ -81,6 +81,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='customer-crm-', dir=parent) as directory:
             stage = Path(directory)
             changes = []
+            conflicts = []
             for entry in manifest['files']:
                 relative = entry['path']
                 require(re.fullmatch(r'(?:app|config|database|public|resources|routes|desktop-pos)/[A-Za-z0-9_./-]+', relative)
@@ -121,7 +122,9 @@ def main():
                             break
                     if installed:
                         continue
-                    require(selected is not None, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+                    if selected is None:
+                        conflicts.append(relative)
+                        continue
                     patch.write_text(selected)
                     apply = run(['git', 'apply', '--whitespace=nowarn', str(patch)], cwd=stage)
                     require(apply.returncode == 0, 'PATCH_FAILED: ' + relative)
@@ -133,6 +136,7 @@ def main():
                     check = run([args.php, '-l', str(staged)])
                     require(check.returncode == 0, 'PHP_SYNTAX_INVALID: ' + relative)
                 changes.append((relative, target, before, after, stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o644))
+            require(not conflicts, 'LIVE_CHANGE_NEEDS_REVIEW: ' + ', '.join(conflicts))
             print('CRM_PREFLIGHT_OK files=' + str(len(changes)), flush=True)
             if args.check:
                 return

@@ -18,9 +18,9 @@ let status={available:true,enabled:false,feedback_enabled:false,feedback_ready:f
 const boot={module:'customers',branches:[{value:'f:100',name:'شبرا الخيمة',id:100,kind:'f'},{value:'f:101',name:'المنصورة',id:101,kind:'f'}],selected_branch:'all',initial:registry,actor_id:1,allow_all:true,can_message:true,today:'2026-10-17',urls};
 fs.writeFileSync(path.join(temp,'boot.json'),JSON.stringify(boot));
 const render=`require getenv('WA_INBOX_TEST_VENDOR'); $boot=json_decode(file_get_contents(getenv('CRM_UI_BOOT')),true); $blade=file_get_contents(getenv('CRM_UI_BLADE')); $blade=explode("@section('content')",$blade,2)[1]; $blade=explode('@endsection',$blade,2)[0]; $compiler=new \\Illuminate\\View\\Compilers\\BladeCompiler(new \\Illuminate\\Filesystem\\Filesystem,getenv('CRM_UI_CACHE')); $__env=new class { use \\Illuminate\\View\\Concerns\\ManagesLoops; }; eval('?>'.$compiler->compileString($blade));`;
-const content=cp.execFileSync(php,['-r',render],{encoding:'utf8',env:{...process.env,CRM_UI_BOOT:path.join(temp,'boot.json'),CRM_UI_BLADE:path.join(root,'resources/views/admin/branch_operations/index.blade.php'),CRM_UI_CACHE:temp}});
-const css=fs.readFileSync(path.join(root,'public/dashboard/css/branch-operations.css'),'utf8');
-const js=fs.readFileSync(path.join(root,'public/dashboard/js/branch-operations.js'),'utf8');
+const content=cp.execFileSync(php,['-r',render],{encoding:'utf8',env:{...process.env,CRM_UI_BOOT:path.join(temp,'boot.json'),CRM_UI_BLADE:path.join(root,'resources/views/admin/customer_crm/index.blade.php'),CRM_UI_CACHE:temp}});
+const css=fs.readFileSync(path.join(root,'public/dashboard/css/customer-crm.css'),'utf8');
+const js=fs.readFileSync(path.join(root,'public/dashboard/js/customer-crm.js'),'utf8');
 const html='<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-csrf"><style>body{margin:0;font-family:Arial,sans-serif}button{font-family:inherit}h3{font-weight:700}</style><style>'+css+'</style></head><body>'+content+'<script type="application/json" id="branch-operations-bootstrap">'+JSON.stringify(boot).replaceAll('<','\\u003c')+'</script><script>'+js+'</script></body></html>';
 (async()=>{
 const browser=await chromium.launch({headless:true,executablePath:process.env.CRM_TEST_CHROMIUM||undefined});const page=await browser.newPage({viewport:{width:1440,height:1000}});const calls=[];const errors=[];page.on('pageerror',e=>errors.push(e.message));let firstCampaign=true;

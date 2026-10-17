@@ -20,7 +20,8 @@ class BranchOperationsController extends Controller
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
         $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
         if($module==='customers')$boot['can_message']=app(WhatsAppInboxAccess::class)->canAccess($actor);
-        return view('admin.branch_operations.index',compact('boot'));
+        $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
+        return view($view,compact('boot'));
     }
     public function data(Request $r){return response()->json($this->service($r)->listing($r->all(),$this->actor($r)));}
     public function save(Request $r){$s=$this->service($r);return response()->json($this->module($r)==='employees'?$s->employeeSave($r->all(),$this->actor($r)):$s->save($r->all(),$this->actor($r)));}

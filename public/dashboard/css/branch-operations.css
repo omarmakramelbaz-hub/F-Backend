@@ -80,34 +80,3 @@
  #branch-operations.op-employees .op-pager button{min-height:26px;padding:3px 8px;font-size:11px}
 }
 @media(max-width:650px){#branch-operations .op-header{flex-wrap:wrap}#branch-operations .op-header-actions{width:100%;justify-content:flex-start}#branch-operations .op-header-actions button{font-size:11px;min-height:34px;padding:6px 9px}}
-
-/* Unified customer directory and explicit WhatsApp permissions. */
-#branch-operations .op-customer-sources{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:165px}
-#branch-operations .op-customer-sources small{flex-basis:100%}
-#branch-operations .op-source-badge{padding:4px 9px;border-radius:20px;background:#edf2fa;color:#31557d;font-size:11px;white-space:nowrap;font-weight:700}
-#branch-operations .op-source-takeaway{background:#fff1df;color:#9b5814}
-#branch-operations .op-source-dine{background:#f2ebff;color:#6942a8}
-#branch-operations .op-source-app{background:#e6f3ff;color:#1969ad}
-#branch-operations .op-source-delivery{background:#e5f6ed;color:#24784c}
-#branch-operations .op-consent-status{display:grid;gap:6px;min-width:105px;font-size:12px}
-#branch-operations .op-consent-yes{color:#167044}
-#branch-operations .op-consent-off{color:#6f7888}
-#branch-operations .op-check{display:flex;align-items:flex-start;gap:10px;padding:12px;background:#f4f8fb;border:1px solid #e2eaf1;border-radius:8px;line-height:1.8;cursor:pointer}
-#branch-operations .op-check input{width:18px;min-height:18px;height:18px;margin-top:4px;flex-shrink:0;accent-color:#ef801e}
-#branch-operations .op-crm-count{padding:12px;background:#eaf6ef;color:#176e43;border-radius:8px;font-weight:700}
-#branch-operations .op-template-preview{white-space:pre-wrap;background:#eaf7ec;border:1px solid #c9e2cd;border-radius:10px;padding:16px;line-height:2;min-height:70px}
-#branch-operations .op-template-preview:empty{display:none}
-#branch-operations .op-template-parameters{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-#branch-operations .op-form h3{grid-column:1/-1;font-size:17px;margin:2px 0}
-#branch-operations .op-messaging-settings{padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid #dce5eb}
-#branch-operations .op-campaign-history{margin-top:24px}
-#branch-operations .op-campaign-history h3{font-size:17px}
-#branch-operations .op-campaign-history .op-table-wrap{margin-top:12px}
-#branch-operations .op-crm-followup{font-size:12px;margin:0}
-@media(max-width:650px){#branch-operations .op-template-parameters{grid-template-columns:1fr}}
-
-#branch-operations .op-form>.op-wide{grid-column:1/-1}
-#branch-operations .op-form .op-message:empty{display:none}
-#branch-operations .op-messaging-settings-group{margin-bottom:22px;border:1px solid #dce5eb;border-radius:10px;overflow:hidden}
-#branch-operations .op-messaging-settings-group>summary{cursor:pointer;background:#f3f7fa;padding:14px;font-size:16px;font-weight:700}
-#branch-operations .op-messaging-settings{padding:16px;margin:0;border:0}
