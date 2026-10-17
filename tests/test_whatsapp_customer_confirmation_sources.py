@@ -39,8 +39,13 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(value[key], 0)
         return value
 
+    def pinned_manifest(self):
+        source = observer.git(ROOT, ['show', observer.RELEASE+':'+observer.MANIFEST])
+        self.assertEqual(observer.blob(source), observer.MANIFEST_BLOB)
+        return source
+
     def test_pinned_manifest_is_parsed_as_literals_without_loading_any_code(self):
-        source = (ROOT/observer.MANIFEST).read_bytes()
+        source = self.pinned_manifest()
         self.assertEqual(observer.blob(source), observer.MANIFEST_BLOB)
         runtime, targets, profiles = observer.parse_manifest(source)
         self.assertEqual(len(runtime), 14); self.assertEqual(tuple(targets), observer.TARGETS)
@@ -57,7 +62,7 @@ class SourceTests(unittest.TestCase):
                 observer.parse_manifest(malicious)
 
     def test_manifest_loader_requires_exact_release_tree_size_and_blob(self):
-        source = (ROOT/observer.MANIFEST).read_bytes(); calls = []
+        source = self.pinned_manifest(); calls = []
         def runner(root, arguments):
             calls.append(arguments)
             if arguments[0] == 'ls-tree':

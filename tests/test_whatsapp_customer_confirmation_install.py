@@ -99,6 +99,31 @@ def reviewed_current_catalog():
     return content
 
 
+def reviewed_tariff_origin_runtime():
+    pins = {
+        'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php': ('836cadb027419892e4871bcfbe59edd53015dd82', 4025),
+        'app/Services/Dashboard/BranchDeliveryTariff.php': ('232833a207b116d20d1f64b8c01cecc689f84ef9', 3556),
+    }
+    values = {}
+    for path, (pin, size) in pins.items():
+        content = (ROOT/'tests/fixtures/whatsapp_confirmation_runtime'/pathlib.Path(path).name).read_bytes()
+        if len(content) != size or repair.blob(content) != pin:
+            raise AssertionError('Reviewed branch-tariff runtime fixture changed: '+path)
+        values[path] = content
+    return values
+
+
+def reviewed_legacy_delivery_origin():
+    current = reviewed_tariff_origin_runtime()['app/Services/Dashboard/FasakhanstaDeliveryOrigin.php']
+    addition = b'        $tiers=[];foreach(BranchDeliveryTariff::TIERS as $field)if(property_exists($row,$field))$tiers[$field]=$row->{$field};\n'
+    if current.count(addition) != 1 or current.count(b']+$tiers;') != 1:
+        raise AssertionError('Reviewed origin tariff-only extension changed')
+    legacy = current.replace(addition, b'').replace(b']+$tiers;', b'];')
+    if repair.blob(legacy) != '1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f':
+        raise AssertionError('Reviewed original delivery-origin fixture changed')
+    return legacy
+
+
 class Fixture:
     def __init__(self, folder):
         self.uid = os.geteuid(); self.root = pathlib.Path(folder)/'app'
@@ -257,6 +282,10 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         self.assertEqual(repair.RUNTIME_PINS['app/Services/Dashboard/TakeawayCatalog.php'],
             ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
              '7476e436bf06a2a777977733580a73f10b04653b', 'e96fce33037a06330f95d6a91553950cdf32d763'))
+        self.assertEqual(repair.RUNTIME_PINS['app/Services/Dashboard/FasakhanstaDeliveryOrigin.php'],
+            ('1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f', '836cadb027419892e4871bcfbe59edd53015dd82'))
+        self.assertNotIn('app/Services/Dashboard/BranchDeliveryTariff.php', repair.TARGET_PINS)
+        self.assertNotIn('app/Services/Dashboard/BranchDeliveryTariff.php', repair.RUNTIME_PINS)
         self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
         self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'CURRENT'})
         self.assertEqual(repair.INSTALLED_SOURCE_PROFILES, {'INSTALLED_V1': {
@@ -467,6 +496,89 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
             self.fixture.uid, self.fixture.root), before)
         self.assertEqual(self.fixture.controls, before_control)
         self.assertFalse(any(args[0] == '/usr/bin/systemctl' for args in self.fixture.calls))
+
+    def test_installed_v3_preserves_tariff_origin_0600_inode_and_all_runtime_through_upgrade_and_recheck(self):
+        self.fixture.installed_v3(); parser, workflow = tuple(repair.TARGET_PINS)
+        runtime = reviewed_tariff_origin_runtime(); origin, tariff = tuple(runtime)
+        self.fixture.runtime[origin] = repair.RUNTIME_PINS[origin]
+        for path, content in runtime.items(): self.fixture.write(path, content, 0o600)
+        protected = (*self.fixture.runtime, *repair.UNCHANGED_DEPENDENCIES, tariff, parser)
+        before = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+            self.fixture.uid, self.fixture.root) for path in protected}
+        before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
+        before_control = dict(self.fixture.controls)
+        checked = self.fixture.apply(True)
+        self.assertEqual(checked['source_profile'], 'INSTALLED_V3')
+        result = self.fixture.apply(expected=wrapper.expected_state(checked))
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertEqual(receipt['changed_targets'], [workflow])
+        self.assertFalse(set(runtime) & set(receipt['publication_targets']))
+        with self.fixture.patches():
+            self.assertEqual(repair.verify_state(self.fixture.root, self.fixture.uid,
+                wrapper.expected_state(result), runner=self.fixture.runner)['status'], 'WA_CONFIRMATION_STATE_READY')
+        self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
+        for path, snapshot in before.items():
+            self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                self.fixture.uid, self.fixture.root), snapshot)
+        for path in runtime:
+            self.assertEqual((self.fixture.root/path).stat().st_mode & 0o7777, 0o600)
+            self.assertEqual((self.fixture.root/path).stat().st_nlink, 1)
+        self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
+        self.assertEqual(self.fixture.controls, before_control)
+
+    def test_original_origin_still_installs_without_an_unneeded_tariff_class(self):
+        self.fixture.installed_v3(); origin = 'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php'
+        self.fixture.runtime[origin] = repair.RUNTIME_PINS[origin]
+        self.fixture.write(origin, reviewed_legacy_delivery_origin(), 0o600)
+        tariff = self.fixture.root/'app/Services/Dashboard/BranchDeliveryTariff.php'
+        self.assertFalse(tariff.exists())
+        before = repair.library.guarded_snapshot(self.fixture.root/origin, self.fixture.uid, self.fixture.root)
+        self.assertEqual(self.fixture.apply(True)['source_profile'], 'INSTALLED_V3')
+        self.assertEqual(self.fixture.apply()['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        self.assertFalse(tariff.exists())
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/origin,
+            self.fixture.uid, self.fixture.root), before)
+
+    def test_new_origin_requires_its_existing_tariff_dependency_before_publication(self):
+        self.fixture.installed_v3(); runtime = reviewed_tariff_origin_runtime(); origin, tariff = tuple(runtime)
+        self.fixture.runtime[origin] = repair.RUNTIME_PINS[origin]
+        self.fixture.write(origin, runtime[origin], 0o600)
+        before = repair.library.guarded_snapshot(self.fixture.root/origin, self.fixture.uid, self.fixture.root)
+        with self.assertRaisesRegex(repair.SafeError, 'REQUIRED_FILE_MISSING'): self.fixture.apply()
+        self.fixture.originals_intact(self)
+        self.assertFalse((self.fixture.root/tariff).exists())
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/origin,
+            self.fixture.uid, self.fixture.root), before)
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_unknown_adjacent_tariff_origin_bytes_fail_before_publication(self):
+        self.fixture.installed_v3(); runtime = reviewed_tariff_origin_runtime(); origin, tariff = tuple(runtime)
+        self.fixture.runtime[origin] = repair.RUNTIME_PINS[origin]
+        for path, content in runtime.items(): self.fixture.write(path, content, 0o600)
+        self.fixture.write(origin, runtime[origin]+b'\n// unreviewed origin mutation\n', 0o600)
+        before = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+            self.fixture.uid, self.fixture.root) for path in runtime}
+        with self.assertRaisesRegex(repair.SafeError, 'WA_CONFIRMATION_RUNTIME_SOURCE_MISMATCH'): self.fixture.apply()
+        self.fixture.originals_intact(self)
+        for path, snapshot in before.items():
+            self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                self.fixture.uid, self.fixture.root), snapshot)
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_tariff_dependency_change_during_lint_is_retained_and_blocks_publication(self):
+        self.fixture.installed_v3(); runtime = reviewed_tariff_origin_runtime(); origin, tariff = tuple(runtime)
+        self.fixture.runtime[origin] = repair.RUNTIME_PINS[origin]
+        for path, content in runtime.items(): self.fixture.write(path, content, 0o600)
+        changed = [False]
+        def hook(args):
+            if args[:2] == [repair.PHP, '-l'] and not changed[0]:
+                changed[0] = True; self.fixture.write(tariff, runtime[tariff]+b'\n// concurrent approved tariff release\n', 0o600)
+        self.fixture.hook = hook
+        with self.assertRaisesRegex(repair.SafeError, 'PUBLICATION_STATE_CHANGED'): self.fixture.apply()
+        self.fixture.originals_intact(self)
+        self.assertIn(b'concurrent approved tariff release', (self.fixture.root/tariff).read_bytes())
+        self.assertEqual((self.fixture.root/tariff).stat().st_mode & 0o7777, 0o600)
 
     def test_preflight_has_no_application_policy_order_or_service_mutation(self):
         before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
