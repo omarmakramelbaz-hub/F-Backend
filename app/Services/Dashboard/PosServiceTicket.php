@@ -59,13 +59,14 @@ class PosServiceTicket
         $this->channel($channel);$rules=$this->commandRules()+['ticket_id'=>'nullable|integer|min:1','table_id'=>'nullable|integer|min:1','expected_revision'=>'nullable|integer|min:1',
             'items'=>'present|array|max:100','discount'=>'nullable|string|max:14','discount_reason'=>'nullable|string|max:500','quote_hash'=>'nullable|string|size:64','reprice'=>'nullable|boolean',
             'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
-        $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
-            ['customer_name'=>'required|string|max:100','customer_phone'=>['required','string','max:30','regex:/^[+0-9 ()-]{6,30}$/D'],'address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','delivery_fee_manual'=>'nullable|boolean','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
+        $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','customer_phone'=>'nullable|string|max:30','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
+            ['customer_name'=>'required|string|max:100','customer_phone'=>'required|string|max:30','address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','delivery_fee_manual'=>'nullable|boolean','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
         if($channel==='phone')$rules['delivery_origin_branch']=['nullable','string','regex:/^f:[1-9][0-9]{0,18}$/D'];
         $v=Validator::make($values,$rules)->validate();if($channel==='phone')$v=$this->inheritDeliveryOrigin($v,$actor);foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
         $delivery=0;
-        $phoneKey=$channel==='phone'?BranchCustomers::phoneKey($v['customer_phone']):null;if($channel==='phone')abort_unless(preg_match('/^\+?[0-9]{6,20}$/D',$phoneKey),422,'رقم الهاتف غير صالح.');
+        if($channel==='phone'||!empty($v['customer_phone']))$v['customer_phone']=CustomerDirectory::requirePhone($v['customer_phone']??null);
+        $phoneKey=!empty($v['customer_phone'])?CustomerDirectory::phoneKey($v['customer_phone']):null;
         $hash=self::fingerprint([$channel,'save',$v]);$this->tables->requireReady();
         return DB::transaction(function()use($channel,$v,$actor,$hash,$delivery,$phoneKey){
             $actor=$this->access->actor($actor);$branch=$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
@@ -109,6 +110,7 @@ class PosServiceTicket
             if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
             else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
+            app(CustomerDirectory::class)->capture($v,$channel==='phone'?'delivery':'dine',$v['branch']);
             if($table)DB::table('pos_service_tables')->where('id',$table->id)->update(['active_ticket_id'=>$id,'revision'=>(int)$table->revision+1,'updated_at'=>$when]);
             if($channel==='phone'&&($v['send_to_kitchen']??false))$this->queueKitchen($id,$v['branch'],$actor->id,$data['revision'],$when);
             $op=$this->record($v,$actor,$hash,'save',$id,$data['revision']);return $this->result($op,$actor,false);
@@ -150,8 +152,10 @@ class PosServiceTicket
     }
     public function settle(string $channel,int $id,array $values,$actor): array
     {
+        $this->channel($channel);
         $v=Validator::make($values,$this->commandRules()+['expected_revision'=>'required|integer|min:1','quote_hash'=>'required|string|size:64',
-            'payment_method'=>'required|string','cash_received'=>'nullable|string','payment_confirmed'=>'nullable|boolean','payment_reference'=>'nullable|string|max:150','tenders'=>'nullable|array'])->validate();
+            'payment_method'=>'required|string','cash_received'=>'nullable|string','payment_confirmed'=>'nullable|boolean','payment_reference'=>'nullable|string|max:150','tenders'=>'nullable|array',
+            'service_consent'=>'nullable|boolean','marketing_consent'=>'nullable|boolean']+($channel==='dine'?['customer_phone'=>'nullable|string|max:30']:[]))->validate();
         if($channel==='phone')abort_unless(($v['payment_confirmed']??false)===true,422,'أكد تحصيل قيمة الطلب فعليًا قبل إنهائه.');
         $hash=self::fingerprint([$channel,$id,'settle',$v]);$this->tables->requireReady();
         return DB::transaction(function()use($channel,$id,$v,$actor,$hash){
@@ -159,6 +163,11 @@ class PosServiceTicket
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
             abort_unless($v['payment_method']==='cash'&&empty($v['tenders']),422,'الدفع متاح كاش فقط.');
             $row=$this->locked($channel,$id,$v['branch']);$this->collectible($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
+            if($channel==='dine'){
+                $v['customer_phone']=CustomerDirectory::requirePhone($v['customer_phone']??$row->customer_phone??null);
+                $row->customer_phone=$v['customer_phone'];$row->phone_key=CustomerDirectory::phoneKey($v['customer_phone']);
+                DB::table('pos_service_tickets')->where('id',$id)->update(['customer_phone'=>$row->customer_phone,'phone_key'=>$row->phone_key]);
+            }
             $q=json_decode($row->quote_snapshot,true);abort_unless(!empty($q['quote_hash'])&&hash_equals($q['quote_hash'],$v['quote_hash']),409,'راجع الفاتورة المحفوظة.');
             $cart=json_decode($row->cart_snapshot,true);$snapshot=$this->contextSnapshot($row);$context=['channel'=>$channel,'ticket_id'=>$id,'saved_quote'=>$q,
                 'branch_snapshot'=>$q['branch'],'snapshot'=>$snapshot];

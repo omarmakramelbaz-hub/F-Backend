@@ -14,7 +14,7 @@ class UserObserver
     {
         if ($user->isDirty('balance')) {
             // Broadcast the event
-            broadcast(new BalanceUpdated($user,$user->id));
+            app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new BalanceUpdated($user, $user->id));
         }
     }
 }

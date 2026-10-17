@@ -51,8 +51,6 @@
   </div>
   
     <strong class="text-center">Copyright &copy; {{ date('Y') }} . @lang('main.allrights')</strong>
-    تم تصميم و تطوير المشروع من خلال شركة <a
-        href="http://smartvision4p.com/">شركة سمارت فيجن</a> لتقنية المعلومات.
 </footer>
 
 <!-- Control Sidebar -->
@@ -75,12 +73,13 @@
 <!--<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>-->
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
-<script src="//cdn.ckeditor.com/4.14.0/standard/ckeditor.js"></script>
+<script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>
 
 
 
-<script>
+<script data-dashboard-page-init>
 $(document).ready(function() {
     // if ($("#show-case").next().length > 0) {
     //     $("#show-case").next().hide();
@@ -160,7 +159,7 @@ $(document).ready(function() {
 
 </script>
 
-<script type="text/javascript">
+<script type="text/javascript" data-dashboard-page-init>
 
 
 
@@ -185,23 +184,29 @@ $(document).ready(function() {
     </script>
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+<div data-dashboard-page-scripts hidden>
+<script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
-  <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+</div>
+  <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://js.pusher.com/8.2.0/pusher.min.js') }}"></script>
 
 <!-- AdminLTE App -->
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
+<script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-operating-day.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-operating-day.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-expense-badge.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-expense-badge.js')) }}"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 <script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
 <!-- AdminLTE for demo purposes -->
 <script src="{{ url('/dashboard') }}/dist/js/demo.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js') }}"></script>
 <!-- Latest compiled and minified JavaScript -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
 <script>
 console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
@@ -299,7 +304,7 @@ navigator.serviceWorker.addEventListener('message', (event) => {
           
 //         });
 //     }
-});
+// });
 
 }
 
@@ -403,7 +408,7 @@ function sendTokenToServer(token){
 
 </script>
 <!-- Page JS -->
-<script>
+<script data-dashboard-page-init>
     $(document).ready(function() {
 $('.selectize').selectize()
 // $('select').select2();
@@ -411,12 +416,6 @@ $('.selectize').selectize()
         toastr.options.timeOut = 10000;
         @if (Session::has('error'))
             toastr.error('{{ Session::get('error') }}');
-        @endif
-        @if (Session::has('success'))
-            toastr.success('{{ Session::get('success') }}');
-        @endif
-        @if (Session::has('info'))
-            toastr.success('{{ Session::get('info') }}');
         @endif
         @if (count($errors))
               @foreach ($errors->all() as $error)
@@ -426,9 +425,9 @@ $('.selectize').selectize()
 
     
 });
-function changeLanguage(lang) {
+window.changeLanguage = function(lang) {
         window.location = '{{ url('/change-language') }}/' + lang;
-    }
+    };
     $(function () {
  
   $(".rateYo").rateYo({
@@ -438,7 +437,7 @@ function changeLanguage(lang) {
 });
 </script>
 
-<script src="https://unpkg.com/sweetalert/dist/sweetalert.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://unpkg.com/sweetalert/dist/sweetalert.min.js') }}"></script>
 <script>
     // Show SweetAlert "Enable notification sound" only once per browser using localStorage
     document.addEventListener('DOMContentLoaded', function() {
@@ -466,7 +465,7 @@ function changeLanguage(lang) {
         }
     });
 </script>
-<script type="text/javascript">
+<script type="text/javascript" data-dashboard-page-init>
     $(function() {
     // Multiple images preview in browser
     var imagesPreview = function(input, placeToInsertImagePreview) {
@@ -630,7 +629,8 @@ $(document).ready(function () {
                                     $(this).parents("tr").remove();
                                 });
                                 alert(data['success']);
-                                window.location.reload();
+                                if (window.DashboardSPA) window.DashboardSPA.reload();
+                                else window.location.reload();
                             } else if (data['error']) {
                                 alert(data['error']);
                             } else {
@@ -643,10 +643,12 @@ $(document).ready(function () {
                     });
 
 
+                  @unless(config('desktop_dashboard.local'))
                   $.each(allVals, function( index, value ) {
                       $('table tr').filter("[data-row-id='" + value + "']").remove();
                       
                   });
+                  @endunless
                 //   $('tbody').html(' <tr><td colspan="4"><h4>@lang('main.no data to show')</h4><td></tr>');
                 }  
             }  
@@ -697,7 +699,7 @@ $(document).ready(function () {
 });
 </script>
 
-<script>
+<script data-dashboard-page-init>
      $('.select-component').select2();
       $('#jstree').jstree();
 </script>
@@ -1109,6 +1111,11 @@ function openOrFocusWindow(orderId) {
 
 </script>
 
+<script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>
+
+@include('admin.pos_service.receiver')
+<script src="{{ asset('dashboard/js/dashboard-inbox.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-inbox.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-support-chat.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-support-chat.js')) }}"></script>
 </body>
 
 </html>

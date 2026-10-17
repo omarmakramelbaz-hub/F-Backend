@@ -18,7 +18,7 @@ class FeatureController extends Controller
         $this->middleware('permission:feature-list', ['only' => ['index','show']]);
         $this->middleware('permission:feature-create', ['only' => ['create','store']]);
         $this->middleware('permission:feature-edit', ['only' => ['update','edit']]);
-        $this->middleware('permission:feature-delete', ['only' => ['destroy','delete_all']]);
+        $this->middleware('permission:feature-delete', ['only' => ['destroy','delete_all','deleteAll']]);
         $this->featureRepository = $featureRepository;
     }
 
@@ -53,7 +53,7 @@ class FeatureController extends Controller
      */
     public function store(StoreFeatureRequest $request)
     {
-        $featureDetails = $request->except('_token');
+        $featureDetails = $request->except('_token','_method','_desktop_command','idempotency_key');
 
         $feature = $this->featureRepository->createFeature($featureDetails);
         
@@ -91,7 +91,7 @@ class FeatureController extends Controller
      */
     public function update(StoreFeatureRequest $request, Feature $feature)
     {
-        $featureDetails = $request->except('_token','_method');
+        $featureDetails = $request->except('_token','_method','_desktop_command','idempotency_key');
         $this->featureRepository->updateFeature($feature->id, $featureDetails);
         
         return redirect()->back()->with('success',trans('messages.UpdateSuccessfully'));

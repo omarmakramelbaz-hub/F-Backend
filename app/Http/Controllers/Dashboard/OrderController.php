@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Dashboard;
 use App\Models\Order;
+use App\Services\Dashboard\LegacyOrderCompletion;
+use Illuminate\Support\Facades\DB;
 use App\Models\Cart;
 use App\Models\ShippingZone;
 use App\Models\GeneralSettings;
@@ -60,7 +62,7 @@ class OrderController extends Controller
      public function downloadInvoice(Request $request)
     {        
         
-        $invoice = Order::where('id',$request->id)->first();       
+        $invoice = Order::where('id',$request->id)->firstOrFail();
         view()->share('invoice',$invoice);
         
         if($request->type == 'admin'){
@@ -84,6 +86,7 @@ class OrderController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate(['from_date'=>'nullable|date_format:Y-m-d','to_date'=>'nullable|date_format:Y-m-d']);
         $searchQuery = trim($request->query('search'));
         $orders = Order::query();
         if(! empty(request('status')) ){
@@ -108,9 +111,9 @@ class OrderController extends Controller
             });
         }   
         $orders = $orders->when($request->query('from_date'), function($query, $from_date) {
-                $query->where('created_at', '>=', $from_date);
+                $query->where('created_at', '>=', \App\Services\Dashboard\OperatingDay::start($from_date)->toDateTimeString());
             })->when($request->query('to_date'), function($query, $to_date) {
-                $query->where('created_at', '<=', $to_date);
+                $query->where('created_at', '<', \App\Services\Dashboard\OperatingDay::end($to_date)->toDateTimeString());
             });
             // ->where('type','!=','wallet');
             // ->whereNotNull('status')
@@ -123,6 +126,7 @@ class OrderController extends Controller
 
     public function show(Order $order)
     {
+        $this->assertAdminOrderAccess($order);
         if($order->order_type=='shipping'){
           return view('admin.orders.shipping_show', compact('order'));
         }else{
@@ -136,6 +140,7 @@ class OrderController extends Controller
     
     public function applies()
     {
+        request()->validate(['date'=>'nullable|date_format:Y-m-d']);
         $orders = Order::query()->with('carts');
         
 
@@ -163,7 +168,8 @@ class OrderController extends Controller
         }
         
         if(! empty(request()->date) ){
-            $orders = $orders->whereDate('created_at' , request()->date);
+            $orders->where('created_at','>=',\App\Services\Dashboard\OperatingDay::start(request()->date)->toDateTimeString())
+                ->where('created_at','<',\App\Services\Dashboard\OperatingDay::end(request()->date)->toDateTimeString());
         }
        
          if(request()->q){
@@ -176,6 +182,22 @@ class OrderController extends Controller
     }
      public function changeStatus(Order $order, Request $request)
     {
+        $this->assertAdminOrderAccess($order);
+        if ($order->type !== 'current') return $this->changeStatusLocked($order, $request);
+        return DB::transaction(function () use ($order, $request) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true) && $locked->status !== $request->status, 409, 'تم إغلاق الطلب.');
+            return $this->changeStatusLocked($locked, $request);
+        }, 3);
+    }
+
+    private function changeStatusLocked(Order $order, Request $request)
+    {
+        $this->assertAdminOrderAccess($order);
+        if ($request->status === 'completed' && $order->type === 'current') {
+            app(LegacyOrderCompletion::class)->complete($order);
+            return redirect()->back()->with('success', trans('messages.UpdatedSuccessfully'));
+        }
         if($order->status!= $request->status){
         $update = $order->update([
             'status' => $request->status,
@@ -269,6 +291,7 @@ class OrderController extends Controller
 
     public function destroy(Cart $order)
     {
+        Order::whereKey($order->order_id)->firstOrFail();
         $order->delete();      
         return redirect('admin/orders')->with('success',trans('messages.DeleteSuccessfully'));
         
@@ -282,7 +305,7 @@ class OrderController extends Controller
     }
 
     public function singleOrder($id){
-        $order = Order::where('id', $id)->first();
+        $order = Order::where('id', $id)->firstOrFail();
         if($order){
             $img = $order->getFirstMediaUrl('front_cover','thumb');
             return response()->json($img);
@@ -328,6 +351,7 @@ class OrderController extends Controller
     }
     
     public function updateOrder(Cart $order , Request $request){
+        Order::whereKey($order->order_id)->firstOrFail();
         // dd($request->all());
         $order->orders()->delete();
         $sum = 0;
@@ -367,7 +391,7 @@ class OrderController extends Controller
     
     public function download_fatora(){
     
-        $invoice=Order::find(request()->id);
+        $invoice=Order::findOrFail(request()->id);
         view()->share('invoice',$invoice);
 
         if(request()->has('download')) {
@@ -380,7 +404,7 @@ class OrderController extends Controller
     
     }
     public function print_fatora(){
-        $invoice=Order::find(request()->id);
+        $invoice=Order::findOrFail(request()->id);
         view()->share('invoice',$invoice);
 
         if(request()->has('download')) {
@@ -469,7 +493,12 @@ class OrderController extends Controller
              $order=Order::whereIn('status',['cancelled','declined'])->find($id);
 
             if($order && $order->grand_total>0 && $order->transfer_price_by==null ){
-                $user = User::findOrFail($order->user_id);
+                // The order was scoped above; use its actual customer even when
+                // a JSON branch session applies the unrelated user listing scope.
+                $userQuery = auth('admin')->check()
+                    ? User::withoutGlobalScope(\App\Scopes\AdminScope::class)
+                    : User::query();
+                $user = $userQuery->findOrFail($order->user_id);
                     // transfer grand_total to user
                         Wallet::create([
                             'to_user'=>$user->id,
@@ -483,7 +512,7 @@ class OrderController extends Controller
                        if($order->status=='cancelled'){
                      Notification::send($user,new \App\Notifications\NotifyUserCancelledOrderPriceNotification($order));
                        }else{
-                                           Notification::send($order->user,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$order->grand_total));
+                                           Notification::send($user,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$order->grand_total));
 
                        }
                     $order->update(['transfer_price_by'=>'admin']);
@@ -501,8 +530,32 @@ class OrderController extends Controller
     
     
     public function transferPrice($id){
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->grand_total > 0 && $locked->transfer_price_by === null;
+            $result = $this->transferPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Order gross settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferPriceLocked($id){
+        // Resolve before the legacy catch so inaccessible dashboard IDs
+        // produce a 404 instead of returning an exception as a response.
+        $order=Order::findOrFail($id);
+        if (auth('admin')->check()) {
+            // The scoped order fixes the recipient IDs; dashboard list scopes
+            // must not hide the assigned restaurant owner or courier.
+            $restaurant = \App\Models\Resturant::withoutGlobalScopes()->find($order->resturant_id);
+            if ($restaurant) {
+                $restaurant->setRelation('user', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($restaurant->user_id));
+            }
+            $order->setRelation('resturant', $restaurant);
+            $order->setRelation('delegate', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($order->delegate_id));
+        }
         try{
-            $order=Order::find($id);
             $delegate=$order->delegate;
             if($order && $order->grand_total>0 && $order->transfer_price_by==null ){
                 $vendor_price=$order->vendor_percentage;
@@ -618,10 +671,17 @@ class OrderController extends Controller
     {
          if($request->ajax()){
             $product_id = $request->product_id;
-            $product = Order::where("id",$product_id)->first();
+            $product = Order::where("id",$product_id)->firstOrFail();
             $data = view('admin.orders.ajax-modal',compact('product','product_id'))->render();
             return response()->json(['options'=>$data,'product'=> $product,'product_id' => $product_id]);
         }
 
+    }
+    private function assertAdminOrderAccess(Order $order): void
+    {
+        if (auth('admin')->check()) {
+            // Also protect direct calls with an already-loaded model.
+            Order::whereKey($order->getKey())->firstOrFail();
+        }
     }
 }

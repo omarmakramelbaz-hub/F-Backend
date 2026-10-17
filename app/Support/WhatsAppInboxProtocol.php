@@ -89,7 +89,7 @@ final class WhatsAppInboxProtocol
     /** Malformed supported envelopes remain quarantined in the encrypted raw event. */
     public static function report(array $payload, string $wabaId = '468336579702269', string $phoneId = '515388018324075'): array
     {
-        $report = ['messages' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];
+        $report = ['messages' => [], 'statuses' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];
         if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
             $report['ignored_count']++;
             return $report;
@@ -243,6 +243,16 @@ final class WhatsAppInboxProtocol
                         && (in_array($status['status'] ?? null, ['sent', 'delivered', 'read', 'failed', 'deleted'], true)
                             || ($playedReceipt && ($status['status'] ?? null) === 'played'))) {
                         $report['status_count']++;
+                        // Receipts keep their own identity; never turn one into an inbox
+                        // message or let an unscoped account update outbound records.
+                        $timestamp = $status['timestamp'] ?? null;
+                        if ((is_string($timestamp) || is_int($timestamp))
+                            && preg_match('/\A[0-9]{1,10}\z/', (string) $timestamp)
+                            && (int) $timestamp > 0 && (int) $timestamp <= min(2147483647, time() + 86400)) {
+                            $report['statuses'][] = ['message_id' => $status['id'], 'status' => $status['status'],
+                                'sent_at' => gmdate('Y-m-d H:i:s', (int) $timestamp),
+                                'recipient_phone' => self::phone($status['recipient_id'] ?? null)];
+                        }
                     } else {
                         $report['quarantined_count']++;
                     }

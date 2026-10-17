@@ -54,7 +54,6 @@
     </div>
 </div>
 
-</div>
 <div class="form-group col-sm-10">
     <button type="submit" class="btn btn-success">@lang('main.save')</button>
 </div>

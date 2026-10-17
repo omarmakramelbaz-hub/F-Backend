@@ -69,7 +69,7 @@ class AreaController extends Controller
     public function store(AreaRequest $request)
     {
 
-        $area=Area::create($request->input());
+        $area=Area::create($request->except('_token','_method','_desktop_command','idempotency_key'));
         if($request['parent_id'] && $request['parent_id']!=null){
         return redirect('admin/areas/?parent='.$request['parent_id'])->with(["success"=>__('site.recored created successfully.')]);
         }else{
@@ -111,8 +111,8 @@ class AreaController extends Controller
      */
     public function update(AreaRequest $request, $id)
     {
-        $area=Area::find($id);
-        $area->update($request->input());
+        $area=Area::findOrFail($id);
+        $area->update($request->except('_token','_method','_desktop_command','idempotency_key'));
           if($area->parent_id && $area->parent_id!=null){
         return redirect('admin/areas/?parent='.$area->parent_id)->with(["success"=>__('site.recored updated successfully.')]);
         }else{

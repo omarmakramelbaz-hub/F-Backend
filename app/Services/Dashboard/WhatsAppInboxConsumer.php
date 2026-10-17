@@ -112,6 +112,16 @@ class WhatsAppInboxConsumer
                         $this->assertMessage($message);
                         $kind = $this->persist($message, $key, (int) $id, $rawVerified ? $rawHash : null, $unavailableOnly);
                         $counts[$kind === 'inserted' ? 'messages_inserted' : ($kind === 'hydrated' ? 'messages_hydrated' : 'messages_replayed')]++;
+                        // The CRM projection shares the raw-event transaction. A replay
+                        // must not reapply an old opt-out after a newer consent decision.
+                        if ($kind !== 'replayed' && class_exists(CustomerMessageEvents::class)) {
+                            (new CustomerMessageEvents())->inbound($message);
+                        }
+                    }
+                    if (class_exists(CustomerMessageEvents::class)) {
+                        foreach ($report['statuses'] ?? [] as $status) {
+                            (new CustomerMessageEvents())->status($status);
+                        }
                     }
                     DB::table('whatsapp_webhook_events')->where('id', $id)->whereNull('processed_at')
                         ->update(['processed_at' => now('UTC')]);

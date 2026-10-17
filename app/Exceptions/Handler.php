@@ -34,6 +34,11 @@ class Handler extends ExceptionHandler
      */
     public function register()
     {
-        //
+        $this->renderable(function (\Illuminate\Database\QueryException $error,$request) {
+            if(config('desktop_dashboard.local')&&(int)($error->errorInfo[1]??0)===1792){
+                $message='هذه الصفحة طلبت تعديلًا لم تُجهّز مزامنته؛ لم تُنفّذ العملية.';
+                return $request->expectsJson()?response()->json(['message'=>$message],501):response($message,501);
+            }
+        });
     }
 }

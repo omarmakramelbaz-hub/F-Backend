@@ -49,6 +49,7 @@ use App\Models\Order;
 use App\Observers\UserObserver;
 use App\Observers\OrderCompetitionObserver;
 use App\Observers\OrderMetaConversionObserver;
+use App\Observers\OrderBoardClockObserver;
 use App\Observers\NotificationObserver;
 use Illuminate\Notifications\DatabaseNotification;
 
@@ -78,8 +79,12 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
+        User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
+        \App\Models\UserAddress::observe(\App\Observers\CustomerDirectoryAddressObserver::class);
+        Order::observe(\App\Observers\CustomerDirectoryOrderObserver::class);
         Order::observe(OrderCompetitionObserver::class);
         Order::observe(OrderMetaConversionObserver::class);
+        Order::observe(OrderBoardClockObserver::class);
         DatabaseNotification::observe(NotificationObserver::class);
 
         view()->composer('*', function ($view)

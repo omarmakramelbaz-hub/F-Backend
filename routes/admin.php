@@ -7,6 +7,7 @@ use App\Http\Controllers\Dashboard\AdminsController;
 use App\Http\Controllers\Dashboard\PendingVendorController;
 use App\Http\Controllers\Dashboard\RolesController;
 use App\Http\Controllers\Dashboard\OrderController;
+use App\Http\Controllers\Dashboard\OrderBoardController;
 use App\Http\Controllers\Dashboard\ComplaintController;
 use App\Http\Controllers\Dashboard\UserController;
 use App\Http\Controllers\Dashboard\ProductController;
@@ -48,13 +49,19 @@ Route::get('download-daily-report-pdf', [OrderController::class,'download_daily_
 
 Route::group(['prefix' => 'admin', 'middleware' => 'lang'], function () {
 Route::post('save-token', [FcmNotificationsController::class, 'SaveToken']);
-Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification']);
+Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_chat_notification'])->middleware('IsAdmin');
 
 
     Route::get('/login', [HomeController::class, 'loginPage'])->middleware('adminGuest');
     Route::post('/signin', [HomeController::class, 'signin'])->name('admin.login')->middleware('adminGuest');
 
     Route::group([ 'middleware' => 'IsAdmin'], function () {
+        Route::get('dashboard-inbox/notifications', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'notifications'])->name('dashboard-inbox.notifications');
+        Route::post('dashboard-inbox/notifications/read', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'readNotifications'])->name('dashboard-inbox.notifications.read');
+        Route::get('dashboard-inbox/support', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'support'])->name('dashboard-inbox.support');
+        Route::get('dashboard-inbox/support/{partner}/messages', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'messages'])->whereNumber('partner')->name('dashboard-inbox.support.messages');
+        Route::post('dashboard-inbox/support/{partner}/read', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'readSupport'])->whereNumber('partner')->name('dashboard-inbox.support.read');
+        Route::post('dashboard-inbox/support/{partner}/messages', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'sendSupport'])->whereNumber('partner')->name('dashboard-inbox.support.send');
         Route::get('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'index'])->name('go-stores.index');
         Route::get('go-stores/create', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'create'])->name('go-stores.create');
         Route::post('go-stores', [\App\Http\Controllers\Dashboard\GoStores\StoreController::class, 'store'])->name('go-stores.store');
@@ -69,7 +76,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/chat', [FcmNotificationsController::class, 'chat']);
         
                         Route::get('/resturantControl', [HomeController::class, 'resturantControl'])->name('resturantControl');
-        Route::get('/getOrders', [OrderController::class, 'getOrders'])->name('getOrders');
+        Route::get('/getOrders', [OrderBoardController::class, 'feed'])->name('getOrders');
        
         Route::post('/updateorders/{order}', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrder'])->name('vendor.updateOrder');
         Route::post('/acceptOrder/{order}', ['App\Http\Controllers\Api\V1\Vendor\OrderController','acceptOrder'])->name('vendor.acceptOrder');
@@ -83,6 +90,9 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
             Route::post('update/orders/{order}/total/price', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrderTotalPrice'])->name('updateOrderTotalPrice');
 
         Route::get('/adminLogout', [HomeController::class, 'adminLogout']);
+        Route::get('fcm_notifications/campaigns/{campaign}', [FcmNotificationsController::class, 'campaignStatus'])->whereNumber('campaign')->name('dashboard-push.status');
+        Route::post('fcm_notifications/campaigns/{campaign}/step', [FcmNotificationsController::class, 'campaignStep'])->whereNumber('campaign')->name('dashboard-push.step');
+        Route::post('fcm_notifications/campaigns/{campaign}/resume', [FcmNotificationsController::class, 'campaignResume'])->whereNumber('campaign')->name('dashboard-push.resume');
         Route::resource('/fcm_notifications', FcmNotificationsController::class);
         Route::get('/choose_type', [HomeController::class, 'chooseType'])->name('chooseType');
         Route::get('/choose_type/change', [HomeController::class, 'chooseTypeChange'])->name('chooseTypeChange');
@@ -94,11 +104,12 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('/coupon_wheelsDeleteAll', [CouponWheelController::class,'deleteAll']);
 
         Route::get('/dashboard', [HomeController::class, 'index'])->name('admin_dash');
+        Route::get('/dashboard/overview', [HomeController::class, 'overview'])->name('dashboard.overview');
         Route::get('/notifications', [HomeController::class, 'notifications'])->name('notifications');
         Route::put('/read/{id}', [HomeController::class, 'read'])->name('read_notify');
         Route::get('/bulk-notifications', [HomeController::class, 'bulk_notifications'])->name('bulk-notifications');
         Route::post('/for-send-notify', [HomeController::class,'sendNotify'])->name('notifications.sendNotify');
-        Route::get('read/all/notification',[HomeController::class,'mark_all_as_read'])->name('mark_all_as_read');
+        Route::post('read/all/notification',[HomeController::class,'mark_all_as_read'])->name('mark_all_as_read');
 
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings/update', [SettingsController::class, 'update'])->name('updateSetting');
@@ -128,7 +139,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('advertisings/del/image',[AdvertisingController::class,'delete_image']);
 
         Route::resource('/categorys', CategoryController::class);
-        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll']);
+        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll'])->name('categorys.destroy-all');
         Route::get('categorys/{id}/services/prices',[CategoryController::class,'edit_services_prices'])->name('categorys.services.prices');
         Route::put('categorys/{id}/update/services/prices',[CategoryController::class,'update_services_prices'])->name('categorys.services.prices.update');
         Route::post('post-sortable',[CategoryController::class,'updateColumns']);
@@ -140,12 +151,12 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('ordersDeleteAll', [OrderController::class,'deleteAll']);
         Route::post('ordersChangeStatus/{order}', [OrderController::class,'changeStatus'])->name('orders.change_status');
         Route::post('ordersTransferPrice/{order}', [OrderController::class,'transferPrice'])->name('orders.transfer_price');
-        Route::get('applies-orders', [OrderController::class,'applies'])->name('orders.applies');
+        Route::get('applies-orders', [OrderBoardController::class,'board'])->name('orders.applies');
         Route::get('cancel/order/{id}/delegate', [OrderController::class,'cancel_order_delegate'])->name('orders.cancel_order_delegate');
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
         Route::resource('/products', ProductController::class);
-        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll']);
+        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll'])->name('products.destroy-all');
         Route::post('/fetch-subcategory', [ProductController::class, 'fetchSubcategory']);
         Route::post('/fetch-product', [ProductController::class, 'fetchProduct']);
         Route::post('/fetch-feature', [ProductController::class, 'fetchFeature']);
@@ -183,7 +194,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('users/{id}/go_drive_activation',[UserController::class,'go_drive_activation']);
 
         Route::resource('/features', FeatureController::class);
-        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll']);
+        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll'])->name('features.destroy-all');
         Route::resource('/blogs', BlogController::class);
         Route::delete('blogsDeleteAll', [BlogController::class,'deleteAll']);
         Route::resource('/banners', BannerController::class);
@@ -198,7 +209,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/contacts', [ContactController::class,'index'])->name('contacts.index');
         Route::get('/contacts/{id}', [ContactController::class,'show'])->name('contacts.show');
         Route::delete('/contacts/{contact}', [ContactController::class,'destroy'])->name('contacts.destroy');
-        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll']);
+        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll'])->name('contacts.destroy-all');
 
 
         Route::resource('/subscribers', SubscriberController::class);
@@ -229,7 +240,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================areas=====================
         //=====================================================
         Route::resource('areas',AreaController::class);
-        Route::delete('areasDeleteAll',[AreaController::class,'delete_all']);
+        Route::delete('areasDeleteAll',[AreaController::class,'delete_all'])->name('areas.destroy-all');
         
         
          //====================================================
@@ -243,7 +254,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================question_answers=====================
         //=====================================================
         Route::resource('question_answers',QuestionAnswerController::class);
-        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'delete_all']);
+        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'deleteAll'])->name('question_answers.destroy-all');
 
     });
 });

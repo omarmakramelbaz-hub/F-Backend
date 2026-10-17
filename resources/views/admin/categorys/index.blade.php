@@ -1,8 +1,8 @@
 @extends('admin.index')
 @push('custom-css')
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css"/>
-    <link rel="stylesheet" type="text/css" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" type="text/css" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css') }}"/>
+    <link rel="stylesheet" type="text/css" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css') }}"/>
 
 @endpush
 @section('content')
@@ -141,7 +141,7 @@
     </div>
 @endsection
 @push('custom-js')
-    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js"></script>
+    <script type="text/javascript" src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js') }}"></script>
     <script type="text/javascript">
       $(function () {
         $("#table").DataTable();

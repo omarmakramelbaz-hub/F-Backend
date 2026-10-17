@@ -1,0 +1,15 @@
+{
+  "name": "fasakhansta/offline-pos-test-runtime",
+  "description": "Isolated SQLite tests of the real offline import and POS services; never used by production",
+  "require": {
+    "php": "^8.2",
+    "illuminate/config": "^8.83",
+    "illuminate/database": "^8.83",
+    "illuminate/events": "^8.83",
+    "illuminate/validation": "^8.83",
+    "ramsey/uuid": "^4.2",
+    "symfony/http-kernel": "^5.4"
+  },
+  "autoload": {"psr-4":{"App\\Services\\":"../../app/Services/"}},
+  "config": {"sort-packages":true}
+}
