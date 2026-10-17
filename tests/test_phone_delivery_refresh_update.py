@@ -22,6 +22,7 @@ def module(name, path):
 
 
 refresh = module('phone_refresh_installer', ROOT / 'deployment/apply_phone_delivery_refresh.py')
+VERIFIED_QUANTITY_LOADER = refresh.load_quantity
 
 
 class PhoneRefreshDeploymentTests(unittest.TestCase):
@@ -121,8 +122,26 @@ class PhoneRefreshDeploymentTests(unittest.TestCase):
     def receipts(self, group='phone-delivery-refresh-backups'):
         return list((self.parent / group).glob('*/receipt.json'))
 
+    def test_verified_module_only_drops_independent_phone_workflow_proof(self):
+        baseline = module('unmodified_quantity_dependency_fixture', ROOT / 'deployment/apply_pos_inline_quantity.py')
+        with mock.patch.object(refresh, 'QUANTITY_REVISION', '6582750c2ef925500504a83d89141e49f0bd62a3'):
+            configured = VERIFIED_QUANTITY_LOADER(ROOT)
+        self.assertEqual(configured.WORKFLOW_PHONE_PREREQUISITES,
+                         tuple(path for path in baseline.WORKFLOW_PHONE_PREREQUISITES if path != refresh.PHONE_JS))
+        self.assertIn(refresh.PHONE_JS, configured.SOURCE_MANIFEST)
+        for name in ('SOURCE_MANIFEST', 'FOUNDATION_MANIFEST', 'LIFECYCLE_PROOF_PATHS',
+                     'UNIFIED_PHONE_PREREQUISITES', 'BASE_REVISION', 'APP_BASE_REVISION',
+                     'BRAND_BASE_REVISION', 'UPGRADE_PATHS'):
+            self.assertEqual(getattr(configured, name), getattr(baseline, name))
+        for name in ('install', 'build_plan', 'prove_prerequisites', 'patch_check'):
+            self.assertEqual(getattr(configured, name).__code__.co_code,
+                             getattr(baseline, name).__code__.co_code)
+
     def test_fresh_chain_repeat_and_independent_changes_preserved(self):
         custom = b'// Another chat preserved keyboard customization\n'
+        for state in (self.before, self.quantity_after, self.after):
+            state[self.js] = state[self.js].replace(b'Independent keyboard: Enter behavior',
+                                                   b'Independent keyboard: Later focus navigation')
         self.before[self.js] += custom
         self.quantity_after[self.js] += custom
         self.after[self.js] += custom

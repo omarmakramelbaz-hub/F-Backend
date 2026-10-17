@@ -9,6 +9,8 @@ This release combines the pending invoice quantity/print/logo update with the de
 
 The root wrapper loads the pinned, hash-verified quantity installer at `6582750c2ef925500504a83d89141e49f0bd62a3`. A combined temporary preflight checks the quantity and refresh layers, including real server route/schema/Blade readiness, before either layer publishes source. The quantity layer is applied with its own receipt, then this release publishes its declared refresh/consent files with a separate private backup and rollback. If the latter fails, the successful quantity layer remains recorded; the reported refresh result distinguishes rollback from review-needed concurrent edits. Repeated and partial installations are checked before writing.
 
+The verified quantity module omits the phone script from its historical workflow prerequisite list. Exact quantity and refresh mutation guards, pricing-backend proofs, DOM checks and translation checks stay active, allowing later independent customer-entry code to remain in place.
+
 The phone script preimage reconstructs the deployed `642dbfe` script plus the pinned quantity feature patch. Later compatible keyboard and presentation changes survive targeted patch application. No migrations, financial backfills or broad cache clears run.
 
 Isolated tests use mocked browser endpoints and SQLite fixtures; installer tests stub only the database-dependent Laravel probe. The production wrapper runs that real read-only probe on the server.

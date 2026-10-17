@@ -851,8 +851,8 @@
     automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     branchSelect.options[0].textContent=text(boot.can_view_all_branches?'all_branches':'select_branch');
     if(boardScope())loadOrders();
-    preparationTimer = setInterval(updatePreparationTimers, 1000);
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
+    preparationTimer = setInterval(updatePreparationTimers, 1000);
 }());

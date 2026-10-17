@@ -58,6 +58,11 @@ def load_quantity(root):
         spec = importlib.util.spec_from_file_location('pinned_phone_refresh_quantity', helper)
         common = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(common)
+    # Independent location/keyboard flows do not establish pricing or print
+    # contracts. Preserve them while the unchanged mutation patches still check
+    # every quantity edit; retain all backend, DOM and translation prerequisites.
+    common.WORKFLOW_PHONE_PREREQUISITES = tuple(
+        path for path in common.WORKFLOW_PHONE_PREREQUISITES if path != PHONE_JS)
     return common
 
 
