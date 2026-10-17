@@ -32,6 +32,53 @@ function waConfirmationFields(array$data):array{
     foreach(['name','phone','address','area']as$key)$fields[$key]=is_string($customer[$key]??null)&&trim($customer[$key])!=='';
     return$fields;
 }
+/** Pure format observations. Never return customer text or a parsed order. */
+function waConfirmationFormatObservation(array$transcript):array{
+    $class=\App\Support\WhatsAppCustomerOrderConfirmation::class;
+    $display=new ReflectionMethod($class,'displayLine');$display->setAccessible(true);
+    $out=['scope'=>'FORMAT_DIAGNOSTIC_ONLY_NOT_ORDER_AUTHORITY','row_limit'=>100,
+        'rows_truncated'=>count($transcript)>100,'counts'=>['customer_exact_headers'=>0,
+            'business_exact_headers'=>0,'customer_parse_ok'=>0,'customer_positive_approvals'=>0,
+            'rows_with_safe_title'=>0],'rows'=>[]];
+    foreach(array_slice($transcript,0,100)as$ordinal=>$row){
+        $speaker=in_array($row['speaker']??null,['customer','business'],true)?$row['speaker']:'OTHER';
+        $text=is_string($row['text']??null)?$row['text']:null;
+        $exact=$text!==null&&preg_match('/(?:\A|\R)\s*[*_]*(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]/u',$text)===1;
+        $parsed=$text===null?null:$class::parseRecap($text);
+        $positive=$text!==null&&$class::positiveApproval($text);
+        $shape=['name_label'=>false,'phone_label'=>false,'address_label'=>false,'total_label'=>false];
+        $titles=[];$titlesTruncated=false;
+        foreach($text===null?[]:(preg_split('/\R/u',$text)?:[])as$lineNumber=>$line){
+            $normal=$display->invoke(null,$line);
+            $shape['name_label']=$shape['name_label']||preg_match('/\A(?:الاسم|اسم العميل)\s*[:：]\s*\S/u',$normal)===1;
+            $shape['phone_label']=$shape['phone_label']||preg_match('/\A(?:رقم الهاتف|رقم التواصل|الهاتف|التليفونات|التليفون|التلفونات|أرقام التواصل|ارقام التواصل)\s*[:：]\s*\S/u',$normal)===1;
+            $shape['address_label']=$shape['address_label']||preg_match('/\A(?:العنوان|عنوان التوصيل)\s*[:：]\s*\S/u',$normal)===1;
+            $shape['total_label']=$shape['total_label']||preg_match('/\A(?:الإجمالي|الاجمالي|الإجمالى|الاجمالى|المجموع)(?:\s+التقريبي)?\s*[:：]?\s*\S/u',$normal)===1;
+            // The whole normalized line must be one enumerated, generic label.
+            // No excerpts, arbitrary prefixes, field values or guessed titles.
+            if(mb_strlen($line,'UTF-8')>100||preg_match('/\A(ملخص الطلب|ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*([:：])?\z/u',$normal,$match)!==1)continue;
+            if(count($titles)>=4){$titlesTruncated=true;continue;}
+            $titles[]=['line'=>($lineNumber+1),'literal'=>$match[1].($match[2]??''),
+                'colon_present'=>isset($match[2])&&$match[2]!=='',
+                'leading_bullet'=>preg_match('/\A\s*(?:[•●▪◦]|[-–—]\s+)/u',$line)===1,
+                'emphasis_present'=>str_contains($line,'*')||str_contains($line,'__'),
+                'emphasis_before_colon'=>preg_match('/[*_]\s*[:：]/u',$line)===1];
+        }
+        $ok=is_array($parsed)&&($parsed['ok']??null)===true;
+        $out['rows'][]=['ordinal'=>$ordinal+1,'speaker'=>$speaker,'text_present'=>$text!==null,
+            'text_length'=>$text===null?null:mb_strlen($text,'UTF-8'),'exact_header_match'=>$exact,
+            'standalone_parse_ok'=>$text===null?null:$ok,
+            'standalone_parse_reason'=>is_array($parsed)?waConfirmationCode($parsed['reason']??null):null,
+            'positive_approval'=>$positive,'recap_shape'=>$shape,
+            'safe_title_lines'=>$titles,'safe_title_lines_truncated'=>$titlesTruncated];
+        if($exact&&$speaker==='customer')$out['counts']['customer_exact_headers']++;
+        if($exact&&$speaker==='business')$out['counts']['business_exact_headers']++;
+        if($ok&&$speaker==='customer')$out['counts']['customer_parse_ok']++;
+        if($positive&&$speaker==='customer')$out['counts']['customer_positive_approvals']++;
+        if($titles!==[])$out['counts']['rows_with_safe_title']++;
+    }
+    return$out;
+}
 /** Optional worker observations. Returned signatures remain private to this CLI. */
 function waConfirmationWorkerState(int$conversation,$workflow,string$readAt,string$settledBefore):array{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
@@ -125,8 +172,9 @@ function waConfirmationErp(int$id,string$branch):array{
     return$out;
 }
 try{
-    $conversation=null;$draftId=null;
+    $conversation=null;$draftId=null;$format=false;
     for($i=1;$i<count($argv);$i++){
+        if($argv[$i]==='--format'&&!$format){$format=true;continue;}
         if($argv[$i]==='--conversation'&&$conversation===null&&isset($argv[$i+1])
             &&preg_match('/\A[1-9][0-9]{0,9}\z/D',$argv[$i+1])){$conversation=(int)$argv[++$i];continue;}
         if($argv[$i]==='--draft'&&$draftId===null&&isset($argv[$i+1])
@@ -217,6 +265,7 @@ try{
         'coordinate_order'=>waConfirmationCode($location['coordinate_order']??null,['LAT_LONG','LONG_LAT','UNRESOLVED','UNKNOWN']),
         'coordinates_valid'=>is_array($location['point']??null),
         'native_pins_count'=>count(array_filter($snapshot['transcript'],static fn($row)=>is_array($row['location']??null)))];
+    if($format)$out['format_observation']=waConfirmationFormatObservation($snapshot['transcript']);
     $stage='DRAFT';$query=$db::table('whatsapp_order_drafts')->where('conversation_id',$conversation);
     if($draftId!==null)$query->where('id',$draftId);
     $row=$query->orderByDesc('id')->select('id','status','reason','revision','updated_at','evidence_floor','evidence_ceiling','evidence_hash','ticket_id','assigned_branch')
