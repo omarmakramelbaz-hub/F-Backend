@@ -1,0 +1,13 @@
+# Delivery customer branch selection update
+
+The incremental update changes only `app/Services/Dashboard/PosServicePhone.php` and `public/dashboard/js/phone-orders.js`. A permitted central account can search saved customers while the delivery selector is on all branches, then choose a result to load that customer's branch and existing identity. An explicitly selected branch keeps its current behavior.
+
+`apply_phone_customer_auto_branch.py` builds narrow patches from `c27278519f923a2fe351523ff3a149f14a38c04d` to the supplied full release revision. It loads hash-verified filesystem/Git helpers from `6582750c2ef925500504a83d89141e49f0bd62a3:deployment/apply_pos_inline_quantity.py` (blob `a438bfdcb17f43ef11605bcb48de926c190b3f73`), without running any earlier feature installer. The patches preserve compatible independent live edits and stop on overlapping changes. Tests verify deployment both with the newest courier timing and with the earlier `a7d7b5572390bff8ca4b2503172cc63470370dae` delivery refresh.
+
+Preflight checks every target, stages the exact live source, tests forward/reverse patch applicability, and lints the resulting PHP. A read-only Laravel probe checks the effective `phone-orders.customers` route, middleware, existing public methods, and existing customer/ticket schema. It does not query customer records or log configuration or customer data. No migrations, backfills, order/customer changes, repository resets, checkouts, or cache clears run.
+
+Source targets must belong to the application user. The installer rechecks exact live bytes before publication, uses checked Git patches, preserves modes, and restores the caller's umask. Private backups and receipts are written under `/home/fasakha/phone-customer-auto-branch-backups/`. A failed post-check restores the exact source snapshot if those bytes still belong to the installer. If another operator changes a target during installation, the dependency group remains together and the receipt reports `rollback_review_required` for review.
+
+Fetch the supplied release branch and verify its full SHA. Extract `deployment/apply_phone_customer_auto_branch_root.sh` from that exact release, verify its published Git blob, then run the launcher as root with the full release SHA. The launcher verifies its Python helper blob and runs it as `fasakha` with cPanel PHP82. An optional second argument `--check` performs preflight without changing source or creating a backup receipt. Direct Python invocation also accepts `--check`.
+
+Success is `PHONE_CUSTOMER_AUTO_BRANCH_OK files=2; BACKUP=...`; a repeated installation reports `PHONE_CUSTOMER_AUTO_BRANCH_OK already_current=1 files=0`. Existing filemtime asset URLs load the changed JavaScript after refresh.

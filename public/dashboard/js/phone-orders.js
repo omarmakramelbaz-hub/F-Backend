@@ -378,20 +378,30 @@
         var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(boardScope())loadOrders();
     }
     async function lookupCustomer(prefix) {
-        if (!branch || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
+        var scope = boardScope();
+        if (!scope || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
         var generation = ++customerGeneration, controller = begin('customer'), phone = fields.customer_phone.value.trim(), requestedBranch = branch;
         var resultBox = root.querySelector('[data-phone-lookup-result]'); resultBox.hidden = false; resultBox.textContent = text('loading');
         try {
-            var response = await get(urls.customers, { branch: branch, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
+            var response = await get(urls.customers, { branch: scope, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
             var matches = result.matches || result.customers || result.items || []; resultBox.replaceChildren(); if (!matches.length) { resultBox.textContent = text('lookup_empty'); return; }
             suggestionIndex = -1; resultBox.appendChild(element('p', '', text('lookup_found'))); matches.forEach(function (customer, index) {
+                var customerBranch = scope === 'all' && customer.branch ? (boot.branches || []).find(function (option) { return option.value === customer.branch && Array.from(branchSelect.options).some(function (option) { return option.value === customer.branch; }); }) : null;
                 var button = element('button'); button.type = 'button'; button.dataset.phoneSuggestion = String(index);
                 button.appendChild(element('bdi', '', customer.phone)); button.appendChild(element('strong', '', customer.name)); button.appendChild(element('small', '', customer.address || text('address_placeholder')));
-                button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return;
+                if (customerBranch) button.appendChild(element('small', '', customerBranch.name));
+                if (scope === 'all' && customer.branch && !customerBranch) { button.dataset.noAccess = ''; button.disabled = true; }
+                button.addEventListener('click', function () { if (disposed || locked() || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || scope === 'all' && customer.branch && !customerBranch) return;
+                    if (customerBranch) {
+                        branchSelect.value = customerBranch.value;
+                        if (branchSelect.selectize) branchSelect.selectize.setValue(customerBranch.value, true);
+                        changeBranch(true);
+                        if (branch !== customerBranch.value) return;
+                    }
                     clearTimeout(customerTimer); customerGeneration++; abort('customer'); fields.customer_phone.value = customer.phone || phone;
                     if (customerConsent) customerConsent.checked = false;
                     fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || '';
-                    customerRef=customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
+                    customerRef=branch&&customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
                 }); resultBox.appendChild(button);
             });if(!prefix&&matches.length===1)resultBox.querySelector('[data-phone-suggestion]').click();
         } catch (error) { if (disposed || generation !== customerGeneration || error.name === 'AbortError') return; resultBox.textContent = error.message || text('lookup_error'); }
