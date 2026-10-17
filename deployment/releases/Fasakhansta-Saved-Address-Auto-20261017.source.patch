@@ -1,0 +1,749 @@
+diff --git a/app/Services/Site/WebStorefront.php b/app/Services/Site/WebStorefront.php
+index d0a85c0..96322e7 100644
+--- a/app/Services/Site/WebStorefront.php
++++ b/app/Services/Site/WebStorefront.php
+@@ -23,6 +23,7 @@ class WebStorefront
+ 
+     public function discover(Request $request): array
+     {
++        $previous = $request->session()->get('web_storefront.delivery_context');
+         // Replacing an address invalidates the former context even when the new input is invalid.
+         $request->session()->forget('web_storefront.delivery_context');
+         $values = Validator::make($request->all(), [
+@@ -33,7 +34,11 @@ class WebStorefront
+         $context = $this->normalizeContext($values);
+         abort_unless(preg_match('/^01[0125][0-9]{8}$/D', $context['customer_phone']),422,'اكتب رقم موبايل مصري صحيحًا من ١١ رقمًا.');
+         abort_unless(mb_strlen($context['address'])>=8,422,'أكمل عنوان التوصيل بالتفصيل.');
+-        $context['nonce'] = bin2hex(random_bytes(16));
++        // Recalling the same saved address in another tab must preserve its pending review.
++        $same = is_array($previous) && is_string($previous['nonce'] ?? null)
++            && preg_match('/\A[a-f0-9]{32}\z/i', $previous['nonce']) === 1
++            && array_diff_key($previous,['nonce'=>true]) === $context;
++        $context['nonce'] = $same ? $previous['nonce'] : bin2hex(random_bytes(16));
+         $request->session()->put('web_storefront.delivery_context', $context);
+         return ['success'=>true, 'branches'=>$this->branches($request),
+             'context'=>array_diff_key($context,['nonce'=>true]) + ['location_confirmed'=>true]];
+diff --git a/deployment/install_web_customer_addresses.py b/deployment/install_web_customer_addresses.py
+index 35b1466..9f47a23 100644
+--- a/deployment/install_web_customer_addresses.py
++++ b/deployment/install_web_customer_addresses.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Publish only the reviewed customer/address UI; preserve independent homepage edits."""
++"""Publish only the reviewed customer/address flow; preserve independent homepage edits."""
+ import argparse
+ from collections import Counter
+ import difflib
+@@ -15,10 +15,12 @@ import subprocess
+ import tempfile
+ 
+ APP_ROOT = pathlib.Path('/home/fasakha/public_html')
+-BASELINE = '01b8805ef49cc05c315edbde7909ad6489954190'
++BASELINE = '2c597530e88c78e39f54bc68351246732a566fa2'
+ HOME = 'resources/views/site/home.blade.php'
+ ASSETS = ('public/storefront/storefront.js', 'public/storefront/storefront.css')
+-PUBLISH_ORDER = ASSETS + (HOME,)
++SERVICE = 'app/Services/Site/WebStorefront.php'
++EXACT_FILES = ASSETS + (SERVICE,)
++PUBLISH_ORDER = EXACT_FILES + (HOME,)
+ PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
+ BUNDLE_ROOT = pathlib.Path(__file__).resolve().parent
+ MAX_BYTES = 8 * 1024 * 1024
+@@ -209,7 +211,7 @@ def plan_target(root, release, relative, current):
+     if current == reviewed:
+         return current
+     baseline = source(root, BASELINE, relative)
+-    if relative in ASSETS:
++    if relative in EXACT_FILES:
+         if current != baseline:
+             raise RuntimeError('ASSET_SOURCE_CONFLICT: ' + relative)
+         return reviewed
+@@ -246,13 +248,14 @@ def _install_locked(root, release, check_only, uid):
+         previous = snapshot(root / relative, uid)
+         targets[relative] = plan_target(root, release, relative, None if previous is None else previous['bytes'])
+         originals[relative] = previous
+-    # Syntax-check the resulting merged Blade source without booting the application.
++    # Syntax-check the service and merged Blade source without booting the application.
+     with tempfile.TemporaryDirectory(prefix='web-customer-addresses-lint-') as directory:
+         os.chmod(directory, 0o755)
+-        candidate = pathlib.Path(directory) / 'home.blade.php'
+-        candidate.write_bytes(targets[HOME])
+-        candidate.chmod(0o644)
+-        owned_command(root, [PHP, '-l', str(candidate)])
++        for relative in (SERVICE, HOME):
++            candidate = pathlib.Path(directory) / pathlib.Path(relative).name
++            candidate.write_bytes(targets[relative])
++            candidate.chmod(0o644)
++            owned_command(root, [PHP, '-l', str(candidate)])
+     if check_only:
+         print(json.dumps({'status': 'WEB_CUSTOMER_ADDRESSES_PREFLIGHT_OK', 'files': len(targets)}))
+         return
+diff --git a/docs/web-storefront.md b/docs/web-storefront.md
+index 17836bd..b7aa93b 100644
+--- a/docs/web-storefront.md
++++ b/docs/web-storefront.md
+@@ -33,4 +33,9 @@ The saved-address update requests browser geolocation automatically when there i
+ 
+ Registration now captures name as well as phone, area and full delivery address. A successful server discovery saves its normalized context with the customer name under `fasakhansta.web.customer.v1`. On the same device/browser, the upper address selector restores the selected name, phone, address and coordinates without another GPS request. It offers a new address and a clear-local-details action. Restored records are type/length/bounds validated, safely rendered, deduplicated and bounded to ten. They never bypass discovery, coverage or price validation, and cannot be retrieved by a public phone lookup. Browser storage refusal displays a useful notice while allowing ordering. Clearing site data or using another browser requires registration again.
+ 
+-Use the dedicated `deployment/install_web_customer_addresses.py` patch for this update: only the homepage and two storefront assets are changed, with three-way homepage merging to retain independent SEO changes, source hashes, backup and rollback. It runs only `artisan view:clear`, without a database migration or route changes. Success: `WEB_CUSTOMER_ADDRESSES_READY`. The DOM suite also verifies automatic/denied/late GPS, profile recall, address history, malformed/blocked storage, safe rendering, checkout name prefill and pending-order recovery.
++Use the dedicated `deployment/install_web_customer_addresses.py` patch for this update: the homepage and two storefront assets are changed by the first customer release, with three-way homepage merging to retain independent SEO changes, source hashes, backup and rollback. It runs only `artisan view:clear`, without a database migration or route changes. Success: `WEB_CUSTOMER_ADDRESSES_READY`. The DOM suite also verifies automatic/denied/late GPS, profile recall, address history, malformed/blocked storage, safe rendering, checkout name prefill and pending-order recovery.
++
++
++Returning visitors now activate the last saved address with an automatic server discovery request; they do not resubmit or reconfirm registration. The address selector lives in the persistent site header. Selecting another saved address with an empty cart immediately rediscovers eligible stores. A nonempty cart keeps the existing clear-cart confirmation, and adding/editing an address still opens the data form. Failed automatic discovery keeps the saved summary and offers retry without asking for registration again. An uncertain prior order must be resolved before automatic discovery starts. This incremental patch requires the previous customer/address release `2c597530e88c78e39f54bc68351246732a566fa2`; it preserves its browser storage schema and saved data.
++
++The automatic-return patch additionally preserves the server session context nonce when normalized delivery fields are unchanged. Reopening the same address in another tab therefore does not invalidate an in-flight quote. Different or invalid delivery details still invalidate the former context, and every automatic discovery still rechecks current coverage. The incremental installer scopes its four files to home, storefront JS/CSS, and the existing WebStorefront service; it syntax-checks both PHP targets and performs no migration.
+diff --git a/public/storefront/storefront.css b/public/storefront/storefront.css
+index d690ac6..eaabb95 100644
+--- a/public/storefront/storefront.css
++++ b/public/storefront/storefront.css
+@@ -10,5 +10,8 @@
+ /* Address comes before serviceable stores, matching the customer app. */
+ .delivery-section{padding-top:44px;padding-bottom:12px}.delivery-card{display:grid;grid-template-columns:.85fr 1.15fr;gap:55px;padding:38px;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px #09132005;align-items:start}.delivery-intro{padding:18px 0;position:sticky;top:130px}.delivery-intro .eyebrow{color:#a44a00}.delivery-intro h2{font-size:42px;margin-bottom:16px}.delivery-intro>p{font-size:15px;color:var(--muted);max-width:350px}.delivery-steps{display:flex;flex-direction:column;gap:18px;margin-top:32px;font-size:14px;font-weight:700}.delivery-steps span{display:flex;align-items:center;gap:13px}.delivery-steps b{display:grid;place-items:center;border:1px solid #f8c294;background:#fff2e8;color:#a44a00;width:32px;height:32px;border-radius:50%;font-size:13px}.delivery-form .checkout-fields{margin-top:0}.delivery-form label{position:relative}.delivery-form .location-heading{font-size:13px;margin-top:22px}.delivery-form .delivery-map{height:270px;z-index:0}.delivery-form #location-help{font-size:12px;margin-top:10px;line-height:1.8}.delivery-form .confirm-location{margin-top:12px;font-size:12px}.delivery-form .privacy-note{font-size:11px}.delivery-form .button{margin-top:8px}.delivery-form[inert]{opacity:.7}.delivery-summary{display:grid;grid-template-columns:auto 1fr;align-items:start;gap:16px;padding:25px;background:#f3f6fa;border-radius:12px;align-self:center}.delivery-summary-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--navy);color:#ff9b4b;font-size:26px}.delivery-summary strong{font-size:16px}.delivery-summary p{font-size:14px;margin:8px 0;color:var(--muted);overflow-wrap:anywhere}.delivery-summary #delivery-phone{font-size:13px;display:inline-block;color:var(--ink)}.delivery-summary .button{grid-column:2;font-size:12px;min-height:40px;padding:10px 15px;justify-self:start;margin-top:7px}.checkout-location-note{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;margin:20px 0;padding:15px;background:#f1f5fa;border-radius:9px;font-size:12px}.checkout-location-note .text-link{font-size:12px}#checkout-form input[readonly]{background:#f2f5f9;color:#4d627b;cursor:default}.menu-status .button,.store-empty .button{margin-top:18px}.store-empty p{max-width:570px;margin:auto}.branch-picker select:disabled{cursor:not-allowed;color:var(--muted)}
+ @media(max-width:1000px){.delivery-card{gap:30px;padding:28px}.delivery-intro h2{font-size:34px}.delivery-intro>p{font-size:14px}.delivery-form .location-heading{flex-wrap:wrap;gap:10px}}@media(max-width:760px){.delivery-section{padding-top:27px}.delivery-card{grid-template-columns:1fr;gap:23px;padding:23px 18px;border-radius:13px}.delivery-intro{position:static;padding:0}.delivery-intro h2{font-size:30px;margin-bottom:10px}.delivery-intro>p{max-width:none;font-size:13px}.delivery-steps{flex-direction:row;flex-wrap:wrap;gap:12px;margin-top:19px;font-size:10px}.delivery-steps span{gap:6px}.delivery-steps b{width:23px;height:23px;font-size:10px}.delivery-form .delivery-map{height:240px}.delivery-form .location-heading strong{font-size:11px}.delivery-form .location-heading .text-link{font-size:11px}.delivery-summary{padding:18px;gap:12px}.delivery-summary strong{font-size:14px}.delivery-summary p{font-size:12px}.delivery-summary-icon{width:34px;height:34px;font-size:22px}.delivery-summary .button{font-size:11px;padding:10px}.delivery-form .confirm-location{font-size:11px}}
+-/* Saved delivery details stay above the registration fields on every screen. */
+-.saved-customer{padding:18px;margin-bottom:22px;border:1px solid #f4cba9;border-radius:12px;background:#fff6ef}.saved-customer label{display:flex;flex-direction:column;gap:9px;font-size:14px;font-weight:700}.saved-customer select{width:100%;max-width:100%;font-size:13px;background:#fff;text-overflow:ellipsis}.saved-customer p{font-size:12px;color:var(--muted);margin-top:8px}.saved-customer .text-link{font-size:11px;color:#8d420a;margin-top:4px}
++/* The saved destination stays available in the header while browsing. */
++.site-header .saved-customer{display:flex;flex-direction:column;gap:4px;min-width:0;width:220px;max-width:27vw}.saved-customer>span{font-size:11px;font-weight:600;color:var(--muted)}.saved-customer select{width:100%;min-width:0;max-width:100%;border:0;background:transparent;padding:3px 0 3px 18px;font-size:13px;font-weight:700;text-overflow:ellipsis}.saved-customer select:disabled{opacity:.65}.delivery-form #forget-customer{font-size:11px;color:#8d420a;margin-bottom:12px}#saved-address-status{font-size:12px;margin-top:12px}.delivery-summary #retry-saved-address{font-size:12px}.delivery-summary .text-link{color:#a44a00}
++@media(max-width:1000px){.site-header .saved-customer{width:175px;max-width:24vw}.header-actions{gap:14px}}
++@media(max-width:760px){.site-header .saved-customer{width:145px;max-width:38vw}.saved-customer>span{font-size:10px}.saved-customer select{font-size:11px}.header-actions{gap:10px}.site-header .brand>span{font-size:20px}.site-header .brand img{width:40px;height:40px}.site-header .brand{gap:5px}.site-header{gap:12px;padding-inline:14px}}
++@media(max-width:760px){.site-header.has-saved-address .brand>span{display:none}.site-header.has-saved-address .header-actions{min-width:0;flex:1;justify-content:flex-end}.site-header.has-saved-address .saved-customer{width:160px;max-width:calc(100vw - 150px);flex:1}}
+diff --git a/public/storefront/storefront.js b/public/storefront/storefront.js
+index 294e582..68c2575 100644
+--- a/public/storefront/storefront.js
++++ b/public/storefront/storefront.js
+@@ -12,7 +12,7 @@ let restorable = readStorage(storageKey);
+ // Eligibility is discovered by the server only after delivery details are confirmed.
+ data.branches = [];
+ const state = { context: null, discovering: false, branch: '', products: [], categories: [], cart: [], category: '', search: '', limit: 12, menuReady: false, storeFilter: 'all', storeSearch: '', storeLimit: 12, open: false, quote: null, point: null, submitting: false, pending: readStorage(pendingKey) };
+-let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch, quoteRequest = 0;
++let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch, pendingAddress = null, quoteRequest = 0;
+ let customerProfile = readCustomer(), selectedAddress = '', locationRevision = 0, geolocationRequest = 0;
+ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const money = value => new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(value || 0));
+@@ -40,12 +40,16 @@ function writeCustomer(profile) {
+ function renderSavedAddresses() {
+  const select = $('#saved-address-select'); select.replaceChildren();
+  $('#saved-customer').hidden = !customerProfile;
++ $('.site-header').classList.toggle('has-saved-address',!!customerProfile);
++ $('#location-shortcut').hidden = !!customerProfile;
++ $('#forget-customer').hidden = !customerProfile;
+  if (!customerProfile) return;
+  for (const a of customerProfile.addresses) {
+   const option = document.createElement('option'); option.value=a.id; option.textContent=`${a.area} — ${a.address}`; select.append(option);
+  }
+  const add = document.createElement('option'); add.value='new'; add.textContent='+ أضف عنوان جديد'; select.append(add);
+  select.value = selectedAddress || 'new';
++ select.disabled = state.discovering || state.submitting || !!state.pending;
+ }
+ function restoreAddress(id) {
+  const a = customerProfile?.addresses.find(a=>a.id===id); if(!a)return;
+@@ -58,6 +62,29 @@ function restoreAddress(id) {
+  $('#location-help').textContent='ده موقع العنوان المحفوظ. تقدر تختار عنوان تاني أو تعدّل الدبوس.';
+  renderSavedAddresses();
+ }
++function showSavedSummary() {
++ const form=$('#delivery-form');
++ $('#delivery-address').textContent=`${form.elements.address.value}، ${form.elements.area.value}`;
++ $('#delivery-phone').textContent=form.elements.customer_phone.value;
++ form.hidden=true;$('#delivery-summary').hidden=false;
++}
++function applyAddress(id) {
++ clearTimeout(suggestionTimer);suggestionRequest?.abort();$('#address-suggestions').replaceChildren();
++ document.querySelectorAll('dialog[open]').forEach(closeDialog);
++ resetDelivery(false);
++ if(id==='new'){
++  selectedAddress='';locationRevision++;state.point=null;
++  const form=$('#delivery-form');form.elements.area.value='';form.elements.address.value='';form.elements.location_confirmed.checked=false;
++  initMap();renderSavedAddresses();locateCustomer();focusDelivery();form.elements.area.focus({preventScroll:true});return;
++ }
++ restoreAddress(id);discoverDelivery(true);
++}
++function changeAddress(id) {
++ if(state.discovering||state.submitting||state.pending){renderSavedAddresses();return;}
++ if(id===selectedAddress&&state.context)return;
++ if(state.cart.length){pendingAddress=id;renderSavedAddresses();showDialog('#change-location-dialog');return;}
++ applyAddress(id);
++}
+ function saveCustomer(context, name) {
+  const prior=readCustomer();
+  // Merge only the same customer's addresses; never expose a phone lookup endpoint.
+@@ -120,20 +147,21 @@ function renderStoreCards() {
+ }
+ function focusDelivery() {
+  document.getElementById('delivery').scrollIntoView({behavior:'smooth'});
+- if(!state.context){initMap();$('#delivery-form').elements.customer_phone.focus({preventScroll:true});}
++ if(!state.context){if($('#delivery-form').hidden&&customerProfile){$('#saved-address-select').focus({preventScroll:true});return;}initMap();$('#delivery-form').elements.customer_phone.focus({preventScroll:true});}
+  else {document.getElementById('menu').scrollIntoView({behavior:'smooth'});$('#branch-select').focus({preventScroll:true});}
+ }
+-function resetDelivery() {
++function resetDelivery(scroll=true) {
+  menuRequest?.abort();state.context=null;data.branches=[];state.branch='';state.cart=[];state.products=[];state.categories=[];state.menuReady=false;state.quote=null;state.open=false;restorable=null;
+  state.storeSearch='';state.storeFilter='all';state.storeLimit=12;$('#store-search').value='';
+  $('#product-grid').innerHTML='';$('#categories').innerHTML='';$('#show-more').hidden=true;$('#header-branch').textContent='حدد عنوانك';
+  $('#delivery-form').hidden=false;$('#delivery-summary').hidden=true;$('#delivery-error').textContent='';$('#delivery-form').elements.location_confirmed.checked=false;
+- renderBranches();updateCartBadge();status('حدد مكان التوصيل الأول','هنراجع المتاجر اللي بتغطي العنوان والموقع الجديد.');focusDelivery();
++ $('#saved-address-status').textContent='';$('#retry-saved-address').hidden=true;
++ renderBranches();updateCartBadge();status('حدد مكان التوصيل الأول','هنراجع المتاجر اللي بتغطي العنوان والموقع الجديد.');if(scroll)focusDelivery();
+ }
+ function editLocation() {
+  if(state.submitting||state.discovering)return;
+  if(state.pending){notify('نتأكد من الطلب السابق الأول قبل تغيير العنوان.');return openCart();}
+- if(state.cart.length){showDialog('#change-location-dialog');return;}
++ if(state.cart.length){pendingAddress=null;showDialog('#change-location-dialog');return;}
+  document.querySelectorAll('dialog[open]').forEach(closeDialog);
+  resetDelivery();
+ }
+@@ -291,7 +319,10 @@ async function confirmOrder(pending) {
+   if ([403,409,422].includes(error.status)) { state.pending=null; writeStorage(pendingKey,null); }
+   const target = $('#submit-error'); if (target) target.textContent = error.message + (state.pending ? ' اضغط مرة تانية للتأكد من نفس الطلب من غير تكرار.' : ' ارجع لتعديل البيانات ومراجعة الإجمالي.');
+   if (button) {button.disabled = !state.pending; button.textContent = 'حاول تأكيد نفس الطلب مرة تانية';}
+- } finally {state.submitting=false;}
++ } finally {
++  state.submitting=false;renderSavedAddresses();
++  if(!state.pending&&!state.context&&customerProfile){restoreAddress(selectedAddress||customerProfile.selected_id);discoverDelivery(true);}
++ }
+ }
+ function resumeCheckout() {
+  if (!state.pending) return;
+@@ -322,14 +353,7 @@ $('#delivery-form').elements.area.addEventListener('input',event => {
+  },600);
+ });
+ $('#geolocate').addEventListener('click',locateCustomer);
+-$('#saved-address-select').addEventListener('change',event=>{
+- if(state.context||state.discovering||state.submitting||state.pending)return;
+- clearTimeout(suggestionTimer);suggestionRequest?.abort();$('#address-suggestions').replaceChildren();
+- if(event.target.value!=='new')return restoreAddress(event.target.value);
+- selectedAddress='';locationRevision++;state.point=null;state.quote=null;
+- const form=$('#delivery-form');form.elements.area.value='';form.elements.address.value='';form.elements.location_confirmed.checked=false;
+- initMap();locateCustomer();form.elements.area.focus({preventScroll:true});
+-});
++$('#saved-address-select').addEventListener('change',event=>changeAddress(event.target.value));
+ $('#forget-customer').addEventListener('click',()=>{
+  if(state.context||state.discovering||state.submitting||state.pending)return;
+  if(!writeCustomer(null)){notify('تعذر مسح البيانات المحفوظة من إعدادات المتصفح.');return;}
+@@ -357,6 +381,7 @@ document.addEventListener('click',event=>{
+  if(action==='category'){state.category=id;state.limit=12;renderMenu();}
+  if(action==='product')productDialog(id);
+  if(action==='retry-menu')loadBranch(state.branch);
++ if(action==='retry-address')discoverDelivery(true);
+  if(action==='back-menu'){closeDialog($('#cart-dialog'));document.getElementById('menu').scrollIntoView({behavior:'smooth'});}
+  if(action==='quantity'){const line=state.cart[Number(index)];if(!line)return;line.quantity=quantity(line.quantity+Number(delta)*(line.mode==='weight'?.25:1));if(line.quantity<=0)state.cart.splice(Number(index),1);else line.quantity=Math.min(99,line.quantity);state.quote=null;renderCart();updateCartBadge();}
+  if(action==='remove'){state.cart.splice(Number(index),1);state.quote=null;renderCart();updateCartBadge();}
+@@ -376,15 +401,17 @@ document.querySelectorAll('dialog').forEach(dialog=>{
+  dialog.addEventListener('click',event=>{if(event.target!==dialog||state.submitting)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog(dialog);});
+ });
+ document.addEventListener('error',event=>{if(event.target.tagName==='IMG'&&!event.target.dataset.fallback){event.target.dataset.fallback='1';event.target.src=placeholder;event.target.style.objectFit='contain';}},true);
+-$('#delivery-form').addEventListener('submit',async event=>{
+- event.preventDefault();if(state.discovering||state.submitting)return;
++async function discoverDelivery(automatic=false) {
++ if(state.discovering||state.submitting)return;
+  if(state.pending){$('#delivery-error').textContent='نتأكد من الطلب السابق الأول من سلة الطلب، وبعدها نغيّر بيانات التوصيل.';return;}
+- const form=event.currentTarget;$('#delivery-error').textContent='';
++ const form=$('#delivery-form');$('#delivery-error').textContent='';
+  form.elements.customer_name.value=form.elements.customer_name.value.trim();
+  if(!form.reportValidity())return;
+  if(!state.point){$('#delivery-error').textContent='حدد مكان التوصيل على الخريطة أو استخدم موقعي الحالي.';return;}
+  const payload={...Object.fromEntries(new FormData(form)),...state.point,location_confirmed:form.elements.location_confirmed.checked};
+  const button=$('#find-stores');state.discovering=true;button.disabled=true;button.textContent='بندور على المتاجر اللي بتخدمك…';form.inert=true;
++ renderSavedAddresses();$('#retry-saved-address').hidden=true;
++ if(automatic){showSavedSummary();$('#saved-address-status').textContent='بنحمّل المتاجر اللي بتوصّل للعنوان المحفوظ…';status('بنحمّل متاجر عنوانك…','عنوانك محفوظ، مش محتاج تأكيد البيانات تاني.');}
+  try {
+   const result=await api('branches',payload);
+   if(!Array.isArray(result.branches)||!result.context)throw new Error('تعذر قراءة المتاجر. حاول تاني.');
+@@ -392,12 +419,17 @@ $('#delivery-form').addEventListener('submit',async event=>{
+   saveCustomer(result.context,form.elements.customer_name.value);
+   $('#delivery-address').textContent=`${result.context.address}، ${result.context.area}`;$('#delivery-phone').textContent=result.context.customer_phone;
+   form.hidden=true;$('#delivery-summary').hidden=false;renderBranches();
++  $('#saved-address-status').textContent=data.branches.length?'تقدر تختار متجرك وتبدأ طلبك مباشرة.':'مفيش متجر بيغطي العنوان ده حاليًا. اختار عنوان تاني من القائمة بالأعلى.';
+   status(data.branches.length?'اختار المتجر المناسب ليك':'مفيش متجر بيغطي موقعك حاليًا',data.branches.length?'المتاجر مرتبة من الأقرب. اختار متجر لعرض المنيو والأسعار.':'جرّب عنوان توصيل تاني أو غيّر الموقع من بيانات التوصيل.');
+-  document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
+- }catch(error){state.context=null;data.branches=[];renderBranches();$('#delivery-error').textContent=error.message;}
+- finally{state.discovering=false;form.inert=false;button.disabled=false;button.textContent='اعرض المتاجر اللي بتخدمني ←';}
+-});
+-$('#confirm-location-change').addEventListener('click',()=>{if(state.pending||state.submitting)return;document.querySelectorAll('dialog[open]').forEach(closeDialog);resetDelivery();});
++  if(!automatic)document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
++ }catch(error){state.context=null;data.branches=[];renderBranches();$('#delivery-error').textContent=error.message;
++  if(automatic){$('#saved-address-status').textContent=error.message;$('#retry-saved-address').hidden=false;status('تعذر تحميل متاجر العنوان','العنوان محفوظ. حاول تحميل المتاجر تاني من عنوان التوصيل.');}
++ }
++ finally{state.discovering=false;form.inert=false;button.disabled=false;button.textContent='اعرض المتاجر اللي بتخدمني ←';renderSavedAddresses();}
++}
++$('#delivery-form').addEventListener('submit',event=>{event.preventDefault();discoverDelivery();});
++$('#confirm-location-change').addEventListener('click',()=>{if(state.pending||state.submitting)return;const id=pendingAddress;pendingAddress=null;if(id!==null){applyAddress(id);return;}document.querySelectorAll('dialog[open]').forEach(closeDialog);resetDelivery();});
+ renderBranches();updateCartBadge();initMap();
+-if(customerProfile)restoreAddress(customerProfile.selected_id);else{renderSavedAddresses();locateCustomer();}
++if(customerProfile){restoreAddress(customerProfile.selected_id);showSavedSummary();if(!state.pending)discoverDelivery(true);else $('#saved-address-status').textContent='نتأكد من نتيجة الطلب السابق من السلة، وبعدها تظهر متاجر عنوانك تلقائيًا.';}
++else{renderSavedAddresses();locateCustomer();}
+ })();
+diff --git a/resources/views/site/home.blade.php b/resources/views/site/home.blade.php
+index b38004c..483264d 100755
+--- a/resources/views/site/home.blade.php
++++ b/resources/views/site/home.blade.php
+@@ -17,10 +17,10 @@
+     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+     <link rel="preload" as="image" href="{{ asset('storefront/hero.webp') }}">
+     <link rel="stylesheet" href="{{ asset('dashboard/vendor/leaflet/leaflet.css') }}">
+-    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-4">
++    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-5">
+     <script id="storefront-data" type="application/json">{!! json_encode(['branches'=>$storefrontBranches,'info'=>$storefrontInfo,'endpoints'=>['branches'=>route('storefront.branches'),'catalog'=>route('storefront.catalog'),'addresses'=>route('storefront.addresses'),'quote'=>route('storefront.quote'),'checkout'=>route('storefront.checkout')]], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
+     <script src="{{ asset('dashboard/vendor/leaflet/leaflet.js') }}" defer></script>
+-    <script src="{{ asset('storefront/storefront.js') }}?v=20261017-4" defer></script>
++    <script src="{{ asset('storefront/storefront.js') }}?v=20261017-5" defer></script>
+ </head>
+ <body>
+ <a class="skip-link" href="#menu">انتقل للمينيو</a>
+@@ -28,7 +28,7 @@
+ <header class="site-header">
+     <a href="#" class="brand" aria-label="فسخانستا الرئيسية"><img src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="" width="58" height="58"><span>فسخانستا<small>FASAKHANSTA</small></span></a>
+     <nav aria-label="القائمة الرئيسية"><a class="active" href="#menu">المنيو</a><a href="#story">حكايتنا</a><a href="#branches">المتاجر</a><a href="#app">التطبيق</a></nav>
+-    <div class="header-actions"><button class="branch-shortcut" data-action="choose-branch"><span aria-hidden="true">⌖</span><span id="header-branch">حدد عنوانك</span></button><button class="cart-trigger" data-action="cart" aria-label="افتح سلة الطلب"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 7h14l1 14H4L5 7Z M8 8V6a4 4 0 0 1 8 0v2"/></svg><span class="cart-label">سلة الطلب</span><b id="cart-count">0</b></button></div>
++    <div class="header-actions"><label id="saved-customer" class="saved-customer" hidden><span>⌖ عنوان التوصيل</span><select id="saved-address-select" aria-label="اختار عنوان التوصيل المحفوظ"></select></label><button id="location-shortcut" class="branch-shortcut" data-action="choose-branch"><span aria-hidden="true">⌖</span><span id="header-branch">حدد عنوانك</span></button><button class="cart-trigger" data-action="cart" aria-label="افتح سلة الطلب"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 7h14l1 14H4L5 7Z M8 8V6a4 4 0 0 1 8 0v2"/></svg><span class="cart-label">سلة الطلب</span><b id="cart-count">0</b></button></div>
+ </header>
+ <main>
+     <section class="hero" aria-labelledby="hero-title">
+@@ -40,11 +40,6 @@
+         <div class="delivery-card">
+             <div class="delivery-intro"><span class="eyebrow">اللمة تبدأ من عنوانك</span><h2 id="delivery-title">نوصّل لك فين؟</h2><p>حدد موقعك واكتب عنوانك ورقمك، علشان نعرض لك أقرب متاجر فسخانستا اللي بتخدم مكانك.</p><div class="delivery-steps"><span><b>١</b> حدد موقعك</span><span><b>٢</b> اختار متجرك</span><span><b>٣</b> جهّز طلبك</span></div></div>
+             <form id="delivery-form" class="delivery-form">
+-                <div id="saved-customer" class="saved-customer" hidden>
+-                    <label for="saved-address-select">عناوينك المحفوظة<select id="saved-address-select" aria-describedby="saved-customer-help"></select></label>
+-                    <p id="saved-customer-help">اختار عنوان للأوردر ده، أو أضف عنوان جديد.</p>
+-                    <button type="button" id="forget-customer" class="text-link">امسح بياناتي من الجهاز ده</button>
+-                </div>
+                 <div class="checkout-fields">
+                     <label class="full">اسمك<input name="customer_name" autocomplete="name" required minlength="2" maxlength="100" placeholder="الاسم بالكامل"></label>
+                     <label class="full">رقم الموبايل<input name="customer_phone" type="tel" autocomplete="tel" inputmode="tel" dir="ltr" required maxlength="30" placeholder="01xxxxxxxxx"></label>
+@@ -56,10 +51,11 @@
+                 <p id="location-help" class="muted" role="status" aria-live="polite">بنحدد موقعك تلقائيًا. اسمح باستخدام الموقع من المتصفح أول مرة.</p>
+                 <label class="confirm-location"><input name="location_confirmed" type="checkbox" required> الدبوس في مكان التوصيل الصحيح</label>
+                 <p class="privacy-note">بنحفظ اسمك ورقمك وعناوينك على الجهاز ده للطلبات الجاية، وبنستخدم بياناتك لتجهيز الطلب والتواصل معاك بخصوصه.</p>
++                <button type="button" id="forget-customer" class="text-link" hidden>امسح بياناتي من الجهاز ده</button>
+                 <div id="delivery-error" class="form-error" role="alert"></div>
+                 <button id="find-stores" type="submit" class="button primary wide">اعرض المتاجر اللي بتخدمني <span aria-hidden="true">←</span></button>
+             </form>
+-            <div id="delivery-summary" class="delivery-summary" hidden><span class="delivery-summary-icon" aria-hidden="true">⌖</span><div><strong>عنوان التوصيل</strong><p id="delivery-address"></p><span id="delivery-phone" dir="ltr"></span></div><button type="button" class="button secondary" data-action="edit-location">تغيير العنوان أو الموقع</button></div>
++            <div id="delivery-summary" class="delivery-summary" hidden><span class="delivery-summary-icon" aria-hidden="true">⌖</span><div><strong>عنوان التوصيل المختار</strong><p id="delivery-address"></p><span id="delivery-phone" dir="ltr"></span><p id="saved-address-status" role="status" aria-live="polite"></p><button type="button" id="retry-saved-address" class="text-link" data-action="retry-address" hidden>حاول تحميل المتاجر تاني</button></div><button type="button" class="button secondary" data-action="edit-location">تعديل بيانات العنوان</button></div>
+         </div>
+     </section>
+     <section id="menu" class="menu-section section-wrap" aria-labelledby="menu-title">
+diff --git a/tests/web_customer_addresses_installer_test.py b/tests/web_customer_addresses_installer_test.py
+index 447c7e5..68cccc0 100644
+--- a/tests/web_customer_addresses_installer_test.py
++++ b/tests/web_customer_addresses_installer_test.py
+@@ -17,16 +17,37 @@ SPEC = importlib.util.spec_from_file_location('customer_addresses_installer',
+ m = importlib.util.module_from_spec(SPEC)
+ SPEC.loader.exec_module(m)
+ RELEASE = 'f' * 40
++ORIGINAL_BASELINE = '01b8805ef49cc05c315edbde7909ad6489954190'
+ 
+ 
+ def baseline(relative):
+     return subprocess.check_output(['git', 'show', m.BASELINE + ':' + relative], cwd=ROOT)
+ 
+ 
++def parallel_seo(payload):
++    start = payload.index(b'    <title>')
++    end = payload.index(b'\n', payload.index(b'    <meta property="og:image"')) + 1
++    payload = payload[:start] + (
++        b"    {{-- STOREFRONT_SEO_HEAD_START --}}\n"
++        b"    @include('site.seo.head', ['seo' => \\App\\Services\\Site\\StorefrontSeo::homeMetadata()])\n"
++        b'    <meta name="theme-color" content="#091320">\n'
++        b"    {{-- STOREFRONT_SEO_HEAD_END --}}\n") + payload[end:]
++    payload = re.sub(rb'(<link rel="stylesheet" href="\{\{ asset\(\'storefront/storefront\.css\'\) \}\}[^\n]+\n)',
++                     lambda match: match[0] + b'    <link rel="stylesheet" href="/storefront/seo.css">\n', payload, count=1)
++    products = b'<a href="{{ \\App\\Services\\Site\\StorefrontSeo::url(\'/products\') }}">Products</a>'
++    payload = payload.replace(b'<a href="#story">', products + b'<a href="#story">', 1)
++    payload = payload.replace(b'<a href="#ordering-faq">', products + b'<a href="#ordering-faq">', 1)
++    payload = payload.replace('اللمة الحلوة،<br>تبدأ بـ'.encode(), 'فسيخ ورنجة،<br>بمزاج'.encode(), 1)
++    return payload.replace(b'    <section id="delivery"',
++                           b"    @include('site.seo.home-products')\n    <section id=\"delivery\"", 1)
++
++
+ class InstallerTests(unittest.TestCase):
+-    def test_scope_is_only_existing_three_ui_files(self):
++    def test_scope_is_only_existing_three_ui_files_and_discovery_service(self):
++        self.assertEqual(m.BASELINE, '2c597530e88c78e39f54bc68351246732a566fa2')
+         self.assertEqual(set(m.PUBLISH_ORDER), {m.HOME, 'public/storefront/storefront.js',
+-                                              'public/storefront/storefront.css'})
++                                              'public/storefront/storefront.css',
++                                              'app/Services/Site/WebStorefront.php'})
+         self.assertTrue(all((ROOT / relative).is_file() for relative in m.PUBLISH_ORDER))
+ 
+     def test_home_merge_preserves_adjacent_independent_seo(self):
+@@ -59,29 +80,34 @@ class InstallerTests(unittest.TestCase):
+         if reviewed == old:
+             self.skipTest('UI changes have not been written yet')
+ 
+-        def seo(payload):
+-            start = payload.index(b'    <title>')
+-            end = payload.index(b'\n', payload.index(b'    <meta property="og:image"')) + 1
+-            payload = payload[:start] + (
+-                b"    {{-- STOREFRONT_SEO_HEAD_START --}}\n"
+-                b"    @include('site.seo.head', ['seo' => \\App\\Services\\Site\\StorefrontSeo::homeMetadata()])\n"
+-                b'    <meta name="theme-color" content="#091320">\n'
+-                b"    {{-- STOREFRONT_SEO_HEAD_END --}}\n") + payload[end:]
+-            payload = re.sub(rb'(<link rel="stylesheet" href="\{\{ asset\(\'storefront/storefront\.css\'\) \}\}[^\n]+\n)',
+-                             lambda match: match[0] + b'    <link rel="stylesheet" href="/storefront/seo.css">\n', payload, count=1)
+-            products = b'<a href="{{ \\App\\Services\\Site\\StorefrontSeo::url(\'/products\') }}">Products</a>'
+-            payload = payload.replace(b'<a href="#story">', products + b'<a href="#story">', 1)
+-            payload = payload.replace(b'<a href="#ordering-faq">', products + b'<a href="#ordering-faq">', 1)
+-            payload = payload.replace('اللمة الحلوة،<br>تبدأ بـ'.encode(), 'فسيخ ورنجة،<br>بمزاج'.encode(), 1)
+-            payload = payload.replace(b'    <section id="delivery"',
+-                                      b"    @include('site.seo.home-products')\n    <section id=\"delivery\"", 1)
+-            return payload
+-
+-        live = seo(old)
++        live = parallel_seo(old)
+         result = m.surgical_patch(live, old, reviewed)
+-        self.assertEqual(result, seo(reviewed))
++        self.assertEqual(result, parallel_seo(reviewed))
+         self.assertEqual(m.surgical_patch(result, old, reviewed), result)
+ 
++    def test_second_patch_preserves_seo_applied_before_first_customer_patch(self):
++        original = subprocess.check_output(['git', 'show', ORIGINAL_BASELINE + ':' + m.HOME], cwd=ROOT)
++        previous = baseline(m.HOME)
++        reviewed = (ROOT / m.HOME).read_bytes()
++        if reviewed == previous:
++            self.skipTest('Second UI changes have not been written yet')
++        first = m.surgical_patch(parallel_seo(original), original, previous)
++        self.assertEqual(first, parallel_seo(previous))
++        second = m.surgical_patch(first, previous, reviewed)
++        self.assertEqual(second, parallel_seo(reviewed))
++        self.assertEqual(m.surgical_patch(second, previous, reviewed), second)
++
++    def test_assets_before_previous_customer_patch_are_not_accepted(self):
++        for relative in m.ASSETS:
++            original = subprocess.check_output(['git', 'show', ORIGINAL_BASELINE + ':' + relative], cwd=ROOT)
++            previous = baseline(relative)
++            reviewed = previous + b'\n/* second reviewed UI */\n'
++            with mock.patch.object(m, 'source', side_effect=lambda root, revision, path:
++                                   previous if revision == m.BASELINE else reviewed):
++                self.assertNotEqual(original, previous)
++                with self.assertRaisesRegex(RuntimeError, 'ASSET_SOURCE_CONFLICT'):
++                    m.plan_target(ROOT, RELEASE, relative, original)
++
+     def test_same_line_change_conflicts_without_partial_merge(self):
+         with self.assertRaisesRegex(RuntimeError, 'SOURCE_PATCH_CONFLICT'):
+             m.surgical_patch(b'A\nLIVE\nC\n', b'A\nB\nC\n', b'A\nREVIEWED\nC\n')
+@@ -96,8 +122,8 @@ class InstallerTests(unittest.TestCase):
+         self.assertEqual(m.surgical_patch(b'A\nB\nC\nD\nLIVE\n', old, b'A\nB\nD\n'),
+                          b'A\nB\nD\nLIVE\n')
+ 
+-    def test_only_exact_known_assets_are_replaced_and_missing_files_refused(self):
+-        for relative in m.ASSETS:
++    def test_only_exact_known_assets_and_service_are_replaced_and_missing_files_refused(self):
++        for relative in m.EXACT_FILES:
+             old = baseline(relative)
+             reviewed = old + b'\n/* reviewed UI */\n'
+             with mock.patch.object(m, 'source', side_effect=lambda root, revision, path:
+@@ -111,7 +137,7 @@ class InstallerTests(unittest.TestCase):
+         with self.assertRaisesRegex(RuntimeError, 'FILE_NOT_REVIEWED'):
+             m.plan_target(ROOT, RELEASE, '.env', b'')
+ 
+-    def test_bundle_verifies_six_exact_blobs_and_release_binding(self):
++    def test_bundle_verifies_eight_exact_blobs_and_release_binding(self):
+         with tempfile.TemporaryDirectory() as directory:
+             bundle = pathlib.Path(directory)
+             manifest = {'schema': 1, 'release': RELEASE, 'baseline': m.BASELINE, 'blobs': {}}
+@@ -191,8 +217,10 @@ class InstallerTests(unittest.TestCase):
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                 m._install_locked(app, RELEASE, True, os.getuid())
+             self.assertIn('WEB_CUSTOMER_ADDRESSES_PREFLIGHT_OK', output.getvalue())
+-            self.assertEqual(command.call_count, 1)
+-            self.assertEqual(command.call_args.args[1][:2], [m.PHP, '-l'])
++            self.assertEqual(command.call_count, 2)
++            self.assertTrue(all(call.args[1][:2] == [m.PHP, '-l'] for call in command.call_args_list))
++            self.assertEqual({pathlib.Path(call.args[1][2]).name for call in command.call_args_list},
++                             {'WebStorefront.php', 'home.blade.php'})
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), originals[path])
+                 self.assertEqual((app / path).stat(), before[path])
+@@ -208,28 +236,28 @@ class InstallerTests(unittest.TestCase):
+                 m._install_locked(app, RELEASE, False, os.getuid())
+             result = json.loads(output.getvalue())
+             self.assertEqual(result['status'], 'WEB_CUSTOMER_ADDRESSES_READY')
+-            self.assertEqual(result['updated_files'], 3)
++            self.assertEqual(result['updated_files'], 4)
+             backup = pathlib.Path(result['backup'])
+             self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o700)
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), targets[path])
+                 self.assertEqual((backup / path).read_bytes(), originals[path])
+                 self.assertEqual(stat.S_IMODE((backup / path).stat().st_mode), 0o600)
+-            self.assertEqual([call.args[1][2:] for call in command.call_args_list],
+-                             [[command.call_args_list[0].args[1][2]], ['view:clear']])
+-            self.assertEqual(command.call_args_list[1].args[1], [m.PHP, str(app / 'artisan'), 'view:clear'])
++            self.assertEqual(command.call_count, 3)
++            self.assertTrue(all(call.args[1][:2] == [m.PHP, '-l'] for call in command.call_args_list[:2]))
++            self.assertEqual(command.call_args_list[2].args[1], [m.PHP, str(app / 'artisan'), 'view:clear'])
+ 
+     def test_view_clear_failure_rolls_back_all_files(self):
+         with tempfile.TemporaryDirectory() as directory:
+             app, originals, targets = self.stage(directory)
+             with mock.patch.object(m, 'safe_directories'), \
+                     mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
+-                    mock.patch.object(m, 'owned_command', side_effect=[b'', RuntimeError('view failure'), b'']) as command:
++                    mock.patch.object(m, 'owned_command', side_effect=[b'', b'', RuntimeError('view failure'), b'']) as command:
+                 with self.assertRaisesRegex(RuntimeError, 'WEB_CUSTOMER_ADDRESSES_ROLLED_BACK'):
+                     m._install_locked(app, RELEASE, False, os.getuid())
+             for path in m.PUBLISH_ORDER:
+                 self.assertEqual((app / path).read_bytes(), originals[path])
+-            self.assertEqual(command.call_count, 3)
++            self.assertEqual(command.call_count, 4)
+ 
+     def test_rollback_does_not_overwrite_new_concurrent_edits(self):
+         with tempfile.TemporaryDirectory() as directory:
+@@ -245,7 +273,7 @@ class InstallerTests(unittest.TestCase):
+                 with self.assertRaisesRegex(RuntimeError, 'ROLLBACK_INCOMPLETE'):
+                     m._install_locked(app, RELEASE, False, os.getuid())
+             self.assertEqual((app / m.HOME).read_bytes(), b'independent concurrent edit')
+-            for path in m.ASSETS:
++            for path in m.EXACT_FILES:
+                 self.assertEqual((app / path).read_bytes(), originals[path])
+ 
+     def test_rerun_exact_target_has_no_writes_or_backup(self):
+@@ -259,7 +287,7 @@ class InstallerTests(unittest.TestCase):
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                 m._install_locked(app, RELEASE, False, os.getuid())
+             self.assertEqual(json.loads(output.getvalue())['updated_files'], 0)
+-            self.assertEqual(command.call_count, 1)
++            self.assertEqual(command.call_count, 2)
+ 
+     def test_fixed_root_and_release_are_enforced_before_actions(self):
+         with mock.patch.object(m, '_install_locked') as apply:
+diff --git a/tests/web_storefront_runtime.php b/tests/web_storefront_runtime.php
+index 9c9d29c..dd70edc 100644
+--- a/tests/web_storefront_runtime.php
++++ b/tests/web_storefront_runtime.php
+@@ -5,6 +5,12 @@
+ namespace {
+  function abort($status,$message='',array $headers=[]){throw new \Symfony\Component\HttpKernel\Exception\HttpException($status,$message,null,$headers);}
+  require rtrim(getenv('WEB_STORE_TEST_VENDOR') ?: '', '/').'/autoload.php';
++ // The isolated Illuminate runtime omits Foundation's global application helpers.
++ if(!function_exists('app')){function app($abstract=null){$app=\Illuminate\Container\Container::getInstance();return $abstract===null?$app:$app->make($abstract);}}
++ if(!function_exists('config')){function config($key=null,$default=null){return $key===null?app('config'):app('config')->get($key,$default);}}
++ if(!function_exists('now')){function now($zone=null){return \Carbon\Carbon::now($zone);}}
++ if(!function_exists('abort_unless')){function abort_unless($condition,$status,$message=''){if(!$condition)abort($status,$message);}}
++ if(!function_exists('abort_if')){function abort_if($condition,$status,$message=''){if($condition)abort($status,$message);}}
+  spl_autoload_register(function($class){if(str_starts_with($class,'App\\')){$p=dirname(__DIR__).'/app/'.str_replace('\\','/',substr($class,4)).'.php';if(is_file($p))require $p;}});
+  function route($name,$params=[]){return 'https://fixture.test/'.$name.'/'.implode('/',$params);}
+ }
+@@ -88,12 +94,30 @@ namespace {
+  foreach (['latitude'=>30.011,'longitude'=>31.001,'customer_phone'=>'01012345679','address'=>'عنوان آخر مختلف تفصيلي','area'=>'منطقة أخرى'] as $key=>$value) {
+      $changed=$payload;$changed[$key]=$value;denied(fn()=>$store->quote(requestData($changed)),409);
+  }
+- $pendingBeforeDiscovery=$store->quote(requestData($payload));$store->discover(requestData($payload));
+- denied(fn()=>$store->checkout(requestData(['token'=>$pendingBeforeDiscovery['token'],'idempotency_key'=>'00000000-0000-4000-8000-000000000080'])),409);
+- check(DB::table('pos_service_tickets')->count()===0,'Invalidated location quote created an order');
++ $originalContext=$session->get('web_storefront.delivery_context');
++ $store->discover(requestData($payload));
++ check($session->get('web_storefront.delivery_context')===$originalContext,'Same-address discovery invalidated a pending review in another tab');
++ $equivalent=$payload;$equivalent['customer_phone']='00201012345678';$equivalent['address']='  '.$payload['address'].'  ';$equivalent['area']=' '.$payload['area'].' ';$equivalent['latitude']='30.01000000';$equivalent['longitude']='31.00000000';
++ $store->discover(requestData($equivalent));
++ check($session->get('web_storefront.delivery_context')===$originalContext,'Normalized-equivalent delivery details changed the context nonce');
++ foreach (['customer_phone'=>'01012345679','address'=>'عنوان آخر مختلف تفصيلي','area'=>'منطقة أخرى','latitude'=>30.011,'longitude'=>31.001] as $key=>$value) {
++     $pendingBeforeDiscovery=$store->quote(requestData($payload));$before=$session->get('web_storefront.delivery_context');
++     $changed=$payload;$changed[$key]=$value;$store->discover(requestData($changed));
++     check($session->get('web_storefront.delivery_context')['nonce']!==$before['nonce'],'Changed '.$key.' retained the former delivery nonce');
++     denied(fn()=>$store->checkout(requestData(['token'=>$pendingBeforeDiscovery['token'],'idempotency_key'=>'00000000-0000-4000-8000-000000000080'])),409);
++     check(DB::table('pos_service_tickets')->count()===0,'Invalidated '.$key.' quote created an order');
++     $store->discover(requestData($payload));
++ }
++ foreach ([null,false,123,[],str_repeat('z',32),str_repeat('a',31),str_repeat('a',32)."\n"] as $invalidNonce) {
++     $badContext=$session->get('web_storefront.delivery_context');$badContext['nonce']=$invalidNonce;$session->put('web_storefront.delivery_context',$badContext);
++     $store->discover(requestData($payload));$nonce=$session->get('web_storefront.delivery_context')['nonce'];
++     check(is_string($nonce)&&preg_match('/\A[a-f0-9]{32}\z/',$nonce)===1&&$nonce!==$invalidNonce,'Malformed previous nonce was retained');
++ }
+  foreach ([307,363] as $id) {$unavailable=$payload;$unavailable['branch_id']=$id;denied(fn()=>$store->quote(requestData($unavailable)),409);}
+  $q=$store->quote(requestData($payload));check($q['summary']['subtotal']==='225.00','Fractional kg price wrong');check($q['summary']['total']==='247.24','Server delivery calculation wrong');
+  check(array_keys($q['summary']['items'][0])===['name','option_label','quantity_mode','quantity','unit_price','total'],'Internal line fields exposed');
++ $reviewContext=$session->get('web_storefront.delivery_context');$store->discover(requestData($equivalent));
++ check($session->get('web_storefront.delivery_context')===$reviewContext,'Saved-address auto-discovery changed the active order review');
+  $v=['token'=>$q['token'],'idempotency_key'=>'00000000-0000-4000-8000-000000000001'];
+  denied(fn()=>$store->checkout(requestData($v,true)),403);check(DB::table('pos_service_tickets')->count()===0,'Cross-session checkout wrote');
+  $created=$store->checkout(requestData($v));check($created['order']['number']==='WEB-1','Order receipt missing');
+@@ -160,5 +184,5 @@ namespace {
+  check($session->get('web_storefront.delivery_context')===$activeContext,'Deployment check changed real visitor delivery context');
+  foreach ($countsBefore as $table=>$count) check(DB::table($table)->count()===$count,'Read-only deployment check wrote '.$table);
+  DB::table('resturants')->where('id',94)->update(['user_id'=>1]);denied(fn()=>$store->quote(requestData($payload)),503);
+- echo 'PASS '.$checks." checks: location-first private discovery, app coverage boundary/holes/no fallback, nearest sorting, server catalog/quote/checkout coverage, context invalidation, dynamic public stores, private/hidden/GO exclusion, real native unpaid branch orders, no cash/print side effects, session binding and retry safety.\n";
++ echo 'PASS '.$checks." checks: location-first private discovery, app coverage boundary/holes/no fallback, nearest sorting, server catalog/quote/checkout coverage, stable same-address recall and changed/invalid context invalidation, dynamic public stores, private/hidden/GO exclusion, real native unpaid branch orders, no cash/print side effects, session binding and retry safety.\n";
+ }
+diff --git a/tests/web_storefront_ui_test.cjs b/tests/web_storefront_ui_test.cjs
+index dfce89f..2285a62 100644
+--- a/tests/web_storefront_ui_test.cjs
++++ b/tests/web_storefront_ui_test.cjs
+@@ -36,7 +36,7 @@ function fixture(options={}) {
+  w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+  let geolocationCalls=0;
+  const geolocationRequests=[];
+- const controls={branches:stores.map(store=>({...store})),branchError:null,catalogError:null,checkoutFail:!!options.checkoutFail,releaseCheckout:null,delayQuote:!!options.delayQuote,releaseQuote:null,geolocation:options.geolocation||'success',accuracy:options.accuracy??100,context:{}};
++ const controls={branches:stores.map(store=>({...store})),branchError:options.branchError||null,delayBranches:!!options.delayBranches,releaseBranches:null,catalogError:null,checkoutFail:!!options.checkoutFail,releaseCheckout:null,delayQuote:!!options.delayQuote,releaseQuote:null,geolocation:options.geolocation||'success',accuracy:options.accuracy??100,context:{}};
+  const mapEvents={};
+  const map={setView(){return this;},on(name,callback){mapEvents[name]=callback;return this;},invalidateSize(){},removeLayer(){}};
+  w.L={map:()=>map,tileLayer:()=>({addTo(){return this;}}),divIcon:value=>value,marker:point=>({point,addTo(){return this;},on(){return this;},setLatLng(value){this.point=value;return this;},getLatLng(){return {lat:this.point[0],lng:this.point[1]};}})};
+@@ -67,6 +67,7 @@ function fixture(options={}) {
+   const url=new URL(input),body=init.body?JSON.parse(init.body):null;
+   calls.push({path:url.pathname,url:url.href,search:url.search,method:init.method,body,headers:init.headers,credentials:init.credentials});
+   if(url.pathname==='/shop/branches') {
++   if(controls.delayBranches)await new Promise(resolve=>controls.releaseBranches=resolve);
+    if(controls.branchError)return response(controls.branchError.status,{message:controls.branchError.message});
+    return response(200,{success:true,branches:controls.branches,context:{...body,customer_name:undefined,customer_phone:'01012345678',location_confirmed:true,...controls.context}});
+   }
+@@ -254,15 +255,19 @@ async function automaticLocationAndCustomerRecall() {
+  } finally {f.close();}
+  const recall=fixture({savedProfile:saved});
+  try {
++  await flush();
+   const form=recall.$('#delivery-form'),select=recall.$('#saved-address-select');
+   assert.ok(select,'Returning customer has no address selector');assert.equal(select.value,saved.selected_id);
+-  assert.ok(select.compareDocumentPosition(form.elements.customer_name)&recall.w.Node.DOCUMENT_POSITION_FOLLOWING,'Saved addresses are not above the registration fields');
++  assert.ok(select.closest('header.site-header'),'Saved-address selector is not in the page header');
++  assert.ok(select.closest('#saved-customer'),'Saved-address selector is outside its customer header control');
+   assert.equal(recall.geolocationCalls(),0,'Returning customer address was replaced by current GPS');
+-  assert.equal(recall.calls.length,0,'Saved address bypassed server delivery eligibility check');
++  assert.equal(recall.calls.length,1,'Returning customer did not perform one automatic delivery discovery');
++  assert.equal(form.hidden,true,'Returning customer was asked to reconfirm saved delivery details');assert.equal(recall.$('#delivery-summary').hidden,false);
++  assert.equal(recall.calls[0].path,'/shop/branches');assert.equal(recall.calls[0].method,'POST');
++  assert.equal(recall.calls[0].body.latitude,saved.addresses[0].latitude);assert.equal(recall.calls[0].body.longitude,saved.addresses[0].longitude);
+   assert.equal(form.elements.customer_name.value,saved.customer_name);assert.equal(form.elements.customer_phone.value,saved.customer_phone);
+   assert.equal(form.elements.area.value,saved.addresses[0].area);assert.equal(form.elements.address.value,saved.addresses[0].address);
+   assert.equal(form.elements.location_confirmed.checked,true,'Saved valid address required a new map confirmation');
+-  recall.submit('#delivery-form');await flush();
+   assert.equal(recall.calls.filter(call=>call.path==='/shop/branches').length,1);
+   assert.equal(recall.calls.filter(call=>call.path==='/shop/catalog').length,0);
+   recall.choose(94);await flush();recall.add(.5);recall.click('[data-action="cart"]');recall.click('[data-action="checkout"]');
+@@ -273,15 +278,26 @@ async function savedAddressSelectionAndForget() {
+  const addresses=[sampleAddress('home'),sampleAddress('work',{area:'الجيزة',address:'١٠ شارع المكتب الدور الثالث',latitude:30.04,longitude:31.1})];
+  const f=fixture({savedProfile:sampleProfile(addresses)});
+  try {
+-  f.selectAddress('work');assert.equal(f.calls.length,0,'Saved-address selection fetched a catalog before confirmation');
+-  assert.equal(f.$('#delivery-form').elements.address.value,addresses[1].address);assert.equal(f.$('#delivery-form').elements.location_confirmed.checked,true);
+-  f.submit('#delivery-form');await flush();
+-  const request=f.calls.find(call=>call.path==='/shop/branches');assert.equal(request.body.latitude,30.04);assert.equal(request.body.longitude,31.1);
+-  assert.equal(JSON.parse(f.w.localStorage.getItem(customerKey)).selected_id,'work');
+-  f.click('#delivery-summary [data-action="edit-location"]');
++  await flush();assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,1);
++  f.selectAddress('work');await flush();
++  assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,2,'Saved-address selection required a manual reconfirmation');
++  assert.equal(f.calls.filter(call=>call.path==='/shop/catalog').length,0,'Changing address silently selected a store');
++  assert.equal(f.$('#delivery-form').hidden,true);assert.equal(f.$('#delivery-form').elements.address.value,addresses[1].address);
++  const request=f.calls.filter(call=>call.path==='/shop/branches').at(-1);assert.equal(request.body.latitude,30.04);assert.equal(request.body.longitude,31.1);
++  assert.equal(JSON.parse(f.w.localStorage.getItem(customerKey)).selected_id,'work');assert.equal(f.geolocationCalls(),0,'Saved-address change requested GPS');
++  f.choose(94);await flush();f.add(.5);const requestCount=f.calls.length;
++  f.selectAddress('home');assert.equal(f.$('#change-location-dialog').open,true,'Switching saved address discarded the active cart without confirmation');
++  assert.equal(f.$('#saved-address-select').value,'work','Unconfirmed address change updated the active header selection');
++  assert.equal(f.$('#cart-count').textContent,'1');assert.equal(f.calls.length,requestCount,'Unconfirmed address switch requested delivery discovery');
++  f.click('#change-location-dialog [data-close]');assert.equal(f.$('#saved-address-select').value,'work');assert.equal(f.$('#cart-count').textContent,'1');
++  f.selectAddress('home');f.click('#confirm-location-change');await flush();
++  assert.equal(f.$('#cart-count').textContent,'0');assert.equal(f.$('#saved-address-select').value,'home');assert.equal(f.$('#delivery-form').hidden,true);
++  assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,3,'Confirmed saved-address switch did not load eligible stores automatically');
++  assert.equal(f.calls.filter(call=>call.path==='/shop/branches').at(-1).body.latitude,30.01);
+   f.selectAddress('new');assert.equal(f.geolocationCalls(),1,'New address did not request automatic GPS');
+-  assert.equal(f.$('#delivery-form').elements.area.value,'');assert.equal(f.$('#delivery-form').elements.address.value,'');
++  assert.equal(f.$('#delivery-form').hidden,false);assert.equal(f.$('#delivery-form').elements.area.value,'');assert.equal(f.$('#delivery-form').elements.address.value,'');
+   assert.equal(f.$('#delivery-form').elements.customer_name.value,customerName);assert.equal(f.$('#delivery-form').elements.customer_phone.value,'01012345678');
++  assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,3,'New address fetched stores before its details were completed');
+   f.input('#delivery-form [name="area"]','المنصورة',false);f.input('#delivery-form [name="address"]','٤ شارع الجامعة الدور الأول');f.submit('#delivery-form');await flush();
+   const profile=JSON.parse(f.w.localStorage.getItem(customerKey));assert.equal(profile.addresses.length,3,'New address replaced previous address history');
+   assert.ok(profile.addresses.some(address=>address.id===profile.selected_id&&address.address==='٤ شارع الجامعة الدور الأول'));
+@@ -293,11 +309,24 @@ async function savedAddressSelectionAndForget() {
+  const ten=Array.from({length:10},(_,index)=>sampleAddress('address-'+index,{address:`العنوان المحفوظ رقم ${index} شارع الاختبار`}));
+  const bounded=fixture({savedProfile:sampleProfile(ten)});
+  try {
+-  bounded.selectAddress('new');bounded.fillDelivery();bounded.submit('#delivery-form');await flush();
++  await flush();bounded.selectAddress('new');bounded.fillDelivery();bounded.submit('#delivery-form');await flush();
+   const profile=JSON.parse(bounded.w.localStorage.getItem(customerKey));assert.equal(profile.addresses.length,10,'Saved address history grew past its bound');
+   assert.ok(profile.addresses.some(address=>address.id===profile.selected_id&&address.address==='١ شارع الاختبار الدور الثاني'),'Newest address missing from bounded history');
+  } finally {bounded.close();}
+ }
++async function automaticAddressDiscoveryLocksSelection() {
++ const profile=sampleProfile([sampleAddress('home'),sampleAddress('work',{area:'الجيزة',address:'١٠ شارع المكتب الدور الثالث',latitude:30.04,longitude:31.1})]);
++ const f=fixture({savedProfile:profile,delayBranches:true});
++ try {
++  assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,1);assert.equal(f.$('#saved-address-select').disabled,true,'Address dropdown stayed editable during automatic discovery');
++  f.selectAddress('work');assert.equal(f.$('#saved-address-select').value,'home','Locked address change retained a stale header selection');
++  assert.equal(f.calls.length,1,'Changing a locked address triggered overlapping discovery');assert.equal(f.geolocationCalls(),0);
++  f.controls.delayBranches=false;assert.equal(typeof f.controls.releaseBranches,'function');f.controls.releaseBranches();await flush();
++  assert.equal(f.$('#saved-address-select').disabled,false);assert.equal(f.$('#saved-address-select').value,'home');
++  assert.equal(f.$('#delivery-form').hidden,true);assert.equal(f.$('#delivery-summary').hidden,false);
++  assert.equal(f.$('#delivery-form').elements.address.value,profile.addresses[0].address);
++ } finally {f.close();}
++}
+ async function delayedGpsAndDeniedFallback() {
+  const approximate=fixture({accuracy:1000});
+  try {
+@@ -316,8 +345,9 @@ async function delayedGpsAndDeniedFallback() {
+  } finally {f.close();}
+  const saved=fixture({savedProfile:sampleProfile(),geolocation:'deferred'});
+  try {
+-  saved.selectAddress('new');assert.equal(saved.geolocationCalls(),1);saved.selectAddress('home');saved.releaseGeolocation(30.8,31.8);
+-  saved.submit('#delivery-form');await flush();const request=saved.calls.find(call=>call.path==='/shop/branches');
++  await flush();saved.selectAddress('new');assert.equal(saved.geolocationCalls(),1);saved.selectAddress('home');saved.releaseGeolocation(30.8,31.8);
++  await flush();const request=saved.calls.filter(call=>call.path==='/shop/branches').at(-1);
++  assert.equal(saved.calls.filter(call=>call.path==='/shop/branches').length,2,'Reselecting a saved address required manual reconfirmation');assert.equal(saved.$('#delivery-form').hidden,true);
+   assert.equal(request.body.latitude,30.01,'Delayed GPS overwrote a reselected saved address');assert.equal(request.body.longitude,31.05);
+  } finally {saved.close();}
+  for(const geolocation of ['denied','unsupported']) {
+@@ -332,14 +362,17 @@ async function delayedGpsAndDeniedFallback() {
+  }
+ }
+ async function profileStorageSafety() {
+- const rejected=fixture({savedProfile:sampleProfile()});
++ const rejected=fixture({savedProfile:sampleProfile(),branchError:{status:422,message:'العنوان غير متاح'}});
+  try {
+   const saved=rejected.w.localStorage.getItem(customerKey);
+-  rejected.input('#delivery-form [name="customer_name"]','اسم مرفوض');rejected.input('#delivery-form [name="address"]','عنوان جديد مرفوض شارع الاختبار');
+-  rejected.controls.branchError={status:422,message:'العنوان غير متاح'};rejected.submit('#delivery-form');await flush();
++  await flush();
+   assert.equal(rejected.calls.filter(call=>call.path==='/shop/branches').length,1);
+   assert.equal(rejected.w.localStorage.getItem(customerKey),saved,'Failed discovery overwrote the saved customer profile');
+-  assert.equal(rejected.$('#delivery-form').hidden,false);assert.equal(rejected.$('#branch-select').disabled,true);
++  assert.equal(rejected.$('#branch-select').disabled,true);
++  assert.equal(rejected.$('#delivery-form').hidden,true,'Failed automatic restore reopened registration for saved data');
++  rejected.controls.branchError=null;rejected.click('#retry-saved-address');await flush();
++  assert.equal(rejected.calls.filter(call=>call.path==='/shop/branches').length,2,'Automatic restore retry required saved-data reconfirmation');
++  assert.equal(rejected.$('#delivery-summary').hidden,false);assert.equal(rejected.$('#delivery-form').hidden,true);assert.equal(rejected.geolocationCalls(),0);
+  } finally {rejected.close();}
+  for(const savedProfile of ['{invalid JSON','null',JSON.stringify({version:9,addresses:[sampleAddress()]}),sampleProfile([sampleAddress('bad',{latitude:0,longitude:0})])]) {
+   const f=fixture({savedProfile});
+@@ -361,7 +394,7 @@ async function profileStorageSafety() {
+   assert.equal(xss.$('#delivery-form').elements.customer_name.value,attacker);
+   assert.equal(xss.$('#delivery-form').elements.address.value,malicious.address);
+   assert.equal(xss.all('img[onerror],script:not([src]):not(#storefront-data)').length,0,'Saved profile generated executable markup');
+-  xss.submit('#delivery-form');await flush();
++  await flush();
+   assert.ok(xss.$('#delivery-summary').textContent.includes('<script>evil()</script>'),'Saved address text was dropped instead of safely rendered');
+   assert.equal(xss.all('img[onerror],script:not([src]):not(#storefront-data)').length,0,'Saved address summary generated executable markup');
+  } finally {xss.close();}
+@@ -369,13 +402,19 @@ async function profileStorageSafety() {
+  const retry=fixture({pending,savedProfile:sampleProfile()});
+  try {
+   assert.equal(retry.geolocationCalls(),0,'Pending checkout requested new location');assert.equal(retry.calls.length,0,'Pending checkout auto-submitted on page load');
++  assert.equal(retry.$('#delivery-form').hidden,true,'Pending order reopened saved registration details');assert.equal(retry.$('#delivery-summary').hidden,false);
++  retry.selectAddress('new');assert.equal(retry.$('#saved-address-select').value,'home','Pending order allowed saved delivery context changes');
++  assert.equal(retry.calls.length,0);assert.equal(retry.geolocationCalls(),0);
+   retry.click('[data-action="cart"]');retry.click('[data-action="resume-checkout"]');retry.click('#confirm-order');await flush();
+   const command=retry.calls.find(call=>call.path==='/shop/checkout');assert.deepEqual(command.body,pending,'Profile recall changed pending checkout identity');
+-  assert.equal(retry.calls.filter(call=>call.path==='/shop/branches').length,0,'Pending recovery performed new discovery');
+-  retry.click('#review-panel [data-close]');retry.submit('#delivery-form');await flush();
++  assert.equal(retry.calls.filter(call=>call.path==='/shop/checkout').length,1,'Pending recovery duplicated an order');
++  retry.click('#review-panel [data-close]');await flush();
++  assert.equal(retry.calls.filter(call=>call.path==='/shop/branches').length,1,'Resolving pending recovery did not activate the saved delivery context automatically');
+   const delivery=retry.calls.find(call=>call.path==='/shop/branches');assert.ok(delivery,'Resolving an old pending order lost the displayed saved address point');
+   assert.equal(delivery.body.latitude,30.01);assert.equal(delivery.body.longitude,31.05);assert.equal(delivery.body.location_confirmed,true);
+   assert.equal(retry.geolocationCalls(),0,'Saved address needed fresh GPS after pending recovery');
++  assert.deepEqual(retry.calls.map(call=>call.path),['/shop/checkout','/shop/branches'],'Saved address became active before pending checkout finished');
++  assert.equal(retry.$('#delivery-form').hidden,true);assert.equal(retry.$('#delivery-summary').hidden,false);
+  } finally {retry.close();}
+ }
+ async function staleQuoteCannotReplaceCurrentCustomer() {
+@@ -408,6 +447,6 @@ async function staleQuoteCannotReplaceCurrentCustomer() {
+ }
+ (async()=>{
+  await gatedDiscovery();await suggestionsAndErrors();await branchAndLocationChanges();await checkoutAndRetry();
+- await automaticLocationAndCustomerRecall();await savedAddressSelectionAndForget();await delayedGpsAndDeniedFallback();await profileStorageSafety();await staleQuoteCannotReplaceCurrentCustomer();
+- console.log('PASS DOM interactions: automatic GPS and manual fallback, first registration, saved customer/address recall and selection, bounded history/forget, delayed GPS and stale quote guards, malformed/blocked storage and escaping, JSON delivery gate, coverage order/filter/paging, fractional cart, branch/location confirmation, checkout prefill and stable pending retry.');
++ await automaticLocationAndCustomerRecall();await savedAddressSelectionAndForget();await automaticAddressDiscoveryLocksSelection();await delayedGpsAndDeniedFallback();await profileStorageSafety();await staleQuoteCannotReplaceCurrentCustomer();
++ console.log('PASS DOM interactions: automatic GPS and manual fallback, first registration, automatic saved customer/address recall and header selection, bounded history/forget, delayed GPS and stale quote guards, malformed/blocked storage and escaping, JSON delivery gate, coverage order/filter/paging, fractional cart, branch/location confirmation, checkout prefill and stable pending retry.');
+ })().catch(error=>{console.error(error);process.exitCode=1;});
