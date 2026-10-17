@@ -708,3 +708,26 @@ html:has(.app-order-board-page) {
     flex-basis: 208px;
 }
 /* go-erp-platform-logos:end */
+
+/* go-erp-logo-stamp:start */
+/* The native vector is pressed into the existing navy surface. */
+.go-erp-platform-logo[data-go-erp-vector] {
+    color: #294156;
+    filter: drop-shadow(0 -1px 0.6px rgba(0, 0, 0, .7))
+            drop-shadow(0 1px 0 rgba(191, 214, 234, .12));
+}
+.go-erp-platform-logo[data-go-erp-vector] > g { fill: currentColor; }
+.dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #30495e; }
+.dashboard-login-brand-title.go-erp-tagline {
+    max-width: 360px;
+    margin-inline: auto;
+    font-size: 13px;
+    line-height: 1.9;
+    letter-spacing: .065em;
+    color: #c4d0dc;
+    text-wrap: balance;
+}
+@media (max-width: 400px) {
+    .dashboard-login-brand-title.go-erp-tagline { font-size: 11px; letter-spacing: .04em; }
+}
+/* go-erp-logo-stamp:end */
