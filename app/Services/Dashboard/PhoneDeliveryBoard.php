@@ -30,8 +30,8 @@ class PhoneDeliveryBoard
             $count=(clone $q)->count(); $last=max(1,(int)ceil($count/20)); $page=min((int)($v[$stage.'_page']??1),$last);
             $rows=$q->select('t.*','d.company_snapshot as handoff_company')->orderBy('t.id',$stage==='finished'?'desc':'asc')->offset(($page-1)*20)->limit(20)->get();
             $batches=DB::table('phone_delivery_batch_items')->whereIn('ticket_id',$rows->pluck('id'))->pluck('batch_id','ticket_id');
-            $items=$rows->map(function($row)use($batches){
-                $item=$this->tickets->present($row,false);
+            $items=$rows->map(function($row)use($batches,$actor){
+                $item=$this->tickets->present($row,false,$actor);
                 $item['courier_company']=json_decode($row->handoff_company??$row->delivery_company_snapshot??'null',true);
                 $item['batch_print_url']=isset($batches[$row->id])?route('phone-orders.batch-print',['id'=>$batches[$row->id]]):null;
                 return $item;

@@ -68,9 +68,12 @@ class TakeawayController extends Controller
         return view('admin.takeaway.receipt', ['receipt'=>$service->receipt($id, auth('admin')->user()), 'preview'=>true]);
     }
 
-    public function print(int $id, TakeawayService $service)
+    public function print(Request $request, int $id, TakeawayService $service)
     {
-        return view('admin.takeaway.receipt', ['receipt'=>$service->receipt($id, auth('admin')->user())]);
+        $grant = $request->query('initial_print');
+        abort_unless($grant === null || is_string($grant), 403);
+        return response()->view('admin.takeaway.receipt', ['receipt'=>$service->printReceipt($id, auth('admin')->user(), $grant)])
+            ->header('Cache-Control', 'private, no-store, max-age=0')->header('Referrer-Policy', 'no-referrer');
     }
 
     public function till(Request $request, TakeawayService $service)

@@ -178,7 +178,7 @@
         <p>{{ __('takeaway.receipt_welcome') }}</p>
         <p>{{ $channelTitle }}@if($unpaid) · {{ __('pos_service.unpaid') }}@endif</p>
     </footer>
-    @if(!$preview)<div class="controls"><button type="button" onclick="window.print()">{{ __('takeaway.print_invoice') }}</button></div>@endif
+    @if(!$preview && ($receipt['can_reprint'] ?? true))<div class="controls"><button type="button" onclick="window.print()">{{ __('takeaway.print_invoice') }}</button></div>@endif
 </main>
 @if(!$preview && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body>
