@@ -185,5 +185,6 @@ return [
     'tables_empty' => 'No tables configured. Use Add table to register this branch’s tables.',
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
+    'register_print_only' => 'The cash register balance appears only in the printout after the shift is closed.',
 ];
 

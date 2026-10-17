@@ -89,5 +89,6 @@ return [
     'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
+    'register_print_only' => 'The cash register balance appears only in the printout after the shift is closed.',
 ];
 
