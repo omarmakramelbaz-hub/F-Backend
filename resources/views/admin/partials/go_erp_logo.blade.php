@@ -1,8 +1,9 @@
 @php
     $goErpLogoId = 'go-erp-' . substr(sha1($logoClass ?? 'logo'), 0, 10);
     $goErpIsLogin = strpos($logoClass ?? '', 'dashboard-login-logo') !== false;
-    $goErpViewBox = $goErpIsLogin ? '0 0 1061 1103' : '0 0 1061 623';
-    $goErpSceneTransform = $goErpIsLogin ? 'translate(0 480)' : 'translate(0 0)';
+    $goErpHasSolar = $goErpIsLogin || strpos($logoClass ?? '', 'dashboard-brand-logo') !== false;
+    $goErpViewBox = $goErpHasSolar ? '0 0 1061 1103' : '0 0 1061 623';
+    $goErpSceneTransform = $goErpHasSolar ? 'translate(0 480)' : 'translate(0 0)';
 @endphp
 <svg xmlns="http://www.w3.org/2000/svg" class="{{ $logoClass ?? 'go-erp-platform-logo' }}" data-go-erp-vector="1" data-go-erp-explosion="1" data-go-erp-dynamic="1" data-go-erp-solar="1" color="#fd7201" viewBox="{{ $goErpViewBox }}" role="img" aria-label="GO ERP SYSTEM" focusable="false">
   <title>GO ERP SYSTEM</title>
@@ -385,5 +386,8 @@
       <g clip-path="url(#{{ $goErpLogoId }}-fragment-15)"><use href="#{{ $goErpLogoId }}-shape"/></g>
     </g>
   </g>
+  </g>
+  <g class="go-erp-logo-compact" display="none" transform="translate(0 240)" fill="currentColor" aria-hidden="true">
+    <use href="#{{ $goErpLogoId }}-shape"/>
   </g>
 </svg>
