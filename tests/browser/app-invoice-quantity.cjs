@@ -31,7 +31,7 @@ function initial(options = {}) {
 }
 function card(data, options = {}) {
     return { number: '0012', app_label: 'فسخانستا', store: 'المحلة', created_label: '17/10/2026 19:30', status_label: options.finished ? 'تم التسليم' : 'قيد التجهيز', customer: 'عميل اختبار', phone: '01012345678', address: 'عنوان الاختبار', payment_label: 'كاش', payment_failed: false,
-        notes: '', action_note: '', actions: [], revision: 1, accepted_notify: 'yes', status: 'pending',
+        notes: '', action_note: '', actions: options.actions || [], revision: 1, accepted_notify: 'yes', status: 'pending',
         items: data.order.items.map(line => ({ line_id: line.line_id, name: line.name, option_label: line.option_label, quantity: line.quantity, line_total: line.line_total,
             ...(line.unit === 'kg' ? { display_quantity: (Number(line.quantity) * Number(line.weight_per_unit || 1)).toFixed(3), quantity_unit: 'كجم' } : {}) })),
         totals: [{ label: 'قيمة الأصناف', amount: data.order.subtotal }, { label: 'التوصيل', amount: data.order.delivery }], total: data.order.total,
@@ -43,10 +43,10 @@ function render(data, options = {}) {
     return cp.execFileSync(php, ['-r', renderer], { encoding: 'utf8', env: { ...process.env, QA_ROOT: root, QA_FIXTURE: fixture, QA_CACHE: temporary } });
 }
 async function setup(browser, options = {}) {
-    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } }), errors = [], calls = [];
+    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } }), errors = [], calls = [], dialogs = [];
     let data = initial(options), mode = 'success', release;
     page.on('pageerror', error => errors.push(error.message));
-    page.on('dialog', dialog => dialog.accept());
+    page.on('dialog', dialog => { dialogs.push(dialog.message()); return options.dismissActions && dialog.type() === 'confirm' ? dialog.dismiss() : dialog.accept(); });
     await page.addInitScript(() => { window.nativePrintCalls = 0; window.print = () => window.nativePrintCalls++; });
     await page.route('http://localhost/**', async route => {
         const request = route.request(), pathname = new URL(request.url()).pathname;
@@ -78,7 +78,7 @@ async function setup(browser, options = {}) {
     });
     await page.goto('http://localhost/admin/order-board/legacy/12');
     if (!options.locked && !options.finished) await page.waitForFunction(() => document.querySelectorAll('[data-app-line-quantity]').length === 2 && !document.querySelector('[data-app-print]').disabled);
-    return { page, errors, calls, get data() { return data; }, setMode(value) { mode = value; }, release() { mode = 'success'; assert(release); release(); } };
+    return { page, errors, calls, dialogs, get data() { return data; }, setMode(value) { mode = value; }, release() { mode = 'success'; assert(release); release(); } };
 }
 const posts = fixture => fixture.calls.filter(call => call.method === 'POST'), prints = fixture => fixture.calls.filter(call => call.path.endsWith('/print'));
 (async () => {
@@ -139,6 +139,18 @@ const posts = fixture => fixture.calls.filter(call => call.method === 'POST'), p
             if (options.owner) { await readonly.page.locator('[data-app-print]').click(); await readonly.page.waitForURL('**/print'); assert.equal(prints(readonly).length, 1); }
             assert.deepEqual(readonly.errors, []); await readonly.page.close();
         }
+        const lifecycle = await setup(browser, { actions: ['cancel', 'reject'], dismissActions: true });
+        const cancellation = lifecycle.page.locator('form:has(button.cancel)');
+        assert.equal(await cancellation.locator('button').innerText(), 'إلغاء الطلب', 'Existing preparing cancellation label is preserved.');
+        assert.equal(await cancellation.locator('button').evaluate(button => getComputedStyle(button).backgroundColor), 'rgb(200, 52, 69)');
+        assert.equal(await cancellation.getAttribute('method'), 'post');
+        for (const [name, value] of [['action', 'cancel'], ['expected_status', 'pending'], ['expected_accepted_notify', 'yes'], ['expected_revision', '1'], ['_token', 'fixture-token']]) assert.equal(await cancellation.locator(`input[name="${name}"]`).inputValue(), value);
+        await cancellation.locator('button').click();
+        assert.deepEqual(lifecycle.dialogs, ['هل تريد إلغاء هذا الطلب؟'], 'Cancel keeps the translated confirmation.');
+        await lifecycle.page.locator('button.reject').click();
+        assert.deepEqual(lifecycle.dialogs, ['هل تريد إلغاء هذا الطلب؟', 'هل تريد رفض هذا الطلب؟']);
+        assert.equal(posts(lifecycle).length, 0, 'Dismissing lifecycle confirmation never changes the order.');
+        assert.equal(prints(lifecycle).length, 0); assert.deepEqual(lifecycle.errors, []); await lifecycle.page.close();
         const mobile = await setup(browser); await mobile.page.setViewportSize({ width: 390, height: 844 });
         assert.equal(await mobile.page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Standalone invoice fits a phone viewport.');
         assert(await mobile.page.locator('[data-app-line-quantity]').first().evaluate(input => input.getBoundingClientRect().width >= 64), 'The full decimal weight fits the mobile quantity field.');

@@ -1,5 +1,6 @@
 <?php
 return [
+    'unified_hint'=>'Create phone orders and follow preparation, delivery and collection on one screen.',
     'cash_paid'=>'Amount paid',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
     'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to send the order to the branch).',

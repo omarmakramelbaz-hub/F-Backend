@@ -11,7 +11,7 @@
     var boardPages = {preparing:1,courier:1,finished:1}, selectedOrders = new Map(), boardCompanies = [], boardData = null;
     var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
-    var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
+    var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, orderPending = 0, customerGeneration = 0, modalGeneration = 0;
     var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, listeners = [], modal = root.querySelector('[data-phone-modal]');
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
     var quantityInput = root.querySelector('[data-phone-quantity]'), customerConsent = root.querySelector('[data-phone-customer-consent]'), replaceQuantity = true;
@@ -75,11 +75,11 @@
         if (disposed) return;
         var printer = window.DashboardBranchPrinter;
         root.querySelector('[data-phone-printer-status]').textContent = printer ? printer.status : text('callcenter_print');
-        if (view === 'orders' && !locked()) loadOrders(undefined, true);
+        if (!locked()) loadOrders(undefined, true);
         receiverTimer = setTimeout(pollReceiver, 4000);
     }
     function boardScope(){return branch || (boot.can_view_all_branches?'all':'');}
-    function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&view==='orders'&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}
+    function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}
     function flow(next, focus) {
         var phoneLabel = root.querySelector('[data-phone-phone-field]'), phoneSlot = root.querySelector(next === 'number' ? '[data-phone-number-slot]' : '[data-phone-customer-phone-slot]');
         if (phoneLabel && phoneSlot && phoneLabel.parentNode !== phoneSlot) phoneSlot.appendChild(phoneLabel);
@@ -336,11 +336,11 @@
         try {
             var response = await get(urls.catalog, { branch: branch, search: root.querySelector('[data-phone-search]').value.trim(), category_id: category, page: page || 1 }, controller.signal), result = await read(response, 'load_error'); if (disposed || generation !== catalogGeneration) return;
             var items = result.items || result.products; if (!Array.isArray(items) || result.ready === false) throw new Error(text('load_error'));
-            policy = result.policy || {}; permissions = result.permissions || boot.permissions || {}; loaded = true; products.clear(); list.replaceChildren(); items.forEach(function (product) { products.set(String(product.id), product); list.appendChild(productNode(product)); });
+            var couldWrite=canWrite();policy = result.policy || {}; permissions = result.permissions || boot.permissions || {}; loaded = true; products.clear(); list.replaceChildren(); items.forEach(function (product) { products.set(String(product.id), product); list.appendChild(productNode(product)); });
             var categories = root.querySelector('[data-phone-categories]'); categories.replaceChildren(); (result.categories || []).forEach(function (value) { var button = element('button', '', value.name || value.label); button.type = 'button'; button.dataset.phoneCategory = String(value.id); var selected = category === String(value.id); button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); categories.appendChild(button); });
             pagination = result.pagination || {}; catalogPage = Number(pagination.page || 1); root.querySelector('[data-phone-pagination]').hidden = !(pagination.last_page > 1); root.querySelector('[data-phone-page-label]').textContent = catalogPage + ' / ' + (pagination.last_page || 1);
             root.querySelector('[data-phone-discount-wrap]').hidden = !policy.can_discount; if (!policy.can_discount) { fields.discount.value = '0.00'; fields.discount_reason.value = ''; }
-            hint.hidden = !!items.length; hint.textContent = text('no_products'); lock(); if (cart.length && !quote) invalidateQuote();
+            hint.hidden = !!items.length; hint.textContent = text('no_products'); if(boardData&&couldWrite!==canWrite())renderBoard(); lock(); if (cart.length && !quote) invalidateQuote();
         } catch (error) { if (disposed || generation !== catalogGeneration || error.name === 'AbortError') return; products.clear(); list.replaceChildren(); hint.hidden = false; hint.textContent = error.message || text('load_error'); notify(error.message || text('load_error'), false, true); }
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
@@ -358,14 +358,18 @@
     }
     function switchView(target) {
         if (locked()) { notify(text('locked'), false, true); return; }
-        view = target; root.classList.toggle('ph-view-orders',target==='orders');root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); branchSelect.options[0].textContent=text(target==='orders'&&boot.can_view_all_branches?'all_branches':'select_branch');root.querySelector('[data-phone-selected-branch]').textContent=branchLabel();if (target === 'orders' && boardScope()) loadOrders(); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
+        // Legacy links can focus the queue without hiding or clearing the draft.
+        view = 'compose';
+        if (target === 'orders') { root.querySelector('[data-phone-orders]').focus({preventScroll:true}); return; }
+        if (branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
+        flow(step);
     }
     function changeBranch(confirmed) {
         var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || confirmed!==true && cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
         var customerPoint={latitude:latInput.value,longitude:lngInput.value},pendingAddress=savedAddressPending;var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason','delivery_fee'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
         branch = selected; selectedOrders.clear(); boardPages={preparing:1,courier:1,finished:1}; boardData=null; updateBatchTotal(); boot.company_filter=0; deliverySettings=null;catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = !branch&&boot.can_view_all_branches?boot.permissions||{}:{}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(false); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; });latInput.value=customerPoint.latitude;lngInput.value=customerPoint.longitude;savedAddressPending=pendingAddress; dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
-        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(view==='orders'&&boardScope())loadOrders();
+        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(boardScope())loadOrders();
     }
     async function lookupCustomer(prefix) {
         if (!branch || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
@@ -487,30 +491,36 @@
         root.querySelector('[data-phone-batch-total]').textContent=selectedOrders.size?selectedOrders.size+' '+text('selected_orders')+' · '+money(decimal(total,2))+' '+text('currency'):text('select_orders');lock();
     }
     function renderBoard(){
-        var list=root.querySelector('[data-phone-order-list]');list.replaceChildren();
+        var list=root.querySelector('[data-phone-order-list]'), scroll={};
+        list.querySelectorAll('[data-phone-column]').forEach(function(column){var cards=column.querySelector('.ph-board-cards');scroll[column.dataset.phoneColumn]=cards.scrollTop;});
+        list.replaceChildren();
         ['preparing','courier','finished'].forEach(function(stage){
             var data=boardData.columns[stage],section=element('section','ph-board-column ph-board-'+stage);section.dataset.phoneColumn=stage;
             var heading=element('h3','',text('board_'+stage));heading.appendChild(element('bdi','',data.pagination.total));section.appendChild(heading);
             var cards=element('div','ph-board-cards');data.items.forEach(function(ticket){cards.appendChild(card(ticket,stage));});if(!data.items.length)cards.appendChild(element('p','ph-empty',text('empty_orders')));section.appendChild(cards);
             if(data.pagination.last_page>1){var nav=element('nav','ph-pagination');['previous','next'].forEach(function(direction){var control=button(direction,function(){if(locked())return;if(stage==='courier'){selectedOrders.clear();updateBatchTotal();}boardPages[stage]+=direction==='next'?1:-1;loadOrders();});if(direction==='previous'&&data.pagination.page<=1||direction==='next'&&data.pagination.page>=data.pagination.last_page)control.dataset.unavailable='';nav.appendChild(control);if(direction==='previous')nav.appendChild(element('span','',data.pagination.page+' / '+data.pagination.last_page));});section.appendChild(nav);}
-            list.appendChild(section);
+            list.appendChild(section);cards.scrollTop=scroll[stage]||0;
         });updateBatchTotal();
     }
     async function loadOrders(unused, quiet) {
-        if (!boardScope() || disposed || locked() || quiet && (!modal.hidden || document.activeElement && document.activeElement.matches('[data-phone-board-company]'))) return;
-        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'); list.setAttribute('aria-busy', 'true');
+        var board=root.querySelector('[data-phone-orders]');
+        function boardControlFocused(){return document.activeElement!==board&&board.contains(document.activeElement);}
+        if (!boardScope() || disposed || locked() || quiet && (!modal.hidden || boardControlFocused() || orderPending && orderPending===orderGeneration)) return;
+        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'), timeout=setTimeout(function(){controller.abort();},12000);
+        orderPending=generation;list.setAttribute('aria-busy', 'true');
         try {
             var result=await read(await get(urls.board,{branch:boardScope(),preparing_page:boardPages.preparing,courier_page:boardPages.courier,finished_page:boardPages.finished,delivery_company_id:boot.company_filter||null},controller.signal),'list_error');
-            if(disposed||generation!==orderGeneration)return;
+            if(disposed||generation!==orderGeneration||quiet&&(!modal.hidden||boardControlFocused()))return;
             if(result.branch!==boardScope()||!result.columns||!Array.isArray(result.companies))throw Error(text('list_error'));
             ['preparing','courier','finished'].forEach(function(stage){var column=result.columns[stage];if(!column||!Array.isArray(column.items)||!column.pagination||column.items.some(function(t){return !validTicket(t,undefined,true);}))throw Error(text('list_error'));boardPages[stage]=column.pagination.page;});
             if (editing) ['preparing', 'courier', 'finished'].some(function (stage) { return result.columns[stage].items.some(clearClosedEditing); });
             var current=new Map(result.columns.courier.items.map(function(t){return[t.id,t];}));var removed=false;
             selectedOrders.forEach(function(t,id){var next=current.get(id);if(!next||next.revision!==t.revision){selectedOrders.delete(id);removed=true;}});
             if(removed)notify(text('selection_changed'));
-            boardData=result;boardCompanies=result.companies;renderBoard();
+            var unchanged=boardData&&JSON.stringify(boardData)===JSON.stringify(result);
+            boardData=result;boardCompanies=result.companies;if(!unchanged)renderBoard();
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
-        finally { if (generation === orderGeneration) list.setAttribute('aria-busy', 'false'); }
+        finally { clearTimeout(timeout);if(orderPending===generation){orderPending=0;list.setAttribute('aria-busy', 'false');} }
     }
     function consentControl(container, ticketId) {
         var label = element('label', 'ph-settle-confirm'), checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = false;
@@ -612,7 +622,8 @@
         if (operation.type === 'save' || editing && Number(editing.id) === Number(result.ticket.id)) resetDraft();
         var savedLabel = operation.type === 'save' ? operation.ticketId ? 'saved_edit' : 'saved' : operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated';
         notify(text(savedLabel) + ' #' + (result.ticket.number || result.ticket.id), true); lock();
-        if (view === 'orders') loadOrders(); else if (step === 'number') fields.customer_phone.focus();
+        loadOrders();
+        if (operation.type === 'save' && step === 'number') fields.customer_phone.focus();
         if (branch && (operation.type === 'settle' || !loaded)) loadCatalog(catalogPage);
         else if (cart.length && !quote) calculate();
         if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
@@ -694,7 +705,7 @@
 
     listen(root, 'click', function (event) {
         var control = event.target.closest('button'); if (!control || !root.contains(control)) return;
-        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); if (view === 'orders') return loadOrders(); if (!loaded) return loadCatalog(catalogPage); return calculate(); }
+        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); loadOrders(); if (!loaded && branch) return loadCatalog(catalogPage); if (cart.length) return calculate(); return; }
         if (locked()) return;
         if (control.hasAttribute('data-phone-batch-finish')) return finishBatch();
         if (control.hasAttribute('data-phone-save')) return save();
@@ -705,7 +716,7 @@
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
-        if (control.dataset.phoneView) { if (control.dataset.phoneView === 'compose' && view === 'compose') { if (!dirty || window.confirm(text('new_warning'))) resetDraft(); } return switchView(control.dataset.phoneView); }
+        if (control.hasAttribute('data-phone-new-order')) { if (dirty && !window.confirm(text('new_warning'))) return; resetDraft(); notify(''); return switchView('compose'); }
         if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
         if (control.dataset.phoneRemove !== undefined) { if (closedEditing() || editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
@@ -751,8 +762,9 @@
         if (event.key === 'Enter' && root.contains(event.target) && (event.repeat || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey && event.target.matches('button'))) {
             event.preventDefault(); return;
         }
+        var composeKeyboard=root.querySelector('[data-phone-compose]').contains(event.target)||event.target===document.body||event.target===document.documentElement;
         if (plainEnter(event) && modal.hidden && view === 'compose'
-            && (root.contains(event.target) || step === 'products' && (event.target === document.body || event.target === document.documentElement))) {
+            && composeKeyboard) {
             if (step !== 'products' && !event.target.matches('button')) {
                 event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return;
             }
@@ -779,7 +791,7 @@
             if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); }
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         }
-        if (event.key === 'F9' && modal.hidden && view === 'compose') { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) save(); }
+        if (event.key === 'F9' && modal.hidden && view === 'compose' && composeKeyboard) { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) save(); }
     });
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
@@ -792,7 +804,9 @@
         if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){mapResizeObserver.disconnect();});
     }
     automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
+    branchSelect.options[0].textContent=text(boot.can_view_all_branches?'all_branches':'select_branch');
+    if(boardScope())loadOrders();
     receiverTimer = setTimeout(pollReceiver, 1000);
-    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
+    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
 }());
