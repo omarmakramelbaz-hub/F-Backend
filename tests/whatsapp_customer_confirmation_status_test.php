@@ -65,6 +65,8 @@ namespace Illuminate\Support\Facades {
     class Crypt {public static function decryptString($value){return$value;}}
     class Schema {
         public static function hasTable($name){
+            if(getenv('WA_STATUS_CASE')==='metadata-missing'&&in_array($name,
+                ['whatsapp_order_scans','whatsapp_reply_requests','whatsapp_inbox_messages'],true))return false;
             return$name!=='pos_branch_print_jobs'||getenv('WA_STATUS_CASE')==='erp-queue';
         }
         public static function hasColumns($name,$columns){return self::hasTable($name);}
@@ -102,6 +104,13 @@ namespace App\Services\Dashboard {
     }
     class WhatsAppOrderWorkflow {
         private int$snapshots=0;
+        private function settledBefore(){return gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']-10);}
+        private function debounceSeconds(){return 10;}
+        private function pendingCapture($lock=false){
+            if($lock)throw new \RuntimeException('UNEXPECTED_LOCK');
+            if(getenv('WA_STATUS_CASE')==='metadata-missing')throw new \RuntimeException('UNAVAILABLE');
+            return getenv('WA_STATUS_CASE')==='capture-pending';
+        }
         private function activationBoundary($name,$conversation){return 1;}
         private function dispatchedCeiling($conversation){return 0;}
         private function ceiling($conversation){return getenv('WA_STATUS_CASE')==='inbound-drift'&&$this->snapshots>0?5:4;}
@@ -129,12 +138,47 @@ namespace {
     class WaStatusQuery {
         private string$table;private array$conditions=[];
         public function __construct($table){$this->table=$table;}
-        public function where($key,$value){$this->conditions[$key]=$value;return$this;}
+        public function where($key,$operator,$value=null){$this->conditions[$key]=func_num_args()===2?$operator:[$operator,$value];return$this;}
         public function orderByDesc($key){return$this;}
         public function select(...$columns){return$this;}
         public function selectRaw($sql){return$this;}
         public function exists(){return true;}
+        public function max($column){
+            if($this->table!=='whatsapp_inbox_messages'||$column!=='created_at'
+                ||($this->conditions['conversation_id']??null)!==11)throw new \RuntimeException('UNEXPECTED_MAX');
+            $GLOBALS['observedReads']=($GLOBALS['observedReads']??0)+1;
+            $offset=getenv('WA_STATUS_CASE')==='settling'?-1:-30;
+            if(getenv('WA_STATUS_CASE')==='inbound-metadata-drift'&&$GLOBALS['observedReads']>1)$offset++;
+            return gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']+$offset);
+        }
+        public function count(){
+            if($this->table!=='whatsapp_reply_requests'||($this->conditions['conversation_id']??null)!==11
+                ||($this->conditions['waba_id']??null)!=='TEST_WABA'||($this->conditions['phone_number_id']??null)!=='TEST_PHONE'
+                ||($this->conditions['kind']??null)!==['!=','reaction']
+                ||!in_array($this->conditions['state']??null,['CLAIMED','UNKNOWN'],true))throw new \RuntimeException('UNSCOPED_REPLY_COUNT');
+            if(getenv('WA_STATUS_CASE')==='unknown-reply'&&$this->conditions['state']==='UNKNOWN')return 1;
+            if(getenv('WA_STATUS_CASE')==='claimed-reply'&&$this->conditions['state']==='CLAIMED')return 1;
+            return 0;
+        }
         public function first($columns=null){
+            if($this->table==='whatsapp_order_scans'){
+                if(($this->conditions['conversation_id']??null)!==11)throw new \RuntimeException('UNSCOPED_SCAN');
+                if(getenv('WA_STATUS_CASE')==='no-scan')return null;
+                $GLOBALS['scanReads']=($GLOBALS['scanReads']??0)+1;
+                $nonce=in_array(getenv('WA_STATUS_CASE'),['live-lease','expired-lease'],true)?'PRIVATE_CLAIM_NONCE':null;
+                return(object)['auto_floor'=>1,'analyzed_ceiling'=>3,'claimed_ceiling'=>4,
+                    'attempts'=>getenv('WA_STATUS_CASE')==='scan-drift'&&$GLOBALS['scanReads']>1?2:1,
+                    'next_attempt_at'=>gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']+(getenv('WA_STATUS_CASE')==='backoff-future'?60:-60)),
+                    'claim_nonce'=>$nonce,'lease_until'=>$nonce===null?null:gmdate('Y-m-d H:i:s',
+                        $GLOBALS['fixtureNow']+(getenv('WA_STATUS_CASE')==='live-lease'?120:-120)),
+                    'updated_at'=>gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']-90)];
+            }
+            if($this->table==='whatsapp_inbox_messages'){
+                if(($this->conditions['conversation_id']??null)!==11||($this->conditions['direction']??null)!=='inbound')
+                    throw new \RuntimeException('UNSCOPED_INBOUND');
+                return(object)['id'=>4,'source'=>'messages','type'=>'text','sent_at'=>gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']-40),
+                    'created_at'=>gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']-30)];
+            }
             if($this->table==='whatsapp_inbox_conversations'){
                 if(($this->conditions['id']??null)!==11||($this->conditions['waba_id']??null)!=='TEST_WABA'
                     ||($this->conditions['phone_number_id']??null)!=='TEST_PHONE')return null;
@@ -144,6 +188,7 @@ namespace {
                 if(getenv('WA_STATUS_CASE')==='no-draft'||isset($this->conditions['id'])&&$this->conditions['id']!==100)return null;
                 return(object)['id'=>100,'status'=>str_starts_with(getenv('WA_STATUS_CASE'),'erp')?'DISPATCHED':'REVIEW',
                     'reason'=>'LOCATION_UNCONFIRMED','evidence_floor'=>1,'evidence_ceiling'=>4,'evidence_hash'=>str_repeat('a',64),
+                    'revision'=>3,'updated_at'=>gmdate('Y-m-d H:i:s',$GLOBALS['fixtureNow']-120),
                     'ticket_id'=>str_starts_with(getenv('WA_STATUS_CASE'),'erp')?501:null,'assigned_branch'=>'f:363',
                     'extraction'=>json_encode(['type'=>'CUSTOMER_CONFIRMED_RECAP','customer'=>['phone'=>'PRIVATE_PHONE']])];
             }
@@ -159,7 +204,7 @@ namespace {
             return$this->objects[$class]??=new $class;
         }
     }
-    file_put_contents(getcwd().'/bootstrapped','1');return new WaStatusApp;
+    $GLOBALS['fixtureNow']=time();file_put_contents(getcwd().'/bootstrapped','1');return new WaStatusApp;
 }
 PHP);
 function statusRun(string$case,array$args=['--conversation','11']):array{
@@ -187,6 +232,14 @@ statusExpect($value['candidate']['items_count']===1&&$value['candidate']['coordi
 statusExpect($value['control']['analysis']['effective']===false&&$value['control']['dispatch']['effective']===true
     &&$value['control']['automatic_replies']['effective']===false,'independent gates remain distinct');
 statusExpect($value['draft']['uses_customer_receipt']&&$value['draft']['matches_current_snapshot'],'stored protocol/snapshot match observed');
+statusExpect($value['draft']['revision']===3&&$value['draft']['evidence_floor']===1&&$value['draft']['evidence_ceiling']===4
+    &&is_string($value['draft']['updated_at_utc']),'draft native bounds and revision are explicit');
+statusExpect($value['scan']['present']&&$value['scan']['auto_floor']===1&&$value['scan']['analyzed_ceiling']===3
+    &&$value['scan']['claimed_ceiling']===4&&$value['scan']['attempts']===1&&$value['scan']['backoff_due']
+    &&!$value['scan']['live_lease']&&$value['scan_unchanged_during_read'],'retry/lease metadata is observed without processing');
+statusExpect($value['latest_inbound']['id']===4&&$value['latest_inbound']['native_type']==='text'
+    &&$value['settling']['settled']&&$value['debounce_seconds']===10&&!$value['capture']['pending'],
+    'bounded inbound timestamps and conversation settling guard are visible');
 [$compatExit,$compatValue]=statusRun('protocol-alternate');statusExpect($compatExit===0&&$compatValue['status']==='READ_READY'
     &&$compatValue['candidate']['valid'],'exact reviewed CRM protocol also passes initial and final guards');
 [$compatExit,$compatValue,$compatBooted]=statusRun('protocol-unknown');statusExpect($compatExit===1
@@ -202,6 +255,31 @@ foreach(['writes','ai_calls','message_sends','erp_writes','graph_gets']as$key)st
 foreach(['snapshot-drift','inbound-drift','policy-drift']as$case){
     [$exit,$value]=statusRun($case);statusExpect($exit===0&&$value['status']==='OBSERVATION_CHANGED','concurrent state change observed '.$case);
 }
+foreach(['scan-drift','inbound-metadata-drift']as$case){
+    [$exit,$value]=statusRun($case);statusExpect($exit===0&&$value['status']==='OBSERVATION_CHANGED'
+        &&!$value['worker_metadata_unchanged_during_read'],'worker metadata drift cannot claim a stable observation '.$case);
+    if($case==='scan-drift')statusExpect(!$value['scan_unchanged_during_read'],'scan change specifically identified');
+}
+[$exit,$value]=statusRun('no-scan');statusExpect($exit===0&&$value['scan']['available']&&!$value['scan']['present'],
+    'absent scan differs from unavailable schema');
+[$exit,$value]=statusRun('live-lease');statusExpect($exit===0&&$value['scan']['claim_nonce_present']&&$value['scan']['live_lease'],
+    'live claimed lease visible without leaking nonce');
+[$exit,$value]=statusRun('expired-lease');statusExpect($exit===0&&$value['scan']['claim_nonce_present']&&!$value['scan']['live_lease'],
+    'expired lease is not reported as live');
+[$exit,$value]=statusRun('backoff-future');statusExpect($exit===0&&!$value['scan']['backoff_due'],
+    'future backoff visible without resetting attempts');
+foreach(['unknown-reply'=>'unknown','claimed-reply'=>'claimed']as$case=>$kind){
+    [$exit,$value]=statusRun($case);statusExpect($exit===0&&$value['unresolved_replies']['available']
+        &&$value['unresolved_replies']['count']===1&&$value['unresolved_replies'][$kind]===1,
+        'unresolved nonreaction reply is scoped and counted '.$kind);
+}
+[$exit,$value]=statusRun('capture-pending');statusExpect($exit===0&&$value['capture']['available']&&$value['capture']['pending'],
+    'global raw capture guard is reported without consumption');
+[$exit,$value]=statusRun('settling');statusExpect($exit===0&&!$value['settling']['settled'],
+    'newly persisted message reports settling without claiming processing eligibility');
+[$exit,$value]=statusRun('metadata-missing');statusExpect($exit===0&&!$value['scan']['available']
+    &&!$value['latest_inbound']['available']&&!$value['unresolved_replies']['available']&&!$value['capture']['available'],
+    'optional missing schema/observer metadata does not block main receipt observation');
 [$exit,$value]=statusRun('erp');statusExpect($exit===0&&$value['draft']['erp']['ticket_scope_verified']
     &&!$value['draft']['erp']['print_queue_observation_available']&&!isset($value['draft']['erp']['print_jobs_present']),
     'missing optional queue is unavailable evidence');

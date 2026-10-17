@@ -14,6 +14,11 @@ function waConfirmationCode($value,array$allowed=[],?string$fallback=null):?stri
     if(!is_string($value)||!preg_match('/\A[A-Z][A-Z0-9_]{0,79}\z/D',$value))return$fallback;
     return$allowed===[]||in_array($value,$allowed,true)?$value:$fallback;
 }
+function waConfirmationTime($value):?string{
+    if(!is_string($value))return null;
+    $time=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$value,new DateTimeZone('UTC'));
+    return$time&&$time->format('Y-m-d H:i:s')===$value&&substr($value,0,4)!=='0000'?$value:null;
+}
 function waConfirmationCall($object,string$name,array$args=[]){
     $method=new ReflectionMethod($object,$name);$method->setAccessible(true);return$method->invokeArgs($object,$args);
 }
@@ -26,6 +31,74 @@ function waConfirmationFields(array$data):array{
     $customer=is_array($data['customer']??null)?$data['customer']:[];$fields=[];
     foreach(['name','phone','address','area']as$key)$fields[$key]=is_string($customer[$key]??null)&&trim($customer[$key])!=='';
     return$fields;
+}
+/** Optional worker observations. Returned signatures remain private to this CLI. */
+function waConfirmationWorkerState(int$conversation,$workflow,string$readAt,string$settledBefore):array{
+    $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
+    $public=[];$signature=[];
+    $public['scan']=['available'=>false];$signature['scan']=null;
+    try{
+        $columns=['auto_floor','analyzed_ceiling','claimed_ceiling','attempts','next_attempt_at','claim_nonce','lease_until','updated_at'];
+        if($schema::hasTable('whatsapp_order_scans')&&$schema::hasColumns('whatsapp_order_scans',array_merge(['conversation_id'],$columns))){
+            $scan=$db::table('whatsapp_order_scans')->where('conversation_id',$conversation)->first($columns);
+            $public['scan']=['available'=>true,'present'=>$scan!==null];
+            if($scan){
+                $signature['scan']=(array)$scan;
+                foreach(['auto_floor','analyzed_ceiling','claimed_ceiling','attempts']as$key)$public['scan'][$key]=waConfirmationInt($scan->$key??null);
+                foreach(['next_attempt_at','lease_until','updated_at']as$key)$public['scan'][$key]=waConfirmationTime($scan->$key??null);
+                $nonce=is_string($scan->claim_nonce??null)&&$scan->claim_nonce!=='';
+                $lease=$public['scan']['lease_until'];$backoff=$public['scan']['next_attempt_at'];
+                $public['scan']['claim_nonce_present']=$nonce;
+                $public['scan']['live_lease']=$nonce&&$lease!==null&&$lease>=$readAt;
+                $public['scan']['backoff_due']=$scan->next_attempt_at===null?true:($backoff===null?null:$backoff<=$readAt);
+                $public['scan']['scope']='OBSERVED_RETRY_LEASE_METADATA_NOT_PROCESSING_ELIGIBILITY';
+            }
+        }
+    }catch(Throwable$ignore){$public['scan']=['available'=>false];$signature['scan']='UNAVAILABLE';}
+    $public['capture']=['available'=>false];
+    try{
+        $pending=waConfirmationCall($workflow,'pendingCapture',[false]);
+        if(is_bool($pending))$public['capture']=['available'=>true,'pending'=>$pending,
+            'scope'=>'GLOBAL_WHATSAPP_UNQUARANTINED_CAPTURE_WORKER_GUARD'];
+    }catch(Throwable$ignore){}
+    $signature['capture']=$public['capture'];
+    $public['unresolved_replies']=['available'=>false];
+    try{
+        if($schema::hasTable('whatsapp_reply_requests')&&$schema::hasColumns('whatsapp_reply_requests',
+            ['conversation_id','waba_id','phone_number_id','state','kind'])){
+            $counts=[];
+            foreach(['CLAIMED','UNKNOWN']as$state)$counts[$state]=(int)$db::table('whatsapp_reply_requests')
+                ->where('conversation_id',$conversation)
+                ->where('waba_id',\App\Services\Dashboard\WhatsAppInboxAccess::WABA_ID)
+                ->where('phone_number_id',\App\Services\Dashboard\WhatsAppInboxAccess::PHONE_ID)
+                ->where('kind','!=','reaction')->where('state',$state)->count();
+            $public['unresolved_replies']=['available'=>true,'count'=>array_sum($counts),
+                'claimed'=>$counts['CLAIMED'],'unknown'=>$counts['UNKNOWN'],'scope'=>'THIS_CONVERSATION_NONREACTION_REQUESTS'];
+        }
+    }catch(Throwable$ignore){}
+    $signature['unresolved_replies']=$public['unresolved_replies'];
+    $public['latest_inbound']=['available'=>false];$public['settling']=['available'=>false];
+    try{
+        if($schema::hasTable('whatsapp_inbox_messages')&&$schema::hasColumns('whatsapp_inbox_messages',
+            ['id','conversation_id','direction','source','type','sent_at','created_at'])){
+            $inbound=$db::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->where('direction','inbound')
+                ->orderByDesc('id')->first(['id','source','type','sent_at','created_at']);
+            $observed=waConfirmationTime($db::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->max('created_at'));
+            $public['latest_inbound']=['available'=>true,'present'=>$inbound!==null];
+            if($inbound){
+                $public['latest_inbound']+=['id'=>waConfirmationInt($inbound->id),
+                    'native_type'=>is_string($inbound->type)&&in_array($inbound->type,
+                        ['text','image','audio','video','document','sticker','location','order','contacts','interactive','button','reaction','unsupported'],true)?$inbound->type:'OTHER',
+                    'source'=>is_string($inbound->source)&&in_array($inbound->source,['messages','standby','smb_message_echoes','dashboard_api'],true)?$inbound->source:'OTHER',
+                    'sent_at_utc'=>waConfirmationTime($inbound->sent_at),'created_at_utc'=>waConfirmationTime($inbound->created_at)];
+            }
+            $public['settling']=['available'=>true,'latest_message_observed_at_utc'=>$observed,
+                'settled_before_utc'=>$settledBefore,'settled'=>$observed===null?null:$observed<=$settledBefore,
+                'scope'=>'MAX_CREATED_AT_FOR_THIS_CONVERSATION'];
+        }
+    }catch(Throwable$ignore){}
+    $signature['latest_inbound']=$public['latest_inbound'];$signature['settling']=$public['settling'];
+    return['public'=>$public,'signature'=>$signature];
 }
 function waConfirmationErp(int$id,string$branch):array{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
@@ -109,6 +182,11 @@ try{
         'dispatch'=>waConfirmationGate($control->dispatchGate('whatsapp')),
         'automatic_replies'=>waConfirmationGate($control->gate('whatsapp'))];
     $stage='SNAPSHOT';$workflow=$app->make(\App\Services\Dashboard\WhatsAppOrderWorkflow::class);
+    $readAt=gmdate('Y-m-d H:i:s');$out['read_at_utc']=$readAt;
+    $settledBefore=waConfirmationTime(waConfirmationCall($workflow,'settledBefore'));
+    if($settledBefore===null)throw new RuntimeException();
+    $out['debounce_seconds']=waConfirmationInt(waConfirmationCall($workflow,'debounceSeconds'));
+    $worker=waConfirmationWorkerState($conversation,$workflow,$readAt,$settledBefore);$out+=$worker['public'];
     $activation=waConfirmationCall($workflow,'activationBoundary',['activation_message_id',$conversation]);
     $baseFloor=max((int)($activation??0),(int)waConfirmationCall($workflow,'dispatchedCeiling',[$conversation]));
     $ceiling=(int)waConfirmationCall($workflow,'ceiling',[$conversation]);
@@ -141,7 +219,7 @@ try{
         'native_pins_count'=>count(array_filter($snapshot['transcript'],static fn($row)=>is_array($row['location']??null)))];
     $stage='DRAFT';$query=$db::table('whatsapp_order_drafts')->where('conversation_id',$conversation);
     if($draftId!==null)$query->where('id',$draftId);
-    $row=$query->orderByDesc('id')->select('id','status','reason','evidence_floor','evidence_ceiling','evidence_hash','ticket_id','assigned_branch')
+    $row=$query->orderByDesc('id')->select('id','status','reason','revision','updated_at','evidence_floor','evidence_ceiling','evidence_hash','ticket_id','assigned_branch')
         ->selectRaw('CASE WHEN LENGTH(extraction)<=262144 THEN extraction ELSE NULL END AS extraction')->first();
     if($draftId!==null&&!$row)throw new RuntimeException();
     $out['draft']=null;
@@ -154,6 +232,8 @@ try{
         }
         $branch=is_string($row->assigned_branch)&&preg_match('/\A(?:f|gs):[1-9][0-9]{0,18}\z/D',$row->assigned_branch)?$row->assigned_branch:null;
         $out['draft']=['id'=>(int)$row->id,
+            'revision'=>waConfirmationInt($row->revision??null),'updated_at_utc'=>waConfirmationTime($row->updated_at??null),
+            'evidence_floor'=>waConfirmationInt($row->evidence_floor),'evidence_ceiling'=>waConfirmationInt($row->evidence_ceiling),
             'status'=>waConfirmationCode($row->status,['REVIEW','READY','NONE','CANCELLED','DISPATCHED'],'OTHER'),
             'reason'=>waConfirmationCode($row->reason),
             'uses_customer_receipt'=>($stored['type']??null)==='CUSTOMER_CONFIRMED_RECAP',
@@ -173,12 +253,16 @@ try{
         &&($again['complete']??null)===true&&is_string($again['hash']??null)&&hash_equals($snapshot['hash'],$again['hash']);
     $out['control_unchanged_during_read']=($after['revision']??null)===($state['revision']??null)
         &&($after['policy']??null)===($state['policy']??null);
+    $workerAfter=waConfirmationWorkerState($conversation,$workflow,$readAt,$settledBefore);
+    $out['scan_unchanged_during_read']=$workerAfter['signature']['scan']===$worker['signature']['scan'];
+    $out['worker_metadata_unchanged_during_read']=$workerAfter['signature']===$worker['signature'];
     foreach($pins as$path=>$pin){
         if(is_link($path)||!is_file($path)||realpath($path)!==getcwd().'/'.$path||filesize($path)>1048576)throw new RuntimeException();
         $bytes=file_get_contents($path);
         if(!is_string($bytes)||!hash_equals($observedSourceHashes[$path],sha1('blob '.strlen($bytes)."\0".$bytes)))throw new RuntimeException();
     }
-    $out['status']=$out['snapshot_current_at_read']&&$out['control_unchanged_during_read']?'READ_READY':'OBSERVATION_CHANGED';
+    $out['status']=$out['snapshot_current_at_read']&&$out['control_unchanged_during_read']
+        &&$out['worker_metadata_unchanged_during_read']?'READ_READY':'OBSERVATION_CHANGED';
 }catch(Throwable$ignore){
     $out['status']='OBSERVATION_BLOCKED';$out['stage']=$stage;
 }
