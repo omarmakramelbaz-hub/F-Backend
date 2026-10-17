@@ -8,3 +8,91 @@
 #branch-stock[data-inventory-tab=recipes] [data-stock-message],#branch-stock[data-inventory-tab=recipes] [data-stock-retry]{display:none!important}
 
 #branch-stock .bs-pair{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#branch-stock .bs-pair>label{min-width:0}@media(max-width:600px){#branch-stock .bs-recipe-layout .bs-pair{grid-template-columns:1fr}}
+
+/* Keep receiving controls visible while stock tables scroll independently. */
+#branch-stock, #branch-stock * { box-sizing: border-box; }
+#branch-stock { padding: 12px; }
+#branch-stock .bs-heading { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(170px,210px); gap: 16px; margin: 0 0 8px; align-items: center; }
+#branch-stock .bs-heading h1 { font-size: 22px; margin: 0 0 4px; }
+#branch-stock .bs-heading p { font-size: 11px; margin: 0; }
+#branch-stock .bs-heading > label { min-width: 0; margin: 0; font-size: 11px; }
+#branch-stock .bs-heading > label select { margin: 4px 0 0; min-height: 36px; padding: 6px 10px; }
+#branch-stock .bs-tabs { border: 0; padding: 0; margin: 0; }
+#branch-stock .bs-tabs button { padding: 9px 12px; font-size: 12px; white-space: nowrap; }
+#branch-stock .bs-guidance { margin: 0 0 8px !important; padding: 8px 12px; font-size: 11px; line-height: 1.6; max-height: 52px; overflow: auto; }
+#branch-stock .bs-layout { grid-template-columns: minmax(340px,390px) minmax(0,1fr); gap: 12px; }
+#branch-stock .bs-panel > header { padding: 12px 14px; }
+#branch-stock .bs-panel h2 { font-size: 15px; }
+#branch-stock .bs-panel > header > span { font-size: 10px; padding: 4px 8px; }
+#branch-stock [data-stock-form] { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px 12px; padding: 14px; }
+#branch-stock [data-stock-form] > label { margin: 0; min-width: 0; font-size: 12px; }
+#branch-stock [data-stock-form] input, #branch-stock [data-stock-form] select, #branch-stock [data-stock-form] textarea { margin: 5px 0 0; padding: 8px 10px; min-height: 36px; font-size: 12px; }
+#branch-stock .bs-search-field, #branch-stock .bs-product-field, #branch-stock .bs-current, #branch-stock [data-stock-form] > .bs-pair, #branch-stock .bs-entry-help, #branch-stock [data-stock-save] { grid-column: 1 / -1; }
+#branch-stock [data-stock-form] .bs-pair { gap: 12px; }
+#branch-stock [data-stock-form] .bs-pair > label { font-size: 12px; margin: 0; }
+#branch-stock .bs-current { padding: 9px 10px; margin: 0; min-width: 0; }
+#branch-stock .bs-current strong { font-size: 16px; overflow-wrap: anywhere; }
+#branch-stock .bs-current span { font-size: 11px; }
+#branch-stock [data-stock-form] textarea { height: 56px; min-height: 56px; resize: vertical; }
+#branch-stock .bs-entry-help { font-size: 10px; line-height: 1.6; margin: 0; }
+#branch-stock [data-stock-save] { min-height: 40px; padding: 9px; font-size: 13px; }
+#branch-stock .bs-overview { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+#branch-stock .bs-balances { min-width: 0; }
+#branch-stock .bs-balances > .bs-note { margin: 0; padding: 8px 12px; font-size: 10px; line-height: 1.6; border-top: 1px solid #edf1f5; }
+#branch-stock .bs-pagination { gap: 10px; padding: 8px 12px; }
+#branch-stock .bs-pagination .bs-button { padding: 6px 10px; }
+#branch-stock th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; }
+#branch-stock td { padding: 9px 12px; font-size: 12px; }
+#branch-stock .bs-history, #branch-stock .bs-legacy { margin: 0; flex-shrink: 0; }
+#branch-stock .bs-history summary, #branch-stock .bs-legacy summary { padding: 11px 14px; cursor: pointer; font-size: 12px; font-weight: 700; }
+#branch-stock .bs-history summary small { float: left; color: #718096; font-size: 11px; font-weight: 400; }
+#branch-stock .bs-history .bs-table-wrap, #branch-stock .bs-legacy .bs-table-wrap { max-height: 220px; }
+#branch-stock .bs-history table { min-width: 760px; }
+#branch-stock .bs-message { padding: 8px 12px; margin-bottom: 8px; font-size: 12px; line-height: 1.6; max-height: 70px; overflow: auto; }
+#branch-stock [data-stock-unmapped] { flex-shrink: 0; margin: 0; }
+#branch-stock .bs-overview > .bs-message, #branch-stock .bs-overview > [data-stock-retry] { flex-shrink: 0; margin: 0; }
+#branch-stock .bs-table-wrap { scrollbar-width: thin; overscroll-behavior: contain; }
+#branch-stock .bs-table-wrap:focus-visible, #branch-stock summary:focus-visible { outline: 2px solid #f58220; outline-offset: -2px; }
+
+@media (min-width: 1100px) and (min-height: 650px) {
+    body.dashboard-theme .content-wrapper.branch-stock-wrapper { height: calc(100dvh - 109px); min-height: 0 !important; padding: 0; overflow: hidden; }
+    #branch-stock { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    #branch-stock > .bs-heading, #branch-stock > .bs-guidance, #branch-stock > .bs-message, #branch-stock > [data-stock-retry] { flex-shrink: 0; }
+    #branch-stock > [data-inventory-panel] { flex: 1; min-height: 0; }
+    #branch-stock .bs-layout { height: 100%; min-height: 0; align-items: start; }
+    #branch-stock .bs-entry { max-height: 100%; overflow: auto; }
+    #branch-stock .bs-overview { height: 100%; min-height: 0; overflow: auto; scrollbar-width: thin; }
+    #branch-stock .bs-balances { display: flex; flex-direction: column; min-height: 190px; flex: 1 0 190px; }
+    #branch-stock .bs-balances > header, #branch-stock .bs-balances > footer, #branch-stock .bs-balances > .bs-note { flex-shrink: 0; }
+    #branch-stock .bs-balances > .bs-table-wrap { flex: 1; min-height: 0; }
+    #branch-stock [data-stock-form] textarea { resize: none; }
+    #branch-stock [data-inventory-panel="recipes"] { overflow: auto; scrollbar-width: thin; }
+}
+
+@media (min-width: 1100px) and (min-height: 650px) and (max-height: 800px) {
+    #branch-stock [data-stock-form] { gap: 7px 10px; padding: 10px 12px; }
+    #branch-stock .bs-panel > header { padding: 10px 12px; }
+    #branch-stock .bs-search-field, #branch-stock .bs-product-field { grid-column: auto; }
+    #branch-stock [data-stock-form] textarea { height: 46px; min-height: 46px; }
+    #branch-stock .bs-current { padding: 7px 10px; }
+}
+
+@media (max-width: 1099px) {
+    #branch-stock .bs-heading { grid-template-columns: minmax(0,1fr) minmax(160px,210px); gap: 10px; }
+    #branch-stock .bs-heading > .bs-tabs { grid-column: 1 / -1; grid-row: 2; }
+    #branch-stock .bs-layout { grid-template-columns: 1fr; }
+    #branch-stock .bs-balances > .bs-table-wrap { max-height: 400px; }
+    #branch-stock .bs-entry { max-width: none; }
+}
+
+@media (max-width: 600px) {
+    #branch-stock { padding: 10px; }
+    #branch-stock .bs-heading { grid-template-columns: minmax(0,1fr) 135px; }
+    #branch-stock .bs-heading h1 { font-size: 20px; }
+    #branch-stock .bs-heading p { font-size: 10px; line-height: 1.6; }
+    #branch-stock .bs-tabs { flex-wrap: wrap; }
+    #branch-stock .bs-tabs button { padding: 9px 11px; }
+    #branch-stock [data-stock-form] { padding: 12px; gap: 10px; }
+    #branch-stock .bs-supplier-field, #branch-stock .bs-notes-field { grid-column: 1 / -1; }
+    #branch-stock .bs-balances table { min-width: 480px; }
+}
