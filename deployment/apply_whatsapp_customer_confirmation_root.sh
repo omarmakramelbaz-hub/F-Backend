@@ -19,7 +19,7 @@ import tempfile
 import time
 
 ROOT = pathlib.Path('/home/fasakha/public_html')
-PUBLISHER_BLOB = '6a2e413bf51da394b3a66301dfafcb82ac7a2d25'
+PUBLISHER_BLOB = '9392a7afa7fe3553d4f8359c4b57b824b8e76366'
 ROOT_LIBRARY_BLOB = '98ab88bba322c87c115f5ca95ff9aebbc96190f2'
 HELPERS = {
     'apply_whatsapp_customer_confirmation.py': PUBLISHER_BLOB,

@@ -77,6 +77,21 @@ def reviewed_installed_workflow():
     return result
 
 
+def reviewed_pos_runtime():
+    """Read exact public test fixtures; never load an external worktree or network."""
+    pins = {
+        'app/Services/Dashboard/TakeawayAccess.php': ('d063ee444c347c41620916b4513d0f03785141aa', 8413),
+        'app/Services/Dashboard/TakeawayCatalog.php': ('7476e436bf06a2a777977733580a73f10b04653b', 15529),
+    }
+    result = {}
+    for relative, (pin, size) in pins.items():
+        content = (ROOT/'tests/fixtures/whatsapp_confirmation_runtime'/pathlib.Path(relative).name).read_bytes()
+        if len(content) != size or repair.blob(content) != pin:
+            raise AssertionError('Reviewed independent POS runtime fixture changed: '+relative)
+        result[relative] = content
+    return result
+
+
 class Fixture:
     def __init__(self, folder):
         self.uid = os.geteuid(); self.root = pathlib.Path(folder)/'app'
@@ -225,6 +240,11 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         self.assertNotIn(protocol, repair.TARGET_PINS)
         self.assertEqual(repair.RUNTIME_PINS[protocol],
             ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd', 'f2eec9099f9a27915cda50b7c8e267efb1f0b030'))
+        self.assertEqual(repair.RUNTIME_PINS['app/Services/Dashboard/TakeawayAccess.php'],
+            ('6b27b7ac2faff6fdaf952494f90f2d8378a12484', 'd063ee444c347c41620916b4513d0f03785141aa'))
+        self.assertEqual(repair.RUNTIME_PINS['app/Services/Dashboard/TakeawayCatalog.php'],
+            ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
+             '7476e436bf06a2a777977733580a73f10b04653b'))
         self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
         self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'CURRENT'})
         self.assertEqual(repair.INSTALLED_SOURCE_PROFILES, {'INSTALLED_V1': {
@@ -331,6 +351,60 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         self.assertNotIn(protocol, receipt['publication_targets'])
         for path, content in self.fixture.targets.items():
             self.assertEqual((self.fixture.root/path).read_bytes(), content)
+
+    def test_installed_v2_upgrade_and_recheck_preserve_exact_pos_runtime_bytes_inode_and_0600_mode(self):
+        self.fixture.installed_v2(); parser, workflow = tuple(repair.TARGET_PINS)
+        runtime = reviewed_pos_runtime()
+        for path, content in runtime.items():
+            self.fixture.runtime[path] = repair.RUNTIME_PINS[path]
+            self.fixture.write(path, content, 0o600)
+            self.assertNotIn(path, repair.TARGET_PINS)
+        before_runtime = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+            self.fixture.uid, self.fixture.root) for path in runtime}
+        before_parser = repair.library.guarded_snapshot(self.fixture.root/parser, self.fixture.uid, self.fixture.root)
+        before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
+        before_control = dict(self.fixture.controls)
+        preflight = self.fixture.apply(True)
+        self.assertEqual(preflight['source_profile'], 'INSTALLED_V2')
+        result = self.fixture.apply(expected=wrapper.expected_state(preflight))
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertEqual(receipt['changed_targets'], [workflow])
+        self.assertFalse(set(runtime) & set(receipt['publication_targets']))
+        with self.fixture.patches():
+            self.assertEqual(repair.verify_state(self.fixture.root, self.fixture.uid,
+                wrapper.expected_state(result), runner=self.fixture.runner)['status'], 'WA_CONFIRMATION_STATE_READY')
+        self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
+        for path, content in runtime.items():
+            self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                self.fixture.uid, self.fixture.root), before_runtime[path])
+            self.assertEqual((self.fixture.root/path).read_bytes(), content)
+            self.assertEqual((self.fixture.root/path).stat().st_mode & 0o7777, 0o600)
+            self.assertEqual((self.fixture.root/path).stat().st_nlink, 1)
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/parser,
+            self.fixture.uid, self.fixture.root), before_parser)
+        self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
+        self.assertEqual(self.fixture.controls, before_control)
+
+    def test_unknown_adjacent_pos_runtime_bytes_fail_before_publication_and_preserve_every_file(self):
+        self.fixture.installed_v2()
+        runtime = reviewed_pos_runtime()
+        for path, content in runtime.items():
+            self.fixture.runtime[path] = repair.RUNTIME_PINS[path]
+            self.fixture.write(path, content, 0o600)
+        for relative, content in runtime.items():
+            with self.subTest(path=relative):
+                self.fixture.write(relative, content+b'\n// unreviewed adjacent mutation\n', 0o600)
+                before = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+                    self.fixture.uid, self.fixture.root) for path in runtime}
+                with self.assertRaisesRegex(repair.SafeError, 'WA_CONFIRMATION_RUNTIME_SOURCE_MISMATCH'):
+                    self.fixture.apply()
+                self.fixture.originals_intact(self)
+                for path in runtime:
+                    self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                        self.fixture.uid, self.fixture.root), before[path])
+                self.assertFalse(any(args[0] == '/usr/bin/systemctl' for args in self.fixture.calls))
+                self.fixture.write(relative, content, 0o600)
 
     def test_preflight_has_no_application_policy_order_or_service_mutation(self):
         before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)

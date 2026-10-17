@@ -54,9 +54,13 @@ RUNTIME_PINS = {
     # that independent extension instead of overwriting it with the older file.
     'app/Support/WhatsAppInboxProtocol.php':
         ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd', 'f2eec9099f9a27915cda50b7c8e267efb1f0b030'),
-    'app/Services/Dashboard/TakeawayAccess.php': ('6b27b7ac2faff6fdaf952494f90f2d8378a12484',),
+    # Reviewed independent POS updates only extend preparation labels/options and
+    # first-print access policy. Bind their exact bytes without publishing them.
+    'app/Services/Dashboard/TakeawayAccess.php':
+        ('6b27b7ac2faff6fdaf952494f90f2d8378a12484', 'd063ee444c347c41620916b4513d0f03785141aa'),
     'app/Services/Dashboard/TakeawayCatalog.php':
-        ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47'),
+        ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
+         '7476e436bf06a2a777977733580a73f10b04653b'),
     'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php': ('1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f',),
 }
 # Existing ERP services have independent, user-approved CRM releases. They are
