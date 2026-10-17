@@ -834,6 +834,9 @@ class WhatsAppOrderWorkflow
     private function customerReceiptItem(array $item,array $catalog): ?array
     {
         $name=$this->customerReceiptName($item['name']); $matches=[];
+        $add=static function(int $product,string $option)use(&$matches):void {
+            $matches[$product.':'.$option]=['product_id'=>$product,'option_id'=>$option];
+        };
         foreach ($catalog as $product) {
             if (($product['available']??false)!==true
                 ||!in_array($product['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) continue;
@@ -843,14 +846,33 @@ class WhatsAppOrderWorkflow
                 // Default options still pass the existing qualifier coverage guard.
                 $literalItem=$item; $literalItem['name']=$product['name'];
                 $option=$options===[]?'':$this->catalogOption($literalItem,[$literalItem],[$product['name']],$product);
-                if ($option!==null) $matches[]=['product_id'=>$product['id'],'option_id'=>$option];
+                if ($option!==null) $add($product['id'],$option);
             }
             foreach ($product['options']??[] as $option) {
                 $label=$this->customerReceiptName($option['label']);
                 if ($label!==''&&in_array($name,[$base.' '.$label,$label.' '.$base],true))
-                    $matches[]=['product_id'=>$product['id'],'option_id'=>$option['id']];
+                    $add($product['id'],$option['id']);
+            }
+            foreach ($product['preparation_options']??[] as $preparation) {
+                $label=$this->customerReceiptName($preparation['label']);
+                if ($label===''||!in_array($name,[$base.' '.$label,$label.' '.$base],true)) continue;
+                if ($preparation['id']==='') {
+                    // POS exposes a base preparation for plain SKUs too. Whole
+                    // fish needs an actual configured full-unit cleaning choice;
+                    // Normal needs the same product's genuine combo alternative.
+                    $counterpart=false;
+                    foreach ($product['options']??[] as $option) {
+                        if ($this->informationPrice($option['price']??null)===null) continue;
+                        if (in_array($label,['كامل','whole'],true)&&preg_match('/\Af:0:(?:extra_clear|extra_clean)\z/D',$option['id'])) $counterpart=true;
+                        if (in_array($label,['عادي','normal'],true)&&preg_match('/\Af:[1-9][0-9]*:base\z/D',$option['id'])
+                            &&in_array($this->name($option['label']),['كومبو','combo'],true)) $counterpart=true;
+                    }
+                    if (!$counterpart) continue;
+                }
+                $add($product['id'],$preparation['id']);
             }
         }
+        $matches=array_values($matches);
         if (count($matches)!==1||!is_int($matches[0]['product_id'])||$matches[0]['product_id']<1
             ||$this->quantityMillis($item['quantity'])===null) return null;
         return $matches[0]+['quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode']];
@@ -1301,18 +1323,58 @@ class WhatsAppOrderWorkflow
                     $optionIds[$option['id']]=true; $optionLabels[$normalizedLabel]=true;
                     $options[]=['id'=>$option['id'],'label'=>$option['label'],'price'=>$this->informationPrice($option['price']??null)];
                 }
+                $preparations=$this->customerReceiptPreparations($product,$options);
+                if ($preparations===null) return null;
                 $description=$product['description']??null;
                 if (!is_string($description)||trim($description)===''||mb_strlen($description)>400
                     ||preg_match('/[\\x00-\\x1f\\x7f<>]/u',$description)) $description=null;
                 $catalog[]=['id'=>(int)$product['id'],'name'=>$product['name'],'available'=>$available,
                     'quantity_mode'=>$product['quantity_mode']??'select','options'=>$options,
-                    'price'=>$this->informationPrice($product['price']??null),'description'=>$description];
+                    'preparation_options'=>$preparations,'price'=>$this->informationPrice($product['price']??null),'description'=>$description];
             }
             if ((int)$list['pagination']['last_page']<=$page) break;
             if ($page===3) return null;
         }
         usort($catalog,static fn($a,$b)=>$a['id']<=>$b['id']);
         return $catalog;
+    }
+
+    /** Public preparation labels retain their generated sale identity and price. */
+    private function customerReceiptPreparations(array $product,array $options): ?array
+    {
+        if (!array_key_exists('preparation_options',$product)) return [];
+        if (!is_array($product['preparation_options'])||!array_is_list($product['preparation_options'])
+            ||count($product['preparation_options'])>100) return null;
+        $minor=function($value):?int {
+            $price=$this->informationPrice($value);if($price===null)return null;
+            [$whole,$fraction]=array_pad(explode('.',$price,2),2,'');
+            return(int)$whole*100+(int)str_pad($fraction,2,'0');
+        };
+        $basePrice=$minor($product['price']??null);$result=[];$ids=[];$labels=[];
+        foreach ($product['preparation_options'] as $preparation) {
+            if (!is_array($preparation)||!is_string($preparation['id']??null)||strlen($preparation['id'])>80
+                ||!is_string($preparation['label']??null)||mb_strlen($preparation['label'])>200
+                ||!is_int($preparation['feature_id']??null)||$preparation['feature_id']<0
+                ||!is_string($preparation['product_clean']??null)
+                ||!in_array($preparation['product_clean'],['','extra_clear','extra_clean','extra_vacuim'],true)) return null;
+            $label=$this->name($preparation['label']);$price=$minor($preparation['price']??null);
+            if ($label===''||$price===null||isset($ids[$preparation['id']])||isset($labels[$label])) return null;
+            $feature=$preparation['feature_id'];$clean=$preparation['product_clean'];
+            $id=$feature===0&&$clean===''?'':'f:'.$feature.':'.($clean===''?'base':$clean);
+            if ($preparation['id']!==$id) return null;
+            if ($id==='') { if($basePrice===null||$price!==$basePrice)return null; }
+            else {
+                $matching=array_values(array_filter($options,fn($option)=>$option['id']===$id));
+                if(count($matching)!==1||$this->name($matching[0]['label'])!==$label||$minor($matching[0]['price']??null)!==$price) return null;
+            }
+            // A portion feature is never an extra preparation for an explicit
+            // weight. Only the configured combo is a feature-only preparation.
+            if($feature>0&&$clean===''&&!in_array($label,['كومبو','combo'],true)) return null;
+            $ids[$id]=true;$labels[$label]=true;
+            $result[]=['id'=>$id,'label'=>$preparation['label'],'price'=>$this->informationPrice($preparation['price']),
+                'feature_id'=>$feature,'product_clean'=>$clean];
+        }
+        return$result;
     }
 
     private function catalogClarification(array $data,array $transcript,array $catalog): ?array

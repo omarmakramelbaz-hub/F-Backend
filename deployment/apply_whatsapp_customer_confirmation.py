@@ -24,7 +24,7 @@ BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 TARGET_PINS = {
     'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '63c1e6e7e48c500227e0285707611b268e50b3ad'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '780da6bd1024afb0166d29973e985d2412a560ee'),
 }
 INSTALLED_SOURCE_PROFILES = {
     # The verified d6b404 installation contains this exact parser/workflow pair.
@@ -37,6 +37,11 @@ INSTALLED_SOURCE_PROFILES = {
     'INSTALLED_V2': {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079',
+    },
+    # The verified receipt-resume installation already has the current parser.
+    'INSTALLED_V3': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '63c1e6e7e48c500227e0285707611b268e50b3ad',
     },
 }
 RUNTIME_PINS = {
@@ -60,13 +65,14 @@ RUNTIME_PINS = {
         ('6b27b7ac2faff6fdaf952494f90f2d8378a12484', 'd063ee444c347c41620916b4513d0f03785141aa'),
     'app/Services/Dashboard/TakeawayCatalog.php':
         ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
-         '7476e436bf06a2a777977733580a73f10b04653b'),
+         '7476e436bf06a2a777977733580a73f10b04653b', 'e96fce33037a06330f95d6a91553950cdf32d763'),
     'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php': ('1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f',),
 }
 # Existing ERP services have independent, user-approved CRM releases. They are
 # never replaced or assigned a stale source hash here. Bind their bytes and inode
 # throughout this publication, and continue to use their existing public APIs.
 UNCHANGED_DEPENDENCIES = (
+    'app/Services/Dashboard/WhatsAppInboxConsumer.php',
     'app/Services/Dashboard/PhoneDelivery.php',
     'app/Services/Dashboard/PosServiceTicket.php',
     'app/Services/Dashboard/BranchCustomers.php',

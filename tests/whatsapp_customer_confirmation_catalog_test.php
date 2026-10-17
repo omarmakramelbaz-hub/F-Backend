@@ -71,18 +71,34 @@ namespace {
         $case=getenv('WA_CATALOG_CASE');$name=match($case){'no-match'=>'سردين', 'inline'=>'فسيخ مخلي','whole'=>'فسيخ كامل',default=>'فسيخ'};
         $items=[['name'=>$name,'quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
         if($case==='duplicate-effective')$items[]=$items[0];
+        if($case==='compact-many')$items=[['name'=>'رنجة هيرنج','quantity'=>'2','quantity_mode'=>'weight','option_hint'=>null],
+            ['name'=>'فسيخ كامل','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null],
+            ['name'=>'سردين بلدي كبير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
         return['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
-            'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>31.123456,'long'=>30.654321]]];
+            'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
     }
     function catalogProducts(){
-        $case=getenv('WA_CATALOG_CASE');$options=[];$preparation=[['id'=>'','label'=>'كامل']];
-        if(in_array($case,['inline','whole','option-label','option-id','option-empty'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'20']];
+        $case=getenv('WA_CATALOG_CASE');$options=[];$preparation=[];
+        if(in_array($case,['inline','whole','compact-many','option-label','option-id','option-empty','prep-invalid','prep-drift'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
+        if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift'],true))$preparation=[
+            ['id'=>'','label'=>'كامل','price'=>'100','feature_id'=>0,'product_clean'=>''],
+            ['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120','feature_id'=>0,'product_clean'=>'extra_clear']];
+        if($case==='prep-invalid')unset($preparation[0]['feature_id']);
+        if($case==='prep-drift'&&($GLOBALS['catalogReads']??0)>1)$preparation[0]['label']='Changed preparation';
         if($case==='option-label')$options[]=['id'=>'f:0:extra_clean','label'=>'مخلي','price'=>'20'];
         if($case==='option-id')$options[]=['id'=>'f:0:extra_clear','label'=>'تنظيف','price'=>'20'];
         if($case==='option-empty')$options[0]['label']='';
         $product=['id'=>501,'name'=>'فسيخ','available'=>$case!=='unavailable','quantity_mode'=>$case==='mode'?'piece':'weight',
             'price'=>'100','options'=>$options,'preparation_options'=>$preparation,'description'=>'صنف من المنيو'];
+        $description=['description-arabic'=>'صنف عربي','description-english'=>'Fresh menu item','description-digit'=>'item 123',
+            'description-x'=>'x','description-angle'=>'<tag>','description-control'=>"hello\nworld"][$case]??null;
+        if($description!==null)$product['description']=$description;
         $items=[$product];
+        if($case==='compact-many'){
+            $herring=$product;$herring['id']=502;$herring['name']='رنجة هيرنج';$items[]=$herring;
+            $sardine=$product;$sardine['id']=2578;$sardine['name']='سردين';$items[]=$sardine;
+            for($i=0;$i<15;$i++){$meal=$product;$meal['id']=3000+$i;$meal['name']='وجبة سردين عرض '.$i;$items[]=$meal;}
+        }
         if($case==='duplicate-name'){$copy=$product;$copy['id']=502;$items[]=$copy;}
         if($case==='duplicate-id'){$copy=$product;$copy['name']='رنجة';$items[]=$copy;}
         if($case==='arabic-names'){$copy=$product;$copy['id']=502;$copy['name']='فَسيخ';$items[]=$copy;}
@@ -123,21 +139,41 @@ function catalogRun(string$case,array$args=[]):array{
 }
 [$exit,$value,$readonly]=catalogRun('valid');catalogExpect($exit===0&&$readonly&&$value['status']==='READ_READY'&&$value['items'][0]['mapped'],'valid actual literal mapper observed read-only');
 catalogExpect($value['actual_dialogue_catalog_agrees']&&$value['catalog_unchanged_during_read']&&$value['items'][0]['mapped_product_id']===501,'actual copied dialogueCatalog agrees with diagnostic mirror');
-foreach(['no-match'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','whole'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','unavailable'=>'MATCHED_PRODUCT_UNAVAILABLE','mode'=>'QUANTITY_MODE_MISMATCH']as$case=>$reason){
+foreach(['no-match'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','unavailable'=>'MATCHED_PRODUCT_UNAVAILABLE','mode'=>'QUANTITY_MODE_MISMATCH']as$case=>$reason){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===0&&$value['items'][0]['reason']===$reason,'per-item cause '.$case);
 }
-[$exit,$value]=catalogRun('whole');catalogExpect($value['items'][0]['literal_candidates']===[]&&$value['items'][0]['diagnostic_similar_products'][0]['name']==='فسيخ'
-    &&$value['items'][0]['diagnostic_similar_products'][0]['preparation_options']===[['id'=>'','label'=>'كامل']],'preparation-only whole is visible but not silently made ERP option');
+[$exit,$value]=catalogRun('whole');catalogExpect($exit===0&&$value['items'][0]['mapped']&&$value['items'][0]['mapped_option_id']===''
+    &&$value['items'][0]['literal_candidates'][0]['preparation_options']===[['id'=>'','label'=>'كامل'],['id'=>'f:0:extra_clear','label'=>'مخلي']],
+    'actual whole preparation maps original empty base identity with matching clean option');
 [$exit,$value]=catalogRun('inline');catalogExpect($value['items'][0]['mapped']&&$value['items'][0]['mapped_option_id']==='f:0:extra_clear'
-    &&$value['items'][0]['literal_candidates'][0]['preparation_options']===[['id'=>'','label'=>'كامل']],'actual inline option maps and separate preparation choices are observations');
+    &&$value['items'][0]['literal_candidates'][0]['preparation_options']===[['id'=>'','label'=>'كامل'],['id'=>'f:0:extra_clear','label'=>'مخلي']],
+    'legacy and preparation overlap maps once through actual mapper');
 [$exit,$value]=catalogRun('duplicate-effective');catalogExpect($value['catalog']['duplicate_effective_item']&&$value['items'][1]['reason']==='DUPLICATE_EFFECTIVE_ITEM','duplicate effective identities remain separate blocker');
 foreach(['duplicate-name'=>'CATALOG_DUPLICATE_AVAILABLE_NAME','duplicate-id'=>'CATALOG_DUPLICATE_PRODUCT_ID','option-label'=>'CATALOG_DUPLICATE_OPTION_LABEL',
-    'option-id'=>'CATALOG_DUPLICATE_OPTION_ID','option-empty'=>'CATALOG_OPTION_EMPTY_LABEL','malformed'=>'CATALOG_PRODUCT_MALFORMED','pages'=>'CATALOG_PAGINATION_LIMIT']as$case=>$reason){
+    'option-id'=>'CATALOG_DUPLICATE_OPTION_ID','option-empty'=>'CATALOG_OPTION_EMPTY_LABEL','malformed'=>'CATALOG_PRODUCT_MALFORMED','pages'=>'CATALOG_PAGINATION_LIMIT',
+    'prep-invalid'=>'CATALOG_PREPARATION_OPTIONS_INVALID']as$case=>$reason){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===0&&$value['catalog']['global_guard']===$reason&&$value['actual_dialogue_catalog_agrees']
         &&$value['items'][0]['reason']==='CATALOG_GLOBAL_GUARD_BLOCKED','actual whole-menu blocker '.$case);
 }
 [$exit,$value]=catalogRun('arabic-names');catalogExpect($exit===0&&$value['catalog']['global_guard']==='CLEAR','global name normalizer is not receipt Arabic normalizer');
 foreach(['catalog-drift','snapshot-drift','draft-drift']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===1&&$value['status']==='OBSERVATION_CHANGED','stale observations rejected '.$case);}
+[$exit,$value]=catalogRun('prep-drift');catalogExpect($exit===1&&$value['status']==='OBSERVATION_CHANGED','preparation facts participate in catalog fingerprint');
+foreach(['description-arabic','description-english','description-digit','description-x','description-angle','description-control','float-roundtrip']as$case){
+    [$exit,$value]=catalogRun($case);catalogExpect($exit===0&&$value['actual_dialogue_catalog_agrees'],
+        'exact workflow description and receipt numeric semantics '.$case);
+}
+$compactArgs=['--conversation','11','--expected-floor','6559','--expected-ceiling','10046','--expected-revision','13','--draft','2171','--compact'];
+[$exit,$value]=catalogRun('compact-many',$compactArgs);
+catalogExpect($exit===0&&$value['output_mode']==='COMPACT'&&count($value['items'])===3&&$value['actual_dialogue_catalog_agrees'],'compact keeps all three recapped items and source agreement');
+catalogExpect(array_column($value['items'],'recapped_name')===['رنجة هيرنج','فسيخ كامل','سردين بلدي كبير مخلي']
+    &&array_column($value['items'],'quantity')===['2','1','1']&&array_column($value['items'],'quantity_mode')===['weight','weight','weight'],
+    'compact preserves every item label quantity and unit');
+catalogExpect(!$value['items'][2]['mapped']&&$value['items'][2]['diagnostic_similar_products'][0]['id']===2578,
+    'generic sardine suggestion remains visible without mapping missing qualifiers');
+foreach($value['items']as$item)catalogExpect(count($item['diagnostic_similar_products'])<=3&&count($item['literal_candidates'])<=3,
+    'compact bounds relevant candidates and suggestions');
+catalogExpect(strlen(json_encode($value,JSON_UNESCAPED_UNICODE))<8000,'compact output remains bounded for terminal paste');
+[$exit,$value]=catalogRun('args',[...$compactArgs,'--compact']);catalogExpect($exit===1&&$value['reason']==='ARGUMENTS_INVALID','duplicate compact flag fails closed');
 foreach(['owner'=>'OWNER_INVALID','source'=>'SOURCE_CHANGED','driver'=>'READ_ONLY_SESSION_REQUIRED','transaction'=>'READ_ONLY_SESSION_REQUIRED','ticket'=>'DRAFT_EXPECTATION_CHANGED']as$case=>$reason){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===1&&$value['status']==='READ_BLOCKED'&&$value['reason']===$reason,'safe expected guards '.$case);
     if($case==='source')catalogExpect($value['source_guard_file']==='app/Services/Dashboard/WhatsAppInboxMessage.php','fixed source mismatch path only');

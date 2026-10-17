@@ -66,13 +66,13 @@ def reviewed_installed_parser():
     return installed
 
 
-def reviewed_installed_workflow():
+def reviewed_installed_workflow(pin='d91ea2f4c84357e16e0556b205484d64cfce1079'):
     # This exact blob is part of the installed ancestor commit. No network or
     # mutable branch name participates in the upgrade fixture.
     result = subprocess.run(['git', '-C', str(ROOT), 'cat-file', 'blob',
-        'd91ea2f4c84357e16e0556b205484d64cfce1079'], stdout=subprocess.PIPE,
+        pin], stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, check=True).stdout
-    if repair.blob(result) != 'd91ea2f4c84357e16e0556b205484d64cfce1079':
+    if repair.blob(result) != pin:
         raise AssertionError('Reviewed installed workflow fixture changed')
     return result
 
@@ -90,6 +90,13 @@ def reviewed_pos_runtime():
             raise AssertionError('Reviewed independent POS runtime fixture changed: '+relative)
         result[relative] = content
     return result
+
+
+def reviewed_current_catalog():
+    content = (ROOT/'tests/fixtures/whatsapp_confirmation_runtime/TakeawayCatalogCurrent.php').read_bytes()
+    if len(content) != 17572 or repair.blob(content) != 'e96fce33037a06330f95d6a91553950cdf32d763':
+        raise AssertionError('Reviewed current preparation catalog fixture changed')
+    return content
 
 
 class Fixture:
@@ -159,6 +166,11 @@ class Fixture:
     def installed_v2(self):
         self.installed_v1(); parser = next(iter(self.pins))
         self.originals[parser] = self.targets[parser]; self.write(parser, self.originals[parser])
+
+    def installed_v3(self):
+        self.installed_v2(); workflow = tuple(self.pins)[1]
+        self.originals[workflow] = reviewed_installed_workflow('63c1e6e7e48c500227e0285707611b268e50b3ad')
+        self.write(workflow, self.originals[workflow])
 
     def apply(self, check=False, **kwargs):
         with self.patches(): return repair.apply(self.root, self.uid, 'a'*40, check, runner=self.runner, **kwargs)
@@ -244,15 +256,20 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
             ('6b27b7ac2faff6fdaf952494f90f2d8378a12484', 'd063ee444c347c41620916b4513d0f03785141aa'))
         self.assertEqual(repair.RUNTIME_PINS['app/Services/Dashboard/TakeawayCatalog.php'],
             ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47',
-             '7476e436bf06a2a777977733580a73f10b04653b'))
+             '7476e436bf06a2a777977733580a73f10b04653b', 'e96fce33037a06330f95d6a91553950cdf32d763'))
         self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
-        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'CURRENT'})
+        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'CURRENT'})
         self.assertEqual(repair.INSTALLED_SOURCE_PROFILES, {'INSTALLED_V1': {
             'app/Support/WhatsAppCustomerOrderConfirmation.php': '558440a772a7798c4f9c11a713685c79b7fdabda',
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'},
             'INSTALLED_V2': {
             'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
-            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'}})
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'},
+            'INSTALLED_V3': {
+            'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '63c1e6e7e48c500227e0285707611b268e50b3ad'}})
+        self.assertIn('app/Services/Dashboard/WhatsAppInboxConsumer.php', repair.UNCHANGED_DEPENDENCIES)
+        self.assertNotIn('app/Services/Dashboard/WhatsAppInboxConsumer.php', repair.TARGET_PINS)
 
     def test_installed_v1_upgrade_replaces_only_the_two_reviewed_targets_and_preserves_state(self):
         self.fixture.installed_v1(); parser, workflow = tuple(repair.TARGET_PINS)
@@ -295,6 +312,7 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         variants = [
             (reviewed_installed_parser()+b'\n// unknown parser\n', self.fixture.targets[workflow]),
             (reviewed_installed_parser(), b'<?php /* unreviewed older workflow */'),
+            (reviewed_installed_parser(), reviewed_installed_workflow('63c1e6e7e48c500227e0285707611b268e50b3ad')),
             (self.fixture.targets[parser], b'<?php /* unreviewed older workflow */'),
             (None, self.fixture.targets[workflow]),
         ]
@@ -308,7 +326,7 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
                     self.fixture.apply(True)
 
     def test_root_reviewed_installed_upgrades_preserve_original_timer_choices_and_policy_fingerprint(self):
-        for profile in ('INSTALLED_V1', 'INSTALLED_V2'):
+        for profile in ('INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3'):
             with self.subTest(profile=profile):
                 worker = WorkerFixture()
                 worker.before = dict(worker.before, sources=repair.INSTALLED_SOURCE_PROFILES[profile], source_profile=profile)
@@ -405,6 +423,50 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
                         self.fixture.uid, self.fixture.root), before[path])
                 self.assertFalse(any(args[0] == '/usr/bin/systemctl' for args in self.fixture.calls))
                 self.fixture.write(relative, content, 0o600)
+
+    def test_installed_v3_upgrade_preserves_current_catalog_consumer_parser_and_independent_erp(self):
+        self.fixture.installed_v3(); parser, workflow = tuple(repair.TARGET_PINS)
+        catalog = 'app/Services/Dashboard/TakeawayCatalog.php'
+        consumer = 'app/Services/Dashboard/WhatsAppInboxConsumer.php'
+        self.fixture.runtime[catalog] = repair.RUNTIME_PINS[catalog]
+        self.fixture.write(catalog, reviewed_current_catalog(), 0o600)
+        consumer_bytes = (ROOT/consumer).read_bytes()
+        self.assertEqual(repair.blob(consumer_bytes), 'b169e92362531c1da565ef26bbc999a5a0fa73d8')
+        self.fixture.write(consumer, consumer_bytes, 0o600)
+        for path in repair.UNCHANGED_DEPENDENCIES:
+            if path != consumer: self.fixture.write(path, ('<?php /* latest independent ERP '+path+' */\n').encode(), 0o600)
+        before = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+            self.fixture.uid, self.fixture.root) for path in (*repair.RUNTIME_PINS, *repair.UNCHANGED_DEPENDENCIES, parser)}
+        before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
+        before_control = dict(self.fixture.controls)
+        checked = self.fixture.apply(True)
+        self.assertEqual(checked['source_profile'], 'INSTALLED_V3')
+        result = self.fixture.apply(expected=wrapper.expected_state(checked))
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertEqual(receipt['changed_targets'], [workflow])
+        self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
+        for path, snapshot in before.items():
+            self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                self.fixture.uid, self.fixture.root), snapshot)
+        self.assertEqual((self.fixture.root/catalog).stat().st_mode & 0o7777, 0o600)
+        self.assertEqual((self.fixture.root/consumer).stat().st_mode & 0o7777, 0o600)
+        self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
+        self.assertEqual(self.fixture.controls, before_control)
+
+    def test_unknown_adjacent_current_catalog_bytes_fail_before_any_publication(self):
+        self.fixture.installed_v3(); catalog = 'app/Services/Dashboard/TakeawayCatalog.php'
+        self.fixture.runtime[catalog] = repair.RUNTIME_PINS[catalog]
+        self.fixture.write(catalog, reviewed_current_catalog()+b'\n// unreviewed adjacent catalog change\n', 0o600)
+        before = repair.library.guarded_snapshot(self.fixture.root/catalog, self.fixture.uid, self.fixture.root)
+        before_control = dict(self.fixture.controls)
+        with self.assertRaisesRegex(repair.SafeError, 'WA_CONFIRMATION_RUNTIME_SOURCE_MISMATCH'):
+            self.fixture.apply()
+        self.fixture.originals_intact(self)
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/catalog,
+            self.fixture.uid, self.fixture.root), before)
+        self.assertEqual(self.fixture.controls, before_control)
+        self.assertFalse(any(args[0] == '/usr/bin/systemctl' for args in self.fixture.calls))
 
     def test_preflight_has_no_application_policy_order_or_service_mutation(self):
         before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)

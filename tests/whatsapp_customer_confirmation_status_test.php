@@ -15,6 +15,7 @@ preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);
 statusExpect(count($pins)===10,'narrow source guard roster');
 foreach($pins as[$all,$path,$pin]){
     $content=file_get_contents($root.'/'.$path);$actual=sha1('blob '.strlen($content)."\0".$content);
+    if($path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')statusExpect($pin===$actual,'status guards the exact reviewed preparation workflow');
     $destination=$fixture.'/'.$path;if(!is_dir(dirname($destination)))mkdir(dirname($destination),0700,true);
     file_put_contents($destination,$content);
     $source=str_replace("'".$path."'=>'".$pin."'","'".$path."'=>'".$actual."'",$source,$count);
