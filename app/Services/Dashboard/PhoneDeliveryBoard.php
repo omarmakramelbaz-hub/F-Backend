@@ -2,6 +2,7 @@
 namespace App\Services\Dashboard;
 
 use App\Services\GoServices\Money;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -31,16 +32,64 @@ class PhoneDeliveryBoard
             $count=(clone $q)->count(); $last=max(1,(int)ceil($count/20)); $page=min((int)($v[$stage.'_page']??1),$last);
             $rows=$q->select('t.*','d.company_snapshot as handoff_company')->orderBy('t.id',$stage==='finished'?'desc':'asc')->offset(($page-1)*20)->limit(20)->get();
             $batches=DB::table('phone_delivery_batch_items')->whereIn('ticket_id',$rows->pluck('id'))->pluck('batch_id','ticket_id');
-            $items=$rows->map(function($row)use($batches,$actor){
+            $completed=$stage==='finished'?$this->completionTimes($rows->all()):[];
+            $items=$rows->map(function($row)use($batches,$actor,$completed){
                 $item=$this->tickets->present($row,false,$actor);
                 $item['courier_company']=json_decode($row->handoff_company??$row->delivery_company_snapshot??'null',true);
                 $item['batch_print_url']=isset($batches[$row->id])?route('phone-orders.batch-print',['id'=>$batches[$row->id]]):null;
+                $item['completed_at']=$completed[(int)$row->id]??null;
                 return $item;
             })->all();
             $columns[$stage]=['items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count]];
         }
         $companies=DB::table('branch_delivery_companies')->whereIn('branch',$branchValues)->where('active',true)->orderBy('name')->get(['id','name','branch'])->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->name,'branch'=>$r->branch])->all();
         return ['success'=>true,'branch'=>$scope,'columns'=>$columns,'companies'=>$companies];
+    }
+
+    /** Page-scoped audit reads; later edits and polling never change the recorded completion time. */
+    private function completionTimes(array $rows): array
+    {
+        $paid=[];$cancelled=[];$branches=[];
+        foreach($rows as $row){
+            $branches[]=$row->branch;
+            if($row->payment_status==='paid'&&!empty($row->paid_order_id))$paid[]=(int)$row->paid_order_id;
+            elseif($row->status==='cancelled')$cancelled[]=(int)$row->id;
+        }
+        $receipts=[];
+        if($paid)foreach(DB::table('takeaway_orders')->whereIn('id',array_unique($paid))->whereIn('branch',array_unique($branches))->where('channel','phone')
+            ->get(['id','ticket_id','branch','channel','created_at']) as $receipt)$receipts[(int)$receipt->id]=$receipt;
+        $commands=[];
+        if($cancelled){
+            $query=DB::table('pos_service_commands as c')->join('pos_service_tickets as t',function($join){
+                $join->on('t.id','=','c.ticket_id')->on('t.branch','=','c.branch')->on('t.revision','=','c.revision');
+            })->whereIn('t.id',$cancelled)->whereIn('t.branch',array_unique($branches))
+                ->where('t.channel','phone')->where('t.status','cancelled')->where('c.kind','action');
+            foreach($query->get(['c.ticket_id','c.created_at']) as $command)$commands[(int)$command->ticket_id][]=$command;
+        }
+        $times=[];
+        foreach($rows as $row){
+            $time=null;
+            if($row->payment_status==='paid'){
+                $receipt=$receipts[(int)($row->paid_order_id??0)]??null;
+                // The receipt and paid ticket are linked in the same settlement transaction.
+                if($receipt&&(int)$receipt->ticket_id===(int)$row->id&&$receipt->branch===$row->branch&&$receipt->channel==='phone')$time=$receipt->created_at;
+            }elseif($row->status==='cancelled'&&count($commands[(int)$row->id]??[])===1){
+                // Cancellation is terminal, so its sole current-revision action is the transition audit.
+                $time=$commands[(int)$row->id][0]->created_at;
+            }
+            $completed=$this->auditTime($time);$created=$this->auditTime($row->created_at??null);
+            $times[(int)$row->id]=$completed&&(!$created||!$completed->lt($created))?$completed->toIso8601String():null;
+        }
+        return $times;
+    }
+
+    private function auditTime($value): ?Carbon
+    {
+        // Persisted POS audit timestamps are UTC. Never interpret a blank or free-form value as now.
+        if(!is_string($value)||!preg_match('/^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d:[0-5]\d(?:\.\d{1,6})?$/D',$value))return null;
+        try{$time=Carbon::parse($value,'UTC');}
+        catch(\Throwable $error){return null;}
+        return $time->format('Y-m-d H:i:s')===substr($value,0,19)?$time:null;
     }
     public function dispatch(array $values,$actor): array
     {

@@ -106,4 +106,8 @@ return [
     'company_dispatched' => 'تم تسليم الطلب لشركة التوصيل ونقله مع المندوب.',
     'final_service_consent'=>'العميل وافق على المتابعة بعد الشراء عبر واتساب (مطلوب لإنهاء الفاتورة).',
     'final_service_consent_required'=>'أكد موافقة العميل على المتابعة بعد الشراء لكل فاتورة قبل الإنهاء.',
+    'preparation_elapsed'=>'وقت التجهيز',
+    'order_elapsed'=>'وقت الطلب',
+    'completed_time'=>'وقت الإنهاء',
+    'cancelled_time'=>'وقت الإلغاء',
 ];

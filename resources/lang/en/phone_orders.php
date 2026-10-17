@@ -106,4 +106,8 @@ return [
     'company_dispatched' => 'Order handed over to the delivery company.',
     'final_service_consent'=>'The customer agreed to post-purchase WhatsApp follow-up (required to close this invoice).',
     'final_service_consent_required'=>'Confirm post-purchase follow-up approval for every invoice before finishing.',
+    'preparation_elapsed'=>'Preparing time',
+    'order_elapsed'=>'Order time',
+    'completed_time'=>'Completed at',
+    'cancelled_time'=>'Cancelled at',
 ];
