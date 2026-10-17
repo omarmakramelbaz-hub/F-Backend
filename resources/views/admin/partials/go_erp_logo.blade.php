@@ -1,9 +1,12 @@
 @php
     $goErpLogoId = 'go-erp-' . substr(sha1($logoClass ?? 'logo'), 0, 10);
     $goErpIsLogin = strpos($logoClass ?? '', 'dashboard-login-logo') !== false;
-    $goErpHasSolar = $goErpIsLogin || strpos($logoClass ?? '', 'dashboard-brand-logo') !== false;
-    $goErpViewBox = $goErpHasSolar ? '0 0 1061 1103' : '0 0 1061 623';
-    $goErpSceneTransform = $goErpHasSolar ? 'translate(0 480)' : 'translate(0 0)';
+    $goErpIsSidebar = strpos($logoClass ?? '', 'dashboard-brand-logo') !== false;
+    $goErpViewBox = $goErpIsLogin ? '0 0 1061 1103' : ($goErpIsSidebar ? '0 0 1420 700' : '0 0 1061 623');
+    $goErpSceneTransform = $goErpIsLogin ? 'translate(0 480)' : 'translate(0 0)';
+    $goErpSolarTransform = $goErpIsSidebar ? 'translate(290 475)' : 'translate(0 0)';
+    $goErpPlanetStroke = $goErpIsSidebar ? '#071321' : 'none';
+    $goErpCompactTransform = $goErpIsSidebar ? 'translate(0 -66.91) scale(1.33836)' : 'translate(0 240)';
 @endphp
 <svg xmlns="http://www.w3.org/2000/svg" class="{{ $logoClass ?? 'go-erp-platform-logo' }}" data-go-erp-vector="1" data-go-erp-explosion="1" data-go-erp-dynamic="1" data-go-erp-solar="1" color="#fd7201" viewBox="{{ $goErpViewBox }}" role="img" aria-label="GO ERP SYSTEM" focusable="false">
   <title>GO ERP SYSTEM</title>
@@ -72,7 +75,7 @@
     <clipPath id="{{ $goErpLogoId }}-fragment-15" clipPathUnits="userSpaceOnUse"><polygon points="530,311 0,156 0,0"/></clipPath>
   </defs>
   <g class="go-erp-logo-stage" transform="{{ $goErpSceneTransform }}">
-  <g class="go-erp-login-flow go-erp-solar-system" opacity="0" aria-hidden="true">
+  <g class="go-erp-login-flow go-erp-solar-system go-erp-solar-back" opacity="0" aria-hidden="true" transform="{{ $goErpSolarTransform }}">
     <g fill="#d7e4ee" opacity=".26">
       <circle cx="553.8" cy="-95.8" r="1.7"/>
       <circle cx="307.3" cy="-114.2" r="1.4"/>
@@ -203,6 +206,11 @@
       <circle cx="298.8" cy="-312.7" r="1.6"/>
       <circle cx="562.4" cy="-347.3" r="1.1"/>
     </g>
+  </g>
+  <g class="go-erp-logo-rest" fill="currentColor" opacity="1">
+    <use href="#{{ $goErpLogoId }}-shape"/>
+  </g>
+  <g class="go-erp-login-flow go-erp-solar-system go-erp-solar-front" opacity="0" aria-hidden="true" transform="{{ $goErpSolarTransform }}">
     <g data-solar-body="sun" transform="translate(530 -230)">
       <circle class="go-erp-solar-corona" r="108" fill="url(#{{ $goErpLogoId }}-sun-glow)"/>
       <circle r="43" fill="url(#{{ $goErpLogoId }}-sun)"/>
@@ -215,7 +223,7 @@
           <g transform="translate(90 0)">
             <g class="go-erp-solar-counter" transform="rotate(35)">
               <g transform="scale(1 2.5)">
-                <circle r="7" fill="url(#{{ $goErpLogoId }}-mercury)"/>
+                <circle r="7" fill="url(#{{ $goErpLogoId }}-mercury)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-mercury-clip)"><g fill="#494541" opacity=".37"><circle cx="-2.8" cy="-2.4" r="1.6"/><circle cx="2.8" cy="1.8" r="1.2"/><circle cx="-1" cy="4" r=".7"/></g><path d="M-4 -1 Q-2 -3 0 -2" fill="none" stroke="#f1dfc8" stroke-width=".5" opacity=".45"/></g>
                 <circle r="7" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -230,7 +238,7 @@
           <g transform="translate(145 0)">
             <g class="go-erp-solar-counter" transform="rotate(-132)">
               <g transform="scale(1 2.5)">
-                <circle r="11.5" fill="url(#{{ $goErpLogoId }}-venus)"/>
+                <circle r="11.5" fill="url(#{{ $goErpLogoId }}-venus)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-venus-clip)"><path d="M-14 -4 Q-3 -9 13 -3 M-13 2 Q0 -3 13 3 M-10 8 Q0 3 12 8" fill="none" stroke="#f9e4b8" stroke-width="2" opacity=".5"/></g>
                 <circle r="11.5" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -245,7 +253,7 @@
           <g transform="translate(205 0)">
             <g class="go-erp-solar-counter" transform="rotate(-45)">
               <g transform="scale(1 2.5)">
-                <circle r="12.5" fill="url(#{{ $goErpLogoId }}-earth)"/>
+                <circle r="12.5" fill="url(#{{ $goErpLogoId }}-earth)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-earth-clip)"><path d="M-10 -7 L-5 -10 -1 -7 -2 -3 2 -1 0 4 -3 7 -4 3 -7 1 -5 -3 -10 -4 Z M4 -9 L9 -7 12 -1 7 0 4 -3 2 -4 Z M6 6 L11 4 12 8 7 10 5 8 Z" fill="#74ad68"/><path d="M-10 -2 Q-2 -8 7 -5 M-5 9 Q1 4 11 4" fill="none" stroke="#e8f7ff" stroke-width="1.3" opacity=".65"/><path d="M-6 -11 Q0 -14 6 -10 L1 -9 Z" fill="#e3f5ff"/></g>
                 <circle r="12.5" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
                 <circle cx="21" cy="-5" r="2.8" fill="#bfc3c9"/>
@@ -261,7 +269,7 @@
           <g transform="translate(265 0)">
             <g class="go-erp-solar-counter" transform="rotate(-220)">
               <g transform="scale(1 2.5)">
-                <circle r="9" fill="url(#{{ $goErpLogoId }}-mars)"/>
+                <circle r="9" fill="url(#{{ $goErpLogoId }}-mars)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-mars-clip)"><path d="M-7 -2 Q-1 -6 3 -2 L6 1 2 4 -2 2 -5 4 Z" fill="#703b2b" opacity=".55"/><ellipse cy="-8" rx="3.5" ry="1.5" fill="#e9dcd0" opacity=".8"/></g>
                 <circle r="9" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -276,7 +284,7 @@
           <g transform="translate(335 0)">
             <g class="go-erp-solar-counter" transform="rotate(65)">
               <g transform="scale(1 2.5)">
-                <circle r="28" fill="url(#{{ $goErpLogoId }}-jupiter)"/>
+                <circle r="28" fill="url(#{{ $goErpLogoId }}-jupiter)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-jupiter-clip)"><path d="M-34 -17 Q-2 -12 34 -18 L34 -12 Q0 -7 -34 -11 Z" fill="#b67d54"/><path d="M-34 -6 Q-4 -1 34 -7 L34 -1 Q0 3 -34 0 Z" fill="#f3d5a9"/><path d="M-33 4 Q0 9 33 3 L33 10 Q0 15 -33 10 Z" fill="#a96643"/><path d="M-31 15 Q0 20 31 15 L31 20 Q0 26 -31 21 Z" fill="#e4c18c"/><path d="M-30 -23 Q0 -19 30 -24 M-30 1 Q0 6 30 0" fill="none" stroke="#7e523b" stroke-width="1.2" opacity=".45"/><ellipse cx="11" cy="8" rx="6" ry="3.3" fill="#b7684f"/><ellipse cx="10" cy="7.5" rx="3.9" ry="2" fill="#d38c68"/></g>
                 <circle r="28" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -292,7 +300,7 @@
             <g class="go-erp-solar-counter" transform="rotate(-150)">
               <g transform="scale(1 2.5)">
                 <g transform="rotate(-22)" fill="none"><ellipse rx="46" ry="14" stroke="#bda87c" stroke-width="7" opacity=".75"/><ellipse rx="39" ry="11.8" stroke="#e3d4a7" stroke-width="2.6" opacity=".85"/></g>
-                <circle r="23" fill="url(#{{ $goErpLogoId }}-saturn)"/>
+                <circle r="23" fill="url(#{{ $goErpLogoId }}-saturn)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-saturn-clip)"><path d="M-27 -11 Q0 -7 27 -12 M-27 -3 Q0 1 27 -4 M-27 5 Q0 9 27 4 M-26 13 Q0 17 26 12" fill="none" stroke="#a58c5b" stroke-width="2.2" opacity=".35"/></g>
                 <circle r="23" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
                 <g transform="rotate(-22)" fill="none"><path d="M-46 0 A46 14 0 0 0 46 0" stroke="#d8c698" stroke-width="6"/><path d="M-39 0 A39 11.8 0 0 0 39 0" stroke="#f0dfb2" stroke-width="1.7"/></g>
@@ -308,7 +316,7 @@
           <g transform="translate(475 0)">
             <g class="go-erp-solar-counter" transform="rotate(-25)">
               <g transform="scale(1 2.5)">
-                <circle r="17" fill="url(#{{ $goErpLogoId }}-uranus)"/>
+                <circle r="17" fill="url(#{{ $goErpLogoId }}-uranus)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-uranus-clip)"><path d="M-19 -5 Q0 -1 19 -5 M-19 4 Q0 8 19 4" fill="none" stroke="#d4f4e8" stroke-width="1.2" opacity=".21"/></g>
                 <circle r="17" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -323,7 +331,7 @@
           <g transform="translate(545 0)">
             <g class="go-erp-solar-counter" transform="rotate(-210)">
               <g transform="scale(1 2.5)">
-                <circle r="17" fill="url(#{{ $goErpLogoId }}-neptune)"/>
+                <circle r="17" fill="url(#{{ $goErpLogoId }}-neptune)" stroke="{{ $goErpPlanetStroke }}" stroke-width="2"/>
                 <g clip-path="url(#{{ $goErpLogoId }}-neptune-clip)"><path d="M-20 -6 Q0 -3 20 -7 M-20 5 Q0 8 20 3" fill="none" stroke="#9cb9ec" stroke-width="1.4" opacity=".32"/><ellipse cx="5" cy="4" rx="4" ry="1.8" fill="#1a3e83" opacity=".65"/></g>
                 <circle r="17" fill="url(#{{ $goErpLogoId }}-planet-shade)"/>
               </g>
@@ -332,9 +340,6 @@
         </g>
       </g>
     </g>
-  </g>
-  <g class="go-erp-logo-rest" fill="currentColor" opacity="1">
-    <use href="#{{ $goErpLogoId }}-shape"/>
   </g>
   <g class="go-erp-logo-fragments" fill="currentColor" aria-hidden="true">
     <g class="go-erp-logo-fragment" style="--go-x: -106px; --go-y: -68px; --go-r: 5deg;">
@@ -387,7 +392,7 @@
     </g>
   </g>
   </g>
-  <g class="go-erp-logo-compact" display="none" transform="translate(0 240)" fill="currentColor" aria-hidden="true">
+  <g class="go-erp-logo-compact" display="none" transform="{{ $goErpCompactTransform }}" fill="currentColor" aria-hidden="true">
     <use href="#{{ $goErpLogoId }}-shape"/>
   </g>
 </svg>
