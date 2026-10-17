@@ -474,15 +474,25 @@
         var now = Date.now();
         root.querySelectorAll('[data-phone-preparing-created-at]').forEach(function (timer) { updatePreparationTimer(timer, now); });
     }
-    function preparationBadge(ticket) {
+    function preparationBadge(ticket, column) {
         var createdAt = preparationCreatedAt(ticket.created_at);
         if (createdAt === null) return null;
-        var label = document.documentElement.lang === 'ar' ? 'وقت التجهيز' : 'Preparing time';
+        var label = text(column === 'courier' ? 'order_elapsed' : 'preparation_elapsed');
         var timer = element('span', 'ph-preparation-timer'), icon = element('i', 'far fa-clock');
         timer.dataset.phonePreparingCreatedAt = String(createdAt); timer.setAttribute('role', 'timer'); timer.setAttribute('aria-label', label); icon.setAttribute('aria-hidden', 'true');
         timer.appendChild(icon); timer.appendChild(element('span', 'ph-preparation-timer-label', label)); timer.appendChild(element('bdi', 'ph-preparation-timer-value'));
         updatePreparationTimer(timer, Date.now());
         return timer;
+    }
+    function completedBadge(ticket) {
+        if (preparationCreatedAt(ticket.completed_at) === null) return null;
+        var label = text(ticket.status === 'cancelled' ? 'cancelled_time' : 'completed_time');
+        var stamp = element('span', 'ph-ticket-finished-at'), icon = element('i', 'far fa-clock');
+        icon.setAttribute('aria-hidden', 'true');
+        var time = element('time', 'ph-ticket-finished-value', dateLabel(ticket.completed_at));
+        time.setAttribute('datetime', ticket.completed_at);
+        stamp.appendChild(icon); stamp.appendChild(element('span', 'ph-ticket-finished-label', label)); stamp.appendChild(time);
+        return stamp;
     }
     function card(ticket, column) {
         var article = element('article', 'ph-ticket ph-ticket-compact');
@@ -492,7 +502,6 @@
         heading.appendChild(element('strong', 'ph-ticket-number', number));
         var name = element('span', 'ph-ticket-name', ticket.customer_name); name.title = ticket.customer_name; heading.appendChild(name);
         if (ticket.status === 'cancelled') { var state = element('span', 'ph-stage', text('cancelled')); state.dataset.stage = 'cancelled'; heading.appendChild(state); }
-        if (column === 'preparing' && ticket.payment_status === 'unpaid' && ['new', 'preparing'].includes(ticket.status)) { var timer = preparationBadge(ticket); if (timer) heading.appendChild(timer); }
         article.appendChild(heading);
         var amount = element('bdi', 'ph-ticket-amount', money(ticket.total) + ' ' + text('currency'));
         amount.title = text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'); article.appendChild(amount);
@@ -503,10 +512,14 @@
         var location = element('span', 'ph-ticket-address', address || ''); location.title = address || ''; metadata.appendChild(location);
         metadata.title = [address, ticket.courier_company && ticket.courier_company.name, ticket.created_label || dateLabel(ticket.created_at)].filter(Boolean).join(' · ');
         article.appendChild(metadata);
+        if (ticket.payment_status === 'unpaid' && (column === 'preparing' && ['new', 'preparing'].includes(ticket.status) || column === 'courier' && ['out_for_delivery', 'finished'].includes(ticket.status))) {
+            var timer = preparationBadge(ticket, column); if (timer) article.appendChild(timer);
+        }
         var actions = element('div', 'ph-ticket-quick-actions');
         ticketActions(ticket, actions);
         actions.querySelectorAll('button').forEach(function(control){control.title=control.textContent+' '+number;});
         article.appendChild(actions);
+        if (column === 'finished' && (ticket.payment_status === 'paid' || ticket.status === 'cancelled')) { var completed = completedBadge(ticket); if (completed) article.appendChild(completed); }
         if (column === 'courier' && canWrite()) {
             var choice = element('label', 'ph-board-select'), check = element('input'); check.type = 'checkbox';
             check.dataset.phoneBatchSelect = String(ticket.id); check.checked = selectedOrders.has(ticket.id);
