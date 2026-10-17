@@ -762,7 +762,13 @@ class WhatsAppOrderWorkflow
         if ($resolved===null) { $reason='BRANCH_UNRESOLVED'; return null; }
         $branch=$resolved['fulfillment_branch']??$resolved['value'];
         $fulfillment=$this->branch($branch,$actor,$lock);
-        if (!$this->branchOpen($fulfillment,$reason,$lock)) return null;
+        // The owner permits a verified customer-copy order to reach the branch
+        // outside its physical opening state. Its separate dispatch clock and
+        // all live branch, catalog, stock and approval checks still apply.
+        $hoursReason=null;
+        if (!$this->branchOpen($fulfillment,$hoursReason,$lock)&&$hoursReason!=='BRANCH_CLOSED') {
+            $reason=$hoursReason; return null;
+        }
         $origin=$resolved['value']!==$branch?$resolved['value']:null;
         if ($origin!==null) {
             try { app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
@@ -795,7 +801,7 @@ class WhatsAppOrderWorkflow
         if ($catalog===null) { $reason='CATALOG_UNRESOLVED'; return null; }
         $items=[]; $identities=[];
         foreach ($data['items'] as $item) {
-            $mapped=$this->customerReceiptItem($item,$catalog);
+            $mapped=$this->customerReceiptItem($item,$catalog,$branch);
             if ($mapped===null) { $reason='CATALOG_UNRESOLVED'; return null; }
             $identity=$mapped['product_id'].':'.$mapped['option_id'];
             if (isset($identities[$identity])) { $reason='CATALOG_UNRESOLVED'; return null; }
@@ -831,7 +837,7 @@ class WhatsAppOrderWorkflow
     }
 
     /** Match whole literal product/option labels only; similarity is never order authority. */
-    private function customerReceiptItem(array $item,array $catalog): ?array
+    private function customerReceiptItem(array $item,array $catalog,?string $branch=null): ?array
     {
         $name=$this->customerReceiptName($item['name']); $matches=[];
         $add=static function(int $product,string $option)use(&$matches):void {
@@ -841,7 +847,22 @@ class WhatsAppOrderWorkflow
             if (($product['available']??false)!==true
                 ||!in_array($product['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) continue;
             $base=$this->customerReceiptName($product['name']);
-            if ($name===$base) {
+            $literal=$name;
+            // Exact aliases approved by the owner on 2026-10-18 for Mansoura's
+            // customer-copy protocol. Identity and current complete menu name
+            // must both agree; these are not general search or branch aliases.
+            if ($branch==='f:363'&&$this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages'
+                &&$item['quantity_mode']==='weight') {
+                if ($name===$this->customerReceiptName('رنجة مبطرخ')&&$product['id']===2576
+                    &&$base===$this->customerReceiptName('رنجه هيرنج مبطرخ')) $literal=$base;
+                if ($name===$this->customerReceiptName('سردين بلدي كبير مخلي')&&$product['id']===2578
+                    &&$base===$this->customerReceiptName('سردين')) {
+                    foreach ($product['options']??[] as $option)
+                        if ($option['id']==='f:0:extra_clear'&&$this->customerReceiptName($option['label'])===$this->customerReceiptName('مخلي')
+                            &&$this->informationPrice($option['price']??null)!==null) $literal=$base.' '.$this->customerReceiptName('مخلي');
+                }
+            }
+            if ($literal===$base) {
                 $options=$product['options']??[];
                 // Default options still pass the existing qualifier coverage guard.
                 $literalItem=$item; $literalItem['name']=$product['name'];
@@ -850,12 +871,12 @@ class WhatsAppOrderWorkflow
             }
             foreach ($product['options']??[] as $option) {
                 $label=$this->customerReceiptName($option['label']);
-                if ($label!==''&&in_array($name,[$base.' '.$label,$label.' '.$base],true))
+                if ($label!==''&&in_array($literal,[$base.' '.$label,$label.' '.$base],true))
                     $add($product['id'],$option['id']);
             }
             foreach ($product['preparation_options']??[] as $preparation) {
                 $label=$this->customerReceiptName($preparation['label']);
-                if ($label===''||!in_array($name,[$base.' '.$label,$label.' '.$base],true)) continue;
+                if ($label===''||!in_array($literal,[$base.' '.$label,$label.' '.$base],true)) continue;
                 if ($preparation['id']==='') {
                     // POS exposes a base preparation for plain SKUs too. Whole
                     // fish needs an actual configured full-unit cleaning choice;

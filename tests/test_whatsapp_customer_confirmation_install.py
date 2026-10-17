@@ -197,6 +197,11 @@ class Fixture:
         self.originals[workflow] = reviewed_installed_workflow('63c1e6e7e48c500227e0285707611b268e50b3ad')
         self.write(workflow, self.originals[workflow])
 
+    def installed_v4(self):
+        self.installed_v2(); workflow = tuple(self.pins)[1]
+        self.originals[workflow] = reviewed_installed_workflow('780da6bd1024afb0166d29973e985d2412a560ee')
+        self.write(workflow, self.originals[workflow])
+
     def apply(self, check=False, **kwargs):
         with self.patches(): return repair.apply(self.root, self.uid, 'a'*40, check, runner=self.runner, **kwargs)
 
@@ -287,7 +292,7 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         self.assertNotIn('app/Services/Dashboard/BranchDeliveryTariff.php', repair.TARGET_PINS)
         self.assertNotIn('app/Services/Dashboard/BranchDeliveryTariff.php', repair.RUNTIME_PINS)
         self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
-        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'CURRENT'})
+        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4', 'CURRENT'})
         self.assertEqual(repair.INSTALLED_SOURCE_PROFILES, {'INSTALLED_V1': {
             'app/Support/WhatsAppCustomerOrderConfirmation.php': '558440a772a7798c4f9c11a713685c79b7fdabda',
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'},
@@ -296,7 +301,10 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'},
             'INSTALLED_V3': {
             'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
-            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '63c1e6e7e48c500227e0285707611b268e50b3ad'}})
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '63c1e6e7e48c500227e0285707611b268e50b3ad'},
+            'INSTALLED_V4': {
+            'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '780da6bd1024afb0166d29973e985d2412a560ee'}})
         self.assertIn('app/Services/Dashboard/WhatsAppInboxConsumer.php', repair.UNCHANGED_DEPENDENCIES)
         self.assertNotIn('app/Services/Dashboard/WhatsAppInboxConsumer.php', repair.TARGET_PINS)
 
@@ -342,6 +350,7 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
             (reviewed_installed_parser()+b'\n// unknown parser\n', self.fixture.targets[workflow]),
             (reviewed_installed_parser(), b'<?php /* unreviewed older workflow */'),
             (reviewed_installed_parser(), reviewed_installed_workflow('63c1e6e7e48c500227e0285707611b268e50b3ad')),
+            (reviewed_installed_parser(), reviewed_installed_workflow('780da6bd1024afb0166d29973e985d2412a560ee')),
             (self.fixture.targets[parser], b'<?php /* unreviewed older workflow */'),
             (None, self.fixture.targets[workflow]),
         ]
@@ -355,7 +364,7 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
                     self.fixture.apply(True)
 
     def test_root_reviewed_installed_upgrades_preserve_original_timer_choices_and_policy_fingerprint(self):
-        for profile in ('INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3'):
+        for profile in ('INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4'):
             with self.subTest(profile=profile):
                 worker = WorkerFixture()
                 worker.before = dict(worker.before, sources=repair.INSTALLED_SOURCE_PROFILES[profile], source_profile=profile)
@@ -526,6 +535,35 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
             self.assertEqual((self.fixture.root/path).stat().st_nlink, 1)
         self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
         self.assertEqual(self.fixture.controls, before_control)
+
+    def test_installed_v4_upgrade_preserves_parser_and_current_pos_tariff_runtime_through_recheck(self):
+        self.fixture.installed_v4(); parser, workflow = tuple(repair.TARGET_PINS)
+        runtime = dict(reviewed_pos_runtime(), **reviewed_tariff_origin_runtime())
+        runtime['app/Services/Dashboard/TakeawayCatalog.php'] = reviewed_current_catalog()
+        consumer = 'app/Services/Dashboard/WhatsAppInboxConsumer.php'
+        runtime[consumer] = (ROOT/consumer).read_bytes()
+        self.assertEqual(repair.blob(runtime[consumer]), 'b169e92362531c1da565ef26bbc999a5a0fa73d8')
+        for path, content in runtime.items():
+            if path in self.fixture.runtime: self.fixture.runtime[path] = repair.RUNTIME_PINS[path]
+            self.fixture.write(path, content, 0o600)
+        protected = (*self.fixture.runtime, *repair.UNCHANGED_DEPENDENCIES,
+            'app/Services/Dashboard/BranchDeliveryTariff.php', parser)
+        before = {path: repair.library.guarded_snapshot(self.fixture.root/path,
+            self.fixture.uid, self.fixture.root) for path in protected}
+        config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
+        control = dict(self.fixture.controls)
+        checked = self.fixture.apply(True)
+        self.assertEqual(checked['source_profile'], 'INSTALLED_V4')
+        result = self.fixture.apply(expected=wrapper.expected_state(checked))
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertEqual(receipt['changed_targets'], [workflow])
+        self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
+        for path, snapshot in before.items():
+            self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/path,
+                self.fixture.uid, self.fixture.root), snapshot)
+        self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), config)
+        self.assertEqual(self.fixture.controls, control)
 
     def test_original_origin_still_installs_without_an_unneeded_tariff_class(self):
         self.fixture.installed_v3(); origin = 'app/Services/Dashboard/FasakhanstaDeliveryOrigin.php'

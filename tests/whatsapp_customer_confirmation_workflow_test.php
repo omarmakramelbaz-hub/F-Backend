@@ -291,9 +291,8 @@ customerRecapExpect($r['errors']===0&&$r['dispatched']===1
     &&\App\Services\Dashboard\PosServiceTicket::$lastPayload['items'][0]['quantity']==='0.5',
     'literal catalog unit prefix and one exact real option preserve intended fractional weight');
 customerRecapSilent('exact live catalog variant matching sends no clarification');
-foreach(['closed','permission','allowlist']as$guard){
+foreach(['permission','allowlist']as$guard){
     customerRecapSetup();
-    if($guard==='closed')CustomerRecapDB::table('test_branches')->where('id',363)->update(['status'=>'closed']);
     if($guard==='permission')CustomerRecapDB::table('test_users')->where('id',7)->update(['branches'=>'["f:94"]']);
     if($guard==='allowlist')app('config')->set('whatsapp_orders.allowed_branch_ids',['94']);
     primaryRun();customerRecapNoErp('customer receipt still enforces branch '.$guard);

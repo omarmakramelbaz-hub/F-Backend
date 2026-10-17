@@ -44,7 +44,7 @@ namespace App\Services\Dashboard {
     class MetaAiControl{public function state(){return['available'=>true,'policy'=>['enabled'=>true,'mode'=>'ANALYZE_ONLY'],'revision'=>13];}}
     class TakeawayCatalog{
         public function listing($values,$actor){
-            if($values['branch']!=='f:363'||$values['per_page']!==100||$values['page']>3)throw new \RuntimeException('UNBOUNDED_CATALOG');
+            if($values['branch']!==(getenv('WA_CATALOG_CASE')==='alias-other-branch'?'f:307':'f:363')||$values['per_page']!==100||$values['page']>3)throw new \RuntimeException('UNBOUNDED_CATALOG');
             $GLOBALS['catalogReads']=($GLOBALS['catalogReads']??0)+1;
             $items=\catalogProducts();if(getenv('WA_CATALOG_CASE')==='catalog-drift'&&$GLOBALS['catalogReads']>1)$items[0]['name']='Changed product';
             if(getenv('WA_CATALOG_CASE')==='pages'){$items[0]['id']+=$values['page'];$items[0]['name']='صنف '.$values['page'];}
@@ -55,7 +55,8 @@ namespace App\Services\Dashboard {
         private int$snapshots=0;
         private function controlToken($conversation){return['revision'=>13,'actor'=>'PRIVATE_ACTOR'];}
         private function automaticActor($conversation){return(object)['id'=>777,'name'=>'PRIVATE_ACTOR'];}
-        private function automaticBranch($data,$actor){return['value'=>'f:363','name'=>'فرع المنصورة'];}
+        private function automaticBranch($data,$actor){return['value'=>getenv('WA_CATALOG_CASE')==='alias-other-branch'?'f:307':'f:363','name'=>'فرع المنصورة'];}
+        private function table(string$name):string{return getenv('WA_CATALOG_CASE')==='alias-meta'?str_replace('whatsapp_','meta_',$name):$name;}
         private function activationBoundary($name,$conversation){return 6559;}
         private function ceiling($conversation){return 10046;}
         private function dispatchedCeiling($conversation){return 0;}
@@ -73,6 +74,8 @@ namespace {
         if($case==='duplicate-effective')$items[]=$items[0];
         if($case==='compact-many')$items=[['name'=>'رنجة هيرنج','quantity'=>'2','quantity_mode'=>'weight','option_hint'=>null],
             ['name'=>'فسيخ كامل','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null],
+            ['name'=>'سردين بلدي صغير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
+        if(str_starts_with($case,'alias-'))$items=[['name'=>'رنجة مبطرخ','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null],
             ['name'=>'سردين بلدي كبير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
         return['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
             'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
@@ -94,6 +97,16 @@ namespace {
             'description-x'=>'x','description-angle'=>'<tag>','description-control'=>"hello\nworld"][$case]??null;
         if($description!==null)$product['description']=$description;
         $items=[$product];
+        if(str_starts_with($case,'alias-')){
+            $herring=$product;$herring['id']=2576;$herring['name']='رنجه هيرنج مبطرخ';
+            $sardine=$product;$sardine['id']=2578;$sardine['name']='سردين';$sardine['options']=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
+            if($case==='alias-wrong-id'){$herring['id']=2577;$sardine['id']=2579;}
+            if($case==='alias-missing-clean')$sardine['options']=[];
+            if($case==='alias-wrong-name')$sardine['name']='سردين معلب';
+            if($case==='alias-unavailable'){$herring['available']=false;$sardine['available']=false;}
+            if($case==='alias-mode'){$herring['quantity_mode']='piece';$sardine['quantity_mode']='piece';}
+            $items=[$herring,$sardine];
+        }
         if($case==='compact-many'){
             $herring=$product;$herring['id']=502;$herring['name']='رنجة هيرنج';$items[]=$herring;
             $sardine=$product;$sardine['id']=2578;$sardine['name']='سردين';$items[]=$sardine;
@@ -165,7 +178,7 @@ foreach(['description-arabic','description-english','description-digit','descrip
 $compactArgs=['--conversation','11','--expected-floor','6559','--expected-ceiling','10046','--expected-revision','13','--draft','2171','--compact'];
 [$exit,$value]=catalogRun('compact-many',$compactArgs);
 catalogExpect($exit===0&&$value['output_mode']==='COMPACT'&&count($value['items'])===3&&$value['actual_dialogue_catalog_agrees'],'compact keeps all three recapped items and source agreement');
-catalogExpect(array_column($value['items'],'recapped_name')===['رنجة هيرنج','فسيخ كامل','سردين بلدي كبير مخلي']
+catalogExpect(array_column($value['items'],'recapped_name')===['رنجة هيرنج','فسيخ كامل','سردين بلدي صغير مخلي']
     &&array_column($value['items'],'quantity')===['2','1','1']&&array_column($value['items'],'quantity_mode')===['weight','weight','weight'],
     'compact preserves every item label quantity and unit');
 catalogExpect(!$value['items'][2]['mapped']&&$value['items'][2]['diagnostic_similar_products'][0]['id']===2578,
@@ -174,6 +187,21 @@ foreach($value['items']as$item)catalogExpect(count($item['diagnostic_similar_pro
     'compact bounds relevant candidates and suggestions');
 catalogExpect(strlen(json_encode($value,JSON_UNESCAPED_UNICODE))<8000,'compact output remains bounded for terminal paste');
 [$exit,$value]=catalogRun('args',[...$compactArgs,'--compact']);catalogExpect($exit===1&&$value['reason']==='ARGUMENTS_INVALID','duplicate compact flag fails closed');
+[$exit,$value]=catalogRun('alias-approved',$compactArgs);
+catalogExpect($exit===0&&array_column($value['items'],'mapped')===[true,true]
+    &&array_column($value['items'],'mapped_product_id')===[2576,2578]
+    &&array_column($value['items'],'mapped_option_id')===['','f:0:extra_clear'],
+    'diagnostic passes actual resolved branch to the two expressly approved aliases');
+catalogExpect(array_column($value['items'],'mapped_product_name')===['رنجه هيرنج مبطرخ','سردين'],
+    'compact approved aliases show exact public target labels');
+foreach(['alias-other-branch','alias-meta','alias-wrong-id','alias-unavailable','alias-mode']as$case){
+    [$exit,$value]=catalogRun($case,$compactArgs);catalogExpect($exit===0&&array_column($value['items'],'mapped')===[false,false],
+        'approved aliases remain narrowly scoped '.$case);
+}
+foreach(['alias-missing-clean','alias-wrong-name']as$case){
+    [$exit,$value]=catalogRun($case,$compactArgs);catalogExpect($exit===0&&$value['items'][0]['mapped']&&!$value['items'][1]['mapped'],
+        'sardine alias requires exact target and configured fillet identity '.$case);
+}
 foreach(['owner'=>'OWNER_INVALID','source'=>'SOURCE_CHANGED','driver'=>'READ_ONLY_SESSION_REQUIRED','transaction'=>'READ_ONLY_SESSION_REQUIRED','ticket'=>'DRAFT_EXPECTATION_CHANGED']as$case=>$reason){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===1&&$value['status']==='READ_BLOCKED'&&$value['reason']===$reason,'safe expected guards '.$case);
     if($case==='source')catalogExpect($value['source_guard_file']==='app/Services/Dashboard/WhatsAppInboxMessage.php','fixed source mismatch path only');
