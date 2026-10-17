@@ -25,6 +25,24 @@ class CheckoutController extends Controller
     //redirects to this method after a successfull checkout
     public function checkout_done($order_id, $payment)
     {
+        $pay = Payment::where('intention_order_id', $order_id)->firstOrFail();
+        $order = Order::findOrFail($pay->order_id);
+        if ($order->type === 'current') {
+            // Serialize activation with dashboard cancellation. A replayed gateway
+            // callback must not resurrect a cancelled order or reset its delivery phase.
+            return \Illuminate\Support\Facades\DB::transaction(function () use ($order_id, $payment, $order) {
+                $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                if ($locked->status !== null || $locked->accepted_notify === 'yes' || $locked->transfer_price_by !== null) {
+                    return redirect()->route('paySuccess');
+                }
+                return $this->checkoutDoneRetained($order_id, $payment);
+            }, 3);
+        }
+        return $this->checkoutDoneRetained($order_id, $payment);
+    }
+
+    protected function checkoutDoneRetained($order_id, $payment)
+    {
          $pay = Payment::where('intention_order_id',$order_id)->first();
         $order = Order::findOrFail($pay->order_id);
         if($order->resturant_id){

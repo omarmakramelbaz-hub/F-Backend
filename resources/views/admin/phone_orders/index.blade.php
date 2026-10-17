@@ -4,13 +4,14 @@
 @endpush
 @section('content')
 <div class="content-wrapper phone-orders-wrapper">
-<main id="phone-orders" class="ph-pos ph-step-number" aria-labelledby="phone-orders-title">
-    <header class="ph-header"><div class="ph-heading"><span class="ph-heading-icon"><i class="fas fa-phone-alt" aria-hidden="true"></i></span><div><h1 id="phone-orders-title">{{ __('phone_orders.title') }}</h1><p>{{ __('phone_orders.subtitle') }}</p></div></div>
+<main id="phone-orders" class="ph-pos ph-unified ph-step-number" aria-labelledby="phone-orders-title">
+    <header class="ph-header"><div class="ph-heading"><span class="ph-heading-icon"><i class="fas fa-phone-alt" aria-hidden="true"></i></span><div><h1 id="phone-orders-title">{{ __('phone_orders.title') }}</h1><p>{{ __('phone_orders.unified_hint') }}</p></div></div>
         <label class="ph-branch"><i class="fas fa-map-marker-alt" aria-hidden="true"></i><span class="ph-sr-only">{{ __('phone_orders.branch') }}</span><select data-phone-branch><option value="">{{ __('phone_orders.select_branch') }}</option>@foreach($phonePos['branches'] ?? [] as $branch)<option value="{{ $branch['value'] }}" @if((string)($phonePos['selected_branch'] ?? '') === (string)$branch['value']) selected @endif>{{ $branch['name'] }}</option>@endforeach</select></label>
         <div data-phone-orders-branch-slot></div>
-        <nav class="ph-view-tabs" aria-label="{{ __('phone_orders.title') }}"><button type="button" data-phone-view="compose" class="is-active" aria-pressed="true"><i class="fas fa-plus" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</button><button type="button" data-phone-view="orders" aria-pressed="false"><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</button></nav>
+        <button type="button" class="ph-new-order" data-phone-new-order><i class="fas fa-plus" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</button>
     </header>
     <div class="ph-notice" data-phone-message role="status" aria-live="polite" hidden><span></span><button type="button" data-phone-retry hidden>{{ __('phone_orders.retry') }}</button></div>
+    <section class="ph-compose-panel" aria-label="{{ __('phone_orders.new_order') }}">
     <nav class="ph-flow" aria-label="{{ __('phone_orders.order_steps') }}"><ol class="ph-steps">@foreach(['number'=>'phone', 'details'=>'customer', 'products'=>'products'] as $step=>$label)<li data-phone-progress="{{ $step }}"><b>{{ $loop->iteration }}</b><span>{{ __('phone_orders.'.$label) }}</span></li>@endforeach</ol><span data-phone-step-label>{{ __('phone_orders.step_number') }}</span><span data-phone-selected-branch></span><span data-phone-printer-status role="status"></span>@if(!empty($phonePos['receiver_branch']))<a class="ph-printer-setup" href="{{ asset('dashboard/start-branch-pos-printing.cmd') }}" download>{{ __('phone_orders.printer_setup') }}</a>@endif</nav>
     <div class="ph-workspace" data-phone-compose>
         <section class="ph-invoice ph-panel"><header class="ph-panel-heading"><h2><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('phone_orders.invoice') }} <bdi data-phone-edit-number></bdi></h2><button type="button" data-phone-clear>{{ __('phone_orders.clear') }}</button></header><div class="ph-invoice-scroll">
@@ -44,7 +45,8 @@
             </div>
         </div></aside>
     </div>
-    <section class="ph-orders ph-panel" data-phone-orders hidden>
+    </section>
+    <section class="ph-orders ph-panel" data-phone-orders aria-label="{{ __('phone_orders.saved_orders') }}" tabindex="-1">
         <header class="ph-panel-heading"><h2><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</h2><button type="button" data-phone-clear-company @if(empty($phonePos['company_filter'])) hidden @endif>{{ __('phone_orders.all_companies') }}</button><button type="button" data-phone-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i>{{ __('phone_orders.refresh') }}</button></header>
         <div class="ph-batch-bar"><div><strong data-phone-batch-total>{{ __('phone_orders.select_orders') }}</strong><small>{{ __('phone_orders.same_courier') }}</small></div><button type="button" class="ph-batch-finish" data-phone-batch-finish disabled>{{ __('phone_orders.finish_orders') }}</button></div>
         <div class="ph-delivery-board" data-phone-order-list></div>

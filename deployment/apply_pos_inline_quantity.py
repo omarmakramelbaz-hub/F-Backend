@@ -19,22 +19,38 @@ APP_BASE_REVISION = '74a0070907d9ffbaa0f3b5aa7b6082bc1c345878'
 BRAND_BASE_REVISION = '4d20f13dc3dd2b64d63660d09ad88553c7f3affe'
 FOUNDATION_BASE_REVISION = '4a81f073c134d762fdb31afa8e5dda99f978192e'
 FOUNDATION_REVISION = 'adc9e46a86df569bd6dab15e9f4302fc1c55aa91'
+LIFECYCLE_BASE_REVISION = '9210f7a2d5c4016a09130ba6551ee9b708300f82'
+LIFECYCLE_REVISION = '6df7fecf05555c9f88ddf85013bd7aa887f3dbb0'
+OPERATING_DAY_REVISION = 'cab9f03a8449ea47b3e6a3b5fc965247e5a143e8'
+UNIFIED_PHONE_REVISION = '9f4cce8792467d1899927066f2c951cb2fa10cb5'
 # Dependencies and the new script precede all consumers and the filemtime view.
 SOURCE_MANIFEST = {
     'app/Services/Dashboard/OrderBoardPrinting.php': ('new', 'A'),
     'public/dashboard/js/order-board-detail.js': ('new', 'A'),
     'app/Services/Dashboard/OrderBoardItems.php': ('app', 'M'),
-    'app/Services/Dashboard/OrderBoardService.php': ('composite', 'M'),
-    'app/Http/Controllers/Dashboard/OrderBoardController.php': ('app', 'M'),
+    'app/Services/Dashboard/OrderBoardService.php': ('lifecycle-live', 'M'),
+    'app/Http/Controllers/Dashboard/OrderBoardController.php': ('lifecycle', 'M'),
     'app/Http/Controllers/Dashboard/OrderController.php': ('live', 'M'),
     'public/dashboard/js/takeaway-pos.js': ('live', 'M'),
-    'public/dashboard/js/phone-orders.js': ('live', 'M'),
+    'public/dashboard/js/phone-orders.js': ('unified', 'M'),
     'public/dashboard/css/takeaway-pos.css': ('live', 'M'),
     'public/dashboard/branding/dashboard-brand.css': ('brand', 'M'),
     'resources/views/admin/partials/go_erp_logo.blade.php': ('brand', 'M'),
-    'resources/views/admin/orders/board_detail.blade.php': ('live', 'M'),
+    'resources/views/admin/orders/board_detail.blade.php': ('lifecycle', 'M'),
 }
 BRAND_MENU = 'resources/views/admin/layouts/menu.blade.php'
+LIFECYCLE_PROOF_PATHS = (
+    'app/Services/Dashboard/OrderBoardService.php',
+    'app/Http/Controllers/Dashboard/OrderBoardController.php',
+    'resources/views/admin/orders/board_detail.blade.php',
+    'resources/views/admin/orders/board_card.blade.php',
+)
+UNIFIED_PHONE_PREREQUISITES = (
+    'public/dashboard/css/phone-orders.css',
+    'resources/views/admin/phone_orders/index.blade.php',
+    'resources/lang/ar/phone_orders.php',
+    'resources/lang/en/phone_orders.php',
+)
 FOUNDATION_MANIFEST = {
     'app/Models/Order.php': 'M',
     'app/Http/Controllers/Dashboard/OrderBoardController.php': 'M',
@@ -187,10 +203,12 @@ def baseline(root, relative, origin, stage):
                 'NEW_SOURCE_ALREADY_TRACKED: ' + relative)
         return None
     revision = {'live': BASE_REVISION, 'app': APP_BASE_REVISION,
-                'brand': BRAND_BASE_REVISION, 'composite': BASE_REVISION}.get(origin)
+                'brand': BRAND_BASE_REVISION, 'composite': BASE_REVISION,
+                'lifecycle': LIFECYCLE_REVISION, 'lifecycle-live': LIFECYCLE_REVISION,
+                'unified': UNIFIED_PHONE_REVISION}.get(origin)
     require(revision is not None, 'BASELINE_ORIGIN_INVALID: ' + relative)
     body = source(root, revision, relative)
-    if origin != 'composite':
+    if origin not in ('composite', 'lifecycle-live'):
         return body
     # fe1 OperatingDay behavior remains; only the previously installed editor
     # foundation is overlaid in temporary storage to reconstruct the live base.
@@ -198,7 +216,10 @@ def baseline(root, relative, origin, stage):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(body)
     patch = stage / 'composite.diff'
-    patch.write_bytes(commit_patch(root, FOUNDATION_BASE_REVISION, FOUNDATION_REVISION, relative))
+    if origin == 'lifecycle-live':
+        patch.write_bytes(commit_patch(root, OPERATING_DAY_REVISION + '^', OPERATING_DAY_REVISION, relative))
+    else:
+        patch.write_bytes(commit_patch(root, FOUNDATION_BASE_REVISION, FOUNDATION_REVISION, relative))
     require(patch_check(stage, patch), 'COMPOSITE_BASELINE_CONFLICT: ' + relative)
     require(run(['git', 'apply', '--whitespace=nowarn', str(patch)], cwd=stage).returncode == 0,
             'COMPOSITE_BASELINE_FAILED: ' + relative)
@@ -206,7 +227,13 @@ def baseline(root, relative, origin, stage):
 
 
 def build_plan(root, revision):
-    for commit in (APP_BASE_REVISION, BRAND_BASE_REVISION, FOUNDATION_BASE_REVISION, FOUNDATION_REVISION):
+    origins = {origin for origin, _ in SOURCE_MANIFEST.values()}
+    commits = [APP_BASE_REVISION, BRAND_BASE_REVISION, FOUNDATION_BASE_REVISION, FOUNDATION_REVISION]
+    if origins & {'lifecycle', 'lifecycle-live'}:
+        commits.extend((LIFECYCLE_BASE_REVISION, LIFECYCLE_REVISION, OPERATING_DAY_REVISION))
+    if 'unified' in origins:
+        commits.append(UNIFIED_PHONE_REVISION)
+    for commit in commits:
         resolved = git(root, 'rev-parse', '--verify', commit + '^{commit}')
         require(resolved.returncode == 0 and resolved.stdout.decode().strip() == commit,
                 'PINNED_BASE_COMMIT_UNAVAILABLE')
@@ -226,7 +253,11 @@ def build_plan(root, revision):
 def prove_prerequisites(root, plan):
     with tempfile.TemporaryDirectory(prefix='inline-quantity-proof-') as temporary:
         stage = Path(temporary)
-        paths = tuple(dict.fromkeys((*FOUNDATION_MANIFEST, *UPGRADE_PATHS, *SOURCE_MANIFEST, BRAND_MENU)))
+        origins = {origin for origin, _ in SOURCE_MANIFEST.values()}
+        lifecycle = LIFECYCLE_PROOF_PATHS if origins & {'lifecycle', 'lifecycle-live'} else ()
+        unified = UNIFIED_PHONE_PREREQUISITES if 'unified' in origins else ()
+        paths = tuple(dict.fromkeys((*FOUNDATION_MANIFEST, *UPGRADE_PATHS, *SOURCE_MANIFEST, BRAND_MENU,
+                                    *lifecycle, *unified)))
         for relative in paths:
             body = content(root / relative)
             if body is None and relative in plan and plan[relative]['status'] == 'A':
@@ -245,6 +276,21 @@ def prove_prerequisites(root, plan):
                         'FEATURE_NORMALIZATION_FAILED: ' + relative)
             else:
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+        for index, relative in enumerate(unified):
+            patch = stage / ('unified-' + str(index) + '.diff')
+            patch.write_bytes(commit_patch(root, BASE_REVISION, UNIFIED_PHONE_REVISION, relative))
+            require(patch_check(stage, patch, reverse=True), 'UNIFIED_PHONE_PREREQUISITE_CONFLICT: ' + relative)
+        # Existing lifecycle changes overlap foundation context. Undo only these
+        # pinned changes in temporary proof copies; live cancellation and option
+        # labels are preserved by the feature-only publication patches above.
+        for index, relative in enumerate(lifecycle):
+            patch = stage / ('lifecycle-' + str(index) + '.diff')
+            patch.write_bytes(commit_patch(root, LIFECYCLE_BASE_REVISION, LIFECYCLE_REVISION, relative))
+            if patch_check(stage, patch, reverse=True):
+                require(run(['git', 'apply', '--reverse', '--whitespace=nowarn', str(patch)], cwd=stage).returncode == 0,
+                        'LIFECYCLE_PREREQUISITE_NORMALIZATION_FAILED: ' + relative)
+            else:
+                require(patch_check(stage, patch), 'LIFECYCLE_PREREQUISITE_CONFLICT: ' + relative)
         # Undo the POS followup before checking the original editor: the shared
         # added files must be compared with their original foundation versions.
         for index, relative in enumerate(UPGRADE_PATHS):

@@ -30,7 +30,7 @@
         .summary{border-top:1px solid #d4dae4;padding-top:10px;margin-top:12px}.summary-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0}.summary-row>span:last-child{white-space:nowrap}
         .total{font-size:20px;border-top:2px solid #172137;margin-top:7px;padding-top:9px;font-weight:bold}.price-pending{font-size:13px;font-weight:normal;color:#69768b}
         .notes{white-space:pre-line;overflow-wrap:anywhere;background:#faf6ed;padding:10px;border-radius:6px;margin:12px 0;font-size:13px}.notes strong{display:block}
-        .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}.controls form{margin:0}.controls a,.controls button{font:inherit;border:0;border-radius:7px;padding:9px 16px;background:#172137;color:#fff;text-decoration:none;cursor:pointer}.controls .reject{background:#c83445}.controls .accept{background:#168750}.action-note{font-size:12px;color:#69768b;margin:12px 0 0}
+        .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}.controls form{margin:0}.controls a,.controls button{font:inherit;border:0;border-radius:7px;padding:9px 16px;background:#172137;color:#fff;text-decoration:none;cursor:pointer}.controls .reject,.controls .cancel{background:#c83445}.controls .accept{background:#168750}.action-note{font-size:12px;color:#69768b;margin:12px 0 0}
         @media(max-width:600px){.receipt{margin:10px;border-radius:10px;padding:18px}.information{grid-template-columns:1fr}.info-address{grid-column:auto}.heading h1{font-size:18px}.logo{width:96px;height:96px;flex-basis:96px}.heading{gap:10px}.items th,.items td{padding:7px 3px}.total{font-size:17px}}
         @page{size:auto;margin:0}
         @media print{
@@ -98,13 +98,13 @@
         @if(!$printing)<a href="{{ route('orders.applies') }}">متابعة الطلبات</a>@endif
         @if(!$printing)
             @foreach($card['actions'] as $action)
-                <form method="post" action="{{ $card['urls']['action'] }}" @if($action === 'reject') onsubmit="return confirm('تأكيد رفض الطلب؟')" @endif>
+                <form method="post" action="{{ $card['urls']['action'] }}" @if(in_array($action, ['reject','cancel'], true)) onsubmit="return confirm({{ json_encode(__('order_board.confirm_'.$action), JSON_HEX_APOS | JSON_HEX_QUOT) }})" @endif>
                     @csrf
                     <input type="hidden" name="action" value="{{ $action }}">
                     <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
                     <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] }}">
                     <input type="hidden" name="expected_revision" value="{{ $card['revision'] }}">
-                    <button type="submit" class="{{ $action }}">{{ $card['action_labels'][$action] ?? ['accept'=>'قبول الطلب','reject'=>'رفض الطلب','prepare'=>'مندوب الفرع','ready'=>'تم التجهيز','dispatch'=>'تسليم للمندوب','complete'=>'تم التسليم'][$action] }}</button>
+                    <button type="submit" class="{{ $action }}">{{ $card['action_labels'][$action] ?? ['accept'=>'قبول الطلب','reject'=>'رفض الطلب','cancel'=>'إلغاء الطلب','prepare'=>'مندوب الفرع','ready'=>'تم التجهيز','dispatch'=>'تسليم للمندوب','complete'=>'تم التسليم'][$action] }}</button>
                 </form>
             @endforeach
         @endif

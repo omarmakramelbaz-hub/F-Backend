@@ -125,6 +125,71 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
     def receipts(self):
         return list((self.parent / 'pos-inline-quantity-backups').glob('*/receipt.json'))
 
+    def released_overlay_fixture(self):
+        """Model known lifecycle then OperatingDay and independent phone releases."""
+        self.publish(self.after)
+        self.git('switch', '-q', '-c', 'lifecycle-fixture', installer.APP_BASE_REVISION)
+        lifecycle = (self.root / self.service).read_bytes().replace(
+            b'Foundation: installed', b'Foundation: installed\n// Legacy lifecycle: preserved')
+        self.publish({self.service: lifecycle})
+        lifecycle_revision = self.commit('Known installed lifecycle release')
+        self.publish({self.service: lifecycle.replace(b'OperatingDay: old', b'OperatingDay: live')})
+        day_revision = self.commit('Known installed OperatingDay patch')
+        self.git('switch', '-q', '-c', 'unified-fixture', installer.BASE_REVISION)
+        unified = self.before[self.client].replace(b'Quantity: old', b'Quantity: old\n// Unified board: preserved')
+        self.publish({self.client: unified})
+        unified_revision = self.commit('Known installed unified phone release')
+        self.git('switch', '-q', 'live-fixture')
+        self.before[self.service] = lifecycle.replace(b'OperatingDay: old', b'OperatingDay: live')
+        self.before[self.client] = unified
+        self.after[self.service] = self.before[self.service].replace(b'Foundation: installed', b'Foundation: inline')
+        self.after[self.client] = unified.replace(b'Quantity: old', b'Quantity: inline')
+        self.manifest[self.service] = ('lifecycle-live', 'M')
+        self.manifest[self.client] = ('unified', 'M')
+        settings = {'LIFECYCLE_BASE_REVISION': installer.APP_BASE_REVISION,
+                    'LIFECYCLE_REVISION': lifecycle_revision, 'OPERATING_DAY_REVISION': day_revision,
+                    'UNIFIED_PHONE_REVISION': unified_revision,
+                    'LIFECYCLE_PROOF_PATHS': (self.service,), 'UNIFIED_PHONE_PREREQUISITES': ()}
+        for name, value in settings.items():
+            previous = getattr(installer, name)
+            setattr(installer, name, value)
+            self.addCleanup(setattr, installer, name, previous)
+        self.publish(self.after)
+        self.revision = self.commit('Feature preserving independently installed releases')
+        self.publish(self.before)
+
+    def test_known_lifecycle_and_unified_release_install_preserves_customizations(self):
+        self.released_overlay_fixture()
+        custom = b'// Existing unrelated live customization\n'
+        for relative in (self.service, self.client, self.brand, self.menu):
+            (self.root / relative).write_bytes(self.before[relative] + custom)
+        self.apply()
+        expected = dict(self.after)
+        for relative in (self.service, self.client, self.brand, self.menu):
+            expected[relative] += custom
+        self.assertEqual(self.snapshots(), expected)
+        self.assertIn(b'Legacy lifecycle: preserved', expected[self.service])
+        self.assertIn(b'Unified board: preserved', expected[self.client])
+        self.assertIsNone(self.apply())
+        self.assertEqual(len(self.receipts()), 1)
+
+    def test_known_lifecycle_partial_install_and_unknown_overlap_fail_closed(self):
+        self.released_overlay_fixture()
+        self.publish({self.service: self.after[self.service], self.script: self.after[self.script]})
+        before = self.snapshots()
+        self.assertIsNone(self.apply(check_only=True))
+        self.assertEqual(self.snapshots(), before)
+        self.apply()
+        self.assertEqual(self.snapshots(), self.after)
+        self.assertIsNone(self.apply())
+        (self.root / self.service).write_bytes(self.after[self.service].replace(
+            b'Legacy lifecycle: preserved', b'Legacy lifecycle: unknown edit'))
+        before = self.snapshots()
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.apply()
+        self.assertEqual(self.snapshots(), before)
+        self.assertEqual(len(self.receipts()), 1)
+
     def test_mixed_nonancestor_bases_composite_install_and_noop(self):
         self.assertNotEqual(subprocess.run(['git', '-C', str(self.root), 'merge-base', '--is-ancestor',
                                             installer.APP_BASE_REVISION, self.revision]).returncode, 0)

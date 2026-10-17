@@ -14,7 +14,12 @@ trap 'rm -rf -- "$quantity_tmp"' EXIT
 chmod 0755 "$quantity_tmp"
 
 runuser -u fasakha -- git -C "$quantity_root" cat-file -e "$revision^{commit}"
-for quantity_base in 74a0070907d9ffbaa0f3b5aa7b6082bc1c345878 4d20f13dc3dd2b64d63660d09ad88553c7f3affe; do
+for quantity_base in \
+  74a0070907d9ffbaa0f3b5aa7b6082bc1c345878 \
+  4d20f13dc3dd2b64d63660d09ad88553c7f3affe \
+  6df7fecf05555c9f88ddf85013bd7aa887f3dbb0 \
+  cab9f03a8449ea47b3e6a3b5fc965247e5a143e8 \
+  9f4cce8792467d1899927066f2c951cb2fa10cb5; do
   if ! runuser -u fasakha -- git -C "$quantity_root" cat-file -e "$quantity_base^{commit}" 2>/dev/null; then
     runuser -u fasakha -- git -C "$quantity_root" fetch \
       --quiet --no-tags --no-prune --no-recurse-submodules --refmap= origin "$quantity_base"
