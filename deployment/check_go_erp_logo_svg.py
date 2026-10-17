@@ -32,9 +32,17 @@ def check(path):
             raise ValueError('SURFACE_SILHOUETTE_CHANGED')
         if any(node.get('clip-rule') != 'evenodd' for node in surface):
             raise ValueError('SURFACE_COUNTERS_NOT_PRESERVED')
-    rest = next(node for node in root if 'go-erp-logo-rest' in node.get('class', '').split())
+    rest = next(node for node in root.iter() if 'go-erp-logo-rest' in node.get('class', '').split())
     if rest.get('filter') or not any(tag(node) == 'use' for node in rest):
         raise ValueError('VISIBLE_BASE_LOGO_MISSING')
+    if root.get('data-go-erp-solar'):
+        expected = {'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'}
+        planets = [node.get('data-solar-planet') for node in root.iter() if node.get('data-solar-planet')]
+        tracks = [node.get('data-solar-track') for node in root.iter() if node.get('data-solar-track')]
+        if len(planets) != 8 or set(planets) != expected or len(tracks) != 8 or set(tracks) != expected:
+            raise ValueError('SOLAR_SYSTEM_INCOMPLETE')
+        if sum(node.get('data-solar-body') == 'sun' for node in root.iter()) != 1:
+            raise ValueError('SOLAR_SUN_MISSING')
     print('GO_ERP_SVG_CLIPS_OK')
 
 

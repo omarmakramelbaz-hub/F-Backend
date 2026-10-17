@@ -714,7 +714,7 @@ html:has(.app-order-board-page) {
 .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; filter: none; }
 .dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; }
 .dashboard-login-identity { display: flex; flex-direction: column; justify-content: center; min-height: 440px; }
-.dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { height: auto; max-height: 240px; }
+.dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(360px, 100%); height: auto; max-height: 380px; }
 .dashboard-login-brand-title.go-erp-tagline {
     max-width: 380px;
     margin: 14px auto 0;
@@ -728,9 +728,11 @@ html:has(.app-order-board-page) {
 .dashboard-login-identity .dashboard-login-brand-subtitle { display: none; }
 @media (max-width: 800px) {
     .dashboard-login-identity { min-height: 0; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(260px, 100%); max-height: 275px; }
 }
 @media (max-width: 400px) {
     .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(230px, 100%); max-height: 245px; }
 }
 /* The native logo bursts once on mount, then remains fully visible. */
 .go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
@@ -753,33 +755,34 @@ html:has(.app-order-board-page) {
         display: block;
         animation: go-erp-flow-reveal .7s ease 1.45s 1 both;
     }
-    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-track {
-        animation: go-erp-flow-track 18s linear 1.45s infinite;
-    }
-    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-current {
-        animation: go-erp-flow-current 22s linear 1.45s infinite;
-    }
-    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-orbit {
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-solar-rotor,
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-solar-counter {
         transform-box: view-box;
         transform-origin: 0 0;
-        animation: go-erp-flow-orbit 24s linear 1.45s infinite;
+        animation-duration: var(--orbit-period);
+        animation-timing-function: linear;
+        animation-delay: 1.45s;
+        animation-iteration-count: infinite;
+        animation-fill-mode: both;
     }
-    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-orbit-two {
-        animation-duration: 28s;
-        animation-direction: reverse;
-    }
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-solar-rotor { animation-name: go-erp-solar-orbit; }
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-solar-counter { animation-name: go-erp-solar-counter; }
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-solar-corona { animation: go-erp-solar-corona 8s ease-in-out 1.45s infinite; }
     @keyframes go-erp-flow-reveal {
         from { opacity: 0; }
         to { opacity: 1; }
     }
-    @keyframes go-erp-flow-track {
-        to { stroke-dashoffset: -268; }
+    @keyframes go-erp-solar-orbit {
+        from { transform: rotate(var(--orbit-start)); }
+        to { transform: rotate(var(--orbit-end)); }
     }
-    @keyframes go-erp-flow-current {
-        to { stroke-dashoffset: -2120; }
+    @keyframes go-erp-solar-counter {
+        from { transform: rotate(var(--counter-start)); }
+        to { transform: rotate(var(--counter-end)); }
     }
-    @keyframes go-erp-flow-orbit {
-        to { transform: rotate(360deg); }
+    @keyframes go-erp-solar-corona {
+        0%, 100% { opacity: .7; }
+        50% { opacity: 1; }
     }
     @keyframes go-erp-logo-rest {
         0%, 4% { opacity: 1; }
@@ -795,5 +798,8 @@ html:has(.app-order-board-page) {
         0%, 4%, 86%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
         30%, 40% { transform: translate(var(--go-x), var(--go-y)) rotate(var(--go-r)) scale(.94); }
     }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-login-logo[data-go-erp-solar] .go-erp-login-flow { display: block; opacity: 1; }
 }
 /* go-erp-logo-stamp:end */
