@@ -1,0 +1,1234 @@
+diff --git a/deployment/apply_web_customer_addresses_root.sh b/deployment/apply_web_customer_addresses_root.sh
+new file mode 100644
+index 0000000..c64c015
+--- /dev/null
++++ b/deployment/apply_web_customer_addresses_root.sh
+@@ -0,0 +1,27 @@
++#!/usr/bin/env bash
++set -euo pipefail
++umask 077
++[[ "$(id -u)" == 0 ]] || { echo RUN_AS_ROOT; exit 1; }
++customer_addresses_root=/home/fasakha/public_html
++customer_addresses_revision="${1:?Full release SHA required}"
++[[ "$customer_addresses_revision" =~ ^[a-f0-9]{40}$ ]] || exit 1
++shift
++customer_addresses_flags=()
++for customer_addresses_flag in "$@"; do
++  case "$customer_addresses_flag" in
++    --check) [[ ${#customer_addresses_flags[@]} == 0 ]] || exit 1; customer_addresses_flags+=(--check) ;;
++    *) echo INVALID_OPTION; exit 1 ;;
++  esac
++done
++customer_addresses_tmp="$(mktemp -d /tmp/web-customer-addresses.XXXXXX)"
++trap 'rm -rf -- "$customer_addresses_tmp"' EXIT
++chmod 0755 "$customer_addresses_tmp"
++customer_addresses_helper=install_web_customer_addresses.py
++runuser -u fasakha -- git -C "$customer_addresses_root" show \
++  "$customer_addresses_revision:deployment/$customer_addresses_helper" > "$customer_addresses_tmp/$customer_addresses_helper"
++customer_addresses_blob="$(runuser -u fasakha -- git -C "$customer_addresses_root" rev-parse \
++  "$customer_addresses_revision:deployment/$customer_addresses_helper")"
++[[ "$(git hash-object --no-filters "$customer_addresses_tmp/$customer_addresses_helper")" == "$customer_addresses_blob" ]] || exit 1
++chmod 0644 "$customer_addresses_tmp/$customer_addresses_helper"
++python3 "$customer_addresses_tmp/$customer_addresses_helper" \
++  --root "$customer_addresses_root" --release "$customer_addresses_revision" "${customer_addresses_flags[@]}"
+diff --git a/deployment/install_web_customer_addresses.py b/deployment/install_web_customer_addresses.py
+new file mode 100644
+index 0000000..35b1466
+--- /dev/null
++++ b/deployment/install_web_customer_addresses.py
+@@ -0,0 +1,335 @@
++#!/usr/bin/env python3
++"""Publish only the reviewed customer/address UI; preserve independent homepage edits."""
++import argparse
++from collections import Counter
++import difflib
++import fcntl
++import hashlib
++import json
++import os
++import pathlib
++import pwd
++import re
++import stat
++import subprocess
++import tempfile
++
++APP_ROOT = pathlib.Path('/home/fasakha/public_html')
++BASELINE = '01b8805ef49cc05c315edbde7909ad6489954190'
++HOME = 'resources/views/site/home.blade.php'
++ASSETS = ('public/storefront/storefront.js', 'public/storefront/storefront.css')
++PUBLISH_ORDER = ASSETS + (HOME,)
++PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
++BUNDLE_ROOT = pathlib.Path(__file__).resolve().parent
++MAX_BYTES = 8 * 1024 * 1024
++
++
++def blob(data):
++    return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
++
++
++def safe(path):
++    for candidate in (path, *path.parents):
++        if candidate.is_symlink():
++            raise RuntimeError('SYMLINK_PATH: ' + str(path))
++
++
++def safe_directories(path, uid):
++    safe(path)
++    for candidate in (path, *path.parents):
++        meta = candidate.stat()
++        if not stat.S_ISDIR(meta.st_mode) or meta.st_uid not in (0, uid) or meta.st_mode & 0o7022:
++            raise RuntimeError('UNSAFE_DIRECTORY: ' + str(candidate))
++
++
++def snapshot(path, uid):
++    safe_directories(path.parent, uid)
++    safe(path)
++    if not path.exists():
++        return None
++    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
++    try:
++        meta = os.fstat(fd)
++        if (not stat.S_ISREG(meta.st_mode) or meta.st_uid not in (0, uid)
++                or meta.st_mode & 0o7022 or meta.st_nlink != 1 or meta.st_size > MAX_BYTES):
++            raise RuntimeError('UNSAFE_FILE: ' + str(path))
++        with os.fdopen(fd, 'rb', closefd=False) as stream:
++            payload = stream.read(MAX_BYTES + 1)
++        after = os.fstat(fd)
++        if len(payload) > MAX_BYTES or (meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns, meta.st_ctime_ns) != (
++                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
++            raise RuntimeError('CONCURRENT_EDIT: ' + str(path))
++        return {'bytes': payload, 'uid': meta.st_uid, 'gid': meta.st_gid,
++                'mode': stat.S_IMODE(meta.st_mode), 'device': meta.st_dev, 'inode': meta.st_ino,
++                'mtime': meta.st_mtime_ns, 'ctime': meta.st_ctime_ns, 'links': meta.st_nlink}
++    finally:
++        os.close(fd)
++
++
++def atomic(path, payload, previous, uid):
++    safe_directories(path.parent, uid)
++    safe(path)
++    fd, temporary = tempfile.mkstemp(prefix='.web-customer-addresses-', dir=path.parent)
++    try:
++        with os.fdopen(fd, 'wb') as stream:
++            stream.write(payload)
++            stream.flush()
++            os.fchmod(stream.fileno(), previous['mode'])
++            os.fchown(stream.fileno(), previous['uid'], previous['gid'])
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++    finally:
++        if os.path.exists(temporary):
++            os.unlink(temporary)
++
++
++def owned_command(root, arguments):
++    result = subprocess.run(['runuser', '-u', 'fasakha', '--', *arguments],
++                            cwd=root, capture_output=True, timeout=90)
++    if result.returncode:
++        # Application command output can contain private configuration; never print it.
++        raise RuntimeError('APPLICATION_COMMAND_FAILED: ' + pathlib.Path(arguments[0]).name)
++    return result.stdout
++
++
++def source(root, revision, relative):
++    if relative not in PUBLISH_ORDER or not re.fullmatch('[a-f0-9]{40}', revision):
++        raise RuntimeError('SOURCE_NOT_REVIEWED')
++    manifest_path = BUNDLE_ROOT / 'manifest.json'
++    if manifest_path.exists():
++        safe(manifest_path)
++        if manifest_path.stat().st_size > 32768:
++            raise RuntimeError('BUNDLE_MANIFEST_INVALID')
++        manifest = json.loads(manifest_path.read_text())
++        keys = {version + '/' + path for version in ('release', 'baseline') for path in PUBLISH_ORDER}
++        if (not isinstance(manifest, dict) or set(manifest) != {'schema', 'release', 'baseline', 'blobs'}
++                or manifest['schema'] != 1 or manifest['baseline'] != BASELINE
++                or not isinstance(manifest['release'], str) or not re.fullmatch('[a-f0-9]{40}', manifest['release'])
++                or manifest['release'] == BASELINE or not isinstance(manifest['blobs'], dict)
++                or set(manifest['blobs']) != keys
++                or any(not isinstance(value, str) or not re.fullmatch('[a-f0-9]{40}', value)
++                       for value in manifest['blobs'].values())):
++            raise RuntimeError('BUNDLE_MANIFEST_INVALID')
++        versions = {manifest['release']: 'release', BASELINE: 'baseline'}
++        if revision not in versions:
++            raise RuntimeError('BUNDLE_REVISION_MISMATCH')
++        key = versions[revision] + '/' + relative
++        path = BUNDLE_ROOT / key
++        safe(path)
++        meta = path.stat()
++        if not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or meta.st_size > MAX_BYTES:
++            raise RuntimeError('BUNDLE_FILE_INVALID')
++        payload = path.read_bytes()
++        expected = manifest['blobs'][key]
++    else:
++        payload = owned_command(root, ['git', '-C', str(root), 'show', revision + ':' + relative])
++        expected = owned_command(root, ['git', '-C', str(root), 'rev-parse', revision + ':' + relative]).decode().strip()
++    if not re.fullmatch('[a-f0-9]{40}', expected) or len(payload) > MAX_BYTES or blob(payload) != expected:
++        raise RuntimeError('SOURCE_BLOB_MISMATCH: ' + relative)
++    return payload
++
++
++def surgical_patch(current, baseline, reviewed, label=HOME):
++    """Three-way token merge: retain independent live edits and refuse overlapping changes."""
++    if current == reviewed:
++        return current
++    if baseline == reviewed:
++        raise RuntimeError('RELEASE_CHANGE_MISSING: ' + label)
++    # Recognize a completed patch beside independent SEO edits before diff token
++    # alignment can choose another equivalent boundary for adjacent inserted tags.
++    old_lines, new_lines, live_lines = [payload.splitlines(keepends=True)
++                                        for payload in (baseline, reviewed, current)]
++    old_counts, new_counts, live_counts = map(Counter, (old_lines, new_lines, live_lines))
++    additions = new_counts - old_counts
++    removals = old_counts - new_counts
++    if (additions or removals) and all(live_counts[line] >= new_counts[line] for line in additions) and all(
++            live_counts[line] <= new_counts[line] for line in removals):
++        # Exact added lines must also occur in reviewed order, not merely as a bag.
++        required = [line for line in new_lines if line in additions]
++        at = 0
++        for line in live_lines:
++            if at < len(required) and line == required[at]:
++                at += 1
++        if at == len(required):
++            return current
++    # Attribute-level tokens avoid treating independent SEO additions and a nearby
++    # asset cache version as one conflicting line replacement. Every byte is kept.
++    old, new, live = [re.findall(rb'\s+|[^\s<>"=]+|.', payload, re.S)
++                      for payload in (baseline, reviewed, current)]
++    wanted = [op for op in difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes() if op[0] != 'equal']
++    live_ops = difflib.SequenceMatcher(a=old, b=live, autojunk=False).get_opcodes()
++    changes = [op for op in live_ops if op[0] != 'equal']
++
++    def overlap(a, b):
++        _, a0, a1, _, _ = a
++        _, b0, b1, _, _ = b
++        if a0 == a1 and b0 == b1:
++            return a0 == b0
++        if a0 == a1:
++            return b0 < a0 < b1
++        if b0 == b1:
++            return a0 < b0 < a1
++        return max(a0, b0) < min(a1, b1)
++
++    def offset(index, after_insert):
++        for tag, a0, a1, b0, b1 in live_ops:
++            if tag == 'insert' and a0 == index:
++                return b1 if after_insert else b0
++        for tag, a0, a1, b0, b1 in live_ops:
++            if tag == 'equal' and a0 <= index <= a1:
++                return b0 + index - a0
++            if index == a0:
++                return b0
++            if index == a1:
++                return b1
++        raise RuntimeError('SOURCE_PATCH_CONFLICT: ' + label)
++
++    patches = []
++    for wanted_op in wanted:
++        _, a0, a1, b0, b1 = wanted_op
++        intersects = [op for op in changes if overlap(wanted_op, op)]
++        if intersects:
++            if len(intersects) == 1:
++                _, l0, l1, j0, j1 = intersects[0]
++                if (a0, a1) == (l0, l1) and new[b0:b1] == live[j0:j1]:
++                    continue  # This exact change is already present beside independent edits.
++            raise RuntimeError('SOURCE_PATCH_CONFLICT: ' + label)
++        patches.append((offset(a0, True), offset(a1, False), new[b0:b1]))
++    for start, end, lines in sorted(patches, key=lambda patch: (patch[0], patch[1]), reverse=True):
++        live[start:end] = lines
++    return b''.join(live)
++
++
++def plan_target(root, release, relative, current):
++    if relative not in PUBLISH_ORDER:
++        raise RuntimeError('FILE_NOT_REVIEWED: ' + relative)
++    if current is None:
++        raise RuntimeError('STOREFRONT_FILE_MISSING: ' + relative)
++    reviewed = source(root, release, relative)
++    if current == reviewed:
++        return current
++    baseline = source(root, BASELINE, relative)
++    if relative in ASSETS:
++        if current != baseline:
++            raise RuntimeError('ASSET_SOURCE_CONFLICT: ' + relative)
++        return reviewed
++    return surgical_patch(current, baseline, reviewed, relative)
++
++
++def backup_files(root, release, originals, targets):
++    parent = root.parent / 'web-customer-address-backups'
++    safe(parent)
++    if parent.exists():
++        meta = parent.stat()
++        if not stat.S_ISDIR(meta.st_mode) or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) != 0o700:
++            raise RuntimeError('BACKUP_PARENT_UNSAFE')
++    else:
++        parent.mkdir(mode=0o700)
++    backup = pathlib.Path(tempfile.mkdtemp(prefix=release[:12] + '-', dir=parent))
++    manifest = {'release': release, 'baseline': BASELINE, 'files': {},
++                'target_blobs': {path: blob(payload) for path, payload in targets.items()}}
++    for relative, previous in originals.items():
++        manifest['files'][relative] = {key: value for key, value in previous.items() if key != 'bytes'}
++        saved = backup / relative
++        saved.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
++        saved.write_bytes(previous['bytes'])
++        saved.chmod(0o600)
++    path = backup / 'manifest.json'
++    path.write_text(json.dumps(manifest, indent=2))
++    path.chmod(0o600)
++    return backup
++
++
++def _install_locked(root, release, check_only, uid):
++    originals, targets = {}, {}
++    for relative in PUBLISH_ORDER:
++        previous = snapshot(root / relative, uid)
++        targets[relative] = plan_target(root, release, relative, None if previous is None else previous['bytes'])
++        originals[relative] = previous
++    # Syntax-check the resulting merged Blade source without booting the application.
++    with tempfile.TemporaryDirectory(prefix='web-customer-addresses-lint-') as directory:
++        os.chmod(directory, 0o755)
++        candidate = pathlib.Path(directory) / 'home.blade.php'
++        candidate.write_bytes(targets[HOME])
++        candidate.chmod(0o644)
++        owned_command(root, [PHP, '-l', str(candidate)])
++    if check_only:
++        print(json.dumps({'status': 'WEB_CUSTOMER_ADDRESSES_PREFLIGHT_OK', 'files': len(targets)}))
++        return
++    for relative, previous in originals.items():
++        if snapshot(root / relative, uid) != previous:
++            raise RuntimeError('CONCURRENT_EDIT: ' + relative)
++    if all(originals[path]['bytes'] == targets[path] for path in PUBLISH_ORDER):
++        print(json.dumps({'status': 'WEB_CUSTOMER_ADDRESSES_READY', 'updated_files': 0}))
++        return
++    backup = backup_files(root, release, originals, targets)
++    written = {}
++    try:
++        for relative in PUBLISH_ORDER:
++            previous = originals[relative]
++            if snapshot(root / relative, uid) != previous:
++                raise RuntimeError('CONCURRENT_EDIT: ' + relative)
++            if previous['bytes'] != targets[relative]:
++                atomic(root / relative, targets[relative], previous, uid)
++                written[relative] = snapshot(root / relative, uid)
++        for relative, published in written.items():
++            if snapshot(root / relative, uid) != published:
++                raise RuntimeError('CONCURRENT_EDIT: ' + relative)
++        owned_command(root, [PHP, str(root / 'artisan'), 'view:clear'])
++    except Exception as error:
++        failures = []
++        for relative, published in reversed(list(written.items())):
++            try:
++                if snapshot(root / relative, uid) != published:
++                    raise RuntimeError('CONCURRENT_EDIT')
++                atomic(root / relative, originals[relative]['bytes'], originals[relative], uid)
++            except Exception:
++                failures.append(relative)
++        try:
++            owned_command(root, [PHP, str(root / 'artisan'), 'view:clear'])
++        except Exception:
++            failures.append('compiled views')
++        if failures:
++            raise RuntimeError('ROLLBACK_INCOMPLETE: ' + ', '.join(failures) + '; backup=' + str(backup)) from error
++        raise RuntimeError('WEB_CUSTOMER_ADDRESSES_ROLLED_BACK; backup=' + str(backup)) from error
++    print(json.dumps({'status': 'WEB_CUSTOMER_ADDRESSES_READY', 'updated_files': len(written), 'backup': str(backup)}))
++
++
++def install(root, release, check_only=False):
++    if os.geteuid() != 0 or root != APP_ROOT or not re.fullmatch('[a-f0-9]{40}', release) or release == BASELINE:
++        raise RuntimeError('FIXED_ROOT_RELEASE_REQUIRED')
++    user = pwd.getpwnam('fasakha')
++    safe_directories(root, user.pw_uid)
++    if root.stat().st_uid != user.pw_uid:
++        raise RuntimeError('APPLICATION_OWNER_REQUIRED')
++    if check_only:
++        return _install_locked(root, release, True, user.pw_uid)
++    lock_path = root.parent / '.web-customer-address-update.lock'
++    safe(lock_path)
++    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
++    try:
++        meta = os.fstat(fd)
++        if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_nlink != 1
++                or stat.S_IMODE(meta.st_mode) != 0o600):
++            raise RuntimeError('UPDATE_LOCK_UNSAFE')
++        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++        return _install_locked(root, release, False, user.pw_uid)
++    finally:
++        os.close(fd)
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--root', type=pathlib.Path, default=APP_ROOT)
++    parser.add_argument('--release', required=True)
++    parser.add_argument('--check', action='store_true')
++    arguments = parser.parse_args()
++    try:
++        install(arguments.root, arguments.release, arguments.check)
++    except Exception as error:
++        print(json.dumps({'status': 'WEB_CUSTOMER_ADDRESSES_FAILED', 'reason': str(error)}))
++        raise SystemExit(1)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/docs/web-storefront.md b/docs/web-storefront.md
+index 7caa637..17836bd 100644
+--- a/docs/web-storefront.md
++++ b/docs/web-storefront.md
+@@ -4,7 +4,7 @@ The homepage now provides an Arabic storefront with required delivery-location d
+ 
+ Website orders are created as **new, unpaid phone-channel tickets** in the selected branch's existing delivery board, marked `طلب الموقع الإلكتروني`. Branch staff accept and send them to the kitchen using their existing workflow. Checkout never collects cash or marks an order paid. Customer details remain in the native ticket and the existing customers/history workflow.
+ 
+-No branch directory or customer details are embedded in the initial page. A customer must confirm a map pin and enter an Egyptian mobile number and detailed address before `POST /shop/branches` lists eligible stores. Eligibility uses the application’s actual union of circles from `resturant_areas.lat/lng/expected_delivery` (6371-km Haversine, inclusive boundary), with no fallback radius and no under-contract bypass. Matching public Fasakhansta stores are sorted by distance to their branch pin, with search and filters. A valid branch pin is required for native delivery pricing. Address suggestions use POST JSON before branch selection and share the existing configured geocoder. Contact/address details remain in the server session and current page memory; they are not placed in URLs or browser sessionStorage. Catalog, quote and checkout enforce current coverage on the server, and a new discovery invalidates previous price reviews. Hidden/private and GO catalogs are excluded. The server derives the operator from the selected restaurant relationship and refuses owners/global administrators. No dashboard cookie, visitor-selected operator, public customer search, discount, manual delivery override, ticket editing or register operation is exposed. Official business contact/terms/privacy text come from existing public settings.
++No branch directory or customer details are embedded in the initial page. A customer must confirm a map pin and enter an Egyptian mobile number and detailed address before `POST /shop/branches` lists eligible stores. Eligibility uses the application’s actual union of circles from `resturant_areas.lat/lng/expected_delivery` (6371-km Haversine, inclusive boundary), with no fallback radius and no under-contract bypass. Matching public Fasakhansta stores are sorted by distance to their branch pin, with search and filters. A valid branch pin is required for native delivery pricing. Address suggestions use POST JSON before branch selection and share the existing configured geocoder. Contact/address details remain in the server session and current page memory and are never placed in URLs. The saved-address update additionally retains the validated customer profile and up to ten delivery addresses in browser localStorage; cart and uncertain-order retry state stay in sessionStorage. Catalog, quote and checkout enforce current coverage on the server, and a new discovery invalidates previous price reviews. Hidden/private and GO catalogs are excluded. The server derives the operator from the selected restaurant relationship and refuses owners/global administrators. No dashboard cookie, visitor-selected operator, public customer search, discount, manual delivery override, ticket editing or register operation is exposed. Official business contact/terms/privacy text come from existing public settings.
+ 
+ The review token is encrypted, bound to the visitor's session, and expires after ten minutes. Checkout revalidates the branch, catalog, native price fingerprint and delivery fingerprint. New review tokens also bind the validated delivery-context nonce; incomplete old-version reviews require another review, while completed receipts remain replayable. A dedicated additive table enforces one result per review token or request key. Retrying an uncertain request preserves the same token/key and returns the existing result, including when the customer later changes their delivery context or the branch subsequently closes or becomes hidden. Changing price or address requires another review. The existing branch minimum order is respected. `config/web_storefront.php` can optionally set a delivery radius; null preserves the native delivery calculation without introducing a new radius policy.
+ 
+@@ -27,3 +27,10 @@ Hero image: built-in image generation; prompt requested premium editorial Egypti
+ The 2026-10-17 palette/store update uses the dashboard navy #091320 and orange #FD7201 throughout. A navy version of the existing hero photograph preserves the food and arrangement. The preview snapshot now covers all 32 public Fasakhansta stores/branches observed at preparation time.
+ 
+ The location update uses the same restaurant-logo PNG as the header for the browser tab and Apple touch icon, with a new cache version. An inline address form replaces unrestricted initial branch browsing. Changing the delivery location confirms clearing a nonempty cart, then reruns eligibility before a new branch can be selected. Uncertain order confirmation must be resolved first. Existing delivery charge calculation is retained; this update shares application service-area selection.
++
++
++The saved-address update requests browser geolocation automatically when there is no usable saved address. The browser owns its permission prompt; denied/unavailable GPS leaves manual map entry usable. A precise result (reported accuracy at most 250m) marks the point ready; an approximate result still needs a corrected/confirmed pin. A late GPS callback cannot overwrite a selected saved address or a manually moved pin.
++
++Registration now captures name as well as phone, area and full delivery address. A successful server discovery saves its normalized context with the customer name under `fasakhansta.web.customer.v1`. On the same device/browser, the upper address selector restores the selected name, phone, address and coordinates without another GPS request. It offers a new address and a clear-local-details action. Restored records are type/length/bounds validated, safely rendered, deduplicated and bounded to ten. They never bypass discovery, coverage or price validation, and cannot be retrieved by a public phone lookup. Browser storage refusal displays a useful notice while allowing ordering. Clearing site data or using another browser requires registration again.
++
++Use the dedicated `deployment/install_web_customer_addresses.py` patch for this update: only the homepage and two storefront assets are changed, with three-way homepage merging to retain independent SEO changes, source hashes, backup and rollback. It runs only `artisan view:clear`, without a database migration or route changes. Success: `WEB_CUSTOMER_ADDRESSES_READY`. The DOM suite also verifies automatic/denied/late GPS, profile recall, address history, malformed/blocked storage, safe rendering, checkout name prefill and pending-order recovery.
+diff --git a/public/storefront/storefront.css b/public/storefront/storefront.css
+index 101bc98..d690ac6 100644
+--- a/public/storefront/storefront.css
++++ b/public/storefront/storefront.css
+@@ -10,3 +10,5 @@
+ /* Address comes before serviceable stores, matching the customer app. */
+ .delivery-section{padding-top:44px;padding-bottom:12px}.delivery-card{display:grid;grid-template-columns:.85fr 1.15fr;gap:55px;padding:38px;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px #09132005;align-items:start}.delivery-intro{padding:18px 0;position:sticky;top:130px}.delivery-intro .eyebrow{color:#a44a00}.delivery-intro h2{font-size:42px;margin-bottom:16px}.delivery-intro>p{font-size:15px;color:var(--muted);max-width:350px}.delivery-steps{display:flex;flex-direction:column;gap:18px;margin-top:32px;font-size:14px;font-weight:700}.delivery-steps span{display:flex;align-items:center;gap:13px}.delivery-steps b{display:grid;place-items:center;border:1px solid #f8c294;background:#fff2e8;color:#a44a00;width:32px;height:32px;border-radius:50%;font-size:13px}.delivery-form .checkout-fields{margin-top:0}.delivery-form label{position:relative}.delivery-form .location-heading{font-size:13px;margin-top:22px}.delivery-form .delivery-map{height:270px;z-index:0}.delivery-form #location-help{font-size:12px;margin-top:10px;line-height:1.8}.delivery-form .confirm-location{margin-top:12px;font-size:12px}.delivery-form .privacy-note{font-size:11px}.delivery-form .button{margin-top:8px}.delivery-form[inert]{opacity:.7}.delivery-summary{display:grid;grid-template-columns:auto 1fr;align-items:start;gap:16px;padding:25px;background:#f3f6fa;border-radius:12px;align-self:center}.delivery-summary-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--navy);color:#ff9b4b;font-size:26px}.delivery-summary strong{font-size:16px}.delivery-summary p{font-size:14px;margin:8px 0;color:var(--muted);overflow-wrap:anywhere}.delivery-summary #delivery-phone{font-size:13px;display:inline-block;color:var(--ink)}.delivery-summary .button{grid-column:2;font-size:12px;min-height:40px;padding:10px 15px;justify-self:start;margin-top:7px}.checkout-location-note{display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap;margin:20px 0;padding:15px;background:#f1f5fa;border-radius:9px;font-size:12px}.checkout-location-note .text-link{font-size:12px}#checkout-form input[readonly]{background:#f2f5f9;color:#4d627b;cursor:default}.menu-status .button,.store-empty .button{margin-top:18px}.store-empty p{max-width:570px;margin:auto}.branch-picker select:disabled{cursor:not-allowed;color:var(--muted)}
+ @media(max-width:1000px){.delivery-card{gap:30px;padding:28px}.delivery-intro h2{font-size:34px}.delivery-intro>p{font-size:14px}.delivery-form .location-heading{flex-wrap:wrap;gap:10px}}@media(max-width:760px){.delivery-section{padding-top:27px}.delivery-card{grid-template-columns:1fr;gap:23px;padding:23px 18px;border-radius:13px}.delivery-intro{position:static;padding:0}.delivery-intro h2{font-size:30px;margin-bottom:10px}.delivery-intro>p{max-width:none;font-size:13px}.delivery-steps{flex-direction:row;flex-wrap:wrap;gap:12px;margin-top:19px;font-size:10px}.delivery-steps span{gap:6px}.delivery-steps b{width:23px;height:23px;font-size:10px}.delivery-form .delivery-map{height:240px}.delivery-form .location-heading strong{font-size:11px}.delivery-form .location-heading .text-link{font-size:11px}.delivery-summary{padding:18px;gap:12px}.delivery-summary strong{font-size:14px}.delivery-summary p{font-size:12px}.delivery-summary-icon{width:34px;height:34px;font-size:22px}.delivery-summary .button{font-size:11px;padding:10px}.delivery-form .confirm-location{font-size:11px}}
++/* Saved delivery details stay above the registration fields on every screen. */
++.saved-customer{padding:18px;margin-bottom:22px;border:1px solid #f4cba9;border-radius:12px;background:#fff6ef}.saved-customer label{display:flex;flex-direction:column;gap:9px;font-size:14px;font-weight:700}.saved-customer select{width:100%;max-width:100%;font-size:13px;background:#fff;text-overflow:ellipsis}.saved-customer p{font-size:12px;color:var(--muted);margin-top:8px}.saved-customer .text-link{font-size:11px;color:#8d420a;margin-top:4px}
+diff --git a/public/storefront/storefront.js b/public/storefront/storefront.js
+index 12ed280..294e582 100644
+--- a/public/storefront/storefront.js
++++ b/public/storefront/storefront.js
+@@ -5,13 +5,15 @@ const data = JSON.parse($('#storefront-data').textContent);
+ const placeholder = '/dashboard/branding/fasakhansta-logo-transparent.png';
+ const storageKey = 'fasakhansta.web.cart.v1';
+ const pendingKey = 'fasakhansta.web.pending.v1';
++const customerKey = 'fasakhansta.web.customer.v1';
+ const readStorage = key => { try { return JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (_) { return null; } };
+ const writeStorage = (key, value) => { try { value === null ? sessionStorage.removeItem(key) : sessionStorage.setItem(key, JSON.stringify(value)); } catch (_) {} };
+ let restorable = readStorage(storageKey);
+ // Eligibility is discovered by the server only after delivery details are confirmed.
+ data.branches = [];
+ const state = { context: null, discovering: false, branch: '', products: [], categories: [], cart: [], category: '', search: '', limit: 12, menuReady: false, storeFilter: 'all', storeSearch: '', storeLimit: 12, open: false, quote: null, point: null, submitting: false, pending: readStorage(pendingKey) };
+-let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch;
++let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch, quoteRequest = 0;
++let customerProfile = readCustomer(), selectedAddress = '', locationRevision = 0, geolocationRequest = 0;
+ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const money = value => new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(value || 0));
+ const imageUrl = value => { try { const url = new URL(value, location.origin); return /^https?:$/.test(url.protocol) ? url.href : placeholder; } catch (_) { return placeholder; } };
+@@ -20,6 +22,53 @@ const unitName = mode => mode === 'weight' ? 'كجم' : 'قطعة';
+ const normalized = value => String(value).replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').toLowerCase();
+ const quantity = value => Number(Number(value).toFixed(3));
+ const total = () => state.cart.reduce((sum, line) => sum + Math.round(line.price * 100) * line.quantity, 0) / 100;
++function readCustomer() {
++ try {
++  const p = JSON.parse(localStorage.getItem(customerKey) || 'null');
++  if (!p || p.version !== 1 || typeof p.customer_name !== 'string' || p.customer_name.trim().length < 2 || p.customer_name.length > 100 || typeof p.customer_phone !== 'string' || !/^(?:\+?20|0)1[0125]\d{8}$/.test(p.customer_phone) || !Array.isArray(p.addresses)) return null;
++  const ids = new Set();
++  const addresses = p.addresses.slice(0,10).filter(a => {
++   if (!a || typeof a.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(a.id) || ids.has(a.id) || typeof a.area !== 'string' || a.area.trim().length < 2 || a.area.length > 150 || typeof a.address !== 'string' || a.address.trim().length < 8 || a.address.length > 500 || typeof a.latitude !== 'number' || typeof a.longitude !== 'number' || !Number.isFinite(a.latitude) || !Number.isFinite(a.longitude) || a.latitude < 22 || a.latitude > 32 || a.longitude < 24 || a.longitude > 37) return false;
++   ids.add(a.id); return true;
++  }).map(({id,area,address,latitude,longitude}) => ({id,area,address,latitude,longitude}));
++  return addresses.length ? {version:1,customer_name:p.customer_name.trim(),customer_phone:p.customer_phone,selected_id:addresses.some(a=>a.id===p.selected_id)?p.selected_id:addresses[0].id,addresses} : null;
++ } catch (_) { return null; }
++}
++function writeCustomer(profile) {
++ try { profile ? localStorage.setItem(customerKey,JSON.stringify(profile)) : localStorage.removeItem(customerKey); return true; } catch (_) { return false; }
++}
++function renderSavedAddresses() {
++ const select = $('#saved-address-select'); select.replaceChildren();
++ $('#saved-customer').hidden = !customerProfile;
++ if (!customerProfile) return;
++ for (const a of customerProfile.addresses) {
++  const option = document.createElement('option'); option.value=a.id; option.textContent=`${a.area} — ${a.address}`; select.append(option);
++ }
++ const add = document.createElement('option'); add.value='new'; add.textContent='+ أضف عنوان جديد'; select.append(add);
++ select.value = selectedAddress || 'new';
++}
++function restoreAddress(id) {
++ const a = customerProfile?.addresses.find(a=>a.id===id); if(!a)return;
++ selectedAddress=id;
++ const form=$('#delivery-form');form.elements.customer_name.value=customerProfile.customer_name;form.elements.customer_phone.value=customerProfile.customer_phone;
++ form.elements.area.value=a.area;form.elements.address.value=a.address;
++ clearTimeout(suggestionTimer);suggestionRequest?.abort();$('#address-suggestions').replaceChildren();
++ // Initial address recall is independent of the sealed pending-order retry payload.
++ form.elements.location_confirmed.checked=setPoint(a.latitude,a.longitude,true,true);
++ $('#location-help').textContent='ده موقع العنوان المحفوظ. تقدر تختار عنوان تاني أو تعدّل الدبوس.';
++ renderSavedAddresses();
++}
++function saveCustomer(context, name) {
++ const prior=readCustomer();
++ // Merge only the same customer's addresses; never expose a phone lookup endpoint.
++ const addresses=prior?.customer_phone===context.customer_phone?[...prior.addresses]:[];
++ const same=a=>normalized(a.area).trim()===normalized(context.area).trim()&&normalized(a.address).trim()===normalized(context.address).trim()&&Math.abs(a.latitude-context.latitude)<.0001&&Math.abs(a.longitude-context.longitude)<.0001;
++ const existing=addresses.find(same);
++ const address={id:existing?.id||uuid(),area:context.area,address:context.address,latitude:context.latitude,longitude:context.longitude};
++ customerProfile={version:1,customer_name:name.trim(),customer_phone:context.customer_phone,selected_id:address.id,addresses:[address,...addresses.filter(a=>a.id!==address.id)].slice(0,10)};
++ selectedAddress=address.id;const saved=writeCustomer(customerProfile);renderSavedAddresses();
++ if(!saved)notify('المتصفح منع حفظ البيانات. تقدر تكمل طلبك، لكن هتحتاج تدخل بياناتك المرة الجاية.');
++}
+ function persist() { writeStorage(storageKey, { branch: state.branch, cart: state.cart.map(({productId, optionId, mode, quantity}) => ({productId, optionId, mode, quantity})) }); }
+ function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+@@ -179,11 +228,12 @@ function initMap() {
+  } else if (!state.point) { map.setView([30.8,31.3],8); if (marker) { map.removeLayer(marker); marker=null; } }
+  setTimeout(() => map.invalidateSize(),100);
+ }
+-function setPoint(lat,lng,zoom) {
+- if(state.discovering)return;
++function setPoint(lat,lng,zoom,restoring=false) {
++ if(state.discovering||state.submitting||(state.pending&&!restoring))return false;
+  lat=Number(lat);lng=Number(lng);
+- if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
+- if (lat < 22 || lat > 32 || lng < 24 || lng > 37) { $('#location-help').textContent = 'حدد مكان التوصيل داخل مصر.'; return; }
++ if(!Number.isFinite(lat)||!Number.isFinite(lng))return false;
++ if (lat < 22 || lat > 32 || lng < 24 || lng > 37) { $('#location-help').textContent = 'حدد مكان التوصيل داخل مصر.'; return false; }
++ locationRevision++;
+  state.point = {latitude:Number(lat.toFixed(7)),longitude:Number(lng.toFixed(7))}; state.quote = null;
+  $('#delivery-form').elements.location_confirmed.checked = false;
+  $('#location-help').textContent = 'تم تحديد المكان. حرّك الدبوس لمدخل العمارة، وبعدها أكد الموقع.';
+@@ -192,6 +242,23 @@ function setPoint(lat,lng,zoom) {
+   else marker.setLatLng([lat,lng]);
+   if (zoom) map.setView([lat,lng],16);
+  }
++ return true;
++}
++function locateCustomer() {
++ if(state.discovering||state.submitting||state.pending||state.context)return;
++ if(!navigator.geolocation){$('#location-help').textContent='المتصفح لا يدعم تحديد الموقع. اختار المكان على الخريطة.';return;}
++ const revision=locationRevision,request=++geolocationRequest;
++ $('#location-help').textContent='جارٍ تحديد موقعك تلقائيًا… اسمح بالموقع لو المتصفح طلب الإذن.';
++ navigator.geolocation.getCurrentPosition(p=>{
++  if(request!==geolocationRequest||revision!==locationRevision||state.context||state.discovering||state.pending)return;
++  if(!setPoint(p.coords.latitude,p.coords.longitude,true))return;
++  const precise=!Number.isFinite(p.coords.accuracy)||p.coords.accuracy<=250;
++  $('#delivery-form').elements.location_confirmed.checked=precise;
++  $('#location-help').textContent=precise?'تم تحديد موقعك تلقائيًا. اكتب عنوان العمارة والدور والشقة، أو عدّل الدبوس لو التوصيل لمكان تاني.':'الموقع اللي رجع من جهازك تقريبي. حرّك الدبوس لمكان التوصيل وأكد الموقع.';
++ },error=>{
++  if(request!==geolocationRequest||revision!==locationRevision||state.context||state.discovering||state.pending)return;
++  $('#location-help').textContent=error?.code===1?'إذن الموقع مقفول. اسمح بالموقع من إعدادات المتصفح، أو اختار مكان التوصيل على الخريطة.':'تعذر تحديد موقعك تلقائيًا. جرّب تحديث الموقع أو اختار مكان التوصيل على الخريطة.';
++ },{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+ }
+ function openCheckout() {
+  if (state.pending) return resumeCheckout();
+@@ -199,6 +266,7 @@ function openCheckout() {
+  if (!state.cart.length || !state.menuReady || !state.open) return;
+  closeDialog($('#cart-dialog')); state.quote = null; $('#checkout-form').hidden = false; $('#review-panel').hidden = true; $('#checkout-error').textContent = ''; $('#checkout-title').textContent = 'بيانات التوصيل.';
+  for(const key of ['customer_phone','address','area'])$('#checkout-form').elements[key].value=state.context[key];
++ $('#checkout-form').elements.customer_name.value=$('#delivery-form').elements.customer_name.value.trim();
+  showDialog('#checkout-dialog');
+ }
+ function cartItems() { return state.cart.map(line => ({product_id:line.productId,option_id:line.optionId,quantity_mode:line.mode,quantity:line.quantity.toFixed(3)})); }
+@@ -237,10 +305,12 @@ $('#checkout-form').addEventListener('submit',async event => {
+  if(!form.reportValidity())return;
+  if (!state.cart.length || !state.open) return;
+  button.disabled=true; button.textContent='بنحسب الإجمالي والتوصيل…';
+- const fields=Object.fromEntries(new FormData(form)); const payload={...fields,latitude:state.context.latitude,longitude:state.context.longitude,location_confirmed:true,branch_id:Number(state.branch),items:cartItems()};
+- try { const result=await api('quote',payload); state.quote={...result,key:uuid()}; renderReview(result,fields); }
+- catch(error) {$('#checkout-error').textContent=error.message;}
+- finally {button.disabled=false;button.textContent='مراجعة الإجمالي والتوصيل ←';}
++ const fields=Object.fromEntries(new FormData(form)),context=state.context,branchId=state.branch,items=cartItems(),attempt=++quoteRequest;
++ const current=()=>attempt===quoteRequest&&state.context===context&&state.branch===branchId&&JSON.stringify(cartItems())===JSON.stringify(items)&&$('#checkout-dialog').open&&JSON.stringify(Object.fromEntries(new FormData(form)))===JSON.stringify(fields);
++ const payload={...fields,latitude:context.latitude,longitude:context.longitude,location_confirmed:true,branch_id:Number(branchId),items};
++ try { const result=await api('quote',payload); if(!current())return; state.quote={...result,key:uuid()}; saveCustomer(context,fields.customer_name); $('#delivery-form').elements.customer_name.value=fields.customer_name.trim(); renderReview(result,fields); }
++ catch(error) {if(current())$('#checkout-error').textContent=error.message;}
++ finally {if(attempt===quoteRequest){button.disabled=false;button.textContent='مراجعة الإجمالي والتوصيل ←';}}
+ });
+ $('#delivery-form').elements.area.addEventListener('input',event => {
+  clearTimeout(suggestionTimer); suggestionRequest?.abort(); const query=event.target.value.trim(); $('#address-suggestions').innerHTML='';
+@@ -251,10 +321,22 @@ $('#delivery-form').elements.area.addEventListener('input',event => {
+   catch(error) {if(error.name!=='AbortError') $('#location-help').textContent='البحث مش متاح للحظات. حدد مكانك على الخريطة أو استخدم موقعي.';}
+  },600);
+ });
+-$('#geolocate').addEventListener('click',()=>{
+- if (!navigator.geolocation) {$('#location-help').textContent='المتصفح لا يدعم تحديد الموقع. اختار المكان على الخريطة.';return;}
+- $('#location-help').textContent='جارٍ تحديد موقعك…';
+- navigator.geolocation.getCurrentPosition(p=>setPoint(p.coords.latitude,p.coords.longitude,true),()=>$('#location-help').textContent='تعذر تحديد موقعك. اسمح بالموقع من إعدادات المتصفح، أو حدد مكانك على الخريطة.',{enableHighAccuracy:true,timeout:12000,maximumAge:0});
++$('#geolocate').addEventListener('click',locateCustomer);
++$('#saved-address-select').addEventListener('change',event=>{
++ if(state.context||state.discovering||state.submitting||state.pending)return;
++ clearTimeout(suggestionTimer);suggestionRequest?.abort();$('#address-suggestions').replaceChildren();
++ if(event.target.value!=='new')return restoreAddress(event.target.value);
++ selectedAddress='';locationRevision++;state.point=null;state.quote=null;
++ const form=$('#delivery-form');form.elements.area.value='';form.elements.address.value='';form.elements.location_confirmed.checked=false;
++ initMap();locateCustomer();form.elements.area.focus({preventScroll:true});
++});
++$('#forget-customer').addEventListener('click',()=>{
++ if(state.context||state.discovering||state.submitting||state.pending)return;
++ if(!writeCustomer(null)){notify('تعذر مسح البيانات المحفوظة من إعدادات المتصفح.');return;}
++ customerProfile=null;selectedAddress='';locationRevision++;state.point=null;
++ $('#delivery-form').reset();$('#checkout-form').elements.customer_name.value='';
++ clearTimeout(suggestionTimer);suggestionRequest?.abort();$('#address-suggestions').replaceChildren();
++ renderSavedAddresses();initMap();locateCustomer();
+ });
+ $('#branch-select').addEventListener('change',event=>chooseBranch(event.target.value));
+ $('#search').addEventListener('input',event=>{state.search=event.target.value.trim();state.limit=12;renderMenu();});
+@@ -298,6 +380,7 @@ $('#delivery-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(state.discovering||state.submitting)return;
+  if(state.pending){$('#delivery-error').textContent='نتأكد من الطلب السابق الأول من سلة الطلب، وبعدها نغيّر بيانات التوصيل.';return;}
+  const form=event.currentTarget;$('#delivery-error').textContent='';
++ form.elements.customer_name.value=form.elements.customer_name.value.trim();
+  if(!form.reportValidity())return;
+  if(!state.point){$('#delivery-error').textContent='حدد مكان التوصيل على الخريطة أو استخدم موقعي الحالي.';return;}
+  const payload={...Object.fromEntries(new FormData(form)),...state.point,location_confirmed:form.elements.location_confirmed.checked};
+@@ -306,6 +389,7 @@ $('#delivery-form').addEventListener('submit',async event=>{
+   const result=await api('branches',payload);
+   if(!Array.isArray(result.branches)||!result.context)throw new Error('تعذر قراءة المتاجر. حاول تاني.');
+   state.context=result.context;data.branches=result.branches;state.point={latitude:result.context.latitude,longitude:result.context.longitude};
++  saveCustomer(result.context,form.elements.customer_name.value);
+   $('#delivery-address').textContent=`${result.context.address}، ${result.context.area}`;$('#delivery-phone').textContent=result.context.customer_phone;
+   form.hidden=true;$('#delivery-summary').hidden=false;renderBranches();
+   status(data.branches.length?'اختار المتجر المناسب ليك':'مفيش متجر بيغطي موقعك حاليًا',data.branches.length?'المتاجر مرتبة من الأقرب. اختار متجر لعرض المنيو والأسعار.':'جرّب عنوان توصيل تاني أو غيّر الموقع من بيانات التوصيل.');
+@@ -315,4 +399,5 @@ $('#delivery-form').addEventListener('submit',async event=>{
+ });
+ $('#confirm-location-change').addEventListener('click',()=>{if(state.pending||state.submitting)return;document.querySelectorAll('dialog[open]').forEach(closeDialog);resetDelivery();});
+ renderBranches();updateCartBadge();initMap();
++if(customerProfile)restoreAddress(customerProfile.selected_id);else{renderSavedAddresses();locateCustomer();}
+ })();
+diff --git a/resources/views/site/home.blade.php b/resources/views/site/home.blade.php
+index 4300406..b38004c 100755
+--- a/resources/views/site/home.blade.php
++++ b/resources/views/site/home.blade.php
+@@ -17,10 +17,10 @@
+     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+     <link rel="preload" as="image" href="{{ asset('storefront/hero.webp') }}">
+     <link rel="stylesheet" href="{{ asset('dashboard/vendor/leaflet/leaflet.css') }}">
+-    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-3">
++    <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-4">
+     <script id="storefront-data" type="application/json">{!! json_encode(['branches'=>$storefrontBranches,'info'=>$storefrontInfo,'endpoints'=>['branches'=>route('storefront.branches'),'catalog'=>route('storefront.catalog'),'addresses'=>route('storefront.addresses'),'quote'=>route('storefront.quote'),'checkout'=>route('storefront.checkout')]], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
+     <script src="{{ asset('dashboard/vendor/leaflet/leaflet.js') }}" defer></script>
+-    <script src="{{ asset('storefront/storefront.js') }}?v=20261017-3" defer></script>
++    <script src="{{ asset('storefront/storefront.js') }}?v=20261017-4" defer></script>
+ </head>
+ <body>
+ <a class="skip-link" href="#menu">انتقل للمينيو</a>
+@@ -40,16 +40,22 @@
+         <div class="delivery-card">
+             <div class="delivery-intro"><span class="eyebrow">اللمة تبدأ من عنوانك</span><h2 id="delivery-title">نوصّل لك فين؟</h2><p>حدد موقعك واكتب عنوانك ورقمك، علشان نعرض لك أقرب متاجر فسخانستا اللي بتخدم مكانك.</p><div class="delivery-steps"><span><b>١</b> حدد موقعك</span><span><b>٢</b> اختار متجرك</span><span><b>٣</b> جهّز طلبك</span></div></div>
+             <form id="delivery-form" class="delivery-form">
++                <div id="saved-customer" class="saved-customer" hidden>
++                    <label for="saved-address-select">عناوينك المحفوظة<select id="saved-address-select" aria-describedby="saved-customer-help"></select></label>
++                    <p id="saved-customer-help">اختار عنوان للأوردر ده، أو أضف عنوان جديد.</p>
++                    <button type="button" id="forget-customer" class="text-link">امسح بياناتي من الجهاز ده</button>
++                </div>
+                 <div class="checkout-fields">
++                    <label class="full">اسمك<input name="customer_name" autocomplete="name" required minlength="2" maxlength="100" placeholder="الاسم بالكامل"></label>
+                     <label class="full">رقم الموبايل<input name="customer_phone" type="tel" autocomplete="tel" inputmode="tel" dir="ltr" required maxlength="30" placeholder="01xxxxxxxxx"></label>
+                     <label class="full">المنطقة أو أقرب معلم<input name="area" autocomplete="address-level2" required minlength="2" maxlength="150" placeholder="ابحث عن منطقتك أو مكان قريب"><span id="address-suggestions" class="address-suggestions"></span></label>
+                     <label class="full">عنوان التوصيل بالتفصيل<input name="address" autocomplete="street-address" required minlength="8" maxlength="500" placeholder="الشارع، رقم العمارة، الدور والشقة"></label>
+                 </div>
+-                <div class="location-heading"><strong>ثبت الدبوس عند مدخل العمارة</strong><button type="button" class="text-link" id="geolocate">⌖ استخدم موقعي الحالي</button></div>
++                <div class="location-heading"><strong>موقع التوصيل على الخريطة</strong><button type="button" class="text-link" id="geolocate">⌖ حدّث موقعي الحالي</button></div>
+                 <div id="delivery-map" class="delivery-map" aria-label="خريطة تحديد عنوان التوصيل"></div>
+-                <p id="location-help" class="muted">استخدم موقعي، أو ابحث عن المنطقة واضغط على الخريطة لتحديد مكان التوصيل.</p>
++                <p id="location-help" class="muted" role="status" aria-live="polite">بنحدد موقعك تلقائيًا. اسمح باستخدام الموقع من المتصفح أول مرة.</p>
+                 <label class="confirm-location"><input name="location_confirmed" type="checkbox" required> الدبوس في مكان التوصيل الصحيح</label>
+-                <p class="privacy-note">بنستخدم عنوانك ورقمك لتحديد الخدمة وتجهيز طلبك والتواصل معاك بخصوصه.</p>
++                <p class="privacy-note">بنحفظ اسمك ورقمك وعناوينك على الجهاز ده للطلبات الجاية، وبنستخدم بياناتك لتجهيز الطلب والتواصل معاك بخصوصه.</p>
+                 <div id="delivery-error" class="form-error" role="alert"></div>
+                 <button id="find-stores" type="submit" class="button primary wide">اعرض المتاجر اللي بتخدمني <span aria-hidden="true">←</span></button>
+             </form>
+diff --git a/tests/web_customer_addresses_installer_test.py b/tests/web_customer_addresses_installer_test.py
+new file mode 100644
+index 0000000..447c7e5
+--- /dev/null
++++ b/tests/web_customer_addresses_installer_test.py
+@@ -0,0 +1,274 @@
++import contextlib
++import importlib.util
++import io
++import json
++import os
++import pathlib
++import re
++import stat
++import subprocess
++import tempfile
++import unittest
++from unittest import mock
++
++ROOT = pathlib.Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location('customer_addresses_installer',
++                                             ROOT / 'deployment/install_web_customer_addresses.py')
++m = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(m)
++RELEASE = 'f' * 40
++
++
++def baseline(relative):
++    return subprocess.check_output(['git', 'show', m.BASELINE + ':' + relative], cwd=ROOT)
++
++
++class InstallerTests(unittest.TestCase):
++    def test_scope_is_only_existing_three_ui_files(self):
++        self.assertEqual(set(m.PUBLISH_ORDER), {m.HOME, 'public/storefront/storefront.js',
++                                              'public/storefront/storefront.css'})
++        self.assertTrue(all((ROOT / relative).is_file() for relative in m.PUBLISH_ORDER))
++
++    def test_home_merge_preserves_adjacent_independent_seo(self):
++        old = b'<head>\n<title>Original</title>\n<link css v3>\n<script js v3>\n</head>\n<body>\n<form>\n</form>\n</body>\n'
++        reviewed = old.replace(b'v3', b'v4').replace(b'<form>\n', b'<saved-addresses>\n<form>\n')
++        live = old.replace(b'<title>Original</title>', b'@include(seo.head)').replace(
++            b'</head>', b'<link seo.css>\n</head>').replace(b'</form>', b'</form>\n@include(seo.products)')
++        result = m.surgical_patch(live, old, reviewed)
++        expected = live.replace(b'v3', b'v4').replace(b'<form>\n', b'<saved-addresses>\n<form>\n')
++        self.assertEqual(result, expected)
++        self.assertEqual(m.surgical_patch(result, old, reviewed), result)
++
++    def test_real_current_home_merges_independent_seo_and_is_idempotent(self):
++        old = baseline(m.HOME)
++        reviewed = (ROOT / m.HOME).read_bytes()
++        if reviewed == old:
++            self.skipTest('UI changes have not been written yet')
++        live = old.replace(b'    <title>', b'    @include(\'site.seo.independent\')\n    <title>', 1)
++        live = live.replace(b'</head>', b'    <link rel="stylesheet" href="/storefront/seo.css">\n</head>', 1)
++        result = m.surgical_patch(live, old, reviewed)
++        self.assertIn(b"@include('site.seo.independent')", result)
++        self.assertIn(b'/storefront/seo.css', result)
++        self.assertEqual(result.replace(b"    @include('site.seo.independent')\n", b'').replace(
++            b'    <link rel="stylesheet" href="/storefront/seo.css">\n', b''), reviewed)
++        self.assertEqual(m.surgical_patch(result, old, reviewed), result)
++
++    def test_parallel_seo_head_catalog_links_and_hero_survive_install_and_rerun(self):
++        old = baseline(m.HOME)
++        reviewed = (ROOT / m.HOME).read_bytes()
++        if reviewed == old:
++            self.skipTest('UI changes have not been written yet')
++
++        def seo(payload):
++            start = payload.index(b'    <title>')
++            end = payload.index(b'\n', payload.index(b'    <meta property="og:image"')) + 1
++            payload = payload[:start] + (
++                b"    {{-- STOREFRONT_SEO_HEAD_START --}}\n"
++                b"    @include('site.seo.head', ['seo' => \\App\\Services\\Site\\StorefrontSeo::homeMetadata()])\n"
++                b'    <meta name="theme-color" content="#091320">\n'
++                b"    {{-- STOREFRONT_SEO_HEAD_END --}}\n") + payload[end:]
++            payload = re.sub(rb'(<link rel="stylesheet" href="\{\{ asset\(\'storefront/storefront\.css\'\) \}\}[^\n]+\n)',
++                             lambda match: match[0] + b'    <link rel="stylesheet" href="/storefront/seo.css">\n', payload, count=1)
++            products = b'<a href="{{ \\App\\Services\\Site\\StorefrontSeo::url(\'/products\') }}">Products</a>'
++            payload = payload.replace(b'<a href="#story">', products + b'<a href="#story">', 1)
++            payload = payload.replace(b'<a href="#ordering-faq">', products + b'<a href="#ordering-faq">', 1)
++            payload = payload.replace('اللمة الحلوة،<br>تبدأ بـ'.encode(), 'فسيخ ورنجة،<br>بمزاج'.encode(), 1)
++            payload = payload.replace(b'    <section id="delivery"',
++                                      b"    @include('site.seo.home-products')\n    <section id=\"delivery\"", 1)
++            return payload
++
++        live = seo(old)
++        result = m.surgical_patch(live, old, reviewed)
++        self.assertEqual(result, seo(reviewed))
++        self.assertEqual(m.surgical_patch(result, old, reviewed), result)
++
++    def test_same_line_change_conflicts_without_partial_merge(self):
++        with self.assertRaisesRegex(RuntimeError, 'SOURCE_PATCH_CONFLICT'):
++            m.surgical_patch(b'A\nLIVE\nC\n', b'A\nB\nC\n', b'A\nREVIEWED\nC\n')
++        with self.assertRaisesRegex(RuntimeError, 'SOURCE_PATCH_CONFLICT'):
++            m.surgical_patch(b'A\nLIVE-INSERT\nB\n', b'A\nB\n', b'A\nREVIEWED-INSERT\nB\n')
++
++    def test_merge_inserts_deletes_and_keeps_boundary_insertions(self):
++        old = b'A\nB\nC\nD\n'
++        reviewed = b'A\nNEW\nD\n'
++        live = b'A\nBEFORE\nB\nC\nAFTER\nD\n'
++        self.assertEqual(m.surgical_patch(live, old, reviewed), b'A\nBEFORE\nNEW\nAFTER\nD\n')
++        self.assertEqual(m.surgical_patch(b'A\nB\nC\nD\nLIVE\n', old, b'A\nB\nD\n'),
++                         b'A\nB\nD\nLIVE\n')
++
++    def test_only_exact_known_assets_are_replaced_and_missing_files_refused(self):
++        for relative in m.ASSETS:
++            old = baseline(relative)
++            reviewed = old + b'\n/* reviewed UI */\n'
++            with mock.patch.object(m, 'source', side_effect=lambda root, revision, path:
++                                   old if revision == m.BASELINE else reviewed):
++                self.assertEqual(m.plan_target(ROOT, RELEASE, relative, old), reviewed)
++                self.assertEqual(m.plan_target(ROOT, RELEASE, relative, reviewed), reviewed)
++                with self.assertRaisesRegex(RuntimeError, 'ASSET_SOURCE_CONFLICT'):
++                    m.plan_target(ROOT, RELEASE, relative, old + b'\n/* live edit */\n')
++                with self.assertRaisesRegex(RuntimeError, 'STOREFRONT_FILE_MISSING'):
++                    m.plan_target(ROOT, RELEASE, relative, None)
++        with self.assertRaisesRegex(RuntimeError, 'FILE_NOT_REVIEWED'):
++            m.plan_target(ROOT, RELEASE, '.env', b'')
++
++    def test_bundle_verifies_six_exact_blobs_and_release_binding(self):
++        with tempfile.TemporaryDirectory() as directory:
++            bundle = pathlib.Path(directory)
++            manifest = {'schema': 1, 'release': RELEASE, 'baseline': m.BASELINE, 'blobs': {}}
++            for version in ('release', 'baseline'):
++                for relative in m.PUBLISH_ORDER:
++                    payload = (version + ':' + relative).encode()
++                    path = bundle / version / relative
++                    path.parent.mkdir(parents=True, exist_ok=True)
++                    path.write_bytes(payload)
++                    manifest['blobs'][version + '/' + relative] = m.blob(payload)
++            manifest_path = bundle / 'manifest.json'
++            manifest_path.write_text(json.dumps(manifest))
++            with mock.patch.object(m, 'BUNDLE_ROOT', bundle), mock.patch.object(m, 'owned_command') as command:
++                self.assertEqual(m.source(ROOT, RELEASE, m.HOME), ('release:' + m.HOME).encode())
++                self.assertEqual(m.source(ROOT, m.BASELINE, m.HOME), ('baseline:' + m.HOME).encode())
++                with self.assertRaisesRegex(RuntimeError, 'BUNDLE_REVISION_MISMATCH'):
++                    m.source(ROOT, 'e' * 40, m.HOME)
++                (bundle / 'release' / m.HOME).write_bytes(b'tampered')
++                with self.assertRaisesRegex(RuntimeError, 'SOURCE_BLOB_MISMATCH'):
++                    m.source(ROOT, RELEASE, m.HOME)
++                manifest['blobs']['release/.env'] = 'a' * 40
++                manifest_path.write_text(json.dumps(manifest))
++                with self.assertRaisesRegex(RuntimeError, 'BUNDLE_MANIFEST_INVALID'):
++                    m.source(ROOT, RELEASE, m.HOME)
++                command.assert_not_called()
++
++    def test_source_refuses_unreviewed_paths_before_git(self):
++        with mock.patch.object(m, 'owned_command') as command:
++            for revision, relative in ((RELEASE, '../.env'), ('HEAD', m.HOME)):
++                with self.assertRaisesRegex(RuntimeError, 'SOURCE_NOT_REVIEWED'):
++                    m.source(ROOT, revision, relative)
++            command.assert_not_called()
++
++    def test_snapshot_rejects_symlink_hardlink_and_writable_file(self):
++        with tempfile.TemporaryDirectory() as directory, mock.patch.object(m, 'safe_directories'):
++            path = pathlib.Path(directory) / 'asset'
++            path.write_bytes(b'original')
++            path.chmod(0o644)
++            original = m.snapshot(path, os.getuid())
++            self.assertEqual(original['bytes'], b'original')
++            path.chmod(0o666)
++            with self.assertRaisesRegex(RuntimeError, 'UNSAFE_FILE'):
++                m.snapshot(path, os.getuid())
++            path.chmod(0o644)
++            linked = path.with_name('hardlink')
++            os.link(path, linked)
++            with self.assertRaisesRegex(RuntimeError, 'UNSAFE_FILE'):
++                m.snapshot(path, os.getuid())
++            linked.unlink()
++            symbolic = path.with_name('symlink')
++            symbolic.symlink_to(path)
++            with self.assertRaisesRegex(RuntimeError, 'SYMLINK_PATH'):
++                m.snapshot(symbolic, os.getuid())
++
++    def stage(self, directory):
++        application = pathlib.Path(directory) / 'application'
++        application.mkdir()
++        originals, targets = {}, {}
++        for index, relative in enumerate(m.PUBLISH_ORDER):
++            originals[relative] = ('original asset %s\n' % index).encode()
++            targets[relative] = ('reviewed asset %s\n' % index).encode()
++            target = application / relative
++            target.parent.mkdir(parents=True, exist_ok=True)
++            target.write_bytes(originals[relative])
++            target.chmod(0o644)
++        return application, originals, targets
++
++    def test_preflight_only_lints_and_preserves_inode_and_no_backup(self):
++        with tempfile.TemporaryDirectory() as directory:
++            app, originals, targets = self.stage(directory)
++            before = {path: (app / path).stat() for path in m.PUBLISH_ORDER}
++            with mock.patch.object(m, 'safe_directories'), \
++                    mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
++                    mock.patch.object(m, 'owned_command', return_value=b'') as command, \
++                    mock.patch.object(m, 'backup_files', side_effect=AssertionError('preflight made backup')), \
++                    mock.patch.object(m, 'atomic', side_effect=AssertionError('preflight changed file')), \
++                    contextlib.redirect_stdout(io.StringIO()) as output:
++                m._install_locked(app, RELEASE, True, os.getuid())
++            self.assertIn('WEB_CUSTOMER_ADDRESSES_PREFLIGHT_OK', output.getvalue())
++            self.assertEqual(command.call_count, 1)
++            self.assertEqual(command.call_args.args[1][:2], [m.PHP, '-l'])
++            for path in m.PUBLISH_ORDER:
++                self.assertEqual((app / path).read_bytes(), originals[path])
++                self.assertEqual((app / path).stat(), before[path])
++            self.assertFalse((app.parent / 'web-customer-address-backups').exists())
++
++    def test_success_backs_up_exact_files_and_only_clears_views(self):
++        with tempfile.TemporaryDirectory() as directory:
++            app, originals, targets = self.stage(directory)
++            with mock.patch.object(m, 'safe_directories'), \
++                    mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
++                    mock.patch.object(m, 'owned_command', return_value=b'') as command, \
++                    contextlib.redirect_stdout(io.StringIO()) as output:
++                m._install_locked(app, RELEASE, False, os.getuid())
++            result = json.loads(output.getvalue())
++            self.assertEqual(result['status'], 'WEB_CUSTOMER_ADDRESSES_READY')
++            self.assertEqual(result['updated_files'], 3)
++            backup = pathlib.Path(result['backup'])
++            self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o700)
++            for path in m.PUBLISH_ORDER:
++                self.assertEqual((app / path).read_bytes(), targets[path])
++                self.assertEqual((backup / path).read_bytes(), originals[path])
++                self.assertEqual(stat.S_IMODE((backup / path).stat().st_mode), 0o600)
++            self.assertEqual([call.args[1][2:] for call in command.call_args_list],
++                             [[command.call_args_list[0].args[1][2]], ['view:clear']])
++            self.assertEqual(command.call_args_list[1].args[1], [m.PHP, str(app / 'artisan'), 'view:clear'])
++
++    def test_view_clear_failure_rolls_back_all_files(self):
++        with tempfile.TemporaryDirectory() as directory:
++            app, originals, targets = self.stage(directory)
++            with mock.patch.object(m, 'safe_directories'), \
++                    mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
++                    mock.patch.object(m, 'owned_command', side_effect=[b'', RuntimeError('view failure'), b'']) as command:
++                with self.assertRaisesRegex(RuntimeError, 'WEB_CUSTOMER_ADDRESSES_ROLLED_BACK'):
++                    m._install_locked(app, RELEASE, False, os.getuid())
++            for path in m.PUBLISH_ORDER:
++                self.assertEqual((app / path).read_bytes(), originals[path])
++            self.assertEqual(command.call_count, 3)
++
++    def test_rollback_does_not_overwrite_new_concurrent_edits(self):
++        with tempfile.TemporaryDirectory() as directory:
++            app, originals, targets = self.stage(directory)
++            def command(root, arguments):
++                if arguments[-1] == 'view:clear':
++                    (app / m.HOME).write_bytes(b'independent concurrent edit')
++                    raise RuntimeError('view failure')
++                return b''
++            with mock.patch.object(m, 'safe_directories'), \
++                    mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: targets[path]), \
++                    mock.patch.object(m, 'owned_command', side_effect=command):
++                with self.assertRaisesRegex(RuntimeError, 'ROLLBACK_INCOMPLETE'):
++                    m._install_locked(app, RELEASE, False, os.getuid())
++            self.assertEqual((app / m.HOME).read_bytes(), b'independent concurrent edit')
++            for path in m.ASSETS:
++                self.assertEqual((app / path).read_bytes(), originals[path])
++
++    def test_rerun_exact_target_has_no_writes_or_backup(self):
++        with tempfile.TemporaryDirectory() as directory:
++            app, originals, _ = self.stage(directory)
++            with mock.patch.object(m, 'safe_directories'), \
++                    mock.patch.object(m, 'plan_target', side_effect=lambda root, release, path, current: current), \
++                    mock.patch.object(m, 'owned_command', return_value=b'') as command, \
++                    mock.patch.object(m, 'backup_files', side_effect=AssertionError('unnecessary backup')), \
++                    mock.patch.object(m, 'atomic', side_effect=AssertionError('unnecessary write')), \
++                    contextlib.redirect_stdout(io.StringIO()) as output:
++                m._install_locked(app, RELEASE, False, os.getuid())
++            self.assertEqual(json.loads(output.getvalue())['updated_files'], 0)
++            self.assertEqual(command.call_count, 1)
++
++    def test_fixed_root_and_release_are_enforced_before_actions(self):
++        with mock.patch.object(m, '_install_locked') as apply:
++            for root, revision in ((pathlib.Path('/tmp/other'), RELEASE), (m.APP_ROOT, 'HEAD'),
++                                   (m.APP_ROOT, m.BASELINE)):
++                with self.assertRaisesRegex(RuntimeError, 'FIXED_ROOT_RELEASE_REQUIRED'):
++                    m.install(root, revision)
++            apply.assert_not_called()
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/web_storefront_ui_test.cjs b/tests/web_storefront_ui_test.cjs
+index 3ca0537..dfce89f 100644
+--- a/tests/web_storefront_ui_test.cjs
++++ b/tests/web_storefront_ui_test.cjs
+@@ -10,6 +10,10 @@ const source=fs.readFileSync(path.join(root,'public/storefront/storefront.js'),'
+ const flush=(ms=5)=>new Promise(resolve=>setTimeout(resolve,ms));
+ const cartKey='fasakhansta.web.cart.v1';
+ const pendingKey='fasakhansta.web.pending.v1';
++const customerKey='fasakhansta.web.customer.v1';
++const customerName='عميل تجريبي';
++const sampleAddress=(id='home',extra={})=>({id,area:'القاهرة',address:'١ شارع الاختبار الدور الثاني',latitude:30.01,longitude:31.05,...extra});
++const sampleProfile=(addresses=[sampleAddress()],extra={})=>({version:1,customer_name:customerName,customer_phone:'01012345678',selected_id:addresses[0]?.id,addresses,...extra});
+ const physicalIds=[94,301,307,363];
+ const stores=Array.from({length:16},(_,index)=>({
+  id:physicalIds[index]||1000+index,
+@@ -31,10 +35,18 @@ function fixture(options={}) {
+  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+  w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+  let geolocationCalls=0;
++ const geolocationRequests=[];
++ const controls={branches:stores.map(store=>({...store})),branchError:null,catalogError:null,checkoutFail:!!options.checkoutFail,releaseCheckout:null,delayQuote:!!options.delayQuote,releaseQuote:null,geolocation:options.geolocation||'success',accuracy:options.accuracy??100,context:{}};
+  const mapEvents={};
+  const map={setView(){return this;},on(name,callback){mapEvents[name]=callback;return this;},invalidateSize(){},removeLayer(){}};
+  w.L={map:()=>map,tileLayer:()=>({addTo(){return this;}}),divIcon:value=>value,marker:point=>({point,addTo(){return this;},on(){return this;},setLatLng(value){this.point=value;return this;},getLatLng(){return {lat:this.point[0],lng:this.point[1]};}})};
+- Object.defineProperty(w.navigator,'geolocation',{value:{getCurrentPosition(ok){geolocationCalls++;ok({coords:{latitude:30.01,longitude:31.05}});}}});
++ const gpsResult=(ok,latitude=30.01,longitude=31.05,accuracy=controls.accuracy)=>ok({coords:{latitude,longitude,accuracy}});
++ if(options.geolocation!=='unsupported')Object.defineProperty(w.navigator,'geolocation',{value:{getCurrentPosition(ok,fail){
++  geolocationCalls++;
++  if(controls.geolocation==='deferred')geolocationRequests.push({ok,fail});
++  else if(controls.geolocation==='denied')fail({code:1,message:'Permission denied'});
++  else gpsResult(ok);
++ }}});
+  const configuration=JSON.parse($('#storefront-data').textContent);
+  assert.equal(configuration.branches.length,0,'Production HTML leaked branch bootstrap data before delivery discovery');
+  // Even stale or injected bootstrap rows must not bypass server-side delivery discovery.
+@@ -43,22 +55,30 @@ function fixture(options={}) {
+  $('#storefront-data').textContent=JSON.stringify(configuration);
+  if(options.savedCart)w.sessionStorage.setItem(cartKey,JSON.stringify(options.savedCart));
+  if(options.pending)w.sessionStorage.setItem(pendingKey,JSON.stringify(options.pending));
++ if(options.savedProfile!==undefined)w.localStorage.setItem(customerKey,typeof options.savedProfile==='string'?options.savedProfile:JSON.stringify(options.savedProfile));
++ if(options.storageFailure)Object.defineProperty(w,'localStorage',{value:{
++  getItem(){throw new w.DOMException('Storage blocked','SecurityError');},
++  setItem(){throw new w.DOMException('Quota exceeded','QuotaExceededError');},
++  removeItem(){throw new w.DOMException('Storage blocked','SecurityError');},
++ }});
+  const calls=[];
+- const controls={branches:stores.map(store=>({...store})),branchError:null,catalogError:null,checkoutFail:!!options.checkoutFail,releaseCheckout:null};
+  const response=(status,value)=>({ok:status>=200&&status<300,status,json:async()=>value});
+  w.fetch=async(input,init={})=>{
+   const url=new URL(input),body=init.body?JSON.parse(init.body):null;
+   calls.push({path:url.pathname,url:url.href,search:url.search,method:init.method,body,headers:init.headers,credentials:init.credentials});
+   if(url.pathname==='/shop/branches') {
+    if(controls.branchError)return response(controls.branchError.status,{message:controls.branchError.message});
+-   return response(200,{success:true,branches:controls.branches,context:{...body,customer_phone:'01012345678',location_confirmed:true}});
++   return response(200,{success:true,branches:controls.branches,context:{...body,customer_name:undefined,customer_phone:'01012345678',location_confirmed:true,...controls.context}});
+   }
+   if(url.pathname==='/shop/addresses')return response(200,{items:[{label:'القاهرة <img src=x onerror=evil()>',latitude:30.01,longitude:31.05}]});
+   if(url.pathname==='/shop/catalog') {
+    if(controls.catalogError)return response(controls.catalogError.status,{message:controls.catalogError.message});
+    return response(200,{products,categories:[{id:1,name:'الفسيخ'},{id:2,name:'قسم <img src=x onerror=evil()>'}],open:true});
+   }
+-  if(url.pathname==='/shop/quote')return response(200,{success:true,token:'sealed-quote',distance_km:'1.112',summary:{subtotal:'225.00',delivery:'22.24',tax:'0.00',total:'247.24',items:[{name:'فسيخ <img src=x onerror=evil()>',quantity:'0.500',quantity_mode:'weight',option_label:'',unit_price:'450.00',total:'225.00'}]}});
++  if(url.pathname==='/shop/quote') {
++   if(controls.delayQuote)await new Promise(resolve=>controls.releaseQuote=resolve);
++   return response(200,{success:true,token:'sealed-quote',distance_km:'1.112',summary:{subtotal:'225.00',delivery:'22.24',tax:'0.00',total:'247.24',items:[{name:'فسيخ <img src=x onerror=evil()>',quantity:'0.500',quantity_mode:'weight',option_label:'',unit_price:'450.00',total:'225.00'}]}});
++  }
+   if(url.pathname==='/shop/checkout') {
+    if(controls.checkoutFail){await new Promise(resolve=>controls.releaseCheckout=resolve);throw new TypeError('Connection interrupted');}
+    return response(200,{success:true,order:{number:'WEB-101',total:'247.24'}});
+@@ -71,6 +91,7 @@ function fixture(options={}) {
+  const choose=id=>{$('#branch-select').value=String(id);$('#branch-select').dispatchEvent(new w.Event('change',{bubbles:true}));};
+  const point=(latitude=30.01,longitude=31.05)=>mapEvents.click({latlng:{lat:latitude,lng:longitude}});
+  const fillDelivery=()=>{
++  input('#delivery-form [name="customer_name"]',customerName);
+   input('#delivery-form [name="customer_phone"]','01012345678');
+   input('#delivery-form [name="area"]','القاهرة',false);
+   input('#delivery-form [name="address"]','١ شارع الاختبار الدور الثاني');
+@@ -78,14 +99,16 @@ function fixture(options={}) {
+  const discover=async()=>{fillDelivery();point();$('#delivery-form').elements.location_confirmed.checked=true;submit('#delivery-form');await flush();};
+  const add=quantity=>{click('[data-action="product"][data-id="1"]');input('#add-product-form [name="quantity"]',String(quantity));submit('#add-product-form');};
+  w.eval(source);
+- return {w,$,all,calls,controls,click,input,submit,choose,point,fillDelivery,discover,add,geolocationCalls:()=>geolocationCalls,close:()=>w.close()};
++ const selectAddress=id=>{const select=$('#saved-address-select');assert.ok(select,'Saved-address selector missing');select.value=id;select.dispatchEvent(new w.Event('change',{bubbles:true}));};
++ const releaseGeolocation=(latitude=30.01,longitude=31.05)=>{const request=geolocationRequests.shift();assert.ok(request,'No pending geolocation request');gpsResult(request.ok,latitude,longitude);};
++ return {w,$,all,calls,controls,click,input,submit,choose,point,fillDelivery,discover,add,selectAddress,releaseGeolocation,geolocationCalls:()=>geolocationCalls,close:()=>w.close()};
+ }
+ async function gatedDiscovery() {
+- const f=fixture({savedCart:{branch:'94',cart:[{productId:1,optionId:'',mode:'weight',quantity:.5}]}});
++ const f=fixture({geolocation:'denied',savedCart:{branch:'94',cart:[{productId:1,optionId:'',mode:'weight',quantity:.5}]}});
+  try {
+   const {$,all,calls,click,submit,choose,point}=f;
+   assert.equal(calls.length,0,'Page load requested a catalog or delivery data');
+-  assert.equal(f.geolocationCalls(),0,'Page load requested browser geolocation without a click');
++  assert.equal(f.geolocationCalls(),1,'Page load did not try automatic browser geolocation');
+   assert.equal(all('.branch-card').length,0);assert.equal(all('.product-card').length,0);
+   assert.equal($('#branch-select').disabled,true);assert.equal($('#branch-select').options.length,1);
+   assert.equal($('#cart-count').textContent,'0','Saved cart bypassed delivery gate');
+@@ -97,12 +120,12 @@ async function gatedDiscovery() {
+   point(0,0);submit('#delivery-form');await flush();assert.equal(calls.length,0,'Out-of-Egypt point fetched stores');
+   point();assert.equal($('#delivery-form').elements.location_confirmed.checked,false,'Changed point kept stale confirmation');
+   submit('#delivery-form');await flush();assert.equal(calls.length,0,'Unconfirmed point fetched stores');
+-  click('#geolocate');assert.equal(f.geolocationCalls(),1,'Explicit geolocation action failed');
+-  assert.equal($('#delivery-form').elements.location_confirmed.checked,false);
++  f.controls.geolocation='success';click('#geolocate');assert.equal(f.geolocationCalls(),2,'Explicit geolocation retry failed');
++  assert.equal($('#delivery-form').elements.location_confirmed.checked,true,'Successful GPS required an extra confirmation click');
+   $('#delivery-form').elements.location_confirmed.checked=true;submit('#delivery-form');await flush();
+   const discovery=calls.find(call=>call.path==='/shop/branches');
+   assert.ok(discovery);assert.equal(discovery.method,'POST');assert.equal(discovery.search,'');
+-  assert.equal(discovery.body.customer_phone,'01012345678');assert.equal(discovery.body.address,'١ شارع الاختبار الدور الثاني');
++  assert.equal(discovery.body.customer_name,customerName);assert.equal(discovery.body.customer_phone,'01012345678');assert.equal(discovery.body.address,'١ شارع الاختبار الدور الثاني');
+   assert.equal(discovery.body.latitude,30.01);assert.equal(discovery.body.longitude,31.05);assert.equal(discovery.body.location_confirmed,true);
+   assert.equal(discovery.headers['Content-Type'],'application/json');assert.equal(discovery.credentials,'same-origin');
+   assert.equal(discovery.headers['X-CSRF-TOKEN'],$ ('meta[name="csrf-token"]').content);
+@@ -137,6 +160,7 @@ async function suggestionsAndErrors() {
+   f.controls.branchError={status:422,message:'رسالة <img src=x onerror=evil()>'};f.submit('#delivery-form');await flush();
+   assert.equal(f.$('#delivery-error').textContent,'رسالة <img src=x onerror=evil()>');assert.equal(f.all('#delivery-error img').length,0);
+   assert.equal(f.$('#find-stores').disabled,false);assert.equal(f.$('#branch-select').disabled,true);assert.equal(f.all('.branch-card').length,0);
++  assert.equal(f.w.localStorage.getItem(customerKey),null,'Rejected registration saved unverified customer details');
+   f.controls.branchError={status:419,message:'ignored'};f.submit('#delivery-form');await flush();
+   assert.ok(f.$('#delivery-error').textContent.includes('انتهت الجلسة'));
+   f.controls.branchError=null;await f.discover();f.controls.catalogError={status:500,message:'private exception'};
+@@ -175,6 +199,7 @@ async function checkoutAndRetry() {
+   f.click('[data-action="quantity"][data-delta="1"]');assert.ok(f.$('.line-controls').textContent.includes('٠٫٧٥'));
+   f.click('[data-action="quantity"][data-delta="-1"]');f.click('[data-action="checkout"]');
+   assert.equal(f.$('#checkout-dialog').open,true);
++  assert.equal(f.$('#checkout-form').elements.customer_name.value,customerName,'Checkout did not reuse the first-registration name');
+   for(const name of ['customer_phone','address','area']) {
+    assert.equal(f.$('#checkout-form').elements[name].readOnly,true,`Checkout ${name} is editable independently of delivery discovery`);
+    assert.equal(f.$('#checkout-form').elements[name].value,f.$('#delivery-form').elements[name].value);
+@@ -207,7 +232,182 @@ async function checkoutAndRetry() {
+   assert.ok(f.$('#review-panel').textContent.includes('WEB-101'));assert.ok(f.$('#review-panel').textContent.includes('كاش'));
+  } finally {f.close();}
+ }
++async function automaticLocationAndCustomerRecall() {
++ const f=fixture();let saved;
++ try {
++  const form=f.$('#delivery-form'),name=form.elements.customer_name;
++  assert.ok(name,'First-registration name field missing');assert.equal(name.required,true);assert.equal(name.minLength,2);assert.equal(name.maxLength,100);
++  assert.equal(f.geolocationCalls(),1,'First visit did not automatically request GPS');
++  assert.equal(form.elements.location_confirmed.checked,true,'Automatic GPS did not confirm its valid point');
++  assert.equal(f.calls.length,0,'Automatic location exposed stores before complete registration');
++  f.fillDelivery();f.input('#delivery-form [name="customer_name"]','');f.submit('#delivery-form');await flush();
++  assert.equal(f.calls.length,0,'Blank customer name passed first-registration gate');
++  f.input('#delivery-form [name="customer_name"]',customerName);f.controls.context={address:'١ شارع الاختبار، الدور الثاني',area:'القاهرة الجديدة'};
++  f.submit('#delivery-form');await flush();
++  const discovery=f.calls.find(call=>call.path==='/shop/branches');assert.ok(discovery,'Automatic GPS still required manual map interaction');
++  assert.equal(discovery.body.location_confirmed,true);assert.equal(discovery.body.latitude,30.01);
++  saved=JSON.parse(f.w.localStorage.getItem(customerKey));
++  assert.equal(saved.version,1);assert.equal(saved.customer_name,customerName);assert.equal(saved.customer_phone,'01012345678');
++  assert.equal(saved.addresses.length,1);assert.equal(saved.selected_id,saved.addresses[0].id);
++  assert.equal(saved.addresses[0].address,f.controls.context.address,'Saved address ignored server normalization');
++  assert.equal(saved.addresses[0].area,f.controls.context.area);assert.equal(saved.addresses[0].latitude,30.01);assert.equal(saved.addresses[0].longitude,31.05);
++ } finally {f.close();}
++ const recall=fixture({savedProfile:saved});
++ try {
++  const form=recall.$('#delivery-form'),select=recall.$('#saved-address-select');
++  assert.ok(select,'Returning customer has no address selector');assert.equal(select.value,saved.selected_id);
++  assert.ok(select.compareDocumentPosition(form.elements.customer_name)&recall.w.Node.DOCUMENT_POSITION_FOLLOWING,'Saved addresses are not above the registration fields');
++  assert.equal(recall.geolocationCalls(),0,'Returning customer address was replaced by current GPS');
++  assert.equal(recall.calls.length,0,'Saved address bypassed server delivery eligibility check');
++  assert.equal(form.elements.customer_name.value,saved.customer_name);assert.equal(form.elements.customer_phone.value,saved.customer_phone);
++  assert.equal(form.elements.area.value,saved.addresses[0].area);assert.equal(form.elements.address.value,saved.addresses[0].address);
++  assert.equal(form.elements.location_confirmed.checked,true,'Saved valid address required a new map confirmation');
++  recall.submit('#delivery-form');await flush();
++  assert.equal(recall.calls.filter(call=>call.path==='/shop/branches').length,1);
++  assert.equal(recall.calls.filter(call=>call.path==='/shop/catalog').length,0);
++  recall.choose(94);await flush();recall.add(.5);recall.click('[data-action="cart"]');recall.click('[data-action="checkout"]');
++  assert.equal(recall.$('#checkout-form').elements.customer_name.value,saved.customer_name,'Returning checkout lost saved name');
++ } finally {recall.close();}
++}
++async function savedAddressSelectionAndForget() {
++ const addresses=[sampleAddress('home'),sampleAddress('work',{area:'الجيزة',address:'١٠ شارع المكتب الدور الثالث',latitude:30.04,longitude:31.1})];
++ const f=fixture({savedProfile:sampleProfile(addresses)});
++ try {
++  f.selectAddress('work');assert.equal(f.calls.length,0,'Saved-address selection fetched a catalog before confirmation');
++  assert.equal(f.$('#delivery-form').elements.address.value,addresses[1].address);assert.equal(f.$('#delivery-form').elements.location_confirmed.checked,true);
++  f.submit('#delivery-form');await flush();
++  const request=f.calls.find(call=>call.path==='/shop/branches');assert.equal(request.body.latitude,30.04);assert.equal(request.body.longitude,31.1);
++  assert.equal(JSON.parse(f.w.localStorage.getItem(customerKey)).selected_id,'work');
++  f.click('#delivery-summary [data-action="edit-location"]');
++  f.selectAddress('new');assert.equal(f.geolocationCalls(),1,'New address did not request automatic GPS');
++  assert.equal(f.$('#delivery-form').elements.area.value,'');assert.equal(f.$('#delivery-form').elements.address.value,'');
++  assert.equal(f.$('#delivery-form').elements.customer_name.value,customerName);assert.equal(f.$('#delivery-form').elements.customer_phone.value,'01012345678');
++  f.input('#delivery-form [name="area"]','المنصورة',false);f.input('#delivery-form [name="address"]','٤ شارع الجامعة الدور الأول');f.submit('#delivery-form');await flush();
++  const profile=JSON.parse(f.w.localStorage.getItem(customerKey));assert.equal(profile.addresses.length,3,'New address replaced previous address history');
++  assert.ok(profile.addresses.some(address=>address.id===profile.selected_id&&address.address==='٤ شارع الجامعة الدور الأول'));
++  f.click('#delivery-summary [data-action="edit-location"]');f.click('#forget-customer');
++  assert.equal(f.w.localStorage.getItem(customerKey),null,'Forget action retained saved customer details');
++  for(const key of ['customer_name','customer_phone','area','address'])assert.equal(f.$('#delivery-form').elements[key].value,'',`Forget action retained ${key}`);
++  assert.equal(f.$('#branch-select').disabled,true);assert.equal(f.all('.branch-card').length,0);
++ } finally {f.close();}
++ const ten=Array.from({length:10},(_,index)=>sampleAddress('address-'+index,{address:`العنوان المحفوظ رقم ${index} شارع الاختبار`}));
++ const bounded=fixture({savedProfile:sampleProfile(ten)});
++ try {
++  bounded.selectAddress('new');bounded.fillDelivery();bounded.submit('#delivery-form');await flush();
++  const profile=JSON.parse(bounded.w.localStorage.getItem(customerKey));assert.equal(profile.addresses.length,10,'Saved address history grew past its bound');
++  assert.ok(profile.addresses.some(address=>address.id===profile.selected_id&&address.address==='١ شارع الاختبار الدور الثاني'),'Newest address missing from bounded history');
++ } finally {bounded.close();}
++}
++async function delayedGpsAndDeniedFallback() {
++ const approximate=fixture({accuracy:1000});
++ try {
++  assert.equal(approximate.geolocationCalls(),1);assert.equal(approximate.$('#delivery-form').elements.location_confirmed.checked,false,'Approximate GPS was silently confirmed');
++  assert.ok(approximate.$('#location-help').textContent.includes('تقريبي'),'Approximate GPS has no precision guidance');
++  approximate.fillDelivery();approximate.submit('#delivery-form');await flush();assert.equal(approximate.calls.length,0,'Approximate GPS bypassed user confirmation');
++  approximate.point(30.15,31.15);approximate.$('#delivery-form').elements.location_confirmed.checked=true;approximate.submit('#delivery-form');await flush();
++  const request=approximate.calls.find(call=>call.path==='/shop/branches');assert.equal(request.body.latitude,30.15);assert.equal(request.body.longitude,31.15);
++ } finally {approximate.close();}
++ const f=fixture({geolocation:'deferred'});
++ try {
++  assert.equal(f.geolocationCalls(),1);f.fillDelivery();f.point(30.2,31.2);f.$('#delivery-form').elements.location_confirmed.checked=true;
++  f.releaseGeolocation();assert.equal(f.$('#delivery-form').elements.location_confirmed.checked,true,'Delayed GPS reset a manually chosen point');
++  f.submit('#delivery-form');await flush();const request=f.calls.find(call=>call.path==='/shop/branches');
++  assert.equal(request.body.latitude,30.2,'Delayed GPS replaced manual latitude');assert.equal(request.body.longitude,31.2,'Delayed GPS replaced manual longitude');
++ } finally {f.close();}
++ const saved=fixture({savedProfile:sampleProfile(),geolocation:'deferred'});
++ try {
++  saved.selectAddress('new');assert.equal(saved.geolocationCalls(),1);saved.selectAddress('home');saved.releaseGeolocation(30.8,31.8);
++  saved.submit('#delivery-form');await flush();const request=saved.calls.find(call=>call.path==='/shop/branches');
++  assert.equal(request.body.latitude,30.01,'Delayed GPS overwrote a reselected saved address');assert.equal(request.body.longitude,31.05);
++ } finally {saved.close();}
++ for(const geolocation of ['denied','unsupported']) {
++  const fallback=fixture({geolocation});
++  try {
++   fallback.fillDelivery();fallback.submit('#delivery-form');await flush();assert.equal(fallback.calls.length,0,'Unavailable GPS allowed discovery without a point');
++   assert.ok(fallback.$('#location-help').textContent,'Unavailable GPS has no user guidance');
++   fallback.point();assert.equal(fallback.$('#delivery-form').elements.location_confirmed.checked,false);
++   fallback.$('#delivery-form').elements.location_confirmed.checked=true;fallback.submit('#delivery-form');await flush();
++   assert.equal(fallback.calls.filter(call=>call.path==='/shop/branches').length,1,'Manual fallback stopped working without GPS');
++  } finally {fallback.close();}
++ }
++}
++async function profileStorageSafety() {
++ const rejected=fixture({savedProfile:sampleProfile()});
++ try {
++  const saved=rejected.w.localStorage.getItem(customerKey);
++  rejected.input('#delivery-form [name="customer_name"]','اسم مرفوض');rejected.input('#delivery-form [name="address"]','عنوان جديد مرفوض شارع الاختبار');
++  rejected.controls.branchError={status:422,message:'العنوان غير متاح'};rejected.submit('#delivery-form');await flush();
++  assert.equal(rejected.calls.filter(call=>call.path==='/shop/branches').length,1);
++  assert.equal(rejected.w.localStorage.getItem(customerKey),saved,'Failed discovery overwrote the saved customer profile');
++  assert.equal(rejected.$('#delivery-form').hidden,false);assert.equal(rejected.$('#branch-select').disabled,true);
++ } finally {rejected.close();}
++ for(const savedProfile of ['{invalid JSON','null',JSON.stringify({version:9,addresses:[sampleAddress()]}),sampleProfile([sampleAddress('bad',{latitude:0,longitude:0})])]) {
++  const f=fixture({savedProfile});
++  try {
++   assert.equal(f.geolocationCalls(),1,'Malformed customer data disabled automatic location');assert.equal(f.calls.length,0);
++   assert.ok(!f.all('#saved-address-select option').some(option=>option.value==='bad'),'Invalid out-of-Egypt saved point was exposed');
++   f.fillDelivery();f.submit('#delivery-form');await flush();assert.equal(f.calls.filter(call=>call.path==='/shop/branches').length,1,'Malformed browser data broke registration');
++  } finally {f.close();}
++ }
++ const blocked=fixture({storageFailure:true});
++ try {
++  blocked.fillDelivery();blocked.submit('#delivery-form');await flush();
++  assert.equal(blocked.calls.filter(call=>call.path==='/shop/branches').length,1,'Blocked browser storage prevented delivery discovery');
++  assert.equal(blocked.$('#delivery-summary').hidden,false);assert.equal(blocked.$('#find-stores').disabled,false);
++ } finally {blocked.close();}
++ const attacker='عميل <img src=x onerror=evil()>',malicious=sampleAddress('home',{area:'القاهرة <img src=x onerror=evil()>',address:'١ شارع <script>evil()</script> الاختبار'});
++ const xss=fixture({savedProfile:sampleProfile([malicious],{customer_name:attacker})});
++ try {
++  assert.equal(xss.$('#delivery-form').elements.customer_name.value,attacker);
++  assert.equal(xss.$('#delivery-form').elements.address.value,malicious.address);
++  assert.equal(xss.all('img[onerror],script:not([src]):not(#storefront-data)').length,0,'Saved profile generated executable markup');
++  xss.submit('#delivery-form');await flush();
++  assert.ok(xss.$('#delivery-summary').textContent.includes('<script>evil()</script>'),'Saved address text was dropped instead of safely rendered');
++  assert.equal(xss.all('img[onerror],script:not([src]):not(#storefront-data)').length,0,'Saved address summary generated executable markup');
++ } finally {xss.close();}
++ const pending={token:'pending-token',idempotency_key:'00000000-0000-4000-8000-000000000001'};
++ const retry=fixture({pending,savedProfile:sampleProfile()});
++ try {
++  assert.equal(retry.geolocationCalls(),0,'Pending checkout requested new location');assert.equal(retry.calls.length,0,'Pending checkout auto-submitted on page load');
++  retry.click('[data-action="cart"]');retry.click('[data-action="resume-checkout"]');retry.click('#confirm-order');await flush();
++  const command=retry.calls.find(call=>call.path==='/shop/checkout');assert.deepEqual(command.body,pending,'Profile recall changed pending checkout identity');
++  assert.equal(retry.calls.filter(call=>call.path==='/shop/branches').length,0,'Pending recovery performed new discovery');
++  retry.click('#review-panel [data-close]');retry.submit('#delivery-form');await flush();
++  const delivery=retry.calls.find(call=>call.path==='/shop/branches');assert.ok(delivery,'Resolving an old pending order lost the displayed saved address point');
++  assert.equal(delivery.body.latitude,30.01);assert.equal(delivery.body.longitude,31.05);assert.equal(delivery.body.location_confirmed,true);
++  assert.equal(retry.geolocationCalls(),0,'Saved address needed fresh GPS after pending recovery');
++ } finally {retry.close();}
++}
++async function staleQuoteCannotReplaceCurrentCustomer() {
++ for(const change of ['location','branch']) {
++  const f=fixture({delayQuote:true});
++  try {
++   await f.discover();f.choose(94);await flush();f.add(.5);f.click('[data-action="cart"]');f.click('[data-action="checkout"]');
++   f.input('#checkout-form [name="customer_name"]','اسم الطلب القديم');f.submit('#checkout-form');await flush();
++   assert.equal(typeof f.controls.releaseQuote,'function','Quote request was not held for race regression');
++   assert.equal(f.$('#review-panel').hidden,true,'Delayed quote displayed review before its response');
++   if(change==='location') {
++    f.click('#checkout-form [data-action="edit-location"]');f.click('#confirm-location-change');
++    f.selectAddress('new');f.input('#delivery-form [name="customer_name"]','اسم العنوان الجديد');
++    f.input('#delivery-form [name="area"]','المنصورة',false);f.input('#delivery-form [name="address"]','٢٣ شارع الجامعة الدور الخامس');
++    f.submit('#delivery-form');await flush();
++    assert.equal(f.$('#delivery-summary').hidden,false,'New location did not finish discovery before stale quote release');
++   } else {
++    f.choose(301);f.click('#confirm-branch');await flush();
++    assert.equal(f.$('#branch-select').value,'301');assert.equal(f.$('#cart-count').textContent,'0');
++   }
++   const saved=f.w.localStorage.getItem(customerKey);assert.ok(saved);
++   f.controls.releaseQuote();await flush();
++   assert.equal(f.w.localStorage.getItem(customerKey),saved,`Late quote overwrote the customer profile after ${change} changed`);
++   assert.equal(f.$('#review-panel').hidden,true,`Late quote displayed stale review after ${change} changed`);
++   assert.equal(f.$('#confirm-order'),null,`Late quote created an order confirmation action after ${change} changed`);
++   assert.equal(f.calls.filter(call=>call.path==='/shop/checkout').length,0,'Stale quote unexpectedly submitted an order');
++   assert.equal(f.$('#review-order').disabled,false,'Ignoring stale quote left review button disabled');
++  } finally {f.close();}
++ }
++}
+ (async()=>{
+  await gatedDiscovery();await suggestionsAndErrors();await branchAndLocationChanges();await checkoutAndRetry();
+- console.log('PASS DOM interactions: delivery gate, explicit location, JSON discovery, coverage order/filter/paging, escaping/errors, fractional cart, branch/location confirmation, readonly checkout context, double-click suppression and stable pending retry.');
++ await automaticLocationAndCustomerRecall();await savedAddressSelectionAndForget();await delayedGpsAndDeniedFallback();await profileStorageSafety();await staleQuoteCannotReplaceCurrentCustomer();
++ console.log('PASS DOM interactions: automatic GPS and manual fallback, first registration, saved customer/address recall and selection, bounded history/forget, delayed GPS and stale quote guards, malformed/blocked storage and escaping, JSON delivery gate, coverage order/filter/paging, fractional cart, branch/location confirmation, checkout prefill and stable pending retry.');
+ })().catch(error=>{console.error(error);process.exitCode=1;});
