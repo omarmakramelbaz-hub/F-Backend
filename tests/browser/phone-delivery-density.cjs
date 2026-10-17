@@ -1,8 +1,10 @@
 // Exercises production queue rendering/CSS with synthetic tickets and no external requests.
-const {chromium} = require('playwright');
 const fs = require('fs');
 const assert = require('node:assert/strict');
 const path = require('path');
+const os = require('os');
+const {chromium} = require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES || process.env.NODE_PATH || '', 'playwright'));
+const output = process.env.PHONE_DENSITY_QA_OUTPUT || fs.mkdtempSync(path.join(os.tmpdir(), 'phone-delivery-density-'));
 const read = p => fs.readFileSync(path.join(__dirname, '../..', p), 'utf8');
 const source = read('public/dashboard/js/phone-orders.js');
 function fn(name, input = source) {
@@ -11,7 +13,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['text','element','scaled','decimal','money','dateLabel','validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','consentControl','validCash','plainEnter','cashKeyboard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -44,14 +46,14 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
   return labels;
 }
 (async()=>{
- fs.mkdirSync('test-results/phone-delivery',{recursive:true});
- const browser=await chromium.launch({headless:true}), page=await browser.newPage();
+ fs.mkdirSync(output,{recursive:true});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CRM_TEST_CHROMIUM || undefined}), page=await browser.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try {
   for(const [width,height,locale] of [[1920,1030,'ar'],[1366,768,'ar'],[1366,768,'en']]) {
    const labels=await board(page,width,height,locale);
    const metrics=await page.evaluate(()=>[...document.querySelectorAll('.ph-board-cards')].map(n=>{const b=n.getBoundingClientRect(),cards=[...n.querySelectorAll('.ph-ticket')].map(c=>c.getBoundingClientRect());return {top:b.top,bottom:b.bottom,visible:cards.filter(c=>c.top>=b.top&&c.bottom<=b.bottom+1).length,cardHeight:cards[0].height,overflow:n.scrollHeight>n.clientHeight,wide:n.scrollWidth>n.clientWidth+1};}));
-   await page.screenshot({path:`test-results/phone-delivery/delivery-${width}-${locale}.png`,fullPage:true});
+   await page.screenshot({path:path.join(output,`delivery-${width}-${locale}.png`),fullPage:true});
    console.log({width,height,locale,metrics});
    for(const m of metrics){assert(m.visible>=10,JSON.stringify(m));assert(m.overflow);assert(!m.wide);assert(m.top<210);assert(m.bottom<=height-40);}
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
@@ -106,7 +108,7 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
   await board(page,1366,768,'ar',1);
   assert(await page.locator('.ph-ticket').first().evaluate(n=>n.getBoundingClientRect().height<65));
   await board(page,390,844,'ar');
-  await page.screenshot({path:'test-results/phone-delivery/delivery-mobile.png',fullPage:true});
+  await page.screenshot({path:path.join(output,'delivery-mobile.png'),fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   assert.equal(await page.locator('.ph-ticket').evaluateAll(cards=>cards.some(card=>{const box=card.getBoundingClientRect();return [...card.querySelectorAll('button')].some(button=>{const b=button.getBoundingClientRect();return b.bottom>box.bottom+1||b.right>box.right+1||b.left<box.left-1;});})),false);
   // The branch home renderer uses only its two panels, with data from the scoped API.
@@ -120,7 +122,7 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
   assert.equal(await page.locator('[data-bh-panel]').count(),2);
   assert.match(await page.locator('[data-bh-total]').innerText(),/125.50/);
   assert.match(await page.locator('[data-bh-stock]').innerText(),/25.5/);
-  await page.screenshot({path:'test-results/phone-delivery/branch-home.png',fullPage:true});
+  await page.screenshot({path:path.join(output,'branch-home.png'),fullPage:true});
   await page.locator('[data-bh-search]').fill('رنجة');assert.equal(await page.locator('[data-bh-stock] tr').count(),1);
   for(const module of ['takeaway','dining']) {
    const prefix=module==='takeaway'?'pos':'dining',js=read('public/dashboard/js/'+module+'-pos.js');
@@ -143,5 +145,6 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    assert(!output.includes('الوصفة غير مسجلة'),module);
   }
   assert.deepEqual(errors,[]);
+  console.log('Phone delivery density, board actions, settlements, branch panels and cash-only controls passed. Screenshots: '+output);
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

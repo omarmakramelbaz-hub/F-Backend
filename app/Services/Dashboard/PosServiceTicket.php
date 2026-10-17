@@ -58,14 +58,15 @@ class PosServiceTicket
     {
         $this->channel($channel);$rules=$this->commandRules()+['ticket_id'=>'nullable|integer|min:1','table_id'=>'nullable|integer|min:1','expected_revision'=>'nullable|integer|min:1',
             'items'=>'present|array|max:100','discount'=>'nullable|string|max:14','discount_reason'=>'nullable|string|max:500','quote_hash'=>'nullable|string|size:64','reprice'=>'nullable|boolean',
-            'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean'];
+            'notes'=>'nullable|string|max:500','send_to_kitchen'=>'nullable|boolean',
+            'service_consent'=>'nullable|boolean','marketing_consent'=>'nullable|boolean'];
         $rules+=$channel==='dine'?['customer_name'=>'nullable|string|max:100','customer_phone'=>'nullable|string|max:30','waiter_name'=>'required|string|max:100','guest_count'=>'required|integer|min:1|max:200']:
             ['customer_name'=>'required|string|max:100','customer_phone'=>'required|string|max:30','address'=>'required|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','delivery_fee'=>'nullable|string|max:14','delivery_fee_manual'=>'nullable|boolean','latitude'=>'required|numeric|between:-90,90','longitude'=>'required|numeric|between:-180,180','location_confirmed'=>'required|accepted','delivery_quote_hash'=>'required|string|size:64','customer_id'=>'nullable|integer|min:1','delivery_company_id'=>'nullable|integer|min:1'];
         if($channel==='phone')$rules['delivery_origin_branch']=['nullable','string','regex:/^f:[1-9][0-9]{0,18}$/D'];
         $v=Validator::make($values,$rules)->validate();if($channel==='phone')$v=$this->inheritDeliveryOrigin($v,$actor);foreach(['waiter_name','customer_name','customer_phone','address','area','delivery_notes','notes','discount_reason'] as $key)if(isset($v[$key]))$v[$key]=trim($v[$key]);
         foreach($channel==='dine'?['waiter_name']:['customer_name','address'] as $key)if($v[$key]==='')throw ValidationException::withMessages([$key=>'هذا الحقل مطلوب.']);
         $delivery=0;
-        if($channel==='phone'||!empty($v['customer_phone']))$v['customer_phone']=CustomerDirectory::requirePhone($v['customer_phone']??null);
+        if($channel==='phone'||!empty($v['customer_phone'])||!empty($v['service_consent'])||!empty($v['marketing_consent']))$v['customer_phone']=CustomerDirectory::requirePhone($v['customer_phone']??null);
         $phoneKey=!empty($v['customer_phone'])?CustomerDirectory::phoneKey($v['customer_phone']):null;
         $hash=self::fingerprint([$channel,'save',$v]);$this->tables->requireReady();
         return DB::transaction(function()use($channel,$v,$actor,$hash,$delivery,$phoneKey){
@@ -110,7 +111,13 @@ class PosServiceTicket
             if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
             else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
-            app(CustomerDirectory::class)->capture($v,$channel==='phone'?'delivery':'dine',$v['branch']);
+            $directory=app(CustomerDirectory::class);
+            $customer=$directory->capture($v,$channel==='phone'?'delivery':'dine',$v['branch']);
+            if($customer&&(!empty($v['service_consent'])||!empty($v['marketing_consent']))) {
+                // A staff-confirmed choice is recorded now; an unpaid ticket is not a purchase.
+                $directory->consent((int)$customer->id,!empty($v['service_consent'])?true:null,
+                    !empty($v['marketing_consent'])?true:null,'pos-ticket:'.$channel.':'.$id,(int)$actor->id);
+            }
             if($table)DB::table('pos_service_tables')->where('id',$table->id)->update(['active_ticket_id'=>$id,'revision'=>(int)$table->revision+1,'updated_at'=>$when]);
             if($channel==='phone'&&($v['send_to_kitchen']??false))$this->queueKitchen($id,$v['branch'],$actor->id,$data['revision'],$when);
             $op=$this->record($v,$actor,$hash,'save',$id,$data['revision']);return $this->result($op,$actor,false);

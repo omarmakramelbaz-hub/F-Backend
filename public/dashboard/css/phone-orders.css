@@ -238,6 +238,141 @@
  #phone-orders.ph-step-details [data-phone-map]{min-height:220px;flex:none}
  #phone-orders .ph-location-controls{flex-wrap:wrap}
 }
+
+/* Product entry shares the compact counter layout; collection remains in its own dialog. */
+#phone-orders .ph-details-customer-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:8px;min-width:0}
+#phone-orders .ph-details-customer-row [data-phone-customer-phone-slot]{min-width:0}
+#phone-orders .ph-details-customer-row .ph-lookup input{min-width:0;flex:1}
+#phone-orders .ph-details-customer-row .ph-lookup button{flex:0 0 32px}
+#phone-orders .ph-customer-consent{display:flex;align-items:center;gap:6px;min-width:0;margin:3px 10px 6px;padding:5px 7px;border:1px solid var(--ph-border);border-radius:5px;font-size:10px;line-height:1.5;color:#4e617a}
+#phone-orders .ph-customer-consent input{flex:0 0 17px;width:17px;height:17px;margin:0;accent-color:var(--ph-orange)}
+#phone-orders .ph-customer-consent:focus-within{outline:3px solid #ff8b33;outline-offset:2px;background:#fff7ec}
+#phone-orders.ph-step-products:not(.ph-view-orders){gap:8px}
+#phone-orders.ph-step-products .ph-workspace{grid-template-columns:clamp(360px,24vw,440px) minmax(260px,1fr) clamp(270px,17vw,330px);gap:12px}
+#phone-orders.ph-step-products .ph-invoice>.ph-panel-heading{padding:8px 10px}
+#phone-orders.ph-step-products .ph-invoice-scroll{overflow:hidden}
+#phone-orders.ph-step-products .ph-lines{flex:1 1 0;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 8px}
+#phone-orders.ph-step-products .ph-lines th{height:25px;padding:4px 3px;position:sticky;top:0;background:#fafbfd;z-index:1}
+#phone-orders.ph-step-products .ph-lines td{padding:3px;height:34px;vertical-align:middle}
+#phone-orders.ph-step-products .ph-col-item{width:51%}
+#phone-orders.ph-step-products .ph-col-quantity{width:22%}
+#phone-orders.ph-step-products .ph-col-total{width:22%}
+#phone-orders.ph-step-products .ph-col-remove{width:5%}
+#phone-orders.ph-step-products .ph-line-name{margin:0;font-size:11px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone-orders.ph-step-products .ph-line-option{padding:0 2px;height:17px;font-size:9px;line-height:15px}
+#phone-orders.ph-step-products .ph-line-price{display:none}
+#phone-orders.ph-step-products .ph-line-quantity{flex-wrap:nowrap;gap:3px}
+#phone-orders.ph-step-products .ph-line-quantity input{height:25px;padding:2px 3px;font-size:11px}
+#phone-orders.ph-step-products .ph-line-unit{flex-shrink:0;font-size:9px;white-space:nowrap}
+#phone-orders.ph-step-products .ph-lines td>button{min-width:20px;min-height:25px;padding:2px 0}
+#phone-orders.ph-step-products .ph-checkout{flex:0 0 auto;border-top:1px solid var(--ph-border)}
+#phone-orders.ph-step-products .ph-invoice-note{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;padding:4px 10px;gap:6px}
+#phone-orders.ph-step-products .ph-invoice-note textarea{height:23px;max-height:23px;resize:none;padding:2px 4px;line-height:18px}
+#phone-orders.ph-step-products .ph-discount{padding:2px 10px;gap:6px}
+#phone-orders.ph-step-products .ph-discount .ph-field{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:4px}
+#phone-orders.ph-step-products .ph-discount input{height:25px;padding:3px 5px}
+#phone-orders.ph-step-products .ph-checkout>.ph-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:4px 10px;gap:3px 8px}
+#phone-orders.ph-step-products .ph-checkout>.ph-totals>div{padding:0;border:0;font-size:10px;gap:4px;min-width:0}
+#phone-orders.ph-step-products .ph-checkout>.ph-totals dt{font-size:10px;white-space:nowrap}
+#phone-orders.ph-step-products .ph-invoice-footer>.ph-totals{padding:4px 10px}
+#phone-orders.ph-step-products .ph-grand-total{padding:4px 0 0;border-top:1px solid var(--ph-border)}
+#phone-orders.ph-step-products .ph-grand-total dd{display:flex;gap:5px;align-items:baseline}
+#phone-orders.ph-step-products .ph-grand-total strong{font-size:25px}
+#phone-orders.ph-step-products .ph-grand-total small{margin:0;display:inline}
+#phone-orders.ph-step-products .ph-payment-note{margin:2px 10px 5px!important;padding:5px 7px;font-size:9px;line-height:1.45}
+#phone-orders.ph-step-products .ph-save{margin:3px 10px 8px;min-height:43px;padding:7px;font-size:13px}
+#phone-orders.ph-step-products .ph-catalog{gap:8px}
+#phone-orders.ph-step-products .ph-products{grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+#phone-orders.ph-step-products .ph-product-image{min-height:76px;max-height:112px;aspect-ratio:1.45}
+#phone-orders.ph-step-products .ph-product-copy{padding:6px;gap:3px}
+#phone-orders.ph-step-products .ph-customer>.ph-panel-heading{padding:8px 10px}
+#phone-orders.ph-step-products .ph-customer-scroll{padding:10px;gap:8px;overflow:hidden}
+#phone-orders.ph-step-products [data-phone-customer-summary]{margin:0;padding:6px 8px;max-height:58px;overflow:auto;font-size:10px;line-height:1.5;flex-shrink:0}
+#phone-orders.ph-step-products [data-phone-edit-customer]{min-height:29px;padding:4px 8px;font-size:10px;flex-shrink:0}
+#phone-orders.ph-step-products .ph-quantity{border:0;margin:0;padding:0;gap:9px;flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+#phone-orders.ph-step-products .ph-quantity-display{display:flex;flex-direction:column;gap:2px;align-items:center;flex-shrink:0}
+#phone-orders.ph-step-products .ph-quantity-display>span{font-size:12px;color:#4e617a}
+#phone-orders.ph-step-products .ph-quantity-display input{height:67px;border:0;background:transparent;padding:0 4px;color:var(--ph-orange);font-size:55px;font-weight:800;line-height:1.1}
+#phone-orders.ph-step-products .ph-quantity-display small{font-size:10px;color:#8390a1;text-align:center}
+#phone-orders.ph-step-products .ph-keypad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(4,minmax(0,1fr));gap:8px;border:0;border-radius:0;overflow:visible;flex:1 1 0;min-height:0;direction:ltr}
+#phone-orders.ph-step-products .ph-keypad button{display:flex;align-items:center;justify-content:center;min-width:0;min-height:0;padding:5px;border:1px solid #e1e7f0;border-radius:8px;background:#f8faff;color:#243c58;font-size:30px;font-weight:700;line-height:1}
+#phone-orders.ph-step-products .ph-keypad [data-phone-key="0"]{grid-column:span 2}
+#phone-orders.ph-step-products .ph-keypad .ph-key-confirm{grid-row:span 2;flex-direction:column;gap:10px;background:var(--ph-orange);border-color:var(--ph-orange);color:#fff;font-size:12px;line-height:1.5}
+#phone-orders.ph-step-products .ph-key-confirm i{font-size:25px}
+#phone-orders.ph-step-products .ph-keypad [data-phone-key=clear]{color:#c36722}
+#phone-orders.ph-step-products .ph-keypad [data-phone-key=backspace]{font-size:21px}
+#phone-orders.ph-step-products .ph-quantity-hint{padding:6px 7px;background:#fff7eb;border-radius:6px;font-size:10px;line-height:1.5;color:#8b693f;flex-shrink:0}
+#phone-orders .ph-settle-form .ph-cash-paid{position:relative;display:block;grid-column:1/-1;min-width:0;width:100%}
+#phone-orders .ph-cash-paid>span{position:absolute;top:6px;inset-inline:10px;text-align:center;font-size:10px;line-height:12px;font-weight:700;color:#7f542f;pointer-events:none}
+#phone-orders .ph-cash-paid input{width:100%;height:64px!important;padding:22px 10px 6px!important;background:#fff9f2!important;border:1px solid #f2be8e!important;border-radius:6px;font-size:30px!important;font-weight:800;text-align:center;direction:ltr}
+#phone-orders .ph-cash-paid input:focus{outline:3px solid #ff8b33;outline-offset:1px;box-shadow:0 0 0 5px #fff0e4}
+
+@media(min-width:900px) and (min-height:650px) and (max-height:700px){
+ #phone-orders.ph-step-details .ph-details-fields>.ph-field:has([data-phone-company]){grid-column:1/-1;grid-row:auto}
+}
+
+@media(min-width:1200px) and (max-height:830px){
+ .content-wrapper.phone-orders-wrapper:has(.ph-step-products:not(.ph-view-orders)){padding:6px;min-height:0!important}
+ #phone-orders.ph-step-products:not(.ph-view-orders){gap:5px}
+ #phone-orders.ph-step-products .ph-header{min-height:31px;padding:0}
+ #phone-orders.ph-step-products .ph-heading p{display:none}
+ #phone-orders.ph-step-products .ph-header .ph-branch{padding:4px 8px;min-height:30px}
+ #phone-orders.ph-step-products .ph-view-tabs button{padding:5px 8px}
+ #phone-orders.ph-step-products .ph-flow{min-height:37px;padding:5px 10px;gap:5px 10px}
+ #phone-orders.ph-step-products .ph-steps b{width:23px;height:23px;flex-basis:23px}
+ #phone-orders.ph-step-products .ph-workspace{grid-template-columns:360px minmax(245px,1fr) 270px;gap:9px}
+ #phone-orders.ph-step-products .ph-invoice>.ph-panel-heading,#phone-orders.ph-step-products .ph-customer>.ph-panel-heading{min-height:31px;padding:5px 9px}
+ #phone-orders.ph-step-products .ph-lines th{height:22px;padding:3px 2px;font-size:9px}
+ #phone-orders.ph-step-products .ph-lines td{height:26px;padding:1px 2px}
+ #phone-orders.ph-step-products .ph-line-name{font-size:10px;line-height:12px}
+ #phone-orders.ph-step-products .ph-line-option{display:block;height:13px;font-size:8px;line-height:11px}
+ #phone-orders.ph-step-products .ph-line-quantity input{height:23px;padding:1px 2px;font-size:10px}
+ #phone-orders.ph-step-products .ph-invoice-note{padding:2px 8px}
+ #phone-orders.ph-step-products .ph-invoice-note textarea{height:20px;max-height:20px;line-height:16px}
+ #phone-orders.ph-step-products .ph-discount{padding:2px 8px}
+ #phone-orders.ph-step-products .ph-discount input{height:22px;padding:2px 4px}
+ #phone-orders.ph-step-products .ph-checkout>.ph-totals{padding:3px 8px;gap:2px 6px}
+ #phone-orders.ph-step-products .ph-checkout>.ph-totals>div,#phone-orders.ph-step-products .ph-checkout>.ph-totals dt{font-size:9px}
+ #phone-orders.ph-step-products .ph-invoice-footer>.ph-totals{padding:3px 8px}
+ #phone-orders.ph-step-products .ph-grand-total dt{font-size:12px}
+ #phone-orders.ph-step-products .ph-grand-total strong{font-size:22px}
+ #phone-orders.ph-step-products .ph-payment-note{margin:1px 8px 4px!important;padding:4px 6px;font-size:8px}
+ #phone-orders.ph-step-products .ph-customer-consent{margin:2px 8px 4px;padding:3px 5px;font-size:9px}
+ #phone-orders.ph-step-products .ph-save{min-height:37px;margin:2px 8px 6px;font-size:12px;padding:5px}
+ #phone-orders.ph-step-products .ph-catalog-heading h2{font-size:14px}
+ #phone-orders.ph-step-products .ph-search{padding:5px 7px}
+ #phone-orders.ph-step-products .ph-categories button{padding:5px 8px}
+ #phone-orders.ph-step-products .ph-customer-scroll{padding:9px;gap:6px}
+ #phone-orders.ph-step-products [data-phone-customer-summary]{max-height:45px;padding:5px 6px;font-size:9px}
+ #phone-orders.ph-step-products [data-phone-edit-customer]{min-height:25px;padding:3px 6px}
+ #phone-orders.ph-step-products .ph-quantity{gap:7px}
+ #phone-orders.ph-step-products .ph-quantity-display>span{font-size:11px}
+ #phone-orders.ph-step-products .ph-quantity-display input{height:52px;font-size:45px}
+ #phone-orders.ph-step-products .ph-quantity-display small{font-size:9px}
+ #phone-orders.ph-step-products .ph-keypad{gap:7px}
+ #phone-orders.ph-step-products .ph-keypad button{font-size:27px}
+ #phone-orders.ph-step-products .ph-keypad .ph-key-confirm{font-size:11px}
+ #phone-orders.ph-step-products .ph-quantity-hint{font-size:9px;padding:5px 6px}
+}
+@media(max-width:1199px){
+ #phone-orders.ph-step-products .ph-workspace{grid-template-columns:minmax(300px,1fr) 270px;gap:10px}
+ #phone-orders.ph-step-products .ph-customer{height:560px;max-height:none}
+ #phone-orders.ph-step-products .ph-invoice{min-height:570px;max-height:740px}
+ #phone-orders.ph-step-products .ph-lines{min-height:300px}
+ #phone-orders.ph-step-products .ph-keypad{grid-template-rows:repeat(4,minmax(45px,1fr))}
+}
+@media(max-width:599px){
+ #phone-orders .ph-details-customer-row{grid-template-columns:1fr}
+ #phone-orders.ph-step-products .ph-workspace{display:flex}
+ #phone-orders.ph-step-products .ph-customer{height:500px;min-height:500px}
+ #phone-orders.ph-step-products .ph-customer-scroll{overflow:hidden}
+ #phone-orders.ph-step-products .ph-invoice{min-height:600px;max-height:740px}
+ #phone-orders.ph-step-products .ph-quantity-display input{height:48px;font-size:42px}
+ #phone-orders.ph-step-products .ph-keypad button{font-size:26px}
+ #phone-orders.ph-step-products .ph-keypad .ph-key-confirm{font-size:11px}
+ #phone-orders.ph-step-products .ph-products{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
 @media(max-height:649px){
  #phone-orders.ph-step-details .ph-customer-scroll{overflow:auto}
  #phone-orders.ph-step-details [data-phone-map]{min-height:220px;flex:none}

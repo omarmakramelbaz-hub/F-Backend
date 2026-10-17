@@ -149,4 +149,41 @@ check($legacyReplay['replayed']&&DB::table('takeaway_orders')->count()===$oldSal
 check((int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$oldCash+$offlineQuote['total_cents'],'legacy offline cash is retained without a synthetic customer');
 check((int)DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',6)->value('quantity_units')<$oldStock,'legacy offline sale still deducts real inventory');
 check(DB::table('crm_purchases')->count()===$oldPurchases,'legacy unknown customer does not create a feedback message');
+// Draft permission capture is separate from the paid-purchase feedback schedule.
+$beforeDraftPurchases=DB::table('crm_purchases')->count();$beforeDraftSales=DB::table('takeaway_orders')->count();
+$beforeDraftCash=DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');
+$beforeDraftStock=DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',6)->value('quantity_units');
+DB::table('pos_service_tables')->insert(['id'=>2,'branch'=>'f:100','name'=>'2','capacity'=>4,'active'=>true,'revision'=>1]);
+$draftQuote=$tickets->quote('dine',$cart,$actor);
+$draftValues=$cart+['table_id'=>2,'customer_name'=>'عميل موافقة الصالة','customer_phone'=>'01222222222','waiter_name'=>'كاشير','guest_count'=>1,
+    'quote_hash'=>$draftQuote['quote_hash'],'idempotency_key'=>(string)Str::uuid(),'service_consent'=>true,'marketing_consent'=>true];
+denied(fn()=>$tickets->save('dine',array_replace($draftValues,['customer_phone'=>'']),$actor),422,'positive draft permission requires a real customer phone');
+denied(fn()=>$tickets->save('dine',array_replace($draftValues,['marketing_consent'=>'everyone']),$actor),422,'draft rejects invalid consent values');
+$draftResult=$tickets->save('dine',$draftValues,$actor);$draftTicket=$draftResult['ticket'];
+$draftCustomer=DB::table('crm_customers')->where('phone','+201222222222')->first();
+check((bool)$draftCustomer->service_consent&&(bool)$draftCustomer->marketing_consent,'unpaid dine draft records only its explicit permission');
+check($draftCustomer->service_consent_evidence==='pos-ticket:dine:'.$draftTicket['id']&&(int)$draftCustomer->service_consented_by===10&&$draftCustomer->service_consented_at==='2026-10-07 12:00:00','draft consent identifies actual ticket staff and recording time');
+$draftAudit=[$draftCustomer->service_consented_at,$draftCustomer->marketing_consented_at,$draftCustomer->service_consent_evidence,$draftCustomer->marketing_consent_evidence];
+$uncheckedDraft=array_replace($draftValues,['ticket_id'=>$draftTicket['id'],'expected_revision'=>$draftTicket['revision'],'idempotency_key'=>(string)Str::uuid(),'service_consent'=>false,'marketing_consent'=>false]);
+$tickets->save('dine',$uncheckedDraft,$actor);$afterUnchecked=DB::table('crm_customers')->where('id',$draftCustomer->id)->first();
+check((bool)$afterUnchecked->service_consent&&(bool)$afterUnchecked->marketing_consent&&$draftAudit===[$afterUnchecked->service_consented_at,$afterUnchecked->marketing_consented_at,$afterUnchecked->service_consent_evidence,$afterUnchecked->marketing_consent_evidence],'unchecked draft controls preserve prior grants and evidence');
+$directory->consent($draftCustomer->id,false,false,'whatsapp-inbound:opt-out',10);
+$replayedDraft=$tickets->save('dine',$draftValues,$actor);$afterDraftReplay=DB::table('crm_customers')->where('id',$draftCustomer->id)->first();
+check($replayedDraft['replayed']&&!(bool)$afterDraftReplay->service_consent&&!(bool)$afterDraftReplay->marketing_consent&&$afterDraftReplay->opted_out_at!==null,'draft replay cannot revive a later customer STOP');
+denied(fn()=>$tickets->save('dine',array_replace($draftValues,['marketing_consent'=>false]),$actor),409,'draft command identity binds the original consent choices');
+Schema::table('resturants',function(Blueprint $t){$t->decimal('lat',10,7)->default(30);$t->decimal('lng',10,7)->default(31);$t->decimal('km_price',10,2)->default(0);});
+config(['services.maps.phone_open_enabled'=>false]);
+$phoneDraft=$cart+['customer_name'=>'عميل موافقة الدليفري','customer_phone'=>'01522222222','address'=>'عنوان تجريبي','latitude'=>30.001,'longitude'=>31.001,
+    'location_confirmed'=>true,'service_consent'=>false,'marketing_consent'=>true,'idempotency_key'=>(string)Str::uuid()];
+$phoneDraft['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($phoneDraft,$actor)['delivery']['delivery_quote_hash'];
+$phoneDraft['quote_hash']=$tickets->quote('phone',$phoneDraft,$actor)['quote_hash'];
+$phoneDraftResult=$tickets->save('phone',$phoneDraft,$actor);$phoneDraftCustomer=DB::table('crm_customers')->where('phone','+201522222222')->first();
+check(!(bool)$phoneDraftCustomer->service_consent&&(bool)$phoneDraftCustomer->marketing_consent,'unpaid phone draft grants only the explicitly chosen purpose');
+check($phoneDraftCustomer->marketing_consent_evidence==='pos-ticket:phone:'.$phoneDraftResult['ticket']['id']&&(int)$phoneDraftCustomer->marketing_consented_by===10,'phone draft permission retains ticket and staff provenance');
+$beforeBadCustomers=DB::table('crm_customers')->count();$beforeBadTickets=DB::table('pos_service_tickets')->count();
+$badDraft=array_replace($phoneDraft,['customer_phone'=>'01122222222','idempotency_key'=>(string)Str::uuid(),'quote_hash'=>str_repeat('c',64),'service_consent'=>true]);
+denied(fn()=>$tickets->save('phone',$badDraft,$actor),409,'stale phone draft quote rejects before saving permission');
+check(DB::table('crm_customers')->count()===$beforeBadCustomers&&DB::table('pos_service_tickets')->count()===$beforeBadTickets,'failed draft creates no customer or ticket');
+check(DB::table('crm_purchases')->count()===$beforeDraftPurchases&&DB::table('takeaway_orders')->count()===$beforeDraftSales,'draft permission capture creates no purchase or paid sale');
+check(DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$beforeDraftCash&&DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',6)->value('quantity_units')===$beforeDraftStock,'draft permission capture leaves cash and stock untouched');
 echo $count.' CRM checkout checks passed'.PHP_EOL;

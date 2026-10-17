@@ -14,7 +14,7 @@
     var quantityMode = 'weight', quantityInput = '1', replaceQuantity = true;
     var paymentMethod = 'cash', loaded = false, disposed = false, selling = false, uncertain = false, sold = false, quarantined = false;
     var saleKey = uuid(), frozenPayload = null, lastReceipt = null, lastQuotedTotal = null, register = null, modalFocus, modalController, modalGeneration = 0, registerLocked = false;
-    var listeners = [], navigationGuardRegistered = false;
+    var listeners = [], navigationGuardRegistered = false, printingSales = new Map();
     var message = root.querySelector('[data-pos-message]');
     var modal = root.querySelector('[data-pos-modal]');
     var finish = root.querySelector('[data-pos-finish]');
@@ -185,14 +185,15 @@
     function checkoutEnter(event) {
         if (event.key !== 'Enter') return false;
         var target = event.target;
-        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput, finishField = target === finish;
+        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput, finishField = target === finish, newField = target === root.querySelector('[data-pos-new]');
         var editable = target.matches('input,textarea,select,[contenteditable]');
         var productButton = !!target.closest('[data-pos-product],[data-pos-options]');
         var keypad = !!target.closest('.tp-weight');
         var catalogSurface = !!target.closest('.tp-catalog') && !target.closest('button,a,input,textarea,select,[contenteditable]');
         var start = target === document.body || target === root || productButton || !editable && (keypad || catalogSurface);
-        if (!nameField && !phoneField && !consentField && !cashField && !finishField && !start) return false;
-        if (!cart.length && !keypad && !productButton && !cashField && !finishField) return false;
+        var nextInvoice = sold && (newField || start);
+        if (!nameField && !phoneField && !consentField && !cashField && !finishField && !newField && !start) return false;
+        if (!cart.length && !keypad && !productButton && !cashField && !finishField && !newField) return false;
 
         var held = event.repeat || enterKeyDown;
         if (composing || event.isComposing || event.keyCode === 229) {
@@ -201,13 +202,15 @@
             return true;
         }
         // An enabled retry button may resume its frozen sale while the rest of the invoice stays locked.
-        var enterLocked = finishField ? finish.disabled || finish.hidden || registerLocked || selling || sold || quarantined : isLocked();
+        var enterLocked = nextInvoice ? selling || uncertain || registerLocked || printingSales.has(saleKey)
+            : finishField ? finish.disabled || finish.hidden || registerLocked || selling || sold || quarantined : isLocked();
         if (held || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || enterLocked || !permissions.can_checkout) {
             event.preventDefault(); return true;
         }
         enterKeyDown = true;
         if (!cart.length && productButton) return false;
         event.preventDefault();
+        if (nextInvoice) { root.querySelector('[data-pos-new]').click(); if (!sold) root.querySelector('[data-pos-key="7"]').focus(); return true; }
         if (!cart.length && keypad) { key('confirm'); return true; }
         if (cashField) {
             if (!cart.length || !loaded || !quote || minor(quote.total) === null || finish.disabled || finish.hidden) {
@@ -496,8 +499,14 @@
     async function printReceipt(url) {
         if (!url) return;
         var printingInvoice = activeInvoice, printingKey = saleKey;
+        printingSales.set(printingKey, (printingSales.get(printingKey) || 0) + 1);
         try { if (!window.DashboardPrint) throw new Error(label('print_error')); await window.DashboardPrint.print(endpoint(url)); }
         catch (error) { if (printingInvoice === activeInvoice && printingKey === saleKey) notify(label('print_error'), false, false); }
+        finally {
+            var remainingPrints = (printingSales.get(printingKey) || 1) - 1;
+            if (remainingPrints) printingSales.set(printingKey, remainingPrints); else printingSales.delete(printingKey);
+            if (!remainingPrints && !disposed && printingInvoice === activeInvoice && printingKey === saleKey && sold && modal.hidden) root.querySelector('[data-pos-new]').focus();
+        }
     }
     function renderSaved() {
         var savedRow = root.querySelector('[data-pos-saved]'); savedRow.hidden = !sold;
@@ -674,10 +683,13 @@
     listen(branchSelect, 'change', changeBranch);
     listen(root, 'input', function (event) {
         if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
+        // Approval belongs to the phone the cashier asked; editing it needs a new affirmative choice.
+        if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
         if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
     });
     listen(root, 'change', function (event) {
         if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
+        if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
         if (event.target === customerConsent) {
             if (isLocked()) { showConsent(); return; }
             // Keep legacy per-purpose approvals until the cashier explicitly changes this combined control.

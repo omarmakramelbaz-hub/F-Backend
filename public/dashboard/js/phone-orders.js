@@ -12,8 +12,9 @@
     var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
     var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
-    var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, mode = 'piece', listeners = [], modal = root.querySelector('[data-phone-modal]');
+    var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, listeners = [], modal = root.querySelector('[data-phone-modal]');
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
+    var quantityInput = root.querySelector('[data-phone-quantity]'), customerConsent = root.querySelector('[data-phone-customer-consent]'), replaceQuantity = true;
     var manualDeliveryFee=false, customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, deliveryOriginBranch='', deliveryOriginContext=null, locationGeneration=0, locating=false, lastGeocoded='', savedAddressPending='', contextGeneration=0, locationPreviewTimer, addressSearch;
     var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]');
     var fields = {};
@@ -80,6 +81,8 @@
     function boardScope(){return branch || (boot.can_view_all_branches?'all':'');}
     function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&view==='orders'&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}
     function flow(next, focus) {
+        var phoneLabel = root.querySelector('[data-phone-phone-field]'), phoneSlot = root.querySelector(next === 'number' ? '[data-phone-number-slot]' : '[data-phone-customer-phone-slot]');
+        if (phoneLabel && phoneSlot && phoneLabel.parentNode !== phoneSlot) phoneSlot.appendChild(phoneLabel);
         root.querySelector(next === 'number' ? '[data-phone-number-matches]' : '[data-phone-detail-matches]').appendChild(root.querySelector('[data-phone-lookup-result]'));
         step = next; root.querySelectorAll('[data-phone-progress]').forEach(function(item,index){var active=['number','details','products'].indexOf(next);item.classList.toggle('is-current',index===active);item.classList.toggle('is-complete',index<active);if(index===active)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');}); ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
         root.querySelector('[data-phone-step-label]').textContent = text(view==='orders'?'saved_orders':'step_' + next);
@@ -183,7 +186,7 @@
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
         root.querySelector('[data-phone-page="next"]').disabled = locked() || catalogPage >= Number(pagination.last_page || 1);
         root.querySelector('[data-phone-batch-finish]').disabled = locked() || !canWrite() || !selectedOrders.size;
-        if (!canWrite()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-mode],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
+        if (!canWrite()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-key],[data-phone-customer-consent],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
     }
     function totals(value) {
         ['subtotal', 'discount', 'tax', 'service', 'total', 'delivery_fee'].forEach(function (key) { var amount = value && value[key]; if (key === 'delivery_fee' && amount === undefined && value) amount = value.delivery; root.querySelector('[data-phone-total="' + key + '"]').textContent = value ? money(amount || '0.00') : '—'; });
@@ -228,18 +231,51 @@
             } else if (line.option) itemCell.appendChild(element('small', 'ph-line-price', line.option.label));
             var price = line.option ? line.option.price : line.product.unit_price || line.product.price; if (confirmed) price = confirmed.unit_price;
             itemCell.appendChild(element('bdi', 'ph-line-price', money(price))); row.appendChild(itemCell);
-            var countCell = element('td'), count = element('div', 'ph-line-quantity'), input = element('input'); input.value = line.quantity; input.inputMode = 'decimal'; input.maxLength = 10; input.dataset.phoneLineQuantity = String(index); input.setAttribute('aria-label', text('quantity') + ' · ' + lineName); count.appendChild(input); count.appendChild(element('small', 'ph-line-unit', text(line.mode === 'weight' ? 'kg' : 'piece'))); countCell.appendChild(count); row.appendChild(countCell);
+            var countCell = element('td'), count = element('div', 'ph-line-quantity'), input = element('input'); input.value = line.quantity; input.inputMode = line.mode === 'piece' ? 'numeric' : 'decimal'; input.maxLength = 10; input.dataset.phoneLineQuantity = String(index); input.setAttribute('aria-label', text('quantity') + ' · ' + lineName); count.appendChild(input); count.appendChild(element('small', 'ph-line-unit', text(['piece', 'weight'].includes(line.product.quantity_mode) ? line.mode === 'weight' ? 'kg' : 'piece' : 'automatic_unit'))); countCell.appendChild(count); row.appendChild(countCell);
             var priceMinor = scaled(price, 2), countMillis = scaled(line.quantity, 3); var amount = confirmed && confirmed.total || (priceMinor !== null && countMillis !== null ? decimal((priceMinor * countMillis + 500n) / 1000n, 2) : null); var amountCell = element('td'); amountCell.appendChild(element('bdi', 'ph-line-total', money(amount))); row.appendChild(amountCell);
             var removeCell = element('td'), remove = element('button'); remove.type = 'button'; remove.dataset.phoneRemove = String(index); remove.setAttribute('aria-label', text('remove') + ' · ' + lineName); remove.appendChild(element('i', 'fas fa-times')); removeCell.appendChild(remove); row.appendChild(removeCell); body.appendChild(row);
         });
     }
+    function automaticQuantity(product) {
+        var known = product && ['piece', 'weight'].includes(product.quantity_mode), unit = root.querySelector('[data-phone-quantity-unit]');
+        quantityInput.inputMode = known && product.quantity_mode === 'piece' ? 'numeric' : 'decimal';
+        if (unit) unit.textContent = text(known ? product.quantity_mode === 'weight' ? 'kg' : 'piece' : 'automatic_unit');
+        // Updating the unit never replaces the quantity the cashier entered.
+        return known ? product.quantity_mode : 'weight';
+    }
+    function focusConsent() {
+        if (!cart.length || locked() || !canWrite() || !customerConsent || customerConsent.disabled) return false;
+        customerConsent.focus(); return true;
+    }
+    function quantityKey(key) {
+        if (locked() || !canWrite() || step !== 'products') return;
+        if (key === 'confirm') {
+            if (!quantity(quantityInput.value, 'weight')) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+            replaceQuantity = true;
+            if (!focusConsent()) quantityInput.focus();
+            return;
+        }
+        var value = quantityInput.value, start = quantityInput.selectionStart, end = quantityInput.selectionEnd;
+        if (start === null || end === null) start = end = value.length;
+        if (key === 'clear') { value = '0'; start = 1; replaceQuantity = true; }
+        else if (key === 'backspace') { if (start === end && start > 0) start--; value = value.slice(0, start) + value.slice(end); if (!value) { value = '0'; start = 1; } replaceQuantity = false; }
+        else if (/^[0-9.]$/.test(key)) {
+            if (replaceQuantity || value === '0') { start = 0; end = value.length; }
+            if (key === '.' && start === 0 && end === value.length) key = '0.';
+            var next = value.slice(0, start) + key + value.slice(end);
+            if (next.length > quantityInput.maxLength || (next.match(/\./g) || []).length > 1 || next.includes('.') && next.split('.')[1].length > 3) return;
+            value = next; start += key.length; replaceQuantity = false;
+        } else return;
+        quantityInput.value = value; quantityInput.focus(); quantityInput.setSelectionRange(start, start);
+    }
     function addProduct(product) {
         if (!product || !product.available || step !== 'products' || locked() || !canWrite()) return;
-        var itemMode = ['piece','weight'].includes(product.quantity_mode) ? product.quantity_mode : mode;
-        var amount = quantity(itemMode === mode ? root.querySelector('[data-phone-quantity]').value : itemMode === 'piece' ? '1' : '1.000', itemMode); if (!amount) { notify(text('invalid_quantity')); return; }
+        var itemMode = automaticQuantity(product);
+        var amount = quantity(quantityInput.value, itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
         var existing = cart.find(function (line) { return String(line.product.id) === String(product.id) && line.mode === itemMode && !line.option; });
         if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), itemMode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
         else cart.push({ product: product, option: null, quantity: amount.value, mode: itemMode });
+        replaceQuantity = true;
         changed(true); notify('');
     }
     function productNode(product) {
@@ -269,6 +305,8 @@
         clearTimeout(locationPreviewTimer);abort('location');customerRef=null;deliveryLocation=null;lastGeocoded='';savedAddressPending='';locationGeneration++;if(locationPicker){locationPicker.destroy();locationPicker=null;}latInput.value='';lngInput.value='';companySelect.value='';root.querySelector('[data-phone-distance]').textContent='';
         cart = []; editing = null; quote = null; dirty = false; requestKey = uuid(); quoteGeneration++; abort('quote'); clearTimeout(quoteTimer);
         Object.keys(fields).forEach(function (key) { fields[key].value = key === 'discount' || key === 'delivery_fee' ? '0.00' : ''; });
+        if (customerConsent) customerConsent.checked = false;
+        quantityInput.value = '1'; replaceQuantity = true; automaticQuantity(null);
         root.querySelector('[data-phone-edit-number]').textContent = ''; root.querySelector('[data-phone-discount-reason-wrap]').hidden = true; root.querySelector('[data-phone-lookup-result]').hidden = true; renderLines(); totals(null); flow('number', false);
         root.querySelector('.ph-invoice-scroll').scrollTop = 0;if(branch&&reloadContext!==false)loadDeliveryContext();
     }
@@ -295,6 +333,7 @@
                 button.appendChild(element('bdi', '', customer.phone)); button.appendChild(element('strong', '', customer.name)); button.appendChild(element('small', '', customer.address || text('address_placeholder')));
                 button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return;
                     clearTimeout(customerTimer); customerGeneration++; abort('customer'); fields.customer_phone.value = customer.phone || phone;
+                    if (customerConsent) customerConsent.checked = false;
                     fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || '';
                     customerRef=customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
                 }); resultBox.appendChild(button);
@@ -426,26 +465,68 @@
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
         finally { if (generation === orderGeneration) list.setAttribute('aria-busy', 'false'); }
     }
-    function consentControl(container, purpose, ticketId) {
+    function consentControl(container, ticketId) {
         var label = element('label', 'ph-settle-confirm'), checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = false;
-        checkbox.dataset.phoneConsent = purpose; if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
-        label.appendChild(checkbox); label.appendChild(element('span', '', text(purpose + '_consent'))); container.appendChild(label); return checkbox;
+        checkbox.dataset.phoneConsent = 'customer'; if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
+        label.appendChild(checkbox); label.appendChild(element('span', '', text('customer_consent'))); container.appendChild(label); return checkbox;
+    }
+    function validCash(cash, total) {
+        var received = scaled(cash.value, 2);
+        if (received === null || received > 100000000n) { notify(text('invalid_money')); cash.focus(); return null; }
+        if (received < total) { notify(text('cash_insufficient')); cash.focus(); return null; }
+        return received;
+    }
+    function plainEnter(event) {
+        return event.key === 'Enter' && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+    }
+    function quantityShortcutContext(target) {
+        if (target === document.body || target === document.documentElement) return true;
+        if (!target || !root.contains(target) || target.isContentEditable || target.closest('input,textarea,select,[contenteditable],[role="textbox"]')) return false;
+        return !!target.closest('.ph-catalog,[data-phone-key],[data-phone-product]');
+    }
+    function cashKeyboard(form, cash, confirmed, submit, total) {
+        form.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') return;
+            if (event.repeat) { event.preventDefault(); return; }
+            if (!plainEnter(event)) { event.preventDefault(); return; }
+            if (locked() || form.closest('[data-phone-modal]').hidden) { event.preventDefault(); return; }
+            if (event.target === cash) {
+                event.preventDefault();
+                if (validCash(cash, total) !== null) { confirmed.focus(); notify(text('confirm_payment')); }
+                return;
+            }
+            if (event.target === confirmed) {
+                event.preventDefault();
+                if (validCash(cash, total) === null) return;
+                confirmed.checked = true;
+                form.requestSubmit(submit);
+                return;
+            }
+            if (event.target.matches('[data-phone-consent]')) {
+                event.preventDefault();
+                if (!event.target.checked) event.target.checked = true;
+                else cash.focus();
+                return;
+            }
+            if (event.target !== submit && !event.target.matches('button')) { event.preventDefault(); cash.focus(); }
+        });
+        cash.addEventListener('input', function () { confirmed.checked = false; });
     }
     function finishBatch(){
         if(locked()||!canWrite()||!selectedOrders.size)return;
         var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody'),consents=new Map();
-        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var choices=element('td');consents.set(t.id,{service:consentControl(choices,'service',t.id),marketing:consentControl(choices,'marketing',t.id)});row.appendChild(choices);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var choices=element('td');consents.set(t.id,consentControl(choices,t.id));row.appendChild(choices);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
         function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
         var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
         var method=element('select');['cash'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
-        var cash=element('input');cash.inputMode='decimal';cash.maxLength=14;cash.value=decimal(total,2);var cashLabel=field('cash_received',cash);
+        var cash=element('input');cash.inputMode='decimal';cash.maxLength=14;cash.value=decimal(total,2);cash.dataset.phoneBatchCash='';var cashLabel=field('cash_paid',cash);cashLabel.classList.add('ph-cash-paid');
         var reference=element('input');reference.maxLength=150;var referenceLabel=field('payment_reference',reference);referenceLabel.hidden=true;
         var confirm=element('label','ph-settle-confirm'),check=element('input');check.type='checkbox';check.dataset.phoneBatchConfirmed='';confirm.appendChild(check);confirm.appendChild(element('span','',text('payment_confirmed')));form.appendChild(confirm);
         var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
         method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
-        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=scaled(cash.value,2);if(method.value==='cash'&&(received===null||received<total)){notify(text('cash_insufficient'));return;}
-            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:consents.get(t.id).service.checked,marketing_consent:consents.get(t.id).marketing.checked};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
-        });lock();
+        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
+            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:consents.get(t.id).checked,marketing_consent:consents.get(t.id).checked};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
+        });cashKeyboard(form,cash,check,submit,total);lock();cash.focus();
     }
     function validateWriteResult(result, operation, recovered) {
         if (!validTicket(result.ticket, operation.ticketId, false, operation.payload.branch) || operation.payload.expected_revision !== undefined && Number(result.ticket.revision) <= Number(operation.payload.expected_revision) || operation.type === 'save' && !recovered && result.ticket.payment_status !== 'unpaid' || operation.type === 'settle' && result.ticket.payment_status !== 'paid') throw new Error(text('uncertain'));
@@ -517,7 +598,7 @@
         if (scaled(fields.delivery_fee.value, 2) === null || policy.can_discount && scaled(fields.discount.value, 2) === null) { notify(text('invalid_money')); return; }
         if (policy.can_discount && scaled(fields.discount.value, 2) > 0n && !fields.discount_reason.value.trim()) { notify(text('invalid_discount')); return; }
         if (cart.some(function (line) { return !quantity(line.quantity, line.mode); })) { notify(text('invalid_quantity')); return; }
-        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim() });
+        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim(), service_consent: !!(customerConsent && customerConsent.checked), marketing_consent: !!(customerConsent && customerConsent.checked) });
         if (editing) { values.ticket_id = editing.id; values.expected_revision = editing.revision; }
         execute({ type: 'save', url: endpoint(urls.save), payload: values, ticketId: editing ? editing.id : undefined });
     }
@@ -548,14 +629,14 @@
             var response = await post(urls.quote, { branch: ticket.branch.value, ticket_id: ticket.id }, controller.signal), result = await read(response, 'quote_error'); if (disposed || generation !== modalGeneration) return; var value = result.quote || result; if (!value.quote_hash || scaled(value.total, 2) === null) throw new Error(text('quote_error'));
             content.replaceChildren(); var form = element('form', 'ph-settle-form'); form.appendChild(element('strong', 'ph-settle-total', money(value.total) + ' ' + text('currency'))); form.appendChild(element('p', 'ph-payment-note', text('payment_note')));
             var methodLabel = element('label', 'ph-field'); methodLabel.appendChild(element('span', '', text('payment_method'))); var method = element('select'); method.dataset.phoneSettleMethod = ''; ['cash'].forEach(function (key) { var option = element('option', '', text(key)); option.value = key; method.appendChild(option); }); methodLabel.appendChild(method); form.appendChild(methodLabel);
-            var cashLabel = element('label', 'ph-field'); cashLabel.appendChild(element('span', '', text('cash_received'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
+            var cashLabel = element('label', 'ph-field ph-cash-paid'); cashLabel.appendChild(element('span', '', text('cash_paid'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
             var referenceLabel = element('label', 'ph-field'); referenceLabel.hidden = true; referenceLabel.appendChild(element('span', '', text('payment_reference'))); var reference = element('input'); reference.maxLength = 100; reference.dataset.phoneSettleReference = ''; referenceLabel.appendChild(reference); form.appendChild(referenceLabel);
-            var serviceConsent = consentControl(form, 'service'), marketingConsent = consentControl(form, 'marketing');
+            var settleConsent = consentControl(form);
             var confirmation = element('label', 'ph-settle-confirm'), confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.dataset.phoneSettleConfirmed = ''; confirmation.appendChild(confirmed); confirmation.appendChild(element('span', '', text('payment_confirmed'))); form.appendChild(confirmation); var submit = element('button', '', text('collect')); submit.type = 'submit'; submit.dataset.phoneSettleSubmit = ''; form.appendChild(submit); content.appendChild(form);
             method.addEventListener('change', function () { cashLabel.hidden = method.value !== 'cash'; referenceLabel.hidden = method.value === 'cash'; confirmed.checked = false; });
-            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = scaled(cash.value, 2); if (method.value === 'cash' && (received === null || received < scaled(value.total, 2))) { notify(text('cash_insufficient')); return; }
-                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: serviceConsent.checked, marketing_consent: marketingConsent.checked, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
-            }); lock();
+            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
+                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: settleConsent.checked, marketing_consent: settleConsent.checked, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
+            }); cashKeyboard(form, cash, confirmed, submit, scaled(value.total, 2)); lock(); cash.focus();
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('quote_error'))); }
     }
     function mayLeave() { if (locked()) { notify(text('locked'), false, true); return false; } return !dirty || window.confirm(text('unsaved')); }
@@ -579,7 +660,7 @@
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.hasAttribute('data-phone-refresh')) return loadOrders();
-        if (control.dataset.phoneMode) { mode = control.dataset.phoneMode; root.querySelectorAll('[data-phone-mode]').forEach(function (tab) { tab.setAttribute('aria-pressed', String(tab.dataset.phoneMode === mode)); }); root.querySelector('[data-phone-quantity]').value = mode === 'piece' ? '1' : '1.000'; }
+        if (control.dataset.phoneKey !== undefined) return quantityKey(control.dataset.phoneKey);
     });
     listen(root, 'change', function (event) {
         var input = event.target;
@@ -587,7 +668,9 @@
         if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
         if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
-    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone')customerRef=null; if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone'){customerRef=null;if(customerConsent)customerConsent.checked=false;} if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    if (customerConsent) listen(customerConsent, 'change', function () { changed(false); });
+    listen(quantityInput, 'input', function () { replaceQuantity = false; });
     listen(fields.customer_phone, 'keydown', function (event) {
         var box = root.querySelector('[data-phone-lookup-result]'), suggestions = box.querySelectorAll('[data-phone-suggestion]');
         if (event.key === 'Escape') { clearTimeout(customerTimer); customerGeneration++; abort('customer'); box.hidden = true; return; }
@@ -602,7 +685,45 @@
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
-    listen(document, 'keydown', function (event) { if (disposed) return; if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && modal.hidden && view === 'compose' && step !== 'products' && root.contains(event.target) && !event.target.matches('button')) { event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return; } if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; } if (!modal.hidden && event.key === 'Tab') { var controls = modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)'); if (!controls.length) { event.preventDefault(); return; } var first = controls[0], last = controls[controls.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } if (event.key === 'F9' && modal.hidden && view === 'compose') { event.preventDefault(); save(); } });
+    listen(document, 'keydown', function (event) {
+        if (disposed || event.defaultPrevented) return;
+        var physicalKey = event.key === 'Backspace' ? 'backspace' : /^[0-9.]$/.test(event.key) ? event.key : '';
+        if (physicalKey && modal.hidden && view === 'compose' && step === 'products' && quantityShortcutContext(event.target)
+            && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+            event.preventDefault(); if (!locked() && canWrite()) quantityKey(physicalKey); return;
+        }
+        if (event.key === 'Enter' && root.contains(event.target) && (event.repeat || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey && event.target.matches('button'))) {
+            event.preventDefault(); return;
+        }
+        if (plainEnter(event) && modal.hidden && view === 'compose'
+            && (root.contains(event.target) || step === 'products' && (event.target === document.body || event.target === document.documentElement))) {
+            if (step !== 'products' && !event.target.matches('button')) {
+                event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return;
+            }
+            if (step === 'products' && cart.length) {
+                if (event.target.matches('select')) return;
+                event.preventDefault();
+                if (locked() || !canWrite()) return;
+                if (event.target === saveButton) { if (!saveButton.disabled) save(); return; }
+                if (event.target === customerConsent) {
+                    if (!customerConsent.checked) { customerConsent.checked = true; changed(false); return; }
+                    if (!saveButton.disabled) saveButton.focus();
+                    else notify(text('quote_required'), false, true);
+                    return;
+                }
+                focusConsent(); return;
+            }
+        }
+        if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; }
+        if (!modal.hidden && event.key === 'Tab') {
+            var controls = Array.from(modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')).filter(function (control) { return control.getClientRects().length && !control.closest('[hidden]'); });
+            if (!controls.length) { event.preventDefault(); return; }
+            var first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+        if (event.key === 'F9' && modal.hidden && view === 'compose') { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) save(); }
+    });
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
@@ -613,7 +734,7 @@
         mapResizeObserver.observe(root.querySelector('[data-phone-map]'));
         if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){mapResizeObserver.disconnect();});
     }
-    renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
+    automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');

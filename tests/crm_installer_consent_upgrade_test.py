@@ -20,7 +20,8 @@ from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[1]
-DEPLOYED = '82358aa2f528ee63b3e95e00b6c61f34f8f19fc5'
+DEPLOYED = 'f8237699bb2992bf3f55c6e6a6179d1e4d7eeb8d'
+ENTER_DEPLOYED = '82358aa2f528ee63b3e95e00b6c61f34f8f19fc5'
 COMPACT_DEPLOYED = 'cc71fb7882e88db07007ec93bfc08889ddc65351'
 CONSENT_DEPLOYED = '162635ae19fcf825093570385b643d54975743c0'
 PREVIOUS_DEPLOYED = 'd6be69b37a8e5815be498b2bedd6daacbea2b68f'
@@ -107,7 +108,7 @@ class ConsentReleaseInstallerTest(unittest.TestCase):
                 self.assertEqual((root / relative).read_bytes(), release + custom.get(relative, b''))
 
     def test_upgrade_complete_deployed_release_and_replay(self):
-        for revision in (PREVIOUS_DEPLOYED, CONSENT_DEPLOYED, COMPACT_DEPLOYED, DEPLOYED):
+        for revision in (PREVIOUS_DEPLOYED, CONSENT_DEPLOYED, COMPACT_DEPLOYED, ENTER_DEPLOYED, DEPLOYED):
             with self.subTest(revision=revision):
                 with self.application(revision) as (root, _originals, commands):
                     INSTALLER.main()
@@ -129,10 +130,15 @@ class ConsentReleaseInstallerTest(unittest.TestCase):
             for relative, comment in custom.items():
                 self.assertEqual((root / relative).read_bytes().count(comment), 1)
 
-    def test_upgrade_current_release_keeps_live_takeaway_css_and_javascript_extensions(self):
+    def test_upgrade_current_release_keeps_live_pos_css_javascript_and_backend_extensions(self):
         custom = {
             'public/dashboard/css/takeaway-pos.css': b'\n/* Retained site-specific takeaway styling. */\n.takeaway-site-extension { --live-accent: #f58220; }\n',
             'public/dashboard/js/takeaway-pos.js': b'\n/* Retained site-specific takeaway integration. */\nwindow.takeawaySiteExtension = true;\n',
+            'public/dashboard/css/dining-pos.css': b'\n/* Retained dining styling. */\n.dining-site-extension { --site-accent: #f58220; }\n',
+            'public/dashboard/js/dining-pos.js': b'\n/* Retained dining integration. */\nwindow.diningSiteExtension = true;\n',
+            'public/dashboard/css/phone-orders.css': b'\n/* Retained phone order styling. */\n.phone-site-extension { --site-accent: #f58220; }\n',
+            'public/dashboard/js/phone-orders.js': b'\n/* Retained phone order integration. */\nwindow.phoneSiteExtension = true;\n',
+            'app/Services/Dashboard/PosServiceTicket.php': b'\n// Retained site-specific ticket extension.\n',
         }
         with self.application(DEPLOYED, custom) as (root, _originals, _commands):
             INSTALLER.main()
