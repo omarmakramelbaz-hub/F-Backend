@@ -6,9 +6,9 @@ This follow-up applies the same invoice quantity, application print policy and i
 
 - Order board service: `6df7fec` plus the `cab9f03` operating-day date filter. The reconstructed baseline blob is `4eeac847ef0e854fcfe417468f8a951af1afc3dc`, matching the supplied server diff.
 - Order board controller and invoice view: `6df7fec`, retaining scoped alert keys, preparing cancellation and saved preparation labels.
-- Phone composer: `9f4cce8792467d1899927066f2c951cb2fa10cb5`, retaining the persistent delivery queue and composer draft.
+- Phone composer: `4189747822205224ced35b7980abe511af534540`, retaining the unified delivery queue, branch tariffs, product-selection layout and pending-quantity behavior. This workflow release was confirmed installed before the `c42e138` attempt, which also stopped during read-only checks.
 
-The installer continues to publish only its twelve declared source targets. It does not install the lifecycle, app-editor or unified-phone prerequisites. Source-equivalent prerequisite files are restored in this branch to keep the checkout usable; their live counterparts are preserved by deployment.
+The installer continues to publish only its twelve declared source targets. It does not install the lifecycle, app-editor, unified-phone or branch-pricing prerequisites. The other seven installed workflow files receive read-only proof checks. Source-equivalent prerequisite files are restored in this branch for the related classes and UI fixtures; their live counterparts are preserved by deployment.
 
 Patches are built from pinned Git objects, staged and checked before publication. Known prerequisite overlays are normalized only in temporary proof storage. Unknown overlapping edits remain blocked. Unrelated compatible edits survive, and rerunning an installed release is a no-op. The existing private backups, publication ordering and coherent rollback remain in use.
 

@@ -49,7 +49,7 @@ function fixtureQuote(payload, tickets, catalogProducts=products) {
     });
     return {success:true, items, quote_hash:'a'.repeat(64), subtotal:subtotal.toFixed(2), total:(subtotal+Number(payload.delivery_fee||0)-Number(payload.discount||0)).toFixed(2), delivery_fee:payload.delivery_fee||'0.00', discount:payload.discount||'0.00', discount_reason:payload.discount_reason||'', tax:'0.00', service:'0.00', tax_rate:'0'};
 }
-async function setup(browser, {failFirstSave=false, failFirstSettle=false, failFirstBatch=false, catalogProducts=products, viewport={width:1920,height:1006},locale='ar',query='',multiBranch=false}={}) {
+async function setup(browser, {failFirstSave=false, failFirstSettle=false, failFirstBatch=false, catalogProducts=products, viewport={width:1920,height:1006},locale='ar',query='',multiBranch=false,deliveryPricing=null}={}) {
     const boot={...baseBoot,branches:multiBranch?[...baseBoot.branches,{id:101,value:'f:101',name:'نبروه',kind:'f'}]:baseBoot.branches},rendered=renderPage(locale,boot);
     const branchRecord=value=>boot.branches.find(branch=>branch.value===value)||boot.branches[0];
     const network={board:null,catalog:null};
@@ -80,10 +80,10 @@ async function setup(browser, {failFirstSave=false, failFirstSettle=false, failF
         if(hold&&(!hold.branch||hold.branch===url.searchParams.get('branch'))){network[kind]=null;hold.enter();await hold.gate;}
         let result;
         if(url.pathname===urls.catalog)result={success:true,ready:true,items:catalogProducts,categories:[{id:1,name:'الأطباق'},{id:2,name:'السندوتشات'}],policy:{can_discount:true,payment_methods:['cash']},permissions:{can_checkout:true},pagination:{page:1,last_page:1,total:catalogProducts.length}};
-        else if(url.pathname===urls.delivery_settings)result={success:true,settings:{branch:branchRecord(url.searchParams.get('branch')),ready:true,latitude:30.1,longitude:31.2,km_price:'20.00'}};
+        else if(url.pathname===urls.delivery_settings)result={success:true,settings:{branch:branchRecord(url.searchParams.get('branch')),ready:true,latitude:30.1,longitude:31.2,km_price:'20.00',...(deliveryPricing?{pricing_rates:[{delivery:deliveryPricing.delivery_fee}]}:{})}};
         else if(url.pathname===urls.companies){const branch=url.searchParams.get('branch');result={success:true,items:[{id:branch==='f:101'?2:1,branch,name:branch==='f:101'?'شركة نبروه':'شركة الاختبار'}]};}
         else if(url.pathname===urls.customers)result={success:true,matches:[]};
-        else if(url.pathname===urls.delivery_quote)result={success:true,delivery:{branch:payload.branch,latitude:30.12,longitude:31.25,delivery_fee:'50.00',distance_km:'2.50',km_price:'20.00',delivery_quote_hash:'d'.repeat(64),method:'direct'}};
+        else if(url.pathname===urls.delivery_quote)result={success:true,delivery:{branch:payload.branch,latitude:30.12,longitude:31.25,delivery_fee:'50.00',distance_km:'2.50',km_price:'20.00',delivery_quote_hash:'d'.repeat(64),method:'direct',...(deliveryPricing||{})}};
         else if(url.pathname===urls.customer_save)result={success:true,customer:{id:7,revision:1,branch:payload.branch,name:payload.name,phone:payload.phone,address:payload.address}};
         else if(url.pathname===urls.quote)result=fixtureQuote(payload,tickets,catalogProducts);
         else if(url.pathname===urls.save){
@@ -137,13 +137,16 @@ async function screenshot(page,name){if(process.env.PHONE_QA_SCREENSHOTS){fs.mkd
 async function unifiedVisible(page,step){
     assert(await page.locator('#phone-orders.ph-unified.ph-step-'+step).isVisible(),'unified root retains the current composer step');
     assert(await page.locator('[data-phone-compose]').isVisible(),'composer stays visible in '+step);
-    assert(await page.locator('[data-phone-orders]').isVisible(),'delivery board stays visible in '+step);
+    assert.equal(await page.locator('[data-phone-orders]').isVisible(),step!=='products','delivery tracking shows only in the phone and customer steps');
     assert.equal(await page.locator('[data-phone-view]').count(),0,'view tabs are removed');
     assert.equal(await page.locator('[data-phone-column]').count(),3,'all delivery stages render together');
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'unified layout has no horizontal page overflow');
     const layout=await page.evaluate(()=>{const rect=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return{top:r.top,bottom:r.bottom,width:r.width,height:r.height};};return{compose:rect('[data-phone-compose]'),board:rect('[data-phone-orders]'),viewport:{width:innerWidth,height:innerHeight}};});
     console.log('phone-unified-layout',JSON.stringify({step,...layout}));
-    if(page.viewportSize().width>=1000){
+    if(page.viewportSize().width>=1000&&step==='products'){
+        assert(layout.compose.height>=layout.viewport.height-280,'product composer expands into the tracking area');
+        assert.equal(layout.board.height,0,'hidden tracking consumes no product workspace');
+    }else if(page.viewportSize().width>=1000){
         assert(layout.board.top<layout.viewport.height-80,'delivery tracking remains in the desktop viewport');
         assert(layout.board.height>=150,'desktop board retains usable tracking height');
         assert(layout.board.bottom<=layout.viewport.height,'desktop board is not clipped below the viewport');
@@ -157,11 +160,18 @@ async function liveTracking(browser){
     assert.equal(await page.locator('[data-phone-new-order]').count(),1,'there is one explicit new-order action');
     await prepareCustomer(page);await amount(page,'.375');await page.locator('[data-phone-product="1"]').click();await quoteReady(page);
     await field(page,'notes').fill('طلب جديد يظل محفوظًا أثناء المتابعة');await amount(page,'6.25');
-    const before=await draftSnapshot(page),view=page.locator('[data-phone-ticket="101"] .ph-ticket-quick-actions button').first();
+    const before=await draftSnapshot(page);
+    const held=ctx.network.holdBoard();await page.evaluate(()=>document.dispatchEvent(new CustomEvent('dashboard:branch-print',{detail:{status:'ready',latest:'late-products'}})));await held.entered;
+    tickets.get(101).customer_name='تحديث متأخر أثناء اختيار الأصناف';tickets.get(101).revision++;held.release();
+    await page.waitForFunction(()=>document.querySelector('[data-phone-ticket=\"101\"]')?.textContent.includes('تحديث متأخر أثناء اختيار الأصناف'));
+    assert(await page.locator('[data-phone-orders]').isHidden(),'late tracking responses never reveal the board in products');
+    assert.deepEqual(await draftSnapshot(page),before,'background tracking preserves the product draft');
+    await page.locator('[data-phone-edit-customer]').click();await unifiedVisible(page,'details');
+    const view=page.locator('[data-phone-ticket="101"] .ph-ticket-quick-actions button').first();
     await view.focus();await view.press('F9');await focused(view,'F9 on a delivery-board control cannot submit or leave the board');assert.deepEqual(await draftSnapshot(page),before,'board F9 preserves the composer draft');assert.equal(calls.filter(call=>call.path===urls.save).length,0,'board F9 cannot send a pending composer invoice');
     await view.press('Enter');await page.locator('[data-phone-modal]').waitFor({state:'visible'});
     await page.locator('[data-phone-modal-content]').getByText('01012345678',{exact:true}).waitFor();
-    assert(await page.locator('[data-phone-modal-content]').getByText('01012345678',{exact:true}).isVisible(),'Enter activates the board details button while composer contains products');
+    assert(await page.locator('[data-phone-modal-content]').getByText('01012345678',{exact:true}).isVisible(),'Enter activates the board details button while the existing product draft remains in the customer step');
     await page.keyboard.press('Escape');await page.locator('[data-phone-modal]').waitFor({state:'hidden'});
     assert.deepEqual(await draftSnapshot(page),before,'opening/closing another order preserves draft and pending quantity');
 
@@ -174,14 +184,14 @@ async function liveTracking(browser){
     assert.deepEqual(await draftSnapshot(page),before,'dispatching another order preserves the composer draft');
 
     // Quiet updates may change saved tickets but must preserve editing focus and queue scroll.
-    await field(page,'notes').focus();
+    await field(page,'customer_name').focus();
     const scroll=await page.locator('[data-phone-column="courier"] .ph-board-cards').evaluate(el=>{el.scrollTop=Math.min(120,el.scrollHeight-el.clientHeight);return el.scrollTop;});
     assert(scroll>0,'fixture queue is long enough to exercise scroll restoration');
     const updated=tickets.get(102);updated.customer_name='اسم محدث أثناء متابعة الطلبات';updated.revision++;
     const fetches=calls.filter(call=>call.path===urls.board).length;
     await page.waitForFunction(count=>window.phoneBoardRequests.length>count,fetches,{timeout:7000});
     await page.waitForFunction(()=>document.querySelector('[data-phone-ticket="102"]')?.textContent.includes('اسم محدث أثناء متابعة الطلبات'),null,{timeout:7000});
-    await focused(field(page,'notes'),'quiet refresh preserves focused composer input');
+    await focused(field(page,'customer_name'),'quiet refresh preserves focused composer input');
     assert.equal(await page.locator('[data-phone-column="courier"] .ph-board-cards').evaluate(el=>el.scrollTop),scroll,'quiet refresh restores the same column scroll offset');
     assert.deepEqual(await draftSnapshot(page),before,'live tracking never alters the current draft or pending quantity');
 
@@ -192,6 +202,7 @@ async function liveTracking(browser){
     assert(await page.evaluate(()=>window.phoneFocusedBoard.isConnected&&document.activeElement===window.phoneFocusedBoard),'quiet polling retains focused tracking controls');
     assert.deepEqual(await draftSnapshot(page),before);
 
+    await page.locator('[data-phone-next-details]').click();await page.locator('#phone-orders.ph-step-products').waitFor();await page.waitForFunction(()=>!document.querySelector('[data-phone-product=\"1\"]').disabled);
     await page.locator('[data-phone-customer-consent]').check();await page.waitForFunction(()=>!document.querySelector('[data-phone-save]').disabled);
     const previous=calls.filter(call=>call.path===urls.board).length;
     await page.locator('[data-phone-save]').click();await page.locator('#phone-orders.ph-step-number').waitFor();
@@ -202,6 +213,58 @@ async function liveTracking(browser){
     assert.equal(calls.filter(call=>call.path===urls.save).length,1,'one save creates one order');
     assert.deepEqual(await page.evaluate(()=>window.phonePrintCalls),[],'queued branch printing is not duplicated in the browser');
     await unifiedVisible(page,'number');await screenshot(page,'phone-unified-live-tracking');await clean(ctx);await page.close();
+}
+async function defaultProductQuantities(browser){
+    const ctx=await setup(browser),{page,calls}=ctx;await prepareCustomer(page);
+    const weight=page.locator('[data-phone-product="1"]'),piece=page.locator('[data-phone-product="2"]'),pending=page.locator('[data-phone-quantity]');
+    await piece.click();await piece.click();await weight.click();await weight.click();await quoteReady(page);
+    assert.equal(await rows(page).nth(0).locator('[data-phone-line-quantity]').inputValue(),'2','repeated plain product clicks add one piece per click');
+    assert.equal(await rows(page).nth(1).locator('[data-phone-line-quantity]').inputValue(),'2.000','weight products default to one kilogram per click');
+    assert.equal(await pending.inputValue(),'1','successful adds leave the next default unit ready');
+    await amount(page,'.375');await weight.click();await quoteReady(page);
+    assert.equal(await rows(page).nth(1).locator('[data-phone-line-quantity]').inputValue(),'2.375','explicit fractional kilograms remain authoritative');
+    await piece.focus();await page.keyboard.press('3');assert.equal(await pending.inputValue(),'3','typing after an add replaces the default one');await piece.click();await quoteReady(page);
+    assert.equal(await rows(page).nth(0).locator('[data-phone-line-quantity]').inputValue(),'5','explicit piece quantity is added without replacement');
+    await amount(page,'6.25');const snapshot=await draftSnapshot(page);await blockedEscapes(pending,async()=>assert.equal(await pending.inputValue(),'6.25'));
+    await pending.press('Escape');assert.equal(await pending.inputValue(),'0','plain Escape still clears only the pending quantity');
+    assert.deepEqual(await draftSnapshot(page),{...snapshot,quantity:'0'},'Escape preserves products, customer and prices');
+    await piece.click();await quoteReady(page);assert.equal(await rows(page).nth(0).locator('[data-phone-line-quantity]').inputValue(),'6','a zero pending quantity falls back to one piece');
+    await pending.fill('');await weight.click();await quoteReady(page);assert.equal(await rows(page).nth(1).locator('[data-phone-line-quantity]').inputValue(),'3.375','an empty pending quantity falls back to one kilogram');
+    await amount(page,'.5');const lines=await rows(page).allTextContents();await piece.click();assert.deepEqual(await rows(page).allTextContents(),lines,'fractional piece quantities remain invalid');
+    assert.equal(await pending.inputValue(),'0.5');assert(!calls.some(call=>call.path===urls.save),'quantity shortcuts never send an order');
+    await clean(ctx);await page.close();
+
+    const catalogProducts=products.map(product=>product.id===1?{...product,preparation_options:[{id:'',label:'كامل',price:'200.00'},{id:'f:0:extra_clean',label:'تنظيف',price:'220.00'}]}:product);
+    const options=await setup(browser,{catalogProducts}),p=options.page;await prepareCustomer(p);
+    const fish=p.locator('[data-phone-product="1"]'),choices=p.locator('.ph-option-list button');
+    await fish.click();await choices.last().click();await fish.click();await choices.last().click();await quoteReady(p);
+    assert.equal(await rows(p).first().locator('[data-phone-line-quantity]').inputValue(),'2.000','repeated preparation selections also add one configured unit');
+    await amount(p,'.25');await fish.click();await p.keyboard.press('Escape');assert.equal(await p.locator('[data-phone-quantity]').inputValue(),'0.25','canceling the preparation picker preserves explicit quantity');
+    await fish.click();await choices.first().click();await quoteReady(p);assert.equal(await rows(p).last().locator('[data-phone-line-quantity]').inputValue(),'0.250');
+    assert.equal(await p.locator('[data-phone-quantity]').inputValue(),'1');await clean(options);await p.close();
+}
+async function failedProductSend(browser){
+    const ctx=await setup(browser,{failFirstSave:true}),{page,calls}=ctx;await prepareCustomer(page);await page.locator('[data-phone-product="2"]').click();await quoteReady(page);
+    await page.keyboard.press('F9');assert(!calls.some(call=>call.path===urls.save),'F9 cannot bypass required customer consent');
+    await page.locator('[data-phone-customer-consent]').check();await page.waitForFunction(()=>!document.querySelector('[data-phone-save]').disabled);
+    const before=await draftSnapshot(page);await page.locator('[data-phone-save]').click();await page.locator('[data-phone-message] [data-phone-retry]').waitFor({state:'visible'});
+    await unifiedVisible(page,'products');assert.deepEqual(await draftSnapshot(page),before,'unconfirmed save keeps the complete product draft');
+    await page.locator('[data-phone-message] [data-phone-retry]').click();await page.locator('#phone-orders.ph-step-number').waitFor();
+    await page.locator('[data-phone-column="preparing"] [data-phone-ticket="801"]').waitFor();await unifiedVisible(page,'number');
+    assert.equal(await rows(page).count(),0);assert.equal(await field(page,'customer_phone').inputValue(),'');
+    const attempts=calls.filter(call=>call.path===urls.save);assert.equal(attempts.length,2);assert.deepEqual(attempts[0].payload,attempts[1].payload,'retry reuses the frozen payload and request key');
+    await clean(ctx);await page.close();
+}
+async function branchPricingPresentation(browser){
+    for(const [pricing_rule,delivery_fee,labelKey] of [['app_branch_tier','75.00','branch_tariff_fixed'],['app_zero_rate','0.00','branch_tariff_free'],['app_per_km','50.00','branch_tariff_per_km']]){
+        const ctx=await setup(browser,{deliveryPricing:{method:'app_direct',pricing_rule,delivery_fee,road_distance_km:'8.11'}}),{page,labels}=ctx;
+        await page.waitForFunction(hint=>document.querySelector('[data-phone-location-status]').textContent.includes(hint),labels.branch_tariff_hint);
+        await prepareCustomer(page,async()=>{
+            const text=await page.locator('[data-phone-distance]').innerText();assert(text.includes(labels.app_delivery_distance),'pricing names the customer-app distance');assert(text.includes(labels[labelKey]),'pricing describes the branch tariff rule');assert(text.includes(labels.route_display_distance)&&text.includes('8.11'),'road distance remains visibly separate for map display');assert.equal(await field(page,'delivery_fee').inputValue(),delivery_fee,'configured tariff fee is authoritative');
+        });
+        await page.locator('[data-phone-product="2"]').click();await quoteReady(page);assert.equal(ctx.calls.filter(call=>call.path===urls.quote).at(-1).payload.delivery_fee,delivery_fee,'product invoice uses the confirmed branch tariff');await clean(ctx);await page.close();
+    }
+    console.log('Phone branch pricing display: fixed tier, zero rate and per-km rules; customer-app fee versus road geometry passed.');
 }
 async function branchPermissionRace(browser){
     const ctx=await setup(browser,{multiBranch:true}),{page,network,labels}=ctx;
@@ -233,8 +296,9 @@ async function abortedBoardPolling(browser){
         index=await page.evaluate(()=>window.phoneBoardRequests.length-1);
     });
     assert(await page.evaluate(i=>window.phoneBoardRequests[i].aborted,index),'customer-save aborts the in-flight board GET');held.release();
+    await page.locator('[data-phone-edit-customer]').click();
     async function nextQuietUpdate(label){
-        await field(page,'notes').focus();const ticket=tickets.get(102);ticket.customer_name=label;ticket.revision++;
+        await field(page,'customer_name').focus();const ticket=tickets.get(102);ticket.customer_name=label;ticket.revision++;
         const count=await page.evaluate(()=>window.phoneBoardRequests.length);
         await page.waitForFunction(before=>window.phoneBoardRequests.length>before,count,{timeout:7000});
         await page.waitForFunction(name=>document.querySelector('[data-phone-ticket="102"]')?.textContent.includes(name),label,{timeout:7000});
@@ -269,7 +333,7 @@ async function responsive(browser){
 }
 (async()=>{
     const browser=await chromium.launch({headless:true,executablePath:process.env.CRM_TEST_CHROMIUM||undefined});
-    try{await concurrencyCases(browser);if(process.env.PHONE_UNIFIED_TARGETED!=='1'){await liveTracking(browser);await responsive(browser);console.log('Phone unified: persistent three-stage tracking in every composer step; immediate initial/save refresh; draft and quantity preservation; native board Enter; quiet polling focus/scroll; queued printing; Arabic/English desktop/mobile layouts passed.');}}
+    try{if(process.env.PHONE_UNIFIED_PRICING_ONLY==='1'){await branchPricingPresentation(browser);return;}await concurrencyCases(browser);if(process.env.PHONE_UNIFIED_TARGETED!=='1'){await branchPricingPresentation(browser);await defaultProductQuantities(browser);await failedProductSend(browser);await liveTracking(browser);await responsive(browser);console.log('Phone unified: tracking in phone/customer steps; full product workspace; one-unit product defaults; explicit quantities and guarded shortcuts; late polling and failed sends preserve product mode; successful sends reset phone/board; concurrency, printing and Arabic/English responsive layouts passed.');}}
     catch(error){for(const context of browser.contexts())for(const page of context.pages()){console.error('phone-unified-failure',JSON.stringify(await page.evaluate(()=>({viewport:{width:innerWidth,height:innerHeight},key:document.querySelector('[data-phone-key=\"1\"]')?.getBoundingClientRect().toJSON(),hint:document.querySelector('[data-phone-quantity-hint]')?.getBoundingClientRect().toJSON(),step:document.querySelector('#phone-orders')?.className,message:document.querySelector('[data-phone-message]')?.textContent}))));await screenshot(page,'phone-unified-failure');}throw error;}
     finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}
 })();
