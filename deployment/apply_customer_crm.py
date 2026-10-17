@@ -104,12 +104,25 @@ def main():
                     staged.parent.mkdir(parents=True, exist_ok=True)
                     staged.write_bytes(before)
                     patch = stage / 'feature.patch'
-                    patch.write_text(entry['patch'])
-                    installed = run(['git', 'apply', '--reverse', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
-                    if installed.returncode == 0:
+                    selected = None
+                    installed = False
+                    # Alternate hunks describe the same CRM-only change against reviewed
+                    # live lifecycle versions; every candidate still needs exact context.
+                    candidates = [entry['patch'], *entry.get('compatible_patches', [])]
+                    for candidate in candidates:
+                        patch.write_text(candidate)
+                        reverse = run(['git', 'apply', '--reverse', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
+                        if reverse.returncode == 0:
+                            installed = True
+                            break
+                        check = run(['git', 'apply', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
+                        if check.returncode == 0:
+                            selected = candidate
+                            break
+                    if installed:
                         continue
-                    check = run(['git', 'apply', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
-                    require(check.returncode == 0, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+                    require(selected is not None, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+                    patch.write_text(selected)
                     apply = run(['git', 'apply', '--whitespace=nowarn', str(patch)], cwd=stage)
                     require(apply.returncode == 0, 'PATCH_FAILED: ' + relative)
                     after = staged.read_bytes()

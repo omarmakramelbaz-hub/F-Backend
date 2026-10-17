@@ -20,6 +20,47 @@ SPEC.loader.exec_module(INSTALLER)
 
 
 class InstallerTest(unittest.TestCase):
+    def test_reviewed_go_lifecycle_variants_keep_every_existing_byte(self):
+        project = Path(__file__).parents[1]
+        entry = next(item for item in json.loads((project / 'deployment/customer_crm_manifest.json').read_text())['files']
+                     if item['path'].endswith('/GoStoreBoardActions.php'))
+        release = (project / entry['path']).read_bytes()
+        hook = (b'            // Query-builder transitions do not emit Eloquent observer events.\n'
+                b'            // Keep the purchase and its feedback clock inside this sale transaction.\n'
+                b"            app(CustomerDirectorySync::class)->captureGoOrder(DB::table('go_store_orders')->find($id), $action === 'complete');\n")
+        for variant in ('cancellation', 'pre_clock'):
+            for conflicting in (False, True):
+                with self.subTest(variant=variant, conflicting=conflicting), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / 'app'
+                    target = root / entry['path']
+                    target.parent.mkdir(parents=True)
+                    live = (project / 'tests/fixtures/crm_lifecycle' / (variant + '.php')).read_bytes()
+                    live = live.replace(b'class GoStoreBoardActions', b'// Existing live extension is retained.\nclass GoStoreBoardActions')
+                    if conflicting:
+                        live = live.replace(b"'updated_at'=>now(),", b"'updated_at'=>customFinancialClock(),")
+                    target.write_bytes(live)
+                    manifest = {'version': 1, 'files': [entry], 'migrations': []}
+                    original = INSTALLER.run
+                    def runner(args, cwd=None, timeout=120):
+                        if args[0] == 'git':
+                            return original(args, cwd, timeout)
+                        return subprocess.CompletedProcess(args, 0, b'', b'')
+                    with patch.object(INSTALLER, 'source', side_effect=lambda _r, _v, p: json.dumps(manifest).encode() if p.endswith('manifest.json') else release), \
+                         patch.object(INSTALLER, 'run', runner), \
+                         patch.object(INSTALLER.pwd, 'getpwnam', return_value=types.SimpleNamespace(pw_uid=os.geteuid())), \
+                         patch.object(sys, 'argv', ['apply', '--root', str(root), '--revision', 'a' * 40]), \
+                         contextlib.redirect_stdout(io.StringIO()):
+                        if conflicting:
+                            with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                                INSTALLER.main()
+                            self.assertEqual(target.read_bytes(), live)
+                        else:
+                            INSTALLER.main()
+                            INSTALLER.main()
+                            installed = target.read_bytes()
+                            self.assertEqual(installed.count(hook), 1)
+                            self.assertEqual(installed.replace(hook, b''), live)
+
     def test_preserves_unrelated_live_edit_and_rolls_back_failed_checks(self):
         for fail in (False, True):
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as temporary:
