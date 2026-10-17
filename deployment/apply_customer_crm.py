@@ -92,37 +92,52 @@ def main():
                 require(before is None or target.is_file(), 'TARGET_NOT_REGULAR: ' + relative)
                 release = source(root, args.revision, relative)
                 require(digest(release) == entry['after'], 'RELEASE_HASH_MISMATCH: ' + relative)
+                upgrades = entry.get('upgrades', [])
+                require(isinstance(upgrades, list) and all(isinstance(upgrade, dict)
+                        and isinstance(upgrade.get('before'), str) and re.fullmatch('[0-9a-f]{64}', upgrade['before'])
+                        and isinstance(upgrade.get('patch'), str) and upgrade['patch'].strip()
+                        for upgrade in upgrades), 'UPGRADE_MANIFEST_INVALID: ' + relative)
                 if before == release:
                     continue
                 if before is None:
                     require(entry['before'] is None, 'REQUIRED_LIVE_FILE_MISSING: ' + relative)
                     after = release
-                elif digest(before) == entry['before']:
+                elif digest(before) == entry['before'] or any(digest(before) == upgrade['before'] for upgrade in upgrades):
                     after = release
                 else:
-                    require(entry['before'] is not None, 'NEW_FILE_ALREADY_MODIFIED: ' + relative)
+                    if entry['before'] is None and not upgrades:
+                        conflicts.append(relative)
+                        continue
                     staged = stage / relative
                     staged.parent.mkdir(parents=True, exist_ok=True)
                     staged.write_bytes(before)
                     patch = stage / 'feature.patch'
                     selected = None
-                    installed = False
-                    # Alternate hunks describe the same CRM-only change against reviewed
-                    # live lifecycle versions; every candidate still needs exact context.
-                    candidates = [entry['patch'], *entry.get('compatible_patches', [])]
-                    for candidate in candidates:
+                    # Updates come first: an old installed hook must never hide a pending
+                    # incremental change. Each candidate still needs exact live context.
+                    incremental = [upgrade['patch'] for upgrade in upgrades]
+                    baseline = [entry['patch'], *entry.get('compatible_patches', [])]
+                    for candidate in [*incremental, *baseline]:
                         patch.write_text(candidate)
-                        reverse = run(['git', 'apply', '--reverse', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
-                        if reverse.returncode == 0:
-                            installed = True
-                            break
                         check = run(['git', 'apply', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
                         if check.returncode == 0:
                             selected = candidate
                             break
-                    if installed:
-                        continue
                     if selected is None:
+                        def installed(candidates):
+                            for candidate in candidates:
+                                patch.write_text(candidate)
+                                reverse = run(['git', 'apply', '--reverse', '--check', '--whitespace=nowarn', str(patch)], cwd=stage)
+                                if reverse.returncode == 0:
+                                    return True
+                            return False
+                        # Existing base files must contain the complete feature and the
+                        # latest increment. A partially applied upgrade satisfies neither
+                        # the incremental reverse check nor the installed decision.
+                        current_increment = not upgrades or installed(incremental)
+                        current_baseline = entry['before'] is None or installed(baseline)
+                        if current_increment and current_baseline:
+                            continue
                         conflicts.append(relative)
                         continue
                     patch.write_text(selected)

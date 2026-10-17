@@ -298,3 +298,5 @@ Route::post('/pusher/auth', function (Request $request) {
 require __DIR__.'/whatsapp.php';
 
 require __DIR__.'/meta_messaging.php';
+
+require __DIR__.'/customer_crm_api.php';

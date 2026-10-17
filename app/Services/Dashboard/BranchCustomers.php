@@ -102,18 +102,37 @@ class BranchCustomers
     }
     public function consent(array $values,$actor): array
     {
-        $v=Validator::make($values,$this->ops->rules()+['directory_id'=>'required|integer|min:1','service_consent'=>'required|boolean','marketing_consent'=>'required|boolean','evidence'=>'nullable|string|max:500'])->validate();
+        $v=Validator::make($values,$this->ops->rules()+['directory_id'=>'required|integer|min:1','service_consent'=>'required|boolean','marketing_consent'=>'required|boolean','evidence'=>'nullable|string|max:500','consent_method'=>'nullable|in:verbal,withdrawal','consent_scope'=>'nullable|in:all,service,marketing'])->validate();
         $v['service_consent']=(bool)$v['service_consent'];$v['marketing_consent']=(bool)$v['marketing_consent'];$v['evidence']=trim($v['evidence']??'');
         return $this->ops->write('customer.consent',$v,$actor,function($branch,$actor)use($v){
             $this->directoryReady();$row=$this->scopedCustomer((int)$v['directory_id'],$v['branch'],$actor);
-            $newService=$v['service_consent']&&(!$row->service_consent||$row->opted_out_at);$newMarketing=$v['marketing_consent']&&(!$row->marketing_consent||$row->opted_out_at);
-            abort_if(($newService||$newMarketing)&&$v['evidence']==='',422,'سجل مصدر موافقة العميل الصريحة قبل تفعيل رسائل واتساب.');
-            $evidence=$v['evidence']!==''?$v['evidence']:'تحديث موافقات واتساب من قائمة العملاء دون تسجيل موافقة جديدة.';
-            $service=$v['service_consent']===(bool)$row->service_consent&&!$row->opted_out_at?null:$v['service_consent'];$marketing=$v['marketing_consent']===(bool)$row->marketing_consent&&!$row->opted_out_at?null:$v['marketing_consent'];
+            $scope=$v['consent_scope']??'all';$targets=['service'=>$scope!=='marketing','marketing'=>$scope!=='service'];
+            $newService=$targets['service']&&$v['service_consent']&&(!$row->service_consent||$row->opted_out_at);$newMarketing=$targets['marketing']&&$v['marketing_consent']&&(!$row->marketing_consent||$row->opted_out_at);
+            $method=$v['consent_method']??null;
+            $approved=[];$revoked=[];
+            foreach(['service'=>'متابعة الطلب والخدمة','marketing'=>'العروض الترويجية'] as $purpose=>$label)if($targets[$purpose]){
+                if($v[$purpose.'_consent'])$approved[]=$label;else $revoked[]=$label;
+            }
+            abort_if($method==='withdrawal'&&$approved,422,'إلغاء الرسائل لا يسجل موافقة جديدة.');
+            // This method is an explicit staff attestation after asking the customer; profiles never imply consent.
+            if($method==='verbal'||$method==='withdrawal'){
+                $evidence=[];
+                if($approved)$evidence[]='أقر الموظف بأن العميل وافق شفهيًا على رسائل واتساب: '.implode('، ',$approved).'.';
+                if($revoked)$evidence[]='سجل الموظف إيقاف رسائل واتساب: '.implode('، ',$revoked).'.';
+                $evidence=implode(' ',$evidence);
+            }else{
+                abort_if(($newService||$newMarketing)&&$v['evidence']==='',422,'سجل موافقة العميل على رسائل واتساب.');
+                $evidence=$v['evidence']!==''?$v['evidence']:'تحديث موافقات واتساب من قائمة العملاء دون تسجيل موافقة جديدة.';
+            }
+            $recordedAt=now('UTC')->toIso8601String();
+            // Never resubmit the other purpose's stale UI value. In particular a scoped
+            // withdrawal cannot turn an older opt-in back on after an incoming STOP.
+            $service=!$targets['service']||($v['service_consent']===(bool)$row->service_consent&&!$row->opted_out_at)?null:$v['service_consent'];
+            $marketing=!$targets['marketing']||($v['marketing_consent']===(bool)$row->marketing_consent&&!$row->opted_out_at)?null:$v['marketing_consent'];
             $customer=app(CustomerDirectory::class)->consent((int)$row->id,$service,$marketing,$evidence,(int)$actor->id);
             abort_unless($customer,503,'تعذر تسجيل موافقة العميل.');
             // The immutable branch operation receipt also retains who changed consent and the evidence supplied.
-            return ['customer_id'=>(int)$row->id,'consent'=>['service_consent'=>(bool)$customer->service_consent,'marketing_consent'=>(bool)$customer->marketing_consent,'opted_out_at'=>$customer->opted_out_at],'consent_evidence'=>$evidence,'recorded_by'=>(int)$actor->id];
+            return ['customer_id'=>(int)$row->id,'consent'=>['service_consent'=>(bool)$customer->service_consent,'marketing_consent'=>(bool)$customer->marketing_consent,'opted_out_at'=>$customer->opted_out_at],'consent_evidence'=>$evidence,'consent_method'=>$method??'legacy','consent_scope'=>$scope,'recorded_by'=>(int)$actor->id,'recorded_at'=>$recordedAt];
         });
     }
     private function directoryReady(): void {abort_unless(Schema::hasTable('crm_customers')&&Schema::hasTable('crm_customer_sources'),503,'قائمة العملاء الموحدة تحتاج تحديث قاعدة البيانات.');}

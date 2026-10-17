@@ -32,3 +32,7 @@
 #branch-operations .op-messaging-settings-group{margin-bottom:22px;border:1px solid #dce5eb;border-radius:10px;overflow:hidden}
 #branch-operations .op-messaging-settings-group>summary{cursor:pointer;background:#f3f7fa;padding:14px;font-size:16px;font-weight:700}
 #branch-operations .op-messaging-settings{padding:16px;margin:0;border:0}
+#branch-operations .op-consent-options{flex-basis:100%;font-size:12px}
+#branch-operations .op-consent-options>summary{cursor:pointer;padding:6px 2px;color:#36516b}
+#branch-operations .op-consent-options[open]{display:flex;flex-wrap:wrap;gap:5px}
+#branch-operations .op-consent-options>button{margin:4px 0;min-height:36px}

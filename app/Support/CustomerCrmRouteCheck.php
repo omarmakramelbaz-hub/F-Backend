@@ -25,6 +25,7 @@ final class CustomerCrmRouteCheck
         'takeaway.checkout'=>['POST', 'admin/takeaway/checkout', 'TakeawayController', 'checkout'],
         'dining.settle'=>['POST', 'admin/dining/tickets/{id}/settle', 'DineInController', 'settle'],
         'phone-orders.settle'=>['POST', 'admin/phone-orders/tickets/{id}/settle', 'PhoneOrdersController', 'settle'],
+        'customer-crm.app-consent'=>['POST', 'api/user/whatsapp-consent', 'App\\Http\\Controllers\\Api\\V1\\User\\CustomerConsentController', 'update'],
     ];
 
     public static function verify(Router $router): array
@@ -51,7 +52,7 @@ final class CustomerCrmRouteCheck
             $actualMethods = $route->methods();
             sort($expectedMethods); sort($actualMethods);
             self::require($actualMethods === $expectedMethods, 'CRM_ROUTE_METHODS', $name);
-            $controller = 'App\\Http\\Controllers\\Dashboard\\'.$shortController;
+            $controller = str_contains($shortController, '\\') ? $shortController : 'App\\Http\\Controllers\\Dashboard\\'.$shortController;
             self::require($route->getActionName() === $controller.'@'.$action && $route->getAction('uses') === $controller.'@'.$action,
                 'CRM_ROUTE_ACTION', $name);
             self::require(class_exists($controller) && (new ReflectionClass($controller))->isInstantiable()
@@ -59,13 +60,17 @@ final class CustomerCrmRouteCheck
                 'CRM_ROUTE_CONTROLLER_UNAVAILABLE', $name);
             self::require($route->excludedMiddleware() === [], 'CRM_ROUTE_MIDDLEWARE_EXCLUDED', $name);
             $middleware = $route->gatherMiddleware();
-            foreach (['web', 'lang', 'IsAdmin'] as $required) {
+            $api = str_starts_with($uri, 'api/');
+            $requiredMiddleware = $api ? ['api', 'CheckLang', 'auth:api', 'app.scope', 'custom.jwt'] : ['web', 'lang', 'IsAdmin'];
+            foreach ($requiredMiddleware as $required) {
                 self::require(in_array($required, $middleware, true), 'CRM_ROUTE_AUTH_MIDDLEWARE', $name);
             }
             self::require(is_callable([$route->getController(), $action]), 'CRM_ROUTE_CONTROLLER_UNAVAILABLE', $name);
             $effective = $router->gatherRouteMiddleware($route);
-            foreach (['App\\Http\\Middleware\\IsAdmin', 'App\\Http\\Middleware\\lang',
-                'Illuminate\\Session\\Middleware\\StartSession', 'App\\Http\\Middleware\\VerifyCsrfToken'] as $required) {
+            $requiredEffective = $api ? ['App\\Http\\Middleware\\Authenticate:api', 'App\\Http\\Middleware\\CheckLang',
+                'App\\Http\\Middleware\\AppScopeGuard', 'App\\Http\\Middleware\\CustomJwtAuth'] : ['App\\Http\\Middleware\\IsAdmin', 'App\\Http\\Middleware\\lang',
+                'Illuminate\\Session\\Middleware\\StartSession', 'App\\Http\\Middleware\\VerifyCsrfToken'];
+            foreach ($requiredEffective as $required) {
                 self::require(in_array($required, $effective, true), 'CRM_ROUTE_EFFECTIVE_MIDDLEWARE', $name);
             }
             if (str_contains($uri, '{id}')) self::require(($route->wheres['id'] ?? null) === '[0-9]+', 'CRM_ROUTE_PARAMETER', $name);

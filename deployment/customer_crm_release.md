@@ -10,7 +10,7 @@ Fetch the pinned `codex/customer-crm-feedback-20261017` revision, then run `depl
 
 The installer does not reset the server checkout or change login/sidebar behavior. New offline catalog snapshots enforce the phone requirement. Already-paid events from older server-stored snapshots qualify for contact-free historical import only when their sale time predates the persisted installation cutover; their cash and inventory effects remain intact, without inventing a customer phone or sending a survey.
 
-Publication finishes with `crm:check`, which verifies the actual 12 customer and POS route contracts, authentication/session/CSRF middleware and route matching without dispatching requests. It does not resolve unrelated legacy controllers. The first successful publication activates the offline phone cutover; failed installation attempts do not advance that activation time on a later retry.
+Publication finishes with `crm:check`, which verifies the actual 13 customer, POS and authenticated app-consent route contracts, authentication/session/CSRF middleware and route matching without dispatching requests. It does not resolve unrelated legacy controllers. The first successful publication activates the offline phone cutover; failed installation attempts do not advance that activation time on a later retry.
 
 ## WhatsApp setup
 
@@ -20,6 +20,10 @@ Open the customer list, then **متابعة العملاء ورسائل واتس
 > طلب رقم {{1}} – فرع {{2}}
 
 Record explicit service-followup consent separately from promotional consent. Phone collection alone never grants either. The template must be approved by Meta before enabling feedback. The dashboard displays the required body and compatible approved templates.
+
+After asking the customer, staff can click **وافق على المتابعة والعروض** once in the customer list. No evidence text or consent dialog is required: the server records a staff attestation of verbal permission, its timestamp and the authenticated employee automatically. **اختيار نوع الرسائل** allows service or promotion changes independently, and **إيقاف رسائل واتساب** revokes both. Existing checkout consent controls already record their source automatically. Mobile customer applications must present an unchecked consent choice in their own phone-entry UI; merely creating an application account does not grant consent.
+
+The Fasakhansta mobile update posts selected positive choices only after successful login to `POST /api/user/whatsapp-consent`, using its existing bearer and `X-App-Scope: fasakhansta`. The versioned body accepts `whatsapp_consent_version: 2026-10-17.v1` and optional boolean `service_consent` / `marketing_consent`. An omitted purpose is preserved; explicit false revokes it. The protected endpoint derives the phone from the current authenticated customer and rejects client-supplied target identities. This endpoint does not authorize messages for generic GO accounts. Mobile UI source is a separate F-customer release; installing the dashboard alone does not update distributed app binaries.
 
 For promotions, choose an approved MARKETING template and review its substituted text and eligible recipient count. The bulk button queues one recipient entry per consented phone across all branches. It sends in bounded batches, excludes opted-out customers and displays campaign outcomes. No campaign or customer message is sent as part of installation or automated tests.
 

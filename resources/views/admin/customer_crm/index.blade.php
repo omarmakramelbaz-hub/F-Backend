@@ -13,7 +13,7 @@
 <section class="op-filters"><label>الفرع<select data-op-filter="branch">@if($boot['allow_all'])<option value="all">جميع الفروع</option>@endif @foreach($boot['branches'] as $b)<option value="{{ $b['value'] }}" @if($boot['selected_branch']===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label><label>بحث<input data-op-filter="search" type="search" placeholder="الاسم أو رقم الهاتف"></label>
 <label>المصدر<select data-op-filter="source"><option value="all">كل المصادر</option><option value="takeaway">عميل تيك أواي</option><option value="dine">عميل صالة</option><option value="app">عميل تطبيق</option><option value="delivery">عميل دليفري</option></select></label>
 <button data-op-refresh>تحديث</button></section>
-<p class="op-help op-crm-followup">تُرسل متابعة الرأي بعد 24 ساعة من إتمام الطلب للعملاء الموافقين على المتابعة، عند تفعيل قالب واتساب المعتمد. وجود رقم العميل لا يُعد موافقة على الرسائل.</p>
+<p class="op-help op-crm-followup">اسأل العميل عن رسائل المتابعة والعروض ثم اضغط «وافق على المتابعة والعروض». يُحفظ وقت الموافقة والموظف تلقائيًا، ويمكن اختيار نوع واحد أو إيقاف الرسائل. تُرسل متابعة الرأي بعد 24 ساعة من إتمام الطلب عند تفعيل قالب واتساب المعتمد.</p>
 <section class="op-cards" data-op-cards></section><div class="op-table-wrap" data-op-table></div><nav class="op-pager"><button data-op-prev>السابق</button><span data-op-pages></span><button data-op-next>التالي</button></nav>
 <dialog data-op-dialog><header><h2 data-op-title></h2><button type="button" data-op-close aria-label="إغلاق">×</button></header><div data-op-body></div></dialog>
 </main></div>

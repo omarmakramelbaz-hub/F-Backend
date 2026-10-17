@@ -45,6 +45,7 @@ namespace {
     $checks=0;function expectCrm($condition,string $label): void {$GLOBALS['checks']++;if(!$condition)throw new \RuntimeException('CRM_DIRECTORY_FAILED:'.$label);}
     function deniedCrm(callable $work,int $status): void {try{$work();throw new \RuntimeException('Expected denial');}catch(CrmDirectoryDenied $error){expectCrm($error->getCode()===$status,'scope/consent denial '.$status);}}
     function crmKey(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
+    function invalidCrm(callable $work,string $field): void {try{$work();throw new \RuntimeException('Expected validation failure');}catch(\Illuminate\Validation\ValidationException $error){expectCrm(isset($error->errors()[$field]),'invalid consent field '.$field);}}
     $directory=app(CustomerDirectory::class);$service=app(BranchCustomers::class);
     $customer=$directory->capture(['phone'=>'٠١٠٦٤٤٦٤٤٩٩','name'=>'أحمد'],'takeaway','f:100');
     $same=$directory->capture(['phone'=>'+201064464499','address'=>'عنوان التوصيل'],'delivery','f:100');
@@ -81,5 +82,42 @@ namespace {
     expectCrm($new['customer']['phone']==='+201000000005'&&$new['customer']['name']===null,'minimal valid phone can be recorded');
     $saved=$service->save(['branch'=>'f:100','name'=>'عميل محفوظ','phone'=>'01000000006','address'=>'شارع الجيش','idempotency_key'=>crmKey(8)],$branch);
     expectCrm($saved['customer']['id']>0&&DB::table('crm_customers')->where('phone','+201000000006')->exists(),'legacy delivery save captures registry and retains local id');
+    $verbal=['branch'=>'f:100','directory_id'=>$customer->id,'service_consent'=>true,'marketing_consent'=>false,'consent_method'=>'verbal','consent_scope'=>'service','idempotency_key'=>crmKey(9)];
+    $approval=$service->consent($verbal,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm($state->service_consent&&!$state->marketing_consent&&$state->opted_out_at===null,'verbal choice grants only the selected purpose');
+    expectCrm(str_contains($state->service_consent_evidence,'أقر الموظف')&&str_contains($state->service_consent_evidence,'شفهيًا')&&str_contains($state->service_consent_evidence,'متابعة الطلب والخدمة')&&!str_contains($state->service_consent_evidence,'العروض الترويجية'),'server records truthful verbal attestation without free text');
+    expectCrm($state->service_consented_by===2&&$state->service_consented_at==='2026-10-17 10:00:00'&&$approval['recorded_by']===2&&$approval['recorded_at']==='2026-10-17T10:00:00+00:00'&&$approval['consent_method']==='verbal','server stamps verbal approval actor and UTC time');
+    \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-17 10:05:00','UTC'));
+    $approvalReplay=$service->consent($verbal,$branch);
+    expectCrm($approvalReplay['replayed']&&$approvalReplay['recorded_at']===$approval['recorded_at']&&DB::table('crm_customers')->find($customer->id)->service_consented_at===$state->service_consented_at,'verbal retry replays the original receipt and timestamp');
+    deniedCrm(fn()=>$service->consent(array_replace($verbal,['marketing_consent'=>true]),$branch),409);
+    deniedCrm(fn()=>$service->consent(array_replace($verbal,['directory_id'=>$foreign->id,'idempotency_key'=>crmKey(10)]),$branch),404);
+    invalidCrm(fn()=>$service->consent(array_replace($verbal,['consent_method'=>'profile','idempotency_key'=>crmKey(11)]),$branch),'consent_method');
+    deniedCrm(fn()=>$service->consent(array_replace($verbal,['consent_method'=>'withdrawal','idempotency_key'=>crmKey(12)]),$branch),422);
+    $withdrawal=array_replace($verbal,['service_consent'=>false,'consent_method'=>'withdrawal','consent_scope'=>'all','idempotency_key'=>crmKey(13)]);$stopped=$service->consent($withdrawal,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm(!$state->service_consent&&!$state->marketing_consent&&$state->opted_out_at==='2026-10-17 10:05:00'&&$stopped['consent_method']==='withdrawal','one-click withdrawal stops both purposes without evidence entry');
+    expectCrm($state->service_consented_by===2&&str_contains($state->service_consent_evidence,'إيقاف')&&!str_contains($state->service_consent_evidence,'وافق'),'withdrawal attribution never invents approval');
+    $verbalBoth=array_replace($verbal,['marketing_consent'=>true,'consent_scope'=>'all','idempotency_key'=>crmKey(14)]);$service->consent($verbalBoth,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm($state->service_consent&&$state->marketing_consent&&str_contains($state->marketing_consent_evidence,'العروض الترويجية'),'cashier can explicitly record both customer choices together');
+    $marketingBefore=$state->marketing_consented_at;$marketingEvidence=$state->marketing_consent_evidence;
+    $scopeStop=array_replace($verbal,['service_consent'=>false,'marketing_consent'=>false,'consent_scope'=>'service','consent_method'=>'withdrawal','idempotency_key'=>crmKey(15)]);
+    $scoped=$service->consent($scopeStop,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm(!$state->service_consent&&$state->marketing_consent&&$state->opted_out_at===null&&$state->marketing_consented_at===$marketingBefore&&$state->marketing_consent_evidence===$marketingEvidence,'scoped withdrawal preserves the current other-purpose approval despite stale false UI flag');
+    expectCrm($scoped['consent_scope']==='service'&&str_contains($scoped['consent_evidence'],'متابعة الطلب والخدمة')&&!str_contains($scoped['consent_evidence'],'العروض الترويجية'),'scoped evidence covers only the selected purpose');
+    \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-17 10:10:00','UTC'));
+    $directory->consent($customer->id,false,false,'إلغاء واتساب من رسالة العميل');
+    \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-17 10:11:00','UTC'));
+    $staleAfterStop=array_replace($scopeStop,['marketing_consent'=>true,'idempotency_key'=>crmKey(16)]);$service->consent($staleAfterStop,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm(!$state->service_consent&&!$state->marketing_consent&&$state->opted_out_at!==null,'scoped withdrawal after incoming STOP never resurrects a stale other-purpose opt-in');
+    $service->consent(array_replace($verbal,['marketing_consent'=>true,'idempotency_key'=>crmKey(17)]),$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm($state->service_consent&&!$state->marketing_consent&&$state->opted_out_at===null,'scoped approval after STOP grants only its target despite stale true other flag');
+    $serviceBefore=$state->service_consented_at;$serviceEvidence=$state->service_consent_evidence;
+    $marketingOnly=array_replace($verbal,['service_consent'=>false,'marketing_consent'=>true,'consent_scope'=>'marketing','idempotency_key'=>crmKey(18)]);$service->consent($marketingOnly,$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm($state->service_consent&&$state->marketing_consent&&$state->service_consented_at===$serviceBefore&&$state->service_consent_evidence===$serviceEvidence,'marketing scoped action ignores stale false service value');
+    expectCrm(str_contains($state->marketing_consent_evidence,'العروض الترويجية')&&!str_contains($state->marketing_consent_evidence,'متابعة الطلب والخدمة'),'marketing attestation does not claim service permission');
+    $directory->consent($customer->id,false,false,'STOP');
+    $service->consent(array_replace($marketingOnly,['service_consent'=>true,'idempotency_key'=>crmKey(19)]),$branch);$state=DB::table('crm_customers')->find($customer->id);
+    expectCrm(!$state->service_consent&&$state->marketing_consent,'marketing scoped approval ignores stale true service value after STOP');
+    invalidCrm(fn()=>$service->consent(array_replace($verbal,['consent_scope'=>'profile','idempotency_key'=>crmKey(20)]),$branch),'consent_scope');
     echo 'CRM customer registry: '.$checks." checks passed.\n";
 }

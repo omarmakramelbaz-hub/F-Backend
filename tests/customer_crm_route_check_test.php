@@ -24,8 +24,11 @@ function fixtureRouter(bool $broken = true): Router
     $router->middlewareGroup('web', ['Illuminate\\Session\\Middleware\\StartSession', 'App\\Http\\Middleware\\VerifyCsrfToken']);
     $router->aliasMiddleware('IsAdmin', 'App\\Http\\Middleware\\IsAdmin');
     $router->aliasMiddleware('lang', 'App\\Http\\Middleware\\lang');
+    $router->middlewareGroup('api', []);
+    foreach (['auth'=>'Authenticate','CheckLang'=>'CheckLang','app.scope'=>'AppScopeGuard','custom.jwt'=>'CustomJwtAuth'] as $alias=>$class) $router->aliasMiddleware($alias, 'App\\Http\\Middleware\\'.$class);
     $router->middleware('web')->group(dirname(__DIR__).'/routes/takeaway.php');
     $router->middleware('web')->group(dirname(__DIR__).'/routes/pos_service.php');
+    $router->prefix('api')->middleware('api')->group(dirname(__DIR__).'/routes/customer_crm_api.php');
     if ($broken) $router->get('unrelated/broken', 'MissingUnrelatedController@neverRun')->name('unrelated.broken');
     $router->getRoutes()->refreshNameLookups();
     return $router;
@@ -40,7 +43,7 @@ function mustReject(callable $mutate, string $reason, string $label): void
 
 $router=fixtureRouter();
 $report=CustomerCrmRouteCheck::verify($router);
-routeCheck($report === ['ok'=>true,'verified_routes'=>12,'requests_dispatched'=>0], 'all real customer and POS contracts verified without dispatch');
+routeCheck($report === ['ok'=>true,'verified_routes'=>13,'requests_dispatched'=>0], 'all real customer and POS contracts verified without dispatch');
 routeCheck($router->getRoutes()->getByName('unrelated.broken')->controller === null, 'unrelated nonexistent controller is never resolved');
 
 // Reproduce Laravel 8 path filtering behavior: middleware resolution happens before filtering.
@@ -64,12 +67,15 @@ mustReject(function ($router) { $router->post('admin/customers/unregistered', fn
 mustReject(function ($router) { $r=$router->getRoutes()->getByName('customers.messaging-status'); $a=$r->getAction(); $a['uses']=\App\Http\Controllers\Dashboard\BranchOperationsController::class.'@queueCampaign'; $r->setAction($a); }, 'CRM_ROUTE_ACTION', 'changed action cannot pass a matching route name');
 mustReject(function ($router) { Container::getInstance()->bind(\App\Http\Controllers\Dashboard\BranchOperationsController::class, fn()=>new stdClass); }, 'CRM_ROUTE_CONTROLLER_UNAVAILABLE', 'uncallable resolved customer controller is rejected');
 mustReject(function ($router) { $router->getRoutes()->getByName('dining.settle')->where('id', '.*'); }, 'CRM_ROUTE_PARAMETER', 'settlement ID constraint must remain numeric');
+mustReject(function ($router) { $router->getRoutes()->getByName('customer-crm.app-consent')->withoutMiddleware('auth:api'); }, 'CRM_ROUTE_MIDDLEWARE_EXCLUDED', 'application consent cannot lose API authentication');
+mustReject(function ($router) { $router->aliasMiddleware('app.scope', 'UnprotectedScopeMiddleware'); }, 'CRM_ROUTE_EFFECTIVE_MIDDLEWARE', 'application consent cannot bypass app scope');
 
 // Put an earlier wildcard ahead of the feature routes while keeping all original metadata.
 $base=fixtureRouter(false); $shadowContainer=Container::getInstance();
 $shadow=new Router(new Dispatcher($shadowContainer), $shadowContainer);
 $shadow->middlewareGroup('web', ['Illuminate\\Session\\Middleware\\StartSession','App\\Http\\Middleware\\VerifyCsrfToken']);
 $shadow->aliasMiddleware('IsAdmin','App\\Http\\Middleware\\IsAdmin'); $shadow->aliasMiddleware('lang','App\\Http\\Middleware\\lang');
+$shadow->middlewareGroup('api', []);foreach (['auth'=>'Authenticate','CheckLang'=>'CheckLang','app.scope'=>'AppScopeGuard','custom.jwt'=>'CustomJwtAuth'] as $alias=>$class) $shadow->aliasMiddleware($alias, 'App\\Http\\Middleware\\'.$class);
 $shadow->get('admin/{everything}', 'MissingShadowController@neverRun')->where('everything','.*')->name('unrelated.shadow');
 foreach ($base->getRoutes()->getRoutes() as $route) $shadow->getRoutes()->add($route);
 $shadow->getRoutes()->refreshNameLookups();
@@ -84,7 +90,7 @@ $command=new \App\Console\Commands\CheckCustomerCrm; $command->setLaravel($conta
 $output=new \Symfony\Component\Console\Output\BufferedOutput;
 $exit=$command->run(new \Symfony\Component\Console\Input\ArrayInput([]), $output);
 $json=json_decode(trim($output->fetch()), true);
-routeCheck($exit===0&&$kernelConstructions===1&&($json['verified_routes']??0)===12, 'crm:check command constructs kernel metadata and exits zero on valid scoped routes');
+routeCheck($exit===0&&$kernelConstructions===1&&($json['verified_routes']??0)===13, 'crm:check command constructs kernel metadata and exits zero on valid scoped routes');
 $router->getRoutes()->getByName('customers.consent')->withoutMiddleware('IsAdmin');
 $output=new \Symfony\Component\Console\Output\BufferedOutput;
 $exit=$command->run(new \Symfony\Component\Console\Input\ArrayInput([]), $output);
@@ -132,7 +138,7 @@ $consentRoute->setAction($validAction);
 $activated=\Illuminate\Support\Facades\DB::table('crm_customer_sync_states')->first();
 routeCheck($exit===0&&($json['phone_requirement_cutover']['activated']??false)
     && $activated->activated_at==='2026-10-17 12:10:00'&&$activated->bootstrapped_at==='2026-10-17 12:10:00'
-    && $activated->updated_at==='2026-10-17 12:10:00', 'first successful publication sets the final UTC cutover after all twelve route checks');
+    && $activated->updated_at==='2026-10-17 12:10:00', 'first successful publication sets the final UTC cutover after all route checks');
 \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-17T12:30:00Z'));
 [$exit,$json]=runCutoverHealth(true);
 routeCheck($exit===0&&($json['phone_requirement_cutover']['activated']??true)===false
