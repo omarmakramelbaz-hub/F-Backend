@@ -36,7 +36,10 @@ RUNTIME_PINS = {
     'app/Services/Dashboard/WhatsAppInboxAccess.php': ('186789d42113e81818de8d82a2327e3ee9d8d0b5',),
     'app/Services/Dashboard/WhatsAppInboxMessage.php': ('bedd91db5266d83bdce84a04836e988518891728',),
     'app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php': ('4b571f7f4a5cef9257c414886dba515c06dae2a1',),
-    'app/Support/WhatsAppInboxProtocol.php': ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd',),
+    # The reviewed CRM protocol only adds scoped status-report rows. Preserve
+    # that independent extension instead of overwriting it with the older file.
+    'app/Support/WhatsAppInboxProtocol.php':
+        ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd', 'f2eec9099f9a27915cda50b7c8e267efb1f0b030'),
     'app/Services/Dashboard/TakeawayAccess.php': ('6b27b7ac2faff6fdaf952494f90f2d8378a12484',),
     'app/Services/Dashboard/TakeawayCatalog.php':
         ('49943493fffb5405c87a3001f36c339caa2edf31', '2ff0e19675d8678dfb6ca738767eeaa99f95dc47'),

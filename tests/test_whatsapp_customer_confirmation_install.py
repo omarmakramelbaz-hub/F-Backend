@@ -29,6 +29,31 @@ wrapper = shell_module('customer_confirmation_root_wrapper', ROOT/'deployment/ap
 old_root = shell_module('customer_confirmation_old_root_library', ROOT/'deployment/apply_meta_ai_control_root.sh')
 
 
+def reviewed_protocols():
+    """Rebuild the independently reviewed additive CRM change, binding both bytes."""
+    original = (ROOT/'app/Support/WhatsAppInboxProtocol.php').read_bytes()
+    before = b"$report = ['messages' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];"
+    after = b"$report = ['messages' => [], 'statuses' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];"
+    anchor = b"                        $report['status_count']++;\n"
+    extension = b"""                        // Receipts keep their own identity; never turn one into an inbox
+                        // message or let an unscoped account update outbound records.
+                        $timestamp = $status['timestamp'] ?? null;
+                        if ((is_string($timestamp) || is_int($timestamp))
+                            && preg_match('/\\A[0-9]{1,10}\\z/', (string) $timestamp)
+                            && (int) $timestamp > 0 && (int) $timestamp <= min(2147483647, time() + 86400)) {
+                            $report['statuses'][] = ['message_id' => $status['id'], 'status' => $status['status'],
+                                'sent_at' => gmdate('Y-m-d H:i:s', (int) $timestamp),
+                                'recipient_phone' => self::phone($status['recipient_id'] ?? null)];
+                        }
+"""
+    if repair.blob(original) != 'c64f8cf89437bb7822fc767202f7cf5112bfd7fd' or original.count(before) != 1 or original.count(anchor) != 1:
+        raise AssertionError('Reviewed original protocol fixture changed')
+    alternate = original.replace(before, after).replace(anchor, anchor+extension)
+    if repair.blob(alternate) != 'f2eec9099f9a27915cda50b7c8e267efb1f0b030':
+        raise AssertionError('Reviewed additive CRM protocol fixture changed')
+    return original, alternate
+
+
 class Fixture:
     def __init__(self, folder):
         self.uid = os.geteuid(); self.root = pathlib.Path(folder)/'app'
@@ -158,6 +183,44 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         entries = dict(re.findall(r"'([^']+)'=>'([^']+)'", re.search(r'\$pins=\[(.*?)\n    \];', status, re.S)[1]))
         for path, (_, target) in repair.TARGET_PINS.items():
             self.assertEqual(entries[path], target, 'status must guard same final published target')
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        self.assertNotIn(protocol, repair.TARGET_PINS)
+        self.assertEqual(repair.RUNTIME_PINS[protocol],
+            ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd', 'f2eec9099f9a27915cda50b7c8e267efb1f0b030'))
+        self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
+
+    def test_both_exact_reviewed_protocols_preflight_without_publishing_or_changing_them(self):
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'; allowed = repair.RUNTIME_PINS[protocol]
+        self.fixture.runtime[protocol] = allowed
+        for content in reviewed_protocols():
+            with self.subTest(protocol=repair.blob(content)):
+                self.fixture.write(protocol, content)
+                before = repair.library.guarded_snapshot(self.fixture.root/protocol, self.fixture.uid, self.fixture.root)
+                result = self.fixture.apply(True)
+                self.assertEqual(result['status'], 'WA_CONFIRMATION_PREFLIGHT_READY')
+                self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/protocol, self.fixture.uid, self.fixture.root), before)
+                self.fixture.originals_intact(self)
+
+    def test_unknown_protocol_hash_is_rejected_even_next_to_the_reviewed_crm_extension(self):
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        self.fixture.runtime[protocol] = repair.RUNTIME_PINS[protocol]
+        self.fixture.write(protocol, reviewed_protocols()[1]+b'\n// unreviewed mutation\n')
+        with self.assertRaisesRegex(repair.SafeError, 'WA_CONFIRMATION_RUNTIME_SOURCE_MISMATCH'):
+            self.fixture.apply(True)
+        self.fixture.originals_intact(self)
+
+    def test_full_publication_preserves_reviewed_crm_protocol_bytes_and_inode(self):
+        protocol = 'app/Support/WhatsAppInboxProtocol.php'
+        self.fixture.runtime[protocol] = repair.RUNTIME_PINS[protocol]
+        self.fixture.write(protocol, reviewed_protocols()[1])
+        before = repair.library.guarded_snapshot(self.fixture.root/protocol, self.fixture.uid, self.fixture.root)
+        result = self.fixture.apply()
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/protocol, self.fixture.uid, self.fixture.root), before)
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertNotIn(protocol, receipt['publication_targets'])
+        for path, content in self.fixture.targets.items():
+            self.assertEqual((self.fixture.root/path).read_bytes(), content)
 
     def test_preflight_has_no_application_policy_order_or_service_mutation(self):
         before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)

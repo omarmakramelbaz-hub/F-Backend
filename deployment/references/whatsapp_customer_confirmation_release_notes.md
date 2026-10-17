@@ -35,4 +35,9 @@ The status CLI is read-only and reports receipt/candidate and ERP receipt metada
 without customer text, phone numbers, addresses, coordinates or credentials.
 Application tests use only synthetic identities and isolated SQLite data.
 
+The installer and read-only status helper accept the original inbox protocol and
+the reviewed CRM receipt-projection extension. The extension only adds validated
+delivery-status DTOs; message, cart and location parsing are unchanged. Neither
+protocol variant is published or replaced by this installer.
+
 This workaround does not restore missing native-agent reply bodies to the inbox.

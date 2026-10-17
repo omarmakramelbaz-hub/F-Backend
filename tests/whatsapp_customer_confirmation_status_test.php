@@ -20,6 +20,33 @@ foreach($pins as[$all,$path,$pin]){
     $source=str_replace("'".$path."'=>'".$pin."'","'".$path."'=>'".$actual."'",$source,$count);
     statusExpect($count===1,'one reviewed source seam '.$path);
 }
+$protocolPath=$fixture.'/app/Support/WhatsAppInboxProtocol.php';$protocolOriginal=file_get_contents($protocolPath);
+$protocolBefore=<<<'PHP'
+$report = ['messages' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];
+PHP;
+$protocolAfter=<<<'PHP'
+$report = ['messages' => [], 'statuses' => [], 'quarantined_count' => 0, 'ignored_count' => 0, 'status_count' => 0];
+PHP;
+$protocolAnchor="                        \$report['status_count']++;\n";
+$protocolExtension=<<<'PHP'
+                        // Receipts keep their own identity; never turn one into an inbox
+                        // message or let an unscoped account update outbound records.
+                        $timestamp = $status['timestamp'] ?? null;
+                        if ((is_string($timestamp) || is_int($timestamp))
+                            && preg_match('/\A[0-9]{1,10}\z/', (string) $timestamp)
+                            && (int) $timestamp > 0 && (int) $timestamp <= min(2147483647, time() + 86400)) {
+                            $report['statuses'][] = ['message_id' => $status['id'], 'status' => $status['status'],
+                                'sent_at' => gmdate('Y-m-d H:i:s', (int) $timestamp),
+                                'recipient_phone' => self::phone($status['recipient_id'] ?? null)];
+                        }
+PHP;
+statusExpect(sha1('blob '.strlen($protocolOriginal)."\0".$protocolOriginal)==='c64f8cf89437bb7822fc767202f7cf5112bfd7fd'
+    &&substr_count($protocolOriginal,$protocolBefore)===1&&substr_count($protocolOriginal,$protocolAnchor)===1,'reviewed original protocol fixture');
+$protocolAlternate=str_replace($protocolBefore,$protocolAfter,$protocolOriginal);
+$protocolAlternate=str_replace($protocolAnchor,$protocolAnchor.$protocolExtension."\n",$protocolAlternate);
+statusExpect(sha1('blob '.strlen($protocolAlternate)."\0".$protocolAlternate)==='f2eec9099f9a27915cda50b7c8e267efb1f0b030',
+    'reviewed additive CRM protocol fixture');
+file_put_contents($fixture.'/reviewed-alternate-protocol',$protocolAlternate);
 $source=str_replace("posix_getpwnam('fasakha')","['uid'=>posix_geteuid()+(getenv('WA_STATUS_CASE')==='bad-owner'?1:0)]",$source,$count);
 statusExpect($count===1,'fixed owner seam');
 $source=str_replace("chdir('/home/fasakha/public_html')",'chdir('.var_export($fixture,true).')',$source,$count);
@@ -47,6 +74,8 @@ namespace App\Support {
     class WhatsAppCustomerOrderConfirmation {
         public static function inspect($transcript){
             file_put_contents(getcwd().'/inspected','1');
+            if(getenv('WA_STATUS_CASE')==='protocol-drift')file_put_contents(getcwd().'/app/Support/WhatsAppInboxProtocol.php',
+                file_get_contents(getcwd().'/reviewed-alternate-protocol'));
             if(getenv('WA_STATUS_CASE')==='approval-missing')return['ok'=>false,'reason'=>'CUSTOMER_APPROVAL_REQUIRED','data'=>null];
             return['ok'=>true,'reason'=>null,'data'=>[
                 'type'=>'CUSTOMER_CONFIRMED_RECAP','customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201033333333',
@@ -137,11 +166,14 @@ function statusRun(string$case,array$args=['--conversation','11']):array{
     $fixture=$GLOBALS['fixture'];foreach(['inspected','read-only','bootstrapped']as$name)@unlink($fixture.'/'.$name);
     $guard=$fixture.'/app/Support/WhatsAppOrderExtraction.php';$original=file_get_contents($guard);
     if($case==='stale-source')file_put_contents($guard,$original.' changed');
+    $protocol=$fixture.'/app/Support/WhatsAppInboxProtocol.php';$protocolBefore=file_get_contents($protocol);
+    if($case==='protocol-alternate')file_put_contents($protocol,$GLOBALS['protocolAlternate']);
+    if($case==='protocol-unknown')file_put_contents($protocol,$GLOBALS['protocolAlternate']."\n// unreviewed change\n");
     $php=getenv('WA_CONFIRMATION_TEST_PHP')?:PHP_BINARY;
     $pipes=[];$process=proc_open([$php,$fixture.'/status.php',...$args],
         [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,null,array_merge(getenv(),['WA_STATUS_CASE'=>$case]));
     fclose($pipes[0]);$output=stream_get_contents($pipes[1]);fclose($pipes[1]);$errors=stream_get_contents($pipes[2]);fclose($pipes[2]);
-    $exit=proc_close($process);file_put_contents($guard,$original);
+    $exit=proc_close($process);file_put_contents($guard,$original);file_put_contents($protocol,$protocolBefore);
     statusExpect($errors===''&&!str_contains($output,'PRIVATE_')&&!str_contains($output,'201033333333')
         &&!str_contains($output,'31.123456')&&!str_contains($output,'30.654321'),'no customer/coordinate/error leakage '.$case);
     return[$exit,json_decode($output,true,32,JSON_THROW_ON_ERROR),is_file($fixture.'/bootstrapped'),is_file($fixture.'/inspected'),is_file($fixture.'/read-only')];
@@ -155,6 +187,12 @@ statusExpect($value['candidate']['items_count']===1&&$value['candidate']['coordi
 statusExpect($value['control']['analysis']['effective']===false&&$value['control']['dispatch']['effective']===true
     &&$value['control']['automatic_replies']['effective']===false,'independent gates remain distinct');
 statusExpect($value['draft']['uses_customer_receipt']&&$value['draft']['matches_current_snapshot'],'stored protocol/snapshot match observed');
+[$compatExit,$compatValue]=statusRun('protocol-alternate');statusExpect($compatExit===0&&$compatValue['status']==='READ_READY'
+    &&$compatValue['candidate']['valid'],'exact reviewed CRM protocol also passes initial and final guards');
+[$compatExit,$compatValue,$compatBooted]=statusRun('protocol-unknown');statusExpect($compatExit===1
+    &&$compatValue['stage']==='SOURCE_GUARD'&&!$compatBooted,'unknown protocol version fails before bootstrap');
+[$compatExit,$compatValue]=statusRun('protocol-drift');statusExpect($compatExit===1&&$compatValue['stage']==='FINAL_GUARD',
+    'swapping between two compatible protocols during observation still fails final exact source guard');
 foreach(['writes','ai_calls','message_sends','erp_writes','graph_gets']as$key)statusExpect($value[$key]===0,'zero actions '.$key);
 [$exit,$value]=statusRun('approval-missing');statusExpect($exit===0&&!$value['candidate']['valid']
     &&$value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED','copied recap without approval not treated as confirmed');

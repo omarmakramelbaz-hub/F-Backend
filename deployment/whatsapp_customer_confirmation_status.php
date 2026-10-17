@@ -76,11 +76,18 @@ try{
         'app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php'=>'4b571f7f4a5cef9257c414886dba515c06dae2a1',
         'app/Support/WhatsAppInboxProtocol.php'=>'c64f8cf89437bb7822fc767202f7cf5112bfd7fd',
     ];
+    // Both exact reviewed protocols authenticate the same native messages. The
+    // later CRM revision additionally projects scoped status receipts; no other
+    // runtime drift is admitted and neither file is published by this repair.
+    $compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];
+    $observedSourceHashes=[];
     foreach($pins as$path=>$pin){
         $out['source_guard_file']=$path;
         if(is_link($path)||!is_file($path)||realpath($path)!==getcwd().'/'.$path||filesize($path)>1048576)throw new RuntimeException();
         $bytes=file_get_contents($path);
-        if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$pin)throw new RuntimeException();
+        $allowed=$path==='app/Support/WhatsAppInboxProtocol.php'?$compatibleProtocolPins:[$pin];
+        if(!is_string($bytes))throw new RuntimeException();$actual=sha1('blob '.strlen($bytes)."\0".$bytes);
+        if(!in_array($actual,$allowed,true))throw new RuntimeException();$observedSourceHashes[$path]=$actual;
     }
     unset($out['source_guard_file']);
     $stage='BOOTSTRAP';require'vendor/autoload.php';$app=require'bootstrap/app.php';
@@ -168,7 +175,8 @@ try{
         &&($after['policy']??null)===($state['policy']??null);
     foreach($pins as$path=>$pin){
         if(is_link($path)||!is_file($path)||realpath($path)!==getcwd().'/'.$path||filesize($path)>1048576)throw new RuntimeException();
-        $bytes=file_get_contents($path);if(!is_string($bytes)||sha1('blob '.strlen($bytes)."\0".$bytes)!==$pin)throw new RuntimeException();
+        $bytes=file_get_contents($path);
+        if(!is_string($bytes)||!hash_equals($observedSourceHashes[$path],sha1('blob '.strlen($bytes)."\0".$bytes)))throw new RuntimeException();
     }
     $out['status']=$out['snapshot_current_at_read']&&$out['control_unchanged_during_read']?'READ_READY':'OBSERVATION_CHANGED';
 }catch(Throwable$ignore){
