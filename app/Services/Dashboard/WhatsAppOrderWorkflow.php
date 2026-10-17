@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Support\WhatsAppOrderExtraction;
 use App\Support\WhatsAppInboxProtocol;
 use App\Support\WhatsAppOrderDialogue;
+use App\Support\WhatsAppCustomerOrderConfirmation;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -24,7 +25,7 @@ class WhatsAppOrderWorkflow
         'NO_ORDER', 'CUSTOMER_CANCELLED', 'REVIEW_REQUIRED', 'PICKUP_REQUIRES_REVIEW', 'BRANCH_UNRESOLVED',
         'CATALOG_UNRESOLVED', 'LOCATION_UNCONFIRMED', 'PRICE_REQUIRES_REVIEW', 'CUSTOMER_CHANGE',
         'BRANCH_CLOSED', 'BRANCH_POLICY_UNAVAILABLE', 'AUTO_NOT_CONFIGURED', 'PROCESS_FAILED','CAPTURE_REVIEW_REQUIRED',
-        'RECOVERED_HISTORY_REVIEW','DISPATCH_OUTSIDE_HOURS'];
+        'RECOVERED_HISTORY_REVIEW','DISPATCH_OUTSIDE_HOURS','CUSTOMER_RECAP_REPLAY'];
 
     public function available(): bool
     {
@@ -263,6 +264,7 @@ class WhatsAppOrderWorkflow
             if ($bounded) abort_unless($activation!==null && $eventActivation!==null && $activationTime!==null,403,'AUTO_NOT_CONFIGURED');
             $floor=$bounded ? $this->automaticFloor($conversation,$scan,true) : $this->dispatchedCeiling($conversation);
             if ($bounded) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
+            $floor=$this->customerReceiptFloor($conversation,$floor,$ceiling);
             $baselined=$bounded && ($scan->auto_floor===null || ($this->controlInstalled()
                 ? (int)$scan->auto_floor!==$activation : (int)$scan->auto_floor<$activation));
             $staleBounded=$bounded && $existing && (int)$existing->evidence_floor<$floor;
@@ -277,13 +279,25 @@ class WhatsAppOrderWorkflow
                 $scan->claimed_ceiling=0; $scan->attempts=0; $scan->next_attempt_at=null;
             }
             $retry=$automatic && $existing && $existing->reason==='AI_UNAVAILABLE' && (int)$scan->attempts<3;
-            if ($existing && !$staleBounded && !$staleEvidence && !$force && !$retry) return ['existing'=>$existing,'baselined'=>$baselined];
+            // A newly installed receipt protocol may recognize an already captured,
+            // still pending turn. Re-analyze that exact snapshot once, without
+            // resetting activation floors, leases or completed orders.
+            $receiptRefresh=false;
+            if ($existing&&!$staleBounded&&!$staleEvidence&&$this->customerReceiptEnabled($conversation)) {
+                $stored=$this->decode($existing->extraction);
+                if (($stored['type']??null)!==WhatsAppCustomerOrderConfirmation::TYPE) {
+                    $candidate=$this->snapshot($conversation,$floor,$ceiling);
+                    $receiptRefresh=($candidate['complete']??false)===true
+                        &&(WhatsAppCustomerOrderConfirmation::inspect($candidate['transcript'])['ok']??false)===true;
+                }
+            }
+            if ($existing && !$staleBounded && !$staleEvidence && !$force && !$retry&&!$receiptRefresh) return ['existing'=>$existing,'baselined'=>$baselined];
             if (!$force) abort_if($scan->next_attempt_at && $scan->next_attempt_at > now('UTC')->format('Y-m-d H:i:s')
                 && !($this->controlInstalled()&&$ceiling>(int)$scan->analyzed_ceiling), 409, 'ANALYSIS_BACKOFF');
             // A closed automatic-analysis clock never consumes a fresh attempt. Exact
             // cached results above remain readable for independently scheduled dispatch.
             $analysisAuthority=$automatic&&$this->controlInstalled()?$this->requireAnalysisHours($conversation):null;
-            $attempts = (int)$scan->claimed_ceiling === $ceiling ? (int)$scan->attempts+1 : 1;
+            $attempts = $receiptRefresh?1:((int)$scan->claimed_ceiling === $ceiling ? (int)$scan->attempts+1 : 1);
             abort_if($attempts > 3 && !$force, 409, 'ANALYSIS_RETRY_LIMIT');
             $nonce = bin2hex(random_bytes(32));
             DB::table(static::SCANS)->where('conversation_id', $conversation)->update(['claimed_ceiling'=>$ceiling, 'claim_nonce'=>$nonce,
@@ -301,15 +315,19 @@ class WhatsAppOrderWorkflow
                 abort_unless($authority===$claim['analysis_authority'],409,'AI_CONTROL_CHANGED');
                 $this->requireAnalysisHours($conversation,$authority);
             }
-            $result = $snapshot['complete'] ? $this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
-                : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
+            $receipt=$snapshot['complete']&&$this->customerReceiptEnabled($conversation)
+                ?WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']):null;
+            $result = ($receipt['ok']??false)===true?$receipt:($snapshot['complete']
+                ?$this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
+                : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null]);
             if (!is_array($result) || !($result['ok'] ?? false)) {
                 $data = ['analysis_failure'=>$this->safeAnalysisFailure($result)];
                 $reason = in_array($result['reason']??null,['INVALID_INPUT','INVALID_EVIDENCE','INVALID_EXTRACTION'],true)
                     ? 'INVALID_EXTRACTION' : (($result['reason'] ?? null) === 'CONTEXT_INCOMPLETE' ? 'CONTEXT_INCOMPLETE' : 'AI_UNAVAILABLE');
                 $status='REVIEW';
             } else {
-                $checked = WhatsAppOrderExtraction::validate($result['data'], $snapshot['transcript']);
+                $checked = ($receipt['ok']??false)===true?$receipt
+                    :WhatsAppOrderExtraction::validate($result['data'], $snapshot['transcript']);
                 $data = ($checked['ok'] ?? false) ? $checked['data'] : null;
                 $reason = $data === null ? 'INVALID_EXTRACTION' : 'REVIEW_REQUIRED'; $status='REVIEW';
                 if (($data['decision'] ?? '') === 'NONE') { $status='NONE'; $reason='NO_ORDER'; }
@@ -458,6 +476,8 @@ class WhatsAppOrderWorkflow
         if ($failures->first(['event_id'])) { $reason='CAPTURE_REVIEW_REQUIRED'; return null; }
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         if ($this->controlInstalled()&&$this->primaryAuthority((int)$row->conversation_id,$snapshot)===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
+        if (isset($data['type'])&&$data['type']===WhatsAppCustomerOrderConfirmation::TYPE)
+            return $this->customerReceiptReview($row,$data,$snapshot,$actor,$reason,$lock);
         // An unanswered product question never consents to execute an older basket,
         // including when a cached model result still calls that basket CONFIRMED.
         if ($this->controlInstalled()&&$this->informationTurn($snapshot['transcript'])!==null) { $reason='REVIEW_REQUIRED'; return null; }
@@ -548,6 +568,181 @@ class WhatsAppOrderWorkflow
         if ($origin!==null) $v['delivery_origin_branch']=$origin;
         $v=$this->review($v);
         return $v;
+    }
+
+    /** The customer-copy protocol is deliberately limited to silent WhatsApp analysis. */
+    private function customerReceiptEnabled(int $conversation): bool
+    {
+        return $this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages'
+            &&$this->analysisOnly($conversation)&&class_exists(WhatsAppCustomerOrderConfirmation::class);
+    }
+
+    /** A complete new customer receipt can stand independently of a long older
+     * chat. Select a new evidence range, never alter activation/dispatched floors.
+     * All messages after its native recap remain in the complete CAS snapshot. */
+    private function customerReceiptFloor(int $conversation,int $floor,int $ceiling): int
+    {
+        if (!$this->customerReceiptEnabled($conversation)) return $floor;
+        $full=$this->snapshot($conversation,$floor,$ceiling);
+        if (($full['complete']??false)===true||WhatsAppOrderExtraction::hasProbe($full['transcript']??[])) return $floor;
+        foreach (array_reverse($full['transcript']??[]) as $candidate) {
+            if ($candidate['speaker']!=='customer'||!is_string($candidate['text'])) continue;
+            $parsed=WhatsAppCustomerOrderConfirmation::parseRecap($candidate['text']);
+            if (($parsed['ok']??false)!==true) continue;
+            // An unrelated historical pin is not part of an independent receipt.
+            if (!is_array($parsed['data']['textual_location']['point']??null)) return $floor;
+            $key=$full['keys'][$candidate['id']]??null;
+            if (!is_string($key)) return $floor;
+            $native=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$conversation)
+                ->where('message_key',$key)->where('direction','inbound')->where('type','text')->first(['id']);
+            if (!$native||(int)$native->id<=$floor||(int)$native->id>$ceiling) return $floor;
+            $receiptFloor=max($floor,(int)$native->id-1);
+            $suffix=$this->snapshot($conversation,$receiptFloor,$ceiling);
+            if (($suffix['complete']??false)!==true) return $floor;
+            $proof=WhatsAppCustomerOrderConfirmation::inspect($suffix['transcript']);
+            $recap=$proof['data']['evidence_receipt']['recap_id']??null;
+            return ($proof['ok']??false)===true&&is_string($recap)&&($suffix['keys'][$recap]??null)===$key
+                ?$receiptFloor:$floor;
+        }
+        return $floor;
+    }
+
+    /** Re-prove the actual inbound rows on every quote/dispatch; never trust a cached marker. */
+    private function customerReceiptReview(object $row,array $data,array $snapshot,$actor,?string &$reason,bool $lock): ?array
+    {
+        $conversation=(int)$row->conversation_id;
+        if (!$this->customerReceiptEnabled($conversation)||($snapshot['complete']??false)!==true) { $reason='REVIEW_REQUIRED'; return null; }
+        $proved=WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
+        if (($proved['ok']??false)!==true||!hash_equals(PosServiceTicket::fingerprint($proved['data']),PosServiceTicket::fingerprint($data))) {
+            $reason='INVALID_EXTRACTION'; return null;
+        }
+        if (WhatsAppOrderExtraction::hasProbe($snapshot['transcript'])) { $reason='REVIEW_REQUIRED'; return null; }
+        $receipt=$data['evidence_receipt']; $rows=array_column($snapshot['transcript'],null,'id');
+        $activation=$this->activationInstant($conversation);
+        if ($activation===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
+        foreach ([$receipt['recap_id'],$receipt['approval_id']] as $id) {
+            $message=$rows[$id]??null;
+            if (!$message||!is_string($snapshot['keys'][$id]??null)||$message['speaker']!=='customer'
+                ||$message['sent_at']<$activation||$message['sent_at']<=now('UTC')->subHours(24)->format('Y-m-d H:i:s')
+                ||$message['sent_at']>now('UTC')->format('Y-m-d H:i:s')) { $reason='STALE_TRANSCRIPT'; return null; }
+            if (($snapshot['recovered_at']??null)!==null&&$message['sent_at']<$snapshot['recovered_at']) {
+                $reason='RECOVERED_HISTORY_REVIEW'; return null;
+            }
+        }
+        $resolved=$this->automaticBranch($data,$actor);
+        if ($resolved===null) { $reason='BRANCH_UNRESOLVED'; return null; }
+        $branch=$resolved['fulfillment_branch']??$resolved['value'];
+        $fulfillment=$this->branch($branch,$actor,$lock);
+        if (!$this->branchOpen($fulfillment,$reason,$lock)) return null;
+        $origin=$resolved['value']!==$branch?$resolved['value']:null;
+        if ($origin!==null) {
+            try { app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
+            catch (\Throwable $error) { $reason='BRANCH_UNRESOLVED'; return null; }
+        }
+        $point=$data['textual_location']['point']??null; $nativePoint=null; $pinPosition=null; $addressPosition=null;
+        // A customer may supply a genuine pin before the copied recap. A later
+        // conflicting pin invalidates the recap instead of being silently swapped in.
+        foreach ($snapshot['transcript'] as $position=>$message) {
+            if ($message['speaker']!=='customer') continue;
+            // A recap cannot retroactively bind an old pin to a new address.
+            if ($message['id']!==$receipt['recap_id']&&$message['sent_at']>=$activation
+                &&is_string($message['text'])&&str_contains($message['text'],$data['customer']['address'])) $addressPosition=$position;
+            if (($message['location']??null)===null) continue;
+            $nativePoint=$this->validPoint($message['location']['lat']??null,$message['location']['long']??null);
+            $pinPosition=$position;
+            if ($nativePoint===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
+        }
+        if ($point!==null) $point=$this->validPoint($point['lat']??null,$point['long']??null);
+        if ($nativePoint!==null&&$point!==null&&$point!==$nativePoint) { $reason='LOCATION_UNCONFIRMED'; return null; }
+        if ($point===null&&($addressPosition===null||$pinPosition===null||$pinPosition<=$addressPosition)) {
+            $reason='LOCATION_UNCONFIRMED'; return null;
+        }
+        $point=$point??$nativePoint;
+        if ($point===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
+        $customer=$data['customer'];
+        if (mb_strlen($customer['name'])>100||mb_strlen($customer['address'])>500
+            ||mb_strlen((string)$customer['area'])>150) { $reason='REVIEW_REQUIRED'; return null; }
+        $catalog=$this->dialogueCatalog($branch,$actor);
+        if ($catalog===null) { $reason='CATALOG_UNRESOLVED'; return null; }
+        $items=[]; $identities=[];
+        foreach ($data['items'] as $item) {
+            $mapped=$this->customerReceiptItem($item,$catalog);
+            if ($mapped===null) { $reason='CATALOG_UNRESOLVED'; return null; }
+            $identity=$mapped['product_id'].':'.$mapped['option_id'];
+            if (isset($identities[$identity])) { $reason='CATALOG_UNRESOLVED'; return null; }
+            $identities[$identity]=true; $items[]=$mapped;
+        }
+        $notes=trim((string)($customer['notes']??''));
+        if (($data['alternate_phones']??[])!==[]) $notes=trim($notes."\nأرقام تواصل إضافية: ".implode('، ',$data['alternate_phones']));
+        if (mb_strlen($notes)>500) { $reason='REVIEW_REQUIRED'; return null; }
+        $values=['expected_revision'=>(int)$row->revision,'branch'=>$branch,
+            'customer_name'=>$customer['name'],'customer_phone'=>$customer['phone'],'address'=>$customer['address'],
+            'area'=>$customer['area']??'','delivery_notes'=>$notes,
+            'latitude'=>$point['lat'],'longitude'=>$point['long'],'location_confirmed'=>true,'items'=>$items];
+        if ($origin!==null) $values['delivery_origin_branch']=$origin;
+        $values=$this->review($values);
+        // Distinct wamids, wording/option order or coordinate precision do not
+        // turn the same effective basket into another order. A genuinely repeated
+        // order inside this bounded window needs a human to confirm it is new.
+        $fingerprint=$this->customerReceiptReviewFingerprint($values);
+        $previous=DB::table(static::DRAFTS)->where('conversation_id',$conversation)->where('status','DISPATCHED')
+            ->where('id','!=',(int)$row->id)->where('dispatched_at','>=',now('UTC')->subHours(24)->format('Y-m-d H:i:s'))
+            ->orderByDesc('id')->limit(101);
+        if ($lock) $previous->lockForUpdate();
+        $completed=$previous->selectRaw('CASE WHEN LENGTH(sealed_payload)<=262144 THEN sealed_payload ELSE NULL END AS sealed_payload')->get();
+        if (count($completed)>100) { $reason='CUSTOMER_RECAP_REPLAY'; return null; }
+        foreach ($completed as $old) {
+            $sealed=$this->decode($old->sealed_payload);
+            if (!is_array($sealed['review']??null)) { $reason='REVIEW_REQUIRED'; return null; }
+            if (hash_equals($fingerprint,$this->customerReceiptReviewFingerprint($sealed['review']))) {
+                $reason='CUSTOMER_RECAP_REPLAY'; return null;
+            }
+        }
+        return $values;
+    }
+
+    /** Match whole literal product/option labels only; similarity is never order authority. */
+    private function customerReceiptItem(array $item,array $catalog): ?array
+    {
+        $name=$this->customerReceiptName($item['name']); $matches=[];
+        foreach ($catalog as $product) {
+            if (($product['available']??false)!==true
+                ||!in_array($product['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) continue;
+            $base=$this->customerReceiptName($product['name']);
+            if ($name===$base) {
+                $options=$product['options']??[];
+                // Default options still pass the existing qualifier coverage guard.
+                $literalItem=$item; $literalItem['name']=$product['name'];
+                $option=$options===[]?'':$this->catalogOption($literalItem,[$literalItem],[$product['name']],$product);
+                if ($option!==null) $matches[]=['product_id'=>$product['id'],'option_id'=>$option];
+            }
+            foreach ($product['options']??[] as $option) {
+                $label=$this->customerReceiptName($option['label']);
+                if ($label!==''&&in_array($name,[$base.' '.$label,$label.' '.$base],true))
+                    $matches[]=['product_id'=>$product['id'],'option_id'=>$option['id']];
+            }
+        }
+        if (count($matches)!==1||!is_int($matches[0]['product_id'])||$matches[0]['product_id']<1
+            ||$this->quantityMillis($item['quantity'])===null) return null;
+        return $matches[0]+['quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode']];
+    }
+
+    private function customerReceiptName(string $value): string
+    {
+        $value=strtr(mb_strtolower($value,'UTF-8'),['أ'=>'ا','إ'=>'ا','آ'=>'ا','ى'=>'ي','ة'=>'ه',
+            '٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9']);
+        $value=trim(preg_replace('/[\p{Z}\s]+/u',' ',$value));
+        return preg_replace('/\A(?:كيلو|كيلوجرام|كيلوغرام|كجم|كغ)\s+/u','',$value);
+    }
+
+    private function customerReceiptReviewFingerprint(array $review): string
+    {
+        $items=array_map(fn($item)=>[(int)$item['product_id'],$this->quantityMillis($item['quantity']),$item['quantity_mode'],
+            (string)($item['option_id']??''),(int)($item['feature_id']??0),(string)($item['product_clean']??'')],$review['items']);
+        usort($items,static fn($a,$b)=>strcmp(json_encode($a),json_encode($b)));
+        return PosServiceTicket::fingerprint([$review['branch'],$review['delivery_origin_branch']??$review['branch'],
+            BranchCustomers::phoneKey($review['customer_phone']),$this->name($review['address']),
+            $this->validPoint($review['latitude'],$review['longitude']),$items]);
     }
 
     protected function followupService()
@@ -1591,6 +1786,17 @@ class WhatsAppOrderWorkflow
     {
         $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         $data=$this->decode($row->extraction); $ids=$data['evidence']['confirmation_ids']??[]; $anchor=null;
+        if (isset($data['type'])&&$data['type']===WhatsAppCustomerOrderConfirmation::TYPE) {
+            $proved=$this->customerReceiptEnabled((int)$row->conversation_id)&&($snapshot['complete']??false)===true
+                ?WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']):null;
+            abort_unless(($proved['ok']??false)===true
+                &&hash_equals(PosServiceTicket::fingerprint($proved['data']),PosServiceTicket::fingerprint($data)),422,'CUSTOMER_CONFIRMATION_REQUIRED');
+            $receipt=$data['evidence_receipt'];
+            $recap=$snapshot['keys'][$receipt['recap_id']]??null; $approval=$snapshot['keys'][$receipt['approval_id']]??null;
+            abort_unless(is_string($recap)&&is_string($approval),422,'CUSTOMER_CONFIRMATION_REQUIRED');
+            return hash('sha256','whatsapp-customer-confirmation-v1:'.$this->scopeKey($this->conversation((int)$row->conversation_id))
+                .':'.$recap.':'.$approval);
+        }
         foreach (WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']) as $m) if ($m['speaker']==='business' && (!$ids || in_array($m['id'],$ids,true))) $anchor=$snapshot['keys'][$m['id']];
         abort_unless(is_string($anchor),422,'BUSINESS_CONFIRMATION_REQUIRED');
         return hash('sha256','whatsapp-order-confirmation-v1:'.$this->scopeKey($this->conversation((int)$row->conversation_id)).$anchor);
