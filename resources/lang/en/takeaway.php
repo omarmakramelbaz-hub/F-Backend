@@ -1,5 +1,6 @@
 <?php
 return [
+    'cash_paid'=>'Amount paid',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
     'quantity_auto_title'=>'Weight / quantity',
     'quantity_auto_hint'=>'Enter kilograms or a piece count, then choose the product; its unit is selected automatically.',

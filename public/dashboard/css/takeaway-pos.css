@@ -126,6 +126,8 @@
 .tp-discount-total:has([data-pos-discount]:not([hidden])) [data-pos-total="discount"] { display: none; }
 .tp-totals-compact .tp-grand-total { grid-column: 1 / -1; border-top: 1px solid var(--tp-line); padding: 4px 0 0; gap: 8px; }
 .tp-totals-compact .tp-grand-total dt { font-size: 14px; font-weight: 800; }
+.tp-totals-compact .tp-grand-total dt { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tp-totals-compact .tp-grand-total .tp-cash-change { color: #167342; font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tp-totals-compact .tp-grand-total dd { gap: 5px; }
 .tp-totals-compact .tp-grand-total strong { font-size: 23px; line-height: 1.15; }
 .tp-totals-compact .tp-grand-total small { margin: 0; font-size: 9px; }
@@ -140,11 +142,11 @@
 .tp-payments-compact .tp-payment i { font-size: 16px; }
 .tp-customer-consent { border: 1px solid var(--tp-line); border-radius: 5px; padding: 5px 7px; min-height: 31px; font-size: 10px; gap: 6px; line-height: 1.55; }
 .tp-customer-consent input { width: 17px; height: 17px; }
-.tp-payment-reference.tp-cash-received { grid-template-columns: minmax(0,1fr) minmax(150px,1.15fr); gap: 8px; padding: 0 10px 4px; align-items: center; }
-.tp-cash-received > span { font-size: 11px; font-weight: 800; gap: 3px; }
-.tp-cash-received input { height: 47px; font-size: 23px; font-weight: 800; text-align: center; direction: ltr; padding: 6px; background: #fff9f2; border-color: #f2be8e; }
-.tp-cash-received input::placeholder { font-size: 10px; font-weight: 400; }
-.tp-cash-received [data-pos-change] { font-size: 10px; }
+.tp-customer-consent:focus-within { outline: 3px solid #ff8b33; outline-offset: 2px; background: #fff7ec; }
+.tp-payment-reference.tp-cash-received { position: relative; display: block; padding: 0; margin: 0 10px 4px; }
+.tp-cash-received > .tp-cash-title { position: absolute; top: 6px; inset-inline: 10px; display: block; text-align: center; font-size: 10px; line-height: 12px; font-weight: 700; color: #7f542f; pointer-events: none; }
+.tp-cash-received input { height: 60px; font-size: 29px; line-height: 1; font-weight: 800; text-align: center; direction: ltr; padding: 20px 10px 5px; background: #fff9f2; border-color: #f2be8e; }
+.tp-pos .tp-cash-received input:focus { outline: 3px solid #ff8b33; outline-offset: 1px; border-color: #9c4b12; box-shadow: 0 0 0 5px #fff0e4; }
 .tp-finish { margin: 3px 10px 8px; min-height: 44px; padding: 7px; font-size: 13px; gap: 8px; }.tp-finish i { font-size: 20px; }
 .tp-catalog { gap: 8px; }
 .tp-products { grid-template-columns: repeat(auto-fill,minmax(116px,1fr)); gap: 8px; }
@@ -158,11 +160,11 @@
 .tp-weight-display > span { font-size: 14px; font-weight: 700; }
 .tp-weight-display output { font-size: 57px; line-height: 1.25; }
 .tp-weight-display small { font-size: 11px; margin-top: -18px; }
-.tp-keypad { gap: 9px; grid-template-rows: repeat(4,clamp(66px,8.2vh,88px)); flex: 0 0 auto; }
-.tp-keypad button { font-size: 31px; border-radius: 8px; background: #f8faff; }
+.tp-keypad { gap: 9px; grid-template-rows: repeat(4,minmax(0,1fr)); flex: 1 1 0; min-height: 0; }
+.tp-keypad button { min-height: 0; font-size: 31px; border-radius: 8px; background: #f8faff; }
 .tp-keypad .tp-key-confirm { font-size: 12px; background: #f57416; border-color: #f57416; padding: 6px; gap: 9px; }
 .tp-key-confirm i { font-size: 24px; }
-.tp-weight-hint { margin-top: auto; padding: 10px; font-size: 11px; }
+.tp-weight-hint { margin-top: 0; padding: 10px; font-size: 11px; flex: 0 0 auto; }
 .tp-reset-weight { min-height: 39px; font-size: 12px; flex: 0 0 auto; }
 .tp-pos.is-sold .tp-customer-row, .tp-pos.is-sold .tp-payment-consent-row { display: none; }
 
@@ -173,20 +175,20 @@
     .tp-workspace { grid-template-columns: 360px minmax(260px,1fr) 270px; gap: 9px; }
     .tp-invoice .tp-panel-heading { min-height: 31px; padding: 5px 9px; }.tp-panel-heading h2 { font-size: 12px; }
     .tp-invoice-lines th { height: 22px; padding: 3px 2px; font-size: 9px; }
-    .tp-invoice-lines td { height: 24px; padding: 1px 2px; font-size: 10px; }
+    .tp-invoice-lines td { height: 23px; padding: 1px 2px; font-size: 10px; }
     .tp-line-name { font-size: 10px; line-height: 1.5; }.tp-line-option { display: inline; font-size: 9px; line-height: 1.3; }
-    .tp-line-remove { min-height: 21px; padding: 1px 0; }
+    .tp-line-remove { min-height: 20px; padding: 1px 0; }
     .tp-checkout > [data-pos-discount-reason-wrap] { padding: 0 8px 3px; font-size: 9px; }.tp-checkout > [data-pos-discount-reason-wrap] input { height: 24px; padding: 3px 5px; }
     .tp-notes { padding: 2px 8px; }.tp-notes textarea { height: 20px; max-height: 20px; padding-block: 1px; }
     .tp-totals.tp-totals-compact { padding: 3px 8px; gap: 2px 6px; }.tp-totals-compact > div, .tp-totals-compact dt { font-size: 9px; }
     .tp-totals-compact .tp-inline-discount { width: 52px; height: 21px; font-size: 10px; }.tp-totals-compact .tp-grand-total { padding-top: 2px; }.tp-totals-compact .tp-grand-total dt { font-size: 12px; }.tp-totals-compact .tp-grand-total strong { font-size: 20px; }
     .tp-customer-row { padding: 1px 8px 3px; gap: 6px; }.tp-customer-row .tp-payment-reference { gap: 1px; font-size: 9px; }.tp-customer-row input { height: 27px; padding: 4px 6px; font-size: 11px; }
     .tp-payment-consent-row { margin: 0 8px 3px; grid-template-columns: 58px minmax(0,1fr); gap: 6px; }.tp-payments-compact .tp-payment { min-height: 29px; padding: 4px 5px; font-size: 10px; }.tp-customer-consent { min-height: 29px; padding: 3px 5px; font-size: 9px; gap: 5px; }
-    .tp-payment-reference.tp-cash-received { padding: 0 8px 3px; }.tp-cash-received input { height: 40px; font-size: 22px; }.tp-cash-received > span { font-size: 10px; }.tp-cash-received input::placeholder { font-size: 9px; }
+    .tp-payment-reference.tp-cash-received { padding: 0; margin: 0 8px 3px; }.tp-cash-received input { height: 52px; font-size: 27px; padding: 18px 8px 3px; }.tp-cash-received > .tp-cash-title { top: 3px; font-size: 9px; line-height: 11px; }
     .tp-finish { min-height: 37px; margin: 2px 8px 6px; font-size: 12px; padding: 5px; }.tp-finish i { font-size: 18px; }
     .tp-catalog-heading h2 { font-size: 14px; }.tp-search { padding: 5px 7px; }.tp-categories button { font-size: 10px; padding: 5px 8px; min-height: 28px; }
     .tp-weight { padding: 10px; gap: 10px; }.tp-weight-display { padding-block: 5px 7px; }.tp-weight-display > span { font-size: 12px; }.tp-weight-display output { font-size: 46px; }
-    .tp-keypad { gap: 7px; grid-template-rows: repeat(4,65px); }.tp-keypad button { font-size: 28px; }.tp-keypad .tp-key-confirm { font-size: 11px; }
+    .tp-keypad { gap: 7px; grid-template-rows: repeat(4,minmax(0,1fr)); }.tp-keypad button { font-size: 28px; }.tp-keypad .tp-key-confirm { font-size: 11px; }
     .tp-weight-hint { font-size: 10px; padding: 8px; }.tp-reset-weight { min-height: 33px; font-size: 11px; }
 }
 @media (max-width:1199px) {
@@ -195,7 +197,7 @@
     .tp-workspace { grid-template-columns: minmax(300px,1fr) 270px; gap: 10px; flex: 0 0 auto; }
     .tp-invoice { min-height: 570px; max-height: 740px; }.tp-invoice-lines { min-height: 250px; }
     .tp-weight { max-height: none; min-height: 460px; height: 60vh; padding: 10px; gap: 10px; }.tp-weight-display output { font-size: 46px; }
-    .tp-keypad { grid-template-rows: repeat(4,58px); gap: 7px; }.tp-keypad button { font-size: 27px; }.tp-keypad .tp-key-confirm { font-size: 11px; }
+    .tp-keypad { grid-template-rows: repeat(4,minmax(0,1fr)); gap: 7px; }.tp-keypad button { font-size: 27px; }.tp-keypad .tp-key-confirm { font-size: 11px; }
     .tp-weight-hint { font-size: 10px; padding: 8px; }
 }
 @media (max-width:599px) {
@@ -206,7 +208,7 @@
     .tp-reset-weight { grid-column: 1; grid-row: 2; align-self: end; min-height: 34px; font-size: 10px; }.tp-weight-hint { grid-column: 1 / -1; grid-row: 3; padding: 7px; font-size: 10px; }
     .tp-catalog-heading h2 { font-size: 14px; }.tp-products { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .tp-totals.tp-totals-compact { gap: 3px 5px; }.tp-totals-compact dt, .tp-totals-compact > div { font-size: 9px; }.tp-totals-compact .tp-inline-discount { width: 46px; }
-    .tp-payment-consent-row { grid-template-columns: 58px minmax(0,1fr); gap: 6px; }.tp-customer-consent { font-size: 9px; padding: 4px; }.tp-cash-received input { font-size: 21px; }.tp-payment-reference.tp-cash-received { grid-template-columns: minmax(0,1fr) minmax(145px,1.2fr); }
+    .tp-payment-consent-row { grid-template-columns: 58px minmax(0,1fr); gap: 6px; }.tp-customer-consent { font-size: 9px; padding: 4px; }.tp-cash-received input { font-size: 21px; }
 }
 
 .tp-invoice-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; flex: 0 0 auto; }

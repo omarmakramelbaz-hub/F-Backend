@@ -21,6 +21,7 @@
     var cashInput = root.querySelector('[data-pos-cash-received]');
     var customerPhone = root.querySelector('[data-pos-customer-phone]'), customerName = root.querySelector('[data-pos-customer-name]');
     var customerConsent = root.querySelector('[data-pos-customer-consent]'), serviceConsent = false, marketingConsent = false;
+    var consentEnterAffirmed = false, enterKeyDown = false, composing = false;
     var discountInput = root.querySelector('[data-pos-discount]');
     var confirmedInput = root.querySelector('[data-pos-payment-confirmed]');
     var activeInvoice = 0;
@@ -135,7 +136,7 @@
     function switchInvoice(index, restoring) {
         if (!Number.isInteger(index) || index < 0 || index >= invoices.length || index === activeInvoice && !restoring) return;
         if (selling || registerLocked) { notify(label('sale_locked'), false, uncertain); return; }
-        if (!restoring) storeInvoice(); catalogGeneration++; quoteGeneration++; modalGeneration++;
+        if (!restoring) storeInvoice(); consentEnterAffirmed = false; catalogGeneration++; quoteGeneration++; modalGeneration++;
         if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort();
         clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true;
         activeInvoice = index; var invoice = invoices[index];
@@ -180,6 +181,48 @@
     function showConsent() {
         customerConsent.checked = serviceConsent && marketingConsent;
         customerConsent.indeterminate = serviceConsent !== marketingConsent;
+    }
+    function checkoutEnter(event) {
+        if (event.key !== 'Enter') return false;
+        var target = event.target;
+        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput;
+        var editable = target.matches('input,textarea,select,[contenteditable]');
+        var productButton = !!target.closest('[data-pos-product],[data-pos-options]');
+        var keypad = !!target.closest('.tp-weight');
+        var catalogSurface = !!target.closest('.tp-catalog') && !target.closest('button,a,input,textarea,select,[contenteditable]');
+        var start = target === document.body || target === root || productButton || !editable && (keypad || catalogSurface);
+        if (!nameField && !phoneField && !consentField && !cashField && !start) return false;
+        if (!cart.length && !keypad && !productButton && !cashField) return false;
+
+        var held = event.repeat || enterKeyDown;
+        if (composing || event.isComposing || event.keyCode === 229) {
+            // Let a text input commit its IME candidate without advancing checkout.
+            if (!editable || consentField) event.preventDefault();
+            return true;
+        }
+        if (held || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || isLocked() || !permissions.can_checkout) {
+            event.preventDefault(); return true;
+        }
+        enterKeyDown = true;
+        if (!cart.length && productButton) return false;
+        event.preventDefault();
+        if (!cart.length && keypad) { key('confirm'); return true; }
+        if (cashField) return true;
+        if (nameField) { consentEnterAffirmed = false; customerPhone.focus(); return true; }
+        if (phoneField) {
+            consentEnterAffirmed = false;
+            if (!normalizedCustomerPhone(customerPhone.value)) { notify(label('customer_phone_required')); customerPhone.focus(); return true; }
+            if (message.querySelector('span').textContent === label('customer_phone_required')) notify('');
+            customerConsent.focus(); return true;
+        }
+        if (consentField) {
+            if (!consentEnterAffirmed) {
+                // This Enter is the cashier's explicit affirmation, never a side effect of focus.
+                serviceConsent = marketingConsent = true; showConsent(); renderInvoiceTabs(); consentEnterAffirmed = true;
+            } else { consentEnterAffirmed = false; cashInput.focus(); cashInput.select(); }
+            return true;
+        }
+        consentEnterAffirmed = false; customerName.focus(); return true;
     }
     function label(key) { return labels[key] || key; }
     function node(tag, className, text) {
@@ -256,6 +299,7 @@
     }
     function isLocked() { return selling || uncertain || sold || registerLocked || quarantined; }
     function lock() {
+        if (isLocked()) consentEnterAffirmed = false;
         root.classList.toggle('is-checkout-locked', isLocked()); root.classList.toggle('is-sold', sold);
         root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-customer-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category]').forEach(function (control) {
             control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options]') && !permissions.can_checkout;
@@ -337,7 +381,7 @@
         root.querySelector('[data-pos-change]').textContent = paymentMethod === 'cash' && received !== null && total !== null && received >= total ? label('change') + ': ' + money(decimal(received - total, 2)) : '';
     }
     function invalidateQuote() {
-        clearTimeout(quoteTimer); quoteGeneration++; if (quoteController) quoteController.abort(); quote = null; totals(null);
+        consentEnterAffirmed = false; clearTimeout(quoteTimer); quoteGeneration++; if (quoteController) quoteController.abort(); quote = null; totals(null);
         if (cart.length && loaded && !isLocked()) quoteTimer = setTimeout(requestQuote, 180);
     }
     async function requestQuote() {
@@ -424,7 +468,7 @@
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
     function resetDraft() {
-        cart = []; quote = null; frozenPayload = null; uncertain = false; sold = false; saleKey = uuid(); lastReceipt = null; lastQuotedTotal = null; quoteGeneration++; if (quoteController) quoteController.abort(); clearTimeout(quoteTimer);
+        consentEnterAffirmed = false; cart = []; quote = null; frozenPayload = null; uncertain = false; sold = false; saleKey = uuid(); lastReceipt = null; lastQuotedTotal = null; quoteGeneration++; if (quoteController) quoteController.abort(); clearTimeout(quoteTimer);
         paymentMethod = 'cash'; quantityMode = 'weight'; quantityInput = '1'; replaceQuantity = true;
         customerPhone.value = ''; customerName.value = ''; serviceConsent = false; marketingConsent = false; showConsent();
         root.querySelector('[data-pos-notes]').value = ''; root.querySelector('[data-pos-payment-reference]').value = ''; discountInput.value = '0.00'; root.querySelector('[data-pos-discount-reason]').value = ''; root.querySelector('[data-pos-discount-reason-wrap]').hidden = true; cashInput.value = ''; confirmedInput.checked = false; root.querySelector('[data-pos-saved]').hidden = true; applyPayment(); renderLines(); totals(null); lock(); showQuantity();
@@ -514,7 +558,7 @@
         } finally { clearTimeout(timeout); selling = false; lock(); }
     }
     function openModal(title) {
-        modalGeneration++; if (modalController) modalController.abort();
+        consentEnterAffirmed = false; modalGeneration++; if (modalController) modalController.abort();
         if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title; var content = root.querySelector('[data-pos-modal-content]'); content.replaceChildren(node('p', 'tp-empty', label('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
     function closeModal(confirmedWrite) { if (registerLocked && confirmedWrite !== true) { notify(label('sale_locked')); return; } modalGeneration++; modal.hidden = true; if (modalController) modalController.abort(); if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
@@ -616,8 +660,12 @@
         if (button.dataset.posPage) return loadCatalog(catalogPage + (button.dataset.posPage === 'next' ? 1 : -1));
     });
     listen(branchSelect, 'change', changeBranch);
-    listen(root, 'input', function (event) { if (event.target.matches('input,textarea,select')) renderInvoiceTabs(); });
+    listen(root, 'input', function (event) {
+        if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
+        if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
+    });
     listen(root, 'change', function (event) {
+        if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
         if (event.target === customerConsent) {
             if (isLocked()) { showConsent(); return; }
             // Keep legacy per-purpose approvals until the cashier explicitly changes this combined control.
@@ -625,6 +673,7 @@
         }
         if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
     });
+    listen(customerConsent, 'blur', function () { consentEnterAffirmed = false; });
     if (window.jQuery) window.jQuery(branchSelect).on('change.takeawayPos', changeBranch);
     listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
@@ -635,11 +684,15 @@
         if (disposed) return; if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; }
         if (!modal.hidden) { if (event.key === 'Tab') { var controls = modal.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled)'); if (controls.length) { var first = controls[0], last = controls[controls.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } } return; }
         if (event.key === 'F9') { event.preventDefault(); checkout(); return; }
+        if (checkoutEnter(event)) return;
         if (event.target.matches('input,textarea,select,[contenteditable]')) return;
         if (/^[0-9.]$/.test(event.key)) { event.preventDefault(); key(event.key); }
         else if (event.key === 'Backspace') { event.preventDefault(); key('backspace'); }
-        else if (event.key === 'Enter' && root.querySelector('.tp-weight').contains(event.target)) { event.preventDefault(); key('confirm'); }
     });
+    listen(document, 'keyup', function (event) { if (event.key === 'Enter') enterKeyDown = false; });
+    listen(document, 'compositionstart', function () { composing = true; consentEnterAffirmed = false; });
+    listen(document, 'compositionend', function () { composing = false; });
+    listen(window, 'blur', function () { enterKeyDown = false; consentEnterAffirmed = false; composing = false; });
     listen(window, 'beforeunload', function (event) { if (registerLocked || selling || hasUncertainInvoices() || hasOpenInvoices()) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
