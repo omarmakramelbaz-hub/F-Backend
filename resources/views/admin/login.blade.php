@@ -22,7 +22,7 @@
             <div class="dashboard-login-brand">
                 @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-login-logo go-erp-platform-logo'])
             </div>
-            <p class="dashboard-login-brand-title go-erp-tagline" lang="en" dir="ltr">THE INTELEGENT SYSTEM FOR SALES AND INVENTORY AND HR</p>
+            <p class="dashboard-login-brand-title go-erp-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
             <p class="dashboard-login-brand-subtitle">{{ $isArabic ? 'لوحة واحدة لإدارة التطبيقات والطلبات' : 'One dashboard for your applications and orders' }}</p>
         </section>
 
