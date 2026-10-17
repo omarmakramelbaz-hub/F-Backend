@@ -13,7 +13,7 @@ class TakeawayCatalog
 {
     private TakeawayAccess $access;
     private ?array $listingFeatures = null;
-    private const CLEAN = ['extra_clear'=>'تنظيف إضافي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'تغليف مفرغ'];
+    private const CLEAN = ['extra_clear'=>'مخلي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'تغليف مفرغ'];
     private const FEATURES = ['half'=>'نصف', 'quarter'=>'ربع', 'combo'=>'كومبو', 'large'=>'كبير', 'medium'=>'وسط'];
 
     public function __construct(TakeawayAccess $access) { $this->access = $access; }
@@ -167,10 +167,24 @@ class TakeawayCatalog
                 } catch (\Throwable $error) { /* Unconfigured choices are not offered for sale. */ }
             }
         }
-        return ['id'=>(int) $row->id, 'name'=>(string) $row->{$this->nameColumn($branch)}, 'price'=>$price, 'unit_price'=>$price,
+        $product = ['id'=>(int) $row->id, 'name'=>(string) $row->{$this->nameColumn($branch)}, 'price'=>$price, 'unit_price'=>$price,
             'available'=>$available, 'image_url'=>$branch['kind'] === 'gs' && !empty($row->image_path) ? Storage::disk('public')->url($row->image_path) : $image,
             'unit'=>$branch['kind'] === 'gs' ? (string) ($row->unit ?? '') : '', 'quantity_mode'=>'select',
             'category_id'=>$row->category_id ?? null, 'options'=>$options, 'revision'=>$row->revision ?? null];
+        if ($branch['kind'] === 'f') {
+            $product['preparation_options'] = [];
+            $labels = app()->getLocale() === 'ar'
+                ? [''=>'كامل', 'extra_clean'=>'تنظيف', 'extra_clear'=>'مخلي']
+                : [''=>'Whole', 'extra_clean'=>'Cleaned', 'extra_clear'=>'Filleted'];
+            foreach ($price === null ? [] : $labels as $clean => $label) {
+                try {
+                    [$cents, $id] = $this->price($branch, $row, ['feature_id'=>0, 'product_clean'=>$clean], false);
+                    $product['preparation_options'][] = ['id'=>$id, 'label'=>$label, 'price'=>Money::decimal($cents),
+                        'feature_id'=>0, 'product_clean'=>$clean];
+                } catch (\Throwable $error) { /* Only configured, valid preparations are offered. */ }
+            }
+        }
+        return $product;
     }
 
     private function goOptions(object $row): array

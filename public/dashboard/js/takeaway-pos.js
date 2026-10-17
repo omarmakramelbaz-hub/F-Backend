@@ -438,9 +438,8 @@
         var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('automatic_unit'));
         if(product.stock){unit.textContent=(product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label);unit.style.color=product.stock.negative||product.stock.quantity==='0'?'#b42318':product.stock.tracked===false?'#64748b':'#158346';}
         unit.classList.toggle('is-unavailable', !product.available); unit.classList.toggle('is-weight', product.quantity_mode === 'weight' || product.unit === 'kg'); copy.appendChild(unit);
-        if (product.options && product.options.length) copy.appendChild(node('small', 'tp-product-base', label('base_option')));
+        if (productChoices(product).length > 1) button.setAttribute('aria-haspopup', 'dialog');
         button.appendChild(copy); card.appendChild(button);
-        if (product.options && product.options.length) { var options = node('button', 'tp-product-options', label('product_options')); options.type = 'button'; options.dataset.posOptions = product.id; options.setAttribute('aria-label', label('product_options') + ' · ' + product.name); options.disabled = button.disabled; if (!product.available) options.dataset.unavailable = '1'; card.appendChild(options); }
         return card;
     }
     function renderPayments(methods) {
@@ -583,13 +582,26 @@
         if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title; var content = root.querySelector('[data-pos-modal-content]'); content.replaceChildren(node('p', 'tp-empty', label('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
     function closeModal(confirmedWrite) { if (registerLocked && confirmedWrite !== true) { notify(label('sale_locked')); return; } modalGeneration++; modal.hidden = true; if (modalController) modalController.abort(); if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
+    function productChoices(product) {
+        // Fasakhansta exposes full-unit preparation prices separately from portion features.
+        if (Array.isArray(product.preparation_options)) return product.preparation_options;
+        return [{ id: '', label: label('choose_base'), price: product.unit_price || product.price }].concat(product.options || []);
+    }
     function chooseProduct(product) {
-        if (!product || isLocked()) return;
-        if (!product.options || !product.options.length) { addProduct(product); return; }
-        var content = openModal(label('choose_option') + ' · ' + product.name); content.replaceChildren(); var list = node('div', 'tp-option-list');
-        [{ id: '', label: label('choose_base'), price: product.unit_price || product.price }].concat(product.options).forEach(function (option) {
-            var button = node('button'); button.type = 'button'; button.appendChild(node('span', '', option.label)); button.appendChild(node('bdi', '', money(option.price))); button.addEventListener('click', function () { closeModal(); addProduct(product, option.id === '' ? null : option); }); list.appendChild(button);
-        }); content.appendChild(list);
+        if (!product || isLocked() || !product.available || !permissions.can_checkout) return;
+        var choices = productChoices(product);
+        if (choices.length <= 1) { addProduct(product); return; }
+        var content = openModal(label('choose_option') + ' · ' + product.name), generation = modalGeneration, selected = false;
+        content.replaceChildren(); var list = node('div', 'tp-option-list');
+        choices.forEach(function (option) {
+            var button = node('button'); button.type = 'button';
+            button.appendChild(node('span', '', option.label));
+            button.appendChild(node('bdi', '', money(option.price) + ' ' + label('currency')));
+            button.addEventListener('click', function () {
+                if (selected || modal.hidden || generation !== modalGeneration || isLocked()) return;
+                selected = true; closeModal(); addProduct(product, option.id ? option : null);
+            }); list.appendChild(button);
+        }); content.appendChild(list); list.firstElementChild.focus();
     }
     function receiptTable(items, content) {
         var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
@@ -673,7 +685,7 @@
         if (button.dataset.posKey !== undefined) return key(button.dataset.posKey);
         if (button.hasAttribute('data-pos-weight-reset')) { quantityInput = '0'; replaceQuantity = true; showQuantity(); return; }
         if (button.dataset.posPayment) return setPayment(button.dataset.posPayment);
-        if (button.dataset.posProduct) return addProduct(products.get(button.dataset.posProduct));
+        if (button.dataset.posProduct) return chooseProduct(products.get(button.dataset.posProduct));
         if (button.dataset.posOptions) return chooseProduct(products.get(button.dataset.posOptions));
         if (button.dataset.posRemove !== undefined) { cart.splice(Number(button.dataset.posRemove), 1); renderLines(); invalidateQuote(); return; }
         if (button.hasAttribute('data-pos-clear')) { if (!cart.length || window.confirm(label('confirm_clear'))) { resetDraft(); notify(''); } return; }
