@@ -13,14 +13,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     @endif
     <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
-    <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261003-navigation-4">
+    <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261017-go-inline-1">
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp
 <body class="login-page dashboard-login-page">
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
         <section class="dashboard-login-identity" aria-label="{{ $isArabic ? 'فسخانستا وجو' : 'Fasakhansta and GO' }}">
             <a class="dashboard-login-brand" href="{{ url('/') }}">
-                <img class="dashboard-login-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="380" height="380">
+                @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-login-logo go-erp-platform-logo'])
             </a>
             <p class="dashboard-login-brand-title">{{ $isArabic ? 'إدارة تطبيقات جو وفسخانستا' : 'GO & Fasakhansta management' }}</p>
             <p class="dashboard-login-brand-subtitle">{{ $isArabic ? 'لوحة واحدة لإدارة التطبيقات والطلبات' : 'One dashboard for your applications and orders' }}</p>

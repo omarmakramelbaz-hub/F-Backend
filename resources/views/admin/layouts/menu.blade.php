@@ -3,7 +3,7 @@
     <!-- Brand Logo -->
     <!--<hr>-->
     <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
-        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
+        @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-brand-logo go-erp-platform-logo'])
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </a>
     <hr>
