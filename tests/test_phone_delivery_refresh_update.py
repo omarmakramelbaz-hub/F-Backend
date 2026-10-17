@@ -266,5 +266,91 @@ class PhoneRefreshDeploymentTests(unittest.TestCase):
                         patch.index(('diff --git a/' + self.view).encode()))
 
 
+class EditorUpgradeCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='known-editor-upgrade-test-')
+        self.addCleanup(self.temporary.cleanup)
+        self.parent = Path(self.temporary.name)
+        self.root = self.parent / 'app'
+        subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout', str(ROOT), str(self.root)], check=True)
+        self.common = VERIFIED_QUANTITY_LOADER(self.root)
+        self.original = module('original_editor_upgrade_fixture', ROOT / 'deployment/apply_pos_inline_quantity.py')
+        c = self.common
+        self.files = {}
+        # The confirmed lifecycle release contains the loading recovery too.
+        for path in dict.fromkeys((*c.FOUNDATION_MANIFEST, *c.UPGRADE_PATHS)):
+            self.files[path] = c.source(self.root, c.LIFECYCLE_REVISION, path)
+        for path in c.LIFECYCLE_PROOF_PATHS:
+            self.files[path] = c.source(self.root, c.LIFECYCLE_REVISION, path)
+        for path in c.UNIFIED_PHONE_PREREQUISITES:
+            self.files[path] = c.source(self.root, c.UNIFIED_PHONE_REVISION, path)
+        for path in c.WORKFLOW_PHONE_PREREQUISITES:
+            self.files[path] = c.source(self.root, c.WORKFLOW_PHONE_REVISION, path)
+        self.files[c.BRAND_MENU] = c.source(self.root, c.BRAND_BASE_REVISION, c.BRAND_MENU)
+        live = c.WORKFLOW_PHONE_REVISION
+        self.files[c.PHONE_LAYOUT_STYLE] = c.source(self.root, live, c.PHONE_LAYOUT_STYLE)
+        for path, (origin, _) in c.SOURCE_MANIFEST.items():
+            self.files[path] = c.baseline(self.root, path, origin, self.parent / 'baseline')
+        self.files[refresh.PHONE_JS] = c.source(self.root, live, refresh.PHONE_JS)
+        for path, body in self.files.items():
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if body is not None:
+                target.write_bytes(body)
+        self.plan = c.build_plan(self.root, refresh.QUANTITY_REVISION)
+
+    def snapshots(self):
+        return {path: self.common.content(self.root / path) for path in self.files}
+
+    def prove(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.common.prove_prerequisites(self.root, self.plan)
+
+    def test_exact_original_and_loading_recovery_versions_pass_without_live_changes(self):
+        for revision in (self.common.APP_BASE_REVISION, refresh.EDITOR_FEEDBACK_REVISION):
+            body = self.common.source(self.root, revision, refresh.EDITOR_SCRIPT)
+            (self.root / refresh.EDITOR_SCRIPT).write_bytes(body)
+            before = self.snapshots()
+            self.prove()
+            self.assertEqual(self.snapshots(), before)
+
+    def test_unknown_editor_additions_or_quantity_changes_fail_without_live_changes(self):
+        body = self.common.source(self.root, refresh.EDITOR_FEEDBACK_REVISION, refresh.EDITOR_SCRIPT)
+        self.assertIn(b'function quantityValid(line)', body)
+        for changed in (body + b'// Unknown independent addition\n',
+                        body.replace(b'function quantityValid(line)', b'function quantityChanged(line)', 1)):
+            (self.root / refresh.EDITOR_SCRIPT).write_bytes(changed)
+            before = self.snapshots()
+            with self.assertRaisesRegex(RuntimeError, 'APP_POS_PREREQUISITE_CONFLICT'):
+                self.prove()
+            self.assertEqual(self.snapshots(), before)
+
+    def test_unknown_quantity_mutation_still_fails_with_known_loading_recovery(self):
+        path = self.root / refresh.PHONE_JS
+        body = path.read_bytes()
+        marker = b'if (!canWrite()) root.querySelectorAll('
+        self.assertEqual(body.count(marker), 1)
+        path.write_bytes(body.replace(marker, b'if (!canWrite() || writing) root.querySelectorAll(', 1))
+        before = self.snapshots()
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.prove()
+        self.assertEqual(self.snapshots(), before)
+
+    def test_other_proof_calls_and_all_quantity_mutation_patches_are_unchanged(self):
+        c = self.common
+        self.assertEqual(self.plan, self.original.build_plan(self.root, refresh.QUANTITY_REVISION))
+        calls = [(c.FOUNDATION_REVISION, c.APP_BASE_REVISION, path)
+                 for path in c.UPGRADE_PATHS if path != refresh.EDITOR_SCRIPT]
+        calls += [(c.FOUNDATION_BASE_REVISION, c.FOUNDATION_REVISION, path)
+                  for path in c.FOUNDATION_MANIFEST]
+        calls += [(c.APP_BASE_REVISION, refresh.EDITOR_FEEDBACK_REVISION, refresh.EDITOR_SCRIPT)]
+        # Other triples must not inspect the live editor or its alternate source.
+        with mock.patch.object(c, 'content', side_effect=AssertionError('unexpected live read')), \
+             mock.patch.object(c, 'source', side_effect=AssertionError('unexpected alternate source read')):
+            for before, after, path in calls:
+                self.assertEqual(c.commit_patch(self.root, before, after, path),
+                                 self.original.commit_patch(self.root, before, after, path))
+
+
 if __name__ == '__main__':
     unittest.main()

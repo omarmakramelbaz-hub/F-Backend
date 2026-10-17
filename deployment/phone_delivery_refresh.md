@@ -11,6 +11,8 @@ The root wrapper loads the pinned, hash-verified quantity installer at `6582750c
 
 The verified quantity module omits the phone script from its historical workflow prerequisite list. Exact quantity and refresh mutation guards, pricing-backend proofs, DOM checks and translation checks stay active, allowing later independent customer-entry code to remain in place.
 
+The readonly application-editor proof also recognizes the exact `9210f7a` loading-recovery script (blob `2cbaad046e029a99499735b4383bdf6f804071ce`). For that known file only, its reviewed POS-and-recovery delta is reversed in temporary proof copies before the unchanged foundation checks run. The original `74a` proof remains available; other editor bytes retain the existing conflict checks. Live editor bytes are never rewritten by this compatibility check.
+
 The phone script preimage reconstructs the deployed `642dbfe` script plus the pinned quantity feature patch. Later compatible keyboard and presentation changes survive targeted patch application. No migrations, financial backfills or broad cache clears run.
 
 Isolated tests use mocked browser endpoints and SQLite fixtures; installer tests stub only the database-dependent Laravel probe. The production wrapper runs that real read-only probe on the server.

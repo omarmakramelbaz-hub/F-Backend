@@ -4,6 +4,7 @@ import argparse
 import datetime
 import fcntl
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,9 @@ QUANTITY_HELPER_BLOB = 'a438bfdcb17f43ef11605bcb48de926c190b3f73'
 PHONE_PREIMAGE_REVISION = '642dbfe4be0dc1097435bdb81e2606804b8b8955'
 PHONE_PREIMAGE_SHA256 = 'd0a087d974c1a319c5d5b9163730a208b0759488fcd0d3e7b76e1cd7c205e1fe'
 PHONE_JS = 'public/dashboard/js/phone-orders.js'
+EDITOR_FEEDBACK_REVISION = '9210f7a2d5c4016a09130ba6551ee9b708300f82'
+EDITOR_SCRIPT = 'public/dashboard/js/order-board-items.js'
+EDITOR_FEEDBACK_BLOB = '2cbaad046e029a99499735b4383bdf6f804071ce'
 SOURCE_MANIFEST = {
     'public/dashboard/css/phone-delivery-refresh.css': 'A',
     'app/Services/Dashboard/TakeawayService.php': 'M',
@@ -63,6 +67,25 @@ def load_quantity(root):
     # every quantity edit; retain all backend, DOM and translation prerequisites.
     common.WORKFLOW_PHONE_PREREQUISITES = tuple(
         path for path in common.WORKFLOW_PHONE_PREREQUISITES if path != PHONE_JS)
+    original_commit_patch = common.commit_patch
+
+    def editor_upgrade_patch(directory, before, after, relative):
+        # The independently released loading recovery changes this readonly
+        # editor. Normalize that exact reviewed version in proof copies only.
+        if (before, after, relative) == (common.FOUNDATION_REVISION,
+                                        common.APP_BASE_REVISION, EDITOR_SCRIPT):
+            observed = common.content(directory / relative)
+            if observed is not None:
+                blob = hashlib.sha1(b'blob ' + str(len(observed)).encode() + b'\0' + observed).hexdigest()
+                if blob == EDITOR_FEEDBACK_BLOB:
+                    trusted = common.source(directory, EDITOR_FEEDBACK_REVISION, relative)
+                    expected = common.git(directory, 'rev-parse', EDITOR_FEEDBACK_REVISION + ':' + relative)
+                    common.require(expected.returncode == 0 and expected.stdout.decode().strip() == EDITOR_FEEDBACK_BLOB
+                                   and trusted == observed, 'PINNED_EDITOR_FEEDBACK_MISMATCH')
+                    after = EDITOR_FEEDBACK_REVISION
+        return original_commit_patch(directory, before, after, relative)
+
+    common.commit_patch = editor_upgrade_patch
     return common
 
 
