@@ -435,7 +435,7 @@
  #phone-orders.ph-unified.ph-step-details .ph-location{grid-column:auto;gap:5px;padding:7px}
  #phone-orders.ph-unified.ph-step-details .ph-customer>.ph-panel-heading{display:none}
  #phone-orders.ph-unified.ph-step-details .ph-customer>[data-phone-next-details]{min-height:32px;margin:4px 12px 7px;padding:5px}
- #phone-orders.ph-unified.ph-step-products .ph-workspace{display:grid;grid-template-columns:minmax(270px,.95fr) minmax(190px,1fr) minmax(180px,.65fr);grid-template-rows:minmax(0,1fr);gap:8px;flex:1}
+ #phone-orders.ph-unified.ph-step-products .ph-workspace{display:grid;grid-template-columns:300px minmax(0,1fr) 220px;grid-template-rows:minmax(0,1fr);gap:8px;flex:1}
  #phone-orders.ph-unified.ph-step-products .ph-invoice,#phone-orders.ph-unified.ph-step-products .ph-catalog,#phone-orders.ph-unified.ph-step-products .ph-customer{grid-row:1;grid-column:auto;height:100%;min-height:0;max-height:none}
  #phone-orders.ph-unified.ph-step-products .ph-lines{min-height:50px}
  #phone-orders.ph-unified.ph-step-products .ph-customer-scroll{overflow:auto;padding:6px;gap:5px}
@@ -450,11 +450,23 @@
  #phone-orders.ph-unified.ph-step-products .ph-quantity-hint{display:none}
  #phone-orders.ph-unified.ph-step-products [data-phone-customer-summary]{max-height:32px;margin:0;font-size:9px;padding:3px 5px}
  #phone-orders.ph-unified.ph-step-products [data-phone-edit-customer]{min-height:24px;padding:3px 5px;font-size:9px}
- #phone-orders.ph-unified.ph-step-products .ph-products{grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:6px}
- #phone-orders.ph-unified.ph-step-products .ph-product-image{min-height:48px;max-height:72px}
- #phone-orders.ph-unified.ph-step-products .ph-product-copy{padding:4px;gap:2px}
  #phone-orders.ph-unified.ph-step-products .ph-checkout>.ph-totals{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+/* Give the menu most of the product workspace while keeping invoice controls visible. */
+@media(min-width:1600px){
+ #phone-orders.ph-unified.ph-step-products .ph-workspace{grid-template-columns:340px minmax(0,1fr) 240px}
+}
+@media(min-width:1000px) and (max-width:1199px){
+ #phone-orders.ph-unified.ph-step-products .ph-workspace{grid-template-columns:260px minmax(0,1fr) 180px}
+}
+#phone-orders.ph-unified.ph-step-products .ph-products{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+#phone-orders.ph-unified.ph-step-products .ph-product-image{aspect-ratio:1.5;min-height:96px;max-height:120px}
+#phone-orders.ph-unified.ph-step-products .ph-product-copy{padding:8px;gap:6px;line-height:1.5}
+#phone-orders.ph-unified.ph-step-products .ph-product-copy strong{font-size:14px;line-height:1.5;min-height:3em;white-space:normal;overflow-wrap:anywhere}
+#phone-orders.ph-unified.ph-step-products .ph-product-copy bdi{font-size:14px;color:#a74c0e;line-height:1.5}
+#phone-orders.ph-unified.ph-step-products .ph-product-copy small{font-size:11px;line-height:1.6;white-space:normal;overflow-wrap:anywhere}
+#phone-orders.ph-unified.ph-step-products .ph-search input{font-size:12px}
+#phone-orders.ph-unified.ph-step-products .ph-categories button{font-size:11px;min-height:34px}
 @media(min-width:1000px) and (max-height:700px){
  .content-wrapper.phone-orders-wrapper:has(.ph-unified){height:auto;min-height:calc(100dvh - 109px)!important;overflow:visible}
  #phone-orders.ph-unified .ph-compose-panel{flex:none;min-height:0}
@@ -473,7 +485,8 @@
  #phone-orders.ph-unified.ph-step-details .ph-customer-scroll{overflow:visible}
  #phone-orders.ph-unified.ph-step-products .ph-workspace{display:flex;flex-direction:column}
  #phone-orders.ph-unified.ph-step-products .ph-customer{height:480px;min-height:480px}
- #phone-orders.ph-unified.ph-step-products .ph-catalog{height:360px;min-height:360px}
+ #phone-orders.ph-unified.ph-step-products .ph-catalog{height:480px;min-height:480px}
+ #phone-orders.ph-unified.ph-step-products .ph-products{grid-template-columns:repeat(2,minmax(0,1fr))}
  #phone-orders.ph-unified.ph-step-products .ph-invoice{height:450px;min-height:450px;max-height:450px}
  #phone-orders.ph-unified.ph-step-products .ph-lines{min-height:0}
  #phone-orders.ph-unified.ph-step-products .ph-customer-scroll{overflow:auto}

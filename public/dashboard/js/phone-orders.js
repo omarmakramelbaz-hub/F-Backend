@@ -505,11 +505,6 @@
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
         finally { clearTimeout(timeout);if(orderPending===generation){orderPending=0;list.setAttribute('aria-busy', 'false');} }
     }
-    function consentControl(container, ticketId) {
-        var label = element('label', 'ph-settle-confirm'), checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = false;
-        checkbox.dataset.phoneConsent = 'customer'; if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
-        label.appendChild(checkbox); label.appendChild(element('span', '', text('customer_consent'))); container.appendChild(label); return checkbox;
-    }
     function validCash(cash, total) {
         var received = scaled(cash.value, 2);
         if (received === null || received > 100000000n) { notify(text('invalid_money')); cash.focus(); return null; }
@@ -542,20 +537,14 @@
                 form.requestSubmit(submit);
                 return;
             }
-            if (event.target.matches('[data-phone-consent]')) {
-                event.preventDefault();
-                if (!event.target.checked) event.target.checked = true;
-                else cash.focus();
-                return;
-            }
             if (event.target !== submit && !event.target.matches('button')) { event.preventDefault(); cash.focus(); }
         });
         cash.addEventListener('input', function () { confirmed.checked = false; });
     }
     function finishBatch(){
         if(locked()||!canWrite()||!selectedOrders.size)return;
-        var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody'),consents=new Map();
-        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var choices=element('td');consents.set(t.id,consentControl(choices,t.id));row.appendChild(choices);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody');
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
         function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
         var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
         var method=element('select');['cash'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
@@ -565,7 +554,7 @@
         var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
         method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
         form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
-            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:consents.get(t.id).checked,marketing_consent:consents.get(t.id).checked};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
+            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
         });cashKeyboard(form,cash,check,submit,total);lock();cash.focus();
     }
     function validateWriteResult(result, operation, recovered) {
@@ -673,11 +662,10 @@
             var methodLabel = element('label', 'ph-field'); methodLabel.appendChild(element('span', '', text('payment_method'))); var method = element('select'); method.dataset.phoneSettleMethod = ''; ['cash'].forEach(function (key) { var option = element('option', '', text(key)); option.value = key; method.appendChild(option); }); methodLabel.appendChild(method); form.appendChild(methodLabel);
             var cashLabel = element('label', 'ph-field ph-cash-paid'); cashLabel.appendChild(element('span', '', text('cash_paid'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
             var referenceLabel = element('label', 'ph-field'); referenceLabel.hidden = true; referenceLabel.appendChild(element('span', '', text('payment_reference'))); var reference = element('input'); reference.maxLength = 100; reference.dataset.phoneSettleReference = ''; referenceLabel.appendChild(reference); form.appendChild(referenceLabel);
-            var settleConsent = consentControl(form);
             var confirmation = element('label', 'ph-settle-confirm'), confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.dataset.phoneSettleConfirmed = ''; confirmation.appendChild(confirmed); confirmation.appendChild(element('span', '', text('payment_confirmed'))); form.appendChild(confirmation); var submit = element('button', '', text('collect')); submit.type = 'submit'; submit.dataset.phoneSettleSubmit = ''; form.appendChild(submit); content.appendChild(form);
             method.addEventListener('change', function () { cashLabel.hidden = method.value !== 'cash'; referenceLabel.hidden = method.value === 'cash'; confirmed.checked = false; });
             form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
-                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: settleConsent.checked, marketing_consent: settleConsent.checked, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
+                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
             }); cashKeyboard(form, cash, confirmed, submit, scaled(value.total, 2)); lock(); cash.focus();
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('quote_error'))); }
     }

@@ -33,6 +33,7 @@ const font = fs.readFileSync(path.join(root, 'public/dashboard/vendor/desktop-ex
 const chrome = `@font-face{font-family:Almarai;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900}*{box-sizing:border-box}html,body{margin:0;font-family:Almarai,Arial,sans-serif}label{font-weight:700}header.qa-top{height:58px;background:#081727;color:white;display:flex;align-items:center;padding:0 280px 0 20px}aside.qa-sidebar{position:fixed;right:0;top:0;bottom:0;width:250px;background:#081727;color:#fff;padding:35px 20px;box-sizing:border-box}aside.qa-sidebar h2{color:#ff7900}aside.qa-sidebar p{padding:14px 8px;border-bottom:1px solid #ffffff15;font-size:12px}.content-wrapper{margin-right:250px}footer.qa-footer{height:51px;background:#081727;color:white;margin-right:250px;padding:15px;box-sizing:border-box;font-size:11px}i{display:inline-block;min-width:1em}@media(max-width:599px){aside.qa-sidebar{display:none}.content-wrapper,footer.qa-footer{margin-right:0}header.qa-top{padding:0 15px}}`;
 const safe = value => JSON.stringify(value).replaceAll('<', '\\u003c');
 
+const menuImage=fs.readFileSync(path.join(root,'public/images/IMG_20250418_034007_616.jpg'));
 const products = Array.from({length:18}, (_, i) => ({id:i+1, name:['رنجة هيرنج','سندوتش فسيخ مظبوط','وجبة سردين'][i] || 'صنف تجريبي طويل الاسم ' + (i+1), unit_price:i===0?'200.00':'100.00', price:i===0?'200.00':'100.00', quantity_mode:i===0?'weight':'piece', unit:i===0?'kg':'piece', available:true, options:[]}));
 function fixtureTicket(id, stage='courier') {
     return {id, number:'TEST-'+id, channel:'phone', revision:1, status:stage==='courier'?'out_for_delivery':stage==='finished'?'finished':'new', payment_status:stage==='finished'?'paid':'unpaid', branch:{value:'f:100', name:'المحلة'}, customer_name:'عميل محفوظ '+id, customer_phone:'01012345678', address:'شارع الجمهورية بجوار المدرسة، الدور الثالث', area:'المحلة', created_at:'2026-10-17T15:00:00Z', courier_company:{id:1, name:'شركة الاختبار'}, quote_hash:'b'.repeat(64), total:'1250.50', subtotal:'1250.50', discount:'0.00', delivery_fee:'0.00', tax:'0.00', service:'0.00', bill_print_url:'/admin/phone-orders/tickets/'+id+'/print', items:[{product_id:2, name:'سندوتش فسيخ مظبوط', quantity:'2', quantity_mode:'piece', unit_price:'625.25', total:'1250.50'}]};
@@ -74,6 +75,7 @@ async function setup(browser, {failFirstSave=false, failFirstSettle=false, failF
         const request=route.request(), url=new URL(request.url());
         if(url.origin!=='https://phone.test'){unexpected.push(url.origin+url.pathname);return route.abort();}
         if(url.pathname==='/admin/phone-orders')return route.fulfill({contentType:'text/html',body:html});
+        if(url.pathname==='/fixtures/menu-photo.jpg')return route.fulfill({contentType:'image/jpeg',body:menuImage});
         const payload=request.postDataJSON(); calls.push({path:url.pathname,method:request.method(),payload});
         if(request.method()==='POST')assert.equal(request.headers()['x-csrf-token'],'fixture-token');
         const kind=url.pathname===urls.board?'board':url.pathname===urls.catalog?'catalog':null,hold=kind&&network[kind];
@@ -131,6 +133,7 @@ async function prepareCustomer(page,beforeNextDetails){
     await page.locator('[data-phone-next-details]').click();await page.locator('#phone-orders.ph-step-products').waitFor();await page.waitForFunction(()=>!document.querySelector('[data-phone-product="1"]').disabled);await unifiedVisible(page,'products');
 }
 async function draftSnapshot(page){return page.evaluate(()=>({lines:[...document.querySelectorAll('[data-phone-lines] tr')].map(row=>({text:row.textContent,quantity:row.querySelector('[data-phone-line-quantity]').value,option:row.querySelector('[data-phone-line-option]')?.value||''})),fields:[...document.querySelectorAll('[data-phone-field]')].map(input=>[input.dataset.phoneField,input.value]),summary:document.querySelector('[data-phone-customer-summary]').textContent,totals:[...document.querySelectorAll('[data-phone-total]')].map(total=>[total.dataset.phoneTotal,total.textContent]),consent:document.querySelector('[data-phone-customer-consent]').checked,quantity:document.querySelector('[data-phone-quantity]').value}));}
+async function blockedEnters(control, assertBlocked){for(const options of [{repeat:true},{isComposing:true},{keyCode:229},{ctrlKey:true},{altKey:true},{metaKey:true},{shiftKey:true}]){await control.dispatchEvent('keydown',{key:'Enter',code:'Enter',bubbles:true,...options});await assertBlocked();}}
 async function blockedEscapes(control, assertBlocked){for(const options of [{repeat:true},{isComposing:true},{keyCode:229},{ctrlKey:true},{altKey:true},{metaKey:true},{shiftKey:true}]){await control.dispatchEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,...options});await assertBlocked();}}
 async function screenshot(page,name){if(process.env.PHONE_QA_SCREENSHOTS){fs.mkdirSync(process.env.PHONE_QA_SCREENSHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.PHONE_QA_SCREENSHOTS,name+'.png'),fullPage:true});}}
 
@@ -210,6 +213,7 @@ async function liveTracking(browser){
     assert.equal(await field(page,'customer_phone').inputValue(),'','successful send resets the composer for the next call');
     assert.equal(await rows(page).count(),0);assert(!await page.locator('[data-phone-customer-consent]').isChecked());
     assert.equal(calls.filter(call=>call.path===urls.save).length,1,'one save creates one order');
+    const created=calls.find(call=>call.path===urls.save).payload;assert.equal(created.service_consent,true,'initial send preserves mandatory follow-up approval');assert.equal(created.marketing_consent,false,'initial service approval never opts into marketing');
     assert.deepEqual(await page.evaluate(()=>window.phonePrintCalls),[],'queued branch printing is not duplicated in the browser');
     await unifiedVisible(page,'number');await screenshot(page,'phone-unified-live-tracking');await clean(ctx);await page.close();
 }
@@ -253,6 +257,30 @@ async function failedProductSend(browser){
     assert.equal(await rows(page).count(),0);assert.equal(await field(page,'customer_phone').inputValue(),'');
     const attempts=calls.filter(call=>call.path===urls.save);assert.equal(attempts.length,2);assert.deepEqual(attempts[0].payload,attempts[1].payload,'retry reuses the frozen payload and request key');
     await clean(ctx);await page.close();
+}
+async function finishWithoutRepeatedConsent(browser){
+    const single=await setup(browser,{failFirstSettle:true}),page=single.page;
+    await page.locator('[data-phone-ticket="101"]').getByRole('button',{name:single.labels.finish_collect,exact:true}).click();
+    const modal=page.locator('[data-phone-modal]'),cash=modal.locator('[data-phone-settle-cash]'),confirmed=modal.locator('[data-phone-settle-confirmed]');await cash.waitFor();
+    assert.equal(await modal.locator('input[type="checkbox"]').count(),1,'single collection asks only for cash receipt confirmation');assert.equal(await modal.locator('[data-phone-consent]').count(),0,'single collection does not repeat follow-up approval');
+    await screenshot(page,'phone-menu-single-collection');await cash.fill('2000.00');await cash.press('Enter');await focused(confirmed,'first cash Enter focuses payment confirmation');assert(!await confirmed.isChecked());assert(!single.calls.some(call=>call.path.endsWith('/settle')));
+    await blockedEnters(confirmed,async()=>assert(!single.calls.some(call=>call.path.endsWith('/settle'))));
+    await confirmed.press('Enter');await modal.locator('[data-phone-retry]').waitFor({state:'visible'});await modal.locator('[data-phone-retry]').click();await modal.waitFor({state:'hidden'});
+    const settled=single.calls.filter(call=>call.path.endsWith('/settle'));assert.equal(settled.length,2);assert.deepEqual(settled[0].payload,settled[1].payload,'single collection retry retains cash and request key');
+    assert(!Object.hasOwn(settled[0].payload,'service_consent')&&!Object.hasOwn(settled[0].payload,'marketing_consent'),'single collection omits existing consent values');assert.equal(settled[0].payload.payment_confirmed,true);assert.equal(settled[0].payload.payment_method,'cash');
+    await clean(single);await page.close();
+
+    const batch=await setup(browser,{failFirstBatch:true}),p=batch.page;
+    await p.locator('[data-phone-batch-select="101"]').check();await p.locator('[data-phone-batch-select="102"]').check();await p.locator('[data-phone-batch-finish]').click();
+    const dialog=p.locator('[data-phone-modal]'),batchCash=dialog.locator('[data-phone-batch-cash]'),batchConfirmed=dialog.locator('[data-phone-batch-confirmed]');await batchCash.waitFor();
+    assert.equal(await dialog.locator('input[type="checkbox"]').count(),1,'batch collection asks only for cash receipt confirmation');assert.equal(await dialog.locator('[data-phone-consent]').count(),0,'batch collection omits per-customer follow-up approval');
+    await screenshot(p,'phone-menu-batch-collection');await batchCash.fill('3000.00');await batchCash.press('Enter');await focused(batchConfirmed);assert(!await batchConfirmed.isChecked());assert(!batch.calls.some(call=>call.path===urls['finish-batch']));
+    await blockedEnters(batchConfirmed,async()=>assert(!batch.calls.some(call=>call.path===urls['finish-batch'])));
+    await batchConfirmed.press('Enter');await dialog.locator('[data-phone-retry]').waitFor({state:'visible'});await dialog.locator('[data-phone-retry]').click();await dialog.waitFor({state:'hidden'});
+    const batches=batch.calls.filter(call=>call.path===urls['finish-batch']);assert.equal(batches.length,2);assert.deepEqual(batches[0].payload,batches[1].payload,'batch retry retains tickets, cash and request key');
+    assert.equal(batches[0].payload.items.length,2);for(const item of batches[0].payload.items)assert(!Object.hasOwn(item,'service_consent')&&!Object.hasOwn(item,'marketing_consent'),'batch collection omits stored consent values for every ticket');
+    assert(!Object.hasOwn(batches[0].payload,'service_consent')&&!Object.hasOwn(batches[0].payload,'marketing_consent'));assert.equal(batches[0].payload.payment_confirmed,true);assert.equal(batches[0].payload.payment_method,'cash');
+    await p.waitForFunction(()=>window.phonePrintCalls.length===1);await clean(batch);await p.close();
 }
 async function branchPermissionRace(browser){
     const ctx=await setup(browser,{multiBranch:true}),{page,network,labels}=ctx;
@@ -307,21 +335,40 @@ async function concurrencyCases(browser){
     await branchPermissionRace(browser);await legacyBoardFocusPolling(browser);await abortedBoardPolling(browser);
     console.log('Phone unified concurrency: board-before-catalog branch permissions, legacy board-container focus polling, customer-save and dispatch abort recovery passed.');
 }
+async function productLayout(page){
+    await page.waitForFunction(()=>{const image=document.querySelector('[data-phone-product="1"] img');return image?.complete&&image.naturalWidth>0;});
+    const metric=await page.evaluate(()=>{
+        const box=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+        const cards=[...document.querySelectorAll('[data-phone-product]')];
+        const clipped=cards.flatMap(card=>{const r=card.getBoundingClientRect();return[...card.querySelectorAll('.ph-product-copy strong,.ph-product-copy bdi,.ph-product-copy small')].filter(el=>{const b=el.getBoundingClientRect();return el.scrollHeight>el.clientHeight+1||el.scrollWidth>el.clientWidth+1||b.left<r.left-1||b.right>r.right+1||b.bottom>r.bottom+1;}).map(el=>el.textContent);});
+        return{invoice:box('.ph-invoice'),menu:box('.ph-catalog'),keypad:box('.ph-customer'),card:box('[data-phone-product="1"]'),image:box('[data-phone-product="1"] img'),save:box('[data-phone-save]'),consent:box('.ph-customer-consent'),clipped,pageOverflow:document.documentElement.scrollWidth>innerWidth+1};
+    });
+    assert.equal(metric.pageOverflow,false,'larger menu cards do not create horizontal page overflow');
+    assert.deepEqual(metric.clipped,[],'long names, prices and stock labels remain inside their cards without clipping');
+    assert(metric.card.width>=149,'product cards retain a useful minimum width');assert(metric.image.height>=95&&metric.image.height<=121,'actual images retain the enlarged card height');
+    if(page.viewportSize().width>=1000){
+        assert(metric.menu.width>metric.invoice.width*1.1,'menu receives more horizontal room than the compact invoice');
+        assert(metric.save.bottom<=page.viewportSize().height&&metric.consent.bottom<=page.viewportSize().height,'send and required consent stay reachable in the desktop viewport');
+    }
+    console.log('phone-menu-layout',JSON.stringify({viewport:page.viewportSize(),...metric}));
+}
 async function responsive(browser){
-    for(const [viewport,locale] of [[{width:1366,height:768},'ar'],[{width:1089,height:1024},'ar'],[{width:1920,height:1006},'en'],[{width:390,height:844},'ar'],[{width:390,height:844},'en']]){
-        const ctx=await setup(browser,{viewport,locale,query:'?view=orders'}),{page}=ctx;
+    const names=['رنجة هيرنج بتدخين أشجار الليمون','سندوتش فسيخ مظبوط مع الخضار والطحينة','وجبة سردين بلدي مع الخبز والسلطات','ربع سلطة فسيخ دسوق مع الخضروات','ربع سلطة رنجة هيرنج وبطارخ','ساندوتش سلطة بطارخ رنجة','وجبة ميكس فسيخ ورنجة وسردين','علبة أنشوجه بالزيت وزن ٢٠٠ جرام','فسيخ نبروه مخلي مخصوص','رنجة بطارخ هيرنج تدخين أشجار الليمون','ساندوتش برجر سردين بالخضار','طبق بطاطس شيبسي مقرمشة','علبة بطارخ رنجة وزن ٤٠٠ جرام','سندوتش فسيخ دسوق مظبوط','بصل وجوليان أحمر جاهز للتقديم','وجبة رنجة ناعمة مع السلطات','طبق فلفل أخضر وشرائح ليمون','فسيخ نبروه كبير تنظيف مخصوص'];
+    const catalogProducts=products.map((product,i)=>({...product,name:names[i],image_url:'/fixtures/menu-photo.jpg',stock:{quantity:'48.375',unit_label:i===0?'كجم':'وحدة',label:i%2?'المتاح بالمخزون: ٣٦ وحدة':'رصيد البضاعة: ٤٨٫٣٧٥ كجم',tracked:true}}));
+    for(const [viewport,locale] of [[{width:1920,height:1006},'ar'],[{width:1366,height:768},'ar'],[{width:1089,height:1024},'ar'],[{width:1920,height:1006},'en'],[{width:390,height:844},'ar'],[{width:390,height:844},'en']]){
+        const ctx=await setup(browser,{viewport,locale,catalogProducts,query:'?view=orders'}),{page}=ctx;
         await page.locator('[data-phone-ticket="501"]').waitFor();await unifiedVisible(page,'number');
         assert.equal(await page.locator('html').getAttribute('dir'),locale==='ar'?'rtl':'ltr');
         await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+'-number');
-        await prepareCustomer(page);await amount(page,'1');await page.locator('[data-phone-product="2"]').click();await quoteReady(page);
-        await unifiedVisible(page,'products');await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+'-products');
-        if(viewport.width>=1000){const bottom=await page.locator('[data-phone-save]').evaluate(el=>el.getBoundingClientRect().bottom);assert(bottom<=viewport.height,'desktop send action remains reachable without page scrolling');}
+        await prepareCustomer(page);for(const id of [1,2,3,4,5])await page.locator('[data-phone-product="'+id+'"]').click();await quoteReady(page);
+        assert.equal(await rows(page).count(),5,'compact invoice displays several typical line items');
+        await unifiedVisible(page,'products');await productLayout(page);await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+'-products');
         await clean(ctx);await page.close();
     }
 }
 (async()=>{
     const browser=await chromium.launch({headless:true,executablePath:process.env.CRM_TEST_CHROMIUM||undefined});
-    try{await concurrencyCases(browser);if(process.env.PHONE_UNIFIED_TARGETED!=='1'){await defaultProductQuantities(browser);await failedProductSend(browser);await liveTracking(browser);await responsive(browser);console.log('Phone unified: tracking in phone/customer steps; full product workspace; one-unit product defaults; explicit quantities and guarded shortcuts; late polling and failed sends preserve product mode; successful sends reset phone/board; concurrency, printing and Arabic/English responsive layouts passed.');}}
+    try{if(process.env.PHONE_UNIFIED_TARGETED==='1')await concurrencyCases(browser);else{await finishWithoutRepeatedConsent(browser);await responsive(browser);await concurrencyCases(browser);await defaultProductQuantities(browser);await failedProductSend(browser);await liveTracking(browser);console.log('Phone unified: tracking in phone/customer steps; full product workspace; one-unit product defaults; explicit quantities and guarded shortcuts; late polling and failed sends preserve product mode; successful sends reset phone/board; concurrency, printing and Arabic/English responsive layouts passed.');}}
     catch(error){for(const context of browser.contexts())for(const page of context.pages()){console.error('phone-unified-failure',JSON.stringify(await page.evaluate(()=>({viewport:{width:innerWidth,height:innerHeight},key:document.querySelector('[data-phone-key=\"1\"]')?.getBoundingClientRect().toJSON(),hint:document.querySelector('[data-phone-quantity-hint]')?.getBoundingClientRect().toJSON(),step:document.querySelector('#phone-orders')?.className,message:document.querySelector('[data-phone-message]')?.textContent}))));await screenshot(page,'phone-unified-failure');}throw error;}
     finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}
 })();
