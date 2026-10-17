@@ -377,3 +377,6 @@
  #phone-orders.ph-step-details .ph-customer-scroll{overflow:auto}
  #phone-orders.ph-step-details [data-phone-map]{min-height:220px;flex:none}
 }
+.ph-option-list{display:grid;gap:10px}.ph-option-list>button{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:58px;padding:14px 16px;border:1px solid #e3e8f0;border-radius:7px;background:#fff;color:#253449;text-align:start}.ph-option-list>button:hover{border-color:#ef7725;background:#fff7ed}.ph-option-list>button span{font-weight:700}.ph-option-list>button bdi{color:#d56e24;font-weight:800;white-space:nowrap}
+
+.ph-line-option-label{display:block;font-size:10px;color:#657186;margin-top:4px;overflow-wrap:anywhere}
