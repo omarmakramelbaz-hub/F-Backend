@@ -710,9 +710,8 @@ html:has(.app-order-board-page) {
 /* go-erp-platform-logos:end */
 
 /* go-erp-logo-stamp:start */
-/* Orange native leather impression; the filter is contained inside the logo. */
+/* Flat native GO branding; decoration is limited to the login logo. */
 .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; filter: none; }
-.go-erp-platform-logo[data-go-erp-vector] > .go-erp-leather-mark { fill: currentColor; }
 .dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; }
 .dashboard-login-identity { display: flex; flex-direction: column; justify-content: center; min-height: 440px; }
 .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { height: auto; max-height: 240px; }
@@ -733,9 +732,11 @@ html:has(.app-order-board-page) {
 @media (max-width: 400px) {
     .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
 }
-/* The native logo bursts once on mount, then rests as the leather stamp. */
+/* The native logo bursts once on mount, then remains fully visible. */
 .go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
+.go-erp-logo-rest { opacity: 1; }
 .go-erp-logo-fragments { opacity: 0; }
+.go-erp-login-flow { display: none; opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {
     .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-rest {
         animation: go-erp-logo-rest 1.45s linear 1 both;
@@ -747,6 +748,38 @@ html:has(.app-order-board-page) {
         transform-box: view-box;
         transform-origin: 530px 311px;
         animation: go-erp-fragment-flight 1.45s cubic-bezier(.2, .7, .2, 1) 1 both;
+    }
+    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-login-flow {
+        display: block;
+        animation: go-erp-flow-reveal .7s ease 1.45s 1 both;
+    }
+    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-track {
+        animation: go-erp-flow-track 18s linear 1.45s infinite;
+    }
+    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-current {
+        animation: go-erp-flow-current 22s linear 1.45s infinite;
+    }
+    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-orbit {
+        transform-box: view-box;
+        transform-origin: 0 0;
+        animation: go-erp-flow-orbit 24s linear 1.45s infinite;
+    }
+    .dashboard-login-logo[data-go-erp-dynamic] .go-erp-flow-orbit-two {
+        animation-duration: 28s;
+        animation-direction: reverse;
+    }
+    @keyframes go-erp-flow-reveal {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes go-erp-flow-track {
+        to { stroke-dashoffset: -268; }
+    }
+    @keyframes go-erp-flow-current {
+        to { stroke-dashoffset: -2120; }
+    }
+    @keyframes go-erp-flow-orbit {
+        to { transform: rotate(360deg); }
     }
     @keyframes go-erp-logo-rest {
         0%, 4% { opacity: 1; }

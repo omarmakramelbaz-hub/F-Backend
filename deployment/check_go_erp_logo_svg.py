@@ -26,11 +26,12 @@ def check(path):
         if not node.get('href', '').startswith('#') or node.get('href')[1:] not in ids:
             raise ValueError('INVALID_LOCAL_SVG_REFERENCE')
     shape = next(node for node in nodes if node.get('id').endswith('-shape'))
-    surface = next(node for node in nodes if node.get('id').endswith('-surface'))
-    if [node.get('d') for node in shape] != [node.get('d') for node in surface]:
-        raise ValueError('SURFACE_SILHOUETTE_CHANGED')
-    if any(node.get('clip-rule') != 'evenodd' for node in surface):
-        raise ValueError('SURFACE_COUNTERS_NOT_PRESERVED')
+    surface = next((node for node in nodes if node.get('id').endswith('-surface')), None)
+    if surface is not None:
+        if [node.get('d') for node in shape] != [node.get('d') for node in surface]:
+            raise ValueError('SURFACE_SILHOUETTE_CHANGED')
+        if any(node.get('clip-rule') != 'evenodd' for node in surface):
+            raise ValueError('SURFACE_COUNTERS_NOT_PRESERVED')
     rest = next(node for node in root if 'go-erp-logo-rest' in node.get('class', '').split())
     if rest.get('filter') or not any(tag(node) == 'use' for node in rest):
         raise ValueError('VISIBLE_BASE_LOGO_MISSING')
