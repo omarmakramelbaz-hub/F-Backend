@@ -13,4 +13,11 @@
 @endif
 
 @if(!empty($context['delivery_company']))<div><dt>شركة التوصيل</dt><dd>{{ $context['delivery_company']['name'] }} · <bdi>{{ $context['delivery_company']['phone'] }}</bdi></dd></div>@endif
-@if(!empty($context['delivery_location']))<div><dt>مسافة التوصيل</dt><dd><bdi>{{ $context['delivery_location']['distance_km'] }}</bdi> كم × <bdi>{{ $context['delivery_location']['km_price'] }}</bdi> ج.م / كم</dd></div><div><dt>موقع العميل</dt><dd><bdi>{{ $context['delivery_location']['latitude'] }}, {{ $context['delivery_location']['longitude'] }}</bdi></dd></div>@endif
+@if(!empty($context['delivery_location']))<div><dt>مسافة التوصيل</dt><dd><bdi>{{ $context['delivery_location']['distance_km'] }}</bdi> كم
+@if(($context['delivery_location']['method'] ?? '') === 'app_direct')
+ · {{ __('phone_orders.app_delivery_distance') }} · {{ __('phone_orders.'.(($context['delivery_location']['pricing_rule'] ?? '') === 'app_branch_tier' ? 'branch_tariff_fixed' : (($context['delivery_location']['pricing_rule'] ?? '') === 'app_zero_rate' ? 'branch_tariff_free' : 'branch_tariff_per_km'))) }}
+@if(!in_array($context['delivery_location']['pricing_rule'] ?? '', ['app_branch_tier', 'app_zero_rate'], true))<bdi>{{ $context['delivery_location']['km_price'] }}</bdi> {{ __('phone_orders.currency') }}@endif
+@else
+ × <bdi>{{ $context['delivery_location']['km_price'] }}</bdi> ج.م / كم
+@endif
+</dd></div><div><dt>موقع العميل</dt><dd><bdi>{{ $context['delivery_location']['latitude'] }}, {{ $context['delivery_location']['longitude'] }}</bdi></dd></div>@endif

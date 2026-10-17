@@ -61,7 +61,7 @@ class DashboardPosServiceTest extends TestCase
         $cart=$this->cart();$v=$cart+['idempotency_key'=>$this->key($key),'notes'=>'Note'];
         if($channel==='dine')$v+=['table_id'=>$this->table()['id'],'waiter_name'=>'Waiter','guest_count'=>2];
         else $v+=['customer_name'=>'Customer','customer_phone'=>'010 1234 5678','address'=>'Street 1','area'=>'Area','delivery_notes'=>'Door 2','delivery_fee'=>'20.00'];
-        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6371),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
+        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6378.137),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];return $v;
     }
     private function saved(string $channel='dine'): array{return $this->tickets()->save($channel,$this->savePayload($channel),$this->actor())['ticket'];}
@@ -597,12 +597,16 @@ class DashboardPosServiceTest extends TestCase
         $cache->put($slot.':next',microtime(true)+10,10);$this->assertSame($r,$maps->suggestions($v,$this->actor()));$http::assertSentCount(1);
         $this->denied(fn()=>$maps->suggestions(['branch'=>'f:100','query'=>'عنوان آخر'],$this->actor()),429);$http::assertSentCount(1);
     }
-    public function test_road_fee_is_authoritative_cached_and_cannot_fall_back_to_a_straight_line(): void
+    public function test_app_distance_fee_is_authoritative_while_road_geometry_is_cached_and_checked(): void
     {
         config(['services.maps.phone_open_enabled'=>true]);$http=\Illuminate\Support\Facades\Http::class;
         $http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'Ok','routes'=>[['distance'=>1575,'geometry'=>['type'=>'LineString','coordinates'=>[[31,30],[31.001,30.005],[31,30.009]]]]]])]);
-        $v=$this->savePayload('phone');$service=app(\App\Services\Dashboard\PhoneDelivery::class);$q=$service->quote($v,$this->actor())['delivery'];$this->assertSame('31.50',$q['delivery_fee']);$this->assertSame(1575,$q['distance_meters']);$this->assertSame('road_osrm',$q['method']);$this->assertCount(3,$q['route_path']);$http::assertSentCount(1);
-        $v['delivery_quote_hash']=$q['delivery_quote_hash'];$v['delivery_fee']='0.01';$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];$this->assertSame('31.50',$ticket['delivery_fee']);$this->assertSame(1575,$ticket['delivery_location']['distance_meters']);$http::assertSentCount(1);
+        $v=$this->savePayload('phone');$service=app(\App\Services\Dashboard\PhoneDelivery::class);$q=$service->quote($v,$this->actor())['delivery'];
+        $this->assertSame('20.00',$q['delivery_fee']);$this->assertSame(1000,$q['distance_meters']);$this->assertSame('app_direct',$q['method']);
+        $this->assertSame(1575,$q['road_distance_meters']);$this->assertSame('road_osrm',$q['route_method']);$this->assertCount(3,$q['route_path']);$http::assertSentCount(1);
+        $v['delivery_quote_hash']=$q['delivery_quote_hash'];$v['delivery_fee']='0.01';$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];
+        $this->assertSame('20.00',$ticket['delivery_fee']);$this->assertSame(1000,$ticket['delivery_location']['distance_meters']);
+        $this->assertSame(1575,$ticket['delivery_location']['road_distance_meters']);$this->assertSame('road_osrm',$ticket['delivery_location']['route_method']);$http::assertSentCount(1);
         $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'NoRoute','routes'=>[]])]);$changed=array_replace($v,['latitude'=>30.02]);$this->denied(fn()=>$service->quote($changed,$this->actor()),422);
         $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response([],503)]);$this->denied(fn()=>$service->quote(array_replace($v,['latitude'=>30.03]),$this->actor()),503);
     }

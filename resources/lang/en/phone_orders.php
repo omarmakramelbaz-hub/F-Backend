@@ -1,5 +1,12 @@
 <?php
 return [
+    'branch_tariff_hint'=>'Delivery uses the customer app calculation and this branch’s saved rates. The road route is displayed on the map.',
+    'branch_tariff_fixed'=>'Saved branch delivery tier',
+    'branch_tariff_free'=>'Free delivery from branch settings',
+    'branch_tariff_per_km'=>'Saved branch rate per kilometre:',
+    'app_delivery_distance'=>'App pricing distance',
+    'route_display_distance'=>'Road distance for display',
+    'kg_distance'=>'km',
     'unified_hint'=>'Create phone orders and follow preparation, delivery and collection on one screen.',
     'cash_paid'=>'Amount paid',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
