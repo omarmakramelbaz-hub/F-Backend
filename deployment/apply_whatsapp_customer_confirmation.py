@@ -24,13 +24,18 @@ BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 TARGET_PINS = {
     'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', 'd91ea2f4c84357e16e0556b205484d64cfce1079'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '63c1e6e7e48c500227e0285707611b268e50b3ad'),
 }
 INSTALLED_SOURCE_PROFILES = {
     # The verified d6b404 installation contains this exact parser/workflow pair.
     # Do not infer an upgrade profile from independently allowed file hashes.
     'INSTALLED_V1': {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '558440a772a7798c4f9c11a713685c79b7fdabda',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079',
+    },
+    # The verified footer-tolerance installation keeps this unchanged workflow.
+    'INSTALLED_V2': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079',
     },
 }

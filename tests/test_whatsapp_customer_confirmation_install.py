@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
 import types
@@ -63,6 +64,17 @@ def reviewed_installed_parser():
     if repair.blob(installed) != '558440a772a7798c4f9c11a713685c79b7fdabda':
         raise AssertionError('Reviewed installed parser fixture changed')
     return installed
+
+
+def reviewed_installed_workflow():
+    # This exact blob is part of the installed ancestor commit. No network or
+    # mutable branch name participates in the upgrade fixture.
+    result = subprocess.run(['git', '-C', str(ROOT), 'cat-file', 'blob',
+        'd91ea2f4c84357e16e0556b205484d64cfce1079'], stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, check=True).stdout
+    if repair.blob(result) != 'd91ea2f4c84357e16e0556b205484d64cfce1079':
+        raise AssertionError('Reviewed installed workflow fixture changed')
+    return result
 
 
 class Fixture:
@@ -126,8 +138,12 @@ class Fixture:
         self.pins = dict(repair.TARGET_PINS)
         self.targets = {path: (ROOT/path).read_bytes() for path in self.pins}
         parser, workflow = tuple(self.pins)
-        self.originals = {parser: reviewed_installed_parser(), workflow: self.targets[workflow]}
+        self.originals = {parser: reviewed_installed_parser(), workflow: reviewed_installed_workflow()}
         for path, content in self.originals.items(): self.write(path, content)
+
+    def installed_v2(self):
+        self.installed_v1(); parser = next(iter(self.pins))
+        self.originals[parser] = self.targets[parser]; self.write(parser, self.originals[parser])
 
     def apply(self, check=False, **kwargs):
         with self.patches(): return repair.apply(self.root, self.uid, 'a'*40, check, runner=self.runner, **kwargs)
@@ -201,19 +217,25 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         entries = dict(re.findall(r"'([^']+)'=>'([^']+)'", re.search(r'\$pins=\[(.*?)\n    \];', status, re.S)[1]))
         for path, (_, target) in repair.TARGET_PINS.items():
             self.assertEqual(entries[path], target, 'status must guard same final published target')
+        recovery = (ROOT/'deployment/whatsapp_customer_confirmation_recover.php').read_text()
+        recovery_entries = dict(re.findall(r"'([^']+)'=>'([^']+)'", re.search(r'\$pins=\[(.*?)\n    \];', recovery, re.S)[1]))
+        for path, (_, target) in repair.TARGET_PINS.items():
+            self.assertEqual(recovery_entries[path], target, 'recovery must guard same final published target')
         protocol = 'app/Support/WhatsAppInboxProtocol.php'
         self.assertNotIn(protocol, repair.TARGET_PINS)
         self.assertEqual(repair.RUNTIME_PINS[protocol],
             ('c64f8cf89437bb7822fc767202f7cf5112bfd7fd', 'f2eec9099f9a27915cda50b7c8e267efb1f0b030'))
         self.assertIn("$compatibleProtocolPins=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];", status)
-        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'CURRENT'})
+        self.assertEqual(set(repair.profiles()), {'BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'CURRENT'})
         self.assertEqual(repair.INSTALLED_SOURCE_PROFILES, {'INSTALLED_V1': {
             'app/Support/WhatsAppCustomerOrderConfirmation.php': '558440a772a7798c4f9c11a713685c79b7fdabda',
+            'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'},
+            'INSTALLED_V2': {
+            'app/Support/WhatsAppCustomerOrderConfirmation.php': '63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
             'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd91ea2f4c84357e16e0556b205484d64cfce1079'}})
 
-    def test_installed_v1_upgrade_changes_only_parser_and_preserves_workflow_inode_and_state(self):
+    def test_installed_v1_upgrade_replaces_only_the_two_reviewed_targets_and_preserves_state(self):
         self.fixture.installed_v1(); parser, workflow = tuple(repair.TARGET_PINS)
-        before_workflow = repair.library.guarded_snapshot(self.fixture.root/workflow, self.fixture.uid, self.fixture.root)
         before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
         before_control = dict(self.fixture.controls)
         checked = self.fixture.apply(True)
@@ -221,14 +243,32 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
         result = self.fixture.apply()
         self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
         self.assertEqual((self.fixture.root/parser).read_bytes(), self.fixture.targets[parser])
-        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/workflow, self.fixture.uid, self.fixture.root), before_workflow)
+        self.assertEqual((self.fixture.root/workflow).read_bytes(), self.fixture.targets[workflow])
         self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
         self.assertEqual(self.fixture.controls, before_control)
         receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
         self.assertEqual(receipt['source_profile'], 'INSTALLED_V1')
-        self.assertEqual(receipt['changed_targets'], [parser])
+        self.assertEqual(receipt['changed_targets'], [parser, workflow])
         self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
-        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/workflow, self.fixture.uid, self.fixture.root), before_workflow)
+
+    def test_installed_v2_upgrade_changes_only_workflow_and_preserves_parser_inode_and_state(self):
+        self.fixture.installed_v2(); parser, workflow = tuple(repair.TARGET_PINS)
+        before_parser = repair.library.guarded_snapshot(self.fixture.root/parser, self.fixture.uid, self.fixture.root)
+        before_config = repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid)
+        before_control = dict(self.fixture.controls)
+        checked = self.fixture.apply(True)
+        self.assertEqual(checked['source_profile'], 'INSTALLED_V2')
+        result = self.fixture.apply()
+        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/parser, self.fixture.uid, self.fixture.root), before_parser)
+        self.assertEqual((self.fixture.root/workflow).read_bytes(), self.fixture.targets[workflow])
+        self.assertEqual(repair.library.configuration_snapshot(self.fixture.root, self.fixture.uid), before_config)
+        self.assertEqual(self.fixture.controls, before_control)
+        receipt = json.loads((pathlib.Path(result['backup'])/'receipt.json').read_text())
+        self.assertEqual(receipt['source_profile'], 'INSTALLED_V2')
+        self.assertEqual(receipt['changed_targets'], [workflow])
+        self.assertEqual(self.fixture.apply()['status'], 'WA_CONFIRMATION_ALREADY_CURRENT')
+        self.assertEqual(repair.library.guarded_snapshot(self.fixture.root/parser, self.fixture.uid, self.fixture.root), before_parser)
 
     def test_installed_profile_rejects_unknown_parser_and_unreviewed_parser_workflow_mixtures(self):
         self.fixture.installed_v1(); parser, workflow = tuple(repair.TARGET_PINS)
@@ -247,15 +287,17 @@ class CustomerConfirmationInstallTests(unittest.TestCase):
                 with self.assertRaisesRegex(repair.SafeError, 'WA_CONFIRMATION_LIVE_SOURCE_NEEDS_REVIEW'):
                     self.fixture.apply(True)
 
-    def test_root_installed_v1_upgrade_preserves_original_timer_choices_and_policy_fingerprint(self):
-        worker = WorkerFixture()
-        worker.before = dict(worker.before, sources=repair.INSTALLED_SOURCE_PROFILES['INSTALLED_V1'], source_profile='INSTALLED_V1')
-        worker.after = dict(worker.after, sources={path: pair[1] for path, pair in repair.TARGET_PINS.items()})
-        result = worker.run(self.temp.name)
-        self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
-        self.assertEqual(worker.states, worker.original)
-        self.assertEqual(result['control_fingerprint'], worker.before['control_fingerprint'])
-        self.assertFalse(any(args[1] in ('enable', 'daemon-reload') for args in worker.commands))
+    def test_root_reviewed_installed_upgrades_preserve_original_timer_choices_and_policy_fingerprint(self):
+        for profile in ('INSTALLED_V1', 'INSTALLED_V2'):
+            with self.subTest(profile=profile):
+                worker = WorkerFixture()
+                worker.before = dict(worker.before, sources=repair.INSTALLED_SOURCE_PROFILES[profile], source_profile=profile)
+                worker.after = dict(worker.after, sources={path: pair[1] for path, pair in repair.TARGET_PINS.items()})
+                result = worker.run(self.temp.name)
+                self.assertEqual(result['status'], 'WHATSAPP_CUSTOMER_CONFIRMATION_REPAIR_READY')
+                self.assertEqual(worker.states, worker.original)
+                self.assertEqual(result['control_fingerprint'], worker.before['control_fingerprint'])
+                self.assertFalse(any(args[1] in ('enable', 'daemon-reload') for args in worker.commands))
 
     def test_both_exact_reviewed_protocols_preflight_without_publishing_or_changing_them(self):
         protocol = 'app/Support/WhatsAppInboxProtocol.php'; allowed = repair.RUNTIME_PINS[protocol]

@@ -56,6 +56,135 @@ class WhatsAppOrderWorkflow
         return $this->analyzeInternal($conversation, $this->actor($actor), $force, false);
     }
 
+    /**
+     * CLI repair for a proved customer receipt stranded behind an exhausted scan.
+     * This never runs a provider, projector, quote, sender or ERP service. The
+     * normal worker independently reviews and dispatches the resulting draft.
+     */
+    public function recoverCustomerReceipt(int $conversation,array $expected): array
+    {
+        $keys=['control_revision','floor','ceiling','snapshot_hash','scan_hash'];
+        abort_unless(PHP_SAPI==='cli',403,'CUSTOMER_RECEIPT_RECOVERY_CLI_ONLY');
+        abort_unless(count($expected)===count($keys)&&array_diff(array_keys($expected),$keys)===[]
+            &&is_int($expected['control_revision']??null)&&$expected['control_revision']>=1
+            &&is_int($expected['floor']??null)&&$expected['floor']>=0
+            &&is_int($expected['ceiling']??null)&&$expected['ceiling']>$expected['floor']
+            &&is_string($expected['snapshot_hash']??null)&&preg_match('/\A[a-f0-9]{64}\z/',$expected['snapshot_hash'])
+            &&is_string($expected['scan_hash']??null)&&preg_match('/\A[a-f0-9]{64}\z/',$expected['scan_hash']),422,'CUSTOMER_RECEIPT_RECOVERY_EXPECTATION_INVALID');
+        $this->ready();
+        abort_unless($this->controlInstalled()&&$this->mode()==='auto'&&$this->customerReceiptEnabled($conversation)
+            &&$this->automationChannel($conversation)==='whatsapp',403,'CUSTOMER_RECEIPT_RECOVERY_MODE_REQUIRED');
+        return DB::transaction(function()use($conversation,$expected) {
+            $this->conversation($conversation,true);
+            $scan=DB::table(static::SCANS)->where('conversation_id',$conversation)->lockForUpdate()->first();
+            abort_unless($scan,409,'CUSTOMER_RECEIPT_RECOVERY_SCAN_MISSING');
+            abort_unless($this->customerReceiptEnabled($conversation),403,'CUSTOMER_RECEIPT_RECOVERY_MODE_REQUIRED');
+            $authority=$this->controlToken($conversation);
+            abort_unless($authority!==null&&$authority['revision']===$expected['control_revision'],409,'AI_CONTROL_CHANGED');
+            abort_unless($this->ceiling($conversation,true)===$expected['ceiling'],409,'STALE_TRANSCRIPT');
+            $snapshot=$this->snapshot($conversation,$expected['floor'],$expected['ceiling'],true);
+            abort_unless(($snapshot['complete']??false)===true
+                &&hash_equals($expected['snapshot_hash'],$snapshot['hash']),409,'STALE_TRANSCRIPT');
+            $proof=WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
+            abort_unless(($proof['ok']??false)===true&&!WhatsAppOrderExtraction::hasProbe($snapshot['transcript'])
+                &&is_array($proof['data']['textual_location']['point']??null)
+                &&$this->validPoint($proof['data']['textual_location']['point']['lat']??null,
+                    $proof['data']['textual_location']['point']['long']??null)!==null,409,'CUSTOMER_RECEIPT_RECOVERY_PROOF_REQUIRED');
+            $data=$proof['data'];
+            $existing=DB::table(static::DRAFTS)->where('conversation_id',$conversation)
+                ->where('evidence_ceiling',$expected['ceiling'])->lockForUpdate()->get();
+            abort_unless(count($existing)<=1,409,'CUSTOMER_RECEIPT_RECOVERY_DRAFT_CONFLICT');
+            if (count($existing)===1) {
+                $row=$existing[0]; $stored=$this->decode($row->extraction);
+                abort_unless(in_array($row->status,['REVIEW','READY','DISPATCHED'],true)
+                    &&(int)$row->evidence_floor===$expected['floor']&&hash_equals((string)$row->evidence_hash,$expected['snapshot_hash'])
+                    &&is_array($stored)&&hash_equals(PosServiceTicket::fingerprint($stored),PosServiceTicket::fingerprint($data)),
+                    409,'CUSTOMER_RECEIPT_RECOVERY_DRAFT_CONFLICT');
+                return ['success'=>true,'status'=>'ALREADY_RECORDED','draft_id'=>(int)$row->id,
+                    'writes'=>0,'ai_calls'=>0,'message_sends'=>0,'erp_writes'=>0];
+            }
+            abort_unless(hash_equals($expected['scan_hash'],$this->customerReceiptRecoveryScanHash($scan)),
+                409,'CUSTOMER_RECEIPT_RECOVERY_SCAN_CHANGED');
+            abort_if($scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
+            abort_unless((int)$scan->claimed_ceiling===$expected['ceiling']&&(int)$scan->attempts===3
+                &&(int)$scan->analyzed_ceiling<$expected['ceiling'],409,'CUSTOMER_RECEIPT_RECOVERY_NOT_EXHAUSTED');
+            abort_if($scan->next_attempt_at&&$scan->next_attempt_at>now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BACKOFF');
+            $floor=$this->automaticFloor($conversation,$scan,true);
+            abort_unless($this->customerReceiptFloor($conversation,$floor,$expected['ceiling'])===$expected['floor'],
+                409,'STALE_TRANSCRIPT');
+            $this->requireAnalysisHours($conversation,$authority);
+            $actor=$this->automaticActor($conversation);
+            abort_unless((int)$actor->id===$authority['actor_id'],409,'AI_CONTROL_CHANGED');
+            abort_if($this->pendingCapture(true),409,'CAPTURE_PENDING');
+            abort_unless($this->customerReceiptRecoveryProjectionClear($conversation,$authority['started_at_utc']),
+                409,'ACCEPTED_REPLIES_PENDING');
+            $observed=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$conversation)->max('created_at');
+            abort_unless(is_string($observed)&&$observed<=$this->settledBefore(),409,'TRANSCRIPT_SETTLING');
+            abort_unless($this->primaryAuthority($conversation,$snapshot)===$authority,409,'AI_CONTROL_BLOCKED');
+            $rows=array_column($snapshot['transcript'],null,'id');
+            foreach ([$data['evidence_receipt']['recap_id'],$data['evidence_receipt']['approval_id']] as $id) {
+                $message=$rows[$id]??null;
+                abort_unless($message&&$message['speaker']==='customer'&&is_string($snapshot['keys'][$id]??null)
+                    &&$message['sent_at']>=$authority['started_at_utc']
+                    &&$message['sent_at']>now('UTC')->subHours(24)->format('Y-m-d H:i:s')
+                    &&$message['sent_at']<=now('UTC')->format('Y-m-d H:i:s')
+                    &&(($snapshot['recovered_at']??null)===null||$message['sent_at']>=$snapshot['recovered_at']),
+                    409,'STALE_TRANSCRIPT');
+            }
+            // Repeat the same native/control proof at the write boundary. Unlike
+            // normal analysis, recovery never calls the accepted-reply projector.
+            abort_unless($this->customerReceiptEnabled($conversation),403,'CUSTOMER_RECEIPT_RECOVERY_MODE_REQUIRED');
+            $this->requireAnalysisHours($conversation,$authority);
+            abort_unless($this->primaryAuthority($conversation,$snapshot)===$authority
+                &&$this->ceiling($conversation,true)===$expected['ceiling']
+                &&hash_equals($expected['snapshot_hash'],$this->snapshot($conversation,$expected['floor'],$expected['ceiling'],true)['hash']),
+                409,'STALE_TRANSCRIPT');
+            abort_if($this->pendingCapture(true),409,'CAPTURE_PENDING');
+            abort_unless($this->customerReceiptRecoveryProjectionClear($conversation,$authority['started_at_utc']),
+                409,'ACCEPTED_REPLIES_PENDING');
+            $id=DB::table(static::DRAFTS)->insertGetId(['conversation_id'=>$conversation,
+                'evidence_floor'=>$expected['floor'],'evidence_ceiling'=>$expected['ceiling'],'evidence_hash'=>$expected['snapshot_hash'],
+                'confirmation_key'=>null,'status'=>'REVIEW','reason'=>'REVIEW_REQUIRED','revision'=>1,
+                'extraction'=>$this->encrypt($data),'sealed_payload'=>null,'customer_command_key'=>$this->uuid(),
+                'ticket_command_key'=>$this->uuid(),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            // Preserve the exhausted retry audit, claimed ceiling and all floors.
+            DB::table(static::SCANS)->where('conversation_id',$conversation)->update([
+                'analyzed_ceiling'=>$expected['ceiling'],'next_attempt_at'=>null,'updated_at'=>now('UTC')]);
+            return ['success'=>true,'status'=>'RECORDED','draft_id'=>(int)$id,
+                'writes'=>2,'ai_calls'=>0,'message_sends'=>0,'erp_writes'=>0];
+        },3);
+    }
+
+    /** Stable private metadata binding for the reviewed one-conversation recovery. */
+    private function customerReceiptRecoveryScanHash(object $scan): string
+    {
+        $state=[];
+        foreach (['auto_floor','analyzed_ceiling','claimed_ceiling','attempts'] as $key)
+            $state[$key]=($scan->$key??null)===null?null:(int)$scan->$key;
+        foreach (['next_attempt_at','claim_nonce','lease_until','updated_at'] as $key)
+            $state[$key]=($scan->$key??null)===null?null:(string)$scan->$key;
+        return PosServiceTicket::fingerprint($state);
+    }
+
+    /** Pure pending-acceptance check: this repair must not project inbox rows. */
+    private function customerReceiptRecoveryProjectionClear(int $conversation,string $since): bool
+    {
+        if (!Schema::hasTable('whatsapp_reply_requests')) return false;
+        $accepted=DB::table('whatsapp_reply_requests as r')->where('r.conversation_id',$conversation)
+            ->where('r.waba_id',WhatsAppInboxAccess::WABA_ID)->where('r.phone_number_id',WhatsAppInboxAccess::PHONE_ID)
+            ->where('r.state','ACCEPTED')->where('r.kind','text')->where('r.completed_at','>=',$since);
+        if (!Schema::hasTable(WhatsAppInboxMessage::INDEX)) return !$accepted->lockForUpdate()->exists();
+        return !$accepted->leftJoin(WhatsAppInboxMessage::INDEX.' as p',function($join) {
+            $join->on('p.reply_id','=','r.id')->on('p.conversation_id','=','r.conversation_id')
+                ->on('p.waba_id','=','r.waba_id')->on('p.phone_number_id','=','r.phone_number_id')->on('p.kind','=','r.kind');
+        })->where(function($query) {
+            $query->whereNull('p.reply_id')->orWhere('p.valid',false)->orWhereNotExists(function($native) {
+                $native->selectRaw('1')->from('whatsapp_inbox_messages as m')->whereColumn('m.message_key','p.message_key')
+                    ->whereColumn('m.conversation_id','r.conversation_id')->where('m.direction','outbound')->where('m.type','text');
+            });
+        })->lockForUpdate()->exists();
+    }
+
     /** Consumer only: a proven native correction starts a new semantic attempt sequence. */
     public function noteProjectionRevision(int $conversation,int $message): bool
     {

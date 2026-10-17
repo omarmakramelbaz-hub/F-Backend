@@ -93,6 +93,53 @@ function customerRecapLongThread(?string $recap=null,bool $oldPin=false,bool $pr
     insertMessage($c,'wamid.customer-recap.long-approval','inbound','كل شيء تمام',71,null,'US.customer-confirmed');
     CustomerRecapAi::$data=extractionData();return[$c,$recapId];
 }
+function customerRecapExhaustedWithoutCurrentDraft(?string $recap=null,?string $approval='كل شيء تمام',bool $probe=false):array {
+    global $workflow;
+    primarySetup();PrimaryFixtureControl::$analysisOnly=true;PrimaryFixtureControl::$replyClockClosed=true;
+    CustomerRecapRaceDelivery::$duringQuote=null;$c=addConversation('US.customer-confirmed');
+    $oldCeiling=insertMessage($c,'wamid.customer-recap.exhausted-old','inbound','أهلاً',1,null,'US.customer-confirmed');
+    CustomerRecapAi::$data=\App\Support\WhatsAppOrderExtraction::none();
+    $old=$workflow->analyze($c,(object)['id'=>7]);$oldDraft=(int)$old['draft']['id'];
+    CustomerRecapDB::table('whatsapp_order_drafts')->where('id',$oldDraft)->update([
+        'status'=>'REVIEW','reason'=>'REVIEW_REQUIRED','extraction'=>CustomerRecapCrypt::encryptString(json_encode(extractionData(),JSON_THROW_ON_ERROR))]);
+    if($probe)insertMessage($c,'wamid.customer-recap.exhausted-probe','outbound','WA-4321',1,null,'US.customer-confirmed');
+    $ceiling=insertMessage($c,'wamid.customer-recap.exhausted-copy','inbound',$recap??customerRecapText(),2,null,'US.customer-confirmed');
+    if($approval!==null)$ceiling=insertMessage($c,'wamid.customer-recap.exhausted-approval','inbound',$approval,3,null,'US.customer-confirmed');
+    CustomerRecapDB::table('whatsapp_order_scans')->where('conversation_id',$c)->update([
+        'auto_floor'=>0,'analyzed_ceiling'=>$oldCeiling,'claimed_ceiling'=>$ceiling,'attempts'=>3,
+        'next_attempt_at'=>now('UTC')->subMinute(),'claim_nonce'=>null,'lease_until'=>null,'updated_at'=>now('UTC')->subMinute()]);
+    CustomerRecapAi::$calls=0;CustomerRecapAi::$data=extractionData();
+    return['conversation'=>$c,'old_draft'=>$oldDraft,'ceiling'=>$ceiling,'floor'=>0,'revision'=>1];
+}
+function customerRecapRecoveryExpected(array $case):array {
+    global $workflow;
+    $snapshot=new ReflectionMethod($workflow,'snapshot');$snapshot->setAccessible(true);
+    $data=$snapshot->invoke($workflow,$case['conversation'],$case['floor'],$case['ceiling']);
+    $scan=CustomerRecapDB::table('whatsapp_order_scans')->where('conversation_id',$case['conversation'])->first();
+    $scanHash=new ReflectionMethod($workflow,'customerReceiptRecoveryScanHash');$scanHash->setAccessible(true);
+    return['control_revision'=>$case['revision'],'floor'=>$case['floor'],'ceiling'=>$case['ceiling'],
+        'snapshot_hash'=>$data['hash'],'scan_hash'=>$scanHash->invoke($workflow,$scan)];
+}
+function customerRecapRecoveryState():array {
+    $out=[];
+    foreach(['whatsapp_order_drafts'=>'id','whatsapp_order_scans'=>'conversation_id','meta_ai_controls'=>'id']as$table=>$key)
+        $out[$table]=CustomerRecapDB::table($table)->orderBy($key)->get()->map(static fn($row)=>(array)$row)->all();
+    return$out;
+}
+function customerRecapRecoveryBlocked(array $case,array $expected,string $label):void {
+    global $workflow;
+    $before=customerRecapRecoveryState();$blocked=false;
+    $replies=CustomerRecapDB::table('whatsapp_reply_requests')->orderBy('id')->get()->map(static fn($row)=>(array)$row)->all();
+    try{$workflow->recoverCustomerReceipt($case['conversation'],$expected);}
+    catch(WorkflowBlocked $error){$blocked=true;}
+    customerRecapExpect($blocked,$label.' is refused by an explicit workflow guard');
+    customerRecapExpect(customerRecapRecoveryState()===$before,$label.' changes no scan draft or activation metadata');
+    customerRecapExpect(CustomerRecapAi::$calls===0,$label.' cannot fall back to extraction AI');
+    primaryNoErp($label.' cannot execute ERP');
+    customerRecapExpect(count($GLOBALS['dialogueGraphs'])===0&&count(DialogueFixtureProvider::$contexts)===0
+        &&CustomerRecapDB::table('whatsapp_reply_requests')->orderBy('id')->get()->map(static fn($row)=>(array)$row)->all()===$replies,
+        $label.' cannot send or reserve a new reply or alter an existing reply');
+}
 
 // Complete inbound-only copy plus a separate approval has no fabricated business
 // row, merchant citation, network send, payment or duplicate kitchen operation.
@@ -394,5 +441,134 @@ customerRecapExpect($r['errors']===0&&$r['dispatched']===1&&CustomerRecapDB::tab
 customerRecapSilent('legacy receipt upgrade cannot compose or send a reply');
 primaryRun();customerRecapExpect(CustomerRecapDB::table('test_tickets')->count()===1
     &&CustomerRecapDB::table('test_print')->count()===1,'upgraded legacy draft also retains dispatch idempotency');
+
+// This is the observed production state: a previous claim exhausted retries
+// without producing any draft at the fresh ceiling. Ordinary selection stays
+// bounded; a separately authorized deterministic recovery must not reset it.
+$exhausted=customerRecapExhaustedWithoutCurrentDraft();$r=primaryRun();
+customerRecapExpect($r['threads_seen']===0&&CustomerRecapAi::$calls===0
+    &&CustomerRecapDB::table('whatsapp_order_drafts')->where('evidence_ceiling',$exhausted['ceiling'])->count()===0
+    &&(int)CustomerRecapDB::table('whatsapp_order_scans')->value('attempts')===3,
+    'exhausted unchanged claim without current draft does not occupy or reset ordinary worker selection');
+customerRecapNoErp('exhausted claim reproduction creates no ERP operation or reply');
+
+// The CLI recovery authorizes only this exact deterministic customer receipt.
+// Persisting its review draft is separate from the ordinary scheduled dispatcher.
+$case=customerRecapExhaustedWithoutCurrentDraft();$expected=customerRecapRecoveryExpected($case);
+$before=customerRecapRecoveryState();$result=$workflow->recoverCustomerReceipt($case['conversation'],$expected);
+$current=CustomerRecapDB::table('whatsapp_order_drafts')->where('conversation_id',$case['conversation'])
+    ->where('evidence_ceiling',$case['ceiling'])->first();
+customerRecapExpect(($result['success']??false)===true&&($result['status']??null)==='RECORDED'
+    &&($result['writes']??null)===2&&($result['ai_calls']??null)===0&&($result['message_sends']??null)===0
+    &&($result['erp_writes']??null)===0&&$current!==null,
+    'scoped deterministic recovery records one current review draft without AI sends or ERP');
+customerRecapExpect($current->status==='REVIEW'&&$current->reason==='REVIEW_REQUIRED'
+    &&(int)$current->evidence_floor===$case['floor']&&(int)$current->evidence_ceiling===$case['ceiling']
+    &&$current->evidence_hash===$expected['snapshot_hash']
+    &&(customerRecapStored()['type']??null)==='CUSTOMER_CONFIRMED_RECAP',
+    'recovery draft binds exact authenticated current customer receipt and evidence boundaries');
+$after=customerRecapRecoveryState();$scanBefore=$before['whatsapp_order_scans'][0];$scanAfter=$after['whatsapp_order_scans'][0];
+customerRecapExpect((int)$scanAfter['attempts']===3&&(int)$scanAfter['claimed_ceiling']===$case['ceiling']
+    &&(int)$scanAfter['analyzed_ceiling']===$case['ceiling']&&$scanAfter['next_attempt_at']===null
+    &&$scanAfter['claim_nonce']===null&&$scanAfter['lease_until']===null,
+    'deterministic receipt recovery retains exhausted generic AI budget and installs a cached current analysis');
+foreach(['analyzed_ceiling','next_attempt_at','updated_at']as$key){unset($scanBefore[$key],$scanAfter[$key]);}
+customerRecapExpect($scanBefore===$scanAfter&&$after['meta_ai_controls']===$before['meta_ai_controls']
+    &&$after['whatsapp_order_drafts'][0]===$before['whatsapp_order_drafts'][0],
+    'recovery preserves claim identity activation floors control policy and historical legacy draft byte for byte');
+customerRecapExpect(CustomerRecapAi::$calls===0,'deterministic recovery never invokes extraction AI');
+customerRecapNoErp('recovery only records review facts and does not dispatch');
+$recorded=customerRecapRecoveryState();$again=$workflow->recoverCustomerReceipt($case['conversation'],$expected);
+customerRecapExpect(($again['status']??null)==='ALREADY_RECORDED'&&($again['writes']??null)===0
+    &&($again['draft_id']??null)===(int)$current->id&&customerRecapRecoveryState()===$recorded,
+    'repeating the same authorized receipt with old scan hash is read-only and idempotent');
+$r=primaryRun();customerRecapExpect($r['errors']===0&&$r['dispatched']===1&&CustomerRecapAi::$calls===0
+    &&CustomerRecapDB::table('test_tickets')->count()===1&&CustomerRecapDB::table('test_print')->count()===1,
+    'ordinary bounded worker later dispatches recovered cached receipt at attempt three without another AI call');
+customerRecapSilent('normal dispatch after scoped recovery remains analysis-only');
+primaryRun();customerRecapExpect(CustomerRecapDB::table('test_tickets')->count()===1
+    &&CustomerRecapDB::table('test_print')->count()===1,'recovered receipt still produces one ticket and one print across worker replays');
+
+foreach(['ceiling','revision','snapshot-hash','scan-hash','missing-key','unknown-key','wrong-type']as$guard){
+    $case=customerRecapExhaustedWithoutCurrentDraft();$expected=customerRecapRecoveryExpected($case);
+    if($guard==='ceiling')$expected['ceiling']++;
+    if($guard==='revision')$expected['control_revision']++;
+    if($guard==='snapshot-hash')$expected['snapshot_hash']=str_repeat('0',64);
+    if($guard==='scan-hash')$expected['scan_hash']=str_repeat('0',64);
+    if($guard==='missing-key')unset($expected['scan_hash']);
+    if($guard==='unknown-key')$expected['force']=true;
+    if($guard==='wrong-type')$expected['floor']='0';
+    customerRecapRecoveryBlocked($case,$expected,'recovery expected '.$guard.' mismatch');
+}
+foreach(['activation','master-off','actor','mode','analysis-closed','live-lease','future-backoff','not-exhausted','different-claim',
+    'analyzed-current','missing-scan','new-message','unknown-send','claimed-send','accepted-unprojected','pending-capture','capture-failure','expired']as$guard){
+    $case=customerRecapExhaustedWithoutCurrentDraft();$expected=customerRecapRecoveryExpected($case);
+    if($guard==='activation')CustomerRecapDB::table('meta_ai_controls')->update(['message_floor'=>1]);
+    if($guard==='master-off')CustomerRecapDB::table('meta_ai_controls')->update(['enabled'=>false]);
+    if($guard==='actor')CustomerRecapDB::table('test_users')->where('id',7)->update(['can_checkout'=>false]);
+    if($guard==='mode')PrimaryFixtureControl::$analysisOnly=false;
+    if($guard==='analysis-closed')PrimaryFixtureControl::$analysisSchedule=['enabled'=>true,'days'=>[0,1,2,3,4,5,6],
+        'start'=>'09:00','end'=>'10:00','all_day'=>false];
+    if($guard==='live-lease'){
+        CustomerRecapDB::table('whatsapp_order_scans')->update(['claim_nonce'=>str_repeat('a',64),'lease_until'=>now('UTC')->addMinute()]);
+        $expected=customerRecapRecoveryExpected($case);
+    }
+    if(in_array($guard,['future-backoff','not-exhausted','different-claim','analyzed-current'],true)){
+        $changes=match($guard){
+            'future-backoff'=>['next_attempt_at'=>now('UTC')->addMinute()],
+            'not-exhausted'=>['attempts'=>2],
+            'different-claim'=>['claimed_ceiling'=>$case['ceiling']-1],
+            'analyzed-current'=>['analyzed_ceiling'=>$case['ceiling']],
+        };
+        CustomerRecapDB::table('whatsapp_order_scans')->update($changes);$expected=customerRecapRecoveryExpected($case);
+    }
+    if($guard==='missing-scan')CustomerRecapDB::table('whatsapp_order_scans')->delete();
+    if($guard==='new-message')insertMessage($case['conversation'],'wamid.customer-recap.recovery-new-message','inbound','خلي الطلب 2 كيلو',4,null,'US.customer-confirmed');
+    if(in_array($guard,['unknown-send','claimed-send','accepted-unprojected'],true)){
+        $now=now('UTC')->format('Y-m-d H:i:s');
+        CustomerRecapDB::table('whatsapp_reply_requests')->insert(['waba_id'=>'468336579702269','phone_number_id'=>'515388018324075',
+            'conversation_id'=>$case['conversation'],'actor_id'=>7,'request_hash'=>hash('sha256','scoped-recovery-'.$guard),
+            'payload_hash'=>hash('sha256','scoped-recovery-payload'),'kind'=>'text','inbound_message_id'=>$case['ceiling'],
+            'state'=>match($guard){'unknown-send'=>'UNKNOWN','claimed-send'=>'CLAIMED','accepted-unprojected'=>'ACCEPTED'},
+            'audit'=>CustomerRecapCrypt::encryptString('{}'),'claimed_at'=>$now,
+            'completed_at'=>$guard==='accepted-unprojected'?$now:null,'created_at'=>$now,'updated_at'=>$now]);
+    }
+    if($guard==='pending-capture')CustomerRecapDB::table('whatsapp_webhook_events')->insert(['processed_at'=>null]);
+    if($guard==='capture-failure'){
+        $event=CustomerRecapDB::table('whatsapp_webhook_events')->insertGetId(['processed_at'=>now('UTC')]);
+        CustomerRecapDB::table('whatsapp_inbox_ingestion_failures')->insert([
+            'event_id'=>$event,'reason'=>'INVALID_EVENT','attempts'=>1,'last_attempted_at'=>now('UTC')]);
+    }
+    if($guard==='expired')customerRecapClock('2026-10-11 06:00:00');
+    customerRecapRecoveryBlocked($case,$expected,'scoped recovery '.$guard.' guard');
+}
+foreach(['no-approval','changed-approval','cancelled-tail','known-probe','missing-point','incomplete-suffix']as$guard){
+    $case=customerRecapExhaustedWithoutCurrentDraft($guard==='missing-point'?customerRecapText(['الموقع'=>null]):null,
+        $guard==='no-approval'?null:($guard==='changed-approval'?'كل شيء تمام بس خلي الطلب 2 كيلو':'كل شيء تمام'),$guard==='known-probe');
+    if($guard==='cancelled-tail'){
+        $case['ceiling']=insertMessage($case['conversation'],'wamid.customer-recap.exhausted-cancel','inbound','الغي الطلب',4,null,'US.customer-confirmed');
+        CustomerRecapDB::table('whatsapp_order_scans')->update(['claimed_ceiling'=>$case['ceiling']]);
+    }
+    if($guard==='incomplete-suffix'){
+        for($i=4;$i<=65;$i++)$case['ceiling']=insertMessage($case['conversation'],'wamid.customer-recap.recovery-tail.'.$i,
+            'inbound','كل شيء تمام',$i,null,'US.customer-confirmed');
+        CustomerRecapDB::table('whatsapp_order_scans')->update(['claimed_ceiling'=>$case['ceiling']]);
+    }
+    $expected=customerRecapRecoveryExpected($case);
+    customerRecapRecoveryBlocked($case,$expected,'receipt-only recovery '.$guard.' proof');
+}
+
+$case=customerRecapExhaustedWithoutCurrentDraft();PrimaryFixtureControl::$strictDispatchClock=true;
+$result=$workflow->recoverCustomerReceipt($case['conversation'],customerRecapRecoveryExpected($case));
+customerRecapExpect(($result['status']??null)==='RECORDED','analysis-open recovery records review facts independently of closed dispatch clock');
+$r=primaryRun();customerRecapExpect($r['deferred']===1
+    &&CustomerRecapDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('reason')==='DISPATCH_OUTSIDE_HOURS',
+    'ordinary worker queues a recovered receipt while independent dispatch clock is closed');
+customerRecapNoErp('scoped recovery and closed dispatch clock create no ERP operation');
+customerRecapClock('2026-10-10 06:00:00');$r=primaryRun();
+customerRecapExpect($r['dispatched']===1&&CustomerRecapAi::$calls===0
+    &&CustomerRecapDB::table('test_tickets')->count()===1&&CustomerRecapDB::table('test_print')->count()===1,
+    '09:00 scheduled dispatch resumes the recovered receipt exactly once without new AI');
+customerRecapSilent('scheduled recovered receipt never sends an AI reply');
 
 echo 'whatsapp_customer_confirmation_workflow: '.$customerRecapChecks." checks passed\n";
