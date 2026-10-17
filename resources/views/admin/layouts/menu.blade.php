@@ -3,7 +3,7 @@
     <!-- Brand Logo -->
     <!--<hr>-->
     <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
-        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
+        <img class="dashboard-brand-logo go-erp-platform-logo" src="{{ asset('dashboard/branding/go-erp-logo-navy.png') }}" alt="GO ERP SYSTEM" width="88" height="88">
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </a>
     <hr>

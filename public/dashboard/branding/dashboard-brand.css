@@ -672,3 +672,34 @@ html:has(.app-order-board-page) {
 @media (prefers-reduced-motion: reduce) {
     .dashboard-theme .info-box, .dashboard-theme .btn, .dashboard-theme .main-sidebar .nav-link { transition: none; }
 }
+
+/* go-erp-platform-logos:start */
+/* Only the two platform logos; existing page geometry and receipt branding stay intact. */
+.dashboard-login-logo.go-erp-platform-logo {
+    height: 380px;
+}
+@media (max-width: 800px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 235px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 205px; }
+}
+.main-sidebar .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    height: 88px;
+    max-width: 100%;
+    flex: 0 1 208px;
+    object-fit: contain;
+}
+.main-sidebar .go-erp-platform-logo + .dashboard-brand-copy {
+    display: none !important;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo {
+    height: 72px;
+}
+.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+/* go-erp-platform-logos:end */
