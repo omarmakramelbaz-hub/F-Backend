@@ -643,14 +643,14 @@
         try { var response = await fetch(endpoint(urls.daily, { branch: branch, page: page || 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'daily_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); var items = result.items || result.receipts || []; if (!items.length) content.appendChild(node('p', 'tp-empty', label('daily_empty'))); else receiptTable(items, content); var pages = result.pagination || {}; if (pages.last_page > 1) { var controls = node('nav', 'tp-pagination'); ['previous', 'next'].forEach(function (direction) { var button = node('button', '', label(direction)); button.type = 'button'; button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page; button.addEventListener('click', function () { daily(pages.page + (direction === 'next' ? 1 : -1)); }); controls.appendChild(button); }); content.appendChild(controls); } updateRegister(result.register, result.today); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('daily_error'))); }
     }
-    async function till() {
+    function till() {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked) { notify(label('sale_locked')); return; }
-        if (!branch) { notify(label('choose_branch_first')); return; } var content = openModal(label('cash_register')), generation = modalGeneration; modalController = new AbortController();
-        try { var response = await fetch(endpoint(urls.register || urls.tills, { branch: branch }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'register_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); updateRegister(result.register || result, result.today); var summary = node('div', 'tp-modal-summary'); summary.appendChild(node('span', '', label('register_balance'))); summary.appendChild(node('strong', '', register&&register.balance!==undefined?money(register.balance)+' '+label('currency'):'يظهر في ورقة تقفيل الوردية فقط'));  content.appendChild(summary);
-            var rows = result.entries || result.movements || result.items || []; if (rows.length) { var table = node('table'), body = node('tbody'); rows.forEach(function (entry) { var row = node('tr'); row.appendChild(node('td', '', entry.created_label || entry.created_at)); row.appendChild(node('td', '', entry.note || entry.reason || label({ cash_sale: 'cash_sales', expense: 'entry_expense', expense_refund: 'entry_expense_refund', cash_in: 'cash_in', cash_out: 'cash_out', tax_setting: 'till_settings' }[entry.kind] || 'cash_movements'))); row.appendChild(node('td', '', money(entry.amount))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table); } else content.appendChild(node('p', 'tp-empty', label('register_readonly')));
-            if ((result.permissions || permissions).can_manage && !selling && !uncertain && !registerLocked) registerForms(content);
-        } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('register_error'))); }
+        if (!branch) { notify(label('choose_branch_first')); return; }
+        var content = openModal(label('cash_register'));
+        var notice = node('p', 'tp-modal-summary');
+        notice.appendChild(node('strong', '', label('register_print_only')));
+        content.replaceChildren(notice);
     }
     function inputLabel(name, input) { var wrapper = node('label'); wrapper.appendChild(node('span', '', label(name))); wrapper.appendChild(input); return wrapper; }
     function registerForms(content) {
