@@ -48,6 +48,93 @@ class WhatsAppInboxConsumer
         return $this->consumeIds($eventIds, $this->hashKey(), true, true);
     }
 
+    /** Resolve only the caller's privately audited same-marker event expectations. */
+    public function recoverUnavailableReplays(array $eventIds, array $expectedProofs): array
+    {
+        $keys=['proof_version','event_id','message_id','conversation_id','payload_hash','ciphertext_sha256','original_sent_at','incoming_sent_at','failure'];
+        $sorted=$eventIds;sort($sorted,SORT_NUMERIC);
+        if(!array_is_list($eventIds)||$eventIds===[]||count($eventIds)>20||$sorted!==$eventIds
+            ||count(array_unique($eventIds,SORT_REGULAR))!==count($eventIds)||array_keys($expectedProofs)!==$eventIds)
+            throw new InvalidArgumentException('UNAVAILABLE_REPLAY_EXPECTATION_INVALID');
+        foreach($eventIds as$id){
+            $proof=$expectedProofs[$id]??null;
+            if(!is_int($id)||$id<1||!is_array($proof)||count($proof)!==count($keys)||array_diff(array_keys($proof),$keys)
+                ||($proof['proof_version']??null)!==WhatsAppNativeUnavailableReplay::VERSION||($proof['event_id']??null)!==$id
+                ||!is_int($proof['message_id']??null)||$proof['message_id']<1||!is_int($proof['conversation_id']??null)||$proof['conversation_id']<1)
+                throw new InvalidArgumentException('UNAVAILABLE_REPLAY_EXPECTATION_INVALID');
+            foreach(['payload_hash','ciphertext_sha256']as$field)if(!is_string($proof[$field]??null)||!preg_match('/\A[a-f0-9]{64}\z/D',$proof[$field]))
+                throw new InvalidArgumentException('UNAVAILABLE_REPLAY_EXPECTATION_INVALID');
+            $failure=$proof['failure'];
+            if(!is_array($failure)||count($failure)!==3||array_diff(array_keys($failure),['reason','attempts','last_attempted_at'])
+                ||($failure['reason']??null)!=='CONFLICTING_MESSAGE'||!is_int($failure['attempts']??null)||$failure['attempts']<1||$failure['attempts']>4294967295)
+                throw new InvalidArgumentException('UNAVAILABLE_REPLAY_EXPECTATION_INVALID');
+            foreach([$proof['original_sent_at']??null,$proof['incoming_sent_at']??null,$failure['last_attempted_at']??null]as$value){
+                $date=is_string($value)?\DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$value,new \DateTimeZone('UTC')):false;
+                if(!$date||$date->format('Y-m-d H:i:s')!==$value)throw new InvalidArgumentException('UNAVAILABLE_REPLAY_EXPECTATION_INVALID');
+            }
+        }
+        $key=$this->hashKey();
+        return $this->withUniqueRetry(function()use($eventIds,$expectedProofs,$key){
+            $prepared=[];
+            foreach($eventIds as$id){
+                $event=DB::table('whatsapp_webhook_events')->where('id',$id)->lockForUpdate()
+                    ->select('id','payload_hash','received_at','processed_at')->selectRaw('CASE WHEN LENGTH(payload)<=8388608 THEN payload ELSE NULL END AS payload')->first();
+                $failure=DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$id)->lockForUpdate()->first();
+                if(!$event||!is_string($event->payload))throw new RuntimeException('UNAVAILABLE_REPLAY_RAW_CHANGED');
+                $json=Crypt::decryptString($event->payload);
+                if(strlen($json)>self::MAX_EVENT_BYTES)throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                $payload=json_decode($json,true,512,JSON_THROW_ON_ERROR);
+                if(!is_array($payload))throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                $report=WhatsAppInboxProtocol::report($payload,self::WABA_ID,self::PHONE_ID);
+                if(($report['quarantined_count']??null)!==0||($report['ignored_count']??null)!==0||($report['status_count']??null)!==0
+                    ||!is_array($report['messages']??null)||count($report['messages'])!==1)throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                $incoming=$report['messages'][0];$this->assertMessage($incoming);
+                $messageKey=hash('sha256','whatsapp-message-v1:'.self::WABA_ID.':'.self::PHONE_ID.':'.$incoming['message_id']);
+                $existing=DB::table('whatsapp_inbox_messages')->where('message_key',$messageKey)->lockForUpdate()
+                    ->select('id','conversation_id','message_key','direction','source','type','sent_at')
+                    ->selectRaw('CASE WHEN LENGTH(content)<=8388608 THEN content ELSE NULL END AS content')->first();
+                if(!$existing)throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                $thread=DB::table('whatsapp_inbox_conversations')->where('id',$existing->conversation_id)->lockForUpdate()->first();
+                if(!$thread)throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                $proof=WhatsAppNativeUnavailableReplay::inspect($thread,$existing,$event);$expected=$expectedProofs[$id];
+                if($proof===null)throw new RuntimeException('UNAVAILABLE_REPLAY_PROOF_REQUIRED');
+                foreach($proof as$field=>$value)if(!array_key_exists($field,$expected)||$expected[$field]!==$value)
+                    throw new RuntimeException('UNAVAILABLE_REPLAY_EXPECTATION_CHANGED');
+                if($event->processed_at!==null){
+                    if($failure!==null)throw new RuntimeException('UNAVAILABLE_REPLAY_FAILURE_CHANGED');
+                    $date=is_string($event->processed_at)?\DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$event->processed_at,new \DateTimeZone('UTC')):false;
+                    if(!$date||$date->format('Y-m-d H:i:s')!==$event->processed_at)throw new RuntimeException('UNAVAILABLE_REPLAY_RAW_CHANGED');
+                    $state='ALREADY_PROCESSED';
+                }else{
+                    $before=$expected['failure'];
+                    if(!$failure||$failure->reason!==$before['reason']||(int)$failure->attempts!==$before['attempts']
+                        ||$failure->last_attempted_at!==$before['last_attempted_at'])throw new RuntimeException('UNAVAILABLE_REPLAY_FAILURE_CHANGED');
+                    $state='PROCESSED';
+                }
+                $prepared[]=[$event,$expected,$state];
+            }
+            // All native, raw and audit expectations have been proved under locks
+            // before any event is settled. Raw payloads and inbox facts stay exact.
+            $receipts=[];$processed=0;
+            foreach($prepared as[$event,$expected,$state]){
+                $stamp=$event->processed_at;
+                if($state==='PROCESSED'){
+                    $stamp=now('UTC')->format('Y-m-d H:i:s');
+                    $changed=DB::table('whatsapp_webhook_events')->where('id',$event->id)->where('payload_hash',$expected['payload_hash'])
+                        ->whereNull('processed_at')->update(['processed_at'=>$stamp]);
+                    $failure=$expected['failure'];
+                    $removed=DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$event->id)->where('reason',$failure['reason'])
+                        ->where('attempts',$failure['attempts'])->where('last_attempted_at',$failure['last_attempted_at'])->delete();
+                    if($changed!==1||$removed!==1)throw new RuntimeException('UNAVAILABLE_REPLAY_REVISION_CHANGED');
+                    $processed++;
+                }
+                $receipts[]=array_merge($expected,['state'=>$state,'processed_at'=>$stamp]);
+            }
+            return['success'=>true,'writes'=>$processed*2,'events_processed'=>$processed,'events_skipped'=>count($eventIds)-$processed,
+                'messages_replayed'=>count($eventIds),'receipts'=>$receipts,'ai_calls'=>0,'message_sends'=>0,'erp_writes'=>0];
+        });
+    }
+
     private function consumeIds($ids, string $key, bool $retryQuarantined, bool $unavailableOnly): array
     {
         $metrics = [
@@ -112,6 +199,16 @@ class WhatsAppInboxConsumer
                         $this->assertMessage($message);
                         $kind = $this->persist($message, $key, (int) $id, $rawVerified ? $rawHash : null, $unavailableOnly);
                         $counts[$kind === 'inserted' ? 'messages_inserted' : ($kind === 'hydrated' ? 'messages_hydrated' : 'messages_replayed')]++;
+                        // The CRM projection shares the raw-event transaction. A replay
+                        // must not reapply an old opt-out after a newer consent decision.
+                        if ($kind !== 'replayed' && class_exists(CustomerMessageEvents::class)) {
+                            (new CustomerMessageEvents())->inbound($message);
+                        }
+                    }
+                    if (class_exists(CustomerMessageEvents::class)) {
+                        foreach ($report['statuses'] ?? [] as $status) {
+                            (new CustomerMessageEvents())->status($status);
+                        }
                     }
                     DB::table('whatsapp_webhook_events')->where('id', $id)->whereNull('processed_at')
                         ->update(['processed_at' => now('UTC')]);
@@ -270,6 +367,10 @@ class WhatsAppInboxConsumer
                 return $this->hydrateUnavailable($conversation, $existing, $saved, $message, $key, $eventId, $rawHash);
             }
             if ($unavailableOnly) throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
+            if ($existing->type === 'unsupported' && $message['type'] === 'unsupported'
+                && WhatsAppNativeUnavailableReplay::prove($conversation,$existing,$saved,$message,$rawHash)) {
+                return 'replayed';
+            }
             foreach (['message_id', 'peer_identity', 'direction', 'type', 'text', 'sent_at'] as $field) {
                 if (!array_key_exists($field, $saved) || $saved[$field] !== $message[$field]) {
                     throw new WhatsAppInboxQuarantinedEvent('CONFLICTING_MESSAGE');
