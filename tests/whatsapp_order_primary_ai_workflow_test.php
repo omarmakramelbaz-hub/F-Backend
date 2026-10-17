@@ -247,10 +247,11 @@ primaryExpect($r['errors']===0&&dialogueLastContext()['kind']==='PRODUCT_INFORMA
     'price inquiry addresses the actual named unavailable product and honestly reports missing price or units');
 primaryNoErp('price inquiry cannot create an order');
 
-function primaryCompleteDraft(): int {
+function primaryCompleteDraft(int$dayOffsetSeconds=0): int {
     primarySetup();$c=addConversation('US.primary-complete');
-    insertMessage($c,'wamid.primary.order','inbound','اسمي عميل مثال ورقمي 201000000001 وعنواني شارع المثال المنصوره. عايز 1 كيلو فسيخ.',1,null,'US.primary-complete');
-    insertMessage($c,'wamid.primary.pin','inbound','',2,['lat'=>31.00,'long'=>31.40],'US.primary-complete');
+    if($dayOffsetSeconds!==0)dialogueAdvance(300+$dayOffsetSeconds);
+    insertMessage($c,'wamid.primary.order','inbound','اسمي عميل مثال ورقمي 201000000001 وعنواني شارع المثال المنصوره. عايز 1 كيلو فسيخ.',1+$dayOffsetSeconds,null,'US.primary-complete');
+    insertMessage($c,'wamid.primary.pin','inbound','',2+$dayOffsetSeconds,['lat'=>31.00,'long'=>31.40],'US.primary-complete');
     PrimaryAi::$data=extractionData();PrimaryAi::$data['decision']='DRAFT';
     PrimaryAi::$data['customer']=['name'=>'عميل مثال','phone'=>'201000000001','address'=>'شارع المثال المنصوره','area'=>'المنصوره','notes'=>null];
     PrimaryAi::$data['branch_hint']=null;PrimaryAi::$data['approximate_total']=null;
@@ -260,7 +261,7 @@ function primaryCompleteDraft(): int {
     primaryExpect($r['errors']===0&&count($GLOBALS['dialogueGraphs'])===1&&str_contains(dialogueLastText(),'تأكيد الطلب:'),
         'first complete native request receives a factual recap before any ERP');
     primaryNoErp('recap is not customer approval');
-    insertMessage($c,'wamid.primary.approval','inbound','موافق',302,null,'US.primary-complete');dialogueAdvance(303);
+    insertMessage($c,'wamid.primary.approval','inbound','موافق',302+$dayOffsetSeconds,null,'US.primary-complete');dialogueAdvance(303+$dayOffsetSeconds);
     PrimaryAi::$data['decision']='CONFIRMED';PrimaryAi::$data['issues']=[];
     PrimaryAi::$data['evidence']['confirmation_ids']=['m3'];PrimaryAi::$data['evidence']['customer_acceptance_ids']=['m4'];
     return $c;
@@ -421,7 +422,7 @@ $r=primaryRun();primaryExpect($quotes>=2&&$r['deferred']===1&&PrimaryDB::table('
 primaryNoErp('dispatch-clock drift during transaction cannot write customer, ticket or print');
 
 // A real midnight boundary crossed while repricing must roll back the whole ERP transaction.
-$c=primaryCompleteDraft();PrimaryFixtureControl::$strictDispatchClock=true;$quotes=0;
+$c=primaryCompleteDraft(82800);PrimaryFixtureControl::$strictDispatchClock=true;$quotes=0;
 \Carbon\Carbon::setTestNow('2026-10-10 21:29:59');\Carbon\CarbonImmutable::setTestNow('2026-10-10 21:29:59');
 app()->instance(PrimaryDelivery::class,new PrimaryDriftingDelivery());
 PrimaryDriftingDelivery::$afterQuote=static function()use(&$quotes){$quotes++;if($quotes===2){

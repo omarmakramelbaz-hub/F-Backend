@@ -167,8 +167,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException('OWNER_INVALID');
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'63cd0fcd2d9056fb0e5732ddc22f4423ee349da7',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'71433da4ee37c2523b729a3fbee15155b7c31188',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'68fcd3144a9790a7bfe29aaceed1777ca1d325f1',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'d1d626d95e53d8299fe9af46b27d0f59cd77054f',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -205,9 +205,15 @@ try{
     $out+=['conversation_id'=>$conversation,'draft_id'=>(int)$draft->id,'draft_revision'=>(int)$draft->revision,
         'draft_reason'=>waCatalogCode($draft->reason),'floor'=>$floor,'ceiling'=>$ceiling,'control_revision'=>$options['revision'],
         'output_mode'=>$options['compact']?'COMPACT':'FULL'];
-    $stage='BRANCH';$actor=waCatalogCall($workflow,'automaticActor',[$conversation]);$resolved=waCatalogCall($workflow,'automaticBranch',[$data,$actor]);
+    $stage='BRANCH';$actor=waCatalogCall($workflow,'automaticActor',[$conversation]);
+    $activationAt=waCatalogCall($workflow,'activationInstant',[$conversation]);$pointReason=null;
+    if(!is_string($activationAt))throw new RuntimeException('BRANCH_UNRESOLVED');
+    $point=waCatalogCall($workflow,'customerReceiptPoint',[$data,$snapshot,$activationAt,&$pointReason]);
+    if(!is_array($point))throw new RuntimeException('LOCATION_UNCONFIRMED');
+    $resolved=waCatalogCall($workflow,'customerReceiptBranch',[$point,$actor,false]);
     if(!is_array($resolved)||!is_string($branch=$resolved['fulfillment_branch']??$resolved['value']??null)||!preg_match('/\Af:[1-9][0-9]{0,18}\z/D',$branch))throw new RuntimeException('BRANCH_UNRESOLVED');
-    $out['resolved_branch']=$branch;$out['preparation_scope']='LIVE_PREPARATIONS_AND_EXACT_OWNER_APPROVED_ALIASES_EXISTING_MAPPER_AUTHORITY';
+    $out['resolved_branch']=$branch;$out['branch_routing_basis']='LOCATION';$out['branch_route_resolved']=true;
+    $out['preparation_scope']='LIVE_PREPARATIONS_AND_EXACT_OWNER_APPROVED_ALIASES_EXISTING_MAPPER_AUTHORITY';
     $stage='CATALOG';$read=waCatalogRead($workflow,$branch,$actor);$out['catalog']=['pages_read'=>$read['pages'],'products_read'=>count($read['raw']),
         'global_guard'=>$read['reason']??'CLEAR','global_guard_detail'=>$read['detail']];$out['items']=[];
     if(is_int($read['detail']['product_id']??null))foreach($read['raw']as$product)if((int)$product['id']===$read['detail']['product_id']){$out['catalog']['global_guard_product']=waCatalogPublicProduct($product,$options['compact']);break;}
@@ -225,6 +231,11 @@ try{
     $later=waCatalogRead($workflow,$branch,$actor);$out['catalog_unchanged_during_read']=$later['signature']===$read['signature'];
     $current=waCatalogCall($workflow,'snapshot',[$conversation,$floor,$ceiling]);
     $out['snapshot_unchanged_during_read']=($current['complete']??null)===true&&($current['hash']??null)===$snapshot['hash']&&waCatalogCall($workflow,'ceiling',[$conversation])===$ceiling;
+    $laterActivationAt=waCatalogCall($workflow,'activationInstant',[$conversation]);$laterPointReason=null;
+    $laterPoint=is_string($laterActivationAt)?waCatalogCall($workflow,'customerReceiptPoint',[$data,$current,$laterActivationAt,&$laterPointReason]):null;
+    $laterResolved=is_array($laterPoint)?waCatalogCall($workflow,'customerReceiptBranch',[$laterPoint,$actor,false]):null;
+    $out['branch_route_unchanged_during_read']=$laterActivationAt===$activationAt&&$laterPoint===$point
+        &&is_array($laterResolved)&&waCatalogFingerprint($laterResolved)===waCatalogFingerprint($resolved);
     $out['draft_unchanged_during_read']=serialize(waCatalogDraft($conversation,$options['draft']))===serialize($draft);
     $laterState=$control->state();$out['control_unchanged_during_read']=($laterState['revision']??null)===$options['revision']&&($laterState['policy']??null)===($state['policy']??null)
         &&waCatalogCall($workflow,'controlToken',[$conversation])===$token;
@@ -234,10 +245,11 @@ try{
     $stage='FINAL_SOURCE_GUARD';waCatalogSources($pins,$protocols,$sources);$out['source_unchanged_during_read']=true;
     if($connection->transactionLevel()!==0)throw new RuntimeException('READ_ONLY_SESSION_REQUIRED');
     $out['status']=$out['actual_dialogue_catalog_agrees']&&$out['catalog_unchanged_during_read']&&$out['snapshot_unchanged_during_read']
-        &&$out['draft_unchanged_during_read']&&$out['control_unchanged_during_read']&&$out['activation_floor_unchanged_during_read']?'READ_READY':'OBSERVATION_CHANGED';
+        &&$out['draft_unchanged_during_read']&&$out['control_unchanged_during_read']&&$out['activation_floor_unchanged_during_read']
+        &&$out['branch_route_unchanged_during_read']?'READ_READY':'OBSERVATION_CHANGED';
 }catch(Throwable$error){
     $allowed=['ARGUMENTS_INVALID','OWNER_INVALID','SOURCE_CHANGED','READ_ONLY_SESSION_REQUIRED','CONVERSATION_SCOPE_MISMATCH',
-        'CONTROL_EXPECTATION_CHANGED','NATIVE_EXPECTATION_CHANGED','SNAPSHOT_UNAVAILABLE','DRAFT_EXPECTATION_CHANGED','DRAFT_UNAVAILABLE','CUSTOMER_RECEIPT_CHANGED','BRANCH_UNRESOLVED'];
+        'CONTROL_EXPECTATION_CHANGED','NATIVE_EXPECTATION_CHANGED','SNAPSHOT_UNAVAILABLE','DRAFT_EXPECTATION_CHANGED','DRAFT_UNAVAILABLE','CUSTOMER_RECEIPT_CHANGED','BRANCH_UNRESOLVED','LOCATION_UNCONFIRMED'];
     $out['status']='READ_BLOCKED';$out['stage']=$stage;$out['reason']=in_array($error->getMessage(),$allowed,true)?$error->getMessage():'OBSERVATION_ERROR';
     if($out['reason']==='OBSERVATION_ERROR')$out['error']=waCatalogError($error);
 }

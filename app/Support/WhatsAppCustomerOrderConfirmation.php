@@ -12,31 +12,44 @@ final class WhatsAppCustomerOrderConfirmation
 {
     public const TYPE = 'CUSTOMER_CONFIRMED_RECAP';
     public const VERSION = 1;
+    public const SELF_CONFIRMED_BASIS = 'CUSTOMER_SELF_CONFIRMED_RECAP';
     private const MAX_TEXT = 12000;
     private const MAX_ITEMS = 30;
 
     /**
      * Inspect an authentic ordered snapshot. A copied instruction containing an
-     * approval phrase is not approval: a separate whole-positive customer turn is
-     * required. All returned IDs still name the original customer rows.
+     * approval phrase is not approval for the legacy summary: it requires a
+     * separate whole-positive customer turn. The owner's distinct "طلبك المؤكد"
+     * compact protocol is itself approval only when copied by the customer.
+     * All returned IDs still name original customer rows.
      */
     public static function inspect(array $transcript): array
     {
         if (!self::transcript($transcript)) return self::result(false, 'TRANSCRIPT_INVALID');
         $recap = null;
         foreach ($transcript as $position => $row) {
-            if ($row['speaker'] === 'customer' && is_string($row['text'])
-                && preg_match('/(?:\A|\R)\s*[*_]*(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]/u', $row['text'])) {
+            if ($row['speaker'] !== 'customer' || !is_string($row['text'])) continue;
+            $kind = self::headerKind($row['text']);
+            if ($kind !== null) {
+                // The owner's protocol uses the last customer receipt. Earlier
+                // versions are superseded; a malformed latest receipt must fail
+                // below rather than falling back to any older confirmation.
                 $recap = ['row' => $row, 'position' => $position];
             }
         }
         if ($recap === null) return self::result(false, 'NO_CUSTOMER_RECAP');
         $parsed = self::parseRecap($recap['row']['text']);
         if (!$parsed['ok']) return $parsed;
-        $approval = null;
+        $selfConfirmed = ($parsed['self_confirmed'] ?? false) === true;
+        $approval = $selfConfirmed ? $recap['row'] : null;
+        if ($selfConfirmed && (($recap['row']['cart'] ?? null) !== null
+            || ($recap['row']['location'] !== null && !self::samePoint($recap['row']['location'], $parsed['data']['textual_location']['point']))))
+            return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
         foreach ($transcript as $position => $row) {
             if ($position <= $recap['position']) continue;
             if ($row['speaker'] === 'customer') {
+                if ($selfConfirmed && $row['text'] === null && ($row['cart'] ?? null) === null
+                    && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
                 if (!self::positiveApproval($row['text']) || $row['location'] !== null || ($row['cart'] ?? null) !== null)
                     return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
                 // Repeated positive turns do not replace the original authority.
@@ -62,6 +75,7 @@ final class WhatsAppCustomerOrderConfirmation
             'recap_sha256' => hash('sha256', $recap['row']['text']),
             'approval_sha256' => hash('sha256', $approval['text']),
         ];
+        if ($selfConfirmed) $receipt['approval_basis'] = self::SELF_CONFIRMED_BASIS;
         $receipt['receipt_sha256'] = hash('sha256', json_encode([self::TYPE, $receipt], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $data['evidence_receipt'] = $receipt;
         return self::result(true, null, $data);
@@ -79,6 +93,7 @@ final class WhatsAppCustomerOrderConfirmation
             $line = self::displayLine($line);
             if ($line !== '') $lines[] = $line;
         }
+        if (in_array(self::headerKind($text), ['SELF_CONFIRMED_COMPACT', 'MIXED'], true)) return self::parseCompact($text, $lines);
         $header = null;
         foreach ($lines as $index => $line) if (preg_match('/\A(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]\z/u', $line)) {
             if ($header !== null) return self::result(false, 'RECAP_DUPLICATE_HEADER');
@@ -160,6 +175,113 @@ final class WhatsAppCustomerOrderConfirmation
         if (!is_string($text) || !self::bounded($text, 100)) return false;
         $text = self::matchingText($text);
         return preg_match('/\A(?:كل (?:شيء|شئ|شي) تمام|موافق علي الطلب|اوافق علي الطلب|اكد طلبي|اؤكد طلبي|تمام موافق|موافق|تمام|نعم|yes|ok|okay)[.!]?\z/iu', $text) === 1;
+    }
+
+    /** Shared display normalization; the returned format name grants no approval. */
+    public static function headerKind(string $text): ?string
+    {
+        $kind = null;
+        foreach (preg_split('/\R/u', $text) ?: [] as $line) {
+            $line = self::displayLine($line);
+            $found = preg_match('/\Aطلبك المؤكد\s*[:：]\z/u', $line) ? 'SELF_CONFIRMED_COMPACT'
+                : (preg_match('/\A(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]\z/u', $line) ? 'LEGACY' : null);
+            if ($found === null) continue;
+            if ($kind !== null && $kind !== $found) return 'MIXED';
+            $kind = $found;
+        }
+        return $kind;
+    }
+
+    /** One separately defined customer-copy format, not a looser legacy parser. */
+    private static function parseCompact(string $text, array $lines): array
+    {
+        $headers = [];
+        foreach ($lines as $index => $line)
+            if (preg_match('/\Aطلبك المؤكد\s*[:：]\z/u', $line)) $headers[] = $index;
+        if (count($headers) !== 1) return self::result(false, 'RECAP_DUPLICATE_HEADER');
+        $header = $headers[0];
+        if ($header > 1 || ($header === 1 && $lines[0] !== 'تم توصيلك بفريقنا وسيتم متابعة طلبك حالاً.'))
+            return self::result(false, 'RECAP_PREFIX_INVALID');
+        if (preg_match('/(?:تيك\s+اواي|تيك\s+اوي|داخل الفرع|استلام من الفرع|في الصاله|في المطعم|dine[ -]?in|take[ -]?away|pickup)/iu', self::matchingText($text)))
+            return self::result(false, 'RECAP_FULFILLMENT_AMBIGUOUS');
+        $combined = false;
+        foreach (array_slice($lines, $header + 1) as $line)
+            if (preg_match('/\Aالبيانات\s*[:：]/u', $line)) $combined = true;
+        if (!$combined) {
+            // Reuse the original strict labeled-field parser. Only this exact
+            // confirmed header and a known, nonempty delivery-only footer differ.
+            $legacy = array_slice($lines, $header); $legacy[0] = 'ملخص طلبك:';
+            $footer = array_pop($legacy);
+            if (!is_string($footer) || !self::compactFooter($footer)) return self::result(false, 'RECAP_FOOTER_INVALID');
+            $parsed = self::parseRecap(implode("\n", $legacy));
+            if (!$parsed['ok']) return $parsed;
+            if (!is_array($parsed['data']['textual_location']['point'] ?? null)) return self::result(false, 'RECAP_LOCATION_INVALID');
+            if (preg_match('/[?؟]/u', str_replace($parsed['data']['textual_location']['literal'], '', $text))) return self::result(false, 'RECAP_TEXT_INVALID');
+            return $parsed + ['self_confirmed' => true];
+        }
+        $items = []; $total = null; $customer = null; $location = null; $footer = null;
+        foreach (array_slice($lines, $header + 1) as $line) {
+            if ($footer !== null) return self::result(false, 'RECAP_FOOTER_INVALID');
+            if ($customer !== null) { $footer = $line; continue; }
+            if ($total === null) {
+                if (preg_match('/\A(?:الإجمالي|الاجمالي|الإجمالى|الاجمالى|المجموع)(?:\s+التقريبي)?\s*[:：]?\s*(.+)\z/u', $line, $m)) {
+                    $total = self::money($m[1], true);
+                    if ($total === null || $items === []) return self::result(false, 'RECAP_TOTAL_INVALID');
+                    continue;
+                }
+                $item = self::item($line);
+                if ($item === null || count($items) >= self::MAX_ITEMS)
+                    return self::result(false, 'RECAP_ITEM_INVALID');
+                $items[] = $item; continue;
+            }
+            // Separator positions identify fields; retain all literal address
+            // words, including internal hyphens, and never infer them from a name.
+            if (!preg_match('/\Aالبيانات\s*[:：]\s*([^–—-]+?)\s+[–—-]\s+(.+?)\s+[–—-]\s+([+0-9٠-٩۰-۹ ()-]{7,30})\s+[–—-]\s+اللوكيشن\s*[:：]?\s*(.+)\z/u', $line, $m))
+                return self::result(false, 'RECAP_REQUIRED_FIELDS_MISSING');
+            $phones = self::phones(trim($m[3]));
+            if ($phones === null || count($phones) !== 1) return self::result(false, 'RECAP_PHONE_INVALID');
+            $name = trim($m[1]); $address = trim($m[2]);
+            if (!self::bounded($name, 200) || !self::bounded($address, 1000)) return self::result(false, 'RECAP_FIELD_INVALID');
+            $location = self::location(trim($m[4]));
+            if ($location === null) return self::result(false, 'RECAP_LOCATION_INVALID');
+            $customer = ['name' => $name, 'phone' => $phones[0], 'address' => $address, 'area' => null, 'notes' => null];
+        }
+        if ($items === [] || $total === null || $customer === null) return self::result(false, 'RECAP_REQUIRED_FIELDS_MISSING');
+        if (!is_string($footer) || !self::compactFooter($footer))
+            return self::result(false, 'RECAP_FOOTER_INVALID');
+        if (preg_match('/[?؟]/u', str_replace($location['literal'], '', $text))) return self::result(false, 'RECAP_TEXT_INVALID');
+        $names = [];
+        foreach ($items as $item) {
+            $key = self::matchingText($item['name']);
+            if (isset($names[$key])) return self::result(false, 'RECAP_DUPLICATE_ITEM');
+            $names[$key] = true;
+        }
+        return self::result(true, null, ['type' => self::TYPE, 'decision' => 'DRAFT', 'customer' => $customer,
+            'alternate_phones' => [], 'branch_hint' => null, 'fulfillment' => 'DELIVERY', 'items' => $items,
+            'approximate_total' => $total, 'textual_location' => $location, 'evidence_receipt' => null]) + ['self_confirmed' => true];
+    }
+
+    private static function samePoint(array $actual, array $expected): bool
+    {
+        return is_numeric($actual['lat'] ?? null) && is_numeric($actual['long'] ?? null)
+            && (float) $actual['lat'] === (float) $expected['lat'] && (float) $actual['long'] === (float) $expected['long'];
+    }
+
+    private static function compactFooter(string $footer): bool
+    {
+        if (!preg_match('/\Aالتوصيل خلال [0-9]{1,3} دقيقه(?: داخل ([\p{L}0-9 ]{1,80}))?[,،]? وسعر التوصيل (?:بياكده|ياكده) المندوب لما يكلمك[.!]?\z/u', self::matchingText($footer), $place)) return false;
+        return !isset($place[1]) || $place[1] === '' || self::compactPlace($place[1]);
+    }
+
+    /** A bounded descriptive place is informational, never branch authority. */
+    private static function compactPlace(string $place): bool
+    {
+        $words = explode(' ', trim($place));
+        if (count($words) < 1 || count($words) > 6 || preg_match('/\A\p{L}+(?: [\p{L}0-9]+){0,5}\z/u', $place) !== 1
+            || preg_match('/\A[\p{Arabic}0-9 ]+\z/u', $place) !== 1) return false;
+        foreach ($words as $word) if (in_array($word, ['اذا','لو','عشان','لان','حتي','قبل','بعد','غير','بدل','بدلا','الغاء','الغي','الغ',
+            'تجاهل','تعليمات','نفذ','تنفيذ','تنفذ','ارسل','ترسل','مجانا','مجاني','خصم','موافق','موافقه','مش','لا','هل','لكن','بس','شرط','بشرط'], true)) return false;
+        return true;
     }
 
     private static function item(string $line): ?array

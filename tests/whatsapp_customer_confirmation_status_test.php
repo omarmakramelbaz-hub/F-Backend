@@ -228,6 +228,8 @@ function statusRun(string$case,array$args=['--conversation','11']):array{
 statusExpect($exit===0&&$value['status']==='READ_READY'&&$booted&&$inspected&&$readOnly,'real helper read path succeeds');
 statusExpect($value['candidate']['valid']&&$value['candidate']['customer_recap_captured']&&$value['candidate']['customer_approval_captured'],
     'recap and independent approval observed');
+statusExpect($value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
+    'legacy separate approval is distinguished from self-confirmed compact authority');
 statusExpect($value['candidate']['items_count']===1&&$value['candidate']['coordinates_valid']
     &&$value['candidate']['coordinate_order']==='LAT_LONG','item and location proof metadata only');
 statusExpect($value['control']['analysis']['effective']===false&&$value['control']['dispatch']['effective']===true

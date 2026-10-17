@@ -18,9 +18,10 @@ function addressFlowSetup(): void {
     resetFlow();
     AddressDB::table('test_branches')->delete(); AddressDB::table('resturants')->delete();
     foreach ([94=>'فرع المحلة',301=>'فرع شبرا الخيمة',307=>'فرع نبروه',363=>'فرع المنصورة'] as $id=>$name) {
+        $point=[94=>['30.97','31.17'],301=>['30.12','31.24'],307=>['31.13','31.30'],363=>['31.00','31.40']][$id];
         AddressDB::table('test_branches')->insert(['id'=>$id,'name'=>$name,'status'=>'opened']);
         AddressDB::table('resturants')->insert(['id'=>$id,'name'=>$name,'parent_id'=>null,'control'=>'show',
-            'lat'=>'31.00','lng'=>'31.40','km_price'=>'10.00']);
+            'lat'=>$point[0],'lng'=>$point[1],'km_price'=>'10.00']);
     }
     AddressDB::table('test_users')->where('id',7)->update(['branches'=>'["f:94","f:301","f:307","f:363"]']);
     app('config')->set('whatsapp_orders.allowed_branch_ids',['94','301','307','363']);

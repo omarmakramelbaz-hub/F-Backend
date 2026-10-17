@@ -55,7 +55,17 @@ namespace App\Services\Dashboard {
         private int$snapshots=0;
         private function controlToken($conversation){return['revision'=>13,'actor'=>'PRIVATE_ACTOR'];}
         private function automaticActor($conversation){return(object)['id'=>777,'name'=>'PRIVATE_ACTOR'];}
-        private function automaticBranch($data,$actor){return['value'=>getenv('WA_CATALOG_CASE')==='alias-other-branch'?'f:307':'f:363','name'=>'فرع المنصورة'];}
+        private function activationInstant($conversation){return'2026-10-17 12:00:00';}
+        private function customerReceiptPoint($data,$snapshot,$activation,&$reason){
+            if(getenv('WA_CATALOG_CASE')==='location-missing'){$reason='LOCATION_UNCONFIRMED';return null;}
+            return['lat'=>31.123456,'long'=>30.654321];
+        }
+        private function customerReceiptBranch($point,$actor,$lock=false){
+            if($lock)throw new \RuntimeException('UNEXPECTED_LOCATION_LOCK');
+            $GLOBALS['routeReads']=($GLOBALS['routeReads']??0)+1;
+            return['value'=>getenv('WA_CATALOG_CASE')==='alias-other-branch'?'f:307':'f:363','name'=>'فرع المنصورة',
+                'routing_fingerprint'=>str_repeat(getenv('WA_CATALOG_CASE')==='route-drift'&&$GLOBALS['routeReads']>1?'b':'a',64)];
+        }
         private function table(string$name):string{return getenv('WA_CATALOG_CASE')==='alias-meta'?str_replace('whatsapp_','meta_',$name):$name;}
         private function activationBoundary($name,$conversation){return 6559;}
         private function ceiling($conversation){return 10046;}
@@ -169,7 +179,11 @@ foreach(['duplicate-name'=>'CATALOG_DUPLICATE_AVAILABLE_NAME','duplicate-id'=>'C
         &&$value['items'][0]['reason']==='CATALOG_GLOBAL_GUARD_BLOCKED','actual whole-menu blocker '.$case);
 }
 [$exit,$value]=catalogRun('arabic-names');catalogExpect($exit===0&&$value['catalog']['global_guard']==='CLEAR','global name normalizer is not receipt Arabic normalizer');
-foreach(['catalog-drift','snapshot-drift','draft-drift']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===1&&$value['status']==='OBSERVATION_CHANGED','stale observations rejected '.$case);}
+foreach(['catalog-drift','snapshot-drift','draft-drift','route-drift']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===1&&$value['status']==='OBSERVATION_CHANGED','stale observations rejected '.$case);}
+[$exit,$value]=catalogRun('valid');catalogExpect($exit===0&&$value['branch_routing_basis']==='LOCATION'
+    &&$value['branch_route_resolved']&&$value['branch_route_unchanged_during_read'],'actual point-based route is recomputed without exposing point or geometry fingerprint');
+[$exit,$value]=catalogRun('location-missing');catalogExpect($exit===1&&$value['reason']==='LOCATION_UNCONFIRMED'
+    &&!isset($value['branch_route_resolved']),'missing proved point cannot acquire a location-based branch');
 [$exit,$value]=catalogRun('prep-drift');catalogExpect($exit===1&&$value['status']==='OBSERVATION_CHANGED','preparation facts participate in catalog fingerprint');
 foreach(['description-arabic','description-english','description-digit','description-x','description-angle','description-control','float-roundtrip']as$case){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===0&&$value['actual_dialogue_catalog_agrees'],

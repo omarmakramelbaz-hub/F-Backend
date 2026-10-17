@@ -208,8 +208,12 @@ foreach([['31.04، 31.37',31.04,31.37],['31.37، 31.04',31.37,31.04]]as[$literal
         'labeled numeric location keeps literal latitude longitude order without correction');
     customerRecapSilent('literal coordinate order requires no reply');
 }
-customerRecapSetup(customerRecapText(['الموقع'=>'31.37، 31.04']),'كل شيء تمام',true);primaryRun();
-customerRecapNoErp('conflicting native pin prevents silent correction or selection of copied coordinate pair');
+customerRecapSetup(customerRecapText(['الموقع'=>'31.37، 31.04']),'كل شيء تمام',true);$r=primaryRun();
+customerRecapExpect($r['errors']===0&&$r['dispatched']===1
+    &&abs((float)CustomerRecapDB::table('branch_customers')->value('latitude')-31.37)<0.0000001
+    &&abs((float)CustomerRecapDB::table('branch_customers')->value('longitude')-31.04)<0.0000001,
+    'newer explicit customer recap point supersedes older pin without swapping latitude and longitude');
+customerRecapSilent('latest explicit recap coordinates remain analysis-only');
 customerRecapSetup(customerRecapText(['الموقع'=>null]),'كل شيء تمام',true,false);primaryRun();
 customerRecapNoErp('native pin before any address proof cannot be assumed to belong to later copied address');
 customerRecapSetup(customerRecapText(['الموقع'=>null,'العنوان'=>'شارع مختلف']),'كل شيء تمام',true);primaryRun();
@@ -219,8 +223,8 @@ customerRecapExpect($r['errors']===0&&$r['dispatched']===1,'allowlisted literal 
 customerRecapSilent('literal map URL uses no outbound reply transport');
 customerRecapSetup(customerRecapText(['العنوان'=>'شارع البحر المنصورة','المنطقة'=>null,'الفرع'=>null]));$r=primaryRun();
 customerRecapExpect($r['errors']===0&&$r['dispatched']===1&&CustomerRecapDB::table('test_tickets')->value('branch')==='f:363',
-    'unique city in copied address can resolve the branch without requiring explicit branch or area labels');
-customerRecapSilent('address-derived branch remains analysis-only');
+    'proved copied coordinates resolve physical branch without requiring explicit branch or area labels');
+customerRecapSilent('point-derived branch remains analysis-only');
 customerRecapSetup(customerRecapText(['الموقع'=>'خط العرض: 31.0، خط الطول: 31.37']));$r=primaryRun();
 customerRecapExpect($r['errors']===0&&$r['dispatched']===1
     &&(float)CustomerRecapDB::table('branch_customers')->value('latitude')===31.0,
@@ -293,7 +297,7 @@ customerRecapExpect($r['errors']===0&&$r['dispatched']===1
 customerRecapSilent('exact live catalog variant matching sends no clarification');
 foreach(['permission','allowlist']as$guard){
     customerRecapSetup();
-    if($guard==='permission')CustomerRecapDB::table('test_users')->where('id',7)->update(['branches'=>'["f:94"]']);
+    if($guard==='permission')CustomerRecapDB::table('test_users')->where('id',7)->update(['branches'=>'[]']);
     if($guard==='allowlist')app('config')->set('whatsapp_orders.allowed_branch_ids',['94']);
     primaryRun();customerRecapNoErp('customer receipt still enforces branch '.$guard);
 }

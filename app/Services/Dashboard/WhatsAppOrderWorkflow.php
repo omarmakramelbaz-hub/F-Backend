@@ -25,7 +25,7 @@ class WhatsAppOrderWorkflow
         'NO_ORDER', 'CUSTOMER_CANCELLED', 'REVIEW_REQUIRED', 'PICKUP_REQUIRES_REVIEW', 'BRANCH_UNRESOLVED',
         'CATALOG_UNRESOLVED', 'LOCATION_UNCONFIRMED', 'PRICE_REQUIRES_REVIEW', 'CUSTOMER_CHANGE',
         'BRANCH_CLOSED', 'BRANCH_POLICY_UNAVAILABLE', 'AUTO_NOT_CONFIGURED', 'PROCESS_FAILED','CAPTURE_REVIEW_REQUIRED',
-        'RECOVERED_HISTORY_REVIEW','DISPATCH_OUTSIDE_HOURS','CUSTOMER_RECAP_REPLAY'];
+        'RECOVERED_HISTORY_REVIEW','DISPATCH_OUTSIDE_HOURS','CUSTOMER_RECAP_REPLAY','CUSTOMER_ORDER_PREVIOUS_DAY'];
 
     public function available(): bool
     {
@@ -529,6 +529,11 @@ class WhatsAppOrderWorkflow
                 $reason=null; $candidate=$this->automaticReview($row,$actor,$reason,true);
                 abort_unless($candidate!==null && $this->reviewHash($candidate) === $this->reviewHash($v,false),409,'AUTO_REVIEW_REQUIRED');
             }
+            // The native authority stays locked/current; the calendar can still
+            // change while a delivery or menu service is quoting or saving.
+            $orderDayData=$automatic?$this->decode($row->extraction):null;
+            $orderDayTranscript=$automatic?$this->snapshot((int)$row->conversation_id,
+                (int)$row->evidence_floor,(int)$row->evidence_ceiling,true)['transcript']:null;
             $sealed=$this->decode($row->sealed_payload);
             abort_unless($sealed && $this->reviewHash($v) === $this->reviewHash($sealed['review']),409,'REVIEW_CHANGED');
             // Reprice immediately before writing; drift never creates a new ticket.
@@ -549,6 +554,7 @@ class WhatsAppOrderWorkflow
                 abort_unless($authority!==null&&$this->primaryAuthority((int)$row->conversation_id,$snapshot)===$authority,409,'AI_CONTROL_CHANGED');
             }
             if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
+            if ($automatic) abort_unless($this->sameDayOrderEvidence($orderDayData??[],$orderDayTranscript??[]),409,'CUSTOMER_ORDER_PREVIOUS_DAY');
             $saved=$automatic&&$customer&&$this->sameCustomerValues($customer,$v)
                 ? ['customer'=>['id'=>(int)$customer->id]] : app(BranchCustomers::class)->save($customerValues,$actor);
             $payload=$v; unset($payload['expected_revision']);
@@ -556,8 +562,10 @@ class WhatsAppOrderWorkflow
                 'send_to_kitchen'=>true,'discount'=>'0.00','discount_reason'=>''];
             if ($automatic&&$this->controlInstalled()) abort_unless($this->controlToken((int)$row->conversation_id)===$authority,409,'AI_CONTROL_CHANGED');
             if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
+            if ($automatic) abort_unless($this->sameDayOrderEvidence($orderDayData??[],$orderDayTranscript??[]),409,'CUSTOMER_ORDER_PREVIOUS_DAY');
             $result=app(PosServiceTicket::class)->save('phone',$payload,$actor);
             if ($automatic&&$this->controlInstalled()) $this->requireDispatchHours((int)$row->conversation_id,$authority);
+            if ($automatic) abort_unless($this->sameDayOrderEvidence($orderDayData??[],$orderDayTranscript??[]),409,'CUSTOMER_ORDER_PREVIOUS_DAY');
             $ticket=(int)($result['ticket']['id'] ?? $result['operation']['ticket_id'] ?? 0); abort_unless($ticket>0,500,'DISPATCH_FAILED');
             DB::table(static::DRAFTS)->where('id',$draft)->update(['status'=>'DISPATCHED','reason'=>null,'revision'=>(int)$row->revision+1,
                 'ticket_id'=>$ticket,'dispatch_actor_id'=>(int)$actor->id,'assigned_branch'=>$v['branch'],'dispatched_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -612,6 +620,7 @@ class WhatsAppOrderWorkflow
         if ($this->controlInstalled()&&$this->informationTurn($snapshot['transcript'])!==null) { $reason='REVIEW_REQUIRED'; return null; }
         if (!$snapshot['complete'] || !$data || ($data['decision']??null)!=='CONFIRMED'
             || array_diff($data['issues']??[],['PRICE_ESTIMATE_ONLY','LOCATION_REQUIRED','MISSING_BRANCH','MISSING_AREA'])!==[]) { $reason='REVIEW_REQUIRED'; return null; }
+        if (!$this->sameDayOrderEvidence($data,$snapshot['transcript'])) { $reason='CUSTOMER_ORDER_PREVIOUS_DAY'; return null; }
         if ($snapshot['recovered_at']!==null && !$this->freshAutomaticEvidence($data,$snapshot['transcript'],$snapshot['recovered_at'],(int)$row->conversation_id)) {
             $reason='RECOVERED_HISTORY_REVIEW'; return null;
         }
@@ -758,9 +767,15 @@ class WhatsAppOrderWorkflow
                 $reason='RECOVERED_HISTORY_REVIEW'; return null;
             }
         }
-        $resolved=$this->automaticBranch($data,$actor);
+        if (!$this->sameDayOrderEvidence($data,$snapshot['transcript'])) { $reason='CUSTOMER_ORDER_PREVIOUS_DAY'; return null; }
+        $point=$this->customerReceiptPoint($data,$snapshot,$activation,$reason);
+        if ($point===null) return null;
+        // The owner's customer-copy protocol routes by the proved coordinates.
+        // Written address, area and branch labels remain delivery descriptions;
+        // they cannot replace the customer's actual point or choose a store pin.
+        $resolved=$this->customerReceiptBranch($point,$actor,$lock);
         if ($resolved===null) { $reason='BRANCH_UNRESOLVED'; return null; }
-        $branch=$resolved['fulfillment_branch']??$resolved['value'];
+        $branch=$resolved['value'];
         $fulfillment=$this->branch($branch,$actor,$lock);
         // The owner permits a verified customer-copy order to reach the branch
         // outside its physical opening state. Its separate dispatch clock and
@@ -769,31 +784,6 @@ class WhatsAppOrderWorkflow
         if (!$this->branchOpen($fulfillment,$hoursReason,$lock)&&$hoursReason!=='BRANCH_CLOSED') {
             $reason=$hoursReason; return null;
         }
-        $origin=$resolved['value']!==$branch?$resolved['value']:null;
-        if ($origin!==null) {
-            try { app(FasakhanstaDeliveryOrigin::class)->check($origin,$branch,$actor,$lock); }
-            catch (\Throwable $error) { $reason='BRANCH_UNRESOLVED'; return null; }
-        }
-        $point=$data['textual_location']['point']??null; $nativePoint=null; $pinPosition=null; $addressPosition=null;
-        // A customer may supply a genuine pin before the copied recap. A later
-        // conflicting pin invalidates the recap instead of being silently swapped in.
-        foreach ($snapshot['transcript'] as $position=>$message) {
-            if ($message['speaker']!=='customer') continue;
-            // A recap cannot retroactively bind an old pin to a new address.
-            if ($message['id']!==$receipt['recap_id']&&$message['sent_at']>=$activation
-                &&is_string($message['text'])&&str_contains($message['text'],$data['customer']['address'])) $addressPosition=$position;
-            if (($message['location']??null)===null) continue;
-            $nativePoint=$this->validPoint($message['location']['lat']??null,$message['location']['long']??null);
-            $pinPosition=$position;
-            if ($nativePoint===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
-        }
-        if ($point!==null) $point=$this->validPoint($point['lat']??null,$point['long']??null);
-        if ($nativePoint!==null&&$point!==null&&$point!==$nativePoint) { $reason='LOCATION_UNCONFIRMED'; return null; }
-        if ($point===null&&($addressPosition===null||$pinPosition===null||$pinPosition<=$addressPosition)) {
-            $reason='LOCATION_UNCONFIRMED'; return null;
-        }
-        $point=$point??$nativePoint;
-        if ($point===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
         $customer=$data['customer'];
         if (mb_strlen($customer['name'])>100||mb_strlen($customer['address'])>500
             ||mb_strlen((string)$customer['area'])>150) { $reason='REVIEW_REQUIRED'; return null; }
@@ -814,14 +804,14 @@ class WhatsAppOrderWorkflow
             'customer_name'=>$customer['name'],'customer_phone'=>$customer['phone'],'address'=>$customer['address'],
             'area'=>$customer['area']??'','delivery_notes'=>$notes,
             'latitude'=>$point['lat'],'longitude'=>$point['long'],'location_confirmed'=>true,'items'=>$items];
-        if ($origin!==null) $values['delivery_origin_branch']=$origin;
         $values=$this->review($values);
         // Distinct wamids, wording/option order or coordinate precision do not
         // turn the same effective basket into another order. A genuinely repeated
         // order inside this bounded window needs a human to confirm it is new.
         $fingerprint=$this->customerReceiptReviewFingerprint($values);
         $previous=DB::table(static::DRAFTS)->where('conversation_id',$conversation)->where('status','DISPATCHED')
-            ->where('id','!=',(int)$row->id)->where('dispatched_at','>=',now('UTC')->subHours(24)->format('Y-m-d H:i:s'))
+            ->where('id','!=',(int)$row->id)->where('dispatched_at','>=',
+                now('Africa/Cairo')->startOfDay()->setTimezone('UTC')->format('Y-m-d H:i:s'))
             ->orderByDesc('id')->limit(101);
         if ($lock) $previous->lockForUpdate();
         $completed=$previous->selectRaw('CASE WHEN LENGTH(sealed_payload)<=262144 THEN sealed_payload ELSE NULL END AS sealed_payload')->get();
@@ -834,6 +824,83 @@ class WhatsAppOrderWorkflow
             }
         }
         return $values;
+    }
+
+    /** A newer explicit recap point supersedes old pins, never a later change. */
+    private function customerReceiptPoint(array $data,array $snapshot,string $activation,?string &$reason): ?array
+    {
+        $recap=$data['evidence_receipt']['recap_id']??null;
+        $literal=$data['textual_location']['point']??null;
+        $point=$literal===null?null:$this->validPoint($literal['lat']??null,$literal['long']??null);
+        if ($literal!==null&&$point===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
+        $recapPosition=null; $nativePoint=null; $pinPosition=null; $addressPosition=null;
+        foreach ($snapshot['transcript'] as $position=>$message)
+            if ($message['id']===$recap) $recapPosition=$position;
+        if ($recapPosition===null) { $reason='INVALID_EXTRACTION'; return null; }
+        foreach ($snapshot['transcript'] as $position=>$message) {
+            if ($message['speaker']!=='customer') continue;
+            if ($message['id']!==$recap&&$message['sent_at']>=$activation
+                &&is_string($message['text'])&&str_contains($message['text'],$data['customer']['address'])) $addressPosition=$position;
+            if (($message['location']??null)===null) continue;
+            if ($point!==null&&$position<$recapPosition) continue;
+            $candidate=$this->validPoint($message['location']['lat']??null,$message['location']['long']??null);
+            if ($candidate===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
+            if ($point!==null) {
+                // The copied point is the latest explicit location in its turn.
+                // Earlier history cannot veto it; every later native pin must agree.
+                if ($position>$recapPosition&&$candidate!==$point) { $reason='LOCATION_UNCONFIRMED'; return null; }
+                continue;
+            }
+            $nativePoint=$candidate; $pinPosition=$position;
+        }
+        if ($point!==null) return $point;
+        if ($addressPosition===null||$pinPosition===null||$pinPosition<=$addressPosition||$nativePoint===null) {
+            $reason='LOCATION_UNCONFIRMED'; return null;
+        }
+        return $nativePoint;
+    }
+
+    /** Nearest authorized canonical physical branch; no address/geocoder guesses. */
+    private function customerReceiptBranch(array $point,$actor,bool $lock=false): ?array
+    {
+        $point=$this->validPoint($point['lat']??null,$point['long']??null);
+        if ($point===null) return null;
+        try {
+            $available=[];
+            foreach (app(TakeawayAccess::class)->branches($actor) as $branch) {
+                if (($branch['kind']??null)!=='f'||!in_array((string)($branch['id']??''),self::PHYSICAL_BRANCH_IDS,true)
+                    ||!is_string($branch['value']??null)||$branch['value']!=='f:'.$branch['id']) continue;
+                if (isset($available[$branch['value']])) return null;
+                $available[$branch['value']]=$branch;
+            }
+            if ($available===[]||!Schema::hasTable('resturants')) return null;
+            ksort($available,SORT_STRING);
+            // PhoneDelivery::settings locks branch authorization but reads its
+            // physical coordinates separately. Lock those canonical rows before
+            // the dispatch reproof so location edits cannot race the ERP commit.
+            if ($lock) DB::table('resturants')->whereIn('id',array_column($available,'id'))
+                ->orderBy('id')->lockForUpdate()->get(['id']);
+            $nearest=null; $nearestReady=false; $distance=null; $tied=false; $geometry=[];
+            foreach ($available as $branch) {
+                $settings=app(PhoneDelivery::class)->settings($branch['value'],$actor,null,$lock);
+                $physical=$settings['branch']??null;
+                $origin=$this->validPoint($settings['latitude']??null,$settings['longitude']??null);
+                if (!is_array($physical)||$origin===null
+                    ||($physical['kind']??null)!=='f'||(string)($physical['id']??'')!==(string)$branch['id']
+                    ||($physical['value']??null)!==$branch['value']||isset($settings['delivery_origin_branch'])) return null;
+                $geometry[]=[$physical['value'],$origin['lat'],$origin['long']];
+                $a=sin(deg2rad($point['lat']-$origin['lat'])/2)**2
+                    +cos(deg2rad($origin['lat']))*cos(deg2rad($point['lat']))*sin(deg2rad($point['long']-$origin['long'])/2)**2;
+                if (!is_finite($a)) return null;
+                $meters=(int)round(6371000*2*atan2(sqrt(min(1,$a)),sqrt(max(0,1-$a))));
+                if ($distance===null||$meters<$distance) {
+                    $nearest=$physical; $nearestReady=($settings['ready']??false)===true; $distance=$meters; $tied=false;
+                }
+                elseif ($meters===$distance) $tied=true;
+            }
+            return $tied||$nearest===null||!$nearestReady||!$this->allowed($nearest['value'])?null
+                :$nearest+['routing_fingerprint'=>PosServiceTicket::fingerprint($geometry)];
+        } catch (\Throwable $error) { return null; }
     }
 
     /** Match whole literal product/option labels only; similarity is never order authority. */
@@ -855,6 +922,15 @@ class WhatsAppOrderWorkflow
                 &&$item['quantity_mode']==='weight') {
                 if ($name===$this->customerReceiptName('رنجة مبطرخ')&&$product['id']===2576
                     &&$base===$this->customerReceiptName('رنجه هيرنج مبطرخ')) $literal=$base;
+                // The owner's compact confirmed recap spells the same approved
+                // herring as "رنجة مبطرخ (كاملة)". Preserve that preparation:
+                // the real catalog's whole-fish choice and full-unit cleaning
+                // counterpart below must both exist. Parentheses elsewhere are
+                // not discarded and no other product qualifier is inferred.
+                if (in_array($name,[$this->customerReceiptName('رنجة مبطرخ (كاملة)'),
+                    $this->customerReceiptName('رنجة مبطرخ (كامل)')],true)&&$product['id']===2576
+                    &&$base===$this->customerReceiptName('رنجه هيرنج مبطرخ'))
+                    $literal=$base.' '.$this->customerReceiptName('كامل');
                 if ($name===$this->customerReceiptName('سردين بلدي كبير مخلي')&&$product['id']===2578
                     &&$base===$this->customerReceiptName('سردين')) {
                     foreach ($product['options']??[] as $option)
@@ -1558,6 +1634,7 @@ class WhatsAppOrderWorkflow
     /** Insert ids alone cannot exclude late delivery of a pre-activation webhook. */
     private function freshAutomaticEvidence(array $data,array $transcript,?string $notBefore=null,?int $conversation=null): bool
     {
+        if (!$this->sameDayOrderEvidence($data,$transcript)) return false;
         $activation=$this->activationInstant($conversation);
         if ($activation===null) return false;
         if ($notBefore!==null) $activation=max($activation,$notBefore);
@@ -1576,6 +1653,46 @@ class WhatsAppOrderWorkflow
             if (is_array($row)&&$row['speaker']==='customer'&&is_string($row['sent_at']??null)&&$row['sent_at']>=$activation) return true;
         }
         return false;
+    }
+
+    /** Order authority expires at Cairo calendar midnight, not after 24 hours. */
+    private function sameDayOrderEvidence(array $data,array $transcript): bool
+    {
+        $rows=array_column($transcript,null,'id'); $authority=[];
+        if (isset($data['type'])&&$data['type']===WhatsAppCustomerOrderConfirmation::TYPE) {
+            foreach (['recap_id','approval_id'] as $key) {
+                $id=$data['evidence_receipt'][$key]??null;
+                $row=is_string($id)?($rows[$id]??null):null;
+                if (!is_array($row)||($row['speaker']??null)!=='customer') return false;
+                $authority[]=$row;
+            }
+        } else {
+            $confirmations=$data['evidence']['confirmation_ids']??[];
+            if (!is_array($confirmations)||$confirmations===[]) return false;
+            foreach ($confirmations as $id) {
+                $row=is_string($id)?($rows[$id]??null):null;
+                if (!is_array($row)||($row['speaker']??null)!=='business') return false;
+                $authority[]=$row;
+            }
+            $requests=WhatsAppOrderExtraction::committingRequestIds($data,$transcript);
+            if ($requests===[]) return false;
+            foreach ($requests as $id) {
+                $row=is_string($id)?($rows[$id]??null):null;
+                if (!is_array($row)||($row['speaker']??null)!=='customer') return false;
+                $authority[]=$row;
+            }
+        }
+        $utc=new \DateTimeZone('UTC'); $cairo=new \DateTimeZone('Africa/Cairo');
+        $today=now('Africa/Cairo')->format('Y-m-d');
+        foreach ($authority as $row) {
+            $literal=$row['sent_at']??null;
+            if (!is_string($literal)||!preg_match('/\A[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\z/D',$literal)) return false;
+            $date=\DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$literal,$utc);
+            $errors=\DateTimeImmutable::getLastErrors();
+            if ($date===false||($errors!==false&&($errors['warning_count']!==0||$errors['error_count']!==0))
+                ||$date->format('Y-m-d H:i:s')!==$literal||$date->setTimezone($cairo)->format('Y-m-d')!==$today) return false;
+        }
+        return true;
     }
 
     private function activationInstant(?int $conversation=null): ?string

@@ -39,14 +39,33 @@ statusExpect($format['counts']===['customer_exact_headers'=>1,'business_exact_he
 $first=$format['rows'][0];
 statusExpect($first['ordinal']===1&&$first['speaker']==='customer'&&$first['text_present']&&$first['text_length']===mb_strlen($recap),'ordinal and text metadata only');
 statusExpect($first['exact_header_match']&&$first['standalone_parse_ok']&&$first['standalone_parse_reason']===null&&!$first['positive_approval'],'standalone facts are distinct from customer approval');
-statusExpect($first['recap_shape']===['name_label'=>true,'phone_label'=>true,'address_label'=>true,'total_label'=>true],'labeled values observed only as booleans');
+statusExpect($first['recap_shape']===['name_label'=>true,'phone_label'=>true,'address_label'=>true,'total_label'=>true,'combined_data_label'=>false],'labeled values observed only as booleans');
 statusExpect($first['safe_title_lines'][0]['literal']==='ملخص طلبك:'&&$first['safe_title_lines'][0]['line']===1,'generic title is allowlisted');
 statusExpect($format['rows'][1]['positive_approval']&&!$format['rows'][1]['standalone_parse_ok'],'actual separate approval checker');
+statusExpect($value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
+    'legacy receipt still reports independent customer approval');
+$compact="تم توصيلك بفريقنا وسيتم متابعة طلبك حالاً.\n\nطلبك المؤكد:\n• كيلو فسيخ - 100 جنيه\nالإجمالي 100 جنيه غير التوصيل\n\nالبيانات: PRIVATE_NAME - PRIVATE_ADDRESS - 01033333333 - اللوكيشن 31.123456,30.654321\nالتوصيل خلال 60 دقيقة داخل المنصورة، وسعر التوصيل يأكده المندوب لما يكلمك.";
+[$exit,$value]=formatRun(formatRows($compact,'customer',null));$row=$value['format_observation']['rows'][0];
+statusExpect($exit===0&&$value['candidate']['valid']&&$value['candidate']['approval_basis']==='CUSTOMER_SELF_CONFIRMED_RECAP'
+    &&$value['candidate']['recap_is_approval'],'compact customer copy reports same-message authority honestly');
+statusExpect($row['compact_header_match']&&$row['exact_header_match']&&$row['standalone_self_confirmed']
+    &&$row['recap_shape']['combined_data_label'],'compact protocol has safe diagnostic booleans');
+statusExpect($row['safe_title_lines'][0]['literal']==='طلبك المؤكد:'&&$row['safe_title_lines'][0]['line']===3,
+    'only fixed compact title is exposed');
+[$exit,$value]=formatRun(formatRows($compact,'business',null));
+statusExpect(!$value['candidate']['valid']&&$value['candidate']['approval_basis']===null
+    &&!$value['candidate']['recap_is_approval']&&$value['format_observation']['counts']['business_exact_headers']===1,
+    'business compact message remains diagnostic and supplies no customer authority');
+foreach(['طلبك المؤكد: PRIVATE_CUSTOMER','PRIVATE_PREFIX طلبك المؤكد:','طلبك المؤكد:31.123456,30.654321']as$unsafe){
+    [$exit,$value]=formatRun(formatRows($unsafe,'customer',null));
+    statusExpect(!$value['candidate']['valid']&&$value['format_observation']['rows'][0]['safe_title_lines']===[],
+        'compact header with private suffix or prefix leaks nothing and conveys no authority');
+}
 foreach(['**ملخص طلبك**:','• ملخص طلبك:','- ملخص طلبك:','__ملخص طلبك__:']as$title){
     [$exit,$value]=formatRun(formatRows(str_replace('ملخص طلبك:',$title,$recap)));
     $row=$value['format_observation']['rows'][0];
-    statusExpect($exit===0&&$value['candidate']['reason']==='NO_CUSTOMER_RECAP'&&!$row['exact_header_match']&&$row['standalone_parse_ok'],
-        'actual display normalization/raw header discrepancy '.$title);
+    statusExpect($exit===0&&$value['candidate']['valid']&&$row['exact_header_match']&&$row['standalone_parse_ok']
+        &&$row['header_kind']==='LEGACY','same normalized legacy header drives inspect and diagnostic '.$title);
     statusExpect($row['safe_title_lines'][0]['literal']==='ملخص طلبك:','only normalized generic title exported '.$title);
 }
 [$exit,$value]=formatRun(formatRows(str_replace('ملخص طلبك:','**ملخص طلبك:**',$recap)));

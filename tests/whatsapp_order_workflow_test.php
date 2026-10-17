@@ -102,6 +102,16 @@ namespace App\Services\Dashboard {
     }
     class PhoneDelivery {
         public static $drift=0; public static $callback;
+        public function settings(string$branch,$actor,?string$origin=null,bool$lock=false):array {
+            $b=\app(TakeawayAccess::class)->branch($branch,$actor,$lock);
+            \abort_unless($origin===null,422,'PHYSICAL_SETTINGS_ONLY');
+            $query=DB::table('resturants')->where('id',$b['id']);if($lock)$query->lockForUpdate();$row=$query->first();
+            $lat=$row->lat??null;$long=$row->lng??null;
+            $valid=is_numeric($lat)&&is_numeric($long)&&is_finite((float)$lat)&&is_finite((float)$long)
+                &&abs((float)$lat)<=90&&abs((float)$long)<=180&&!((float)$lat===0.0&&(float)$long===0.0);
+            return['branch'=>$b,'latitude'=>$valid?(float)$lat:null,'longitude'=>$valid?(float)$long:null,
+                'km_price'=>$row->km_price??null,'ready'=>$valid&&is_numeric($row->km_price??null)];
+        }
         public function quote(array $v,$actor): array {
             \app(TakeawayAccess::class)->branch($v['branch'],$actor);
             \abort_unless($v['location_confirmed']&&isset($v['latitude'],$v['longitude']),422,'PIN_CONTRACT');
@@ -221,6 +231,10 @@ namespace {
     function expectFlow($condition,$label) { global $checks; $checks++; if(!$condition)throw new \RuntimeException('FAILED:'.$label); }
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
+        // Fixed native message dates must be compared with a fixed calendar,
+        // never the wall clock of whichever machine happens to run this suite.
+        \Carbon\Carbon::setTestNow('2026-10-09 22:05:00');
+        \Carbon\CarbonImmutable::setTestNow('2026-10-09 22:05:00');
         foreach (['whatsapp_reply_projection_keys','whatsapp_reply_requests'] as $t) if (Schema::hasTable($t)) DB::table($t)->delete();
         foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','pos_service_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
         Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Ai::$failureReason='TRANSPORT_ERROR'; Ai::$failureDiagnostic=[];
