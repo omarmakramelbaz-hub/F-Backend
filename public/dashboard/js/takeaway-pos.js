@@ -185,14 +185,14 @@
     function checkoutEnter(event) {
         if (event.key !== 'Enter') return false;
         var target = event.target;
-        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput;
+        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput, finishField = target === finish;
         var editable = target.matches('input,textarea,select,[contenteditable]');
         var productButton = !!target.closest('[data-pos-product],[data-pos-options]');
         var keypad = !!target.closest('.tp-weight');
         var catalogSurface = !!target.closest('.tp-catalog') && !target.closest('button,a,input,textarea,select,[contenteditable]');
         var start = target === document.body || target === root || productButton || !editable && (keypad || catalogSurface);
-        if (!nameField && !phoneField && !consentField && !cashField && !start) return false;
-        if (!cart.length && !keypad && !productButton && !cashField) return false;
+        if (!nameField && !phoneField && !consentField && !cashField && !finishField && !start) return false;
+        if (!cart.length && !keypad && !productButton && !cashField && !finishField) return false;
 
         var held = event.repeat || enterKeyDown;
         if (composing || event.isComposing || event.keyCode === 229) {
@@ -200,14 +200,26 @@
             if (!editable || consentField) event.preventDefault();
             return true;
         }
-        if (held || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || isLocked() || !permissions.can_checkout) {
+        // An enabled retry button may resume its frozen sale while the rest of the invoice stays locked.
+        var enterLocked = finishField ? finish.disabled || finish.hidden || registerLocked || selling || sold || quarantined : isLocked();
+        if (held || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || enterLocked || !permissions.can_checkout) {
             event.preventDefault(); return true;
         }
         enterKeyDown = true;
         if (!cart.length && productButton) return false;
         event.preventDefault();
         if (!cart.length && keypad) { key('confirm'); return true; }
-        if (cashField) return true;
+        if (cashField) {
+            if (!cart.length || !loaded || !quote || minor(quote.total) === null || finish.disabled || finish.hidden) {
+                notify(label('quote_required'), false, true); cashInput.focus(); return true;
+            }
+            var received = minor(cashInput.value), total = minor(quote.total);
+            if (received === null) { notify(label('invalid_money')); cashInput.focus(); return true; }
+            if (received < total) { notify(label('cash_insufficient')); cashInput.focus(); return true; }
+            if (['invalid_money', 'cash_insufficient', 'quote_required'].some(function (key) { return message.querySelector('span').textContent === label(key); })) notify('');
+            finish.focus(); return true;
+        }
+        if (finishField) { if (!finish.disabled && !finish.hidden) checkout(); return true; }
         if (nameField) { consentEnterAffirmed = false; customerPhone.focus(); return true; }
         if (phoneField) {
             consentEnterAffirmed = false;

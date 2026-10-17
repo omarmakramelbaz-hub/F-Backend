@@ -1,5 +1,8 @@
 <?php
 return [
+    'quantity_short'=>'Qty.',
+    'receipt_thanks'=>'Thank you for your visit',
+    'receipt_welcome'=>'We look forward to serving you again',
     'cash_paid'=>'Amount paid',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
     'quantity_auto_title'=>'Weight / quantity',

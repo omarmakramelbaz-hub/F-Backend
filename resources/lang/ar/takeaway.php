@@ -1,5 +1,8 @@
 <?php
 return [
+    'quantity_short'=>'الكمية',
+    'receipt_thanks'=>'شكرًا لزيارتكم',
+    'receipt_welcome'=>'نسعد بخدمتكم مجددًا',
     'cash_paid'=>'المبلغ المدفوع',
     'customer_consent'=>'العميل وافق على المتابعة بعد الشراء والعروض عبر واتساب (اختياري).',
     'quantity_auto_title'=>'الوزن / العدد',

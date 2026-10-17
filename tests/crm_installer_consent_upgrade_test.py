@@ -20,7 +20,8 @@ from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[1]
-DEPLOYED = 'cc71fb7882e88db07007ec93bfc08889ddc65351'
+DEPLOYED = '82358aa2f528ee63b3e95e00b6c61f34f8f19fc5'
+COMPACT_DEPLOYED = 'cc71fb7882e88db07007ec93bfc08889ddc65351'
 CONSENT_DEPLOYED = '162635ae19fcf825093570385b643d54975743c0'
 PREVIOUS_DEPLOYED = 'd6be69b37a8e5815be498b2bedd6daacbea2b68f'
 SPEC = importlib.util.spec_from_file_location('crm_consent_installer', PROJECT / 'deployment/apply_customer_crm.py')
@@ -106,7 +107,7 @@ class ConsentReleaseInstallerTest(unittest.TestCase):
                 self.assertEqual((root / relative).read_bytes(), release + custom.get(relative, b''))
 
     def test_upgrade_complete_deployed_release_and_replay(self):
-        for revision in (PREVIOUS_DEPLOYED, CONSENT_DEPLOYED, DEPLOYED):
+        for revision in (PREVIOUS_DEPLOYED, CONSENT_DEPLOYED, COMPACT_DEPLOYED, DEPLOYED):
             with self.subTest(revision=revision):
                 with self.application(revision) as (root, _originals, commands):
                     INSTALLER.main()
