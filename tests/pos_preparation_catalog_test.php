@@ -146,4 +146,85 @@ try {
 } catch (HttpException $error) {
     check($error->getStatusCode() === 422, 'conflicting submitted preparation fields cannot override the selected option');
 }
+$features->setValue($catalog, [
+    10=>(object)['id'=>10,'product_id'=>7,'name'=>'half'],
+    11=>(object)['id'=>11,'product_id'=>7,'name'=>'quarter'],
+    21=>(object)['id'=>21,'product_id'=>8,'name'=>'combo'],
+    22=>(object)['id'=>22,'product_id'=>8,'name'=>'half'],
+    23=>(object)['id'=>23,'product_id'=>9,'name'=>'combo'],
+    24=>(object)['id'=>24,'product_id'=>8,'name'=>'combo'],
+]);
+$sandwich=(object)['id'=>90,'product_id'=>8,'product_name'=>'فسيخ مظبوط','product_price'=>'75.00','status'=>'show',
+    'price'=>json_encode(['extra_combo'=>'25.50','extra_vacuim'=>'5.00'])];
+$sandwichProduct=$present->invoke($catalog,$branch,$sandwich,'');$choices=$sandwichProduct['preparation_options'];
+check(array_column($choices,'id')===['','f:21:base']&&array_column($choices,'label')===['عادي','كومبو'],
+    'configured combo exposes normal then combo using the existing empty base and real feature identity');
+check(array_column($choices,'price')===['75.00','100.50']&&array_column($choices,'feature_id')===[0,21]
+    &&array_column($choices,'product_clean')===['',''],'normal and combo use full base plus configured surcharge, with no fractional or vacuum choices');
+check(count($choices)===2,'duplicate combo features cannot duplicate the two-choice picker');
+$sandwichLegacy=array_column($sandwichProduct['options'],null,'id');
+check($sandwichLegacy['f:22:base']['price']==='37.50'&&$sandwichLegacy['f:0:extra_vacuim']['price']==='80.00'
+    &&$sandwichLegacy['f:21:base']['price']==='100.50','existing portion, vacuum and combo options remain available to legacy consumers at unchanged prices');
+$normal=$catalog->line($branch,$sandwich,['option_id'=>'','quantity_mode'=>'piece','quantity_millis'=>2000]);
+$combo=$catalog->line($branch,$sandwich,['option_id'=>'f:21:base','quantity_mode'=>'piece','quantity_millis'=>2000,'unit_price'=>'0.01','price'=>'0.01']);
+check($normal['option_id']===''&&$normal['option_label']==='عادي'&&$normal['unit_price']==='75.00'&&$normal['total']==='150.00',
+    'normal sandwich invoice line retains the existing base identity and authoritative quantity pricing');
+check($combo['option_id']==='f:21:base'&&$combo['option_label']==='كومبو'&&$combo['unit_price']==='100.50'&&$combo['total']==='201.00',
+    'combo invoice line uses trusted configured feature price before multiplying quantity');
+$legacyNormal=$catalog->line($branch,$sandwich,['option_id'=>'f:0:base','quantity_mode'=>'piece','quantity_millis'=>1000]);
+check($legacyNormal['option_id']===''&&$legacyNormal['option_label']==='عادي','legacy explicit base identity normalizes to the same normal sandwich row');
+$sandwichHalf=$catalog->line($branch,$sandwich,['option_id'=>'f:22:base','quantity_mode'=>'weight','quantity_millis'=>1000]);
+check($sandwichHalf['option_label']==='نصف'&&$sandwichHalf['unit_price']==='37.50','legacy sandwich portion pricing is not relabeled as normal or combo');
+foreach([0,'0.00'] as $zero){$fixture=clone $sandwich;$fixture->price=json_encode(['extra_combo'=>$zero]);$zeroChoices=$present->invoke($catalog,$branch,$fixture,'')['preparation_options'];
+    check(array_column($zeroChoices,'label')===['عادي','كومبو']&&array_column($zeroChoices,'price')===['75.00','75.00'],'a configured zero-cost combo remains a real choice');}
+foreach([null,'','invalid','-1.00','1.001','1000000.01'] as $invalid){$fixture=clone $sandwich;$fixture->price=json_encode(['extra_combo'=>$invalid]);
+    check(count($present->invoke($catalog,$branch,$fixture,'')['preparation_options'])===1
+        &&$catalog->line($branch,$fixture,['quantity_mode'=>'piece','quantity_millis'=>1000])['option_label']==='',
+        'an absent or invalid combo surcharge never invents a combo or normal invoice label: '.json_encode($invalid));}
+$orphan=clone $row;$orphan->price=json_encode(['extra_combo'=>'25.50']);
+check(count($present->invoke($catalog,$branch,$orphan,'')['preparation_options'])===1
+    &&$catalog->line($branch,$orphan,['quantity_mode'=>'piece','quantity_millis'=>1000])['option_label']==='',
+    'a surcharge without a same-product combo feature cannot invent a selectable combo');
+$orphan->product_id=null;
+check(count($present->invoke($catalog,$branch,$orphan,'')['preparation_options'])===1,'a product without a configured product identity cannot acquire a combo choice');
+$overflow=clone $sandwich;$overflow->product_price='1000000.00';$overflow->price=json_encode(['extra_combo'=>'0.01']);
+check(count($present->invoke($catalog,$branch,$overflow,'')['preparation_options'])===1
+    &&$catalog->line($branch,$overflow,['quantity_mode'=>'piece','quantity_millis'=>1000])['option_label']==='',
+    'a combined combo price above the permitted limit is not a valid choice');
+$badSandwich=clone $sandwich;$badSandwich->product_price='-1.00';
+check($present->invoke($catalog,$branch,$badSandwich,'')['preparation_options']===[],'invalid sandwich base prices offer no normal/combo selection');
+$app->locale='en';
+check(array_column($present->invoke($catalog,$branch,$sandwich,'')['preparation_options'],'label')===['Normal','Combo']
+    &&$catalog->line($branch,$sandwich,['quantity_mode'=>'piece','quantity_millis'=>1000])['option_label']==='Normal'
+    &&$catalog->line($branch,$sandwich,['option_id'=>'f:21:base','quantity_mode'=>'piece','quantity_millis'=>1000])['option_label']==='Combo',
+    'normal/combo picker and server invoice labels follow the application locale');
+$app->locale='ar';
+try{$catalog->line($branch,$sandwich,['option_id'=>'f:23:base','quantity_mode'=>'piece','quantity_millis'=>1000]);throw new RuntimeException('Expected foreign combo denial');}
+catch(HttpException $error){check($error->getStatusCode()===422,'a combo feature from another product cannot be submitted for this sandwich');}
+check(array_column($present->invoke($catalog,$branch,$row,'')['preparation_options'],'label')===['كامل','تنظيف','مخلي'],
+    'adding sandwich combo choices does not change the fish preparation picker');
+
+// Exercise the complete database-backed listing and locked quote path, not just private presentation.
+$capsule=new \Illuminate\Database\Capsule\Manager($app);$capsule->addConnection(['driver'=>'sqlite','database'=>':memory:','prefix'=>'']);$capsule->setAsGlobal();
+$app->instance('db',$capsule->getDatabaseManager());$app->bind('db.schema',fn()=>\Illuminate\Support\Facades\DB::connection()->getSchemaBuilder());
+\Illuminate\Support\Facades\Facade::setFacadeApplication($app);
+\Illuminate\Support\Facades\Schema::create('product_features',function(\Illuminate\Database\Schema\Blueprint $table){$table->id();$table->unsignedBigInteger('product_id');$table->string('name');});
+\Illuminate\Support\Facades\Schema::create('resturant_products',function(\Illuminate\Database\Schema\Blueprint $table){$table->id();$table->unsignedBigInteger('resturant_id');$table->unsignedBigInteger('product_id');$table->string('product_name');$table->string('product_price');$table->string('status');$table->text('price');});
+foreach([[21,8,'combo'],[22,8,'half'],[23,9,'combo']] as [$id,$productId,$name])\Illuminate\Support\Facades\DB::table('product_features')->insert(['id'=>$id,'product_id'=>$productId,'name'=>$name]);
+foreach([[1001,100,8,'سندوتش اختبار'],[1002,100,7,'إضافة بلا ميزة'],[1003,101,9,'سندوتش فرع آخر']] as [$id,$resturant,$productId,$name])\Illuminate\Support\Facades\DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>$resturant,'product_id'=>$productId,'product_name'=>$name,'product_price'=>'75.00','status'=>'show','price'=>json_encode(['extra_combo'=>'25.50'])]);
+class ComboListingAccess extends TakeawayAccess {
+    public function has(string $table,string $column):bool{return \Illuminate\Support\Facades\Schema::hasColumn($table,$column);}
+    public function branch(string $value,$actor,bool $lock=false):array{return ['value'=>'f:100','kind'=>'f','id'=>100];}
+}
+class ComboListingStock extends \App\Services\Dashboard\BranchStock {public function __construct(){}public function decorate(string $branch,array $items):array{return $items;}}
+$app->instance(\App\Services\Dashboard\BranchStock::class,new ComboListingStock);
+$databaseCatalog=new TakeawayCatalog(new ComboListingAccess);$listing=$databaseCatalog->listing(['branch'=>'f:100'],null);$listed=array_column($listing['items'],null,'id');
+check(count($listed)===2&&!isset($listed[1003])&&$listing['products']===$listing['items'],'the real catalog listing keeps branch scope and the identical products/items contract');
+check(array_column($listed[1001]['preparation_options'],'id')===['','f:21:base']&&array_column($listed[1001]['preparation_options'],'price')===['75.00','100.50']
+    &&count($listed[1002]['preparation_options'])===1,'database-loaded feature relationships expose only the configured full-unit normal/combo pair');
+$databaseRow=\Illuminate\Support\Facades\DB::table('resturant_products')->where('id',1001)->first();
+$lockedNormal=$databaseCatalog->line(['kind'=>'f'],$databaseRow,['quantity_mode'=>'piece','quantity_millis'=>2000],true);
+$lockedCombo=$databaseCatalog->line(['kind'=>'f'],$databaseRow,['option_id'=>'f:21:base','quantity_mode'=>'piece','quantity_millis'=>2000],true);
+check($lockedNormal['option_label']==='عادي'&&$lockedNormal['total']==='150.00'&&$lockedCombo['option_label']==='كومبو'&&$lockedCombo['total']==='201.00',
+    'locked server pricing reloads configured combo features and preserves authoritative normal/combo totals');
 echo $count.' POS preparation catalog checks passed'.PHP_EOL;

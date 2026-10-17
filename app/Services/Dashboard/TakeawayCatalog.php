@@ -139,13 +139,14 @@ class TakeawayCatalog
                 abort_unless(array_key_exists($key, $extras) && $extras[$key] !== null && $extras[$key] !== '', 422, 'سعر الخيار غير مضبوط.');
                 $extra = Money::minor($extras[$key]); $this->validPrice($extra); $price += $extra;
             }
-            array_unshift($labels, self::FEATURES[$name]);
+            array_unshift($labels, $name === 'combo' && app()->getLocale() !== 'ar' ? 'Combo' : self::FEATURES[$name]);
         }
         $this->validPrice($price);
-        // A whole preparation keeps the existing base identity and price. Plain SKUs
-        // without a valid cleaning/filleting choice must not gain a preparation label.
+        // Named base choices keep the existing empty option identity and full price.
         if (!$featureId && $clean === '') {
-            foreach (['extra_clean', 'extra_clear'] as $preparation) {
+            if ($this->configuredCombo($branch, $row, $lock) !== null) {
+                $labels[] = app()->getLocale() === 'ar' ? 'عادي' : 'Normal';
+            } else foreach (['extra_clean', 'extra_clear'] as $preparation) {
                 if (!array_key_exists($preparation, $extras) || $extras[$preparation] === null || $extras[$preparation] === '') continue;
                 try {
                     $extra = Money::minor($extras[$preparation]);
@@ -196,8 +197,37 @@ class TakeawayCatalog
                         'feature_id'=>0, 'product_clean'=>$clean];
                 } catch (\Throwable $error) { /* Only configured, valid preparations are offered. */ }
             }
+            if ($price !== null && ($combo = $this->configuredCombo($branch, $row, false)) !== null) {
+                $product['preparation_options'] = [
+                    ['id'=>'', 'label'=>app()->getLocale() === 'ar' ? 'عادي' : 'Normal', 'price'=>$price, 'feature_id'=>0, 'product_clean'=>''],
+                    $combo,
+                ];
+            }
         }
         return $product;
+    }
+
+    /** A surcharge alone cannot invent a combo: its feature must belong to this product. */
+    private function configuredCombo(array $branch, object $row, bool $lock): ?array
+    {
+        if ($branch['kind'] !== 'f' || empty($row->product_id) || !$this->access->has('product_features', 'product_id')) return null;
+        $extras = json_decode((string) ($row->price ?? '{}'), true);
+        if (!is_array($extras) || !array_key_exists('extra_combo', $extras) || $extras['extra_combo'] === null || $extras['extra_combo'] === '') return null;
+        if (!$lock && $this->listingFeatures !== null) $features = $this->listingFeatures;
+        else {
+            $query = DB::table('product_features')->where('product_id', $row->product_id)->where('name', 'combo')->orderBy('id');
+            if ($lock) $query->lockForUpdate();
+            $features = $query->get();
+        }
+        foreach ($features as $feature) {
+            if ((int) $feature->id < 1 || (int) $feature->product_id !== (int) $row->product_id || $feature->name !== 'combo') continue;
+            try {
+                [$cents, $id] = $this->price($branch, $row, ['feature_id'=>(int) $feature->id, 'product_clean'=>''], $lock);
+                return ['id'=>$id, 'label'=>app()->getLocale() === 'ar' ? 'كومبو' : 'Combo', 'price'=>Money::decimal($cents),
+                    'feature_id'=>(int) $feature->id, 'product_clean'=>''];
+            } catch (\Throwable $error) { /* Missing or invalid combo prices are not choices. */ }
+        }
+        return null;
     }
 
     private function goOptions(object $row): array

@@ -181,7 +181,7 @@
         branchSelect.disabled = locked() || !!boot.receiver_branch;
         root.querySelectorAll('[data-phone-product]').forEach(function (button) { button.disabled = button.disabled || step !== 'products' || !canWrite(); });
         root.querySelectorAll('[data-phone-remove]').forEach(function (control) { control.disabled = control.disabled || !!editing && !!editing.kitchen_sent && cart.length <= 1; });
-        saveButton.disabled = step !== 'products' || locked() || !loaded || !cart.length || !quote || !canWrite() || editing && !dirty;
+        saveButton.disabled = step !== 'products' || locked() || !loaded || !cart.length || !quote || !canWrite() || !customerConsent || !customerConsent.checked || editing && !dirty;
         saveButton.querySelector('span').textContent = text(writing ? 'saving' : editing ? 'save_changes' : 'save_order');
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
         root.querySelector('[data-phone-page="next"]').disabled = locked() || catalogPage >= Number(pagination.last_page || 1);
@@ -224,11 +224,12 @@
         var body = root.querySelector('[data-phone-lines]'); body.replaceChildren(); root.querySelector('[data-phone-empty]').hidden = !!cart.length;
         cart.forEach(function (line, index) {
             var confirmed = quoteLine(line), lineName = confirmed && confirmed.name || line.product.name; var row = element('tr'), itemCell = element('td'); itemCell.appendChild(element('strong', 'ph-line-name', lineName));
-            var choices = [{ id: '', label: text('base'), price: line.product.unit_price || line.product.price }].concat(line.product.options || []);
+            var choices = productChoices(line.product).slice();
+            if (line.option && !choices.some(function (option) { return String(option.id || '') === String(line.option.id || ''); })) choices.push(line.option);
             if (choices.length > 1) {
                 var select = element('select', 'ph-line-option'); select.dataset.phoneLineOption = String(index); select.setAttribute('aria-label', text('options') + ' · ' + lineName);
                 choices.forEach(function (option) { var selected = String(option.id || '') === String(line.option && line.option.id || ''); var optionPrice = selected && confirmed ? confirmed.unit_price : option.price; var optionLabel = selected && confirmed && confirmed.option_label ? confirmed.option_label : option.label; var entry = element('option', '', optionLabel + ' · ' + money(optionPrice)); entry.value = String(option.id || ''); entry.selected = selected; select.appendChild(entry); }); itemCell.appendChild(select);
-            } else if (line.option) itemCell.appendChild(element('small', 'ph-line-price', line.option.label));
+            } else if (confirmed && confirmed.option_label || line.option && line.option.label) itemCell.appendChild(element('small', 'ph-line-option-label', confirmed && confirmed.option_label || line.option.label));
             var price = line.option ? line.option.price : line.product.unit_price || line.product.price; if (confirmed) price = confirmed.unit_price;
             itemCell.appendChild(element('bdi', 'ph-line-price', money(price))); row.appendChild(itemCell);
             var countCell = element('td'), count = element('div', 'ph-line-quantity'), input = element('input'); input.value = line.quantity; input.inputMode = line.mode === 'piece' ? 'numeric' : 'decimal'; input.maxLength = 10; input.dataset.phoneLineQuantity = String(index); input.setAttribute('aria-label', text('quantity') + ' · ' + lineName); count.appendChild(input); count.appendChild(element('small', 'ph-line-unit', text(['piece', 'weight'].includes(line.product.quantity_mode) ? line.mode === 'weight' ? 'kg' : 'piece' : 'automatic_unit'))); countCell.appendChild(count); row.appendChild(countCell);
@@ -268,14 +269,37 @@
         } else return;
         quantityInput.value = value; quantityInput.focus(); quantityInput.setSelectionRange(start, start);
     }
-    function addProduct(product) {
+    function productChoices(product) {
+        if (product.options_known === false) return [];
+        if (Array.isArray(product.preparation_options)) return product.preparation_options;
+        return [{ id: '', label: text('base'), price: product.unit_price || product.price }].concat(product.options || []);
+    }
+    function chooseProduct(product) {
+        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || !modal.hidden) return;
+        if (!quantity(quantityInput.value, automaticQuantity(product))) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+        var choices = productChoices(product);
+        if (choices.length <= 1) { addProduct(product); return; }
+        var content = openModal(text('options') + ' · ' + product.name), generation = modalGeneration, selected = false, selectedBranch = branch;
+        content.replaceChildren(); var list = element('div', 'ph-option-list');
+        choices.forEach(function (option) {
+            var control = element('button'); control.type = 'button';
+            control.appendChild(element('span', '', option.label));
+            control.appendChild(element('bdi', '', money(option.price) + ' ' + text('currency')));
+            control.addEventListener('click', function () {
+                if (selected || modal.hidden || generation !== modalGeneration || selectedBranch !== branch || locked() || !canWrite()) return;
+                selected = true; closeModal(); addProduct(product, option.id || Array.isArray(product.preparation_options) ? option : null);
+            }); list.appendChild(control);
+        }); content.appendChild(list); list.firstElementChild.focus();
+    }
+    function addProduct(product, option) {
         if (!product || !product.available || step !== 'products' || locked() || !canWrite()) return;
         var itemMode = automaticQuantity(product);
         var amount = quantity(quantityInput.value, itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
-        var existing = cart.find(function (line) { return String(line.product.id) === String(product.id) && line.mode === itemMode && !line.option; });
+        var pending = { product: product, option: option || null, quantity: amount.value, mode: itemMode };
+        var existing = cart.find(function (line) { return lineKey(line) === lineKey(pending); });
         if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), itemMode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
-        else cart.push({ product: product, option: null, quantity: amount.value, mode: itemMode });
-        replaceQuantity = true;
+        else cart.push(pending);
+        quantityInput.value = '0'; quantityInput.setSelectionRange(0, 1); replaceQuantity = true;
         changed(true); notify('');
     }
     function productNode(product) {
@@ -360,7 +384,7 @@
         container.appendChild(button('view_order',function(){detailsModal(ticket.id);},'is-orange'));
         if(!canWrite()||stage==='finished')return;
         if(stage==='preparing'){
-            if(!ticket.bill_locked){container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));container.appendChild(button('kitchen_order',function(){action(ticket,'send_kitchen',true);},'is-primary'));}
+            if(!ticket.bill_locked)container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));
             container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);},'is-orange'));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
@@ -593,12 +617,13 @@
         if (step !== 'products') return;
         if (locked()) { if (uncertain && frozen) execute(frozen); return; }
         if (!branch || !cart.length || !canWrite()) return;
+        if (!customerConsent || !customerConsent.checked) { notify(text('consent_required')); if (customerConsent) customerConsent.focus(); return; }
         if (!quote) { notify(text('quote_required'), false, true); return; }
         if (!fields.customer_name.value.trim() || !fields.customer_phone.value.trim() || !fields.address.value.trim()) { notify(text('required_customer')); return; }
         if (scaled(fields.delivery_fee.value, 2) === null || policy.can_discount && scaled(fields.discount.value, 2) === null) { notify(text('invalid_money')); return; }
         if (policy.can_discount && scaled(fields.discount.value, 2) > 0n && !fields.discount_reason.value.trim()) { notify(text('invalid_discount')); return; }
         if (cart.some(function (line) { return !quantity(line.quantity, line.mode); })) { notify(text('invalid_quantity')); return; }
-        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim(), service_consent: !!(customerConsent && customerConsent.checked), marketing_consent: !!(customerConsent && customerConsent.checked) });
+        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim(), service_consent: true, marketing_consent: false });
         if (editing) { values.ticket_id = editing.id; values.expected_revision = editing.revision; }
         execute({ type: 'save', url: endpoint(urls.save), payload: values, ticketId: editing ? editing.id : undefined });
     }
@@ -616,7 +641,7 @@
             if(ticket.branch.value!==branch){branchSelect.value=ticket.branch.value;if(branchSelect.selectize)branchSelect.selectize.setValue(ticket.branch.value,true);changeBranch(true);}
             resetDraft(false); editing = ticket;setDeliveryOrigin(origin,ticket.delivery_location); fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
             customerRef=ticket.customer_id&&ticket.customer_revision?{id:ticket.customer_id,revision:ticket.customer_revision}:null;setCustomerLocation(ticket.delivery_location||{});deliveryLocation=ticket.delivery_location||null;manualDeliveryFee=!!(deliveryLocation&&deliveryLocation.fee_mode==='manual');fields.delivery_fee.value=ticket.delivery_fee||ticket.delivery||'0.00';loadDeliveryContext(String(ticket.delivery_company&&ticket.delivery_company.id||''),ticket.delivery_company&&ticket.delivery_company.name);
-            var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], available: true, quantity_mode: 'select' }; var choice = line.option_id ? (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id, label: line.option_label, price: line.unit_price } : null; return { product: product, option: choice, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
+            var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], options_known: false, available: true, quantity_mode: 'select' }; var choice = productChoices(product).find(function (option) { return String(option.id || '') === String(line.option_id || ''); }); if (!choice && (line.option_id || line.option_label)) choice = (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id || '', label: line.option_label, price: line.unit_price }; if (!line.option_id && !line.option_label && !Array.isArray(product.preparation_options)) choice = null; return { product: product, option: choice || null, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
             root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow(deliveryLocation?'products':'details', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
         } catch (error) { if (disposed || requestedBranch !== branch || error.name === 'AbortError') return; notify(error.message || text('list_error')); }
     }
@@ -655,7 +680,7 @@
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
         if (control.dataset.phoneView) { if (control.dataset.phoneView === 'compose' && view === 'compose') { if (!dirty || window.confirm(text('new_warning'))) resetDraft(); } return switchView(control.dataset.phoneView); }
-        if (control.dataset.phoneProduct !== undefined) return addProduct(products.get(control.dataset.phoneProduct));
+        if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
         if (control.dataset.phoneRemove !== undefined) { if (editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
@@ -666,7 +691,7 @@
         var input = event.target;
         if (locked()) return;
         if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
-        if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
+        if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option, selectedOption = productChoices(selectedLine.product).find(function (option) { return String(option.id || '') === input.value; }); if (!selectedOption) { input.value = String(previousOption && previousOption.id || ''); return; } selectedLine.option = selectedOption.id || Array.isArray(selectedLine.product.preparation_options) ? selectedOption : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
     Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone'){customerRef=null;if(customerConsent)customerConsent.checked=false;} if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
     if (customerConsent) listen(customerConsent, 'change', function () { changed(false); });

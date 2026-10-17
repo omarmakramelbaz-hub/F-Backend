@@ -2,6 +2,8 @@
 return [
     'cash_paid'=>'Amount paid',
     'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
+    'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to send the order to the branch).',
+    'consent_required'=>'Confirm the customer’s follow-up consent before sending the order to the branch.',
     'quantity_auto_title'=>'Weight / quantity',
     'quantity_auto_hint'=>'Enter kilograms or a piece count, then choose the product; its unit is selected automatically.',
     'confirm_amount'=>'Confirm amount',
