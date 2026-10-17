@@ -1,0 +1,328 @@
+/* Additive module skin. Screen-only rules leave receipt and print styling intact. */
+@media screen {
+    body.dashboard-theme.fasa-pro {
+        --fasa-pro-canvas: #f6f7f9;
+        --fasa-pro-panel: #fff;
+        --fasa-pro-ink: #1d2c40;
+        --fasa-pro-muted: #64758a;
+        --fasa-pro-border: #e3e9f0;
+        --fasa-pro-orange: #ee6b1d;
+        --fasa-pro-orange-soft: #fff1e8;
+        --fasa-pro-navy: #101c2d;
+        --fasa-pro-quiet: #f8f9fb;
+        --fasa-pro-shadow: 0 3px 14px rgb(16 28 45 / 4%);
+        --fasa-pro-focus: 0 0 0 3px rgb(238 107 29 / 14%);
+    }
+
+    /* Alias existing module tokens without changing their operational state colors. */
+    body.dashboard-theme.fasa-pro :is(#home-overview, #branch-home) {
+        --ho-ink: var(--fasa-pro-ink);
+        --ho-muted: var(--fasa-pro-muted);
+        --ho-line: var(--fasa-pro-border);
+        --ho-orange: var(--fasa-pro-orange);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro .order-board-wrapper {
+        --ob-navy: var(--fasa-pro-canvas);
+        --ob-line: var(--fasa-pro-border);
+    }
+    body.dashboard-theme.fasa-pro .tp-pos {
+        --tp-orange: var(--fasa-pro-orange);
+        --tp-line: var(--fasa-pro-border);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro .dp-pos {
+        --dp-orange: var(--fasa-pro-orange);
+        --dp-line: var(--fasa-pro-border);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro .ph-pos {
+        --ph-orange: var(--fasa-pro-orange);
+        --ph-border: var(--fasa-pro-border);
+        --ph-ink: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro .wa-inbox {
+        --wa-ink: var(--fasa-pro-ink);
+        --wa-muted: var(--fasa-pro-muted);
+        --wa-line: var(--fasa-pro-border);
+        --wa-orange: var(--fasa-pro-orange);
+    }
+    body.dashboard-theme.fasa-pro .meta-chat {
+        --wa-green: var(--fasa-pro-orange);
+        --meta-muted: var(--fasa-pro-muted);
+        --meta-panel: var(--fasa-pro-panel);
+        --meta-canvas: var(--fasa-pro-canvas);
+    }
+    body.dashboard-theme.fasa-pro .meta-comments {
+        --mc-line: var(--fasa-pro-border);
+        --mc-muted: var(--fasa-pro-muted);
+        --mc-orange: var(--fasa-pro-orange);
+        color: var(--fasa-pro-ink);
+    }
+
+    /* Module canvases retain every existing grid, dimension and scrolling rule. */
+    body.dashboard-theme.fasa-pro :is(.ho-wrapper, .content-wrapper.order-board-wrapper,
+        .content-wrapper.takeaway-wrapper, .content-wrapper.dining-wrapper,
+        .content-wrapper.phone-orders-wrapper, .content-wrapper.branch-expenses-wrapper,
+        .content-wrapper.branch-orders-wrapper, .content-wrapper.wa-inbox-wrapper) {
+        background: var(--fasa-pro-canvas) !important;
+        color: var(--fasa-pro-ink) !important;
+    }
+    body.dashboard-theme.fasa-pro :is(.op-workspace, .op-employees, #branch-shifts,
+        #branch-stock, .ob-items-editor) {
+        background: var(--fasa-pro-canvas);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro :is(.branch-orders, .meta-connection) {
+        color: var(--fasa-pro-ink);
+    }
+
+    /* White working surfaces; semantic attendance cards and status badges are excluded. */
+    body.dashboard-theme.fasa-pro :is(.ho-kpi:not([data-ho-metric="pending_total"]), .ho-panel, .ho-live-card, .ho-app-stat,
+        .ho-summary, .ho-owner-column, .ho-owner-trend, .ho-owner-ranking,
+        .ob-metric, .ob-order, .ob-menu-item, .tp-panel, .tp-product-card,
+        .dp-panel, .ph-panel, .ph-flow, .ph-ticket, .op-filters, .op-table-wrap,
+        .ex-balance, .ex-metric, .ex-panel, .ex-editor, .sh-period, .sh-report,
+        .sh-count, .sh-history, .bs-panel, .bo-card, .wa-inbox-workspace,
+        .wa-inbox-order-drawer, .wa-orders, .meta-connection-card,
+        .mc-heading, .mc-filters, .mc-workspace) {
+        background: var(--fasa-pro-panel);
+        color: var(--fasa-pro-ink);
+        border-color: var(--fasa-pro-border);
+        box-shadow: var(--fasa-pro-shadow);
+    }
+    body.dashboard-theme.fasa-pro :is(.op-card, .ho-branch, .tp-product, .dp-product,
+        .ph-product, .bs-current, .meta-connection-account) {
+        border-color: var(--fasa-pro-border);
+        box-shadow: var(--fasa-pro-shadow);
+    }
+    body.dashboard-theme.fasa-pro .op-workspace:not(.op-employees) .op-card {
+        background: var(--fasa-pro-panel);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-owner-middle, .ho-owner-bottom,
+        .ob-column, .ob-menu, .mc-posts-panel, .meta-connection-account) {
+        background: var(--fasa-pro-quiet);
+        border-color: var(--fasa-pro-border);
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-kpi, .ho-panel, .ho-summary,
+        .tp-panel, .dp-panel, .ph-panel, .op-filters, .op-table-wrap,
+        .ex-panel, .sh-report, .sh-count, .sh-history, .bs-panel,
+        .bo-card, .meta-connection-card, .mc-workspace) {
+        border-radius: 12px;
+    }
+
+    /* Explicit heading targets avoid changing stage headers or message content. */
+    body.dashboard-theme.fasa-pro :is(.ho-heading h1, .ob-heading h1, .tp-heading h1,
+        .dp-heading h1, .ph-heading h1, .op-header h1, .ex-heading h1,
+        .sh-heading h1, .bs-heading h1, .bo-heading h1, .wa-inbox-brand h1,
+        .meta-connection-heading h1, .mc-heading h1) {
+        color: var(--fasa-pro-ink);
+        font-weight: 700;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-panel h2, .tp-panel-heading h2,
+        .tp-catalog-heading h2, .dp-panel-heading h2, .dp-catalog-heading h2,
+        .ph-panel-heading h2, .ph-catalog-heading h2, .op-workspace dialog h2,
+        .ex-editor h2, .ex-dialog h2, .bs-panel h2, .bo-card h2,
+        .meta-connection-card h2, .mc-panel-heading h2) {
+        color: var(--fasa-pro-ink);
+        font-weight: 700;
+    }
+    body.dashboard-theme.fasa-pro #home-overview .ho-owner h2 {
+        color: var(--fasa-pro-ink) !important;
+        font-weight: 700;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-heading p, .ho-kpi-label, .ho-caption,
+        .ho-kpi-note, .ho-method, .ob-heading p, .ob-metric span,
+        .ob-field > span:first-child, .ob-scope, .tp-heading p, .dp-heading p,
+        .ph-heading p, .op-header p, .op-help, .ex-heading p, .ex-summary-note,
+        .sh-heading p, .sh-hint, .bs-heading p, .bs-note, .bo-heading p,
+        .bo-card header p, .meta-connection-heading p, .meta-connection-card p) {
+        color: var(--fasa-pro-muted);
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-value, .ho-summary strong,
+        .ob-metric strong, .ob-order-number, .ex-metric strong) {
+        color: var(--fasa-pro-ink);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+    body.dashboard-theme.fasa-pro :is(.tp-line-total, .dp-line-total, .ph-line-total,
+        .ph-ticket-amount, .op-money-total strong, .sh-report dd, .bs-quantity) {
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Quiet table chrome; cell-level financial and attendance semantics remain intact. */
+    body.dashboard-theme.fasa-pro :is(#home-overview th, #branch-home th,
+        .tp-invoice-lines th, .dp-invoice-lines th, .op-table-wrap th,
+        .ex-table th, #branch-shifts th, #branch-stock th, .ph-detail-table th) {
+        background: var(--fasa-pro-quiet);
+        color: var(--fasa-pro-muted);
+        border-color: var(--fasa-pro-border);
+        font-weight: 700;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-owner-row:nth-child(even),
+        .op-daily-table tbody tr:hover) { background: #fafbfc; }
+    body.dashboard-theme.fasa-pro :is(.ho-owner-row:hover,
+        .bo-actions a:hover, .bo-actions a:focus-visible) { background: var(--fasa-pro-orange-soft); }
+    body.dashboard-theme.fasa-pro :is(.tp-panel-heading, .dp-panel-heading,
+        .ph-panel-heading, .tp-notes, .dp-notes, .ph-invoice-footer,
+        .tp-invoice-lines td, .dp-invoice-lines td, .ex-table td) {
+        border-color: var(--fasa-pro-border);
+    }
+
+    /* Order-board filters were previously dark; normalize their explicit colors. */
+    body.dashboard-theme.fasa-pro .ob-live:not(.is-offline) { color: var(--fasa-pro-muted); }
+    body.dashboard-theme.fasa-pro .ob-live.is-offline { color: #9a5b14; }
+    body.dashboard-theme.fasa-pro :is(.ob-board .ob-field input, .ob-board .ob-field select,
+        .ob-board .selectize-control.single .selectize-input,
+        .ob-board .selectize-control.single .selectize-input.input-active,
+        .ob-board .selectize-dropdown,
+        .ob-board .select2-container .select2-selection--single) {
+        background: var(--fasa-pro-panel);
+        color: var(--fasa-pro-ink);
+        border-color: var(--fasa-pro-border);
+        box-shadow: none;
+    }
+    body.dashboard-theme.fasa-pro :is(.ob-board .selectize-control.single .selectize-input input,
+        .ob-board .select2-selection__rendered) { color: var(--fasa-pro-ink); }
+    body.dashboard-theme.fasa-pro :is(.ob-board .ob-field input::placeholder,
+        .ob-input-wrap > i) { color: var(--fasa-pro-muted); }
+    body.dashboard-theme.fasa-pro .ob-board .select2-selection__arrow b {
+        border-color: var(--fasa-pro-muted) transparent transparent transparent;
+    }
+    body.dashboard-theme.fasa-pro .ob-board .selectize-dropdown .active {
+        background: var(--fasa-pro-orange-soft);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro.app-order-board-page > .select2-container :is(.select2-dropdown, .select2-search__field) {
+        background: var(--fasa-pro-panel);
+        color: var(--fasa-pro-ink);
+        border-color: var(--fasa-pro-border);
+    }
+    body.dashboard-theme.fasa-pro.app-order-board-page > .select2-container :is(.select2-results__option--selected,
+        .select2-results__option--highlighted.select2-results__option--selectable) {
+        background: var(--fasa-pro-orange-soft);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro :is(.ob-menu-heading, .ob-menu-toggle) {
+        background: var(--fasa-pro-navy);
+        border-color: #26364c;
+        color: #fff;
+    }
+    body.dashboard-theme.fasa-pro :is(.ob-reset, .ob-reset:hover) { color: #a9430c; }
+
+    /* Secondary actions remain quiet. Green collection, red cancellation, blue
+       preparation, purple weight controls and status badges keep their identities. */
+    body.dashboard-theme.fasa-pro :is(.ho-button, .tp-header-actions button,
+        .dp-header-actions button, .tp-reset-weight, .dp-reset-weight,
+        .ex-button, .bs-button, .bo-actions a, .meta-connection-secondary,
+        .ob-order-tools a:not(.ob-edit-items)) {
+        color: var(--fasa-pro-ink);
+        background: var(--fasa-pro-panel);
+        border-color: var(--fasa-pro-border);
+        border-radius: 8px;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-button:hover, .tp-header-actions button:hover,
+        .dp-header-actions button:hover, .ex-button:hover, .bs-button:hover,
+        .meta-connection-secondary:hover) {
+        background: var(--fasa-pro-quiet);
+        border-color: #c7d1de;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-primary, .ob-filter-submit,
+        .tp-categories button.is-active, .dp-categories button.is-active,
+        .ph-categories button.is-active, .ph-step-next, .ex-primary,
+        .bs-primary, .meta-connection-primary, .mc-button:not(.mc-secondary),
+        .meta-chat .wa-replies-send:not(:disabled), .meta-inbox-channels [aria-pressed="true"],
+        .meta-inbox-channels a[aria-current="page"]) {
+        background: var(--fasa-pro-orange);
+        border-color: var(--fasa-pro-orange);
+        color: var(--fasa-pro-navy);
+        font-weight: 700;
+    }
+    body.dashboard-theme.fasa-pro .op-workspace:not(.op-money-dialog) > .op-header .op-primary,
+    body.dashboard-theme.fasa-pro .op-workspace .op-filters .op-primary {
+        background: var(--fasa-pro-orange);
+        border-color: var(--fasa-pro-orange);
+        color: var(--fasa-pro-navy);
+    }
+    body.dashboard-theme.fasa-pro #branch-shifts .sh-count .sh-close {
+        background: var(--fasa-pro-orange) !important;
+        border-color: var(--fasa-pro-orange) !important;
+        color: var(--fasa-pro-navy) !important;
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-primary:hover, .ob-filter-submit:hover,
+        .ph-step-next:hover:not(:disabled), .ex-primary:hover, .bs-primary:hover,
+        .meta-connection-primary:hover, .mc-button:not(.mc-secondary):hover,
+        .meta-chat .wa-replies-send:hover:not(:disabled)) {
+        background: #dd6018;
+        border-color: #dd6018;
+        color: var(--fasa-pro-navy);
+    }
+    body.dashboard-theme.fasa-pro :is(.tp-invoice-tab.is-active, .dp-invoice-tab.is-active,
+        .ho-periods button[aria-pressed="true"], .mc-filter[aria-pressed="true"]) {
+        background: var(--fasa-pro-orange-soft);
+        color: #a9430c;
+        border-color: #f1bd9e;
+    }
+
+    /* Chat structure follows the same chrome; message bubbles, recording states,
+       channel badges, Leaflet controls, map tiles and route colors are untouched. */
+    body.dashboard-theme.fasa-pro :is(.wa-inbox-panel-heading,
+        .wa-inbox-chat-heading, .wa-replies, .mc-composer) {
+        background: var(--fasa-pro-quiet);
+        border-color: var(--fasa-pro-border);
+    }
+    body.dashboard-theme.fasa-pro .meta-hub-pane .wa-inbox-workspace { box-shadow: none; }
+    body.dashboard-theme.fasa-pro :is(.wa-inbox-threads, .wa-inbox-chat,
+        .meta-chat .wa-inbox-threads, .meta-chat .wa-inbox-chat) {
+        background: var(--fasa-pro-panel);
+        color: var(--fasa-pro-ink);
+    }
+    body.dashboard-theme.fasa-pro :is(.wa-inbox-brand h1, .wa-inbox h2,
+        .wa-inbox-thread-heading strong, .wa-inbox-chat-heading h2,
+        .mc-panel-heading h2, .meta-connection-account-name) { font-weight: 700; }
+    body.dashboard-theme.fasa-pro :is(.meta-chat .wa-inbox-button,
+        .meta-chat .wa-inbox-button:hover) {
+        color: #a9430c;
+        border-color: var(--fasa-pro-border);
+        background: var(--fasa-pro-panel);
+    }
+    body.dashboard-theme.fasa-pro :is(.wa-inbox-workspace, .wa-orders,
+        .wa-inbox-order-drawer, .mc-filters, .mc-workspace,
+        .meta-connection-card) { border-color: var(--fasa-pro-border); }
+
+    /* Focus is limited to data-entry fields and named action controls; it does
+       not reach map widgets, hidden inputs, file previews or media players. */
+    body.dashboard-theme.fasa-pro :is(.ho-dates input, .ho-stock-search input,
+        .ob-field input, .ob-field select, .ob-menu-search input,
+        .tp-register-form input, .tp-register-form select, .tp-notes textarea,
+        .dp-settings-form input, .dp-settings-form textarea, .dp-table-meta input,
+        .ph-field input, .ph-field select, .ph-field textarea,
+        .op-entry-form input, .op-entry-form select, .op-entry-form textarea,
+        .ex-editor input, .ex-editor select, .ex-editor textarea,
+        .sh-count input, .sh-period select, .bs-pair input, .bs-pair select,
+        .wa-replies textarea, .wa-orders input, .wa-orders select,
+        .mc-compose-row textarea, .mc-account-field select,
+        .meta-connection-callback input):focus {
+        border-color: var(--fasa-pro-orange);
+        box-shadow: var(--fasa-pro-focus);
+        outline-color: var(--fasa-pro-orange);
+    }
+    body.dashboard-theme.fasa-pro :is(.ho-button, .ho-primary, .ob-action,
+        .ob-filter-submit, .tp-finish, .dp-finish, .dp-settle, .ph-save,
+        .ph-step-next, .op-primary, .ex-button, .ex-primary, .ex-approve,
+        .sh-close, .bs-button, .bs-primary, .bo-actions a,
+        .wa-inbox-button, .wa-replies-send, .mc-button,
+        .meta-connection-primary, .meta-connection-secondary):focus-visible {
+        outline: 2px solid var(--fasa-pro-orange);
+        outline-offset: 2px;
+    }
+}
+
+/* The original print cascade owns all printed colors and receipt dimensions. */
+@media print {
+    body.dashboard-theme.fasa-pro {
+        --fasa-pro-shadow: none;
+        --fasa-pro-focus: none;
+    }
+}

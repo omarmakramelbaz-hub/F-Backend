@@ -1,0 +1,135 @@
+/* Fasakhansta professional workspace. Visual layer only; operational layouts stay owned by each page. */
+@media screen {
+body.dashboard-theme.fasa-pro {
+    --fasa-pro-canvas:#f6f7f9; --fasa-pro-paper:#ffffff; --fasa-pro-ink:#1d2c40;
+    --fasa-pro-muted:#64758a; --fasa-pro-line:#e2e8f0; --fasa-pro-accent:#ee6b1d;
+    --fasa-pro-accent-soft:#fff2e8; --fasa-pro-navy:#101c2d;
+    --fasa-pro-shadow:0 3px 16px #162d4d06;
+    --dashboard-navy:var(--fasa-pro-canvas); --dashboard-sidebar:var(--fasa-pro-navy);
+    --dashboard-line:var(--fasa-pro-line); --dashboard-text:var(--fasa-pro-ink);
+    --dashboard-muted:var(--fasa-pro-muted); --dashboard-ink:var(--fasa-pro-ink);
+    --dashboard-border:var(--fasa-pro-line); --dashboard-orange:var(--fasa-pro-accent);
+    background:var(--fasa-pro-canvas); color:var(--fasa-pro-ink);
+    font-size:14px; line-height:1.75; -webkit-font-smoothing:antialiased;
+}
+body.dashboard-theme.fasa-pro > .wrapper { background:var(--fasa-pro-canvas); }
+body.dashboard-theme.fasa-pro .main-sidebar {
+    --dashboard-text:#e2eaf4; --dashboard-line:#28384d;
+    background:var(--fasa-pro-navy)!important; border-color:#23354c;
+    box-shadow:-3px 0 24px #12233c0a;
+}
+body.dashboard-theme.fasa-pro .dashboard-brand { border-color:#28384d; }
+body.dashboard-theme.fasa-pro .dashboard-brand-copy strong { color:#ff9145; letter-spacing:0; }
+body.dashboard-theme.fasa-pro .dashboard-brand-copy small { color:#a1b2c7; }
+body.dashboard-theme.fasa-pro .main-sidebar .user-panel { color:#a6b7c9; }
+body.dashboard-theme.fasa-pro .main-sidebar .user-panel a { color:#a6b7c9!important; }
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-item .nav-link { border-radius:9px!important; }
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-item .nav-link:hover,
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-item.menu-open > .nav-link { background:#20334c!important; }
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-item .nav-link.active {
+    background:#c55212!important; color:#fff!important;
+    box-shadow:0 4px 12px #de61162b;
+}
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-link.active p,
+body.dashboard-theme.fasa-pro .main-sidebar .nav-sidebar .nav-link.active i { color:#fff; }
+body.dashboard-theme.fasa-pro .main-header {
+    background:#fff!important; color:var(--fasa-pro-ink); border-color:var(--fasa-pro-line);
+    box-shadow:0 2px 12px #1d334405;
+}
+body.dashboard-theme.fasa-pro .main-header .navbar-nav .nav-link,
+body.dashboard-theme.fasa-pro .main-header .dropdown-toggle { color:#42566d; }
+body.dashboard-theme.fasa-pro .main-header .nav-link:hover { color:#bc4e0d; background:#fff2e8; }
+body.dashboard-theme.fasa-pro .main-header .form-select,
+body.dashboard-theme.fasa-pro .main-header .form-select option { background:#fff; color:#42566d; }
+body.dashboard-theme.fasa-pro .main-footer { background:#f5f7fa; color:#65768a; border-color:var(--fasa-pro-line); }
+body.dashboard-theme.fasa-pro .main-footer a { color:#a8470e; }
+body.dashboard-theme.fasa-pro .content-wrapper:not(.order-board-wrapper) {
+    background:var(--fasa-pro-canvas); color:var(--fasa-pro-ink);
+}
+body.dashboard-theme.fasa-pro .content-header h1,
+body.dashboard-theme.fasa-pro .content-header h1.text-dark { color:var(--fasa-pro-ink)!important; font-weight:800; }
+body.dashboard-theme.fasa-pro .content-header small,
+body.dashboard-theme.fasa-pro .content-header .breadcrumb { color:var(--fasa-pro-muted); }
+body.dashboard-theme.fasa-pro .content-header a:not(.btn) { color:#b75214; }
+body.dashboard-theme.fasa-pro .content-header .countModule { color:#ad4b0e; }
+body.dashboard-theme.fasa-pro .card {
+    background:#fff; color:var(--fasa-pro-ink); border-color:var(--fasa-pro-line);
+    border-radius:12px!important; box-shadow:var(--fasa-pro-shadow)!important;
+}
+body.dashboard-theme.fasa-pro .card-header {
+    background:#fff; color:var(--fasa-pro-ink); border-bottom:1px solid var(--fasa-pro-line);
+    border-radius:12px 12px 0 0!important;
+}
+body.dashboard-theme.fasa-pro .card-header .card-title { font-weight:800; color:var(--fasa-pro-ink); }
+body.dashboard-theme.fasa-pro .card-header a { color:#42566d; }
+body.dashboard-theme.fasa-pro .card-header .btn-tool { color:#6f8095; }
+body.dashboard-theme.fasa-pro .card-header .btn-tool:hover { background:#f0f4f8; color:#21394f; }
+body.dashboard-theme.fasa-pro .card-footer { background:#fafbfd; border-color:var(--fasa-pro-line); }
+body.dashboard-theme.fasa-pro .card .text-muted { color:var(--fasa-pro-muted)!important; }
+body.dashboard-theme.fasa-pro .wallet,
+body.dashboard-theme.fasa-pro .trans { background:#fff; color:var(--fasa-pro-ink); border-color:var(--fasa-pro-line); box-shadow:var(--fasa-pro-shadow); }
+body.dashboard-theme.fasa-pro .info-box { background:#fff; color:var(--fasa-pro-ink); border:1px solid var(--fasa-pro-line); border-radius:12px; box-shadow:var(--fasa-pro-shadow); }
+body.dashboard-theme.fasa-pro .info-box .info-box-text { color:var(--fasa-pro-muted); }
+body.dashboard-theme.fasa-pro .info-box .info-box-number { color:var(--fasa-pro-ink); font-variant-numeric:tabular-nums; }
+body.dashboard-theme.fasa-pro .table { background:#fff; color:#314359; line-height:1.75; }
+body.dashboard-theme.fasa-pro .table thead { background:#f7f9fc; color:#5d6e83; }
+body.dashboard-theme.fasa-pro .table th { color:#5d6e83; font-weight:700; }
+body.dashboard-theme.fasa-pro .table td,
+body.dashboard-theme.fasa-pro .table th { border-color:#e9edf3; }
+body.dashboard-theme.fasa-pro .table-hover tbody tr:hover { background:#fff7f0; color:#203047; }
+body.dashboard-theme.fasa-pro .table td .text-muted { color:#64758a!important; }
+body.dashboard-theme.fasa-pro .table-responsive { border-radius:9px; }
+body.dashboard-theme.fasa-pro .form-control,
+body.dashboard-theme.fasa-pro .form-select,
+body.dashboard-theme.fasa-pro .custom-select {
+    color:#24364e; background-color:#fff; border-color:#d8e1ec; border-radius:8px;
+    font-variant-numeric:tabular-nums; box-shadow:none;
+}
+body.dashboard-theme.fasa-pro .form-control:focus,
+body.dashboard-theme.fasa-pro .form-select:focus,
+body.dashboard-theme.fasa-pro .custom-select:focus { border-color:#e9945d; box-shadow:0 0 0 3px #ed772514; }
+body.dashboard-theme.fasa-pro .form-control::placeholder { color:#7a899c; opacity:1; }
+body.dashboard-theme.fasa-pro .form-control:disabled,
+body.dashboard-theme.fasa-pro .form-control[readonly] { background:#f2f5f9; color:#5d6e83; }
+body.dashboard-theme.fasa-pro .input-group-text { background:#f6f8fb; color:#5d6e83; border-color:#d8e1ec; }
+body.dashboard-theme.fasa-pro .select2-container--default .select2-selection--single,
+body.dashboard-theme.fasa-pro .selectize-input { border-color:#d8e1ec; border-radius:8px; background:#fff; color:#24364e; }
+body.dashboard-theme.fasa-pro .select2-container--default .select2-selection--single .select2-selection__rendered { color:#24364e; }
+body.dashboard-theme.fasa-pro .btn { border-radius:8px; font-weight:700; box-shadow:none; }
+body.dashboard-theme.fasa-pro .btn-primary,
+body.dashboard-theme.fasa-pro .btn-info { background:#ee6b1d!important; border-color:#ee6b1d!important; color:#101c2d!important; }
+body.dashboard-theme.fasa-pro .btn-primary:hover,
+body.dashboard-theme.fasa-pro .btn-info:hover { background:#cc5714!important; border-color:#cc5714!important; }
+body.dashboard-theme.fasa-pro .btn-success { background:#15815a!important; border-color:#15815a!important; color:#fff!important; }
+body.dashboard-theme.fasa-pro .btn-success:hover { background:#116b4a!important; border-color:#116b4a!important; }
+body.dashboard-theme.fasa-pro .btn-danger { background:#cf4454; border-color:#cf4454; color:#fff; }
+body.dashboard-theme.fasa-pro .btn-warning { background:#fff3dc; border-color:#efdbb7; color:#895a0e; }
+body.dashboard-theme.fasa-pro .btn-outline-primary,
+body.dashboard-theme.fasa-pro .btn-outline-info { background:#fff5ec; color:#a64a10; border-color:#f0c5a6; }
+body.dashboard-theme.fasa-pro .dropdown-menu { background:#fff; color:#24364e; border-color:#dce5ef; box-shadow:0 12px 36px #152b4314; }
+body.dashboard-theme.fasa-pro .dropdown-item { color:#344c66; }
+body.dashboard-theme.fasa-pro .dropdown-item:hover { background:#fff2e8!important; color:#a94b12; }
+body.dashboard-theme.fasa-pro .modal-content,
+body.dashboard-theme.fasa-pro dialog { color:#24364e; background:#fff; border-color:#dce5ef; border-radius:14px!important; }
+body.dashboard-theme.fasa-pro .modal-header { color:#24364e; background:#f8fafc!important; border-color:#e3e9f0; }
+body.dashboard-theme.fasa-pro .modal-header .close { color:#5f7187; }
+body.dashboard-theme.fasa-pro .modal-footer { border-color:#e3e9f0; }
+body.dashboard-theme.fasa-pro .page-link { background:#fff; border-color:#dce5ef; color:#51667d; }
+body.dashboard-theme.fasa-pro .page-item.disabled .page-link { background:#f4f7fa; color:#76889d; border-color:#e1e7ef; }
+body.dashboard-theme.fasa-pro .page-item.active .page-link,
+body.dashboard-theme.fasa-pro .card .page-item.active .page-link { color:#fff; background:#e96b20; border-color:#e96b20; }
+body.dashboard-theme.fasa-pro .dashboard-navigation-popup { background:#fff; border-color:#dce5ef; color:#24364e; box-shadow:0 18px 48px #0b1c3524; }
+body.dashboard-theme.fasa-pro .dashboard-popup-header { border-color:#e3e9f0; }
+body.dashboard-theme.fasa-pro .dashboard-popup-header h2 { color:#24364e; }
+body.dashboard-theme.fasa-pro .dashboard-popup-header button { background:#f0f4f9; color:#51667d; }
+body.dashboard-theme.fasa-pro .dashboard-popup-content .nav-link { background:#fff; color:#344c66; }
+body.dashboard-theme.fasa-pro .dashboard-popup-content .nav-link:hover { background:#fff2e8; color:#a94b12; }
+body.dashboard-theme.fasa-pro .dashboard-popup-content .nav-link.active { background:#e96b20!important; color:#fff!important; }
+body.dashboard-theme.fasa-pro .nav-pills:not(.nav-sidebar):not(.nav-treeview) .nav-link.active { background:#fff0e4!important; color:#a94b12; }
+body.dashboard-theme.fasa-pro .alert { border-radius:9px; }
+body.dashboard-theme.fasa-pro input[type=checkbox],
+body.dashboard-theme.fasa-pro input[type=radio] { accent-color:#e96b20; }
+body.dashboard-theme.fasa-pro :where(button,a,input,select,textarea):focus-visible { outline:2px solid #da6c2b; outline-offset:3px; }
+body.dashboard-theme.fasa-pro .badge,
+body.dashboard-theme.fasa-pro bdi { font-variant-numeric:tabular-nums; }
+}

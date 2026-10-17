@@ -63,6 +63,10 @@
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
         <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-spa.css') }}?v=20261003-pos-service-1">
         <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-brand.css')) }}">
+        <!-- fasa-professional-design:start -->
+        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-professional.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-professional.css')) }}">
+        <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-professional-modules.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-professional-modules.css')) }}">
+        <!-- fasa-professional-design:end -->
         
     <style>
     .cke_notification_warning{
@@ -188,5 +192,5 @@ firebase.initializeApp(firebaseConfig);
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
 </head>
 
-<body data-dashboard-actor="{{ auth('admin')->id() }}:{{ auth('admin')->user()->account_type }}" class="hold-transition sidebar-mini layout-fixed dashboard-theme{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}{{ request()->is('admin/takeaway*') ? ' dashboard-takeaway-page' : '' }}{{ request()->is('admin/dining*') ? ' dashboard-dining-page' : '' }}{{ request()->is('admin/phone-orders*') ? ' dashboard-phone-orders-page' : '' }}">
+<body data-dashboard-actor="{{ auth('admin')->id() }}:{{ auth('admin')->user()->account_type }}" class="hold-transition sidebar-mini layout-fixed dashboard-theme fasa-pro{{ request()->is('admin/dashboard') ? ' dashboard-home-page' : '' }}{{ request()->is('admin/applies-orders') ? ' app-order-board-page' : '' }}{{ request()->is('admin/takeaway*') ? ' dashboard-takeaway-page' : '' }}{{ request()->is('admin/dining*') ? ' dashboard-dining-page' : '' }}{{ request()->is('admin/phone-orders*') ? ' dashboard-phone-orders-page' : '' }}">
     <div class="wrapper">
