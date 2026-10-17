@@ -10,6 +10,8 @@ Fetch the pinned `codex/customer-crm-feedback-20261017` revision, then run `depl
 
 The installer does not reset the server checkout or change login/sidebar behavior. New offline catalog snapshots enforce the phone requirement. Already-paid events from older server-stored snapshots qualify for contact-free historical import only when their sale time predates the persisted installation cutover; their cash and inventory effects remain intact, without inventing a customer phone or sending a survey.
 
+Publication finishes with `crm:check`, which verifies the actual 12 customer and POS route contracts, authentication/session/CSRF middleware and route matching without dispatching requests. It does not resolve unrelated legacy controllers. The first successful publication activates the offline phone cutover; failed installation attempts do not advance that activation time on a later retry.
+
 ## WhatsApp setup
 
 Open the customer list, then **متابعة العملاء ورسائل واتساب**. Sending starts disabled. Select an approved UTILITY template whose body matches:

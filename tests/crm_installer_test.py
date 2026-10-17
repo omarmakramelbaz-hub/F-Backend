@@ -86,8 +86,9 @@ class InstallerTest(unittest.TestCase):
                             self.assertEqual(installed.replace(hook, b''), live)
 
     def test_preserves_unrelated_live_edit_and_rolls_back_failed_checks(self):
-        for fail in (False, True):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as temporary:
+        for failed_command in (None, 'crm:customers-sync', 'crm:check'):
+            fail = failed_command is not None
+            with self.subTest(failed_command=failed_command), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary) / 'app'
                 root.mkdir()
                 target = root / 'routes/fixture.php'
@@ -105,7 +106,7 @@ class InstallerTest(unittest.TestCase):
                 def runner(args, cwd=None, timeout=120):
                     if args[0] == 'git':
                         return original(args, cwd, timeout)
-                    if fail and 'crm:customers-sync' in args:
+                    if failed_command is not None and failed_command in args:
                         return subprocess.CompletedProcess(args, 1, b'', b'fixture failure')
                     return subprocess.CompletedProcess(args, 0, b'', b'')
                 with patch.object(INSTALLER, 'source', source), patch.object(INSTALLER, 'run', runner), \

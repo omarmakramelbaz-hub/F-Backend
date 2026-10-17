@@ -2,6 +2,12 @@
   "version": 1,
   "files": [
     {
+      "path": "app/Console/Commands/CheckCustomerCrm.php",
+      "before": null,
+      "after": "cc4331ba94979980ba052166719cb8560d95a937a21e5054ffb0d14448ee8b45",
+      "patch": ""
+    },
+    {
       "path": "app/Console/Commands/ProcessCustomerWhatsApp.php",
       "before": null,
       "after": "21e02d26c590e7642fa824cc125e6b6818c5d4727f97dde3dc9ae377dc2f9f42",
@@ -118,6 +124,12 @@
       "before": "d82f368dfd383978cf3b67a2ac7b12493f9668eb0899ba5709716574ea0382cd",
       "after": "e8de4976da4fe28108c42e0d2b83a5daa45632c584f56648bc507ad51612d39c",
       "patch": "diff --git a/app/Services/Dashboard/WhatsAppInboxConsumer.php b/app/Services/Dashboard/WhatsAppInboxConsumer.php\nindex e090905..705734c 100644\n--- a/app/Services/Dashboard/WhatsAppInboxConsumer.php\n+++ b/app/Services/Dashboard/WhatsAppInboxConsumer.php\n@@ -112,6 +112,16 @@ class WhatsAppInboxConsumer\n                         $this->assertMessage($message);\n                         $kind = $this->persist($message, $key, (int) $id, $rawVerified ? $rawHash : null, $unavailableOnly);\n                         $counts[$kind === 'inserted' ? 'messages_inserted' : ($kind === 'hydrated' ? 'messages_hydrated' : 'messages_replayed')]++;\n+                        // The CRM projection shares the raw-event transaction. A replay\n+                        // must not reapply an old opt-out after a newer consent decision.\n+                        if ($kind !== 'replayed' && class_exists(CustomerMessageEvents::class)) {\n+                            (new CustomerMessageEvents())->inbound($message);\n+                        }\n+                    }\n+                    if (class_exists(CustomerMessageEvents::class)) {\n+                        foreach ($report['statuses'] ?? [] as $status) {\n+                            (new CustomerMessageEvents())->status($status);\n+                        }\n                     }\n                     DB::table('whatsapp_webhook_events')->where('id', $id)->whereNull('processed_at')\n                         ->update(['processed_at' => now('UTC')]);\n"
+    },
+    {
+      "path": "app/Support/CustomerCrmRouteCheck.php",
+      "before": null,
+      "after": "486cc777fbdc74798dc4cdeedf98ea34888de1cfeadc87d5bf3f42394ef84ef5",
+      "patch": ""
     },
     {
       "path": "app/Support/WhatsAppInboxProtocol.php",

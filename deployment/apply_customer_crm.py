@@ -157,11 +157,21 @@ def main():
                     published.append((target, before, after, mode))
                 commands = [['route:clear'], ['config:clear'], ['view:clear']]
                 commands += [['migrate', '--force', '--path=' + path] for path in manifest['migrations']]
-                commands += [['crm:customers-sync', '--bootstrap'], ['route:list', '--path=admin/customers']]
+                commands += [['crm:customers-sync', '--bootstrap'], ['crm:check', '--activate-phone-cutover']]
                 with (backup / 'install.log').open('wb') as log:
                     for command in commands:
                         result = run([args.php, str(root / 'artisan'), *command], cwd=root, timeout=600)
                         log.write(result.stdout + result.stderr)
+                        if command[0] == 'crm:check':
+                            # This command emits only a redacted route contract report.
+                            for line in result.stdout.decode('utf-8', errors='replace').splitlines():
+                                try:
+                                    report = json.loads(line)
+                                except ValueError:
+                                    continue
+                                if isinstance(report, dict) and type(report.get('ok')) is bool:
+                                    print('CRM_ROUTE_CHECK ' + json.dumps({key: report[key] for key in
+                                        ('ok', 'verified_routes', 'requests_dispatched', 'reason', 'error_type') if key in report}), flush=True)
                         require(result.returncode == 0, 'APPLICATION_CHECK_FAILED: ' + command[0])
             except BaseException:
                 for target, before, after, mode in reversed(published):
