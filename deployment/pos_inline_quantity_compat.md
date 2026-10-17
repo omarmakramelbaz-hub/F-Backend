@@ -12,4 +12,6 @@ The installer continues to publish only its twelve declared source targets. It d
 
 Patches are built from pinned Git objects, staged and checked before publication. Known prerequisite overlays are normalized only in temporary proof storage. Unknown overlapping edits remain blocked. Unrelated compatible edits survive, and rerunning an installed release is a no-op. The existing private backups, publication ordering and coherent rollback remain in use.
 
+The phone stylesheet is a read-only presentation dependency. Its existing regular, nonempty file is required, but its dimensions and historical CSS hunks are not a prerequisite for invoice mutations. This allows the deployed `642dbfe` menu layout and later presentation customizations to remain byte-for-byte intact. The feature-only phone script patch also preserves `642dbfe`'s independent settlement-consent changes. DOM, JavaScript, pricing and print-policy checks continue to reject incompatible changes.
+
 No migration or broad cache clear is performed. The real Laravel route, schema, transaction-engine and Blade preflight runs on the server before publication; isolated tests stub that database-dependent probe.

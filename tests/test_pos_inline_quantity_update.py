@@ -141,7 +141,9 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         unified = self.before[self.client].replace(b'Quantity: old', b'Quantity: old\n// Unified board: preserved')
         self.publish({self.client: unified})
         self.workflow_style = 'public/dashboard/css/phone-orders.css'
-        self.publish({self.workflow_style: self.body('Workflow style: unified')})
+        self.workflow_dom = 'resources/views/admin/phone_orders/index.blade.php'
+        self.publish({self.workflow_style: self.body('Workflow style: unified'),
+                      self.workflow_dom: self.body('Unified DOM: required contract')})
         unified_revision = self.commit('Known installed unified phone release')
         self.git('switch', '-q', 'live-fixture')
         self.before[self.service] = lifecycle.replace(b'OperatingDay: old', b'OperatingDay: live')
@@ -176,12 +178,13 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         self.git('switch', '-q', 'live-fixture')
         self.before[self.client] = workflow
         self.after[self.client] = workflow.replace(b'Quantity: old', b'Quantity: inline')
-        for path, body in ((self.workflow_style, style), (self.workflow_helper, helper)):
+        dom = installer.source(self.root, installer.UNIFIED_PHONE_REVISION, self.workflow_dom)
+        for path, body in ((self.workflow_style, style), (self.workflow_helper, helper), (self.workflow_dom, dom)):
             self.before[path] = self.after[path] = body
         self.manifest[self.client] = ('workflow', 'M')
         settings = {'WORKFLOW_PHONE_REVISION': workflow_revision,
-                    'WORKFLOW_PHONE_PREREQUISITES': (self.client, self.workflow_style, self.workflow_helper),
-                    'UNIFIED_PHONE_PREREQUISITES': (self.workflow_style,)}
+                    'WORKFLOW_PHONE_PREREQUISITES': (self.client, self.workflow_helper),
+                    'UNIFIED_PHONE_PREREQUISITES': (self.workflow_dom,)}
         for name, value in settings.items():
             previous = getattr(installer, name)
             setattr(installer, name, value)
@@ -209,6 +212,33 @@ class InlineQuantityDeploymentTests(unittest.TestCase):
         self.assertNotIn(self.workflow_style, targets)
         self.assertIsNone(self.apply())
         self.assertEqual(len(self.receipts()), 1)
+
+    def test_independent_layout_replacement_and_future_sizing_are_preserved(self):
+        self.released_workflow_fixture()
+        layout = b'/* New separately released layout */\n#phone-orders .ph-products{grid-template-columns:repeat(2,1fr)}\n'
+        layout += b'/* Future sizing overlay and unrelated EOF comment */\n@media(min-width:1400px){.ph-products{gap:18px}}\n'
+        (self.root / self.workflow_style).write_bytes(layout)
+        expected = dict(self.after)
+        expected[self.workflow_style] = layout
+        self.apply()
+        self.assertEqual(self.snapshots(), expected)
+        self.assertIsNone(self.apply())
+        self.assertEqual((self.root / self.workflow_style).read_bytes(), layout)
+        receipt = json.loads(self.receipts()[0].read_text())
+        self.assertNotIn(self.workflow_style, {entry['path'] for entry in receipt['files']})
+
+    def test_missing_layout_or_true_dom_contract_still_stops(self):
+        self.released_workflow_fixture()
+        for path, changed, reason in ((self.workflow_style, b' \n', 'PHONE_LAYOUT_STYLE_REQUIRED'),
+                                      (self.workflow_dom, self.body('Unified DOM: removed contract'),
+                                       'UNIFIED_PHONE_PREREQUISITE_CONFLICT')):
+            self.publish(self.before)
+            (self.root / path).write_bytes(changed)
+            before = self.snapshots()
+            with self.assertRaisesRegex(RuntimeError, reason):
+                self.apply()
+            self.assertEqual(self.snapshots(), before)
+            self.assertEqual(self.receipts(), [])
 
     def test_known_workflow_unknown_helper_or_missing_phone_hunk_stops(self):
         self.released_workflow_fixture()
