@@ -239,7 +239,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         }else{
         $total=0;
         foreach($this->carts as $cart){
-            $cart_total=$cart->updated_total?$cart->updated_total:$cart->price*$cart->qty;
+            $cart_total=$cart->updated_total!==null?$cart->updated_total:$cart->price*$cart->qty;
             $total=$total+($cart_total);
         }}
         // dd($this->carts->count());
@@ -313,7 +313,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         return round($app_percentage,2);
     }
     public function getGrandTotalAttribute(){
-        if($this->updated_total!=null){
+        if($this->updated_total!==null){
             $total=$this->updated_total;
         }else{
             $total=$this->total;

@@ -3,12 +3,14 @@
         return is_numeric($value) ? number_format((float) $value, 2, '.', ',') : $value;
     };
     $number = ltrim((string) $card['number'], '#');
+    $inlineItems = !$printing && !empty($card['urls']['items']);
 @endphp
 <!doctype html>
 <html lang="ar" dir="rtl" data-dashboard-receipt="order-board">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @if($inlineItems)<meta name="csrf-token" content="{{ csrf_token() }}">@endif
     <title>طلب {{ $number }} · {{ $card['app_label'] }}</title>
     <style>
         *{box-sizing:border-box}
@@ -24,6 +26,7 @@
         .courier-phone{display:block}.items{width:100%;border-collapse:collapse;table-layout:fixed;margin:16px 0}.item-name-col{width:62%}.quantity-col{width:12%}.amount-col{width:26%}
         .items th,.items td{padding:9px 7px;text-align:right;border-bottom:1px solid #e8eaf1;vertical-align:top}.items th{color:#66758b;font-size:12px}.items .item-quantity{text-align:center}.items .item-amount{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums}
         .item-name{overflow-wrap:anywhere}.item-option{display:block;color:#69768b;font-size:12px;margin-top:2px}
+        .is-editable .item-name-col{width:50%}.is-editable .quantity-col{width:24%}.app-line-quantity{width:100%;max-width:110px;min-width:0;padding:7px 2px;border:1px solid #bdc8d8;border-radius:6px;text-align:center;font:inherit;font-weight:bold;direction:ltr;background:#fff}.app-line-quantity:focus{outline:2px solid #e4ab55;outline-offset:1px}.app-line-unit{display:block;font-size:10px;color:#69768b}.app-invoice-message{padding:9px 12px;background:#fff5df;border-radius:6px;white-space:pre-line}.controls button:disabled{opacity:.5;cursor:default}
         .summary{border-top:1px solid #d4dae4;padding-top:10px;margin-top:12px}.summary-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0}.summary-row>span:last-child{white-space:nowrap}
         .total{font-size:20px;border-top:2px solid #172137;margin-top:7px;padding-top:9px;font-weight:bold}.price-pending{font-size:13px;font-weight:normal;color:#69768b}
         .notes{white-space:pre-line;overflow-wrap:anywhere;background:#faf6ed;padding:10px;border-radius:6px;margin:12px 0;font-size:13px}.notes strong{display:block}
@@ -40,12 +43,12 @@
             .items{margin:8px 0;width:100%;font-size:10px}.items th,.items td{padding:5px 2px;border-color:#aaa}.items th{font-size:9px;color:#000;font-weight:bold}.items .item-amount{font-size:9.5px}.item-option{color:#000;font-size:9px;margin-top:1px}.items thead{display:table-header-group}.items tr{break-inside:avoid;page-break-inside:avoid}
             .notes{background:#fff;border:1px dashed #888;border-radius:0;padding:5px;margin:8px 0;font-size:9px;line-height:1.45}
             .summary{padding-top:5px;margin-top:7px;border-color:#000;break-inside:avoid;page-break-inside:avoid}.summary-row{font-size:10px;gap:5px;padding:2px 0}.total{font-size:13px;border-color:#000;margin-top:5px;padding-top:6px}.price-pending{font-size:9px;color:#000}
-            .controls,.action-note{display:none!important}a{color:inherit;text-decoration:none}
+            .controls,.action-note,.app-invoice-message{display:none!important}.app-line-quantity{border:0;padding:0;background:transparent}a{color:inherit;text-decoration:none}
         }
     </style>
 </head>
 <body>
-<main class="receipt">
+<main class="receipt @if($inlineItems) is-editable @endif" data-app-invoice @if($inlineItems) data-app-items-url="{{ $card['urls']['items'] }}" @endif @if(!empty($card['urls']['print'])) data-app-print-url="{{ $card['urls']['print'] }}" @endif>
     <header class="heading">
         <div class="heading-copy">
             <h1>طلب <bdi class="order-number">#{{ $number }}</bdi></h1>
@@ -70,23 +73,28 @@
             <thead><tr><th>الصنف</th><th class="item-quantity">الكمية</th><th class="item-amount">الإجمالي</th></tr></thead>
             <tbody>
             @foreach($card['items'] as $item)
-                <tr><td class="item-name">{{ $item['name'] }}@if(!empty($item['option_label']))<span class="item-option">{{ $item['option_label'] }}</span>@endif</td>
-                    <td class="item-quantity"><bdi class="number">{{ $item['quantity'] }}</bdi></td>
-                    <td class="item-amount"><bdi class="number">{{ isset($item['line_total']) ? $money($item['line_total']) : '—' }}</bdi></td></tr>
+                <tr data-app-line-id="{{ $item['line_id'] ?? '' }}"><td class="item-name">{{ $item['name'] }}@if(!empty($item['option_label']))<span class="item-option">{{ $item['option_label'] }}</span>@endif</td>
+                    <td class="item-quantity" data-app-quantity><bdi class="number">{{ $item['display_quantity'] ?? $item['quantity'] }}</bdi>@if(!empty($item['quantity_unit']))<small class="app-line-unit">{{ $item['quantity_unit'] }}</small>@endif</td>
+                    <td class="item-amount"><bdi class="number" data-app-line-total>{{ isset($item['line_total']) ? $money($item['line_total']) : '—' }}</bdi></td></tr>
             @endforeach
             </tbody>
         </table>
     @endif
     @if(!empty($card['notes']))<div class="notes"><strong>ملاحظات الطلب</strong>{{ $card['notes'] }}</div>@endif
-    <div class="summary">
+    <div class="summary" data-app-summary>
         @foreach($card['totals'] ?? [] as $amount)
             <div class="summary-row"><span>{{ $amount['label'] }}</span><span><bdi class="number">{{ $money($amount['amount']) }}</bdi> ج.م</span></div>
         @endforeach
         <div class="summary-row total"><span>إجمالي الطلب</span><span>@if(isset($card['total']))<bdi class="number">{{ $money($card['total']) }}</bdi> ج.م@else<span class="price-pending">لم يتم الاتفاق</span>@endif</span></div>
     </div>
     @if(!empty($card['action_note']))<p class="action-note">{{ $card['action_note'] }}</p>@endif
+    @if($inlineItems)<p class="app-invoice-message" data-app-message role="status" hidden></p>@endif
     <div class="controls">
-        <button type="button" onclick="window.print()">طباعة الطلب</button>
+        @if($inlineItems)<button type="button" data-app-save disabled>حفظ الوزن والكمية</button><button type="button" data-app-reload hidden>إعادة تحميل الفاتورة</button>@endif
+        @if(!empty($card['urls']['print']))
+            @if($printing)<button type="button" onclick="window.print()">طباعة الطلب</button>
+            @else<button type="button" data-app-print @if($inlineItems) disabled @endif>طباعة الطلب</button>@endif
+        @endif
         @if(!$printing)<a href="{{ route('orders.applies') }}">متابعة الطلبات</a>@endif
         @if(!$printing)
             @foreach($card['actions'] as $action)
@@ -102,6 +110,7 @@
         @endif
     </div>
 </main>
+@if(!$printing)<script src="{{ asset('dashboard/js/order-board-detail.js') }}?v={{ filemtime(public_path('dashboard/js/order-board-detail.js')) }}" defer></script>@endif
 @if($printing && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body>
 </html>

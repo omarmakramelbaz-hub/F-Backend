@@ -33,12 +33,19 @@ class TakeawayCatalog
         $perPage = (int) ($values['per_page'] ?? 40);
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min($lastPage, (int) ($values['page'] ?? 1));
-        $rows = $query->orderBy($this->nameColumn($branch))->orderBy('id')->offset(($page - 1) * $perPage)->limit($perPage)->get();
+        // The application-order editor requests current reads while holding its order lock.
+        // Normal browsing remains an unlocked, paginated catalog read.
+        $lockCatalog = ($values['lock_catalog'] ?? false) === true;
+        $rowsQuery = $query->orderBy($this->nameColumn($branch))->orderBy('id')->offset(($page - 1) * $perPage)->limit($perPage);
+        if ($lockCatalog) $rowsQuery->lockForUpdate();
+        $rows = $rowsQuery->get();
         $images = $branch['kind'] === 'f' ? $this->images($rows->pluck('id')->all()) : [];
         $this->listingFeatures = [];
         if ($branch['kind'] === 'f' && $this->access->has('product_features', 'product_id')) {
             $productIds = $rows->pluck('product_id')->filter()->unique()->all();
-            foreach (DB::table('product_features')->whereIn('product_id', $productIds)->whereIn('name', array_keys(self::FEATURES))->orderBy('id')->get() as $feature) {
+            $featuresQuery = DB::table('product_features')->whereIn('product_id', $productIds)->whereIn('name', array_keys(self::FEATURES))->orderBy('id');
+            if ($lockCatalog) $featuresQuery->lockForUpdate();
+            foreach ($featuresQuery->get() as $feature) {
                 $this->listingFeatures[(int) $feature->id] = $feature;
             }
         }

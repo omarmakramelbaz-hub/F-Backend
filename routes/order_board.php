@@ -12,4 +12,6 @@ Route::middleware(['lang', 'IsAdmin'])->prefix('admin/order-board')
     Route::get('{source}/{id}', [OrderBoardController::class, 'details'])->name('order-board.details');
     Route::get('{source}/{id}/print', [OrderBoardController::class, 'print'])->name('order-board.print');
     Route::post('{source}/{id}/action', [OrderBoardController::class, 'action'])->name('order-board.action');
+    Route::get('{source}/{id}/items', [OrderBoardController::class, 'items'])->name('order-board.items');
+    Route::post('{source}/{id}/items', [OrderBoardController::class, 'saveItems'])->name('order-board.items.save');
 });

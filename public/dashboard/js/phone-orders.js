@@ -171,6 +171,14 @@
     function post(url, payload, signal) { return fetch(endpoint(url), { method: 'POST', credentials: 'same-origin', signal: signal, headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) }); }
     function locked() { return writing || uncertain || locating; }
     function canWrite() { return !!(permissions.can_checkout || permissions.can_operate); }
+    function editableTicket(ticket) { return ticket.payment_status === 'unpaid' && !ticket.bill_locked && !['cancelled', 'finished', 'paid', 'awaiting_bill'].includes(ticket.status); }
+    function closedEditing() { return !!editing && !editableTicket(editing); }
+    function clearClosedEditing(ticket) {
+        if (!editing || !ticket || Number(editing.id) !== Number(ticket.id) || editing.branch.value !== ticket.branch.value || editableTicket(ticket)) return false;
+        editGeneration++; abort('edit'); modalGeneration++; abort('modal'); modal.hidden = true;
+        root.querySelector('[data-phone-modal-content]').replaceChildren(); resetDraft();
+        notify(text(ticket.bill_locked ? 'bill_locked' : 'forbidden')); return true;
+    }
     function lock() {
         root.classList.toggle('is-locked', locked());
         root.querySelectorAll('input,textarea,select,button').forEach(function (control) {
@@ -181,12 +189,12 @@
         branchSelect.disabled = locked() || !!boot.receiver_branch;
         root.querySelectorAll('[data-phone-product]').forEach(function (button) { button.disabled = button.disabled || step !== 'products' || !canWrite(); });
         root.querySelectorAll('[data-phone-remove]').forEach(function (control) { control.disabled = control.disabled || !!editing && !!editing.kitchen_sent && cart.length <= 1; });
-        saveButton.disabled = step !== 'products' || locked() || !loaded || !cart.length || !quote || !canWrite() || !customerConsent || !customerConsent.checked || editing && !dirty;
+        saveButton.disabled = step !== 'products' || locked() || closedEditing() || !loaded || !cart.length || !quote || !canWrite() || !customerConsent || !customerConsent.checked || editing && !dirty;
         saveButton.querySelector('span').textContent = text(writing ? 'saving' : editing ? 'save_changes' : 'save_order');
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
         root.querySelector('[data-phone-page="next"]').disabled = locked() || catalogPage >= Number(pagination.last_page || 1);
         root.querySelector('[data-phone-batch-finish]').disabled = locked() || !canWrite() || !selectedOrders.size;
-        if (!canWrite()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-key],[data-phone-customer-consent],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
+        if (!canWrite() || closedEditing()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-key],[data-phone-customer-consent],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
     }
     function totals(value) {
         ['subtotal', 'discount', 'tax', 'service', 'total', 'delivery_fee'].forEach(function (key) { var amount = value && value[key]; if (key === 'delivery_fee' && amount === undefined && value) amount = value.delivery; root.querySelector('[data-phone-total="' + key + '"]').textContent = value ? money(amount || '0.00') : '—'; });
@@ -204,14 +212,28 @@
         var currentSignature = signature(current.items, current.discount, current.discount_reason, current.delivery_fee), previousSignature = signature(previous.items, previous.discount, previous.discount_reason, editing.delivery_fee || editing.delivery || '0.00');
         return currentSignature !== null && previousSignature !== null && currentSignature === previousSignature;
     }
-    function changed(affectsQuote) { if (locked()) return; dirty = true; requestKey = uuid(); if (affectsQuote) invalidateQuote(); else lock(); }
+    function changed(affectsQuote) { if (locked() || closedEditing()) return; dirty = true; requestKey = uuid(); if (affectsQuote) invalidateQuote(); else lock(); }
+    function commitLineQuantity(input) {
+        var line = cart[Number(input.dataset.phoneLineQuantity)];
+        if (!line) return false;
+        if (locked() || !canWrite() || closedEditing()) { input.value = line.quantity; return false; }
+        var amount = quantity(input.value, line.mode);
+        if (!amount) { input.value = line.quantity; notify(text('invalid_quantity')); input.focus(); input.select(); return false; }
+        input.value = amount.value;
+        if (amount.value !== line.quantity) { line.quantity = amount.value; changed(true); }
+        return true;
+    }
+    function commitPendingLineQuantity() {
+        var input = document.activeElement;
+        return !input || !root.contains(input) || !input.hasAttribute('data-phone-line-quantity') || commitLineQuantity(input);
+    }
     function invalidateQuote() {
         quoteGeneration++; abort('quote'); clearTimeout(quoteTimer); quote = sameFinancialDraft() ? editing : null; totals(quote); renderLines(); lock();
         if (!quote && cart.length && branch && loaded) quoteTimer = setTimeout(calculate, 180);
     }
     async function calculate() {
         if(!deliveryLocation)return;
-        if (disposed || locked() || !cart.length || !branch || !loaded) return;
+        if (disposed || locked() || closedEditing() || !cart.length || !branch || !loaded) return;
         if (sameFinancialDraft()) { quote = editing; totals(quote); renderLines(); lock(); notify(''); return; }
         var generation = ++quoteGeneration, controller = begin('quote'), draft = payload();
         try {
@@ -249,7 +271,7 @@
         customerConsent.focus(); return true;
     }
     function quantityKey(key) {
-        if (locked() || !canWrite() || step !== 'products') return;
+        if (locked() || !canWrite() || closedEditing() || step !== 'products') return;
         if (key === 'confirm') {
             if (!quantity(quantityInput.value, 'weight')) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
             replaceQuantity = true;
@@ -275,7 +297,7 @@
         return [{ id: '', label: text('base'), price: product.unit_price || product.price }].concat(product.options || []);
     }
     function chooseProduct(product) {
-        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || !modal.hidden) return;
+        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing() || !modal.hidden) return;
         if (!quantity(quantityInput.value, automaticQuantity(product))) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
         var choices = productChoices(product);
         if (choices.length <= 1) { addProduct(product); return; }
@@ -286,13 +308,13 @@
             control.appendChild(element('span', '', option.label));
             control.appendChild(element('bdi', '', money(option.price) + ' ' + text('currency')));
             control.addEventListener('click', function () {
-                if (selected || modal.hidden || generation !== modalGeneration || selectedBranch !== branch || locked() || !canWrite()) return;
+                if (selected || modal.hidden || generation !== modalGeneration || selectedBranch !== branch || locked() || !canWrite() || closedEditing()) return;
                 selected = true; closeModal(); addProduct(product, option.id || Array.isArray(product.preparation_options) ? option : null);
             }); list.appendChild(control);
         }); content.appendChild(list); list.firstElementChild.focus();
     }
     function addProduct(product, option) {
-        if (!product || !product.available || step !== 'products' || locked() || !canWrite()) return;
+        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing()) return;
         var itemMode = automaticQuantity(product);
         var amount = quantity(quantityInput.value, itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
         var pending = { product: product, option: option || null, quantity: amount.value, mode: itemMode };
@@ -482,6 +504,7 @@
             if(disposed||generation!==orderGeneration)return;
             if(result.branch!==boardScope()||!result.columns||!Array.isArray(result.companies))throw Error(text('list_error'));
             ['preparing','courier','finished'].forEach(function(stage){var column=result.columns[stage];if(!column||!Array.isArray(column.items)||!column.pagination||column.items.some(function(t){return !validTicket(t,undefined,true);}))throw Error(text('list_error'));boardPages[stage]=column.pagination.page;});
+            if (editing) ['preparing', 'courier', 'finished'].some(function (stage) { return result.columns[stage].items.some(clearClosedEditing); });
             var current=new Map(result.columns.courier.items.map(function(t){return[t.id,t];}));var removed=false;
             selectedOrders.forEach(function(t,id){var next=current.get(id);if(!next||next.revision!==t.revision){selectedOrders.delete(id);removed=true;}});
             if(removed)notify(text('selection_changed'));
@@ -572,7 +595,9 @@
                 var batch=result.batch,ids=function(items,key){return items.map(function(t){return Number(t[key]);}).sort(function(a,b){return a-b;}).join(',');};
                 if(!batch||!batch.branch||batch.branch.value!==operation.payload.branch||batch.idempotency_key!==operation.payload.idempotency_key||scaled(batch.total,2)!==scaled(operation.payload.total,2)||!Array.isArray(batch.items)||ids(batch.items,'ticket_id')!==ids(operation.payload.items,'id')||!Number.isSafeInteger(batch.id)||!new URL(endpoint(batch.print_url)).pathname.endsWith('/phone-orders/batches/'+batch.id+'/print'))throw Error(text('uncertain'));
             }
-            writing=false;uncertain=false;frozen=null;modal.hidden=true;selectedOrders.clear();updateBatchTotal();notify(text(operation.type==='batch'?'batch_completed':'company_dispatched'),true);loadOrders();
+            writing=false;uncertain=false;frozen=null;modal.hidden=true;
+            if (operation.type === 'batch' && editing && result.batch.items.some(function (item) { return Number(item.ticket_id) === Number(editing.id); })) clearClosedEditing(Object.assign({}, editing, { payment_status: 'paid', status: 'finished' }));
+            selectedOrders.clear();updateBatchTotal();notify(text(operation.type==='batch'?'batch_completed':'company_dispatched'),true);loadOrders();
             if(operation.type==='batch'){if(branch)loadCatalog(catalogPage);print(result.batch.print_url);}return;
         }
         if(operation.type==='customer'){
@@ -616,7 +641,8 @@
     function save() {
         if (step !== 'products') return;
         if (locked()) { if (uncertain && frozen) execute(frozen); return; }
-        if (!branch || !cart.length || !canWrite()) return;
+        if (!branch || !cart.length || !canWrite() || closedEditing()) return;
+        if (!commitPendingLineQuantity()) return;
         if (!customerConsent || !customerConsent.checked) { notify(text('consent_required')); if (customerConsent) customerConsent.focus(); return; }
         if (!quote) { notify(text('quote_required'), false, true); return; }
         if (!fields.customer_name.value.trim() || !fields.customer_phone.value.trim() || !fields.address.value.trim()) { notify(text('required_customer')); return; }
@@ -636,7 +662,7 @@
         var controller = begin('edit'), requestedBranch = branch, generation = ++editGeneration;
         try {
             var ticket = await fetchTicket(id, controller.signal); if (disposed || generation !== editGeneration || requestedBranch !== branch || locked()) return;
-            if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || ticket.bill_locked || !canWrite()) { notify(text('forbidden')); return; }
+            if (!editableTicket(ticket) || !canWrite()) { notify(text('forbidden')); return; }
             var origin=ticketDeliveryOrigin(ticket);
             if(ticket.branch.value!==branch){branchSelect.value=ticket.branch.value;if(branchSelect.selectize)branchSelect.selectize.setValue(ticket.branch.value,true);changeBranch(true);}
             resetDraft(false); editing = ticket;setDeliveryOrigin(origin,ticket.delivery_location); fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
@@ -681,7 +707,7 @@
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
         if (control.dataset.phoneView) { if (control.dataset.phoneView === 'compose' && view === 'compose') { if (!dirty || window.confirm(text('new_warning'))) resetDraft(); } return switchView(control.dataset.phoneView); }
         if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
-        if (control.dataset.phoneRemove !== undefined) { if (editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
+        if (control.dataset.phoneRemove !== undefined) { if (closedEditing() || editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.hasAttribute('data-phone-refresh')) return loadOrders();
@@ -689,8 +715,8 @@
     });
     listen(root, 'change', function (event) {
         var input = event.target;
-        if (locked()) return;
-        if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
+        if (input.dataset.phoneLineQuantity !== undefined) { commitLineQuantity(input); return; }
+        if (locked() || !canWrite() || closedEditing()) { var unchanged = input.dataset.phoneLineOption !== undefined && cart[Number(input.dataset.phoneLineOption)]; if (unchanged) input.value = String(unchanged.option && unchanged.option.id || ''); return; }
         if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option, selectedOption = productChoices(selectedLine.product).find(function (option) { return String(option.id || '') === input.value; }); if (!selectedOption) { input.value = String(previousOption && previousOption.id || ''); return; } selectedLine.option = selectedOption.id || Array.isArray(selectedLine.product.preparation_options) ? selectedOption : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
     Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone'){customerRef=null;if(customerConsent)customerConsent.checked=false;} if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
@@ -733,7 +759,8 @@
             if (step === 'products' && cart.length) {
                 if (event.target.matches('select')) return;
                 event.preventDefault();
-                if (locked() || !canWrite()) return;
+                if (locked() || !canWrite() || closedEditing()) return;
+                if (event.target.hasAttribute('data-phone-line-quantity') && !commitLineQuantity(event.target)) return;
                 if (event.target === saveButton) { if (!saveButton.disabled) save(); return; }
                 if (event.target === customerConsent) {
                     if (!customerConsent.checked) { customerConsent.checked = true; changed(false); return; }

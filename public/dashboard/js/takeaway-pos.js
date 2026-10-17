@@ -316,8 +316,8 @@
     function lock() {
         if (isLocked()) consentEnterAffirmed = false;
         root.classList.toggle('is-checkout-locked', isLocked()); root.classList.toggle('is-sold', sold);
-        root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-customer-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category]').forEach(function (control) {
-            control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options]') && !permissions.can_checkout;
+        root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-customer-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category],[data-pos-line-quantity]').forEach(function (control) {
+            control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options],[data-pos-line-quantity]') && !permissions.can_checkout;
         });
         if (branchSelect.selectize) { if (isLocked()) branchSelect.selectize.disable(); else branchSelect.selectize.enable(); }
         finish.disabled = quarantined || registerLocked || selling || sold || !cart.length || !permissions.can_checkout || !uncertain && !quote;
@@ -375,7 +375,7 @@
             var title = node('span'), fullName = snapshot.name || line.product.name, nameNode = node('span', 'tp-line-name', fullName); nameNode.title = fullName; title.appendChild(nameNode);
             var optionText = lineOptionLabel(line, snapshot);
             if (optionText) { var optionNode = node('small', 'tp-line-option', optionText); optionNode.title = optionText; title.appendChild(optionNode); } copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
-            var amount = node('td'); amount.appendChild(node('bdi', 'tp-line-quantity', line.quantity)); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode, line.product))); row.appendChild(amount);
+            var amount = node('td'); var count = node('input', 'tp-line-quantity-input'); count.type = 'text'; count.inputMode = line.mode === 'piece' ? 'numeric' : 'decimal'; count.maxLength = 10; count.value = line.quantity; count.dataset.posLineQuantity = String(index); count.setAttribute('aria-label', label('quantity') + ' ' + fullName); count.disabled = isLocked() || !permissions.can_checkout; amount.appendChild(count); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode, line.product))); row.appendChild(amount);
             var price = snapshot.unit_price || line.option && line.option.price || line.product.unit_price || line.product.price;
             var priceCell = node('td'); priceCell.appendChild(node('bdi', '', money(price))); row.appendChild(priceCell);
             var cents = minor(price), scaled = decimalInput(line.quantity, 3);
@@ -385,6 +385,16 @@
         });
         root.querySelector('[data-pos-empty-invoice]').hidden = cart.length > 0;
         renderInvoiceTabs();
+    }
+    function commitLineQuantity(input) {
+        if (!input || !root.contains(input) || !input.hasAttribute('data-pos-line-quantity')) return true;
+        var line = cart[Number(input.dataset.posLineQuantity)]; if (!line) return false;
+        if (isLocked() || !permissions.can_checkout) { input.value = line.quantity; return false; }
+        var amount = quantity(input.value, line.mode);
+        if (!amount) { input.value = line.quantity; notify(label('invalid_quantity')); return false; }
+        input.value = amount.value;
+        if (amount.value !== line.quantity) { line.quantity = amount.value; invalidateQuote(); renderLines(); }
+        return true;
     }
     function totals(value) {
         root.querySelectorAll('[data-pos-total]').forEach(function (element) { element.textContent = value && value[element.dataset.posTotal] !== undefined ? money(value[element.dataset.posTotal]) : '—'; });
@@ -562,6 +572,7 @@
     async function checkout() {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked || selling || sold || !cart.length || !permissions.can_checkout) return;
+        if (!uncertain && !commitLineQuantity(document.activeElement)) return;
         var previouslyUncertain = uncertain;
         if (!uncertain) {
             if (!quote) { notify(label('quote_required'), false, true); return; }
@@ -719,6 +730,7 @@
         if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
     });
     listen(root, 'change', function (event) {
+        if (event.target.hasAttribute('data-pos-line-quantity')) { commitLineQuantity(event.target); return; }
         if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
         if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
         if (event.target === customerConsent) {
@@ -744,6 +756,7 @@
             && (event.target === document.body || event.target === document.documentElement || event.target === root || !!event.target.closest('.tp-catalog,.tp-weight'))) {
             event.preventDefault(); if (!isLocked() && permissions.can_checkout) key('clear'); return;
         }
+        if (event.key === 'Enter' && event.target.hasAttribute('data-pos-line-quantity')) { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) commitLineQuantity(event.target); return; }
         if (event.key === 'F9') { event.preventDefault(); checkout(); return; }
         if (checkoutEnter(event)) return;
         if (event.target.matches('input,textarea,select,[contenteditable]')) return;

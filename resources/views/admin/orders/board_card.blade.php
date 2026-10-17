@@ -53,6 +53,9 @@
         <span class="ob-total-amount"><span>{{ __('order_board.total') }}</span>@if($total !== null)<strong><bdi>{{ $total }}</bdi> <small>{{ __('order_board.currency') }}</small></strong>@else<span class="ob-price-pending">{{ __('order_board.price_pending') }}</span>@endif</span>
     </div>
     <div class="ob-order-tools">
+        @if(!empty($card['urls']['items']))
+            <button type="button" class="ob-edit-items" data-edit-items="{{ $card['urls']['items'] }}"><i class="fas fa-pencil-alt" aria-hidden="true"></i>{{ __('order_board.edit_items') }}</button>
+        @endif
         @if(!empty($card['urls']['details']))
             <a href="{{ $card['urls']['details'] }}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('order_board.details') }}</a>
         @endif
