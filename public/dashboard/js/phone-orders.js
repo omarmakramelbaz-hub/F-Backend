@@ -535,8 +535,8 @@
         if (operation.type === 'save' && !recovered && !result.replayed && result.ticket.quote_hash !== operation.payload.quote_hash) throw new Error(text('uncertain'));
         if (operation.type === 'save' && ticketDeliveryOrigin(result.ticket)!==(operation.payload.delivery_origin_branch||'')) throw new Error(text('uncertain'));
         if ((operation.type === 'save' && operation.payload.send_to_kitchen || operation.type === 'action' && operation.payload.action === 'send_kitchen') && !result.ticket.kitchen_sent) throw new Error(text('uncertain'));
-        var receiptPath = operation.type === 'settle' && result.receipt_url && new URL(endpoint(result.receipt_url)).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
-        if (operation.type === 'settle' && (!receiptPath || !result.receipt || Number(receiptPath[1]) !== Number(result.receipt.id) || !Number.isSafeInteger(Number(result.receipt.id)) || !result.receipt_url || !result.receipt.branch || result.receipt.branch.value !== operation.payload.branch || result.receipt.idempotency_key !== operation.payload.idempotency_key || scaled(result.receipt.total, 2) !== scaled(operation.total, 2))) throw new Error(text('uncertain'));
+        var receiptURL = result.first_print_url || result.receipt_url, receiptPath = operation.type === 'settle' && receiptURL && new URL(endpoint(receiptURL)).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
+        if (operation.type === 'settle' && (!result.receipt || receiptURL && (!receiptPath || Number(receiptPath[1]) !== Number(result.receipt.id)) || !Number.isSafeInteger(Number(result.receipt.id)) || Number(result.receipt.id) < 1 || !result.receipt.branch || result.receipt.branch.value !== operation.payload.branch || result.receipt.idempotency_key !== operation.payload.idempotency_key || scaled(result.receipt.total, 2) !== scaled(operation.total, 2))) throw new Error(text('uncertain'));
         if (operation.type === 'action' && operation.payload.action === 'send_kitchen' && !result.kitchen_print_url && !(result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url)) && !result.ticket.kitchen_print_url) throw new Error(text('uncertain'));
     }
     function applyWrite(result, operation, recovered) {
@@ -687,6 +687,11 @@
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
     listen(document, 'keydown', function (event) {
         if (disposed || event.defaultPrevented) return;
+        if (event.key === 'Escape' && modal.hidden && view === 'compose' && step === 'products'
+            && (quantityShortcutContext(event.target) || event.target === root.querySelector('[data-phone-quantity]'))
+            && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+            event.preventDefault(); if (!locked() && canWrite()) { quantityKey('clear'); quantityInput.select(); } return;
+        }
         var physicalKey = event.key === 'Backspace' ? 'backspace' : /^[0-9.]$/.test(event.key) ? event.key : '';
         if (physicalKey && modal.hidden && view === 'compose' && step === 'products' && quantityShortcutContext(event.target)
             && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {

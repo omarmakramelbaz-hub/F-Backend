@@ -151,7 +151,8 @@ class TakeawayService
                 'request_key'=>$payment['idempotency_key'], 'request_hash'=>$requestHash, 'kind'=>'sale',
                 'amount_cents'=>$delta, 'balance_cents'=>$newBalance, 'business_date'=>$businessDate, 'note'=>['dine'=>'فاتورة صالة','phone'=>'فاتورة دليفري بالتليفون'][$context['channel']??'']??'فاتورة تيك أواي',
                 'metadata'=>json_encode(['payment_method'=>$payment['payment_method'], 'total_cents'=>$total,
-                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,'channel'=>$context['channel']??'takeaway','tenders'=>array_values($tenders)]), 'created_at'=>$when, 'updated_at'=>$when,
+                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,'channel'=>$context['channel']??'takeaway','tenders'=>array_values($tenders),
+                    'receipt_print'=>app(PosReceiptPrinting::class)->newSaleMetadata((object) ($orderValues + ['id'=>$id]), $actor)]), 'created_at'=>$when, 'updated_at'=>$when,
             ]);
             $directory = app(CustomerDirectory::class);
             $paidAt = !empty($context['trusted_offline']) && !empty($context['paid_at']) ? $context['paid_at'] : $when;
@@ -170,7 +171,22 @@ class TakeawayService
         $row = DB::table('takeaway_orders')->where('id', $id)->first();
         abort_unless($row, 404);
         $this->access->branch($row->branch, $actor);
-        return $this->presentReceipt($row);
+        return $this->presentReceipt($row, $actor);
+    }
+
+    public function printReceipt(int $id, $actor, ?string $grant = null): array
+    {
+        $this->requireReady();
+        return $this->presentReceipt(app(PosReceiptPrinting::class)->consume($id, $actor, $grant), $actor);
+    }
+
+    /** Service-ticket settlement/recovery may recover the same unused initial grant. */
+    public function firstReceiptPrintUrl(int $id, $actor): ?string
+    {
+        $this->requireReady();
+        $row = DB::table('takeaway_orders')->where('id', $id)->first();
+        abort_unless($row, 404);
+        return app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
     }
 
     public function receipts(array $values, $actor): array
@@ -186,9 +202,14 @@ class TakeawayService
         $total = (clone $query)->count(); $perPage = (int) ($values['per_page'] ?? 20);
         $last = max(1, (int) ceil($total / $perPage)); $page = min($last, (int) ($values['page'] ?? 1));
         $items = [];
-        foreach ($query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get() as $row) $items[] = $this->presentReceipt($row);
+        $firstPrintUrl = null;
+        foreach ($query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get() as $row) {
+            $items[] = $this->presentReceipt($row, $actor);
+            if (!empty($values['idempotency_key'])) $firstPrintUrl = app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
+        }
         return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($branch['value'], $date), 'items'=>$items,
             'receipt'=>!empty($values['idempotency_key']) ? ($items[0] ?? null) : null,
+            'replayed'=>!empty($values['idempotency_key']) && count($items) > 0, 'first_print_url'=>$firstPrintUrl,
             'pagination'=>['page'=>$page, 'last_page'=>$last, 'per_page'=>$perPage, 'total'=>$total]];
     }
 
@@ -205,7 +226,7 @@ class TakeawayService
                 return ['id'=>(int) $entry->id, 'kind'=>$entry->kind, 'amount'=>Money::decimal((int) $entry->amount_cents),
                     'note'=>$entry->note, 'actor_id'=>(int) $entry->actor_id,
                     'order_id'=>$entry->order_id ? (int) $entry->order_id : null, 'created_at'=>$this->iso($entry->created_at),
-                    'metadata'=>json_decode($entry->metadata ?? 'null', true)];
+                    'metadata'=>PosReceiptPrinting::publicMetadata($entry->metadata ?? null)];
             })->all()];
     }
 
@@ -377,13 +398,14 @@ class TakeawayService
 
     private function checkoutResult(object $order, $actor, bool $replayed): array
     {
-        $receipt = $this->presentReceipt($order);
+        $receipt = $this->presentReceipt($order, $actor);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
+            'first_print_url'=>app(PosReceiptPrinting::class)->firstPrintUrl($order, $actor),
             'stock_balances'=>app(BranchStock::class)->saleBalances($order->branch,array_column($receipt['items'],'product_id')),
             'register'=>$this->presentTill($this->till($order->branch), $actor), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 
-    private function presentReceipt(object $row): array
+    private function presentReceipt(object $row, $actor): array
     {
         $items = DB::table('takeaway_order_items')->where('order_id', $row->id)->orderBy('id')->get()->map(fn ($line) => [
             'product_id'=>(int) $line->product_id, 'name'=>$line->name, 'option_id'=>$line->option_id, 'option_label'=>$line->option_label,
@@ -400,7 +422,9 @@ class TakeawayService
             'delivery'=>Money::decimal((int)($row->delivery_cents??0)), 'channel'=>$row->channel??'takeaway','ticket_id'=>isset($row->ticket_id)?(int)$row->ticket_id:null,
             'context'=>json_decode($row->context_snapshot??'[]',true)?:[],
             'payment_breakdown'=>array_map(fn($t)=>['method'=>$t['method'],'amount'=>Money::decimal((int)$t['amount_cents']),'confirmed'=>(bool)$t['confirmed'],'reference'=>$t['reference']??''],json_decode($row->tenders_snapshot??'[]',true)?:[]),
-            'status'=>'completed', 'details_url'=>route('takeaway.details', ['id'=>$row->id]), 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
+            'status'=>'completed', 'details_url'=>route('takeaway.details', ['id'=>$row->id]),
+            'can_reprint'=>$this->access->canReprintReceipts($actor),
+            'receipt_url'=>$this->access->canReprintReceipts($actor) ? route('takeaway.print', ['id'=>$row->id]) : null];
         foreach (['subtotal','discount','tax','total','cash_received','change'] as $name) $receipt[$name] = Money::decimal((int) $row->{$name.'_cents'});
         return $receipt;
     }

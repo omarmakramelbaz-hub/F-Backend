@@ -46,13 +46,13 @@ class PosServiceTicket
         if(!empty($values['status'])&&$values['status']!=='all')$query->where('status',$values['status']);
         if(!empty($values['search']))$query->where(function($q)use($values){$q->where('customer_name','like','%'.$values['search'].'%')->orWhere('customer_phone','like','%'.$values['search'].'%')->orWhere('waiter_name','like','%'.$values['search'].'%');});
         $total=(clone $query)->count();$per=(int)($values['per_page']??20);$last=max(1,(int)ceil($total/$per));$page=min($last,(int)($values['page']??1));
-        $items=[];foreach($query->orderByDesc('id')->offset(($page-1)*$per)->limit($per)->get() as $row)$items[]=$this->present($row,false);
+        $items=[];foreach($query->orderByDesc('id')->offset(($page-1)*$per)->limit($per)->get() as $row)$items[]=$this->present($row,false,$actor);
         return ['success'=>true,'branch'=>$branch,'items'=>$items,'tickets'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'per_page'=>$per,'total'=>$total]]+$this->summary($channel,$branch['value'],$actor);
     }
     public function show(string $channel,int $id,$actor): array
     {
         $this->tables->requireReady();$row=DB::table('pos_service_tickets')->where('id',$id)->where('channel',$channel)->first();abort_unless($row,404);$this->access->branch($row->branch,$actor);
-        return ['success'=>true,'ticket'=>$this->present($row)];
+        return ['success'=>true,'ticket'=>$this->present($row,true,$actor)];
     }
     public function save(string $channel,array $values,$actor): array
     {
@@ -197,10 +197,11 @@ class PosServiceTicket
         $snapshot=json_decode($row->snapshot,true);abort_unless($snapshot['channel']===$channel,404);
         return ['id'=>(int)$row->id,'ticket_id'=>(int)$row->ticket_id,'revision'=>(int)$row->revision,'created_at'=>$this->iso($row->created_at),'ticket'=>$snapshot];
     }
-    public function present(object $row,bool $full=true): array
+    public function present(object $row,bool $full=true,$viewer=null): array
     {
         $q=json_decode($row->quote_snapshot,true);$cart=json_decode($row->cart_snapshot,true);$actor=DB::table('users')->where('id',$row->actor_id)->first();
         $prefix=$row->channel==='dine'?'dining':'phone-orders';
+        $paid=$row->payment_status==='paid';$canReprint=$paid&&$viewer!==null&&$this->access->canReprintReceipts($viewer);
         $data=['id'=>(int)$row->id,'channel'=>$row->channel,'branch'=>$q['branch'],'revision'=>(int)$row->revision,'status'=>$row->status,'payment_status'=>$row->payment_status,
             'table'=>json_decode($row->table_snapshot??'null',true),'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count?(int)$row->guest_count:null,
             'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'',
@@ -211,9 +212,9 @@ class PosServiceTicket
             'bill_issued_at'=>!empty($row->bill_issued_at)?$this->iso($row->bill_issued_at):null,'bill_issued_by'=>isset($row->bill_issued_by)?(int)$row->bill_issued_by:null,
             'bill_issued_revision'=>isset($row->bill_issued_revision)?(int)$row->bill_issued_revision:null,
             'details_url'=>route($prefix.'.details',['id'=>$row->id]),
-            'quote_hash'=>$q['quote_hash']??null,'discount_reason'=>$cart['discount_reason']??'','bill_print_url'=>route($prefix.'.print',['id'=>$row->id]),
+            'quote_hash'=>$q['quote_hash']??null,'discount_reason'=>$cart['discount_reason']??'','bill_print_url'=>!$paid||$canReprint?route($prefix.'.print',['id'=>$row->id]):null,
             'kitchen_print_url'=>$row->last_kitchen_id?route($prefix.'.kitchen',['id'=>$row->last_kitchen_id]):null,
-            'receipt_url'=>$row->paid_order_id?route('takeaway.print',['id'=>$row->paid_order_id]):null];
+            'can_reprint'=>$canReprint,'receipt_url'=>$row->paid_order_id&&$canReprint?route('takeaway.print',['id'=>$row->paid_order_id]):null];
         foreach(['subtotal','discount','tax','tax_rate','service','service_rate','delivery','total'] as $key)$data[$key]=$q[$key]??'0.00';
         if($full){$data['items']=$q['items'];$data['cart']=$cart+['delivery_fee'=>Money::decimal((int)$row->delivery_cents)];}
         return $data;
@@ -281,10 +282,11 @@ class PosServiceTicket
     {
         $row=DB::table('pos_service_tickets')->where('id',$op->ticket_id)->first();abort_unless($row&&$row->branch===$op->branch,404);$this->access->branch($row->branch,$actor);$meta=json_decode($op->metadata??'[]',true)?:[];
         $result=['success'=>true,'replayed'=>$replayed,'operation'=>['id'=>(int)$op->id,'kind'=>$op->kind,'idempotency_key'=>$op->request_key,'ticket_id'=>(int)$op->ticket_id,'revision'=>(int)$op->revision],
-            'ticket'=>$this->present($row),'receipt'=>null,'receipt_url'=>null];
+            'ticket'=>$this->present($row,true,$actor),'receipt'=>null,'receipt_url'=>null,'first_print_url'=>null];
         if($row->channel==='phone'&&$row->last_kitchen_id)$result['print_queued']=true;
         if(!empty($meta['kitchen_id']))$result['kitchen_print_url']=route(($row->channel==='dine'?'dining':'phone-orders').'.kitchen',['id'=>$meta['kitchen_id']]);
-        if($row->paid_order_id){$result['receipt']=$this->sales->receipt((int)$row->paid_order_id,$actor);$result['receipt_url']=$result['receipt']['receipt_url'];}return $result;
+        if($row->paid_order_id){$result['receipt']=$this->sales->receipt((int)$row->paid_order_id,$actor);$result['receipt_url']=$result['receipt']['receipt_url'];
+            if($op->kind==='settle'&&(int)$op->actor_id===(int)$this->access->actor($actor)->id)$result['first_print_url']=$this->sales->firstReceiptPrintUrl((int)$row->paid_order_id,$actor);}return $result;
     }
     private function contextSnapshot(object $row): array {return ['delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),'table'=>json_decode($row->table_snapshot??'null',true),'table_name'=>json_decode($row->table_snapshot??'null',true)['name']??'',
         'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count,'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??''];}

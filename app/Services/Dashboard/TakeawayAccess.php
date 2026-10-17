@@ -99,7 +99,16 @@ class TakeawayAccess
         $adminWrite = $adminManage || ($actor->account_type === 'admin' && $this->permission($actor, 'order-list'));
         // The call-center can operate orders; cash/settings grants remain independent.
         $write = $actor->account_type !== 'admin' || !empty($actor->owner_resturant_id) || $adminWrite;
-        return ['can_checkout'=>$write, 'can_manage_tables'=>$write, 'can_manage'=>$actor->account_type === 'resturant_owner' || $adminManage];
+        return ['can_checkout'=>$write, 'can_manage_tables'=>$write, 'can_manage'=>$actor->account_type === 'resturant_owner' || $adminManage,
+            'can_reprint'=>$this->reprintRole($actor)];
+    }
+
+    public function canReprintReceipts($actor): bool { return $this->reprintRole($this->actor($actor)); }
+
+    private function reprintRole(User $actor): bool
+    {
+        return $actor->account_type === 'resturant_owner'
+            || ($actor->account_type === 'admin' && empty($actor->owner_resturant_id));
     }
 
     public function ready(): bool

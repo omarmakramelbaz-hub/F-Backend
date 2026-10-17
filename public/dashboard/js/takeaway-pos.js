@@ -502,35 +502,42 @@
         var printingInvoice = activeInvoice, printingKey = saleKey;
         printingSales.set(printingKey, (printingSales.get(printingKey) || 0) + 1);
         try { if (!window.DashboardPrint) throw new Error(label('print_error')); await window.DashboardPrint.print(endpoint(url)); }
-        catch (error) { if (printingInvoice === activeInvoice && printingKey === saleKey) notify(label('print_error'), false, false); }
+        catch (error) { if (printingInvoice === activeInvoice && printingKey === saleKey) notify(label(canReprint(lastReceipt) ? 'print_error' : 'initial_print_error'), false, false); }
         finally {
             var remainingPrints = (printingSales.get(printingKey) || 1) - 1;
             if (remainingPrints) printingSales.set(printingKey, remainingPrints); else printingSales.delete(printingKey);
             if (!remainingPrints && !disposed && printingInvoice === activeInvoice && printingKey === saleKey && sold && modal.hidden) root.querySelector('[data-pos-new]').focus();
         }
     }
+    function canReprint(receipt) {
+        return !!receipt && receipt.can_reprint !== false && permissions.can_reprint !== false
+            && (!boot.permissions || boot.permissions.can_reprint !== false);
+    }
     function renderSaved() {
         var savedRow = root.querySelector('[data-pos-saved]'); savedRow.hidden = !sold;
         if (!sold || !lastReceipt) return;
         savedRow.querySelector('span').textContent = label('sale_saved') + (lastReceipt.number ? ' #' + lastReceipt.number : '') + ' · ' + label(lastReceipt.payment_method === 'mobile_wallet' ? 'wallet' : lastReceipt.payment_method) + (lastReceipt.payment_method === 'cash' ? ' · ' + label('change') + ': ' + money(lastReceipt.change) : '');
         root.querySelector('[data-pos-details]').hidden = !lastReceipt.details_url;
-        var link = root.querySelector('[data-pos-reprint]'); link.hidden = !lastReceipt.receipt_url; if (lastReceipt.receipt_url) link.href = endpoint(lastReceipt.receipt_url);
+        var link = root.querySelector('[data-pos-reprint]'); link.hidden = !canReprint(lastReceipt) || !lastReceipt.receipt_url;
+        if (!link.hidden) link.href = endpoint(lastReceipt.receipt_url); else link.removeAttribute('href');
     }
     function saved(result) {
         var receipt = result.receipt;
-        var candidate = result.receipt_url || receipt && receipt.receipt_url;
+        var candidate = result.first_print_url || result.receipt_url || receipt && receipt.receipt_url;
         var printable = candidate && new URL(endpoint(candidate));
         var receiptPath = printable && printable.pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
         if (!receipt || !Number.isSafeInteger(Number(receipt.id)) || Number(receipt.id) <= 0 || receipt.idempotency_key !== saleKey
             || !receipt.branch || receipt.branch.value !== branch || !Array.isArray(receipt.items) || !receipt.items.length
-            || receipt.status !== 'completed' || minor(receipt.total) === null || !receiptPath || Number(receiptPath[1]) !== Number(receipt.id)
+            || receipt.status !== 'completed' || minor(receipt.total) === null || candidate && (!receiptPath || Number(receiptPath[1]) !== Number(receipt.id))
             || frozenPayload && receipt.payment_method !== frozenPayload.payment_method
             || quote && minor(receipt.total) !== minor(quote.total)) throw new Error(label('uncertain_sale'));
-        var pendingPayload = frozenPayload, url = result.receipt_url || receipt.receipt_url;
+        var pendingPayload = frozenPayload, url = candidate;
         try {
             if (!result.register) register = null;
             selling = false; uncertain = false; sold = true; lastReceipt = receipt;
-            if (url) lastReceipt.receipt_url = url;
+            // The first-print capability is temporary and must never become a reprint link.
+            if (!canReprint(lastReceipt)) lastReceipt.receipt_url = null;
+            else if (result.receipt_url) lastReceipt.receipt_url = result.receipt_url;
             updateRegister(result.register, result.today); renderSaved(); notify(label('sale_saved'), true); lock();
             frozenPayload = null; storeInvoice();
         } catch (_) {
@@ -549,7 +556,7 @@
             var response = await fetch(endpoint(urls.daily, { branch: branch, idempotency_key: saleKey }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: recoveryController.signal }); var result = await read(response, 'daily_error');
             if (disposed || recoveryInvoice !== activeInvoice || recoveryKey !== saleKey) return false;
             var receipt = result.receipt || (result.items || result.receipts || []).find(function (item) { return item.idempotency_key === saleKey; });
-            if (!receipt) return false; saved({ receipt: receipt, receipt_url: receipt.receipt_url, register: result.register, today: result.today }); return true;
+            if (!receipt) return false; saved({ receipt: receipt, receipt_url: receipt.receipt_url, first_print_url: result.first_print_url, register: result.register, today: result.today }); return true;
         } catch (_) { return false; } finally { clearTimeout(recoveryTimeout); }
     }
     async function checkout() {
@@ -571,7 +578,7 @@
         var timeout, writeController = new AbortController(); timeout = setTimeout(function () { writeController.abort(); }, 25000);
         try {
             var response = await post(urls.checkout, frozenPayload, writeController.signal); var result = await read(response, 'sale_error'); if (disposed) return;
-            if (!result.receipt || !result.receipt_url) { uncertain = true; throw new Error(label('uncertain_sale')); }
+            if (!result.receipt) { uncertain = true; throw new Error(label('uncertain_sale')); }
             saved(result);
         } catch (error) {
             if (disposed) return;
@@ -617,7 +624,7 @@
     }
     function receiptTable(items, content) {
         var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
-        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(endpoint(item.details_url)); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
+        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (canReprint(item) && item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(endpoint(item.details_url)); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
     }
     async function daily(page) {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
@@ -726,11 +733,17 @@
     listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
     listen(root.querySelector('[data-pos-details]'), 'click', function () { if (lastReceipt && lastReceipt.details_url) window.DashboardInvoiceDetails.open(endpoint(lastReceipt.details_url)); });
-    listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); printReceipt(event.currentTarget.href); });
+    listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); if (canReprint(lastReceipt) && lastReceipt.receipt_url) printReceipt(event.currentTarget.href); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
     listen(document, 'keydown', function (event) {
         if (disposed) return; if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; }
         if (!modal.hidden) { if (event.key === 'Tab') { var controls = modal.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled)'); if (controls.length) { var first = controls[0], last = controls[controls.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } } return; }
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.repeat && !composing && !event.isComposing && event.keyCode !== 229
+            && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+            && !event.target.closest('input,textarea,select,[contenteditable],[role="textbox"]')
+            && (event.target === document.body || event.target === document.documentElement || event.target === root || !!event.target.closest('.tp-catalog,.tp-weight'))) {
+            event.preventDefault(); if (!isLocked() && permissions.can_checkout) key('clear'); return;
+        }
         if (event.key === 'F9') { event.preventDefault(); checkout(); return; }
         if (checkoutEnter(event)) return;
         if (event.target.matches('input,textarea,select,[contenteditable]')) return;

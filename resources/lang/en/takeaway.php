@@ -63,6 +63,7 @@ return [
     'settings_saved' => 'Register settings saved.',
     'register_readonly' => 'Balance and activity for this branch.',
     'payment_note' => 'Cash only. Enter the amount received to calculate change.',
+    'initial_print_error' => 'The sale was saved but its initial print failed. Contact management to check the printer and reprint.',
     'print_error' => 'The sale was saved but could not print. Print the saved invoice again.',
     'quote_required' => 'Review the invoice once calculation completes.',
     'choose_base' => 'No extras',
