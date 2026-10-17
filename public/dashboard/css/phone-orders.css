@@ -508,6 +508,48 @@
 
 /* Product selection uses the complete workspace; tracking returns with the customer steps. */
 #phone-orders.ph-unified.ph-step-products [data-phone-orders]{display:none!important}
+
+/* Keep the active branch readable in both native and dashboard-enhanced selectors. */
+#phone-orders .ph-header{flex-wrap:wrap;min-width:0}
+#phone-orders .ph-header .ph-heading{flex:1 1 250px;max-width:100%;min-width:0}
+#phone-orders .ph-header .ph-heading>div{min-width:0}
+#phone-orders .ph-header .ph-heading h1{white-space:normal;overflow-wrap:anywhere}
+#phone-orders.ph-unified .ph-header .ph-branch{
+ flex:0 1 260px;width:260px;min-width:min(220px,100%);max-width:100%;min-height:42px;
+ gap:9px;margin:0;padding:4px 10px;border-color:#c9d8e9;color:#55718e;font-size:14px;
+}
+#phone-orders .ph-header .ph-branch>i{flex:0 0 auto;font-size:14px}
+#phone-orders .ph-header .ph-branch select{
+ flex:1 1 0;width:100%;min-width:0;min-height:32px;padding:3px 5px;
+ color:#173957;background:#fff;font-size:15px;font-weight:800;line-height:1.6;text-align:start;
+}
+#phone-orders .ph-header .ph-branch .selectize-control{
+ flex:1 1 0;width:100%;min-width:0;max-width:100%;font-size:15px;line-height:1.6;
+}
+#phone-orders .ph-header .ph-branch .selectize-control.single .selectize-input{
+ width:100%;min-width:0;min-height:32px;height:auto;margin:0;padding:3px 0;padding-inline-end:24px;
+ border:0;border-radius:4px;background:#fff;box-shadow:none;color:#173957;font-size:15px;font-weight:800;line-height:1.6;
+}
+#phone-orders .ph-header .ph-branch .selectize-input>.item{
+ max-width:100%;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;vertical-align:middle;
+}
+#phone-orders .ph-header .ph-branch .selectize-input>input{color:#173957;font:inherit;font-weight:400}
+#phone-orders .ph-header .ph-branch .selectize-control.single .selectize-input:after{
+ inset-inline-end:5px;inset-inline-start:auto;border-top-color:#55718e;
+}
+#phone-orders .ph-header .ph-branch .selectize-dropdown{font-size:14px;line-height:1.6;text-align:start}
+#phone-orders .ph-header .ph-branch .selectize-dropdown .option{padding:8px 10px;white-space:normal;overflow-wrap:anywhere}
+#phone-orders .ph-flow [data-phone-selected-branch]{
+ flex:0 1 auto;max-width:100%;padding:4px 10px;border:1px solid #c9d8e9;border-radius:7px;
+ color:#173957;background:#edf4fc;font-size:14px;font-weight:800;line-height:1.6;white-space:normal;overflow-wrap:anywhere;
+}
+#phone-orders .ph-flow [data-phone-selected-branch]:empty{display:none}
+@media(max-width:599px){
+ #phone-orders .ph-header .ph-heading{flex-basis:100%}
+ #phone-orders.ph-unified .ph-header .ph-branch{flex:1 1 210px;width:auto;min-width:0}
+ #phone-orders.ph-unified .ph-header .ph-new-order{flex:0 0 auto}
+ #phone-orders .ph-flow [data-phone-selected-branch]{font-size:13px}
+}
 @media(min-width:1000px){
  .content-wrapper.phone-orders-wrapper:has(.ph-unified.ph-step-products){height:calc(100dvh - 109px);min-height:0!important;overflow:hidden}
  #phone-orders.ph-unified.ph-step-products{height:100%}

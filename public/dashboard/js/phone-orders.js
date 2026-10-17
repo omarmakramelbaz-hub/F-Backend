@@ -16,7 +16,7 @@
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
     var quantityInput = root.querySelector('[data-phone-quantity]'), customerConsent = root.querySelector('[data-phone-customer-consent]'), replaceQuantity = true;
     var manualDeliveryFee=false, customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, deliveryOriginBranch='', deliveryOriginContext=null, locationGeneration=0, locating=false, lastGeocoded='', savedAddressPending='', contextGeneration=0, locationPreviewTimer, addressSearch;
-    var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]');
+    var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]'),confirmLocationButton=root.querySelector('[data-phone-confirm-location]');
     var fields = {};
     root.querySelectorAll('[data-phone-field]').forEach(function (input) { fields[input.dataset.phoneField] = input; });
 
@@ -72,9 +72,18 @@
     },resolve:function(item){return locationPicker.resolve(item);},select:function(point){
         fields.address.value=point.label;fields.area.value=point.area||'';invalidateLocation();latInput.value=point.latitude;lngInput.value=point.longitude;if(locationPicker)locationPicker.set(point.latitude,point.longitude);previewLocation();
     }});
-    async function confirmLocation(preview){if(locked()||!branch)return;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch,origin=deliveryOriginBranch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
-        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=deliveryPriceText(r.delivery)+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
-        catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
+    async function confirmLocation(preview){if(locked()||!branch)return false;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return false;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch,origin=deliveryOriginBranch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
+        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return false;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=deliveryPriceText(r.delivery)+(preview?' — راجع دبوس العميل ثم أكده.':' — تم تأكيد الدبوس.');if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);return !preview;}
+        catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');return false;}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
+    }
+    async function confirmLocationAndNext() {
+        if (locked() || !canWrite() || step !== 'details') return;
+        if (!branch) { notify(text('select_branch')); branchSelect.focus(); return; }
+        var confirmation = confirmLocation(false), generation = locationGeneration;
+        var confirmed = await confirmation;
+        if (disposed || generation !== locationGeneration || step !== 'details' || view !== 'compose' || !modal.hidden) return;
+        if (confirmed) nextDetails();
+        else if (!locked()) confirmLocationButton.focus();
     }
     async function pollReceiver() {
         if (disposed) return;
@@ -93,8 +102,9 @@
         root.querySelector('[data-phone-step-label]').textContent = text(view==='orders'?'saved_orders':'step_' + next);
         root.querySelector('[data-phone-selected-branch]').textContent = branchLabel();
         root.querySelector('[data-phone-customer-summary]').textContent = fields.customer_name.value + ' · ' + fields.customer_phone.value + ' · ' + fields.address.value;
+        lock();
         if (focus !== false && view === 'compose') (next === 'number' ? fields.customer_phone : next === 'details' ? fields.customer_name : root.querySelector('[data-phone-search]')).focus();
-        lock();if(next==='details')ensureLocation();
+        if(next==='details')ensureLocation();
     }
     function inputPhoneDigits() { return fields.customer_phone.value.replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[^0-9]/g, ''); }
     function nextNumber() {
@@ -710,7 +720,7 @@
             suggestions.forEach(function (button, index) { button.classList.toggle('is-highlighted', index === suggestionIndex); }); suggestions[suggestionIndex].scrollIntoView({ block: 'nearest' });
         } else if (event.key === 'Enter' && suggestionIndex >= 0) { event.preventDefault(); event.stopPropagation(); suggestions[suggestionIndex].click(); }
     });
-    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(root.querySelector('[data-phone-confirm-location]'),'click',function(){confirmLocation(false);});
+    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(confirmLocationButton,'click',function(){confirmLocation(false);});
     [latInput,lngInput].forEach(function(input){listen(input,'input',function(){invalidateLocation();previewLocation();});});listen(companySelect,'change',function(){changed(false);});
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
@@ -733,6 +743,12 @@
         var composeKeyboard=root.querySelector('[data-phone-compose]').contains(event.target)||event.target===document.body||event.target===document.documentElement;
         if (plainEnter(event) && modal.hidden && view === 'compose'
             && composeKeyboard) {
+            if (step === 'details' && event.target === fields.customer_name) {
+                event.preventDefault(); if (!locked() && canWrite()) confirmLocationButton.focus(); return;
+            }
+            if (step === 'details' && event.target === confirmLocationButton) {
+                event.preventDefault(); confirmLocationAndNext(); return;
+            }
             if (step !== 'products' && !event.target.matches('button')) {
                 event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return;
             }
@@ -771,7 +787,8 @@
         if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){mapResizeObserver.disconnect();});
     }
     automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
-    branchSelect.options[0].textContent=text(boot.can_view_all_branches?'all_branches':'select_branch');
+    var emptyBranchOption = branchSelect.querySelector('option[value=""]');
+    if (emptyBranchOption) emptyBranchOption.textContent = text(boot.can_view_all_branches?'all_branches':'select_branch');
     if(boardScope())loadOrders();
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });

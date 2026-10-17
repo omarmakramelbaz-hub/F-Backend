@@ -50,13 +50,16 @@ function fixtureQuote(payload, tickets, catalogProducts=products) {
     });
     return {success:true, items, quote_hash:'a'.repeat(64), subtotal:subtotal.toFixed(2), total:(subtotal+Number(payload.delivery_fee||0)-Number(payload.discount||0)).toFixed(2), delivery_fee:payload.delivery_fee||'0.00', discount:payload.discount||'0.00', discount_reason:payload.discount_reason||'', tax:'0.00', service:'0.00', tax_rate:'0'};
 }
-async function setup(browser, {failFirstSave=false, failFirstSettle=false, failFirstBatch=false, catalogProducts=products, viewport={width:1920,height:1006},locale='ar',query='',multiBranch=false}={}) {
-    const boot={...baseBoot,branches:multiBranch?[...baseBoot.branches,{id:101,value:'f:101',name:'نبروه',kind:'f'}]:baseBoot.branches},rendered=renderPage(locale,boot);
+async function setup(browser, {failFirstSave=false, failFirstSettle=false, failFirstBatch=false, catalogProducts=products, viewport={width:1920,height:1006},locale='ar',query='',multiBranch=false,branchName='',selectized=false}={}) {
+    const branches=baseBoot.branches.map(branch=>({...branch,name:branchName||branch.name}));
+    const boot={...baseBoot,branches:multiBranch?[...branches,{id:101,value:'f:101',name:'نبروه',kind:'f'}]:branches},rendered=renderPage(locale,boot);
+    const selectizeCss=selectized?'<style>'+read('public/dashboard/dist/css/selectize.bootstrap5.css')+'</style>':'';
+    const selectizeScripts=selectized?'<script>'+read('public/dashboard/plugins/jquery/jquery.min.js')+'</script><script>'+read('public/dashboard/dist/js/selectize.min.js')+'</script><script>window.jQuery("[data-phone-branch]").selectize();</script>':'';
     const branchRecord=value=>boot.branches.find(branch=>branch.value===value)||boot.branches[0];
     const network={board:null,catalog:null};
     function holdResponse(kind,branch){let enter,release;const entered=new Promise(resolve=>{enter=resolve;}),gate=new Promise(resolve=>{release=resolve;});const hold={branch,entered,gate,enter,release};network[kind]=hold;return hold;}
-    network.holdBoard=()=>holdResponse('board');network.holdCatalog=branch=>holdResponse('catalog',branch);
-    const html = '<!doctype html><html lang="' + locale + '" dir="' + (locale==='ar'?'rtl':'ltr') + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-token"><style>' + chrome + '</style><style>' + read('public/dashboard/css/phone-orders.css') + '</style></head><body class="dashboard-theme dashboard-phone-orders-page"><header class="qa-top">معاينة شاشة الدليفري</header><aside class="qa-sidebar"><h2>Fasakhansta</h2><p>الرئيسية</p><p>طلبات التطبيق</p><p>طلبات التيك أواي</p><p>طلبات الدليفري</p><p>طلبات الصالة</p><p>قائمة العملاء</p></aside>' + rendered.content + '<footer class="qa-footer">معاينة اختبار ببيانات تجريبية</footer><script type="application/json" id="phone-orders-bootstrap">' + safe(boot) + '</script><script type="application/json" id="phone-orders-translations">' + safe(rendered.labels) + '</script><script>' + read('public/dashboard/js/phone-address-search.js') + '</script><script>' + read('public/dashboard/js/phone-orders.js') + '</script></body></html>';
+    network.holdBoard=()=>holdResponse('board');network.holdCatalog=branch=>holdResponse('catalog',branch);network.holdDeliveryQuote=()=>holdResponse('deliveryQuote');
+    const html = '<!doctype html><html lang="' + locale + '" dir="' + (locale==='ar'?'rtl':'ltr') + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-token"><style>' + chrome + '</style>'+selectizeCss+'<style>' + read('public/dashboard/css/phone-orders.css') + '</style></head><body class="dashboard-theme dashboard-phone-orders-page"><header class="qa-top">معاينة شاشة الدليفري</header><aside class="qa-sidebar"><h2>Fasakhansta</h2><p>الرئيسية</p><p>طلبات التطبيق</p><p>طلبات التيك أواي</p><p>طلبات الدليفري</p><p>طلبات الصالة</p><p>قائمة العملاء</p></aside>' + rendered.content + selectizeScripts+'<footer class="qa-footer">معاينة اختبار ببيانات تجريبية</footer><script type="application/json" id="phone-orders-bootstrap">' + safe(boot) + '</script><script type="application/json" id="phone-orders-translations">' + safe(rendered.labels) + '</script><script>' + read('public/dashboard/js/phone-address-search.js') + '</script><script>' + read('public/dashboard/js/phone-orders.js') + '</script></body></html>';
     const page = await browser.newPage({viewport}), calls = [], errors = [], unexpected = [];
     const tickets=new Map();
     for(const [stage,offset] of [['preparing',500],['courier',100],['finished',300]])for(let n=1;n<=20;n++)tickets.set(offset+n,fixtureTicket(offset+n,stage));
@@ -78,13 +81,14 @@ async function setup(browser, {failFirstSave=false, failFirstSettle=false, failF
         if(url.pathname==='/fixtures/menu-photo.jpg')return route.fulfill({contentType:'image/jpeg',body:menuImage});
         const payload=request.postDataJSON(); calls.push({path:url.pathname,method:request.method(),payload});
         if(request.method()==='POST')assert.equal(request.headers()['x-csrf-token'],'fixture-token');
-        const kind=url.pathname===urls.board?'board':url.pathname===urls.catalog?'catalog':null,hold=kind&&network[kind];
+        const kind=url.pathname===urls.board?'board':url.pathname===urls.catalog?'catalog':url.pathname===urls.delivery_quote?'deliveryQuote':null,hold=kind&&network[kind];
         if(hold&&(!hold.branch||hold.branch===url.searchParams.get('branch'))){network[kind]=null;hold.enter();await hold.gate;}
         let result;
         if(url.pathname===urls.catalog)result={success:true,ready:true,items:catalogProducts,categories:[{id:1,name:'الأطباق'},{id:2,name:'السندوتشات'}],policy:{can_discount:true,payment_methods:['cash']},permissions:{can_checkout:true},pagination:{page:1,last_page:1,total:catalogProducts.length}};
         else if(url.pathname===urls.delivery_settings)result={success:true,settings:{branch:branchRecord(url.searchParams.get('branch')),ready:true,latitude:30.1,longitude:31.2,km_price:'20.00'}};
         else if(url.pathname===urls.companies){const branch=url.searchParams.get('branch');result={success:true,items:[{id:branch==='f:101'?2:1,branch,name:branch==='f:101'?'شركة نبروه':'شركة الاختبار'}]};}
         else if(url.pathname===urls.customers)result={success:true,matches:[]};
+        else if(url.pathname===urls.delivery_quote&&network.failDeliveryQuoteOnce){const status=network.failDeliveryQuoteOnce;network.failDeliveryQuoteOnce=0;return route.fulfill({status,contentType:'application/json',body:JSON.stringify({success:false,message:'فشل تأكيد موقع العميل للاختبار'})});}
         else if(url.pathname===urls.delivery_quote)result={success:true,delivery:{branch:payload.branch,latitude:30.12,longitude:31.25,delivery_fee:'50.00',distance_km:'2.50',km_price:'20.00',delivery_quote_hash:'d'.repeat(64),method:'direct'}};
         else if(url.pathname===urls.customer_save)result={success:true,customer:{id:7,revision:1,branch:payload.branch,name:payload.name,phone:payload.phone,address:payload.address}};
         else if(url.pathname===urls.quote)result=fixtureQuote(payload,tickets,catalogProducts);
@@ -129,6 +133,7 @@ async function prepareCustomer(page,beforeNextDetails){
     await field(page,'customer_name').fill('عميل اختبار الدليفري');await field(page,'address').fill('شارع الجمهورية، المحلة الكبرى');await field(page,'area').fill('المحلة');
     await page.locator('[data-phone-lat]').fill('30.12');await page.locator('[data-phone-lng]').fill('31.25');await page.locator('[data-phone-confirm-location]').click();
     await page.waitForFunction(()=>document.querySelector('[data-phone-distance]').textContent.includes('تم تأكيد الدبوس'));
+    assert(await page.locator('#phone-orders.ph-step-details').isVisible(),'mouse pin confirmation keeps customer details open');
     if(beforeNextDetails)await beforeNextDetails();
     await page.locator('[data-phone-next-details]').click();await page.locator('#phone-orders.ph-step-products').waitFor();await page.waitForFunction(()=>!document.querySelector('[data-phone-product="1"]').disabled);await unifiedVisible(page,'products');
 }
@@ -216,6 +221,47 @@ async function liveTracking(browser){
     const created=calls.find(call=>call.path===urls.save).payload;assert.equal(created.service_consent,true,'initial send preserves mandatory follow-up approval');assert.equal(created.marketing_consent,false,'initial service approval never opts into marketing');
     assert.deepEqual(await page.evaluate(()=>window.phonePrintCalls),[],'queued branch printing is not duplicated in the browser');
     await unifiedVisible(page,'number');await screenshot(page,'phone-unified-live-tracking');await clean(ctx);await page.close();
+}
+async function keyboardCustomerDetails(page){
+    await field(page,'customer_phone').fill('01012345678');await field(page,'customer_phone').press('Enter');await page.locator('#phone-orders.ph-step-details').waitFor();
+    await field(page,'customer_name').fill('عميل تأكيد الموقع من لوحة المفاتيح');await field(page,'address').fill('شارع الجمهورية، المحلة الكبرى');await field(page,'area').fill('المحلة');
+    await keyboardPreview(page);
+}
+async function keyboardPreview(page){
+    await page.locator('[data-phone-lat]').fill('30.12');await page.locator('[data-phone-lng]').fill('31.25');
+    await page.waitForFunction(()=>document.querySelector('[data-phone-distance]').textContent.includes('راجع دبوس العميل ثم أكده'));
+}
+async function customerEnterFlow(browser){
+    const ctx=await setup(browser),{page,calls,network}=ctx;await keyboardCustomerDetails(page);
+    const name=field(page,'customer_name'),confirm=page.locator('[data-phone-confirm-location]'),quotes=()=>calls.filter(call=>call.path===urls.delivery_quote).length,saves=()=>calls.filter(call=>call.path===urls.customer_save).length;
+    const before=quotes();await name.focus();await blockedEnters(name,async()=>{await focused(name);assert.equal(quotes(),before);assert.equal(saves(),0);});
+    await name.press('Enter');await focused(confirm,'first customer-name Enter focuses explicit pin confirmation');assert.equal(quotes(),before,'first Enter does not request another quote');assert.equal(saves(),0,'first Enter does not save the customer');
+    await blockedEnters(confirm,async()=>{await focused(confirm);assert.equal(quotes(),before);assert.equal(saves(),0);});
+    const held=network.holdDeliveryQuote();await confirm.press('Enter');await held.entered;
+    assert(await page.locator('#phone-orders.ph-step-details').isVisible(),'customer details wait for confirmed location response');assert.equal(quotes(),before+1,'second Enter starts exactly one pin confirmation');assert.equal(saves(),0);
+    await page.keyboard.press('Enter');assert.equal(quotes(),before+1,'extra Enter while confirming cannot duplicate the quote');assert.equal(saves(),0);held.release();
+    await page.locator('#phone-orders.ph-step-products').waitFor();await focused(page.locator('[data-phone-search]'),'successful confirmation and existing customer validation focus the product search');
+    assert.equal(quotes(),before+1);assert.equal(saves(),1,'confirmed second Enter saves customer once');assert.equal(calls.filter(call=>call.path===urls.delivery_quote).at(-1).payload.location_confirmed,true);
+    assert(await page.locator('[data-phone-orders]').isHidden());await clean(ctx);await page.close();
+
+    const recovery=await setup(browser),p=recovery.page;await keyboardCustomerDetails(p);
+    const customerName=field(p,'customer_name'),pin=p.locator('[data-phone-confirm-location]'),deliveryCount=()=>recovery.calls.filter(call=>call.path===urls.delivery_quote).length;
+    await p.locator('[data-phone-branch]').selectOption('');const missingBefore=deliveryCount();await customerName.focus();await customerName.press('Enter');await focused(pin);await pin.press('Enter');await focused(p.locator('[data-phone-branch]'),'missing branch focuses selection without quoting');assert.equal(deliveryCount(),missingBefore);assert(!recovery.calls.some(call=>call.path===urls.customer_save));
+    await p.locator('[data-phone-branch]').selectOption('f:100');await keyboardPreview(p);
+    await p.locator('[data-phone-lat]').fill('200');const invalidBefore=deliveryCount();await customerName.focus();await customerName.press('Enter');await focused(pin);await pin.press('Enter');
+    assert(await p.locator('#phone-orders.ph-step-details').isVisible());assert.equal(deliveryCount(),invalidBefore,'invalid pin cannot request a quote');assert(!recovery.calls.some(call=>call.path===urls.customer_save));
+    assert(await p.evaluate(()=>document.activeElement.matches('[data-phone-confirm-location],[data-phone-lat],[data-phone-lng]')),'invalid location retains a recovery focus target');
+
+    await keyboardPreview(p);recovery.network.failDeliveryQuoteOnce=503;const failure=p.waitForResponse(response=>response.url().includes('/phone-orders/delivery-quote')&&response.status()===503);await customerName.focus();await customerName.press('Enter');await pin.press('Enter');await failure;
+    await p.waitForFunction(label=>document.querySelector('[data-phone-message]').textContent.includes(label),recovery.labels.quote_error);await p.waitForFunction(()=>!document.querySelector('#phone-orders').classList.contains('is-locked'));
+    assert(await p.locator('#phone-orders.ph-step-details').isVisible(),'failed quote leaves customer details open');await focused(pin,'failed confirmation returns focus to the pin confirmation');assert(!recovery.calls.some(call=>call.path===urls.customer_save));
+
+    await field(p,'address').fill('');await keyboardPreview(p);await customerName.focus();await customerName.press('Enter');await pin.press('Enter');await p.waitForFunction(()=>document.activeElement.matches('[data-phone-field=address]'));await focused(field(p,'address'),'confirmed pin still requires the existing address validation');
+    assert(await p.locator('#phone-orders.ph-step-details').isVisible());assert(!recovery.calls.some(call=>call.path===urls.customer_save),'missing customer data cannot be saved after confirming the pin');
+    await field(p,'address').fill('شارع الجمهورية، المحلة الكبرى');await keyboardPreview(p);await customerName.focus();await customerName.press('Enter');await pin.press('Enter');
+    await p.locator('#phone-orders.ph-step-products').waitFor();await focused(p.locator('[data-phone-search]'));assert.equal(recovery.calls.filter(call=>call.path===urls.customer_save).length,1,'correcting failed details saves once');
+    await clean(recovery);await p.close();
+    console.log('Phone keyboard: customer-name Enter focuses pin; confirmed next Enter advances once; modified/held/IME Enter blocked; invalid/failed pin and incomplete details retain recovery focus; mouse confirm remains in details.');
 }
 async function defaultProductQuantities(browser){
     const ctx=await setup(browser),{page,calls}=ctx;await prepareCustomer(page);
@@ -335,6 +381,17 @@ async function concurrencyCases(browser){
     await branchPermissionRace(browser);await legacyBoardFocusPolling(browser);await abortedBoardPolling(browser);
     console.log('Phone unified concurrency: board-before-catalog branch permissions, legacy board-container focus polling, customer-save and dispatch abort recovery passed.');
 }
+async function branchClarity(page,selectized){
+    const metric=await page.evaluate(enhanced=>{
+        const root=document.querySelector('#phone-orders'),label=root.querySelector('.ph-header .ph-branch'),select=root.querySelector('[data-phone-branch]'),target=enhanced?label.querySelector('.selectize-input>.item'):select,style=getComputedStyle(target),r=target.getBoundingClientRect(),badge=root.querySelector('[data-phone-selected-branch]'),b=badge.getBoundingClientRect();
+        const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');ctx.font=style.font;
+        return{selected:select.selectedOptions[0].textContent,fontSize:parseFloat(style.fontSize),fontWeight:Number(style.fontWeight),width:r.width,height:r.height,textWidth:ctx.measureText(select.selectedOptions[0].textContent).width,clipped:target.scrollHeight>target.clientHeight+1||target.scrollWidth>target.clientWidth+1,badgeClipped:badge.scrollHeight>badge.clientHeight+1||badge.scrollWidth>badge.clientWidth+1,badgeVisible:b.width>0&&b.height>0,headerOverflow:root.querySelector('.ph-header').scrollWidth>root.querySelector('.ph-header').clientWidth+1,pageOverflow:document.documentElement.scrollWidth>innerWidth+1};
+    },selectized);
+    assert.equal(metric.selected,'فرع فسخانستا شبرا الخيمة');assert(metric.fontSize>=14&&metric.fontWeight>=700,'selected branch name is large and bold');
+    assert(!metric.clipped&&!metric.badgeClipped&&!metric.headerOverflow&&!metric.pageOverflow,'native/enhanced branch label and badge fit without clipping or header overflow');assert(metric.badgeVisible);
+    if(!selectized)assert(metric.width>=metric.textWidth+18,'native branch field reserves room for the complete selected name and arrow');
+    console.log('phone-branch-clarity',JSON.stringify({viewport:page.viewportSize(),selectized,...metric}));
+}
 async function productLayout(page){
     await page.waitForFunction(()=>{const image=document.querySelector('[data-phone-product="1"] img');return image?.complete&&image.naturalWidth>0;});
     const metric=await page.evaluate(()=>{
@@ -355,20 +412,21 @@ async function productLayout(page){
 async function responsive(browser){
     const names=['رنجة هيرنج بتدخين أشجار الليمون','سندوتش فسيخ مظبوط مع الخضار والطحينة','وجبة سردين بلدي مع الخبز والسلطات','ربع سلطة فسيخ دسوق مع الخضروات','ربع سلطة رنجة هيرنج وبطارخ','ساندوتش سلطة بطارخ رنجة','وجبة ميكس فسيخ ورنجة وسردين','علبة أنشوجه بالزيت وزن ٢٠٠ جرام','فسيخ نبروه مخلي مخصوص','رنجة بطارخ هيرنج تدخين أشجار الليمون','ساندوتش برجر سردين بالخضار','طبق بطاطس شيبسي مقرمشة','علبة بطارخ رنجة وزن ٤٠٠ جرام','سندوتش فسيخ دسوق مظبوط','بصل وجوليان أحمر جاهز للتقديم','وجبة رنجة ناعمة مع السلطات','طبق فلفل أخضر وشرائح ليمون','فسيخ نبروه كبير تنظيف مخصوص'];
     const catalogProducts=products.map((product,i)=>({...product,name:names[i],image_url:'/fixtures/menu-photo.jpg',stock:{quantity:'48.375',unit_label:i===0?'كجم':'وحدة',label:i%2?'المتاح بالمخزون: ٣٦ وحدة':'رصيد البضاعة: ٤٨٫٣٧٥ كجم',tracked:true}}));
-    for(const [viewport,locale] of [[{width:1920,height:1006},'ar'],[{width:1366,height:768},'ar'],[{width:1089,height:1024},'ar'],[{width:1920,height:1006},'en'],[{width:390,height:844},'ar'],[{width:390,height:844},'en']]){
-        const ctx=await setup(browser,{viewport,locale,catalogProducts,query:'?view=orders'}),{page}=ctx;
+    for(const [viewport,locale] of [[{width:1920,height:1006},'ar'],[{width:1366,height:768},'ar'],[{width:1089,height:1024},'ar'],[{width:1920,height:1006},'en'],[{width:390,height:844},'ar'],[{width:390,height:844},'en']])for(const selectized of [false,true]){
+        const ctx=await setup(browser,{viewport,locale,catalogProducts,query:'?view=orders',branchName:'فرع فسخانستا شبرا الخيمة',selectized}),{page}=ctx;
         await page.locator('[data-phone-ticket="501"]').waitFor();await unifiedVisible(page,'number');
-        assert.equal(await page.locator('html').getAttribute('dir'),locale==='ar'?'rtl':'ltr');
-        await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+'-number');
+        assert.equal(await page.locator('html').getAttribute('dir'),locale==='ar'?'rtl':'ltr');await branchClarity(page,selectized);
+        const variant=selectized?'-selectize':'';
+        await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+variant+'-number');
         await prepareCustomer(page);for(const id of [1,2,3,4,5])await page.locator('[data-phone-product="'+id+'"]').click();await quoteReady(page);
         assert.equal(await rows(page).count(),5,'compact invoice displays several typical line items');
-        await unifiedVisible(page,'products');await productLayout(page);await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+'-products');
+        await unifiedVisible(page,'products');await productLayout(page);await branchClarity(page,selectized);await screenshot(page,'phone-unified-'+viewport.width+'-'+locale+variant+'-products');
         await clean(ctx);await page.close();
     }
 }
 (async()=>{
     const browser=await chromium.launch({headless:true,executablePath:process.env.CRM_TEST_CHROMIUM||undefined});
-    try{if(process.env.PHONE_UNIFIED_TARGETED==='1')await concurrencyCases(browser);else{await finishWithoutRepeatedConsent(browser);await responsive(browser);await concurrencyCases(browser);await defaultProductQuantities(browser);await failedProductSend(browser);await liveTracking(browser);console.log('Phone unified: tracking in phone/customer steps; full product workspace; one-unit product defaults; explicit quantities and guarded shortcuts; late polling and failed sends preserve product mode; successful sends reset phone/board; concurrency, printing and Arabic/English responsive layouts passed.');}}
+    try{if(process.env.PHONE_KEYBOARD_ONLY==='1')await customerEnterFlow(browser);else if(process.env.PHONE_UNIFIED_TARGETED==='1')await concurrencyCases(browser);else{await responsive(browser);await customerEnterFlow(browser);await finishWithoutRepeatedConsent(browser);await concurrencyCases(browser);await defaultProductQuantities(browser);await failedProductSend(browser);await liveTracking(browser);console.log('Phone unified: tracking in phone/customer steps; full product workspace; one-unit product defaults; explicit quantities and guarded shortcuts; late polling and failed sends preserve product mode; successful sends reset phone/board; concurrency, printing and Arabic/English responsive layouts passed.');}}
     catch(error){for(const context of browser.contexts())for(const page of context.pages()){console.error('phone-unified-failure',JSON.stringify(await page.evaluate(()=>({viewport:{width:innerWidth,height:innerHeight},key:document.querySelector('[data-phone-key=\"1\"]')?.getBoundingClientRect().toJSON(),hint:document.querySelector('[data-phone-quantity-hint]')?.getBoundingClientRect().toJSON(),step:document.querySelector('#phone-orders')?.className,message:document.querySelector('[data-phone-message]')?.textContent}))));await screenshot(page,'phone-unified-failure');}throw error;}
     finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}
 })();
