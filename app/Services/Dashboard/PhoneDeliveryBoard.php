@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class PhoneDeliveryBoard
 {
@@ -56,7 +57,7 @@ class PhoneDeliveryBoard
             return ['operation'=>['kind'=>'phone.dispatch','idempotency_key'=>$v['idempotency_key']],'branch'=>$branch['value'],'ticket_id'=>(int)$row->id,'revision'=>(int)$row->revision+1,'company'=>$company];
         });
     }
-    public function finish(array $values,$actor): array
+    public function finish(array $values,$actor,bool $requireServiceConsent=false): array
     {
         $v=Validator::make($values,$this->ops->rules()+[
             'items'=>'required|array|min:1|max:50','items.*.id'=>'required|integer|min:1|distinct','items.*.revision'=>'required|integer|min:1','items.*.quote_hash'=>'required|string|size:64',
@@ -64,7 +65,12 @@ class PhoneDeliveryBoard
             'courier_name'=>'nullable|string|max:100','total'=>'required|string|max:14','payment_method'=>'required|in:cash,card,mobile_wallet,other','cash_received'=>'nullable|string|max:14','payment_reference'=>'nullable|string|max:150','payment_confirmed'=>'required|accepted',
         ])->validate(); $this->ready();
         $expected=$this->ops->money($v['total']); $received=$v['payment_method']==='cash'?$this->ops->money($v['cash_received']??''):0;
-        return $this->ops->write('phone.batch',$v,$actor,function($branch,$actor)use($v,$expected,$received){
+        return $this->ops->write('phone.batch',$v,$actor,function($branch,$actor)use($v,$expected,$received,$requireServiceConsent){
+            // BranchOperations resolves exact retries before invoking this mutation callback.
+            if($requireServiceConsent)foreach($v['items'] as $index=>$item){
+                if(!in_array($item['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
+                    'items.'.$index.'.service_consent'=>'يجب تأكيد موافقة كل عميل على متابعة الخدمة قبل إنهاء فواتير الدليفري.']);
+            }
             abort_unless($v['payment_method']==='cash',422,'الدفع متاح كاش فقط.');
             $requested=collect($v['items'])->keyBy('id');
             $rows=DB::table('pos_service_tickets')->where('branch',$branch['value'])->where('channel','phone')->whereIn('id',$requested->keys())->orderBy('id')->lockForUpdate()->get();

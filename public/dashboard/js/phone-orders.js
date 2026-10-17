@@ -455,6 +455,35 @@
             dispatchControl(ticket,content);lock();var choice=content.querySelector('[data-phone-board-company]');if(choice)choice.focus();
         }catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
+    var preparationTimer;
+    function preparationCreatedAt(value) {
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-]\d{2}:[0-5]\d)$/.test(value)) return null;
+        var timestamp = Date.parse(value), day = Date.parse(value.slice(0, 10) + 'T00:00:00Z');
+        if (!Number.isFinite(timestamp) || !Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== value.slice(0, 10)) return null;
+        return timestamp;
+    }
+    function updatePreparationTimer(timer, now) {
+        var elapsed = Math.max(0, Math.floor((now - Number(timer.dataset.phonePreparingCreatedAt)) / 1000));
+        var hours = Math.floor(elapsed / 3600), minutes = Math.floor(elapsed / 60) % 60, seconds = elapsed % 60;
+        var value = (hours ? String(hours).padStart(2, '0') + ':' : '') + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        timer.querySelector('.ph-preparation-timer-value').textContent = value;
+        timer.classList.toggle('is-overdue', elapsed > 900);
+    }
+    function updatePreparationTimers() {
+        if (disposed) return;
+        var now = Date.now();
+        root.querySelectorAll('[data-phone-preparing-created-at]').forEach(function (timer) { updatePreparationTimer(timer, now); });
+    }
+    function preparationBadge(ticket) {
+        var createdAt = preparationCreatedAt(ticket.created_at);
+        if (createdAt === null) return null;
+        var label = document.documentElement.lang === 'ar' ? 'وقت التجهيز' : 'Preparing time';
+        var timer = element('span', 'ph-preparation-timer'), icon = element('i', 'far fa-clock');
+        timer.dataset.phonePreparingCreatedAt = String(createdAt); timer.setAttribute('role', 'timer'); timer.setAttribute('aria-label', label); icon.setAttribute('aria-hidden', 'true');
+        timer.appendChild(icon); timer.appendChild(element('span', 'ph-preparation-timer-label', label)); timer.appendChild(element('bdi', 'ph-preparation-timer-value'));
+        updatePreparationTimer(timer, Date.now());
+        return timer;
+    }
     function card(ticket, column) {
         var article = element('article', 'ph-ticket ph-ticket-compact');
         article.dataset.phoneTicket = String(ticket.id);
@@ -463,6 +492,7 @@
         heading.appendChild(element('strong', 'ph-ticket-number', number));
         var name = element('span', 'ph-ticket-name', ticket.customer_name); name.title = ticket.customer_name; heading.appendChild(name);
         if (ticket.status === 'cancelled') { var state = element('span', 'ph-stage', text('cancelled')); state.dataset.stage = 'cancelled'; heading.appendChild(state); }
+        if (column === 'preparing' && ticket.payment_status === 'unpaid' && ['new', 'preparing'].includes(ticket.status)) { var timer = preparationBadge(ticket); if (timer) heading.appendChild(timer); }
         article.appendChild(heading);
         var amount = element('bdi', 'ph-ticket-amount', money(ticket.total) + ' ' + text('currency'));
         amount.title = text(ticket.payment_status === 'paid' ? 'paid' : ticket.bill_locked ? 'bill_locked' : 'unpaid'); article.appendChild(amount);
@@ -528,11 +558,6 @@
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
         finally { clearTimeout(timeout);if(orderPending===generation){orderPending=0;list.setAttribute('aria-busy', 'false');} }
     }
-    function consentControl(container, ticketId) {
-        var label = element('label', 'ph-settle-confirm'), checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = false;
-        checkbox.dataset.phoneConsent = 'customer'; if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
-        label.appendChild(checkbox); label.appendChild(element('span', '', text('customer_consent'))); container.appendChild(label); return checkbox;
-    }
     function validCash(cash, total) {
         var received = scaled(cash.value, 2);
         if (received === null || received > 100000000n) { notify(text('invalid_money')); cash.focus(); return null; }
@@ -547,6 +572,19 @@
         if (!target || !root.contains(target) || target.isContentEditable || target.closest('input,textarea,select,[contenteditable],[role="textbox"]')) return false;
         return !!target.closest('.ph-catalog,[data-phone-key],[data-phone-product]');
     }
+    function finalServiceConsentControl(container, ticketId) {
+        var label = element('label', 'ph-settle-confirm'), checkbox = element('input');
+        checkbox.type = 'checkbox'; checkbox.required = true; checkbox.checked = false;
+        checkbox.dataset.phoneFinalServiceConsent = ''; checkbox.setAttribute('aria-required', 'true');
+        if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
+        label.appendChild(checkbox); label.appendChild(element('span', '', text('final_service_consent'))); container.appendChild(label);
+        return checkbox;
+    }
+    function finalServiceConsentReady(form) {
+        var missing = form.querySelector('[data-phone-final-service-consent]:not(:checked)');
+        if (!missing) return true;
+        notify(text('final_service_consent_required')); missing.focus(); return false;
+    }
     function cashKeyboard(form, cash, confirmed, submit, total) {
         form.addEventListener('keydown', function (event) {
             if (event.key !== 'Enter') return;
@@ -555,30 +593,31 @@
             if (locked() || form.closest('[data-phone-modal]').hidden) { event.preventDefault(); return; }
             if (event.target === cash) {
                 event.preventDefault();
-                if (validCash(cash, total) !== null) { confirmed.focus(); notify(text('confirm_payment')); }
+                if (validCash(cash, total) !== null && finalServiceConsentReady(form)) { confirmed.focus(); notify(text('confirm_payment')); }
                 return;
             }
             if (event.target === confirmed) {
                 event.preventDefault();
-                if (validCash(cash, total) === null) return;
+                if (validCash(cash, total) === null || !finalServiceConsentReady(form)) return;
                 confirmed.checked = true;
                 form.requestSubmit(submit);
                 return;
             }
-            if (event.target.matches('[data-phone-consent]')) {
+            if (event.target.matches('[data-phone-final-service-consent]')) {
                 event.preventDefault();
-                if (!event.target.checked) event.target.checked = true;
-                else cash.focus();
+                if (!event.target.checked) { notify(text('final_service_consent_required')); return; }
+                if (finalServiceConsentReady(form)) confirmed.focus();
                 return;
             }
             if (event.target !== submit && !event.target.matches('button')) { event.preventDefault(); cash.focus(); }
         });
         cash.addEventListener('input', function () { confirmed.checked = false; });
+        form.querySelectorAll('[data-phone-final-service-consent]').forEach(function (checkbox) { checkbox.addEventListener('change', function () { confirmed.checked = false; }); });
     }
     function finishBatch(){
         if(locked()||!canWrite()||!selectedOrders.size)return;
-        var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody'),consents=new Map();
-        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var choices=element('td');consents.set(t.id,consentControl(choices,t.id));row.appendChild(choices);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody');
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var consent=element('td');finalServiceConsentControl(consent,t.id);row.appendChild(consent);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
         function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
         var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
         var method=element('select');['cash'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
@@ -587,8 +626,8 @@
         var confirm=element('label','ph-settle-confirm'),check=element('input');check.type='checkbox';check.dataset.phoneBatchConfirmed='';confirm.appendChild(check);confirm.appendChild(element('span','',text('payment_confirmed')));form.appendChild(confirm);
         var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
         method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
-        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
-            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:consents.get(t.id).checked,marketing_consent:consents.get(t.id).checked};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
+        form.addEventListener('submit',function(event){event.preventDefault();if(locked()||!finalServiceConsentReady(form))return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
+            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:true,marketing_consent:false};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
         });cashKeyboard(form,cash,check,submit,total);lock();cash.focus();
     }
     function validateWriteResult(result, operation, recovered) {
@@ -699,11 +738,11 @@
             var methodLabel = element('label', 'ph-field'); methodLabel.appendChild(element('span', '', text('payment_method'))); var method = element('select'); method.dataset.phoneSettleMethod = ''; ['cash'].forEach(function (key) { var option = element('option', '', text(key)); option.value = key; method.appendChild(option); }); methodLabel.appendChild(method); form.appendChild(methodLabel);
             var cashLabel = element('label', 'ph-field ph-cash-paid'); cashLabel.appendChild(element('span', '', text('cash_paid'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
             var referenceLabel = element('label', 'ph-field'); referenceLabel.hidden = true; referenceLabel.appendChild(element('span', '', text('payment_reference'))); var reference = element('input'); reference.maxLength = 100; reference.dataset.phoneSettleReference = ''; referenceLabel.appendChild(reference); form.appendChild(referenceLabel);
-            var settleConsent = consentControl(form);
+            finalServiceConsentControl(form);
             var confirmation = element('label', 'ph-settle-confirm'), confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.dataset.phoneSettleConfirmed = ''; confirmation.appendChild(confirmed); confirmation.appendChild(element('span', '', text('payment_confirmed'))); form.appendChild(confirmation); var submit = element('button', '', text('collect')); submit.type = 'submit'; submit.dataset.phoneSettleSubmit = ''; form.appendChild(submit); content.appendChild(form);
             method.addEventListener('change', function () { cashLabel.hidden = method.value !== 'cash'; referenceLabel.hidden = method.value === 'cash'; confirmed.checked = false; });
-            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
-                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: settleConsent.checked, marketing_consent: settleConsent.checked, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
+            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration || !finalServiceConsentReady(form)) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
+                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: true, marketing_consent: false, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
             }); cashKeyboard(form, cash, confirmed, submit, scaled(value.total, 2)); lock(); cash.focus();
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('quote_error'))); }
     }
@@ -802,7 +841,7 @@
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;clearInterval(preparationTimer);if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     if(window.ResizeObserver){
         var mapResizeObserver=new ResizeObserver(function(){if(!disposed&&step==='details'&&view==='compose'&&locationPicker)locationPicker.resize();});
@@ -812,6 +851,7 @@
     automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
     branchSelect.options[0].textContent=text(boot.can_view_all_branches?'all_branches':'select_branch');
     if(boardScope())loadOrders();
+    preparationTimer = setInterval(updatePreparationTimers, 1000);
     receiverTimer = setTimeout(pollReceiver, 1000);
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');

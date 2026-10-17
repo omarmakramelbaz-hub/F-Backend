@@ -42,7 +42,7 @@
                 <div class="dp-payment-box">
                     <div class="dp-payment-consent-row">
                         <fieldset class="dp-payments dp-payments-compact"><legend class="dp-sr-only">{{ __('dining.payment_method') }}</legend><div data-dining-payments></div></fieldset>
-                        <label class="dp-payment-confirmation dp-customer-consent"><input type="checkbox" data-dining-customer-consent><span>{{ __('dining.customer_consent') }}</span></label>
+                        <label class="dp-payment-confirmation dp-customer-consent"><input type="checkbox" required aria-required="true" data-dining-customer-consent><span>{{ __('dining.customer_consent_required') }}</span></label>
                     </div>
                     <label class="dp-payment-reference dp-cash-received" data-dining-cash-wrap><span class="dp-cash-title">{{ __('dining.cash_paid') }}</span><input data-dining-cash-received type="text" inputmode="decimal" maxlength="14" autocomplete="off" aria-label="{{ __('dining.cash_paid') }}" placeholder=" "></label>
                     <label class="dp-payment-confirmation" data-dining-payment-confirm-wrap hidden><input type="checkbox" data-dining-payment-confirmed><span>{{ __('dining.payment_confirmed') }}</span></label>

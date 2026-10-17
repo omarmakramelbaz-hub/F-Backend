@@ -104,4 +104,6 @@ return [
     'selection_changed' => 'An order changed and was deselected. Review your selection.',
     'batch_completed' => 'Orders collected and completed. Printing the combined receipt.',
     'company_dispatched' => 'Order handed over to the delivery company.',
+    'final_service_consent'=>'The customer agreed to post-purchase WhatsApp follow-up (required to close this invoice).',
+    'final_service_consent_required'=>'Confirm post-purchase follow-up approval for every invoice before finishing.',
 ];

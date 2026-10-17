@@ -1,6 +1,7 @@
 @extends('admin.index')
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('dashboard/css/phone-orders.css') }}?v={{ filemtime(public_path('dashboard/css/phone-orders.css')) }}">
+<link rel="stylesheet" href="{{ asset('dashboard/css/phone-delivery-refresh.css') }}?v={{ filemtime(public_path('dashboard/css/phone-delivery-refresh.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper phone-orders-wrapper">

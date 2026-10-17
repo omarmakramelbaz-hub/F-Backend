@@ -166,7 +166,7 @@ class PosServiceTicket
             $op=$this->record($v,$actor,$hash,'action',$id,$revision,$meta);return $this->result($op,$actor,false);
         },3);
     }
-    public function settle(string $channel,int $id,array $values,$actor): array
+    public function settle(string $channel,int $id,array $values,$actor,bool $requireServiceConsent=false): array
     {
         $this->channel($channel);
         $v=Validator::make($values,$this->commandRules()+['expected_revision'=>'required|integer|min:1','quote_hash'=>'required|string|size:64',
@@ -174,9 +174,11 @@ class PosServiceTicket
             'service_consent'=>'nullable|boolean','marketing_consent'=>'nullable|boolean']+($channel==='dine'?['customer_phone'=>'nullable|string|max:30']:[]))->validate();
         if($channel==='phone')abort_unless(($v['payment_confirmed']??false)===true,422,'أكد تحصيل قيمة الطلب فعليًا قبل إنهائه.');
         $hash=self::fingerprint([$channel,$id,'settle',$v]);$this->tables->requireReady();
-        return DB::transaction(function()use($channel,$id,$v,$actor,$hash){
+        return DB::transaction(function()use($channel,$id,$v,$actor,$hash,$requireServiceConsent){
             $actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
+            if($requireServiceConsent&&!in_array($v['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
+                'service_consent'=>'يجب تأكيد موافقة العميل على متابعة الخدمة قبل إنهاء الفاتورة.']);
             abort_unless($v['payment_method']==='cash'&&empty($v['tenders']),422,'الدفع متاح كاش فقط.');
             $row=$this->locked($channel,$id,$v['branch']);$this->collectible($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
             if($channel==='dine'){

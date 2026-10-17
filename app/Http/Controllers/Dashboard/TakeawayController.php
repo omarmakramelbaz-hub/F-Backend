@@ -53,7 +53,7 @@ class TakeawayController extends Controller
 
     public function checkout(Request $request, TakeawayService $service)
     {
-        return response()->json($service->checkout($request->all(), auth('admin')->user()));
+        return response()->json($service->checkout($request->all(), auth('admin')->user(), [], true));
     }
 
     public function receipts(Request $request, TakeawayService $service)

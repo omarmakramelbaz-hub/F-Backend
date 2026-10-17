@@ -1,0 +1,114 @@
+/* Delivery queues and elapsed preparation time; the product workspace keeps its own layout. */
+#phone-orders {
+    --ph-delivery-ink: #172b45;
+    --ph-delivery-muted: #64748b;
+    --ph-delivery-line: #dce5ef;
+    --ph-delivery-amber: #b45309;
+    --ph-delivery-blue: #245fa8;
+    --ph-delivery-green: #166534;
+}
+#phone-orders .ph-header .ph-heading h1 { color: var(--ph-delivery-ink); font-weight: 800; }
+#phone-orders .ph-heading-icon { background: #fff2e4; color: #cf620e; border: 1px solid #ffe1c2; border-radius: 12px; }
+#phone-orders .ph-header .ph-branch { border-color: var(--ph-delivery-line); border-radius: 10px; background: #fff; }
+#phone-orders.ph-unified .ph-new-order { border-radius: 9px; background: #e9720c; border-color: #d86408; box-shadow: 0 2px 5px #a74b0c16; }
+#phone-orders.ph-unified .ph-new-order:hover:not(:disabled) { background: #ce5e08; }
+#phone-orders .ph-flow { border-color: var(--ph-delivery-line); border-radius: 10px; background: #fff; }
+#phone-orders .ph-steps .is-current b { background: #e9720c; box-shadow: 0 0 0 3px #fff0e2; }
+#phone-orders.ph-step-number .ph-customer { border-color: var(--ph-delivery-line); }
+#phone-orders.ph-step-number [data-phone-field=customer_phone] { border-color: #dce5ef; background: #f8fafc; }
+
+#phone-orders.ph-unified .ph-orders {
+    border: 1px solid var(--ph-delivery-line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 3px 12px #1d3b5e06;
+}
+#phone-orders.ph-unified .ph-orders > .ph-panel-heading { padding-block: 7px; }
+#phone-orders.ph-unified .ph-orders > .ph-panel-heading h2 { color: var(--ph-delivery-ink); font-weight: 800; }
+#phone-orders .ph-orders > .ph-panel-heading button {
+    border: 1px solid #dde5ef;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #45607c;
+}
+#phone-orders.ph-unified .ph-batch-bar { color: var(--ph-delivery-muted); padding-block: 6px; }
+#phone-orders.ph-unified .ph-batch-bar strong { font-weight: 600; }
+#phone-orders.ph-unified .ph-batch-finish { border-radius: 6px; background: #167449; border: 1px solid #12603c; }
+#phone-orders.ph-unified .ph-batch-finish:disabled { background: #edf5f0; color: #658872; border-color: #dce9e0; opacity: 1; }
+#phone-orders.ph-unified .ph-delivery-board { gap: 10px; padding: 0 8px 8px; }
+#phone-orders.ph-unified .ph-board-column { border: 1px solid var(--ph-delivery-line); border-radius: 9px; background: #f5f8fc; }
+#phone-orders.ph-unified .ph-board-column > h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 32px;
+    padding: 4px 10px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 18px;
+    border-top-width: 3px;
+    border-radius: 8px 8px 0 0;
+}
+#phone-orders.ph-unified .ph-board-column > h3 bdi { min-width: 24px; padding: 1px 7px; border: 1px solid #ffffffb3; border-radius: 6px; background: #ffffffcc; font-size: 11px; text-align: center; }
+#phone-orders.ph-unified .ph-board-preparing > h3 { border-color: #ef8a29; background: #fff4e7; color: #96500f; }
+#phone-orders.ph-unified .ph-board-courier > h3 { border-color: #5a8ccb; background: #eef5ff; color: #24598f; }
+#phone-orders.ph-unified .ph-board-finished > h3 { border-color: #3c9b6b; background: #edf8f1; color: #226442; }
+#phone-orders.ph-unified .ph-board-cards { gap: 4px; padding: 5px; grid-auto-rows: minmax(56px, max-content); scrollbar-color: #bdcad9 transparent; }
+#phone-orders .ph-ticket-compact {
+    position: relative;
+    min-height: 56px;
+    grid-template-rows: 14px 14px 18px;
+    gap: 1px 6px;
+    padding: 3px 6px;
+    border: 1px solid #dfe7f0;
+    border-inline-start: 3px solid #d6e0ed;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 1px 2px #1d3b5e04;
+}
+#phone-orders .ph-board-preparing .ph-ticket-compact { border-inline-start-color: #efaf67; }
+#phone-orders .ph-board-courier .ph-ticket-compact { border-inline-start-color: #83a9d7; }
+#phone-orders .ph-board-finished .ph-ticket-compact { border-inline-start-color: #85bd9b; }
+#phone-orders .ph-ticket-compact:hover { border-color: #b6c8dc; box-shadow: 0 2px 6px #1d3b5e0b; }
+#phone-orders .ph-ticket-compact.is-selected { border-color: #5a8ccb; background: #f2f7ff; box-shadow: inset 0 0 0 1px #5a8ccb22; }
+#phone-orders .ph-ticket-compact .ph-ticket-heading { gap: 5px; line-height: 14px; }
+#phone-orders .ph-ticket-compact .ph-ticket-number { color: #6c7d92; font-size: 9px; font-weight: 600; }
+#phone-orders .ph-ticket-compact .ph-ticket-name { color: var(--ph-delivery-ink); font-size: 11px; font-weight: 800; line-height: 14px; }
+#phone-orders .ph-ticket-compact .ph-ticket-amount { color: #9e530e; font-size: 11px; line-height: 14px; font-weight: 800; }
+#phone-orders .ph-ticket-meta { color: #708199; line-height: 12px; }
+#phone-orders .ph-ticket-compact:has(.ph-preparation-timer) .ph-ticket-meta { padding-inline-end: 130px; }
+#phone-orders .ph-ticket-compact .ph-ticket-branch { background: #f0f4f9; color: #5a708b; font-size: 9px; line-height: 13px; }
+#phone-orders .ph-ticket-phone { color: #526983; font-size: 9px; line-height: 13px; }
+#phone-orders .ph-ticket-address { color: #7b899b; font-size: 9px; }
+#phone-orders .ph-ticket-quick-actions { gap: 4px; align-items: center; }
+#phone-orders .ph-ticket-quick-actions button { height: 18px; padding: 0 6px; font-size: 9px; line-height: 16px; border-radius: 4px; color: #4a6380; border-color: #dce5ef; background: #f8fafc; }
+#phone-orders .ph-ticket-quick-actions button:first-child { color: #925110; border-color: #f2dbc1; background: #fff8ef; }
+#phone-orders .ph-board-preparing .ph-ticket-quick-actions button:last-child:not(:first-child) { background: #ed790d; border-color: #dc6c09; color: #fff; font-weight: 700; }
+#phone-orders .ph-board-courier .ph-ticket-quick-actions button:last-child:not(:first-child) { background: #eaf6ee; border-color: #bfdfca; color: #21643e; font-weight: 700; }
+#phone-orders .ph-ticket-quick-actions button:hover:not(:disabled) { filter: brightness(.97); box-shadow: 0 1px 3px #17324d16; }
+#phone-orders .ph-ticket-quick-actions button:focus-visible { outline: 2px solid #4186d0; outline-offset: 2px; }
+#phone-orders .ph-board-cards > .ph-empty { margin: 18px 8px; padding: 18px 10px; border: 1px dashed #dce5ef; border-radius: 8px; background: #ffffff80; color: #8a98aa; font-size: 11px; text-align: center; }
+#phone-orders.ph-unified .ph-board-column > .ph-pagination { padding: 3px; background: #f9fbfd; border-top: 1px solid #e4ebf3; }
+
+#phone-orders .ph-preparation-timer { position: absolute; inset-inline-end: 6px; top: 19px; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; max-width: 128px; padding: 0 4px; min-height: 14px; border: 1px solid #bce7cd; border-radius: 4px; background: #edf9f1; color: #166534; white-space: nowrap; line-height: 12px; }
+#phone-orders .ph-preparation-timer > i { min-width: 9px; font-size: 9px; line-height: 12px; }
+#phone-orders .ph-preparation-timer-label { font-size: 8px; font-weight: 600; }
+#phone-orders .ph-preparation-timer-value { direction: ltr; unicode-bidi: isolate; font-family: Arial, sans-serif; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 800; line-height: 12px; }
+#phone-orders .ph-preparation-timer.is-overdue { border-color: #fecdd3; background: #fff1f2; color: #b42318; }
+
+@media (max-width: 999px) {
+    #phone-orders.ph-unified .ph-orders { overflow: visible; }
+    #phone-orders.ph-unified .ph-delivery-board { grid-template-columns: minmax(0, 1fr); gap: 12px; overflow: visible; }
+    #phone-orders.ph-unified .ph-board-column > h3 { min-height: 38px; font-size: 13px; }
+    #phone-orders.ph-unified .ph-board-cards { gap: 6px; padding: 7px; grid-auto-rows: minmax(126px, max-content); }
+    #phone-orders .ph-ticket-compact { min-height: 126px; grid-template-rows: 20px 18px auto; gap: 4px 6px; padding: 7px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-name { font-size: 12px; line-height: 20px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-number { font-size: 10px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-amount { font-size: 12px; line-height: 20px; }
+    #phone-orders .ph-ticket-quick-actions button { min-height: 30px; height: 30px; padding: 0 7px; font-size: 11px; }
+    #phone-orders .ph-ticket-quick-actions button:last-child { grid-column: 1 / -1; }
+    #phone-orders .ph-preparation-timer { top: 31px; inset-inline-end: 7px; min-height: 18px; padding-inline: 4px; }
+    #phone-orders .ph-preparation-timer-label { font-size: 8px; }
+    #phone-orders .ph-preparation-timer-value { font-size: 12px; }
+}
