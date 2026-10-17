@@ -672,3 +672,147 @@ html:has(.app-order-board-page) {
 @media (prefers-reduced-motion: reduce) {
     .dashboard-theme .info-box, .dashboard-theme .btn, .dashboard-theme .main-sidebar .nav-link { transition: none; }
 }
+
+/* go-erp-platform-logos:start */
+/* Native inline vectors only; no raster asset or background rectangle. */
+.go-erp-platform-logo[data-go-erp-vector] { display: block; background: none; }
+.dashboard-login-logo.go-erp-platform-logo {
+    height: 380px;
+}
+@media (max-width: 800px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 235px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 205px; }
+}
+.main-sidebar .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    height: 88px;
+    max-width: 100%;
+    flex: 0 1 208px;
+    object-fit: contain;
+}
+.main-sidebar .go-erp-platform-logo + .dashboard-brand-copy {
+    display: none !important;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo {
+    height: 72px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:hover .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    flex-basis: 208px;
+}
+/* go-erp-platform-logos:end */
+
+/* go-erp-logo-stamp:start */
+/* Shared native GO Solar System branding for login and dashboard. */
+.go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; filter: none; }
+.dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; }
+.dashboard-login-identity { display: flex; flex-direction: column; justify-content: center; min-height: 440px; }
+.dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(360px, 100%); height: auto; max-height: 380px; }
+.dashboard-login-brand-title.go-erp-tagline {
+    max-width: 380px;
+    margin: 14px auto 0;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.8;
+    letter-spacing: .045em;
+    color: #ffffff;
+    text-wrap: balance;
+}
+.dashboard-login-identity .dashboard-login-brand-subtitle { display: none; }
+@media (max-width: 800px) {
+    .dashboard-login-identity { min-height: 0; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(260px, 100%); max-height: 275px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(230px, 100%); max-height: 245px; }
+}
+/* The native logo bursts once on mount, then remains fully visible. */
+.go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
+.go-erp-logo-rest { opacity: 1; }
+.go-erp-logo-compact { display: none; }
+.go-erp-logo-fragments { opacity: 0; }
+.go-erp-login-flow { display: none; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-rest {
+        animation: go-erp-logo-rest 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragments {
+        animation: go-erp-logo-fragments 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragment {
+        transform-box: view-box;
+        transform-origin: 530px 311px;
+        animation: go-erp-fragment-flight 1.45s cubic-bezier(.2, .7, .2, 1) 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-dynamic] .go-erp-login-flow {
+        display: block;
+        animation: go-erp-flow-reveal .7s ease 1.45s 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor,
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter {
+        transform-box: view-box;
+        transform-origin: 0 0;
+        animation-duration: var(--orbit-period);
+        animation-timing-function: linear;
+        animation-delay: 1.45s;
+        animation-iteration-count: infinite;
+        animation-fill-mode: both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor { animation-name: go-erp-solar-orbit; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter { animation-name: go-erp-solar-counter; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-corona { animation: go-erp-solar-corona 8s ease-in-out 1.45s infinite; }
+    @keyframes go-erp-flow-reveal {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes go-erp-solar-orbit {
+        from { transform: rotate(var(--orbit-start)); }
+        to { transform: rotate(var(--orbit-end)); }
+    }
+    @keyframes go-erp-solar-counter {
+        from { transform: rotate(var(--counter-start)); }
+        to { transform: rotate(var(--counter-end)); }
+    }
+    @keyframes go-erp-solar-corona {
+        0%, 100% { opacity: .7; }
+        50% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-rest {
+        0%, 4% { opacity: 1; }
+        5%, 87.9% { opacity: 0; }
+        88%, 100% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-fragments {
+        0%, 4% { opacity: 0; }
+        5%, 87.9% { opacity: 1; }
+        88%, 100% { opacity: 0; }
+    }
+    @keyframes go-erp-fragment-flight {
+        0%, 4%, 86%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+        30%, 40% { transform: translate(var(--go-x), var(--go-y)) rotate(var(--go-r)) scale(.94); }
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-login-flow { display: block; opacity: 1; }
+}
+/* Keep the internal GO mark centered in a compact sidebar brand slot. */
+.dashboard-theme .main-sidebar .dashboard-brand { min-height: 92px; padding-block: 4px; }
+.dashboard-theme .main-sidebar .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { height: 84px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand { min-height: 76px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { width: 208px; height: 68px; flex: 0 1 208px; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-stage { display: none; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-compact { display: inline; }
+/* go-erp-logo-stamp:end */

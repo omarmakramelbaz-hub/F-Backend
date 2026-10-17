@@ -390,7 +390,8 @@ class OrderController extends Controller
     
     
     public function download_fatora(){
-    
+        app(\App\Services\Dashboard\OrderBoardPrinting::class)->issue('legacy', (int) request()->id,
+            auth('admin')->user(), app(\App\Services\Dashboard\OrderBoardService::class));
         $invoice=Order::findOrFail(request()->id);
         view()->share('invoice',$invoice);
 
@@ -398,12 +399,18 @@ class OrderController extends Controller
             // pass view file
             $pdf = PDF::loadView('pdfOrder');
             // download pdf
-            return $pdf->download('order_'.now().'.pdf');
+            $response = $pdf->download('order_'.now().'.pdf');
+            $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+            $response->headers->set('Referrer-Policy', 'no-referrer');
+            return $response;
         }
-        return view('pdfOrder');
+        return response()->view('pdfOrder')->header('Cache-Control', 'private, no-store, max-age=0')
+            ->header('Referrer-Policy', 'no-referrer');
     
     }
     public function print_fatora(){
+        app(\App\Services\Dashboard\OrderBoardPrinting::class)->issue('legacy', (int) request()->id,
+            auth('admin')->user(), app(\App\Services\Dashboard\OrderBoardService::class));
         $invoice=Order::findOrFail(request()->id);
         view()->share('invoice',$invoice);
 
@@ -411,9 +418,13 @@ class OrderController extends Controller
             // pass view file
             $pdf = PDF::loadView('printReceipt');
             // download pdf
-            return $pdf->download('order_'.now().'.pdf');
+            $response = $pdf->download('order_'.now().'.pdf');
+            $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+            $response->headers->set('Referrer-Policy', 'no-referrer');
+            return $response;
         }
-        return view('printReceipt');
+        return response()->view('printReceipt')->header('Cache-Control', 'private, no-store, max-age=0')
+            ->header('Referrer-Policy', 'no-referrer');
     }
     public function download_daily_report(){
         $user = User::where('id',request('vendor'))->first();

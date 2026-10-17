@@ -1,0 +1,215 @@
+"""Prove mixed-history source patches, prerequisite checks, and coherent rollback."""
+import contextlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('inline_quantity_installer', ROOT / 'deployment/apply_pos_inline_quantity.py')
+installer = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(installer)
+
+
+class InlineQuantityDeploymentTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='inline-quantity-test-')
+        self.addCleanup(self.temporary.cleanup)
+        self.parent = Path(self.temporary.name)
+        self.root = self.parent / 'app'
+        self.root.mkdir()
+        self.git('init', '-q')
+        self.git('config', 'user.name', 'Deployment Test')
+        self.git('config', 'user.email', 'deployment-test@example.invalid')
+        self.service = 'app/Services/Dashboard/OrderBoardService.php'
+        self.editor = 'app/Services/Dashboard/OrderBoardItems.php'
+        self.helper = 'app/Services/Dashboard/OrderBoardPrinting.php'
+        self.script = 'public/dashboard/js/order-board-detail.js'
+        self.client = 'public/dashboard/js/takeaway-pos.js'
+        self.brand = 'resources/views/admin/partials/go_erp_logo.blade.php'
+        self.view = 'resources/views/admin/orders/board_detail.blade.php'
+        self.menu = 'resources/views/admin/layouts/menu.blade.php'
+        self.model = 'app/Models/Order.php'
+        self.manifest = {self.helper: ('new', 'A'), self.script: ('new', 'A'),
+                         self.editor: ('app', 'M'), self.service: ('composite', 'M'),
+                         self.client: ('live', 'M'), self.brand: ('brand', 'M'),
+                         self.view: ('live', 'M')}
+        service_body = 'Foundation: old\n' + ''.join('// Separate OperatingDay context %s\n' % n for n in range(12)) + '// OperatingDay: old'
+        common = {self.service: self.body(service_body),
+                  self.model: self.body('Zero overrides: old'),
+                  self.client: self.body('Quantity: old'), self.view: self.body('View: old'),
+                  self.menu: b"@include('admin.partials.go_erp_logo')\n"}
+        self.publish(common)
+        common_revision = self.commit('Common source base')
+        foundation = dict(common)
+        foundation[self.service] = common[self.service].replace(b'Foundation: old', b'Foundation: installed')
+        foundation[self.model] = common[self.model].replace(b'Zero overrides: old', b'Zero overrides: installed')
+        foundation[self.editor] = self.body('POS: old')
+        self.publish(foundation)
+        foundation_revision = self.commit('Installed app editor foundation')
+        app = dict(foundation)
+        app[self.editor] = foundation[self.editor].replace(b'POS: old', b'POS: installed')
+        self.publish(app)
+        app_revision = self.commit('Separate application POS release')
+        self.git('switch', '-q', '-c', 'branding-fixture', common_revision)
+        self.publish({self.brand: self.body('Brand: installed')})
+        brand_revision = self.commit('Separate installed branding release')
+        self.git('switch', '-q', '-c', 'live-fixture', common_revision)
+        self.publish({self.service: common[self.service].replace(b'OperatingDay: old', b'OperatingDay: live')})
+        live_revision = self.commit('Main live release preserving OperatingDay')
+        self.before = {self.helper: None, self.script: None, self.editor: app[self.editor],
+                       self.service: foundation[self.service].replace(b'OperatingDay: old', b'OperatingDay: live'),
+                       self.client: common[self.client], self.brand: self.body('Brand: installed'),
+                       self.view: common[self.view], self.menu: common[self.menu],
+                       self.model: foundation[self.model]}
+        self.after = dict(self.before)
+        self.after[self.helper] = self.body('Print helper: installed')
+        self.after[self.script] = self.body('Detail script: installed')
+        self.after[self.editor] = self.before[self.editor].replace(b'POS: installed', b'POS: inline')
+        self.after[self.service] = self.before[self.service].replace(b'Foundation: installed', b'Foundation: inline')
+        self.after[self.client] = self.before[self.client].replace(b'Quantity: old', b'Quantity: inline')
+        self.after[self.brand] = self.before[self.brand].replace(b'Brand: installed', b'Brand: internal')
+        self.after[self.view] = self.before[self.view].replace(b'View: old', b'View: filemtime detail script')
+        self.publish(self.after)
+        self.revision = self.commit('Inline quantities and branding without merging old branches')
+        self.publish(self.before)
+        settings = {'BASE_REVISION': live_revision, 'APP_BASE_REVISION': app_revision,
+                    'BRAND_BASE_REVISION': brand_revision, 'FOUNDATION_BASE_REVISION': common_revision,
+                    'FOUNDATION_REVISION': foundation_revision, 'SOURCE_MANIFEST': self.manifest,
+                    'FOUNDATION_MANIFEST': {self.service: 'M', self.model: 'M', self.editor: 'A'},
+                    'UPGRADE_PATHS': (self.editor,), 'BRAND_MENU': self.menu}
+        for name, value in settings.items():
+            previous = getattr(installer, name)
+            setattr(installer, name, value)
+            self.addCleanup(setattr, installer, name, previous)
+        self.php = self.parent / 'php-check'
+        self.php.write_text('#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n')
+        self.php.chmod(0o755)
+        self.probe = mock.patch.object(installer, 'runtime_probe', return_value={'ok': True}).start()
+        self.addCleanup(mock.patch.stopall)
+
+    @staticmethod
+    def body(value):
+        return ('<?php\n' + ''.join('// Stable leading %s\n' % n for n in range(12))
+                + '// ' + value + '\n' + ''.join('// Stable trailing %s\n' % n for n in range(12))).encode()
+
+    def git(self, *arguments):
+        return subprocess.check_output(['git', '-C', str(self.root), *arguments], text=True)
+
+    def commit(self, message):
+        self.git('add', '.')
+        self.git('commit', '-qm', message)
+        return self.git('rev-parse', 'HEAD').strip()
+
+    def publish(self, files):
+        for relative, body in files.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if body is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(body)
+
+    def snapshots(self):
+        return {relative: installer.content(self.root / relative) for relative in self.before}
+
+    def apply(self, **kwargs):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return installer.install(self.root, self.revision, str(self.php), **kwargs)
+
+    def receipts(self):
+        return list((self.parent / 'pos-inline-quantity-backups').glob('*/receipt.json'))
+
+    def test_mixed_nonancestor_bases_composite_install_and_noop(self):
+        self.assertNotEqual(subprocess.run(['git', '-C', str(self.root), 'merge-base', '--is-ancestor',
+                                            installer.APP_BASE_REVISION, self.revision]).returncode, 0)
+        custom = b'// Existing unrelated live customization\n'
+        (self.root / self.client).write_bytes(self.before[self.client] + custom)
+        (self.root / self.brand).write_bytes(self.before[self.brand] + custom)
+        (self.root / self.menu).write_bytes(self.before[self.menu] + custom)
+        backup = self.apply()
+        expected = dict(self.after)
+        expected[self.client] += custom
+        expected[self.brand] += custom
+        expected[self.menu] += custom
+        self.assertEqual(self.snapshots(), expected)
+        self.assertIn(b'OperatingDay: live', (self.root / self.service).read_bytes())
+        self.assertEqual((backup / self.client).read_bytes(), self.before[self.client] + custom)
+        self.assertIsNone(self.apply())
+        self.assertEqual(len(self.receipts()), 1)
+        self.assertEqual((self.root / self.menu).read_bytes(), self.before[self.menu] + custom)
+
+    def test_unknown_hunk_overlap_stops_without_publication(self):
+        (self.root / self.client).write_bytes(self.before[self.client].replace(b'Quantity: old', b'Quantity: independent'))
+        before = self.snapshots()
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.apply()
+        self.assertEqual(self.snapshots(), before)
+        self.assertEqual(self.receipts(), [])
+
+    def test_missing_foundation_semantics_stops_without_source_changes(self):
+        (self.root / self.model).write_bytes(self.before[self.model].replace(b'Zero overrides: installed', b'Zero overrides: old'))
+        before = self.snapshots()
+        with self.assertRaisesRegex(RuntimeError, 'APP_FOUNDATION_PREREQUISITE_CONFLICT'):
+            self.apply()
+        self.assertEqual(self.snapshots(), before)
+
+    def test_runtime_preflight_failure_publishes_nothing(self):
+        self.probe.side_effect = RuntimeError('CART_QUANTITY_NOT_FRACTIONAL')
+        with self.assertRaisesRegex(RuntimeError, 'CART_QUANTITY_NOT_FRACTIONAL'):
+            self.apply()
+        self.assertEqual(self.snapshots(), self.before)
+        self.assertEqual(self.receipts(), [])
+
+    def test_post_install_failure_restores_all_and_removes_new_dependencies(self):
+        self.probe.side_effect = [{'ok': True}, RuntimeError('ROUTE_CONTRACT_INVALID')]
+        with self.assertRaisesRegex(RuntimeError, 'ROUTE_CONTRACT_INVALID'):
+            self.apply()
+        self.assertEqual(self.snapshots(), self.before)
+        self.assertEqual(json.loads(self.receipts()[0].read_text())['status'], 'rolled_back')
+
+    def test_concurrent_consumer_keeps_whole_dependency_group(self):
+        changed = self.after[self.service] + b'// Concurrent consumer edit\n'
+
+        def probe(root, php, stage, phase, views=()):
+            if phase == 'installed':
+                (root / self.service).write_bytes(changed)
+                raise RuntimeError('DELIBERATE_CONCURRENT_EDIT')
+            return {'ok': True}
+
+        self.probe.side_effect = probe
+        with self.assertRaisesRegex(RuntimeError, 'DELIBERATE_CONCURRENT_EDIT'):
+            self.apply()
+        expected = dict(self.after)
+        expected[self.service] = changed
+        self.assertEqual(self.snapshots(), expected)
+        receipt = json.loads(self.receipts()[0].read_text())
+        self.assertEqual(receipt['status'], 'rollback_review_required')
+        self.assertEqual(receipt['retained_dependency_group'], list(self.manifest))
+
+    def test_partial_install_and_check_only(self):
+        (self.root / self.script).write_bytes(self.after[self.script])
+        before = self.snapshots()
+        self.assertIsNone(self.apply(check_only=True))
+        self.assertEqual(self.snapshots(), before)
+        backup = self.apply()
+        self.assertEqual(self.snapshots(), self.after)
+        receipt = json.loads((backup / 'receipt.json').read_text())
+        self.assertNotIn(self.script, [entry['path'] for entry in receipt['files']])
+
+    def test_new_script_is_published_before_its_filemtime_view(self):
+        plan = installer.build_plan(self.root, self.revision)
+        self.assertLess(list(plan).index(self.script), list(plan).index(self.view))
+        self.apply()
+        patch = self.receipts()[0].parent.joinpath('release.diff').read_bytes()
+        self.assertLess(patch.index(('diff --git a/' + self.script).encode()),
+                        patch.index(('diff --git a/' + self.view).encode()))
+
+
+if __name__ == '__main__':
+    unittest.main()
