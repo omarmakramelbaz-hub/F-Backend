@@ -110,7 +110,7 @@
         invoice.cart = validStoredCart(value.cart) && value.cart.length ? value.cart : payload.items.map(function (item) {
             var snapshot = invoice.quote && invoice.quote.items.find(function (line) { return Number(line.product_id) === Number(item.product_id) && String(line.option_id || '') === String(item.option_id || '') && line.quantity_mode === item.quantity_mode; }) || {};
             return { product: { id: item.product_id, name: snapshot.name || label('item') + ' #' + item.product_id, unit_price: snapshot.unit_price, available: false },
-                option: item.option_id ? { id: item.option_id, label: snapshot.option_label || '', price: snapshot.unit_price } : null, mode: item.quantity_mode, quantity: item.quantity };
+                option: item.option_id || snapshot.option_label ? { id: item.option_id || '', label: snapshot.option_label || '', price: snapshot.unit_price } : null, mode: item.quantity_mode, quantity: item.quantity };
         });
         invoice.customerPhone = String(payload.customer_phone || ''); invoice.customerName = String(payload.customer_name || ''); invoice.serviceConsent = !!payload.service_consent; invoice.marketingConsent = !!payload.marketing_consent;
         invoice.paymentMethod = payload.payment_method; invoice.confirmed = !!payload.payment_confirmed;
@@ -373,7 +373,8 @@
             var row = node('tr'); var productCell = node('td'); var copy = node('div', 'tp-line-product');
             if (line.product.image_url) { var image = node('img'); image.src = line.product.image_url; image.alt = ''; image.addEventListener('error', function () { image.remove(); }, { once: true }); copy.appendChild(image); }
             var title = node('span'), fullName = snapshot.name || line.product.name, nameNode = node('span', 'tp-line-name', fullName); nameNode.title = fullName; title.appendChild(nameNode);
-            if (line.option) { var optionNode = node('small', 'tp-line-option', line.option.label); optionNode.title = line.option.label; title.appendChild(optionNode); } copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
+            var optionText = lineOptionLabel(line, snapshot);
+            if (optionText) { var optionNode = node('small', 'tp-line-option', optionText); optionNode.title = optionText; title.appendChild(optionNode); } copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
             var amount = node('td'); amount.appendChild(node('bdi', 'tp-line-quantity', line.quantity)); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode, line.product))); row.appendChild(amount);
             var price = snapshot.unit_price || line.option && line.option.price || line.product.unit_price || line.product.price;
             var priceCell = node('td'); priceCell.appendChild(node('bdi', '', money(price))); row.appendChild(priceCell);
@@ -477,6 +478,7 @@
             pagination = result.pagination || {}; catalogPage = Number(pagination.page || 1); root.querySelector('[data-pos-pagination]').hidden = !pagination.last_page || pagination.last_page < 2; root.querySelector('[data-pos-page-label]').textContent = catalogPage + ' / ' + (pagination.last_page || 1); root.querySelector('[data-pos-page="previous"]').disabled = catalogPage <= 1; root.querySelector('[data-pos-page="next"]').disabled = catalogPage >= Number(pagination.last_page || 1);
             root.querySelector('[data-pos-catalog-message]').hidden = items.length > 0; root.querySelector('[data-pos-catalog-message]').textContent = label('no_products');
             invoices[activeInvoice].today = result.today || null; updateRegister(result.register, result.today); renderPayments(result.payment_methods || policy.payment_methods); totals(quote); lock(); if (!permissions.can_checkout) notify(label('access_required'));
+            if (cart.length) renderLines();
             if (cart.length && !quote) invalidateQuote();
         } catch (error) { if (disposed || generation !== catalogGeneration || error.name === 'AbortError') return; list.replaceChildren(); products.clear(); root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = error.message || label('load_error'); notify(error.message || label('load_error'), false, true); }
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
@@ -587,6 +589,16 @@
         if (Array.isArray(product.preparation_options)) return product.preparation_options;
         return [{ id: '', label: label('choose_base'), price: product.unit_price || product.price }].concat(product.options || []);
     }
+    function lineOptionLabel(line, snapshot) {
+        if (snapshot.option_label) return snapshot.option_label;
+        if (line.option && line.option.label) return line.option.label;
+        if (line.option && line.option.id) return '';
+        var product = products.get(String(line.product.id)) || line.product, choices = product.preparation_options;
+        // Existing base drafts keep their identity; only a configured preparation
+        // product can supply a missing whole label in the current invoice view.
+        var whole = Array.isArray(choices) && choices.length > 1 && choices.find(function (option) { return option.id === ''; });
+        return whole ? whole.label : '';
+    }
     function chooseProduct(product) {
         if (!product || isLocked() || !product.available || !permissions.can_checkout) return;
         var choices = productChoices(product);
@@ -599,7 +611,7 @@
             button.appendChild(node('bdi', '', money(option.price) + ' ' + label('currency')));
             button.addEventListener('click', function () {
                 if (selected || modal.hidden || generation !== modalGeneration || isLocked()) return;
-                selected = true; closeModal(); addProduct(product, option.id ? option : null);
+                selected = true; closeModal(); addProduct(product, option.id || Array.isArray(product.preparation_options) ? option : null);
             }); list.appendChild(button);
         }); content.appendChild(list); list.firstElementChild.focus();
     }

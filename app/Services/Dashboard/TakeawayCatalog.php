@@ -142,6 +142,19 @@ class TakeawayCatalog
             array_unshift($labels, self::FEATURES[$name]);
         }
         $this->validPrice($price);
+        // A whole preparation keeps the existing base identity and price. Plain SKUs
+        // without a valid cleaning/filleting choice must not gain a preparation label.
+        if (!$featureId && $clean === '') {
+            foreach (['extra_clean', 'extra_clear'] as $preparation) {
+                if (!array_key_exists($preparation, $extras) || $extras[$preparation] === null || $extras[$preparation] === '') continue;
+                try {
+                    $extra = Money::minor($extras[$preparation]);
+                    $this->validPrice($extra); $this->validPrice($price + $extra);
+                    $labels[] = app()->getLocale() === 'ar' ? 'كامل' : 'Whole';
+                    break;
+                } catch (\InvalidArgumentException $error) { /* Unconfigured preparation. */ }
+            }
+        }
         return [$price, $featureId || $clean ? 'f:'.$featureId.':'.($clean ?: 'base') : '', implode(' / ', $labels)];
     }
 
