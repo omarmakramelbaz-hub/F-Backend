@@ -1,0 +1,64 @@
+--- a/app/Services/Dashboard/BranchShiftClosing.php
++++ b/app/Services/Dashboard/BranchShiftClosing.php
+@@ -30,7 +30,12 @@
+     private function latest(string $branch){return DB::table('branch_shift_closings')->where('branch',$branch)->orderByDesc('sequence')->first();}
+     private function unclaimed($q,string $branch,string $source,string $column)
+     {
+-        return $q->whereNotExists(function($s)use($branch,$source,$column){$s->selectRaw('1')->from('branch_shift_sources')->where('branch',$branch)->where('source',$source)->whereColumn('source_id',$column);});
++        return $q->whereNotExists(function($s)use($branch,$source,$column){
++            $s->selectRaw('1')->from('branch_shift_sources')->where('source',$source)->whereColumn('source_id',$column);
++            // An app order keeps one financial identity when its store is fulfilled
++            // by Shubra. Saved claims at an old store must never be collected twice.
++            if(!in_array($source,['app','app_cash'],true))$s->where('branch',$branch);
++        });
+     }
+     public function data(array $values,$actor): array
+     {
+@@ -62,24 +67,6 @@
+         $snapshot=$built['snapshot'];unset($snapshot['closed_at']);
+         return hash_hmac('sha256',json_encode([$snapshot,$built['sources'],$built['till_balance']],JSON_UNESCAPED_UNICODE),(string)config('app.key'));
+     }
+-    /** Internal sync facts stay in the encrypted outbox, never the cashier's page response. */
+-    public function desktopReview(array $values,$actor): array
+-    {
+-        $branch=$this->branch((string)($values['branch']??''),$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
+-        $snapshot=$built['snapshot'];unset($snapshot['closed_at']);
+-        return ['previous_closing_id'=>(int)($last->id??0),'snapshot'=>$snapshot,'sources'=>$built['sources'],'till_balance'=>$built['till_balance']];
+-    }
+-    public function reconcileDesktop(array $values,array $review,$actor): array
+-    {
+-        return DB::transaction(function()use($values,$review,$actor){
+-            $branch=$this->branch((string)($values['branch']??''),$actor,true);
+-            DB::table('takeaway_tills')->where('branch',$branch['value'])->lockForUpdate()->first();
+-            $current=$this->desktopReview($values,$actor);
+-            abort_unless(hash_equals(PosServiceTicket::fingerprint($current),PosServiceTicket::fingerprint($review)),409,'مصادر أو أرصدة الوردية على السيرفر مختلفة؛ التقفيل المحلي محفوظ للمراجعة.');
+-            $last=$this->latest($branch['value']);$values['review_token']=$this->token($this->build($branch,$last));
+-            return $this->close($values,$actor);
+-        });
+-    }
+     private function appAmount(object $row): array
+     {
+         $lines=DB::table('carts')->where('order_id',$row->id)->get();$subtotal=0;
+@@ -110,8 +97,9 @@
+         }
+         // App orders use their own settlement stream. Vendor-collected cash is distinct
+         // from delegate/electronic receipts; a later cash handover can be recognized once.
+-        $appRows=DB::table('orders')->where('resturant_id',$branch['id'])->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
+-        $claimed=DB::table('branch_shift_sources')->where('branch',$value)->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
++        $appSources=FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$branch['id']);
++        $appRows=DB::table('orders')->whereIn('resturant_id',$appSources)->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
++        $claimed=DB::table('branch_shift_sources')->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
+         foreach($appRows as $row){$saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);$vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';if($saleClaimed&&(!$vendorCash||$cashClaimed))continue;[$total,$delivery]=$this->appAmount($row);
+             if(!$saleClaimed){$channels['app']['count']++;$channels['app']['gross_cents']+=$total;$channels['app']['delivery_cents']+=$delivery;$sources[]=['source'=>'app','source_id'=>$row->id];if(!$vendorCash)$appOutside+=$total-$delivery;}
+             if($vendorCash&&!$cashClaimed){$appCash+=$total-$delivery;$sources[]=['source'=>'app_cash','source_id'=>$row->id];}
+--- a/resources/views/admin/pos_service/receiver.blade.php
++++ b/resources/views/admin/pos_service/receiver.blade.php
+@@ -1,7 +1,7 @@
+ @php
+     $branchReceiver = null;
+     try { $branchReceiver = app(\App\Services\Dashboard\TakeawayAccess::class)->receiverBranch(auth('admin')->user()); } catch (\Throwable $error) { $branchReceiver = null; }
+-    $branchPrintBoot = ['branch'=>$branchReceiver,'jobs'=>route('phone-orders.print-jobs'),'claim'=>route('phone-orders.print-claim'),'complete'=>route('phone-orders.print-complete'),'orders'=>route('phone-orders.index'),'labels'=>['ready'=>__('phone_orders.printer_receiving'),'offline'=>__('phone_orders.printer_offline'),'attention'=>__('phone_orders.printer_attention'),'incoming'=>__('phone_orders.incoming')]];
++    $branchPrintBoot = ['branch'=>$branchReceiver,'actor_id'=>(int)auth('admin')->id(),'jobs'=>route('phone-orders.print-jobs'),'claim'=>route('phone-orders.print-claim'),'complete'=>route('phone-orders.print-complete'),'orders'=>route('phone-orders.index'),'labels'=>['ready'=>__('phone_orders.printer_receiving'),'offline'=>__('phone_orders.printer_offline'),'attention'=>__('phone_orders.printer_attention'),'incoming'=>__('phone_orders.incoming'),'enable_sound'=>__('phone_orders.enable_sound')]];
+ @endphp
+ @if($branchReceiver)
+ <script type="application/json" id="branch-print-bootstrap">@json($branchPrintBoot)</script>

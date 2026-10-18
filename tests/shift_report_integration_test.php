@@ -8,6 +8,7 @@ $autoload = getenv('SHIFT_TEST_AUTOLOAD') ?: dirname(__DIR__).'/vendor/autoload.
 if (!is_file($autoload)) throw new RuntimeException('Set SHIFT_TEST_AUTOLOAD to an Illuminate 8 compatible Composer autoloader.');
 require $autoload;
 spl_autoload_register(function ($class) {
+    if ($class === 'App\\Services\\Dashboard\\BranchShiftClosing' && getenv('SHIFT_TEST_MERGED_CLOSING')) { require_once getenv('SHIFT_TEST_MERGED_CLOSING'); return; }
     if (strpos($class, 'App\\') !== 0) return;
     $path = dirname(__DIR__).'/app/'.str_replace('\\', '/', substr($class, 4)).'.php';
     if (is_file($path)) require_once $path;
@@ -34,6 +35,12 @@ function __($key, $replace = [], $locale = null) { return trans($key, $replace, 
 class ExpenseStockApplication extends Container { public function getLocale() { return 'ar'; } }
 class ExpenseStockUser extends \Illuminate\Database\Eloquent\Model { protected $table = 'users'; public function can($permission) { return (int)$this->id===2&&$permission==='order-list'; } }
 class_alias(ExpenseStockUser::class, 'App\\Models\\User');
+class ShiftReportTestFulfillment {
+    public static function branch(string $origin): string {return $origin==='f:201'?'f:100':$origin;}
+    public static function sourceRestaurantIdsForBranch(int $id): array {return $id===100?[100,201]:($id===201?[]:[$id]);}
+}
+class_alias(ShiftReportTestFulfillment::class,'App\\Services\\Dashboard\\FasakhanstaStoreFulfillment');
+
 
 $container = new ExpenseStockApplication;
 Container::setInstance($container);
@@ -169,4 +176,19 @@ check($expensePaper['expenses_total']==='10.00'&&balance()===$beforeExpense-1000
 DB::table('takeaway_tills')->where('branch','f:101')->update(['balance_cents'=>-5000]);
 $negative=$shift->close(values(630,'0.00','f:101'),actor());
 check(balance('f:101')===-5000&&$shift->receipt($negative['closing']['id'],actor())['expected_cash']==='-50.00','overdrawn cash carries as a negative balance after report-only closing');
+DB::table('resturants')->insert(['id'=>201,'user_id'=>10,'parent_id'=>100,'name'=>'Store fulfilled by Mahalla fixture']);
+$storeOrder=\App\Models\Order::withoutGlobalScopes()->create(['resturant_id'=>201,'type'=>'current','status'=>'pending']);
+check($storeOrder->order_no==='R100-S5-0001'&&(int)$storeOrder->resturant_id===201,'store app order uses the fulfilling branch shift counter while preserving its original store');
+$directOrder=\App\Models\Order::withoutGlobalScopes()->create(['resturant_id'=>100,'type'=>'current','status'=>'pending']);
+check($directOrder->order_no==='R100-S5-0002','store and direct app orders share the fulfilling branch sequence');
+if(getenv('SHIFT_TEST_MERGED_CLOSING')){
+    // The real merged service must keep Shubra's global claims when ownership moved from a store.
+    $beforeStores=balance();$oldStore=DB::table('orders')->insertGetId(['resturant_id'=>201,'total_price'=>'30.00','payment_type'=>'cash','transfer_price_by'=>'vendor','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    foreach(['app','app_cash']as$source)DB::table('branch_shift_sources')->insert(['closing_id'=>$first['closing']['id'],'branch'=>'f:201','source'=>$source,'source_id'=>$oldStore]);
+    $newStore=DB::table('orders')->insertGetId(['resturant_id'=>201,'total_price'=>'70.00','payment_type'=>'cash','transfer_price_by'=>'vendor','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    check(balance()===$beforeStores+7000,'merged cash report includes newly fulfilled store cash and excludes old global store claims');
+    $storeClose=$shift->close(values(650,'0.00'),actor());$storePaper=$shift->receipt($storeClose['closing']['id'],actor());
+    check($storePaper['app_branch_cash']==='70.00'&&$storePaper['channels']['app']['count']===1,'merged closing claims each new fulfilled store order once');
+    check(balance()===$beforeStores+7000,'fulfilled store cash remains after close without being added twice');
+}
 echo 'SHIFT_REPORT_INTEGRATION_OK checks='.$checks.PHP_EOL;

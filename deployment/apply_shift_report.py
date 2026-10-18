@@ -177,6 +177,51 @@ def release_body(root, revision, relative):
     return result.stdout
 
 
+SHIFT_SERVICE_PATH = 'app/Services/Dashboard/BranchShiftClosing.php'
+SHIFT_RECEIVER_PATH = 'resources/views/admin/pos_service/receiver.blade.php'
+OBSERVED_SHIFT_HASHES = ('4f132e3b233b0adc8f19ff9671878da39fac2b6737a364629f284403368f8f13', '21d13d560857700d2904a82af73af798b072f5d56c350c708d85f7723b714bfb')
+OBSERVED_RECEIVER_HASHES = ('37ab9a06209ace73c4de1f8663531fade1bba040aef950c52ad31da87d2f5eb8', 'deca072ac5725ad90eaeb0db2494bc4687cbe964ebdbad857726fa62a561b79f')
+
+
+def without_desktop_review(body):
+    start = b'    /** Internal sync facts stay'
+    end = b'    private function appAmount'
+    require(body.count(start) == 1 and body.count(end) == 1, 'SHIFT_DESKTOP_METHOD_BOUNDARY_NEEDS_REVIEW')
+    first, last = body.index(start), body.index(end)
+    require(first < last and body[first:last].count(b'public function desktopReview(') == 1
+            and body[first:last].count(b'public function reconcileDesktop(') == 1,
+            'SHIFT_DESKTOP_METHOD_BOUNDARY_NEEDS_REVIEW')
+    return body[:first] + body[last:]
+
+
+def merge_observed_shift(stage, before, base, release):
+    # The diagnostic supplied these exact complete source hashes. Removing the
+    # already-absent desktop-only methods on BOTH merge ancestors preserves the
+    # live Shubra fulfillment and global app claims without reviving that module.
+    require(digest(base) == '7ca552a1161299e67c6d741c5abaa1fe9f36dadd323b87c9b6cf5c155cefe496'
+            and digest(release) == 'b8df19161ac5aaf7a9289b6bd24b65108113ca1486527df9607cc94b9768bfb4',
+            'SHIFT_OBSERVED_RELEASE_NEEDS_REVIEW')
+    directory = Path(tempfile.mkdtemp(prefix='observed-shift-', dir=stage))
+    paths = [directory / name for name in ('live', 'base', 'release')]
+    for path, body in zip(paths, (before, without_desktop_review(base), without_desktop_review(release))):
+        path.write_bytes(body)
+    result = run(['git', 'merge-file', '-p', '--diff3', *map(str, paths)])
+    require(result.returncode == 0 and digest(result.stdout) == OBSERVED_SHIFT_HASHES[1],
+            'SHIFT_OBSERVED_MERGE_NEEDS_REVIEW')
+    return result.stdout
+
+
+def merge_observed_receiver(before, base, release):
+    needle = b"'orders'=>route('phone-orders.index'),"
+    addition = b"'shifts'=>['jobs'=>route('branch-shift-print.jobs'),'claim'=>route('branch-shift-print.claim'),'complete'=>route('branch-shift-print.complete')],"
+    require(base.count(needle) == 1 and release == base.replace(needle, needle + addition, 1),
+            'SHIFT_RECEIVER_RELEASE_NEEDS_REVIEW')
+    require(before.count(needle) == 1, 'SHIFT_RECEIVER_LIVE_NEEDS_REVIEW')
+    result = before if addition in before else before.replace(needle, needle + addition, 1)
+    require(digest(result) == OBSERVED_RECEIVER_HASHES[1], 'SHIFT_RECEIVER_MERGE_NEEDS_REVIEW')
+    return result
+
+
 def merge_candidate(stage, relative, before, base, release, legacy_base=None):
     if before == release:
         return before
@@ -186,6 +231,10 @@ def merge_candidate(stage, relative, before, base, release, legacy_base=None):
     require(before is not None, 'LIVE_SOURCE_REQUIRED: ' + relative)
     if before == base:
         return release
+    if relative == SHIFT_SERVICE_PATH and digest(before) in OBSERVED_SHIFT_HASHES:
+        return merge_observed_shift(stage, before, base, release)
+    if relative == SHIFT_RECEIVER_PATH and digest(before) in OBSERVED_RECEIVER_HASHES:
+        return merge_observed_receiver(before, base, release)
     merge_dir = Path(tempfile.mkdtemp(prefix='merge-', dir=stage))
     current_path, base_path, release_path = (merge_dir / name for name in ('current', 'base', 'release'))
     current_path.write_bytes(before)

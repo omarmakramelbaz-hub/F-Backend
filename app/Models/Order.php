@@ -42,11 +42,15 @@ class Order extends Model
         // });
         static::creating(function ($model) {
             if (empty($model->order_no) && !empty($model->resturant_id)) {
-                $numbers = app(\App\Services\Dashboard\BranchOrderSequence::class)->next('f:'.$model->resturant_id, 'app');
+                $numberBranch = 'f:'.$model->resturant_id;
+                if (class_exists(\App\Services\Dashboard\FasakhanstaStoreFulfillment::class)) {
+                    $numberBranch = \App\Services\Dashboard\FasakhanstaStoreFulfillment::branch($numberBranch);
+                }
+                $numbers = app(\App\Services\Dashboard\BranchOrderSequence::class)->next($numberBranch, 'app');
                 if ($numbers) {
                     $model->shift_sequence = $numbers['shift_sequence'];
                     $model->shift_order_number = $numbers['shift_order_number'];
-                    $model->order_no = \App\Services\Dashboard\BranchOrderSequence::display($model, 'f:'.$model->resturant_id, 'app', '');
+                    $model->order_no = \App\Services\Dashboard\BranchOrderSequence::display($model, $numberBranch, 'app', '');
                 } else $model->order_no = self::generateUniqueOrderNumber($model->resturant_id);
             }
         });

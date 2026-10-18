@@ -183,5 +183,48 @@ class InstallerTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'LIVE_CHANGE_NEEDS_REVIEW'):
                 INSTALLER.merge_candidate(stage,self.FIRST,legacy+b'unknown drift\n',self.base,self.release,legacy)
 
+class ObservedCompatibilityTest(unittest.TestCase):
+    ROOT=Path(__file__).resolve().parents[1]
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory();self.addCleanup(self.temporary.cleanup)
+        self.stage=Path(self.temporary.name)
+        self.sources={}
+        for relative in (INSTALLER.SHIFT_SERVICE_PATH,INSTALLER.SHIFT_RECEIVER_PATH):
+            base=subprocess.check_output(['git','-C',str(self.ROOT),'show',INSTALLER.BASE_REVISION+':'+relative])
+            self.sources[relative]=(base,(self.ROOT/relative).read_bytes())
+            path=self.stage/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(base)
+        subprocess.run(['git','apply',str(self.ROOT/'tests/fixtures/shift_report_live_20261018.patch')],cwd=self.stage,check=True)
+    def merge(self,path,body=None):
+        base,release=self.sources[path]
+        return INSTALLER.merge_candidate(self.stage,path,body if body is not None else (self.stage/path).read_bytes(),base,release)
+    def test_preserves_observed_shubra_claims_and_missing_desktop_module(self):
+        path=INSTALLER.SHIFT_SERVICE_PATH;live=(self.stage/path).read_bytes()
+        self.assertEqual(INSTALLER.digest(live),INSTALLER.OBSERVED_SHIFT_HASHES[0])
+        merged=self.merge(path)
+        self.assertEqual(INSTALLER.digest(merged),INSTALLER.OBSERVED_SHIFT_HASHES[1])
+        self.assertIn(b'FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch',merged)
+        self.assertIn(b"if(!in_array($source,['app','app_cash'],true))$s->where('branch',$branch)",merged)
+        self.assertNotIn(b'function desktopReview',merged);self.assertNotIn(b'function reconcileDesktop',merged)
+        self.assertIn(b'function canClose',merged);self.assertIn(b"$snapshot['drawer_preserved']=true",merged)
+        self.assertNotIn(b"->where('id',$till->id)->update",merged)
+        self.assertEqual(self.merge(path,merged),merged)
+    def test_preserves_sound_and_actor_when_adding_shift_print_routes(self):
+        path=INSTALLER.SHIFT_RECEIVER_PATH;merged=self.merge(path)
+        self.assertEqual(INSTALLER.digest(merged),INSTALLER.OBSERVED_RECEIVER_HASHES[1])
+        self.assertIn(b"'actor_id'=>(int)auth('admin')->id()",merged)
+        self.assertIn(b"'enable_sound'=>__('phone_orders.enable_sound')",merged)
+        self.assertEqual(merged.count(b"'shifts'=>"),1)
+        self.assertEqual(self.merge(path,merged),merged)
+    def test_unknown_live_drift_still_requires_review(self):
+        for path in self.sources:
+            with self.subTest(path=path):
+                live=(self.stage/path).read_bytes()+b'// unreviewed additional drift\n'
+                with self.assertRaisesRegex(RuntimeError,'LIVE_CHANGE_NEEDS_REVIEW'):
+                    self.merge(path,live)
+    def test_modified_release_is_not_accepted_as_reviewed(self):
+        path=INSTALLER.SHIFT_SERVICE_PATH;base,release=self.sources[path]
+        with self.assertRaisesRegex(RuntimeError,'SHIFT_OBSERVED_RELEASE_NEEDS_REVIEW'):
+            INSTALLER.merge_candidate(self.stage,path,(self.stage/path).read_bytes(),base,release+b'// unexpected release drift\n')
+
 if __name__ == '__main__':
     unittest.main()
