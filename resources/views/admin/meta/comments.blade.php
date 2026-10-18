@@ -73,6 +73,7 @@ $metaCommentAiBootstrap = ['csrf'=>csrf_token(), 'labels'=>$metaCommentAiLabels,
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-comments.css') }}?v={{ filemtime(public_path('css/dashboard-meta-comments.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-comment-ai.css') }}?v={{ filemtime(public_path('css/dashboard-meta-comment-ai.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-comments-expanded.css') }}?v={{ filemtime(public_path('css/dashboard-meta-comments-expanded.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-meta-comments-timeline.css') }}?v={{ filemtime(public_path('css/dashboard-meta-comments-timeline.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper meta-comments-wrapper">
