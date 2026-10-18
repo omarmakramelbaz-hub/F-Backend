@@ -73,7 +73,7 @@ function waConfirmationFormatObservation(array$transcript):array{
         $exact=$header!==null;
         $parsed=$text===null?null:$class::parseRecap($text);
         $positive=$text!==null&&$class::positiveApproval($text);
-        $shape=['name_label'=>false,'phone_label'=>false,'address_label'=>false,'total_label'=>false,'combined_data_label'=>false];
+        $shape=['name_label'=>false,'phone_label'=>false,'address_label'=>false,'total_label'=>false,'combined_data_label'=>false,'items_section_label'=>false];
         $titles=[];$titlesTruncated=false;
         foreach($text===null?[]:(preg_split('/\R/u',$text)?:[])as$lineNumber=>$line){
             $normal=$display->invoke(null,$line);
@@ -82,12 +82,15 @@ function waConfirmationFormatObservation(array$transcript):array{
             $shape['address_label']=$shape['address_label']||preg_match('/\A(?:العنوان|عنوان التوصيل)\s*[:：]\s*\S/u',$normal)===1;
             $shape['total_label']=$shape['total_label']||preg_match('/\A(?:الإجمالي|الاجمالي|الإجمالى|الاجمالى|المجموع)(?:\s+التقريبي)?\s*[:：]?\s*\S/u',$normal)===1;
             $shape['combined_data_label']=$shape['combined_data_label']||preg_match('/\Aالبيانات\s*[:：]\s*\S/u',$normal)===1;
+            $shape['items_section_label']=$shape['items_section_label']||preg_match('/\Aالأصناف\s*[:：]\z/u',$normal)===1;
             // The whole normalized line must be one enumerated, generic label.
             // No excerpts, arbitrary prefixes, field values or guessed titles.
-            if(mb_strlen($line,'UTF-8')>100||preg_match('/\A(ملخص الطلب|ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي|طلبك المؤكد)\s*([:：])?\z/u',$normal,$match)!==1)continue;
+            $observedTitle=$normal==='ملخص الأوردر - فرع نبروه ✅';
+            $genericTitle=preg_match('/\A(ملخص الطلب|ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي|طلبك المؤكد)\s*([:：])?\z/u',$normal,$match)===1;
+            if(mb_strlen($line,'UTF-8')>100||!$observedTitle&&!$genericTitle)continue;
             if(count($titles)>=4){$titlesTruncated=true;continue;}
-            $titles[]=['line'=>($lineNumber+1),'literal'=>$match[1].($match[2]??''),
-                'colon_present'=>isset($match[2])&&$match[2]!=='',
+            $titles[]=['line'=>($lineNumber+1),'literal'=>$observedTitle?'ملخص الأوردر - فرع نبروه ✅':$match[1].($match[2]??''),
+                'colon_present'=>!$observedTitle&&isset($match[2])&&$match[2]!=='',
                 'leading_bullet'=>preg_match('/\A\s*(?:[•●▪◦]|[-–—]\s+)/u',$line)===1,
                 'emphasis_present'=>str_contains($line,'*')||str_contains($line,'__'),
                 'emphasis_before_colon'=>preg_match('/[*_]\s*[:：]/u',$line)===1];
@@ -95,9 +98,10 @@ function waConfirmationFormatObservation(array$transcript):array{
         $ok=is_array($parsed)&&($parsed['ok']??null)===true;
         $out['rows'][]=['ordinal'=>$ordinal+1,'speaker'=>$speaker,'text_present'=>$text!==null,
             'text_length'=>$text===null?null:mb_strlen($text,'UTF-8'),'exact_header_match'=>$exact,'compact_header_match'=>$compact,
-            'header_kind'=>waConfirmationCode($header,['LEGACY','SELF_CONFIRMED_COMPACT','MIXED']),
+            'header_kind'=>waConfirmationCode($header,['LEGACY','SELF_CONFIRMED_COMPACT','BRANCH_ORDER_SUMMARY','MIXED']),
             'standalone_parse_ok'=>$text===null?null:$ok,
             'standalone_parse_reason'=>is_array($parsed)?waConfirmationCode($parsed['reason']??null):null,
+            'standalone_format'=>$ok?waConfirmationCode($parsed['format']??null,['BRANCH_ORDER_SUMMARY']):null,
             'standalone_self_confirmed'=>$ok&&($parsed['self_confirmed']??null)===true,
             'positive_approval'=>$positive,'recap_shape'=>$shape,
             'safe_title_lines'=>$titles,'safe_title_lines_truncated'=>$titlesTruncated];
@@ -216,8 +220,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'68fcd3144a9790a7bfe29aaceed1777ca1d325f1',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'d1d626d95e53d8299fe9af46b27d0f59cd77054f',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'fc9042a9cb110ecb4773861bfbe832f2b344df6c',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -293,6 +297,7 @@ try{
         'approval_basis'=>$valid?waConfirmationCode($receipt['approval_basis']??'SEPARATE_CUSTOMER_APPROVAL',
             ['CUSTOMER_SELF_CONFIRMED_RECAP','SEPARATE_CUSTOMER_APPROVAL']):null,
         'recap_is_approval'=>$valid&&is_string($receipt['recap_id']??null)&&($receipt['recap_id']??null)===($receipt['approval_id']??null),
+        'summary_format'=>$valid?waConfirmationCode($receipt['summary_format']??null,['BRANCH_ORDER_SUMMARY']):null,
         'items_count'=>is_array($data['items']??null)?count($data['items']):0,
         'fields_present'=>waConfirmationFields($data),
         'textual_location_present'=>$location!==[],

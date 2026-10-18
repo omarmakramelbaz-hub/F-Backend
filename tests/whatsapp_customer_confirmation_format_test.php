@@ -39,7 +39,7 @@ statusExpect($format['counts']===['customer_exact_headers'=>1,'business_exact_he
 $first=$format['rows'][0];
 statusExpect($first['ordinal']===1&&$first['speaker']==='customer'&&$first['text_present']&&$first['text_length']===mb_strlen($recap),'ordinal and text metadata only');
 statusExpect($first['exact_header_match']&&$first['standalone_parse_ok']&&$first['standalone_parse_reason']===null&&!$first['positive_approval'],'standalone facts are distinct from customer approval');
-statusExpect($first['recap_shape']===['name_label'=>true,'phone_label'=>true,'address_label'=>true,'total_label'=>true,'combined_data_label'=>false],'labeled values observed only as booleans');
+statusExpect($first['recap_shape']===['name_label'=>true,'phone_label'=>true,'address_label'=>true,'total_label'=>true,'combined_data_label'=>false,'items_section_label'=>false],'labeled values observed only as booleans');
 statusExpect($first['safe_title_lines'][0]['literal']==='ملخص طلبك:'&&$first['safe_title_lines'][0]['line']===1,'generic title is allowlisted');
 statusExpect($format['rows'][1]['positive_approval']&&!$format['rows'][1]['standalone_parse_ok'],'actual separate approval checker');
 statusExpect($value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
@@ -61,6 +61,43 @@ foreach(['طلبك المؤكد: PRIVATE_CUSTOMER','PRIVATE_PREFIX طلبك ال
     statusExpect(!$value['candidate']['valid']&&$value['format_observation']['rows'][0]['safe_title_lines']===[],
         'compact header with private suffix or prefix leaks nothing and conveys no authority');
 }
+$branchFixture=file_get_contents(__DIR__.'/whatsapp_customer_branch_summary_test.php');
+$branchStart=strpos($branchFixture,'function branchSummaryText():string{');$branchEnd=strpos($branchFixture,'function branchSummaryRow(',$branchStart);
+statusExpect($branchStart!==false&&$branchEnd!==false,'reuse only the reviewed synthetic branch-summary text fixture');
+eval(substr($branchFixture,$branchStart,$branchEnd-$branchStart));
+$branchRows=[['id'=>'m1','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:01','text'=>branchSummaryText(),'location'=>null],
+    ['id'=>'m2','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:02','text'=>null,'location'=>['lat'=>30.125,'long'=>31.625]],
+    ['id'=>'m3','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:03','text'=>'تمام كله تمام','location'=>null]];
+[$exit,$value]=formatRun($branchRows);$row=$value['format_observation']['rows'][0];
+statusExpect($exit===0&&$value['candidate']['valid']&&$value['candidate']['summary_format']==='BRANCH_ORDER_SUMMARY'
+    &&$value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
+    'observed branch summary uses a real later customer approval rather than its headline');
+statusExpect($value['candidate']['items_count']===5&&$value['candidate']['native_pins_count']===1
+    &&!$value['candidate']['textual_location_present'],'native pin is counted without manufacturing inline coordinates');
+statusExpect($row['header_kind']==='BRANCH_ORDER_SUMMARY'&&$row['exact_header_match']&&!$row['compact_header_match']
+    &&$row['standalone_parse_ok']&&$row['standalone_format']==='BRANCH_ORDER_SUMMARY'&&!$row['standalone_self_confirmed'],
+    'observer follows the actual branch-summary parser contract');
+statusExpect($row['safe_title_lines'][0]['literal']==='ملخص الأوردر - فرع نبروه ✅'
+    &&!$row['safe_title_lines'][0]['colon_present']&&$row['recap_shape']['items_section_label'],
+    'only the observed fixed public branch title and items-label flag are exposed');
+statusExpect(!$value['format_observation']['rows'][1]['text_present']&&$value['format_observation']['rows'][2]['positive_approval']
+    &&$value['candidate']['receipt_day']['recap_ordinal']===1&&$value['candidate']['receipt_day']['approval_ordinal']===3,
+    'native pin is separate from the true recap and approval ordinals');
+$branchOutput=json_encode($value,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+foreach(['عميل افتراضي','شارع افتراضي','01000000001','201000000001','201000000002','01000000003','30.125','31.625']as$private)
+    statusExpect(!str_contains($branchOutput,$private),'branch summary customer fields and point are not exposed');
+[$exit,$value]=formatRun(array_slice($branchRows,0,2));
+statusExpect(!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED',
+    'branch summary plus pin still requires the separate positive turn');
+$branchQuestion=$branchRows;$branchQuestion[2]['text']='تمام كله تمام؟';[$exit,$value]=formatRun($branchQuestion);
+statusExpect(!$value['candidate']['valid']&&!$value['format_observation']['rows'][2]['positive_approval'],
+    'question-like text never acquires whole-positive approval');
+$branchBusiness=$branchRows;$branchBusiness[0]['speaker']='business';[$exit,$value]=formatRun($branchBusiness);
+statusExpect(!$value['candidate']['valid']&&$value['format_observation']['counts']['business_exact_headers']===1,
+    'business branch headline stays diagnostic without customer authority');
+[$exit,$value]=formatRun(formatRows('ملخص الأوردر - فرع نبروه ✅ PRIVATE_CUSTOMER','customer',null));
+statusExpect(!$value['candidate']['valid']&&$value['format_observation']['rows'][0]['safe_title_lines']===[],
+    'branch title with a private suffix is never exported as a guessed title');
 foreach(['**ملخص طلبك**:','• ملخص طلبك:','- ملخص طلبك:','__ملخص طلبك__:']as$title){
     [$exit,$value]=formatRun(formatRows(str_replace('ملخص طلبك:',$title,$recap)));
     $row=$value['format_observation']['rows'][0];

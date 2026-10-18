@@ -13,6 +13,7 @@ final class WhatsAppCustomerOrderConfirmation
     public const TYPE = 'CUSTOMER_CONFIRMED_RECAP';
     public const VERSION = 1;
     public const SELF_CONFIRMED_BASIS = 'CUSTOMER_SELF_CONFIRMED_RECAP';
+    public const BRANCH_SUMMARY_FORMAT = 'BRANCH_ORDER_SUMMARY';
     private const MAX_TEXT = 12000;
     private const MAX_ITEMS = 30;
 
@@ -41,6 +42,7 @@ final class WhatsAppCustomerOrderConfirmation
         $parsed = self::parseRecap($recap['row']['text']);
         if (!$parsed['ok']) return $parsed;
         $selfConfirmed = ($parsed['self_confirmed'] ?? false) === true;
+        $branchSummary = ($parsed['format'] ?? null) === self::BRANCH_SUMMARY_FORMAT;
         $approval = $selfConfirmed ? $recap['row'] : null;
         if ($selfConfirmed && (($recap['row']['cart'] ?? null) !== null
             || ($recap['row']['location'] !== null && !self::samePoint($recap['row']['location'], $parsed['data']['textual_location']['point']))))
@@ -48,6 +50,12 @@ final class WhatsAppCustomerOrderConfirmation
         foreach ($transcript as $position => $row) {
             if ($position <= $recap['position']) continue;
             if ($row['speaker'] === 'customer') {
+                // This separately approved summary format receives its native
+                // delivery pin before the customer's distinct approval. The
+                // workflow must authenticate and bind that pin; it is never
+                // manufactured as an inline point or treated as approval here.
+                if ($branchSummary && $approval === null && $row['text'] === null
+                    && $row['location'] !== null && ($row['cart'] ?? null) === null) continue;
                 if ($selfConfirmed && $row['text'] === null && ($row['cart'] ?? null) === null
                     && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
                 if (!self::positiveApproval($row['text']) || $row['location'] !== null || ($row['cart'] ?? null) !== null)
@@ -76,6 +84,7 @@ final class WhatsAppCustomerOrderConfirmation
             'approval_sha256' => hash('sha256', $approval['text']),
         ];
         if ($selfConfirmed) $receipt['approval_basis'] = self::SELF_CONFIRMED_BASIS;
+        if ($branchSummary) $receipt['summary_format'] = self::BRANCH_SUMMARY_FORMAT;
         $receipt['receipt_sha256'] = hash('sha256', json_encode([self::TYPE, $receipt], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $data['evidence_receipt'] = $receipt;
         return self::result(true, null, $data);
@@ -93,7 +102,9 @@ final class WhatsAppCustomerOrderConfirmation
             $line = self::displayLine($line);
             if ($line !== '') $lines[] = $line;
         }
-        if (in_array(self::headerKind($text), ['SELF_CONFIRMED_COMPACT', 'MIXED'], true)) return self::parseCompact($text, $lines);
+        $kind = self::headerKind($text);
+        if ($kind === self::BRANCH_SUMMARY_FORMAT) return self::parseBranchSummary($lines);
+        if (in_array($kind, ['SELF_CONFIRMED_COMPACT', 'MIXED'], true)) return self::parseCompact($text, $lines);
         $header = null;
         foreach ($lines as $index => $line) if (preg_match('/\A(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]\z/u', $line)) {
             if ($header !== null) return self::result(false, 'RECAP_DUPLICATE_HEADER');
@@ -174,7 +185,7 @@ final class WhatsAppCustomerOrderConfirmation
     {
         if (!is_string($text) || !self::bounded($text, 100)) return false;
         $text = self::matchingText($text);
-        return preg_match('/\A(?:كل (?:شيء|شئ|شي) تمام|موافق علي الطلب|اوافق علي الطلب|اكد طلبي|اؤكد طلبي|تمام موافق|موافق|تمام|نعم|yes|ok|okay)[.!]?\z/iu', $text) === 1;
+        return preg_match('/\A(?:كل (?:شيء|شئ|شي) تمام|تمام كله تمام|موافق علي الطلب|اوافق علي الطلب|اكد طلبي|اؤكد طلبي|تمام موافق|موافق|تمام|نعم|yes|ok|okay)[.!]?\z/iu', $text) === 1;
     }
 
     /** Shared display normalization; the returned format name grants no approval. */
@@ -185,11 +196,105 @@ final class WhatsAppCustomerOrderConfirmation
             $line = self::displayLine($line);
             $found = preg_match('/\Aطلبك المؤكد\s*[:：]\z/u', $line) ? 'SELF_CONFIRMED_COMPACT'
                 : (preg_match('/\A(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]\z/u', $line) ? 'LEGACY' : null);
+            if ($found === null && self::branchSummaryHeader($line) !== null) $found = self::BRANCH_SUMMARY_FORMAT;
             if ($found === null) continue;
             if ($kind !== null && $kind !== $found) return 'MIXED';
             $kind = $found;
         }
         return $kind;
+    }
+
+    private static function branchSummaryHeader(string $line): ?string
+    {
+        if (!preg_match('/\Aملخص الأوردر\s+[–—-]\s+فرع\s+([\p{L}0-9 ]{1,80})\s+✅\z/u', self::displayLine($line), $match)) return null;
+        $branch = trim($match[1]);
+        return self::compactPlace(self::matchingText($branch)) ? $branch : null;
+    }
+
+    /** The observed branch summary is a draft until a separate customer approval. */
+    private static function parseBranchSummary(array $lines): array
+    {
+        if (count($lines) < 8 || ($branch = self::branchSummaryHeader($lines[0])) === null)
+            return self::result(false, 'RECAP_PREFIX_INVALID');
+        if (($lines[1] ?? null) !== 'الأصناف:') return self::result(false, 'RECAP_ITEMS_SECTION_REQUIRED');
+        $items = []; $names = []; $quotedTotal = 0; $total = null; $dataSection = false; $fields = []; $hours = null;
+        foreach (array_slice($lines, 2) as $line) {
+            if ($hours !== null) return self::result(false, 'RECAP_FOOTER_INVALID');
+            if ($total === null) {
+                if (preg_match('/\Aالإجمالي\s*[:：]\s*(.+)\s+بدون التوصيل\s+[–—-]\s+سعر التوصيل يحدده المندوب حسب اللوكيشن\z/u', $line, $match)) {
+                    $total = self::money($match[1], false);
+                    if ($total === null || $items === [] || self::moneyCents($total) !== $quotedTotal)
+                        return self::result(false, 'RECAP_TOTAL_INVALID');
+                    continue;
+                }
+                $item = self::branchSummaryItem($line);
+                if ($item === null || count($items) >= self::MAX_ITEMS) return self::result(false, 'RECAP_ITEM_INVALID');
+                $name = self::matchingText($item['data']['name']);
+                if (isset($names[$name])) return self::result(false, 'RECAP_DUPLICATE_ITEM');
+                $names[$name] = true; $items[] = $item['data']; $quotedTotal += $item['quoted_cents']; continue;
+            }
+            if (!$dataSection) {
+                if ($line !== 'البيانات:') return self::result(false, 'RECAP_DATA_SECTION_REQUIRED');
+                $dataSection = true; continue;
+            }
+            if (preg_match('/\Aمواعيد التجهيز\s*[:：]/u', $line)) { $hours = $line; continue; }
+            if (!preg_match('/\A(الاسم|العنوان|أرقام التواصل|الفرع)\s*[:：]\s*(.+)\z/u', $line, $match))
+                return self::result(false, 'RECAP_FIELD_INVALID');
+            $key = match ($match[1]) { 'الاسم' => 'name', 'العنوان' => 'address', 'أرقام التواصل' => 'phone', default => 'branch' };
+            if (isset($fields[$key])) return self::result(false, 'RECAP_DUPLICATE_FIELD');
+            $fields[$key] = trim($match[2]);
+        }
+        if (!$dataSection || !isset($fields['name'], $fields['address'], $fields['phone'], $fields['branch']))
+            return self::result(false, 'RECAP_REQUIRED_FIELDS_MISSING');
+        if (!self::bounded($fields['name'], 200) || !self::bounded($fields['address'], 1000)
+            || preg_match('/[?؟]/u', implode(' ', $fields))) return self::result(false, 'RECAP_FIELD_INVALID');
+        if (preg_match('/(?:تيك\s+اواي|تيك\s+اوي|داخل الفرع|استلام من الفرع|في الصاله|في المطعم|dine[ -]?in|take[ -]?away|pickup)/iu', self::matchingText($fields['address'])))
+            return self::result(false, 'RECAP_FULFILLMENT_AMBIGUOUS');
+        $phones = self::phones($fields['phone']);
+        if ($phones === null) return self::result(false, 'RECAP_PHONE_INVALID');
+        $branchPattern = preg_quote($branch, '/');
+        if (!preg_match('/\A'.$branchPattern.'(?: والمصنع \(أمام بوابة '.$branchPattern.'\))?\s+[–—-]\s+(.+)\z/u', $fields['branch'], $match)
+            || count(self::phones($match[1]) ?? []) !== 1) return self::result(false, 'RECAP_BRANCH_INFORMATION_INVALID');
+        if (!is_string($hours) || !preg_match('/\Aمواعيد التجهيز: من ([1-9]|1[0-2]) (?:صباحا|مساء|مساءا|ليلا) حتي ([1-9]|1[0-2]) (?:صباحا|مساء|مساءا|ليلا)، والدليفري خلال ([1-9][0-9]{0,2}) دقيقه داخل (.{1,80})\z/u', self::matchingText($hours), $match)
+            || !self::compactPlace($match[4])) return self::result(false, 'RECAP_FOOTER_INVALID');
+        return self::result(true, null, ['type' => self::TYPE, 'decision' => 'DRAFT',
+            'customer' => ['name' => $fields['name'], 'phone' => $phones[0], 'address' => $fields['address'], 'area' => null, 'notes' => null],
+            'alternate_phones' => array_slice($phones, 1), 'branch_hint' => $branch, 'fulfillment' => 'DELIVERY', 'items' => $items,
+            'approximate_total' => $total, 'textual_location' => null, 'evidence_receipt' => null]) + ['format' => self::BRANCH_SUMMARY_FORMAT];
+    }
+
+    private static function branchSummaryItem(string $line): ?array
+    {
+        $parts = preg_split('/\s+[–—-]\s+/u', $line);
+        if (!is_array($parts) || count($parts) !== 2 || !preg_match('/\A(.+?)(?: \(الواحد (.+)\))?\z/u', $parts[1], $price)) return null;
+        $quoted = self::money($price[1], false); $unit = isset($price[2]) ? self::money($price[2], false) : null;
+        if ($quoted === null || (isset($price[2]) && $unit === null)) return null;
+        $literal = trim($parts[0]); $normalized = self::digits($literal);
+        if (preg_match('/\Aعلبة\s+.+\s+([0-9]{1,5}(?:\.[0-9]{1,3})?)\s+(?:جرام|جم)\z/u', $normalized, $pack)) {
+            $grams = self::decimal($pack[1]);
+            if ($grams === null || (float) $grams <= 0 || (float) $grams > 10000 || !self::bounded($literal, 200)
+                || preg_match('/[|:：?؟*\[\]{}<>]/u', $literal)) return null;
+            // The weight describes one complete pack, never a sale by kilogram.
+            $item = ['name' => $literal, 'quantity' => '1', 'quantity_mode' => 'piece', 'option_hint' => null,
+                'cart_reference' => null, 'conversation_reference' => null];
+        } elseif (($item = self::item($literal)) !== null) {
+            // Existing explicit unit grammar takes precedence over the observed
+            // shorthand, so "نص كيلو" never becomes a product qualifier.
+        } elseif (preg_match('/\A(نص|نصف|ربع)\s+(.+)\z/u', $literal, $fraction)) {
+            $item = self::item($fraction[1].' كيلو '.$fraction[2]);
+        } elseif (preg_match('/\Aساندوتشين\s+(.+)\z/u', $literal, $dual)) {
+            $item = self::item('2 قطعة ساندوتش '.$dual[1]);
+        } else return null;
+        if ($item === null) return null;
+        if ($unit !== null && ($item['quantity_mode'] !== 'piece'
+            || self::moneyCents($quoted) !== self::moneyCents($unit) * (int) $item['quantity'])) return null;
+        return ['data' => $item, 'quoted_cents' => self::moneyCents($quoted)];
+    }
+
+    private static function moneyCents(string $value): int
+    {
+        $parts = explode('.', $value, 2);
+        return (int) $parts[0] * 100 + (int) str_pad($parts[1] ?? '', 2, '0');
     }
 
     /** One separately defined customer-copy format, not a looser legacy parser. */

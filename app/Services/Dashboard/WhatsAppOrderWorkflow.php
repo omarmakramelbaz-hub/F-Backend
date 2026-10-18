@@ -830,19 +830,23 @@ class WhatsAppOrderWorkflow
     private function customerReceiptPoint(array $data,array $snapshot,string $activation,?string &$reason): ?array
     {
         $recap=$data['evidence_receipt']['recap_id']??null;
+        $approval=$data['evidence_receipt']['approval_id']??null;
+        $separatePinRecap=($data['evidence_receipt']['summary_format']??null)==='BRANCH_ORDER_SUMMARY';
         $literal=$data['textual_location']['point']??null;
         $point=$literal===null?null:$this->validPoint($literal['lat']??null,$literal['long']??null);
         if ($literal!==null&&$point===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
-        $recapPosition=null; $nativePoint=null; $pinPosition=null; $addressPosition=null;
-        foreach ($snapshot['transcript'] as $position=>$message)
+        $recapPosition=null; $approvalPosition=null; $nativePoint=null; $pinPosition=null; $addressPosition=null; $postRecapPoint=null;
+        foreach ($snapshot['transcript'] as $position=>$message) {
             if ($message['id']===$recap) $recapPosition=$position;
+            if ($message['id']===$approval) $approvalPosition=$position;
+        }
         if ($recapPosition===null) { $reason='INVALID_EXTRACTION'; return null; }
         foreach ($snapshot['transcript'] as $position=>$message) {
             if ($message['speaker']!=='customer') continue;
             if ($message['id']!==$recap&&$message['sent_at']>=$activation
                 &&is_string($message['text'])&&str_contains($message['text'],$data['customer']['address'])) $addressPosition=$position;
             if (($message['location']??null)===null) continue;
-            if ($point!==null&&$position<$recapPosition) continue;
+            if (($point!==null||$separatePinRecap)&&$position<$recapPosition) continue;
             $candidate=$this->validPoint($message['location']['lat']??null,$message['location']['long']??null);
             if ($candidate===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
             if ($point!==null) {
@@ -851,9 +855,21 @@ class WhatsAppOrderWorkflow
                 if ($position>$recapPosition&&$candidate!==$point) { $reason='LOCATION_UNCONFIRMED'; return null; }
                 continue;
             }
+            if ($separatePinRecap&&$position>$recapPosition) {
+                if ($postRecapPoint!==null&&$postRecapPoint!==$candidate) { $reason='LOCATION_UNCONFIRMED'; return null; }
+                $postRecapPoint=$candidate;
+            }
             $nativePoint=$candidate; $pinPosition=$position;
         }
         if ($point!==null) return $point;
+        // This separately approved native format contains the copied address,
+        // then the real customer pin, then a whole-positive customer approval.
+        // It cannot retroactively attach an old pin or accept a later change.
+        if ($separatePinRecap) {
+            if ($nativePoint===null||$pinPosition===null||$pinPosition<=$recapPosition
+                ||$approvalPosition===null||$pinPosition>=$approvalPosition) { $reason='LOCATION_UNCONFIRMED'; return null; }
+            return $nativePoint;
+        }
         if ($addressPosition===null||$pinPosition===null||$pinPosition<=$addressPosition||$nativePoint===null) {
             $reason='LOCATION_UNCONFIRMED'; return null;
         }
@@ -907,20 +923,38 @@ class WhatsAppOrderWorkflow
     private function customerReceiptItem(array $item,array $catalog,?string $branch=null): ?array
     {
         $name=$this->customerReceiptName($item['name']); $matches=[];
-        $add=static function(int $product,string $option)use(&$matches):void {
-            $matches[$product.':'.$option]=['product_id'=>$product,'option_id'=>$option];
+        $add=static function(int $product,string $option,?array $amount=null)use(&$matches,$item):void {
+            $sale=$amount??['quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode']];
+            $matches[$product.':'.$option.':'.$sale['quantity_mode'].':'.$sale['quantity']]
+                =['product_id'=>$product,'option_id'=>$option]+$sale;
         };
         foreach ($catalog as $product) {
-            if (($product['available']??false)!==true
-                ||!in_array($product['quantity_mode']??'select',[$item['quantity_mode'],'select'],true)) continue;
+            if (($product['available']??false)!==true) continue;
             $base=$this->customerReceiptName($product['name']);
-            $literal=$name;
+            $literal=$name; $amount=null;
+            $approvedScope=$branch==='f:363'&&$this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages';
+            // These exact public Mansoura packs were checked against their live
+            // identities and units. A quarter of salad is one existing quarter
+            // pack, not a quarter of that pack; the 400g roe box stays one piece.
+            if ($approvedScope&&$product['id']===2566&&($product['quantity_mode']??null)==='piece'
+                &&$base===$this->customerReceiptName('ربع سلطه رنجه')
+                &&$name===$this->customerReceiptName('سلطة رنجة')&&$item['quantity_mode']==='weight'
+                &&$this->quantityMillis($item['quantity'])===250) {
+                $literal=$base; $amount=['quantity'=>'1','quantity_mode'=>'piece'];
+            }
+            if ($approvedScope&&$product['id']===2551&&($product['quantity_mode']??null)==='piece'
+                &&$base===$this->customerReceiptName('علبة بطارخ ورن 400 جرام')
+                &&$name===$this->customerReceiptName('علبة بطارخ 400 جرام')&&$item['quantity_mode']==='piece'
+                &&$this->quantityMillis($item['quantity'])===1000) $literal=$base;
+            if (!in_array($product['quantity_mode']??'select',[$amount['quantity_mode']??$item['quantity_mode'],'select'],true)) continue;
             // Exact aliases approved by the owner on 2026-10-18 for Mansoura's
             // customer-copy protocol. Identity and current complete menu name
             // must both agree; these are not general search or branch aliases.
-            if ($branch==='f:363'&&$this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages'
-                &&$item['quantity_mode']==='weight') {
+            if ($approvedScope&&$item['quantity_mode']==='weight') {
                 if ($name===$this->customerReceiptName('رنجة مبطرخ')&&$product['id']===2576
+                    &&$base===$this->customerReceiptName('رنجه هيرنج مبطرخ')) $literal=$base;
+                if ($name===$this->customerReceiptName('رنجة مبطرخة')&&$product['id']===2576
+                    &&($product['quantity_mode']??null)==='weight'
                     &&$base===$this->customerReceiptName('رنجه هيرنج مبطرخ')) $literal=$base;
                 // The owner's compact confirmed recap spells the same approved
                 // herring as "رنجة مبطرخ (كاملة)". Preserve that preparation:
@@ -941,14 +975,14 @@ class WhatsAppOrderWorkflow
             if ($literal===$base) {
                 $options=$product['options']??[];
                 // Default options still pass the existing qualifier coverage guard.
-                $literalItem=$item; $literalItem['name']=$product['name'];
+                $literalItem=array_replace($item,$amount??[]); $literalItem['name']=$product['name'];
                 $option=$options===[]?'':$this->catalogOption($literalItem,[$literalItem],[$product['name']],$product);
-                if ($option!==null) $add($product['id'],$option);
+                if ($option!==null) $add($product['id'],$option,$amount);
             }
             foreach ($product['options']??[] as $option) {
                 $label=$this->customerReceiptName($option['label']);
                 if ($label!==''&&in_array($literal,[$base.' '.$label,$label.' '.$base],true))
-                    $add($product['id'],$option['id']);
+                    $add($product['id'],$option['id'],$amount);
             }
             foreach ($product['preparation_options']??[] as $preparation) {
                 $label=$this->customerReceiptName($preparation['label']);
@@ -966,7 +1000,7 @@ class WhatsAppOrderWorkflow
                     }
                     if (!$counterpart) continue;
                 }
-                $add($product['id'],$preparation['id']);
+                $add($product['id'],$preparation['id'],$amount);
             }
         }
         $matches=array_values($matches);

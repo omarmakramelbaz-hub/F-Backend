@@ -14,6 +14,26 @@ uses that original customer message for both recap and approval. The same text
 from the business, an incomplete message, an arbitrary embedded phrase or a later
 order change does not authorize an order. Legacy `ملخص طلبك:` recaps still require
 their separate whole-positive customer approval.
+The observed `ملخص الأوردر - فرع نبروه ✅` summary is another strict legacy
+format: its `الأصناف:` section, structured customer fields and delivery footer are
+recognized, but the headline does not confirm the order. A genuine customer
+location pin after this recap and before a separate whole-positive turn such as
+`تمام كله تمام` can provide its location proof. The pin and approval must belong
+to the same authenticated conversation and current order. Business summaries,
+question-like approvals and later material changes remain non-authoritative.
+Packaging descriptors remain part of each item name and do not imply a kilogram
+quantity or an approved catalog substitute. The branch named in the headline is
+informational; the proven location still determines the eligible physical branch.
+Recognizing all five copied lines does not establish live catalog eligibility:
+generic sandwich names with several possible products, package names, prices,
+recipes and stock still require the existing exact catalog and preparation checks.
+Three reviewed Mansoura mappings require their precise live identities and units:
+the 400-gram roe box remains one piece of product 2551; an explicit quarter-weight
+herring salad maps to one existing quarter-pack piece of product 2566; and the
+observed feminine herring wording maps to weight product 2576. These rules retain
+catalog availability, option and price validation. The catalog diagnostic shows
+both the customer's original quantity/unit and the mapped sale quantity/unit.
+There is no global alias choosing a variant for a generic feseekh sandwich.
 Only the latest recognized customer-confirmed recap supplies an order. Earlier
 recaps do not contribute items or contact data, and a malformed latest recap does
 not fall back to an earlier valid one. The current Cairo-day rule still applies
@@ -42,7 +62,7 @@ to the selected recap and its own confirmation rows.
   on the current calendar day in `Africa/Cairo`. A later greeting or new approval
   cannot renew a previous day's recap. The day is checked again when creating the
   order, including a midnight crossing; yesterday's queued receipt is not sent
-  when today's 09:00 dispatch window opens.
+  when a configured dispatch window opens on the following day.
   Other automatic extraction paths apply the same date cutoff to their actual
   committing customer requests and cited business confirmation evidence.
 - Automatic analysis and order dispatch retain their separate existing schedules,
@@ -62,6 +82,8 @@ another branch.
 
 The narrow installer publishes only the new parser and changed WhatsApp workflow.
 It preserves installed policy, configuration, activation cutoffs and timer states.
+This includes the currently saved all-day dispatch choice; the installer does not
+run a dispatch-hours repair or reactivate the control.
 It does not call analysis, send replies, create orders, replace units or modify
 the independent CRM, storefront or logo releases. The existing worker picks up
 eligible captured recaps when its analysis schedule is open.
