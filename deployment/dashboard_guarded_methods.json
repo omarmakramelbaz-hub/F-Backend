@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "reference_base": "9984a1f6ee065ced2fcc5eefcec5bd2f599914df",
+  "tokenizer_sha256": "28e16748ee94c7815930740ecb9437e6d6ce3643af3413dfd03d746be3ab26f8",
+  "files": {
+    "app/Services/Dashboard/PosServiceTicket.php": {
+      "payload_sha256": "67c78b4d8e5d4a319f17bf410318be10740d5e604e01bb4697a48f9eb5cbd64a",
+      "methods": {
+        "present": {
+          "before": [
+            "9ffd88e3d2b24dd468c5f3001a704a085f42f23612a45cd6dbfaa51bf52e8a23"
+          ],
+          "after": "4d21cf3ac63a2edee31f86eabcd15f972f04b6441d2e154813de68fbceef544a",
+          "adds": {
+            "presentMany": "fa0cc1788bdbaff5ff1e53432ae2e620a7b14dfeb6e0f590ee218a291414a653",
+            "presentation": "51fb6fa697d9305ecabceaa7e2fb25016ff4085114473128cec24b14ce76ccdb"
+          }
+        }
+      }
+    },
+    "app/Services/Dashboard/PhoneDeliveryBoard.php": {
+      "payload_sha256": "dcc147233130ab45534fb790783253efc0a043e9f41d8ca50237e106c022f77b",
+      "methods": {
+        "listing": {
+          "before": [
+            "22e7b1dcfd2f81abd1e4bbbc7dcaf9f492c8f215dad99e156dab5cf48d39ce77"
+          ],
+          "after": "e3cf311eb9ab627ea14304017aef386335eec3585633ff191fac9f7f84c06141"
+        }
+      }
+    },
+    "app/Http/Controllers/Api/V1/Auth/AddressController.php": {
+      "payload_sha256": "e890f7385578cb8144be1df8d5503460368074c5c12d025a2177bcf8ebb057ca",
+      "methods": {
+        "store": {
+          "before": [
+            "66885fdf612e7759e2b2f6299ec3cc89e20dfac692f07aaf8330e4f2edd6b79b"
+          ],
+          "after": "0b793c05290dbaf141fc092902366c134d14d9a68ea9893ab40fb4192ed9ea87"
+        },
+        "update": {
+          "before": [
+            "faa1c66498ace98d0411993f163ed0ef2a715ffc6729ca1b295f13b17ccab5d7"
+          ],
+          "after": "8a3e8811451d07aa4664a298fde22bd57d0c4e392d9f7085683bede6f4e864ad"
+        }
+      }
+    },
+    "app/Http/Controllers/Api/V1/Auth/UserController.php": {
+      "payload_sha256": "857acdc17511a557059d8db5ea90e412433a58123a06f65e7af8726e3cdff379",
+      "methods": {
+        "forget_pass": {
+          "before": [
+            "cd4f4a056ea225f6f555c27fbec2dca40fb37cb8b845e9436c3a45b77418ecda"
+          ],
+          "after": "a6ca841fb99e99736ed29054b44f03ab8e6bfda03a00cfd862c40d78b3ca8337"
+        },
+        "check_code_forget_pass": {
+          "before": [
+            "55a78f11f5c41a0314393ba9de5b8cf5a055f4482d076224bf92647464a7f632"
+          ],
+          "after": "f07178245e0444d8824bddec290593551c6879e244ee4cbcc8b9a5e54f7fbb2d"
+        },
+        "reset_password": {
+          "before": [
+            "908a0ecb32def5e2aa5cc75a0d616e0410d4c2b5317446f8eda08eaa1a8c55b3"
+          ],
+          "after": "df387ebef7ab0711d829a106d7cfa6c4a08701fe18378de1f730411a1a479a68"
+        }
+      }
+    },
+    "app/Http/Traits/SendNotification.php": {
+      "payload_sha256": "4b3ea7dabb11d6f04d07ca8045a19dc1920e84de460f0be8124e2c5a320f4793",
+      "methods": {
+        "sendNotification": {
+          "before": [
+            "83e606867b190de3bd215d120092feb2b25c1643b0133a92156c4f1c616df772"
+          ],
+          "after": "2be643ab4cef89b937b7c70615a59e98041c53ae21ee01c179c155384a94156e"
+        }
+      }
+    }
+  }
+}
