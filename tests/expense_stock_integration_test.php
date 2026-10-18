@@ -270,4 +270,27 @@ $groupedSummary = app(BranchExpenses::class)->listing(['branch' => 'f:100', 'fro
 check($groupedSummary['top_category'] === $cleaningKey && $groupedSummary['top_amount'] === '120.00', 'top expense summary combines historical alias amounts before choosing the largest category');
 check($groupedSummary['period'] === '220.00' && $groupedSummary['count'] === 3, 'grouping summary preserves individual historical expenses and total amounts');
 
+// Description is optional; normalized empty values retain the existing non-null database contract.
+foreach (['missing', 'null', 'blank', 'whitespace'] as $offset => $variant) {
+    $input = payload(990 + $offset, ['category' => 'water', 'quantity_kg' => null]);
+    if ($variant === 'missing') unset($input['description']);
+    else $input['description'] = ['null' => null, 'blank' => '', 'whitespace' => " \t\n "][$variant];
+    $result = app(BranchExpenses::class)->save($input, actor());
+    check($result['expense']['description'] === '' && DB::table('branch_expenses')->where('id', $result['expense']['id'])->value('description') === '', 'optional '.$variant.' description is saved as an empty string');
+    $before = databaseSnapshot();
+    $input['description'] = '';
+    $retry = app(BranchExpenses::class)->save($input, actor());
+    check($retry['replayed'] && $retry['expense']['id'] === $result['expense']['id'] && databaseSnapshot() === $before, 'optional '.$variant.' description retry normalizes to the original command without writes');
+}
+$stockBefore = quantityFor('f:100', 'فلفل');
+$withoutDescription = payload(994, ['quantity_kg' => '0.5']);
+unset($withoutDescription['description']);
+$result = app(BranchExpenses::class)->save($withoutDescription, actor());
+check($result['expense']['description'] === '' && quantityFor('f:100', 'فلفل') === $stockBefore + 500000, 'linked purchase accepts no description and still receives its exact kilograms');
+$before = databaseSnapshot();
+check(app(BranchExpenses::class)->save($withoutDescription, actor())['replayed'] && databaseSnapshot() === $before, 'linked purchase without description receives stock only once on retry');
+noWrites(fn () => saveExpense(995, ['description' => '', 'quantity_kg' => null]), 422, 'optional description does not relax required purchase kilograms');
+noWrites(fn () => saveExpense(995, ['description' => ['unexpected'], 'category' => 'water', 'quantity_kg' => null]), 422, 'description still rejects arrays');
+noWrites(fn () => saveExpense(995, ['description' => str_repeat('ب', 501), 'category' => 'water', 'quantity_kg' => null]), 422, 'description still enforces its 500 character maximum');
+
 echo $checks.' integration checks passed against real expense/category/inventory services'.PHP_EOL;

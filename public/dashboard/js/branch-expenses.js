@@ -94,18 +94,25 @@
     }
     function resetCategory(){categoryEditing=null;root.querySelector('[data-expense-category-name]').value='';root.querySelector('[data-expense-category-save]').textContent=t('add_category');root.querySelector('[data-expense-category-cancel]').hidden=true;}
     async function changeCategory(payload){
-        if(locked())return;var status=root.querySelector('[data-expense-category-status]'),signature=JSON.stringify(payload);
+        if(locked())return;var status=root.querySelector('[data-expense-category-status]'),signature=JSON.stringify(payload),basic=payload.action==='apply_basic';
         if(!categoryPending||categoryPending.signature!==signature)categoryPending={signature:signature,values:Object.assign({},payload,{idempotency_key:uuid()})};
-        categoryBusy=true;generation++;if(controller)controller.abort();categoryController=new AbortController();var timeout=setTimeout(function(){categoryController.abort();},15000);lock();status.textContent=t('saving');
+        categoryBusy=true;generation++;if(controller)controller.abort();categoryController=new AbortController();var timeout=setTimeout(function(){categoryController.abort();},15000);lock();status.textContent=t('saving');if(basic)notice(t('saving'));
         try{
             var result=await request(url(boot.urls.categorySave),{method:'POST',signal:categoryController.signal,headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify(categoryPending.values)});
             if(disposed)return;categoryPending=null;categoryOptions(result);
             if(payload.action==='create'&&result.active_categories[result.category.key]){form.elements.category.value=result.category.key;dirty=true;if(window.jQuery)window.jQuery(form.elements.category).trigger('change.select2');}
-            resetCategory();status.textContent=t(payload.action==='delete'?'category_removed':'category_saved');await load(current.pagination.page);
-        }catch(error){if(!disposed){status.textContent=error.name==='AbortError'||!error.status?t('category_retry'):error.message;if(error.status>=400&&error.status<500){categoryPending=null;await load(current.pagination.page);}}}
+            if(basic){var applied=result.basic_categories;notice(t('basic_categories_used').replace(':branch',applied.target_name).replace(':count',String(applied.count)));}
+            else{resetCategory();status.textContent=t(payload.action==='delete'?'category_removed':'category_saved');}
+            await load(current.pagination.page);
+        }catch(error){if(!disposed){status.textContent=error.name==='AbortError'||!error.status?t('category_retry'):error.message;if(basic)notice(status.textContent);if(error.status>=400&&error.status<500){categoryPending=null;await load(current.pagination.page);}}}
         finally{clearTimeout(timeout);categoryBusy=false;if(!disposed)lock();}
     }
     if(categoriesDialog){
+        on(root.querySelector('[data-expense-basic-categories]'),'click',function(){
+            if(locked())return;
+            if(!/^f:[1-9][0-9]*$/.test(branch.value)){notice(t('basic_categories_choose_branch'));return;}
+            changeCategory({action:'apply_basic',branch:branch.value});
+        });
         root.querySelectorAll('[data-expense-categories-open]').forEach(function(button){on(button,'click',function(){if(locked())return;renderCategories();categoriesDialog.showModal();root.querySelector('[data-expense-category-name]').focus();});});
         on(root.querySelector('[data-expense-category-form]'),'submit',function(event){event.preventDefault();if(locked())return;var input=root.querySelector('[data-expense-category-name]'),name=input.value.trim();if(!name){input.focus();return;}var payload={action:categoryEditing?'update':'create',name:name};if(categoryEditing){payload.key=categoryEditing.key;payload.expected_revision=categoryEditing.revision;}changeCategory(payload);});
         on(root.querySelector('[data-expense-category-cancel]'),'click',function(){if(!locked())resetCategory();});
