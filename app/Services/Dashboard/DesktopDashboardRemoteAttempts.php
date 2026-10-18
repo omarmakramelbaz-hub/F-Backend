@@ -107,8 +107,11 @@ class DesktopDashboardRemoteAttempts
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
             if($catalog)app(DesktopDashboardLegacy::class)->authorize($actor);
             else{
-                // Expense categories are the original shared vocabulary and have no branch input.
-                if(!in_array(self::CORE[$name],['can_manage_expense_categories','can_read_own_notifications'],true))$this->devices->branch($device,(string)$request->input('branch'),$actor);
+                // Scoped category commands obey enrollment like other branch writes.
+                // Only completed legacy category retries may omit the branch.
+                if(self::CORE[$name]!=='can_read_own_notifications'
+                    &&(self::CORE[$name]!=='can_manage_expense_categories'||$request->has('branch')))
+                    $this->devices->branch($device,(string)$request->input('branch'),$actor);
                 if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
                 $permissions=app(TakeawayAccess::class)->permissions($actor);
                 $allowed=match(self::CORE[$name]){

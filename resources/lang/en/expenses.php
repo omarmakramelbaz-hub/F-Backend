@@ -2,7 +2,7 @@
 return [
     'use_basic_categories'=>'Use basic expense categories',
     'basic_categories_choose_branch'=>'Select a specific restaurant branch to use Mahalla’s basic categories.',
-    'basic_categories_used'=>'Using :count Mahalla basic categories for :branch. Existing categories were not duplicated.',
+    'basic_categories_used'=>'Using :count Mahalla basic categories for :branch. This branch’s changes were preserved without duplicate categories.',
     'basic_categories_source_missing'=>'Mahalla branch was not found. Check its name.',
     'basic_categories_source_ambiguous'=>'More than one Mahalla branch was found. Check branch names before using basic categories.',
     'quantity_kg'=>'Quantity (kg)',
@@ -18,8 +18,9 @@ return [
     'save_category_edit'=>'Save changes',
     'delete_category'=>'Delete category',
     'confirm_delete_category'=>'Remove this category from new expenses? Existing expenses will be preserved.',
-    'category_help'=>'Renaming a category applies to all branches. Branch names distinguish expenses, and purchase categories keep their inventory links.',
-    'category_removed'=>'Category removed from new expense choices.',
+    'category_help'=>'Adding, renaming or removing a category applies only to the selected branch. Purchase categories keep their inventory links.',
+    'category_choose_branch'=>'Select a specific branch to add, rename or remove expense categories.',
+    'category_removed'=>'Category removed only from the selected branch’s choices.',
     'no_categories'=>'No categories. Add your first expense category.',
     'deleted_category'=>'Deleted',
     'category_invalid'=>'Enter a valid category name.',
@@ -35,6 +36,6 @@ return [
     'new_category'=>'Add expense category',
     'category_name'=>'New category name',
     'add_category'=>'Add category',
-    'category_saved'=>'Category saved and expense choices updated for all branches.',
+    'category_saved'=>'Category saved and expense choices updated only for the selected branch.',
     'category_retry'=>'The result is uncertain. Retry the same action to confirm it without duplicating it.',
 ];

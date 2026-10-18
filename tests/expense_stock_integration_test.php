@@ -104,6 +104,7 @@ function quantityFor(string $branch, string $name): int {
 
 // Existing aliases and balances precede the new migration; history is never rebuilt.
 foreach ([1 => 'مشتريات فلفل - المحلة', 2 => 'أدوات نظافة - فرع المحلة', 3 => 'أدوات نظافة نبروه', 4 => 'بصل نبروه'] as $id => $name) DB::table('branch_expense_categories')->insert(['id' => $id, 'name' => $name, 'name_hash' => hash('sha256', $name), 'created_by' => 1, 'request_key' => keyFor(800 + $id)]);
+DB::table('branch_expense_category_settings')->insert(['category_key' => 'maintenance', 'name' => 'الصيانة القديمة', 'active' => true, 'revision' => 7, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
 $legacyId = DB::table('branch_expenses')->insertGetId(['branch' => 'f:100', 'actor_id' => 10, 'occurred_on' => '2026-10-17', 'category' => 'custom_1', 'description' => 'مشتريات قديمة', 'amount_cents' => 5000, 'payment_method' => 'cash', 'status' => 'approved', 'revision' => 1, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
 $legacySnapshot = json_encode(DB::table('branch_expenses')->where('id', $legacyId)->first());
 $legacyInputs = [];
@@ -118,46 +119,56 @@ DB::table('branch_inventory')->insert([['branch' => 'f:100', 'ingredient_id' => 
 DB::table('takeaway_tills')->insert([['branch' => 'f:100', 'balance_cents' => 100000, 'tax_bps' => 0, 'revision' => 1], ['branch' => 'f:101', 'balance_cents' => 50000, 'tax_bps' => 0, 'revision' => 1]]);
 require_once database_path('migrations/2026_10_18_090000_link_expense_inventory_purchases.php');
 (new LinkExpenseInventoryPurchases)->up();
+require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php');
+(new ScopeExpenseCategoriesByBranch)->up();
 check(json_encode(DB::table('branch_expenses')->where('id', $legacyId)->first()) === $legacySnapshot && DB::table('expense_inventory_receipts')->count() === 0, 'upgrade preserves historical expenses and creates no retrospective receipts');
 check(quantityFor('f:100', 'فلفل') === 2000000 && quantityFor('f:101', 'فلفل') === 9000000, 'upgrade preserves existing branch balances');
 foreach (['زيت', 'خل'] as $name) check(DB::table('stock_ingredients')->where('name', $name)->where('unit', 'kg')->count() === 1, 'upgrade provides one kilogram ingredient for '.$name);
 
 $categories = app(ExpenseCategories::class);
-$choices = $categories->choices(true);
+$choices = $categories->choices(true, 'f:100');
+foreach (['f:100', 'f:101'] as $branchScope) {
+    $preservedCategory = $categories->catalog($branchScope)['maintenance'];
+    check($preservedCategory['name'] === 'الصيانة القديمة' && $preservedCategory['revision'] === 7 && $preservedCategory['active'], 'branch migration preserves existing global category name and revision for '.$branchScope);
+}
 $categorySequence=900;
 foreach (ExpenseStockPurchases::CATEGORIES as $category => $name) {
-    check(isset($choices['active_categories'][$category]), 'shared category '.$category.' is available to Mahalla and other branches');
-    $rename=['action'=>'update','key'=>$category,'name'=>'مشتريات يومية '.++$categorySequence,'expected_revision'=>0,'idempotency_key'=>keyFor($categorySequence)];
+    check(isset($choices['active_categories'][$category]), 'stock category '.$category.' is initially available to Mahalla');
+    $rename=['branch'=>'f:100','action'=>'update','key'=>$category,'name'=>'مشتريات يومية '.++$categorySequence,'expected_revision'=>0,'idempotency_key'=>keyFor($categorySequence)];
     $before=databaseSnapshot();$renamed=$categories->save($rename,actor(1));
     check($renamed['category']['name']===$rename['name']&&$renamed['category']['revision']===1&&$renamed['category']['active'], 'primary owner can rename '.$category.' without resetting its revision');
-    $fresh=(new ExpenseCategories)->catalog()[$category];
+    $fresh=(new ExpenseCategories)->catalog('f:100')[$category];
+    check((new ExpenseCategories)->catalog('f:101')[$category]['name'] === $name, 'renaming '.$category.' in Mahalla preserves Mansoura name');
     check($fresh['name']===$rename['name']&&$fresh['revision']===1&&$fresh['stock_category']===$category, 'fresh catalog keeps renamed '.$category.' linked to its original material');
     check(databaseSnapshot()===$before, 'renaming '.$category.' never changes expenses or either ledger');
     $replayed=$categories->save($rename,actor(1));
     check($replayed['replayed']&&$replayed['category']===$renamed['category']&&DB::table('branch_expense_category_commands')->where('request_key',$rename['idempotency_key'])->count()===1, 'category rename replay preserves one revision and command for '.$category);
     denied(fn ()=>$categories->save(array_merge($rename,['idempotency_key'=>keyFor($categorySequence+100)]),actor(1)),409,'stale revision cannot rename '.$category.' again');
     denied(fn ()=>$categories->save(array_merge($rename,['name'=>'اسم مختلف']),actor(1)),409,'rename request key cannot be reused with different input for '.$category);
-    $before = json_encode($categories->catalog());
-    denied(fn () => $categories->save(['action' => 'delete', 'key' => $category, 'expected_revision' => 1, 'idempotency_key' => keyFor(890)], actor(1)), 422, 'linked '.$category.' still cannot be deleted');
-    check(json_encode($categories->catalog()) === $before, 'linked category delete rejection preserves shared choices');
+    $before = json_encode($categories->catalog('f:100'));
+    denied(fn () => $categories->save(['branch' => 'f:100', 'action' => 'delete', 'key' => $category, 'expected_revision' => 1, 'idempotency_key' => keyFor(890)], actor(1)), 422, 'linked '.$category.' still cannot be deleted');
+    check(json_encode($categories->catalog('f:100')) === $before, 'linked category delete rejection preserves the branch choices');
     foreach ([null, '', '0', '-1', '0.000', '1.0001', '1000000.001', '2e3'] as $invalid) noWrites(fn () => saveExpense(100, ['category' => $category, 'quantity_kg' => $invalid]), 422, $category.' rejects missing or invalid kilograms '.var_export($invalid, true));
 }
-$choices=$categories->choices(true);
+$choices=$categories->choices(true, 'f:100');
 check(($choices['stock_categories']['custom_1'] ?? null) === 'purchase_pepper', 'legacy material category alias resolves to the stock item');
 check(($choices['stock_categories']['custom_4'] ?? null) === 'purchase_onion', 'branch suffix on legacy onion category resolves to the stock item');
-check($categories->filterKeys('purchase_pepper')===['custom_1','purchase_pepper']&&$categories->catalog()['custom_1']['name']===$choices['active_categories']['purchase_pepper'], 'renamed material keeps original branch alias in its canonical group and display name');
-foreach (['طماطم','tomatoes','أدوات نظافة',$choices['active_categories']['purchase_onion']] as $collision) denied(fn ()=>$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>$collision,'expected_revision'=>1,'idempotency_key'=>keyFor(980)],actor(1)),422,'linked rename rejects another shared name or material alias: '.$collision);
+check($categories->filterKeys('purchase_pepper', 'f:100')===['custom_1','purchase_pepper']&&$categories->catalog('f:100')['custom_1']['name']===$choices['active_categories']['purchase_pepper'], 'renamed material keeps original branch alias in its canonical group and display name');
+foreach (['طماطم','tomatoes','أدوات نظافة',$choices['active_categories']['purchase_onion']] as $collision) denied(fn ()=>$categories->save(['branch' => 'f:100', 'action'=>'update','key'=>'purchase_pepper','name'=>$collision,'expected_revision'=>1,'idempotency_key'=>keyFor(980)],actor(1)),422,'linked rename rejects another shared name or material alias: '.$collision);
 foreach ([2,10,11,12] as $actorId) {
-    $before=json_encode($categories->catalog());
-    denied(fn ()=>$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>'اسم غير مصرح','expected_revision'=>1,'idempotency_key'=>keyFor(981)],actor($actorId)),403,'existing actor '.$actorId.' cannot manage shared expense categories');
-    check(json_encode($categories->catalog())===$before,'unauthorized category rename leaves vocabulary unchanged');
+    $before=json_encode($categories->catalog('f:100'));
+    denied(fn ()=>$categories->save(['branch' => 'f:100', 'action'=>'update','key'=>'purchase_pepper','name'=>'اسم غير مصرح','expected_revision'=>1,'idempotency_key'=>keyFor(981)],actor($actorId)),403,'existing actor '.$actorId.' cannot manage branch expense categories');
+    check(json_encode($categories->catalog('f:100'))===$before,'unauthorized category rename leaves vocabulary unchanged');
 }
 $cleaning = array_filter($choices['active_categories'], fn ($name) => mb_strpos($name, 'نظافة') !== false);
-check(count($cleaning) === 1, 'duplicate branch-specific expense names have one shared active choice');
-$categoryResult = $categories->save(['name' => 'أدوات نظافة المنصورة', 'idempotency_key' => keyFor(850)], actor(1));
-check(DB::table('branch_expense_categories')->count() === 4, 'creating another branch alias reuses the shared category');
+check(count($cleaning) === 1, 'legacy duplicate names have one active choice per branch');
+$categoryResult = $categories->save(['branch' => 'f:100', 'name' => 'أدوات نظافة المنصورة', 'idempotency_key' => keyFor(850)], actor(1));
+check(DB::table('branch_expense_categories')->count() === 4, 'creating an existing legacy alias reuses that branch category');
 $categoryResult = $categories->save(['name' => 'أدوات نظافة - فرع المحلة', 'idempotency_key' => keyFor(802)], actor(1));
 check($categoryResult['replayed'] && DB::table('branch_expense_categories')->count() === 4, 'legacy category creation retry accepts its original branch-qualified name hash');
+$beforeUnscoped = json_encode([$categories->catalog('f:100'), $categories->catalog('f:101'), DB::table('branch_expense_category_commands')->orderBy('id')->get()]);
+denied(fn () => $categories->save(['name' => 'بند بلا فرع', 'idempotency_key' => keyFor(984)], actor(1)), 422, 'a new category write requires an explicit branch rather than changing all branches');
+check(json_encode([$categories->catalog('f:100'), $categories->catalog('f:101'), DB::table('branch_expense_category_commands')->orderBy('id')->get()]) === $beforeUnscoped, 'rejected branchless category creation leaves both catalogs and command audit unchanged');
 foreach ($legacyInputs as $input) {
     $before = databaseSnapshot();
     $result = app(BranchExpenses::class)->save($input, actor());
@@ -174,9 +185,9 @@ check(DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cent
 check(DB::table('expense_inventory_receipts')->where('expense_id', $expense['id'])->count() === 1 && DB::table('branch_inventory_movements')->where('source_type', 'expense')->count() === 1, 'one linked receipt and one inventory ledger movement are recorded');
 $beforeRename=databaseSnapshot();
 $savedCommand=DB::table('branch_expense_commands')->where('expense_id',$expense['id'])->value('snapshot');
-$materialRename=$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>'توريدات المطبخ','expected_revision'=>1,'idempotency_key'=>keyFor(910)],actor(1));
+$materialRename=$categories->save(['branch' => 'f:100', 'action'=>'update','key'=>'purchase_pepper','name'=>'توريدات المطبخ','expected_revision'=>1,'idempotency_key'=>keyFor(910)],actor(1));
 $renamedExpense=app(BranchExpenses::class)->show($expense['id'],actor())['expense'];
-check($materialRename['category']['revision']===2&&$renamedExpense['category_base_name']==='توريدات المطبخ'&&$renamedExpense['category_name']==='توريدات المطبخ — فرع المحلة','expense displays updated shared name beside its actual branch');
+check($materialRename['category']['revision']===2&&$renamedExpense['category_base_name']==='توريدات المطبخ'&&$renamedExpense['category_name']==='توريدات المطبخ — فرع المحلة','expense displays its branch updated name beside its actual branch');
 check(databaseSnapshot()===$beforeRename&&DB::table('branch_expense_commands')->where('expense_id',$expense['id'])->value('snapshot')===$savedCommand,'renaming a category preserves existing expense receipt, ingredient and immutable audit snapshot');
 check($renamedExpense['stock_category']==='purchase_pepper'&&$renamedExpense['stock_item_name']==='فلفل'&&$renamedExpense['stock_quantity_kg']==='1.25','renamed purchase retains original material and kilogram metadata');
 noWrites(fn()=>saveExpense(982,['quantity_kg'=>null]),422,'second arbitrary material rename still requires kilograms');
@@ -233,7 +244,7 @@ $listing = app(BranchExpenses::class)->listing(['branch' => 'f:100', 'from' => '
 $listedIds = array_column($listing['items'], 'id');
 check(in_array($legacyId, $listedIds, true) && in_array($expense['id'], $listedIds, true), 'shared material filter includes historical alias and new canonical expenses');
 $otherListing = app(BranchExpenses::class)->listing(['branch' => 'f:101', 'from' => '2026-10-17', 'to' => '2026-10-18'], actor(11));
-check($listing['active_categories'] === $otherListing['active_categories'], 'Mahalla and Mansoura receive exactly the same active expense vocabulary');
+check($listing['active_categories']['purchase_pepper'] === 'توريدات المطبخ' && $otherListing['active_categories']['purchase_pepper'] === 'فلفل', 'Mahalla listing uses its renamed category while Mansoura retains its own original name');
 foreach ([1,2] as $actorId) {
     $all=app(BranchExpenses::class)->listing(['branch'=>'all','from'=>'2026-10-17','to'=>'2026-10-18'],actor($actorId),true);
     $branches=array_column($all['branches'],'name','value');
@@ -244,27 +255,28 @@ denied(fn()=>app(BranchExpenses::class)->listing(['branch'=>'all','from'=>'2026-
 check(!$renamedExpense['can_edit'],'renaming expense choices does not enable editing recorded expenses');
 check($voided['expense']['stock_quantity_kg'] === '1.25' && $voided['expense']['stock_item_name'] === 'فلفل' && $voided['expense']['stock_reversed'], 'expense response exposes original kilograms and reversed stock state');
 
-// A shared non-stock category remains one logical item through its full lifecycle.
+// Each branch retains one non-stock logical category through its own lifecycle.
 $cleaningKey = array_key_first($cleaning);
-$cleaningItem = $categories->catalog()[$cleaningKey];
-$aliasKeys = $categories->filterKeys($cleaningKey);
+$cleaningItem = $categories->catalog('f:100')[$cleaningKey];
+$aliasKeys = $categories->filterKeys($cleaningKey, 'f:100');
 check(count($aliasKeys) === 2, 'non-stock branch aliases share one category identity before editing');
-$deleted = $categories->save(['action' => 'delete', 'key' => $cleaningKey, 'expected_revision' => $cleaningItem['revision'], 'idempotency_key' => keyFor(860)], actor(1));
-check(!array_filter($deleted['active_categories'], fn ($name) => $name === 'أدوات نظافة'), 'deleting shared category cannot expose an old branch alias');
-foreach ($aliasKeys as $aliasKey) check(!$categories->catalog()[$aliasKey]['active'], 'deleted branch alias '.$aliasKey.' stays inactive');
-$deleteReplay = $categories->save(['action' => 'delete', 'key' => $cleaningKey, 'expected_revision' => $cleaningItem['revision'], 'idempotency_key' => keyFor(860)], actor(1));
+$deleted = $categories->save(['branch' => 'f:100', 'action' => 'delete', 'key' => $cleaningKey, 'expected_revision' => $cleaningItem['revision'], 'idempotency_key' => keyFor(860)], actor(1));
+check(!array_filter($deleted['active_categories'], fn ($name) => $name === 'أدوات نظافة'), 'deleting one branch category cannot expose an old local alias');
+foreach ($aliasKeys as $aliasKey) check(!$categories->catalog('f:100')[$aliasKey]['active'], 'deleted branch alias '.$aliasKey.' stays inactive');
+$deleteReplay = $categories->save(['branch' => 'f:100', 'action' => 'delete', 'key' => $cleaningKey, 'expected_revision' => $cleaningItem['revision'], 'idempotency_key' => keyFor(860)], actor(1));
 check($deleteReplay['replayed'] && !array_filter($deleteReplay['active_categories'], fn ($name) => $name === 'أدوات نظافة'), 'delete retry preserves the whole hidden category group');
-$restored = $categories->save(['name' => 'أدوات نظافة شبرا الخيمة', 'idempotency_key' => keyFor(861)], actor(1));
+$restored = $categories->save(['branch' => 'f:100', 'name' => 'أدوات نظافة شبرا الخيمة', 'idempotency_key' => keyFor(861)], actor(1));
 $restoredKeys = array_keys(array_filter($restored['active_categories'], fn ($name) => $name === 'أدوات نظافة'));
 check($restoredKeys === [$cleaningKey] && DB::table('branch_expense_categories')->count() === 4, 'creating a deleted branch-qualified name reactivates one original shared key');
-check($categories->filterKeys($cleaningKey) === $aliasKeys, 'category restoration preserves historical alias filters');
-$renamed = $categories->save(['action' => 'update', 'key' => $cleaningKey, 'name' => 'مستهلكات التنظيف', 'expected_revision' => $restored['category']['revision'], 'idempotency_key' => keyFor(862)], actor(1));
-check(!array_filter($renamed['active_categories'], fn ($name) => $name === 'أدوات نظافة') && array_keys(array_filter($renamed['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'renaming shared category leaves one new choice and no active old aliases');
-foreach ($aliasKeys as $aliasKey) check($categories->catalog()[$aliasKey]['name'] === 'مستهلكات التنظيف', 'renaming updates display name for historical alias '.$aliasKey);
-denied(fn()=>$categories->save(['action'=>'update','key'=>$cleaningKey,'name'=>'توريدات المطبخ','expected_revision'=>$renamed['category']['revision'],'idempotency_key'=>keyFor(983)],actor(1)),422,'ordinary category cannot collide with a renamed material category');
-$sameName = $categories->save(['name' => 'مستهلكات التنظيف - فرع المنصورة', 'idempotency_key' => keyFor(863)], actor(1));
-check($sameName['category']['key'] === $cleaningKey && DB::table('branch_expense_categories')->count() === 4 && array_keys(array_filter($sameName['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'new request for renamed branch alias reuses exactly one shared key');
-check($categories->filterKeys($cleaningKey) === $aliasKeys, 'renaming preserves category group identity and historical filters');
+check($categories->filterKeys($cleaningKey, 'f:100') === $aliasKeys, 'category restoration preserves historical alias filters');
+$renamed = $categories->save(['branch' => 'f:100', 'action' => 'update', 'key' => $cleaningKey, 'name' => 'مستهلكات التنظيف', 'expected_revision' => $restored['category']['revision'], 'idempotency_key' => keyFor(862)], actor(1));
+check(!array_filter($renamed['active_categories'], fn ($name) => $name === 'أدوات نظافة') && array_keys(array_filter($renamed['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'renaming one branch category leaves one new local choice and no active old aliases');
+foreach ($aliasKeys as $aliasKey) check($categories->catalog('f:100')[$aliasKey]['name'] === 'مستهلكات التنظيف', 'renaming updates display name for historical alias '.$aliasKey);
+check($categories->catalog('f:101')[$cleaningKey]['name'] === 'أدوات نظافة' && $categories->catalog('f:101')[$cleaningKey]['active'], 'local cleaning lifecycle preserves the other branch original active name');
+denied(fn()=>$categories->save(['branch' => 'f:100', 'action'=>'update','key'=>$cleaningKey,'name'=>'توريدات المطبخ','expected_revision'=>$renamed['category']['revision'],'idempotency_key'=>keyFor(983)],actor(1)),422,'ordinary category cannot collide with a renamed material category');
+$sameName = $categories->save(['branch' => 'f:100', 'name' => 'مستهلكات التنظيف - فرع المنصورة', 'idempotency_key' => keyFor(863)], actor(1));
+check($sameName['category']['key'] === $cleaningKey && DB::table('branch_expense_categories')->count() === 4 && array_keys(array_filter($sameName['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'new request for renamed alias reuses exactly one branch key');
+check($categories->filterKeys($cleaningKey, 'f:100') === $aliasKeys, 'renaming preserves category group identity and historical filters');
 foreach ([[$aliasKeys[0], 6000], [$aliasKeys[1], 6000], ['rent', 10000]] as [$categoryKey, $amount]) DB::table('branch_expenses')->insert(['branch' => 'f:100', 'actor_id' => 10, 'occurred_on' => '2026-09-01', 'category' => $categoryKey, 'description' => 'سجل سابق قبل توحيد البنود', 'amount_cents' => $amount, 'payment_method' => 'cash', 'status' => 'approved', 'revision' => 1]);
 $groupedSummary = app(BranchExpenses::class)->listing(['branch' => 'f:100', 'from' => '2026-09-01', 'to' => '2026-09-01'], actor())['summary'];
 check($groupedSummary['top_category'] === $cleaningKey && $groupedSummary['top_amount'] === '120.00', 'top expense summary combines historical alias amounts before choosing the largest category');

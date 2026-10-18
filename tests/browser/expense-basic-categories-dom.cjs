@@ -16,18 +16,22 @@ function check(value, message) { assert(value, message); checks++; }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function settled() { await tick(); await tick(); }
 function fixture(manage = true) {
-    let applied = false, responder;
+    const applied = new Set(); let responder;
     const categoryPosts = [], expensePosts = [], requests = [], errors = [];
     function dataset(branch = 'all') {
         const result = data();
         result.filters.branch = branch;
-        result.categories = {...result.categories};
-        result.active_categories = {...result.active_categories};
-        if (applied) {
-            result.categories.custom_77 = 'تنظيف';
-            result.active_categories.custom_77 = 'تنظيف';
-            result.category_items.push({key: 'custom_77', name: 'تنظيف', protected: false, revision: 0});
-        }
+        result.category_scope = branch;
+        result.branch_categories = Object.fromEntries(branches.map(item => {
+            const catalog = data();
+            if (applied.has(item.value)) {
+                catalog.categories.custom_77 = 'تنظيف'; catalog.active_categories.custom_77 = 'تنظيف';
+                catalog.category_items.push({key: 'custom_77', name: 'تنظيف', protected: false, revision: 0});
+            }
+            return [item.value, catalog];
+        }));
+        const catalog = result.branch_categories[branch === 'all' ? 'f:100' : branch];
+        Object.assign(result, {categories: catalog.categories, active_categories: catalog.active_categories, category_items: catalog.category_items, stock_categories: catalog.stock_categories});
         return result;
     }
     const boot = {
@@ -48,7 +52,7 @@ function fixture(manage = true) {
     w.addEventListener('error', event => errors.push(event.message));
     const response = value => ({ok: true, status: 200, json: async () => value});
     const success = value => {
-        applied = true;
+        applied.add(value.branch);
         return response({...dataset(value.branch), basic_categories: {
             source: 'f:100', target: value.branch,
             target_name: branches.find(item => item.value === value.branch).name,
