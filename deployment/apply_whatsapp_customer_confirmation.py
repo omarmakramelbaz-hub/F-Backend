@@ -22,7 +22,7 @@ BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 # Initial installations publish both declared targets. Reviewed upgrades skip
 # any target whose exact bytes are already current, retaining its original inode.
 TARGET_PINS = {
-    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '0e32b2f095f20442012f900b243af22478d620c1'),
+    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '27920dab654cc15e7bbbc6d818033d55d792c4a8'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
         ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19'),
 }
@@ -67,6 +67,11 @@ INSTALLED_SOURCE_PROFILES = {
     'INSTALLED_V8': {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '0e32b2f095f20442012f900b243af22478d620c1',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'e56f8c46b20b4693e9a5be5452f5d022dc411417',
+    },
+    # The verified one-order-choice release is the current installed pair.
+    'INSTALLED_V9': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
     },
 }
 RUNTIME_PINS = {

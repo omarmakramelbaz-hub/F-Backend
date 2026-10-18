@@ -43,7 +43,7 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException('OWNER_INVALID');
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27920dab654cc15e7bbbc6d818033d55d792c4a8',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',

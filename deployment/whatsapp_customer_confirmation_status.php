@@ -98,10 +98,10 @@ function waConfirmationFormatObservation(array$transcript):array{
         $ok=is_array($parsed)&&($parsed['ok']??null)===true;
         $out['rows'][]=['ordinal'=>$ordinal+1,'speaker'=>$speaker,'text_present'=>$text!==null,
             'text_length'=>$text===null?null:mb_strlen($text,'UTF-8'),'exact_header_match'=>$exact,'compact_header_match'=>$compact,
-            'header_kind'=>waConfirmationCode($header,['LEGACY','SELF_CONFIRMED_COMPACT','BRANCH_ORDER_SUMMARY','MIXED']),
+            'header_kind'=>waConfirmationCode($header,['LEGACY','SELF_CONFIRMED_COMPACT','BRANCH_ORDER_SUMMARY','LABELED_BRANCH_ORDER_SUMMARY','MIXED']),
             'standalone_parse_ok'=>$text===null?null:$ok,
             'standalone_parse_reason'=>is_array($parsed)?waConfirmationCode($parsed['reason']??null):null,
-            'standalone_format'=>$ok?waConfirmationCode($parsed['format']??null,['BRANCH_ORDER_SUMMARY']):null,
+            'standalone_format'=>$ok?waConfirmationCode($parsed['format']??null,['BRANCH_ORDER_SUMMARY','LABELED_BRANCH_ORDER_SUMMARY']):null,
             'standalone_self_confirmed'=>$ok&&($parsed['self_confirmed']??null)===true,
             'positive_approval'=>$positive,'recap_shape'=>$shape,
             'safe_title_lines'=>$titles,'safe_title_lines_truncated'=>$titlesTruncated];
@@ -220,7 +220,7 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27920dab654cc15e7bbbc6d818033d55d792c4a8',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
@@ -297,7 +297,7 @@ try{
         'approval_basis'=>$valid?waConfirmationCode($receipt['approval_basis']??'SEPARATE_CUSTOMER_APPROVAL',
             ['CUSTOMER_SELF_CONFIRMED_RECAP','SEPARATE_CUSTOMER_APPROVAL']):null,
         'recap_is_approval'=>$valid&&is_string($receipt['recap_id']??null)&&($receipt['recap_id']??null)===($receipt['approval_id']??null),
-        'summary_format'=>$valid?waConfirmationCode($receipt['summary_format']??null,['BRANCH_ORDER_SUMMARY']):null,
+        'summary_format'=>$valid?waConfirmationCode($receipt['summary_format']??null,['BRANCH_ORDER_SUMMARY','LABELED_BRANCH_ORDER_SUMMARY']):null,
         'items_count'=>is_array($data['items']??null)?count($data['items']):0,
         'fields_present'=>waConfirmationFields($data),
         'textual_location_present'=>$location!==[],

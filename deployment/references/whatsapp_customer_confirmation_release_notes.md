@@ -14,6 +14,16 @@ uses that original customer message for both recap and approval. The same text
 from the business, an incomplete message, an arbitrary embedded phrase or a later
 order change does not authorize an order. Legacy `ملخص طلبك:` recaps still require
 their separate whole-positive customer approval.
+The labeled `ملخص الطلب - فرع ...` customer copy is another separately approved
+format. Its `الصنف:` lines retain every literal qualifier and explicit quantity,
+including a parenthesized unit such as `(كيلو)`. Labeled total, contact, address,
+literal coordinates, informational branch contact and delivery terms are required.
+The optional instruction to copy the summary does not supply approval; a later
+whole-positive native customer message does. An identical native pin can repeat
+the inline point without changing it. A conflicting pin, cart, caption or later
+unclassified customer text still requires review. No preparation alias is inferred
+from words such as `مخلي صافي`, and the descriptive branch never replaces
+coordinate-based execution routing.
 The observed `ملخص الأوردر - فرع نبروه ✅` summary is another strict legacy
 format: its `الأصناف:` section, structured customer fields and delivery footer are
 recognized, but the headline does not confirm the order. A genuine customer

@@ -138,6 +138,25 @@ foreach([['--format','--conversation','11'],['--conversation','11','--draft','10
     [$exit,$value]=formatRun(formatRows($recap),$args);
     statusExpect($exit===0&&isset($value['format_observation']),'optional flag is order-independent and draft-compatible');
 }
+$labeledFixture=file_get_contents(__DIR__.'/whatsapp_customer_labeled_branch_test.php');
+$labeledStart=strpos($labeledFixture,'function labeledBranchText(');$labeledEnd=strpos($labeledFixture,'function labeledBranchRow(',$labeledStart);
+statusExpect($labeledStart!==false&&$labeledEnd!==false,'reuse only synthetic labeled summary text function');
+eval(substr($labeledFixture,$labeledStart,$labeledEnd-$labeledStart));
+[$exit,$value]=formatRun(formatRows(labeledBranchText()));$first=$value['format_observation']['rows'][0];
+statusExpect($exit===0&&$value['candidate']['valid']&&$value['candidate']['summary_format']==='LABELED_BRANCH_ORDER_SUMMARY'
+    &&$value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
+    'labeled summary metadata reports separate actual customer approval');
+statusExpect($first['header_kind']==='LABELED_BRANCH_ORDER_SUMMARY'&&$first['standalone_format']==='LABELED_BRANCH_ORDER_SUMMARY'
+    &&$first['standalone_parse_ok']&&!$first['standalone_self_confirmed']&&$first['safe_title_lines']===[],
+    'new format is recognized without exporting variable branch titles or personal values');
+$labeledOutput=json_encode($value,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+foreach(['عميل افتراضي','شارع افتراضي','مدينة افتراضية','مدينة أخرى','01000000001','201000000001','0200000001','30.125','31.625']as$private)
+    statusExpect(!str_contains($labeledOutput,$private),'labeled proof remains private');
+[$exit,$value]=formatRun(formatRows(labeledBranchText(),'customer',null));
+statusExpect(!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED','copied footer never supplies approval');
+$labeledRows=formatRows(labeledBranchText());$labeledRows[]=['id'=>'m3','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:03','text'=>'رسالة لاحقة غير معروفة','location'=>null];
+[$exit,$value]=formatRun($labeledRows);
+statusExpect(!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_CHANGED_AFTER_RECAP','unknown later text still blocks candidate');
 statusExpect(!preg_match('/(?:->|::)(?:table|select|first|get|insert|update|delete|analyze|process|dispatch|send|quote)\s*\(/',
     substr($source,strpos($source,'function waConfirmationFormatObservation'),strpos($source,'/** Optional worker observations.')-strpos($source,'function waConfirmationFormatObservation'))),
     'pure observer adds no queries or domain actions');

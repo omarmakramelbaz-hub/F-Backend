@@ -14,6 +14,7 @@ final class WhatsAppCustomerOrderConfirmation
     public const VERSION = 1;
     public const SELF_CONFIRMED_BASIS = 'CUSTOMER_SELF_CONFIRMED_RECAP';
     public const BRANCH_SUMMARY_FORMAT = 'BRANCH_ORDER_SUMMARY';
+    public const LABELED_BRANCH_SUMMARY_FORMAT = 'LABELED_BRANCH_ORDER_SUMMARY';
     private const MAX_TEXT = 12000;
     private const MAX_ITEMS = 30;
 
@@ -43,8 +44,9 @@ final class WhatsAppCustomerOrderConfirmation
         if (!$parsed['ok']) return $parsed;
         $selfConfirmed = ($parsed['self_confirmed'] ?? false) === true;
         $branchSummary = ($parsed['format'] ?? null) === self::BRANCH_SUMMARY_FORMAT;
+        $labeledBranchSummary = ($parsed['format'] ?? null) === self::LABELED_BRANCH_SUMMARY_FORMAT;
         $approval = $selfConfirmed ? $recap['row'] : null;
-        if ($selfConfirmed && (($recap['row']['cart'] ?? null) !== null
+        if (($selfConfirmed || $labeledBranchSummary) && (($recap['row']['cart'] ?? null) !== null
             || ($recap['row']['location'] !== null && !self::samePoint($recap['row']['location'], $parsed['data']['textual_location']['point']))))
             return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
         foreach ($transcript as $position => $row) {
@@ -57,6 +59,8 @@ final class WhatsAppCustomerOrderConfirmation
                 if ($branchSummary && $approval === null && $row['text'] === null
                     && $row['location'] !== null && ($row['cart'] ?? null) === null) continue;
                 if ($selfConfirmed && $row['text'] === null && ($row['cart'] ?? null) === null
+                    && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
+                if ($labeledBranchSummary && $row['text'] === null && ($row['cart'] ?? null) === null
                     && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
                 if (!self::positiveApproval($row['text']) || $row['location'] !== null || ($row['cart'] ?? null) !== null)
                     return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
@@ -85,6 +89,7 @@ final class WhatsAppCustomerOrderConfirmation
         ];
         if ($selfConfirmed) $receipt['approval_basis'] = self::SELF_CONFIRMED_BASIS;
         if ($branchSummary) $receipt['summary_format'] = self::BRANCH_SUMMARY_FORMAT;
+        if ($labeledBranchSummary) $receipt['summary_format'] = self::LABELED_BRANCH_SUMMARY_FORMAT;
         $receipt['receipt_sha256'] = hash('sha256', json_encode([self::TYPE, $receipt], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $data['evidence_receipt'] = $receipt;
         return self::result(true, null, $data);
@@ -103,6 +108,7 @@ final class WhatsAppCustomerOrderConfirmation
             if ($line !== '') $lines[] = $line;
         }
         $kind = self::headerKind($text);
+        if ($kind === self::LABELED_BRANCH_SUMMARY_FORMAT) return self::parseLabeledBranchSummary($raw);
         if ($kind === self::BRANCH_SUMMARY_FORMAT) return self::parseBranchSummary($lines);
         if (in_array($kind, ['SELF_CONFIRMED_COMPACT', 'MIXED'], true)) return self::parseCompact($text, $lines);
         $header = null;
@@ -192,16 +198,119 @@ final class WhatsAppCustomerOrderConfirmation
     public static function headerKind(string $text): ?string
     {
         $kind = null;
-        foreach (preg_split('/\R/u', $text) ?: [] as $line) {
-            $line = self::displayLine($line);
+        foreach (preg_split('/\R/u', $text) ?: [] as $rawLine) {
+            $line = self::displayLine($rawLine);
             $found = preg_match('/\Aطلبك المؤكد\s*[:：]\z/u', $line) ? 'SELF_CONFIRMED_COMPACT'
                 : (preg_match('/\A(?:ملخص طلبك|ملخص الطلب النهائي|تأكيد الطلب النهائي)\s*[:：]\z/u', $line) ? 'LEGACY' : null);
             if ($found === null && self::branchSummaryHeader($line) !== null) $found = self::BRANCH_SUMMARY_FORMAT;
+            if ($found === null && self::labeledBranchHeader($rawLine) !== null) $found = self::LABELED_BRANCH_SUMMARY_FORMAT;
             if ($found === null) continue;
             if ($kind !== null && $kind !== $found) return 'MIXED';
             $kind = $found;
         }
         return $kind;
+    }
+
+    private static function labeledBranchDisplayLine(string $line): string
+    {
+        // Only presentation escapes used by this one copied-message grammar.
+        // The original text remains the authority and is hashed without changes.
+        $line = preg_replace('/\A\s*\\\\([-–—])\s+/u', '$1 ', $line);
+        return self::displayLine(str_replace('\\*', '*', $line));
+    }
+
+    private static function labeledBranchHeader(string $line): ?string
+    {
+        if (!preg_match('/\Aملخص الطلب\s+[–—-]\s+فرع\s+([\p{L}0-9 ]{1,80}?)(?:\s+✅)?\z/u', self::labeledBranchDisplayLine($line), $match)) return null;
+        $branch = trim($match[1]);
+        return self::compactPlace(self::matchingText($branch)) ? $branch : null;
+    }
+
+    /** This separately approved labeled summary cannot grant its own consent. */
+    private static function parseLabeledBranchSummary(array $raw): array
+    {
+        $lines = [];
+        foreach ($raw as $line) {
+            $line = self::labeledBranchDisplayLine($line);
+            if ($line !== '') $lines[] = $line;
+        }
+        $header = null; $branch = null;
+        foreach ($lines as $index => $line) if (($value = self::labeledBranchHeader($line)) !== null) {
+            if ($header !== null) return self::result(false, 'RECAP_DUPLICATE_HEADER');
+            $header = $index; $branch = $value;
+        }
+        if ($header === null || $header > 1) return self::result(false, 'RECAP_PREFIX_INVALID');
+        if ($header === 1 && !preg_match('/\Aتمام يا استاذ [\p{Arabic} ]{1,80}[،,] دي فورمه طلب فرع '.preg_quote(self::matchingText($branch), '/').' ✅\z/u', self::matchingText($lines[0])))
+            return self::result(false, 'RECAP_PREFIX_INVALID');
+        $items = []; $names = []; $quotedTotal = 0; $total = null; $fields = []; $footer = false;
+        foreach (array_slice($lines, $header + 1) as $line) {
+            if ($footer) return self::result(false, 'RECAP_FOOTER_INVALID');
+            if ($total === null) {
+                if (preg_match('/\A(?:الإجمالي|الاجمالي)\s*[:：]\s*(.+)\s+بدون (?:التوصيل|توصيل)\z/u', $line, $match)) {
+                    $total = self::money($match[1], false);
+                    if ($total === null || $items === [] || self::moneyCents($total) !== $quotedTotal)
+                        return self::result(false, 'RECAP_TOTAL_INVALID');
+                    continue;
+                }
+                if (!preg_match('/\Aالصنف\s*[:：]\s*(.+)\z/u', $line, $match)) return self::result(false, 'RECAP_ITEM_INVALID');
+                $item = self::labeledBranchItem($match[1]);
+                if ($item === null || count($items) >= self::MAX_ITEMS) return self::result(false, 'RECAP_ITEM_INVALID');
+                $name = self::matchingText($item['data']['name']);
+                if (isset($names[$name])) return self::result(false, 'RECAP_DUPLICATE_ITEM');
+                $names[$name] = true; $items[] = $item['data']; $quotedTotal += $item['quoted_cents']; continue;
+            }
+            if (isset($fields['delivery'])) {
+                if (!preg_match('/\Aانسخ الملخص ده وابعته تاني مع كتابه كل (?:شيء|شئ|شي) تمام علشان (?:ااكد|اكد) الطلب للفرع فورا[.!]?\z/u', self::matchingText($line)))
+                    return self::result(false, 'RECAP_FOOTER_INVALID');
+                $footer = true; continue;
+            }
+            if (!preg_match('/\A(الاسم|العنوان|التليفون|اللوكيشن|الفرع|التوصيل)\s*[:：]\s*(.+)\z/u', $line, $match))
+                return self::result(false, 'RECAP_FIELD_INVALID');
+            $key = match ($match[1]) { 'الاسم' => 'name', 'العنوان' => 'address', 'التليفون' => 'phone', 'اللوكيشن' => 'location', 'الفرع' => 'branch', default => 'delivery' };
+            if (isset($fields[$key])) return self::result(false, 'RECAP_DUPLICATE_FIELD');
+            $fields[$key] = trim($match[2]);
+        }
+        if ($total === null || count($fields) !== 6) return self::result(false, 'RECAP_REQUIRED_FIELDS_MISSING');
+        foreach (['name' => 200, 'address' => 1000, 'phone' => 200, 'location' => 1000, 'branch' => 200, 'delivery' => 300] as $key => $limit)
+            if (!isset($fields[$key]) || !self::bounded($fields[$key], $limit) || preg_match('/[?؟\\\\]/u', $fields[$key]))
+                return self::result(false, 'RECAP_FIELD_INVALID');
+        if (preg_match('/(?:تيك\s+اواي|تيك\s+اوي|داخل الفرع|استلام من الفرع|في الصاله|في المطعم|dine[ -]?in|take[ -]?away|pickup)/iu', self::matchingText(implode(' ', $fields))))
+            return self::result(false, 'RECAP_FULFILLMENT_AMBIGUOUS');
+        $phones = self::phones($fields['phone']);
+        if ($phones === null) return self::result(false, 'RECAP_PHONE_INVALID');
+        $location = self::location($fields['location']);
+        if ($location === null) return self::result(false, 'RECAP_LOCATION_INVALID');
+        // A descriptive branch name and its displayed contact are informational.
+        // No alias or execution branch is inferred from them or from the header.
+        if (!preg_match('/\A([\p{L}0-9 ]{1,80})(?:\s+\(([\p{L}0-9 ]{1,80})\))?\s+[–—-]\s+(\+?[0-9][0-9 ()-]{5,24}[0-9])\z/u', self::digits($fields['branch']), $match)
+            || !self::compactPlace(self::matchingText(trim($match[1])))
+            || (isset($match[2]) && $match[2] !== '' && !self::compactPlace(self::matchingText(trim($match[2])))))
+            return self::result(false, 'RECAP_BRANCH_INFORMATION_INVALID');
+        $branchPhone = preg_replace('/[ ()-]/', '', $match[3]);
+        if (!preg_match('/\A(?:0[1-9][0-9]{7,9}|\+?[1-9][0-9]{7,14})\z/', $branchPhone))
+            return self::result(false, 'RECAP_BRANCH_INFORMATION_INVALID');
+        if (!preg_match('/\Aخلال ([1-9][0-9]{0,2}) (?:ل|الي) ([1-9][0-9]{0,2}) دقيقه[،,] والتكلفه بيحددها المندوب حسب اللوكيشن\z/u', self::matchingText($fields['delivery']), $match)
+            || (int) $match[2] < (int) $match[1]) return self::result(false, 'RECAP_FOOTER_INVALID');
+        return self::result(true, null, ['type' => self::TYPE, 'decision' => 'DRAFT',
+            'customer' => ['name' => $fields['name'], 'phone' => $phones[0], 'address' => $fields['address'], 'area' => null, 'notes' => null],
+            'alternate_phones' => array_slice($phones, 1), 'branch_hint' => $branch, 'fulfillment' => 'DELIVERY', 'items' => $items,
+            'approximate_total' => $total, 'textual_location' => $location, 'evidence_receipt' => null]) + ['format' => self::LABELED_BRANCH_SUMMARY_FORMAT];
+    }
+
+    private static function labeledBranchItem(string $line): ?array
+    {
+        $parts = preg_split('/\s+[–—-]\s+/u', $line);
+        if (!is_array($parts) || count($parts) !== 2) return null;
+        $quoted = self::money($parts[1], false);
+        if ($quoted === null) return null;
+        $literal = trim($parts[0]); $item = self::item($literal);
+        if ($item === null && preg_match('/\A([^()]+?)\s+\(([^()]+)\)\s*([^()]*)\z/u', $literal, $match)) {
+            $unit = self::digits(trim($match[2]));
+            if (!preg_match('/\A(?:(?:[0-9]{1,5}(?:[.٫][0-9]{1,3})?|نصف|نص|ربع|ثلاثة أرباع|ثلاثه ارباع)\s+)?(?:كيلوغرام|كيلوجرام|كيلو|كجم|كغ|جرام|غرام|جم|قطعة|قطعه|قطع)\z/u', $unit)) return null;
+            $item = self::item($unit.' '.trim($match[1].' '.$match[3]));
+        }
+        if ($item === null || preg_match('/[\\\\()]/u', $item['name'])) return null;
+        return ['data' => $item, 'quoted_cents' => self::moneyCents($quoted)];
     }
 
     private static function branchSummaryHeader(string $line): ?string
