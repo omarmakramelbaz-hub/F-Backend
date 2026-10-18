@@ -5,6 +5,12 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
     'csrf'=>csrf_token(), 'lang'=>$metaAiArabic ? 'ar' : 'en'];
 @endphp
 <section id="meta-ai-controls" class="meta-ai-controls" aria-label="{{ $metaAiArabic ? 'إعدادات تحليل الرسائل وإرسال الطلبات' : 'Message analysis and order dispatch settings' }}" hidden>
+    <details class="meta-ai-disclosure">
+        <summary class="meta-ai-disclosure-summary">
+            <span>{{ $metaAiArabic ? 'تحليل الرسائل وإرسال الطلبات' : 'Message analysis and order dispatch' }}</span>
+            <svg class="meta-ai-disclosure-arrow" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="meta-ai-disclosure-body">
     <div class="meta-ai-controls-heading">
         <button type="button" class="wa-inbox-button meta-ai-toggle" data-meta-ai-toggle disabled aria-pressed="false">{{ $metaAiArabic ? 'تشغيل تحليل وإرسال الطلبات' : 'Enable analysis and order dispatch' }}</button>
         <span class="meta-ai-status" data-meta-ai-status role="status" aria-live="polite">{{ $metaAiArabic ? 'جارٍ تحميل حالة AI' : 'Loading AI status' }}</span>
@@ -62,10 +68,13 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
         </form>
     </details>
     <p class="meta-ai-note" data-meta-ai-dispatch-note>{{ $metaAiArabic ? 'تُرسل الطلبات المكتملة إلى الفروع بعد تأكيد العميل، حسب مواعيد إرسال الطلبات التي تحددها. الموعد الافتراضي يوميًا من 9 صباحًا إلى 12:30 بعد منتصف الليل (09:00–00:30) بتوقيت القاهرة. الرد اليدوي متاح دائمًا.' : 'Completed orders are sent to branches after customer confirmation, during your selected order dispatch hours. The default is daily from 9:00 AM to 12:30 AM after midnight (09:00–00:30), Cairo time. Manual replies remain available.' }}</p>
+        </div>
+    </details>
 </section>
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-ai-controls.css') }}?v={{ filemtime(public_path('css/dashboard-meta-ai-controls.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-inbox-viewport.css') }}?v={{ filemtime(public_path('css/dashboard-meta-inbox-viewport.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-meta-inbox-expanded.css') }}?v={{ filemtime(public_path('css/dashboard-meta-inbox-expanded.css')) }}">
 @endpush
 @push('custom-js')
 <script type="application/json" id="meta-ai-controls-bootstrap">@json($metaAiControlsBootstrap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
