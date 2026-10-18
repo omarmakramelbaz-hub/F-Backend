@@ -159,6 +159,6 @@ $labeledRows=formatRows(labeledBranchText());$labeledRows[]=['id'=>'m3','speaker
 statusExpect($value['candidate']['valid']&&$value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL',
     'ordinary later chat is not order input and does not invalidate the exact pair');
 statusExpect(!preg_match('/(?:->|::)(?:table|select|first|get|insert|update|delete|analyze|process|dispatch|send|quote)\s*\(/',
-    substr($source,strpos($source,'function waConfirmationFormatObservation'),strpos($source,'/** Optional worker observations.')-strpos($source,'function waConfirmationFormatObservation'))),
+    substr($source,strpos($source,'function waConfirmationFormatObservation'),strpos($source,'/** Locate an actual parser guard')-strpos($source,'function waConfirmationFormatObservation'))),
     'pure observer adds no queries or domain actions');
 echo"WHATSAPP_CUSTOMER_CONFIRMATION_FORMAT_OK checks=$checks\n";

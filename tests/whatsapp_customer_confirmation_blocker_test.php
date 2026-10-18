@@ -128,8 +128,21 @@ $leakRows=[...$pair,blockerRow(3,null,['lat'=>30.126,'long'=>31.625])];
 [$exit,$value]=blockerRun($leakRows);$output=json_encode($value,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
 foreach(['PRIVATE_','01033333333','201033333333','30.125','30.126','31.625','الغي الطلب','غير الكمية']as$private)
     statusExpect(!str_contains($output,$private),'no customer content, contact, point or command literal exported: '.$private);
-$start=strpos($source,'function waConfirmationBlockerObservation');$end=strpos($source,'/** Optional worker observations.',$start);
+$start=strpos($source,'function waConfirmationBlockerObservation');$end=strpos($source,'/** Inspect only the authenticated native row',$start);
 statusExpect($start!==false&&$end!==false,'bounded pure observer source seam');
 statusExpect(!preg_match('/(?:->|::)(?:table|select|first|get|insert|update|delete|analyze|process|dispatch|send|quote)\s*\(/',
     substr($source,$start,$end-$start)),'pure blocker observer adds no database queries or domain action');
+foreach([['--conversation','11','--native-blocker'],['--native-blocker','--conversation','11','--blocker'],
+    ['--blocker','--conversation','11','--native-blocker']]as$args){
+    [$exit,$value]=blockerRun($leakRows,$args);
+    statusExpect($exit===0&&$value['status']==='READ_READY'&&isset($value['blocker_observation'])
+        &&$value['native_blocker_observation']['available']===false
+        &&$value['native_blocker_observation']['reason']==='NATIVE_PROOF_UNAVAILABLE',
+        'optional native flag never guesses native identity absent from fixture snapshot');
+}
+foreach([['--conversation','11','--native-blocker','--native-blocker'],['--native-blocker'],
+    ['--conversation','11','--native-blocker','yes']]as$args){
+    [$exit,$value,$booted]=blockerRun($pair,$args);
+    statusExpect($exit===1&&$value['stage']==='ARGUMENTS'&&!$booted,'invalid native observation arguments fail before bootstrap');
+}
 echo"WHATSAPP_CUSTOMER_CONFIRMATION_BLOCKER_OK checks=$checks\n";

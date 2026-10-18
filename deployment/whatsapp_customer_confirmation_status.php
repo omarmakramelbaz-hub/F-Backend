@@ -161,6 +161,52 @@ function waConfirmationBlockerObservation(array$transcript):array{
     }
     return$out;
 }
+/** Inspect only the authenticated native row bound to the already located guard. */
+function waConfirmationNativeBlocker(array$snapshot,array$observation,int$conversation,int$floor,int$ceiling):array{
+    $out=['scope'=>'AUTHENTICATED_NATIVE_KIND_NOT_ORDER_AUTHORITY','available'=>false,'reason'=>'NO_LOCATED_BLOCKER'];
+    $ordinal=waConfirmationInt($observation['blocker']['ordinal']??null);
+    if($ordinal===null||$ordinal<1)return$out;
+    $out['reason']='NATIVE_PROOF_UNAVAILABLE';
+    try{
+        $item=$snapshot['transcript'][$ordinal-1]??null;
+        if(!is_array($item)||!is_string($item['id']??null))return$out;
+        $key=$snapshot['keys'][$item['id']]??null;
+        if(!is_string($key)||!preg_match('/\A[a-f0-9]{64}\z/D',$key))return$out;
+        $db=\Illuminate\Support\Facades\DB::class;
+        $access=\App\Services\Dashboard\WhatsAppInboxAccess::class;
+        $thread=$db::table('whatsapp_inbox_conversations')->where('id',$conversation)
+            ->where('waba_id',$access::WABA_ID)->where('phone_number_id',$access::PHONE_ID)
+            ->first(['id','waba_id','phone_number_id','peer_hash']);
+        if(!$thread)return$out;
+        $row=$db::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)
+            ->where('message_key',$key)->where('id','>',$floor)->where('id','<=',$ceiling)
+            ->select('id','conversation_id','message_key','direction','type','source','sent_at')
+            ->selectRaw('CASE WHEN LENGTH(content)<=1048576 THEN content ELSE NULL END AS content')->first();
+        if(!$row||!is_string($row->content??null)||($row->source??null)==='dashboard_api')return$out;
+        $native=(new \App\Services\Dashboard\WhatsAppInboxMessage())->projected($thread,$row);
+        if(($native['native_message_key']??null)!==$key||($native['conversation_id']??null)!==$conversation
+            ||($native['text']??null)!==$item['text']||($native['sent_at']??null)!==$item['sent_at']
+            ||($native['direction']??null)!==($item['speaker']==='customer'?'inbound':'outbound'))return$out;
+        $raw=$native['raw'];$kind=$native['kind'];
+        if(!is_array($raw)||($raw['type']??null)!==$kind)return$out;
+        $known=['text','image','audio','video','document','sticker','location','contacts','interactive','button','order','reaction','system','unsupported'];
+        $errors=$raw['errors']??[];
+        $errorsReadable=is_array($errors)&&array_is_list($errors)&&count($errors)<=30;
+        $onlyUnavailable=$errorsReadable&&count($errors)===1&&is_array($errors[0])
+            &&in_array($errors[0]['code']??null,[131060,'131060'],true);
+        return['scope'=>$out['scope'],'available'=>true,'reason'=>null,'ordinal'=>$ordinal,
+            'native_type'=>in_array($kind,$known,true)?$kind:'OTHER',
+            'source'=>in_array($row->source,['messages','standby','smb_message_echoes'],true)?$row->source:'OTHER',
+            'native_identity_verified'=>true,'snapshot_row_matches'=>true,
+            'raw_text_body_present'=>is_string($raw['text']['body']??null),
+            'media_caption_present'=>is_string($raw[$kind]['caption']??null),
+            'location_payload_present'=>isset($raw['location']),
+            'order_payload_present'=>isset($raw['order']),
+            'interactive_payload_present'=>isset($raw['interactive'])||isset($raw['button']),
+            'errors_readable'=>$errorsReadable,'error_count'=>$errorsReadable?count($errors):null,
+            'only_error_131060'=>$onlyUnavailable];
+    }catch(Throwable$ignore){return$out;}
+}
 /** Optional worker observations. Returned signatures remain private to this CLI. */
 function waConfirmationWorkerState(int$conversation,$workflow,string$readAt,string$settledBefore):array{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
@@ -254,10 +300,11 @@ function waConfirmationErp(int$id,string$branch):array{
     return$out;
 }
 try{
-    $conversation=null;$draftId=null;$format=false;$blocker=false;
+    $conversation=null;$draftId=null;$format=false;$blocker=false;$nativeBlocker=false;
     for($i=1;$i<count($argv);$i++){
         if($argv[$i]==='--format'&&!$format){$format=true;continue;}
         if($argv[$i]==='--blocker'&&!$blocker){$blocker=true;continue;}
+        if($argv[$i]==='--native-blocker'&&!$nativeBlocker){$nativeBlocker=true;continue;}
         if($argv[$i]==='--conversation'&&$conversation===null&&isset($argv[$i+1])
             &&preg_match('/\A[1-9][0-9]{0,9}\z/D',$argv[$i+1])){$conversation=(int)$argv[++$i];continue;}
         if($argv[$i]==='--draft'&&$draftId===null&&isset($argv[$i+1])
@@ -354,7 +401,8 @@ try{
         'coordinates_valid'=>is_array($location['point']??null),
         'native_pins_count'=>count(array_filter($snapshot['transcript'],static fn($row)=>is_array($row['location']??null)))];
     if($format)$out['format_observation']=waConfirmationFormatObservation($snapshot['transcript']);
-    if($blocker)$out['blocker_observation']=waConfirmationBlockerObservation($snapshot['transcript']);
+    if($blocker||$nativeBlocker)$out['blocker_observation']=waConfirmationBlockerObservation($snapshot['transcript']);
+    if($nativeBlocker)$out['native_blocker_observation']=waConfirmationNativeBlocker($snapshot,$out['blocker_observation'],$conversation,$floor,$ceiling);
     $stage='DRAFT';$query=$db::table('whatsapp_order_drafts')->where('conversation_id',$conversation);
     if($draftId!==null)$query->where('id',$draftId);
     $row=$query->orderByDesc('id')->select('id','status','reason','revision','updated_at','evidence_floor','evidence_ceiling','evidence_hash','ticket_id','assigned_branch')
