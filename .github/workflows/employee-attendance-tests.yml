@@ -3,7 +3,7 @@ on:
   push:
     branches: ['codex/employee-attendance-rules-20261008','codex/employee-part-time-20261018','codex/employee-part-time-salary-20261018']
   pull_request:
-    paths: ['app/Services/Dashboard/EmployeePayHours.php','app/Services/Dashboard/DesktopDashboardSchema.php','app/Services/Dashboard/DesktopDashboardBootstrap.php','app/Http/Controllers/Dashboard/BranchOperationsController.php','database/migrations/2026_10_18_180000_add_employee_pay_hours.php','deployment/apply_employee_pay_hours.py','deployment/apply_employee_pay_hours_root.sh','tests/test_employee_pay_hours_install.py','tests/desktop_pos_runtime/employee-pay-hours.php','tests/browser/employee-pay-hours.cjs','tests/fixtures/employee-part-time-before-pay.js','tests/fixtures/employee-clock-before.js','tests/browser/employee-part-time-clock.cjs','database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','public/dashboard/css/branch-operations.css','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+    paths: ['tests/fixtures/employee-payroll-before-pay-no-desktop.php','app/Services/Dashboard/EmployeePayHours.php','app/Services/Dashboard/DesktopDashboardSchema.php','app/Services/Dashboard/DesktopDashboardBootstrap.php','app/Http/Controllers/Dashboard/BranchOperationsController.php','database/migrations/2026_10_18_180000_add_employee_pay_hours.php','deployment/apply_employee_pay_hours.py','deployment/apply_employee_pay_hours_root.sh','tests/test_employee_pay_hours_install.py','tests/desktop_pos_runtime/employee-pay-hours.php','tests/browser/employee-pay-hours.cjs','tests/fixtures/employee-part-time-before-pay.js','tests/fixtures/employee-clock-before.js','tests/browser/employee-part-time-clock.cjs','database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','public/dashboard/css/branch-operations.css','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,6 +32,18 @@ jobs:
         run: |
           php tests/desktop_pos_runtime/operating-day.php
           php tests/desktop_pos_runtime/employee-pay-hours.php
+          python3 - <<'PYCODE'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('pay_hours_installer', 'deployment/apply_employee_pay_hours.py')
+          installer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(installer)
+          before = Path('tests/fixtures/employee-payroll-before-pay-no-desktop.php').read_bytes()
+          released = Path('app/Services/Dashboard/BranchPayroll.php').read_bytes()
+          candidate = installer.scoped_php_candidate(before, released)
+          (Path(os.environ['RUNNER_TEMP']) / 'employee-payroll-server.php').write_bytes(candidate)
+          PYCODE
+          ATTENDANCE_PAYROLL_SOURCE="$RUNNER_TEMP/employee-payroll-server.php" ATTENDANCE_WITHOUT_DESKTOP=1 php tests/desktop_pos_runtime/employee-pay-hours.php
       - name: Install browser test runtime
         run: |
           npm install --prefix "$RUNNER_TEMP/attendance-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1

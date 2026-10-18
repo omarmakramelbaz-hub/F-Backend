@@ -37,6 +37,7 @@ class Fixture:
         self.fail_seed = False
         self.fail_post_lint = False
         self.schema_bad = False
+        self.absent_paths = set()
         self.before = {}
         self.after = {}
         self.real_run = installer.run
@@ -79,6 +80,7 @@ class Fixture:
             self.calls.append(tuple(command))
             # Callers must remain at their live versions until the schema exists.
             for relative, before in self.before.items():
+                if relative in self.absent_paths:continue
                 assert (self.root / relative).read_bytes().startswith(before)
             for relative in installer.NEW_PATHS:
                 assert (self.root / relative).read_bytes() == self.after[relative]
@@ -90,6 +92,7 @@ class Fixture:
             self.calls.append(('post-install-seed',))
             assert self.state == {'present': True, 'recorded': True}
             for relative, after in self.after.items():
+                if relative in self.absent_paths:continue
                 assert (self.root / relative).read_bytes().startswith(after)
             return subprocess.CompletedProcess(command, 1 if self.fail_seed else 0,
                 stdout=b'PRIVATE_DATABASE_DETAIL' if self.fail_seed else b'EMPLOYEE_PAY_HOURS_SEED_OK', stderr=b'')
@@ -101,7 +104,7 @@ class Fixture:
         return dict(self.state)
 
     def lint(self, php, stage, root, cache):
-        for relative in installer.SOURCE_PATHS:
+        for relative in installer.deployment_paths(root)[0]:
             assert (stage / relative).is_file()
         if stage == root and self.fail_post_lint:
             raise RuntimeError('PHP_PARSE_INVALID')
@@ -116,9 +119,17 @@ class Fixture:
 
     def originals(self, case):
         for relative, before in self.before.items():
+            if relative in self.absent_paths:
+                case.assertFalse((self.root / relative).exists())
+                continue
             case.assertEqual((self.root / relative).read_bytes(), before)
         for relative in installer.NEW_PATHS:
             case.assertFalse((self.root / relative).exists())
+
+    def omit_optional(self, paths=None):
+        self.absent_paths.update(installer.OPTIONAL_PATHS if paths is None else paths)
+        for relative in self.absent_paths:
+            (self.root / relative).unlink(missing_ok=True)
 
     def receipt(self):
         return json.loads(next((self.root.parent / 'employee-pay-hours-backups').glob('*/receipt.json')).read_text())
@@ -137,9 +148,54 @@ class Fixture:
         before = deployed_clock_js()
         self.before[relative] = before
         self.after[relative] = installer.scoped_js_candidate(before, released)
-        self.write(relative, before)
-        for path in installer.MODIFIED_PATHS:
+        for path, body in self.before.items():
+            if path in self.absent_paths:continue
+            self.write(path, body)
             (self.root / path).chmod(0o640)
+
+    def use_live_no_desktop_payroll(self):
+        relative = installer.EMPLOYEE_PHP
+        released = (ROOT / relative).read_bytes()
+        self.git('reset', '--hard', self.release)
+        self.write(relative, released)
+        self.git('add', relative)
+        self.git('commit', '-qm', 'real reviewed employee payroll')
+        self.release = self.git('rev-parse', 'HEAD').strip()
+        self.git('reset', '--hard', self.base)
+        before = (ROOT / 'tests/fixtures/employee-payroll-before-pay-no-desktop.php').read_bytes()
+        self.before[relative] = before
+        self.after[relative] = installer.scoped_php_candidate(before, released)
+        for path, body in self.before.items():
+            if path in self.absent_paths:continue
+            self.write(path, body)
+            (self.root / path).chmod(0o640)
+
+    def use_exact_live_server_sources(self):
+        self.git('reset', '--hard', self.base)
+        for relative in installer.MODIFIED_PATHS:
+            self.before[relative] = subprocess.check_output(['git', '-C', str(ROOT), 'show',
+                installer.BASE_REVISION + ':' + relative])
+            self.write(relative, self.before[relative])
+        self.git('add', '.')
+        self.git('commit', '-qm', 'exact canonical application base')
+        self.base = self.git('rev-parse', 'HEAD').strip()
+        for relative in installer.SOURCE_PATHS:
+            self.after[relative] = (ROOT / relative).read_bytes()
+            self.write(relative, self.after[relative])
+        self.git('add', '.')
+        self.git('commit', '-qm', 'exact released application sources')
+        self.release = self.git('rev-parse', 'HEAD').strip()
+        self.git('reset', '--hard', self.base)
+        self.before[installer.EMPLOYEE_PHP] = (ROOT / 'tests/fixtures/employee-payroll-before-pay-no-desktop.php').read_bytes()
+        self.after[installer.EMPLOYEE_PHP] = installer.scoped_php_candidate(
+            self.before[installer.EMPLOYEE_PHP], self.after[installer.EMPLOYEE_PHP])
+        self.before[installer.EMPLOYEE_JS] = deployed_clock_js()
+        self.after[installer.EMPLOYEE_JS] = installer.scoped_js_candidate(
+            self.before[installer.EMPLOYEE_JS], self.after[installer.EMPLOYEE_JS])
+        for relative, before in self.before.items():
+            self.write(relative, before)
+            (self.root / relative).chmod(0o640)
+        self.omit_optional()
 
 
 class EmployeePayHoursInstallerTests(unittest.TestCase):
@@ -297,6 +353,183 @@ class EmployeePayHoursInstallerTests(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, stdout=b'{"present":false,"recorded":true}', stderr=b'')):
             with self.assertRaisesRegex(RuntimeError, 'RECORDED_MIGRATION_INCOMPLETE'):
                 installer.schema_state(self.fixture.root, 'fixture-php')
+
+
+class NoDesktopPayrollCompatibilityTests(unittest.TestCase):
+    setUp = EmployeePayHoursInstallerTests.setUp
+    tearDown = EmployeePayHoursInstallerTests.tearDown
+
+    def test_known_no_desktop_payroll_installs_exact_reviewed_candidate(self):
+        self.fixture.use_live_no_desktop_payroll()
+        backup = self.fixture.apply()
+        after = (self.fixture.root / installer.EMPLOYEE_PHP).read_bytes()
+        self.assertEqual(installer.blob_sha(after), installer.NO_DESKTOP_PHP_AFTER)
+        for marker in (b'function desktopReview(', b'function desktopFacts(', b'function reconcileDesktop('):
+            self.assertNotIn(marker, after)
+        patch = (backup / 'release.diff').read_bytes()
+        self.assertIn(installer.NO_DESKTOP_PHP_BEFORE.encode(), patch)
+        self.assertIn(installer.NO_DESKTOP_PHP_AFTER.encode(), patch)
+        self.assertNotIn(b'+    public function desktopReview(', patch)
+        self.assertEqual((backup / installer.EMPLOYEE_PHP).read_bytes(), self.fixture.before[installer.EMPLOYEE_PHP])
+
+    def test_no_desktop_check_only_and_rerun_are_idempotent(self):
+        self.fixture.use_live_no_desktop_payroll()
+        self.assertIsNone(self.fixture.apply(check=True))
+        self.fixture.originals(self)
+        self.fixture.apply()
+        calls = list(self.fixture.calls)
+        after = (self.fixture.root / installer.EMPLOYEE_PHP).read_bytes()
+        self.assertIsNone(self.fixture.apply())
+        self.assertEqual(self.fixture.calls, calls)
+        self.assertEqual((self.fixture.root / installer.EMPLOYEE_PHP).read_bytes(), after)
+
+    def test_no_desktop_rollback_restores_the_exact_live_source(self):
+        self.fixture.use_live_no_desktop_payroll()
+        self.fixture.fail_post_lint = True
+        with self.assertRaisesRegex(RuntimeError, 'PHP_PARSE_INVALID'):
+            self.fixture.apply()
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.receipt()['status'], 'code_restored')
+
+    def test_unknown_no_desktop_live_change_stops_before_any_publish(self):
+        self.fixture.use_live_no_desktop_payroll()
+        relative = installer.EMPLOYEE_PHP
+        changed = self.fixture.before[relative] + b'// unreviewed payroll modification\n'
+        self.fixture.write(relative, changed)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.fixture.apply()
+        self.assertEqual((self.fixture.root / relative).read_bytes(), changed)
+        self.assertEqual(self.fixture.calls, [])
+        for path in installer.NEW_PATHS:
+            self.assertFalse((self.fixture.root / path).exists())
+
+    def test_changed_release_and_partial_desktop_deletions_are_rejected(self):
+        before = (ROOT / 'tests/fixtures/employee-payroll-before-pay-no-desktop.php').read_bytes()
+        released = (ROOT / installer.EMPLOYEE_PHP).read_bytes()
+        with self.assertRaisesRegex(RuntimeError, 'EMPLOYEE_PHP_RELEASE_NEEDS_REVIEW'):
+            installer.scoped_php_candidate(before, released + b'// unreviewed release\n')
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            installer.scoped_php_candidate(before.replace(b'public function close(', b'public function desktopReview(', 1), released)
+
+    def test_exact_eight_source_server_state_installs_and_reruns(self):
+        self.fixture.use_exact_live_server_sources()
+        self.assertIsNone(self.fixture.apply(check=True))
+        self.fixture.originals(self)
+        self.fixture.apply()
+        for path, after in self.fixture.after.items():
+            if path in installer.OPTIONAL_PATHS:
+                self.assertFalse((self.fixture.root / path).exists())
+            else:
+                self.assertEqual((self.fixture.root / path).read_bytes(), after)
+        calls = list(self.fixture.calls)
+        self.assertIsNone(self.fixture.apply())
+        self.assertEqual(self.fixture.calls, calls)
+
+    def test_exact_eight_source_server_state_rolls_back_without_installing_desktop(self):
+        self.fixture.use_exact_live_server_sources()
+        self.fixture.fail_seed = True
+        with self.assertRaisesRegex(RuntimeError, 'POST_INSTALL_SEED_FAILED'):
+            self.fixture.apply()
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.receipt()['status'], 'code_restored')
+
+
+class OptionalDesktopServiceTests(unittest.TestCase):
+    setUp = EmployeePayHoursInstallerTests.setUp
+    tearDown = EmployeePayHoursInstallerTests.tearDown
+
+    def test_both_absent_desktop_services_are_skipped_without_creating_them(self):
+        self.fixture.omit_optional()
+        self.assertIsNone(self.fixture.apply(check=True))
+        self.fixture.originals(self)
+        self.fixture.apply()
+        for relative in installer.OPTIONAL_PATHS:
+            self.assertFalse((self.fixture.root / relative).exists())
+        self.assertEqual(set(self.fixture.receipt()['skipped_paths']), set(installer.OPTIONAL_PATHS))
+        for relative in set(installer.SOURCE_PATHS)-set(installer.OPTIONAL_PATHS):
+            self.assertEqual((self.fixture.root / relative).read_bytes(), self.fixture.after[relative])
+        self.assertEqual(len(self.fixture.calls), 2)
+
+    def test_one_absent_service_does_not_skip_the_present_service(self):
+        skipped, present = installer.OPTIONAL_PATHS
+        self.fixture.omit_optional([skipped])
+        self.fixture.apply()
+        self.assertFalse((self.fixture.root / skipped).exists())
+        self.assertEqual((self.fixture.root / present).read_bytes(), self.fixture.after[present])
+        self.assertEqual(self.fixture.receipt()['skipped_paths'], [skipped])
+
+    def test_absent_desktop_rerun_does_not_seed_or_migrate_again(self):
+        self.fixture.omit_optional()
+        self.fixture.apply()
+        calls = list(self.fixture.calls)
+        self.assertIsNone(self.fixture.apply())
+        self.assertEqual(self.fixture.calls, calls)
+        for relative in installer.OPTIONAL_PATHS:
+            self.assertFalse((self.fixture.root / relative).exists())
+
+    def test_post_lint_rollback_does_not_create_absent_services(self):
+        self.fixture.omit_optional()
+        self.fixture.fail_post_lint = True
+        with self.assertRaisesRegex(RuntimeError, 'PHP_PARSE_INVALID'):
+            self.fixture.apply()
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.receipt()['status'], 'code_restored')
+
+    def test_service_appearing_during_preflight_stops_before_publish(self):
+        self.fixture.omit_optional()
+        relative = installer.OPTIONAL_PATHS[0]
+        original_schema = self.fixture.schema
+        def appearing(root, php):
+            self.fixture.write(relative, b'concurrent desktop installation\n')
+            return original_schema(root, php)
+        self.fixture.schema = appearing
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_FILE_CHANGED_DURING_PREFLIGHT'):
+            self.fixture.apply()
+        self.assertEqual((self.fixture.root / relative).read_bytes(), b'concurrent desktop installation\n')
+        self.assertEqual(self.fixture.calls, [])
+        for path in installer.NEW_PATHS:
+            self.assertFalse((self.fixture.root / path).exists())
+        for path in installer.MODIFIED_PATHS:
+            if path not in installer.OPTIONAL_PATHS:
+                self.assertEqual((self.fixture.root / path).read_bytes(), self.fixture.before[path])
+
+    def test_service_appearing_during_migration_keeps_concurrent_file_and_rolls_back(self):
+        self.fixture.omit_optional()
+        relative = installer.OPTIONAL_PATHS[0]
+        original_run = self.fixture.run
+        def appearing(command, cwd=None):
+            result = original_run(command, cwd)
+            if command[:2] == ['fixture-php', 'artisan']:
+                self.fixture.write(relative, b'concurrent desktop installation\n')
+            return result
+        self.fixture.run = appearing
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_FILE_CHANGED_DURING_PREFLIGHT'):
+            self.fixture.apply()
+        self.assertEqual((self.fixture.root / relative).read_bytes(), b'concurrent desktop installation\n')
+        self.assertEqual(self.fixture.receipt()['status'], 'code_restored')
+        for path in installer.NEW_PATHS:
+            self.assertFalse((self.fixture.root / path).exists())
+        for path in installer.MODIFIED_PATHS:
+            if path not in installer.OPTIONAL_PATHS:
+                self.assertEqual((self.fixture.root / path).read_bytes(), self.fixture.before[path])
+
+    def test_optional_symlink_is_rejected_instead_of_treated_as_absent(self):
+        relative = installer.OPTIONAL_PATHS[0]
+        target = self.fixture.root / relative
+        source = target.with_name('outside.php')
+        target.rename(source)
+        target.symlink_to(source)
+        with self.assertRaisesRegex(RuntimeError, 'SYMLINK_REJECTED'):
+            self.fixture.apply(check=True)
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_optional_hardlink_is_rejected_instead_of_treated_as_absent(self):
+        relative = installer.OPTIONAL_PATHS[0]
+        target = self.fixture.root / relative
+        os.link(target, target.with_name('outside.php'))
+        with self.assertRaisesRegex(RuntimeError, 'REGULAR_UNLINKED_SOURCE_REQUIRED'):
+            self.fixture.apply(check=True)
+        self.assertEqual(self.fixture.calls, [])
 
 
 class EmployeePayHoursClockCompatibilityTests(unittest.TestCase):

@@ -162,12 +162,18 @@ clock('2026-10-31 18:00:00');
 $reviewHours=payEmployee('Hours desktop review');
 $reviewStatement=payStatement($reviewHours);
 $reviewValues=['branch'=>'f:102','employee_id'=>$reviewHours,'month'=>'2026-10','preview_hash'=>$reviewStatement['preview_hash']];
-$review=$s->desktopReview($reviewValues,$owner);
-check(($review['period']['hours_deduction_cents']??null)===155000&&($review['period']['full_time_minutes']??null)===600&&($review['period']['scheduled_minutes']??null)===300,'desktop payroll review captures the hours reduction and its contract inputs');
-$changedReview=$review;$changedReview['period']['hours_deduction_cents']++;
-denied(fn()=>$s->reconcileDesktop($reviewValues+['idempotency_key'=>attendanceKey()],$changedReview,$owner),409,'desktop reconciliation rejects changed hours-based payroll facts');
-$closedHours=$s->reconcileDesktop($reviewValues+['idempotency_key'=>attendanceKey()],$review,$owner)['statement'];
-check($closedHours['status']==='closed'&&$closedHours['net']==='1550.00'&&$closedHours['hours_deduction']==='1550.00','unchanged desktop review closes exactly the reviewed hours-based salary');
+$withoutDesktop=getenv('ATTENDANCE_WITHOUT_DESKTOP')==='1';
+if($withoutDesktop){
+    foreach(['desktopReview','desktopFacts','reconcileDesktop'] as $method)check(!method_exists($s,$method),'scoped live payroll preserves the absence of '.$method);
+    $closedHours=$s->close($reviewValues+['idempotency_key'=>attendanceKey()],$owner)['statement'];
+}else{
+    $review=$s->desktopReview($reviewValues,$owner);
+    check(($review['period']['hours_deduction_cents']??null)===155000&&($review['period']['full_time_minutes']??null)===600&&($review['period']['scheduled_minutes']??null)===300,'desktop payroll review captures the hours reduction and its contract inputs');
+    $changedReview=$review;$changedReview['period']['hours_deduction_cents']++;
+    denied(fn()=>$s->reconcileDesktop($reviewValues+['idempotency_key'=>attendanceKey()],$changedReview,$owner),409,'desktop reconciliation rejects changed hours-based payroll facts');
+    $closedHours=$s->reconcileDesktop($reviewValues+['idempotency_key'=>attendanceKey()],$review,$owner)['statement'];
+}
+check($closedHours['status']==='closed'&&$closedHours['net']==='1550.00'&&$closedHours['hours_deduction']==='1550.00',$withoutDesktop?'original payroll preview closes exactly the reviewed hours-based salary':'unchanged desktop review closes exactly the reviewed hours-based salary');
 denied(fn()=>paySave($reviewHours,['attendance_end'=>'22:00']),409,'closed payroll rejects retrospective employee contract-hour changes');
 paySave($reviewHours,['effective_month'=>'2026-11','attendance_end'=>'22:00']);
 check(payStatement($reviewHours)['preview_hash']===$closedHours['preview_hash']&&payStatement($reviewHours)['net']==='1550.00','future employee hours cannot change a previously closed statement');

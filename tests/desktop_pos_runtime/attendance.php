@@ -1,6 +1,8 @@
 <?php
 // Disposable in-memory SQLite only; exercises the original payroll service and migrations.
 require __DIR__.'/vendor/autoload.php';
+// Exercise the exact scoped deployment candidate when explicitly requested.
+if(($payrollSource=getenv('ATTENDANCE_PAYROLL_SOURCE'))!==false&&$payrollSource!=='')require $payrollSource;
 date_default_timezone_set('Africa/Cairo');
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;

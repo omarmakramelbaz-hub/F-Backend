@@ -27,12 +27,20 @@ MODIFIED_PATHS = (
     'public/dashboard/js/branch-operations.js',
     'public/dashboard/css/branch-operations.css',
 )
+OPTIONAL_PATHS = (
+    'app/Services/Dashboard/DesktopDashboardSchema.php',
+    'app/Services/Dashboard/DesktopDashboardBootstrap.php',
+)
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
 MAX_BYTES = 4 * 1024 * 1024
 EMPLOYEE_JS = 'public/dashboard/js/branch-operations.js'
 PAY_HOURS_JS_BLOB = 'f3ebd7f45b7e178cef54713782df76bdb6059574'
 CLOCK_JS_BEFORE = '1160afb81c92879f0b957fb2305dea5617dde055'
 CLOCK_JS_AFTER = 'cd3c1dfd100b6f8ddbae5dd639f88d098faede04'
+EMPLOYEE_PHP = 'app/Services/Dashboard/BranchPayroll.php'
+PAY_HOURS_PHP_BLOB = '0f02d8558ce95a8d63ad194fa7f7dcfdd5f847f0'
+NO_DESKTOP_PHP_BEFORE = 'aae87f3901979340a2d8bd98c2297de43a443a6f'
+NO_DESKTOP_PHP_AFTER = '93e34d510c1de22d7b0bcc82c0b726e44845d475'
 
 
 def require(condition, message):
@@ -151,13 +159,32 @@ def scoped_js_candidate(before, released):
     return candidate
 
 
+def scoped_php_candidate(before, released):
+    """Preserve the reviewed live absence of the optional desktop payroll methods."""
+    observed = blob_sha(before)
+    require(observed in (NO_DESKTOP_PHP_BEFORE, NO_DESKTOP_PHP_AFTER),
+            'LIVE_CHANGE_NEEDS_REVIEW: ' + EMPLOYEE_PHP)
+    require(blob_sha(released) == PAY_HOURS_PHP_BLOB, 'EMPLOYEE_PHP_RELEASE_NEEDS_REVIEW')
+    if observed == NO_DESKTOP_PHP_AFTER:
+        return before
+    first = b'    /** Capture the exact reviewed period, without database-local audit identifiers. */\n'
+    last = b'    public function close(array $values,$actor): array\n'
+    require(released.count(first) == released.count(last) == 1,
+            'EMPLOYEE_PHP_BOUNDARY_NEEDS_REVIEW')
+    start, end = released.index(first), released.index(last)
+    require(start < end, 'EMPLOYEE_PHP_BOUNDARY_ORDER_INVALID')
+    candidate = released[:start] + released[end:]
+    require(blob_sha(candidate) == NO_DESKTOP_PHP_AFTER, 'EMPLOYEE_PHP_CANDIDATE_NEEDS_REVIEW')
+    return candidate
+
+
 def exact_live_patch(relative, before, after):
     """Use the actual live bytes as both the install and reverse-rollback patch base."""
     body = ''.join(difflib.unified_diff(
         before.decode('utf-8').splitlines(keepends=True),
         after.decode('utf-8').splitlines(keepends=True),
         fromfile='a/' + relative, tofile='b/' + relative, n=3)).encode('utf-8')
-    require(body and len(body) <= MAX_BYTES, 'EMPLOYEE_JS_COMPAT_PATCH_INVALID')
+    require(body and len(body) <= MAX_BYTES, 'EMPLOYEE_COMPAT_PATCH_INVALID')
     header = ('diff --git a/' + relative + ' b/' + relative + '\nindex '
               + blob_sha(before) + '..' + blob_sha(after) + ' 100644\n').encode()
     return header + body
@@ -178,7 +205,7 @@ if ($source === false) { throw new RuntimeException('BLADE_SOURCE_UNREADABLE'); 
 token_get_all($compiler->compileString($source), TOKEN_PARSE);
 """
     node = shutil.which('node')
-    for relative in SOURCE_PATHS:
+    for relative in deployment_paths(directory)[0]:
         if relative.endswith('.blade.php'):
             result = run([php, '-r', blade_program, str(autoload),
                           str(directory / relative), str(cache_directory)])
@@ -352,6 +379,19 @@ def release_body(root, revision, relative):
     return result.stdout
 
 
+def deployment_paths(root):
+    """The standalone dashboard does not require the optional desktop services."""
+    skipped = tuple(relative for relative in OPTIONAL_PATHS
+                    if read_source(root / relative, absent_ok=True)[0] is None)
+    return tuple(relative for relative in SOURCE_PATHS if relative not in skipped), skipped
+
+
+def check_skipped_paths(root, skipped):
+    for relative in skipped:
+        require(read_source(root / relative, absent_ok=True)[0] is None,
+                'LIVE_FILE_CHANGED_DURING_PREFLIGHT: ' + relative)
+
+
 def save_receipt(path, receipt):
     safe(path)
     descriptor, name = tempfile.mkstemp(prefix='.receipt-', dir=path.parent)
@@ -414,8 +454,9 @@ def install(root, revision, php, check_only=False):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with tempfile.TemporaryDirectory(prefix='preflight-', dir=private) as temporary:
             stage = Path(temporary)
+            paths, skipped = deployment_paths(root)
             originals, pending = {}, []
-            for index, relative in enumerate(SOURCE_PATHS):
+            for index, relative in enumerate(paths):
                 before, source_info = read_source(root / relative, absent_ok=relative in NEW_PATHS)
                 originals[relative] = (before, source_info)
                 staged = stage / relative
@@ -442,19 +483,25 @@ def install(root, revision, php, check_only=False):
                 # Reverse first prevents duplicate insertion-only hunks on reruns.
                 elif relative not in NEW_PATHS and patch_check(stage, patch, reverse=True):
                     continue
+                elif relative == EMPLOYEE_PHP and not patch_check(stage, patch):
+                    candidate = scoped_php_candidate(before, release_body(root, revision, relative))
+                    if candidate == before:
+                        continue
+                    patch.write_bytes(exact_live_patch(relative, before, candidate))
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 require(patch_apply(stage, patch), 'STAGED_PATCH_FAILED: ' + relative)
                 pending.append((relative, patch, staged.read_bytes()))
             lint_sources(php, stage, root, stage / '.blade-cache')
             initial_schema = schema_state(root, php)
-            for relative in SOURCE_PATHS:
+            for relative in paths:
                 require(unchanged(root / relative, originals[relative]),
                         'LIVE_FILE_CHANGED_DURING_PREFLIGHT: ' + relative)
+            check_skipped_paths(root, skipped)
             if not pending and initial_schema['recorded']:
-                print('EMPLOYEE_PAY_HOURS_OK already_current=1 files=0', flush=True)
+                print('EMPLOYEE_PAY_HOURS_OK already_current=1 files=0 skipped=' + str(len(skipped)), flush=True)
                 return None
             print('EMPLOYEE_PAY_HOURS_PREFLIGHT_OK files=' + str(len(pending))
-                  + ' migration_required=' + str(int(not initial_schema['recorded'])), flush=True)
+                  + ' skipped=' + str(len(skipped)) + ' migration_required=' + str(int(not initial_schema['recorded'])), flush=True)
             if check_only:
                 return None
             stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ-')
@@ -462,7 +509,7 @@ def install(root, revision, php, check_only=False):
             receipt = {'revision': revision, 'base_revision': BASE_REVISION, 'status': 'prepared',
                        'migration': MIGRATION, 'schema_before': initial_schema,
                        'migration_attempted': False, 'seed_attempted': False,
-                       'database_rollback_attempted': False, 'files': []}
+                       'database_rollback_attempted': False, 'skipped_paths': skipped, 'files': []}
             for relative, patch, after in pending:
                 before, source_info = originals[relative]
                 saved = backup / relative
@@ -479,24 +526,26 @@ def install(root, revision, php, check_only=False):
             (backup / 'release.diff').write_bytes(b''.join(p.read_bytes() for _, p, _ in pending))
             receipt_path = backup / 'receipt.json'
             save_receipt(receipt_path, receipt)
-            for relative in SOURCE_PATHS:
+            for relative in paths:
                 require(unchanged(root / relative, originals[relative]),
                         'LIVE_FILE_CHANGED_BEFORE_INSTALL: ' + relative)
+            check_skipped_paths(root, skipped)
             require(schema_state(root, php) == initial_schema, 'SCHEMA_CHANGED_DURING_PREFLIGHT')
             applied = []
             try:
                 # Install the pay-hours helper and additive tables before enabling callers.
-                for paths in (NEW_PATHS, MODIFIED_PATHS):
-                    if paths == MODIFIED_PATHS and not initial_schema['recorded']:
+                for group in (NEW_PATHS, MODIFIED_PATHS):
+                    if group == MODIFIED_PATHS and not initial_schema['recorded']:
                         receipt['migration_attempted'] = True
                         save_receipt(receipt_path, receipt)
                         result = run([php, 'artisan', 'migrate', '--force', '--path=' + MIGRATION], cwd=root)
                         require(result.returncode == 0, 'SCOPED_EMPLOYEE_PAY_HOURS_MIGRATION_FAILED')
                         ready = schema_state(root, php)
                         require(all(ready.values()), 'EMPLOYEE_PAY_HOURS_MIGRATION_INCOMPLETE')
+                    check_skipped_paths(root, skipped)
                     for item in pending:
                         relative, patch, after = item
-                        if relative not in paths:
+                        if relative not in group:
                             continue
                         require(unchanged(root / relative, originals[relative]),
                                 'LIVE_FILE_CHANGED_BEFORE_INSTALL: ' + relative)
@@ -505,6 +554,7 @@ def install(root, revision, php, check_only=False):
                         restore_metadata(root / relative, after, originals[relative][1])
                         require(read_source(root / relative)[0] == after,
                                 'LIVE_FILE_CHANGED_DURING_INSTALL: ' + relative)
+                check_skipped_paths(root, skipped)
                 lint_sources(php, root, root, stage / '.blade-cache')
                 final_schema = schema_state(root, php)
                 require(all(final_schema.values()), 'EMPLOYEE_PAY_HOURS_POSTCHECK_FAILED')
@@ -515,6 +565,7 @@ def install(root, revision, php, check_only=False):
                 result = run([php, '-r', SEED_PHP, str(root / MIGRATION)], cwd=root)
                 require(result.returncode == 0 and result.stdout == b'EMPLOYEE_PAY_HOURS_SEED_OK',
                         'EMPLOYEE_PAY_HOURS_POST_INSTALL_SEED_FAILED')
+                check_skipped_paths(root, skipped)
                 for relative, _, after in pending:
                     require(read_source(root / relative)[0] == after,
                             'LIVE_FILE_CHANGED_DURING_INSTALL: ' + relative)
@@ -532,7 +583,7 @@ def install(root, revision, php, check_only=False):
             receipt['schema_after'] = final_schema
             save_receipt(receipt_path, receipt)
             print('EMPLOYEE_PAY_HOURS_OK files=' + str(len(pending))
-                  + '; BACKUP=' + str(backup), flush=True)
+                  + ' skipped=' + str(len(skipped)) + '; BACKUP=' + str(backup), flush=True)
             return backup
 
 
