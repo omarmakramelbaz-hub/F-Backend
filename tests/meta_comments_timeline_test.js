@@ -6,7 +6,7 @@ const path = require('path');
 const {JSDOM} = require('jsdom');
 const root = path.join(__dirname,'..');
 const key = value => value.repeat(64);
-const post = (id,text) => ({key:key(id),handle:'post-'+id,text,created_at:'2026-10-18T20:00:00Z',permalink:'https://facebook.com/posts/123'});
+const post = (id,text) => ({key:key(id),handle:'post-'+id,text,created_at:'2026-10-18T20:00:00Z',permalink:'https://facebook.com/page/posts/123'});
 const comment = (id,text) => ({key:key(id),handle:'comment-'+id,text,author:'عميل',created_at:'2026-10-18T20:01:00Z',can_reply:true,replies_count:0});
 const settle = async () => { for(let n=0;n<12;n++) await new Promise(resolve=>setImmediate(resolve)); };
 function fixture(legacy=false, options={}) {
@@ -48,6 +48,7 @@ function fixture(legacy=false, options={}) {
         w.document.addEventListener('dashboard:page-mounted',old.mount);
         w.document.addEventListener('dashboard:before-unload',old.destroy);
     }
+    if(options.beforeEval) options.beforeEval(w,host);
     w.eval(fs.readFileSync(path.join(root,'public/js/dashboard-meta-comments.js'),'utf8'));
     host.legacyCounts=()=>({legacyMounts,legacyDestroys});
     return {dom,w,host,calls};

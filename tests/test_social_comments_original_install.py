@@ -15,8 +15,8 @@ SPEC.loader.exec_module(m)
 class OriginalInstallTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.js = (ROOT / m.JS).read_bytes()
-        cls.view = (ROOT / m.VIEW).read_bytes()
+        cls.js = subprocess.check_output(['git','-C',str(ROOT),'cat-file','blob','05c25714397be7ea54d1a0568e4a6277af9f1b9d'])
+        cls.view = subprocess.check_output(['git','-C',str(ROOT),'cat-file','blob','2dc5d97e1942ca6b36a9e08fa86b9f6a72a8402d'])
         cls.block, cls.link = m.timeline_block(cls.js), m.stylesheet_link(cls.view)
         cls.old_js = subprocess.check_output(['git','-C',str(ROOT),'cat-file','blob',m.PREVIOUS_JS_BLOB])
         cls.previous = m.timeline_block(cls.old_js)

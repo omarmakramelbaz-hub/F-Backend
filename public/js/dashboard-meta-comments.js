@@ -1,7 +1,7 @@
 (function () {
     'use strict';
     if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
-    if (window.DashboardMetaComments && window.DashboardMetaComments.timelineVersion === 2) { window.DashboardMetaComments.mount(); return; }
+    if (window.DashboardMetaComments && window.DashboardMetaComments.timelineVersion === 3) { window.DashboardMetaComments.mount(); return; }
     if (window.DashboardMetaComments) {
         window.DashboardMetaComments.destroy();
         document.removeEventListener('dashboard:before-unload',window.DashboardMetaComments.destroy);
@@ -196,6 +196,105 @@
         var viewer = '', drafts = new Map(), sends = new Map();
         var postSnapshots = new Map(), commentSnapshots = new Map();
         var commentsPaint = '', liveRunning = false, liveFailures = 0, liveReplyTurn = 0, liveReplyLast = '', liveAlert = '';
+        // BEGIN META_PENDING_BADGES
+        var pendingStates = new Map(), pendingTimer = null, pendingAccount = '', pendingBackoff = 0;
+        var pendingEnabled = !!host.querySelector('.mc-workspace');
+        function pendingSchedule(delay) {
+            if (!pendingEnabled || closed || pendingTimer !== null) return;
+            pendingTimer = setTimeout(function() { pendingTimer = null; pendingTick(); },delay || 1500);
+        }
+        function pendingPaint() {
+            if (!pendingEnabled) return;
+            var ar = config.locale === 'ar', now = Date.now();
+            host.querySelectorAll('[data-mc-post]').forEach(function(button) {
+                var badge = button.querySelector('.mc-unanswered-badge');
+                if (!badge) { badge = node('span','mc-unanswered-badge'); button.querySelector('.mc-post-meta').appendChild(badge); }
+                var state = pendingStates.get(button.dataset.mcPost), count = 0, exact = false, failed = false;
+                if (state && account && state.account === account.account_key) {
+                    state.rows.forEach(function(row) { if (row.status === 'pending') count++; });
+                    exact = state.done && !state.error && Array.from(state.rows.values()).every(function(row) { return ['pending','answered','business'].indexOf(row.status) !== -1; });
+                    failed = !!state.error || state.done && !exact;
+                }
+                badge.hidden = exact && count === 0;
+                badge.className = 'mc-unanswered-badge' + (count > 0 ? '' : ' is-checking');
+                badge.textContent = count > 0 ? String(count) + (exact ? '' : '+') : failed ? '?' : '…';
+                var message = exact ? (ar ? count + ' تعليقات بدون رد من النشاط' : count + ' comments awaiting a business reply')
+                    : count > 0 ? (ar ? 'على الأقل ' + count + ' تعليقات بدون رد؛ العدد لم يكتمل التحقق منه' : 'At least ' + count + ' unanswered comments; verification is incomplete')
+                    : failed ? (ar ? 'تعذّر التحقق من العدد الآن' : 'The count could not be verified') : (ar ? 'جارٍ حساب التعليقات بدون رد' : 'Checking unanswered comments');
+                if (state && exact) message += ' · ' + new Date(state.updated || now).toLocaleTimeString(config.locale || 'ar');
+                badge.title = message; badge.setAttribute('aria-label',message);
+            });
+            pendingSchedule();
+        }
+        function pendingAccepted(commentKey) {
+            if (!post) return;
+            var state = pendingStates.get(identity(post));
+            if (state && state.rows.has(commentKey)) { state.rows.get(commentKey).status = 'answered'; pendingPaint(); }
+        }
+        async function pendingTick() {
+            if (closed) return;
+            if (Date.now() < pendingBackoff) { pendingSchedule(Math.min(10000,pendingBackoff - Date.now())); return; }
+            if (!account || denied || sending || recovering || document.hidden || navigator.onLine === false || busy.size) { pendingSchedule(2000); return; }
+            if (pendingAccount !== account.account_key) { pendingStates.clear(); pendingAccount = account.account_key; }
+            var now = Date.now(), candidates = [], near = new Set(), viewport = host.getBoundingClientRect();
+            host.querySelectorAll('[data-mc-post]').forEach(function(button) {
+                var rect = button.parentNode.getBoundingClientRect();
+                if (rect.bottom >= viewport.top - 200 && rect.top <= viewport.bottom + 1200) near.add(button.dataset.mcPost);
+            });
+            posts.forEach(function(row,key) {
+                if (!near.has(key) && (!post || identity(post) !== key)) return;
+                var state = pendingStates.get(key);
+                if (!state || state.done && now - state.updated >= (state.error ? 60000 : post && identity(post) === key ? 30000 : 300000)) {
+                    state = {account:account.account_key,rows:new Map(),cursor:null,started:false,rootsDone:false,done:false,error:false,pages:0,last:0,updated:0};
+                    pendingStates.set(key,state);
+                }
+                if (!state.done) candidates.push({row:row,key:key,state:state});
+            });
+            if (pendingStates.size > 240) {
+                Array.from(pendingStates.entries()).filter(function(entry) { return !near.has(entry[0]) && (!post || identity(post) !== entry[0]); })
+                    .sort(function(a,b) { return a[1].last - b[1].last; }).forEach(function(entry) { if (pendingStates.size > 240) pendingStates.delete(entry[0]); });
+            }
+            candidates.sort(function(a,b) { return a.state.last - b.state.last; });
+            var item = candidates[0];
+            if (!item) { pendingSchedule(5000); return; }
+            var state = item.state, currentEpoch = epoch, chosen = account.account_key, reply = null;
+            state.last = now;
+            if (state.rootsDone) state.rows.forEach(function(row) { if (!reply && row.status === 'checking') reply = row; });
+            try {
+                if (state.pages >= 200) { state.done = true; state.error = true; state.updated = now; return; }
+                var data;
+                if (!state.rootsDone) {
+                    data = await request('pending-badge','comments',{post_handle:item.row.handle,pending:1,cursor:state.started ? state.cursor : null});
+                    if (closed || sending || currentEpoch !== epoch || !account || account.account_key !== chosen) return;
+                    if (!Array.isArray(data.comments)) throw new Error('Invalid pending page');
+                    var added = 0;
+                    data.comments.forEach(function(row) {
+                        if (!identity(row) || typeof row.handle !== 'string' || row.handle.length > 8192 || ['pending','answered','business','checking','unknown'].indexOf(row.status) === -1) throw new Error('Invalid pending row');
+                        if (!state.rows.has(row.key)) added++;
+                        state.rows.set(row.key,{key:row.key,handle:row.handle,status:row.status,cursor:cursor(row.reply_cursor),unknown:row.unknown_authors === true,pages:0});
+                    });
+                    state.cursor = cursor(data.next_cursor); state.started = true; state.rootsDone = !state.cursor;
+                    if (state.cursor && !added) throw new Error('No progress in comment pages');
+                } else if (reply) {
+                    data = await request('pending-badge','replies',{comment_handle:reply.handle,pending:1,cursor:reply.cursor});
+                    if (closed || sending || currentEpoch !== epoch || !account || account.account_key !== chosen) return;
+                    if (typeof data.has_business_reply !== 'boolean' || typeof data.unknown_authors !== 'boolean') throw new Error('Invalid reply summary');
+                    reply.pages++; reply.unknown = reply.unknown || data.unknown_authors;
+                    reply.cursor = cursor(data.next_cursor);
+                    if (data.has_business_reply) reply.status = 'answered';
+                    else if (!reply.cursor) reply.status = reply.unknown ? 'unknown' : 'pending';
+                    else if (reply.pages >= 12) reply.status = 'unknown';
+                }
+                state.pages++;
+                state.done = state.rootsDone && !Array.from(state.rows.values()).some(function(row) { return row.status === 'checking'; });
+                if (state.done) state.updated = Date.now();
+            } catch (error) {
+                if (closed || currentEpoch !== epoch || error.name === 'AbortError') return;
+                state.done = true; state.error = true; state.updated = Date.now();
+                if (error.status === 429 || (error.payload || {}).reason === 'RATE_LIMITED') pendingBackoff = Date.now() + 120000;
+            } finally { if (!closed) { pendingPaint(); pendingSchedule(1500); } }
+        }
+        // END META_PENDING_BADGES
         var emojiCategory = 'reactions', caret = {start:0,end:0};
         var emojiGroups = {
             reactions:[['👍','إعجاب','Like'],['❤️','حب','Love'],['😂','ضحك','Laugh'],['😮','دهشة','Wow'],['😢','حزين','Sad'],['😡','غاضب','Angry'],['🙏','شكر ودعاء','Thanks'],['😍','إعجاب وحب','Heart eyes'],
@@ -301,6 +400,7 @@
         }
         function renderPosts() {
             if (!timeline.needsRender(posts,post && identity(post),account && account.channel)) {
+                pendingPaint();
                 fields['post-count'].textContent = String(posts.size);
                 fields['more-posts'].hidden = !postCursor; fields['more-posts'].disabled = busy.has('posts');
                 return;
@@ -320,6 +420,7 @@
             fields['post-count'].textContent = String(posts.size);
             fields['more-posts'].hidden = !postCursor; fields['more-posts'].disabled = busy.has('posts');
             timeline.afterPosts(post && identity(post),post && post.permalink);
+            pendingPaint();
         }
         function commentCard(row,key,nested) {
             var item = node('li',nested ? 'mc-reply' : 'mc-comment' + (selectedKey === key ? ' is-selected' : ''));
@@ -505,7 +606,7 @@
         }
         function choosePost(key) {
             var next = posts.get(key); if (!next) return;
-            if (post && identity(post) === key) { host.classList.add('has-post'); poll(); return; }
+            if (post && identity(post) === key) { resetPost(); renderPosts(); poll(); return; }
             resetPost(); post = next; host.classList.add('has-post'); fields['post-title'].textContent = text(post.text,240) || label('no_caption');
             var link = sourceUrl(post.permalink); fields['post-link'].hidden = !link; if (link) fields['post-link'].href = link;
             var snapshot = account && commentSnapshots.get(account.account_key + ':' + key);
@@ -631,6 +732,7 @@
                 sends.set(key,{state:state,request_id:requestId,message:message,account_label:accountLabel,error:state === 'FAILED' ? errorMessage({payload:Object.assign({message:label('failed')},data)}) : ''}); persistSends();
                 if (!closed && ['ACCESS_DENIED','CENTRAL_ONLY'].indexOf(data.reason) !== -1) { alert(errorMessage({payload:data})); deny(); return; }
                 if (state === 'ACCEPTED') {
+                    pendingAccepted(key);
                     drafts.delete(key);
                     if (account) {
                         postSnapshots.delete(account.account_key);
@@ -669,7 +771,7 @@
         function refresh() {
             if (closed || denied || sending) return;
             if (navigator.onLine === false) { alert(label('offline')); return; }
-            alert(''); postSnapshots.clear(); commentSnapshots.clear();
+            alert(''); postSnapshots.clear(); commentSnapshots.clear(); pendingStates.clear(); pendingPaint();
             if (!accounts.length) loadAccounts(); else { loadPosts(false); if (post) loadComments(false,true,true); }
         }
         function poll() {
@@ -756,7 +858,7 @@
         host.addEventListener('mousedown',emojiPointer); document.addEventListener('click',outsideEmoji); document.addEventListener('keydown',keydown);
         window.addEventListener('online',connectivity); window.addEventListener('offline',connectivity);
         var session = {host:host,destroy:function() {
-            if (closed) return; saveDraft(); closeEmoji(false); timeline.destroy(); closed = true; epoch++; postEpoch++; clearTimeout(timer);
+            if (closed) return; saveDraft(); closeEmoji(false); timeline.destroy(); clearTimeout(pendingTimer); pendingTimer = null; closed = true; epoch++; postEpoch++; clearTimeout(timer);
             controllers.forEach(function(controller) { controller.abort(); }); controllers.clear(); timeoutIds.forEach(clearTimeout); timeoutIds.clear();
             host.removeEventListener('click',click); fields.account.removeEventListener('change',change); fields.form.removeEventListener('submit',sendReply);
             fields['reply-text'].removeEventListener('input',input); document.removeEventListener('visibilitychange',visibility);
@@ -771,6 +873,6 @@
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function() { if (active === session) destroy(); else session.destroy(); });
     }
     function destroy() { if (active) active.destroy(); active = null; }
-    window.DashboardMetaComments = {mount:mount,destroy:destroy,dispose:destroy,timelineVersion:2};
+    window.DashboardMetaComments = {mount:mount,destroy:destroy,dispose:destroy,timelineVersion:3};
     document.addEventListener('dashboard:before-unload',destroy); document.addEventListener('dashboard:page-mounted',mount); mount();
 }());
