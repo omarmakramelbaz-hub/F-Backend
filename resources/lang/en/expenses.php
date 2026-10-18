@@ -1,5 +1,13 @@
 <?php
 return [
+    'quantity_kg'=>'Quantity (kg)',
+    'kg'=>'kg',
+    'stock_hint'=>'Saving this expense adds the quantity to this branch’s inventory.',
+    'quantity_invalid'=>'Enter a positive quantity up to 1,000,000 kg with at most 3 decimal places.',
+    'stock_category_fixed'=>'Inventory category shared by all branches.',
+    'stock_received'=>'Added to inventory',
+    'stock_reversed'=>'Inventory addition reversed',
+
     'manage_categories'=>'Manage expense categories',
     'cancel_category_edit'=>'Cancel editing',
     'save_category_edit'=>'Save changes',

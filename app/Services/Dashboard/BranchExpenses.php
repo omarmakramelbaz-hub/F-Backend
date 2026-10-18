@@ -15,7 +15,9 @@ class BranchExpenses
     public const CATEGORIES=['purchases','electricity','water','gas','packaging','maintenance','transport','fuel','rent','salaries','other'];
     public const METHODS=['cash'];
     private TakeawayAccess $access;
+    private ?ExpenseStockPurchases $stockService=null;
     public function __construct(TakeawayAccess $access){$this->access=$access;}
+    private function stockPurchases(): ExpenseStockPurchases {return $this->stockService??=app(ExpenseStockPurchases::class);}
     public function permissions($actor): array
     {
         $actor=$this->access->actor($actor);$write=$this->access->permissions($actor)['can_checkout'];
@@ -46,7 +48,8 @@ class BranchExpenses
     private function filtered($query,array $v)
     {
         $query->whereBetween('occurred_on',[$v['from'],$v['to']]);
-        foreach(['category','status','actor_id'] as $key)if(!empty($v[$key]))$query->where($key,$v[$key]);
+        if(!empty($v['category']))$query->whereIn('category',app(ExpenseCategories::class)->filterKeys($v['category']));
+        foreach(['status','actor_id'] as $key)if(!empty($v[$key]))$query->where($key,$v[$key]);
         if(!empty($v['search'])){$search=trim($v['search']);$query->where(function($q)use($search){$q->where('description','like','%'.$search.'%')->orWhere('supplier','like','%'.$search.'%');if(preg_match('/(?:EXP-)?([0-9]+)$/i',$search,$m))$q->orWhere('id',(int)$m[1]);});}
         return $query;
     }
@@ -57,14 +60,20 @@ class BranchExpenses
         $rows=(clone $query)->orderByDesc('occurred_on')->orderByDesc('id')->offset($export?0:($page-1)*$perPage)->limit($perPage)->get();
         $approved=(clone $base)->where('status','approved');$today=OperatingDay::date();$month=substr(OperatingDay::date(),0,7).'-01';
         $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']))+1;
-        $top=(clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderByDesc('amount')->first();
+        $categoryCatalog=app(ExpenseCategories::class)->catalog();$categoryTotals=[];
+        foreach((clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->get() as $group){
+            $key=$categoryCatalog[$group->category]['canonical_key']??$group->category;
+            $categoryTotals[$key]=($categoryTotals[$key]??0)+(int)$group->amount;
+        }
+        arsort($categoryTotals);$topCategory=array_key_first($categoryTotals);$topAmount=$topCategory===null?0:$categoryTotals[$topCategory];
         $names=DB::table('users')->whereIn('id',$rows->pluck('actor_id')->merge($rows->pluck('reviewer_id'))->filter()->unique())->pluck('name','id');
         $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);$categories=app(ExpenseCategories::class)->options();
+        $this->stockPurchases()->prime($rows->pluck('id')->all());
         $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$categories))->all();
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
         return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
-            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]]+app(ExpenseCategories::class)->choices($permissions['can_manage_categories']);
+            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$topCategory,'top_amount'=>Money::decimal($topAmount)]]+app(ExpenseCategories::class)->choices($permissions['can_manage_categories']);
     }
     public function show(int $id,$actor): array
     {
@@ -82,7 +91,7 @@ class BranchExpenses
     private function commandRules(): array {return ['branch'=>['required','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid','expected_revision'=>'nullable|integer|min:1'];}
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
-        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
+        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','quantity_kg'=>'nullable','approve'=>'nullable|boolean'])->validate();
         abort_if($v['occurred_on']>OperatingDay::date(),422,'لا يمكن تسجيل مصروف ليوم تشغيل مستقبلي.');
         abort_if(!empty($v['expense_id']),403,'تعديل المصروفات المسجلة غير متاح.');
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
@@ -90,6 +99,18 @@ class BranchExpenses
         try{$amount=Money::minor($v['amount']);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages(['amount'=>'القيمة غير صالحة.']);}
         if($amount<=0||$amount>100000000)throw ValidationException::withMessages(['amount'=>'القيمة أكبر من صفر وبحد أقصى مليون جنيه.']);
         $this->ready();$actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor);$permissions=$this->permissions($actor);abort_unless($permissions['can_create'],403);abort_if(($v['approve']??false)&&!$permissions['can_approve'],403);
+        $oldCommand=DB::table('branch_expense_commands')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first(['snapshot']);
+        $legacyReplay=$oldCommand&&!array_key_exists('stock_category',json_decode($oldCommand->snapshot,true)??[]);
+        if($legacyReplay)unset($v['quantity_kg']);
+        else{
+            $stock=$this->stockPurchases();$stockCategory=app(ExpenseCategories::class)->stockCategories()[$v['category']]??null;
+            // A single-material purchase must use its linked choice. Mixed
+            // invoices cannot tell us how much of each material was received.
+            if(str_starts_with($v['branch'],'f:')&&!$stockCategory&&in_array($v['category'],['purchases','other'],true)&&($material=$stock->categoryProduct($v['description'])))throw ValidationException::withMessages(['category'=>'اختر بند مشتريات '.ExpenseStockPurchases::CATEGORIES[$material].' وأدخل الكمية بالكيلو لإضافتها إلى البضاعة.']);
+            $v=$stock->normalizeQuantity($v,$stockCategory);
+            if($stockCategory)$v['stock_category']=$stockCategory;
+            else unset($v['quantity_kg'],$v['stock_category']); // Preserve existing non-stock fingerprints.
+        }
         $path=null;$keepUpload=false;$attachment=[];
         // A journal/reconciliation transaction can fail after this nested service returns.
         // Immutable private bytes must survive that rollback so the same UUID can retry.
@@ -106,6 +127,7 @@ class BranchExpenses
                 if(!isset(app(ExpenseCategories::class)->options(false)[$v['category']])&&(!$row||$row->category!==$v['category']))throw ValidationException::withMessages(['category'=>__('expenses.category_deleted')]);
                 $data=array_intersect_key($v,array_flip(['branch','occurred_on','category','description','payment_method','payment_reference','supplier','cost_center','notes']));$data+=['amount_cents'=>$amount,'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>now('UTC')];$data=array_merge($data,$attachment);
                 if($row){$id=(int)$row->id;DB::table('branch_expenses')->where('id',$id)->update($data);}else $id=DB::table('branch_expenses')->insertGetId($data+['actor_id'=>$actor->id,'status'=>'pending','created_at'=>now('UTC')]);
+                $this->stockPurchases()->receive($id,$v,$actor);
                 if($v['approve']??false){$fresh=DB::table('branch_expenses')->where('id',$id)->first();$this->postCash($fresh,$actor,-1);DB::table('branch_expenses')->where('id',$id)->update(['status'=>'approved','reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC')]);}
                 $this->record($v,$actor,$id,$hash,$row?'edit':'create');return $this->show($id,$actor)+['replayed'=>false];
             },3);
@@ -127,6 +149,7 @@ class BranchExpenses
             abort_unless((int)($v['expected_revision']??0)===(int)$row->revision&&$row->status===($v['action']==='void'?'approved':'pending'),409,'حالة المصروف تغيرت؛ حدّث الصفحة.');
             if($v['action']==='approve')abort_unless($row->payment_method==='cash',422,'لا يمكن اعتماد مصروف خارج خزنة الدرج.');
             if($v['action']==='approve')$this->postCash($row,$actor,-1);elseif($v['action']==='void')$this->postCash($row,$actor,1);
+            if($v['action']!=='approve')$this->stockPurchases()->reverse($row,$actor);
             DB::table('branch_expenses')->where('id',$id)->update(['status'=>['approve'=>'approved','reject'=>'rejected','void'=>'voided'][$v['action']],'revision'=>(int)$row->revision+1,'reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC'),'review_reason'=>$v['reason'],'updated_at'=>now('UTC')]);
             $this->record($v,$actor,$id,$hash,$v['action']);return $this->show($id,$actor)+['replayed'=>false];
         },3);
@@ -151,7 +174,7 @@ class BranchExpenses
     private function record(array $v,$actor,int $id,string $hash,string $kind): void
     {
         $row=DB::table('branch_expenses')->where('id',$id)->first();
-        DB::table('branch_expense_commands')->insert(['branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'expense_id'=>$id,'kind'=>$kind,'revision'=>$row->revision,'snapshot'=>json_encode($row,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        DB::table('branch_expense_commands')->insert(['branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'expense_id'=>$id,'kind'=>$kind,'revision'=>$row->revision,'snapshot'=>json_encode((array)$row+$this->stockPurchases()->present($row),JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     private function present(object $row,$actor,string $name,string $reviewer,string $branchName,bool $canApprove,array $categories): array
     {
@@ -160,6 +183,6 @@ class BranchExpenses
         $result['category_name']=$categories[$row->category]??$row->category;
         $result['can_edit']=false;
         $result['attachment_url']=$row->attachment_path?route('branch-expenses.attachment',['id'=>$row->id]):null;
-        $result['print_url']=null;return $result;
+        $result['print_url']=null;return $result+$this->stockPurchases()->present($row);
     }
 }

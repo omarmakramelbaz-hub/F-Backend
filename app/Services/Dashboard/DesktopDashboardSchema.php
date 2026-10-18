@@ -14,6 +14,7 @@ class DesktopDashboardSchema
         'coupon_subscripes','coupon_wheels','coupon_wheel_resturants','dashboard_push_campaigns','dashboard_push_devices',
         'delegate_notifications','desktop_pos_devices','desktop_pos_operations','desktop_pos_orders','desktop_pos_snapshots',
         'failed_jobs','features','go_order_payments','go_order_payment_receipts','go_service_assignments',
+        'expense_inventory_receipts',
         'go_service_jobs','go_service_ledger','go_service_offers','go_service_outbox','go_service_payments',
         'go_service_payment_receipts','go_service_recipients','go_stores','go_store_orders','go_store_payment_receipts',
         'go_store_products','jobs','last_searches','media','menu_price_release_20260923',

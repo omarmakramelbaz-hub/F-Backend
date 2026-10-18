@@ -50,6 +50,17 @@ class BranchInventory
                 'stock'=>$this->stock($i,DB::table('branch_inventory')->where('id',$r->id)->first())];
         });
     }
+    /** Transaction-bound expense receipt/reversal; caller already owns the restaurant row lock. */
+    public function expenseMovement(string $branch,int $ingredientId,int $units,int $expenseId,int $actorId,bool $reverse=false,string $supplier=''): int
+    {
+        abort_unless(DB::transactionLevel()>0&&preg_match('/^f:[1-9][0-9]*$/D',$branch),503,'توريد المصروف يحتاج معاملة الفرع.');
+        $this->ready();abort_unless($units>0&&$units<=1000000000000,422,'كمية مشتريات البضاعة غير صالحة.');
+        $i=$this->ingredientList()[$ingredientId]??null;abort_unless($i&&$i['unit']==='kg',409,'صنف مشتريات البضاعة غير صالح.');
+        $r=$this->lockedStock($branch,$ingredientId);$type=$reverse?'expense_reverse':'expense';$delta=$reverse?-$units:$units;
+        $old=DB::table('branch_inventory_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',(string)$expenseId)->first();
+        if($old){abort_unless((int)$old->quantity_units===$delta,409,'حركة بضاعة المصروف مسجلة بكمية مختلفة.');return (int)$old->id;}
+        return $this->move($r,$i,$delta,$type,(string)$expenseId,$actorId,$supplier,($reverse?'عكس مشتريات المصروف ':'مشتريات المصروف ').'EXP-'.$expenseId);
+    }
     private function lockedStock(string $branch,int $id): object
     {
         // All writers already hold the restaurant row lock, including first receipt and sales.
