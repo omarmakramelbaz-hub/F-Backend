@@ -114,6 +114,53 @@ function waConfirmationFormatObservation(array$transcript):array{
     }
     return$out;
 }
+/** Locate an actual parser guard without exporting text, coordinates or native IDs. */
+function waConfirmationBlockerObservation(array$transcript):array{
+    $class=\App\Support\WhatsAppCustomerOrderConfirmation::class;
+    $observed=$class::inspect($transcript);
+    $reason=waConfirmationCode($observed['reason']??null);
+    $out=['scope'=>'PAIR_BLOCKER_OBSERVATION_NOT_ORDER_AUTHORITY',
+        'available'=>$reason!=='TRANSCRIPT_INVALID','reason'=>$reason,
+        'latest_recap_ordinal'=>null,'recap_parse_ok'=>null,
+        // Syntax observation only: a phrase after a blocker is not proved consent.
+        'first_later_approval_ordinal'=>null,'blocker'=>null,'prefix_reason_before_blocker'=>null];
+    if(!$out['available'])return$out;
+    $recap=null;
+    foreach($transcript as$position=>$row)
+        if($row['speaker']==='customer'&&is_string($row['text'])&&$class::headerKind($row['text'])!==null)$recap=$position;
+    if($recap===null)return$out;
+    $out['latest_recap_ordinal']=$recap+1;
+    $parsed=$class::parseRecap($transcript[$recap]['text']);
+    $out['recap_parse_ok']=($parsed['ok']??null)===true;
+    foreach($transcript as$position=>$row)
+        if($position>$recap&&$row['speaker']==='customer'&&$class::positiveApproval($row['text'])){
+            $out['first_later_approval_ordinal']=$position+1;break;
+        }
+    if(!$out['recap_parse_ok']||!in_array($reason,['CUSTOMER_CHANGED_AFTER_RECAP','INTERVENING_TURN','BUSINESS_TURN_AFTER_APPROVAL'],true))return$out;
+    $inlinePoint=$parsed['data']['textual_location']['point']??null;
+    $samePoint=new ReflectionMethod($class,'samePoint');$samePoint->setAccessible(true);
+    $orderChange=new ReflectionMethod($class,'explicitOrderChange');$orderChange->setAccessible(true);
+    $previous=null;
+    // Reuse the exact pinned inspect() as the guard oracle. Earlier summaries
+    // are never promoted, removed or combined; the full native prefixes stay intact.
+    for($position=$recap;$position<count($transcript);$position++){
+        $prefix=$class::inspect(array_slice($transcript,0,$position+1));
+        $prefixReason=waConfirmationCode($prefix['reason']??null);
+        if($prefixReason!==$reason){$previous=$prefixReason;continue;}
+        $row=$transcript[$position];
+        $pointMatches=null;
+        if(is_array($row['location'])&&is_array($inlinePoint))
+            $pointMatches=$samePoint->invoke(null,$row['location'],$inlinePoint);
+        $out['blocker']=['ordinal'=>$position+1,'speaker'=>$row['speaker'],
+            'text_present'=>is_string($row['text']),'location_present'=>$row['location']!==null,
+            'cart_present'=>($row['cart']??null)!==null,
+            'explicit_order_change'=>is_string($row['text'])?$orderChange->invoke(null,$row['text']):false,
+            'point_matches_inline'=>$pointMatches];
+        $out['prefix_reason_before_blocker']=$previous;
+        break;
+    }
+    return$out;
+}
 /** Optional worker observations. Returned signatures remain private to this CLI. */
 function waConfirmationWorkerState(int$conversation,$workflow,string$readAt,string$settledBefore):array{
     $db=\Illuminate\Support\Facades\DB::class;$schema=\Illuminate\Support\Facades\Schema::class;
@@ -207,9 +254,10 @@ function waConfirmationErp(int$id,string$branch):array{
     return$out;
 }
 try{
-    $conversation=null;$draftId=null;$format=false;
+    $conversation=null;$draftId=null;$format=false;$blocker=false;
     for($i=1;$i<count($argv);$i++){
         if($argv[$i]==='--format'&&!$format){$format=true;continue;}
+        if($argv[$i]==='--blocker'&&!$blocker){$blocker=true;continue;}
         if($argv[$i]==='--conversation'&&$conversation===null&&isset($argv[$i+1])
             &&preg_match('/\A[1-9][0-9]{0,9}\z/D',$argv[$i+1])){$conversation=(int)$argv[++$i];continue;}
         if($argv[$i]==='--draft'&&$draftId===null&&isset($argv[$i+1])
@@ -306,6 +354,7 @@ try{
         'coordinates_valid'=>is_array($location['point']??null),
         'native_pins_count'=>count(array_filter($snapshot['transcript'],static fn($row)=>is_array($row['location']??null)))];
     if($format)$out['format_observation']=waConfirmationFormatObservation($snapshot['transcript']);
+    if($blocker)$out['blocker_observation']=waConfirmationBlockerObservation($snapshot['transcript']);
     $stage='DRAFT';$query=$db::table('whatsapp_order_drafts')->where('conversation_id',$conversation);
     if($draftId!==null)$query->where('id',$draftId);
     $row=$query->orderByDesc('id')->select('id','status','reason','revision','updated_at','evidence_floor','evidence_ceiling','evidence_hash','ticket_id','assigned_branch')
