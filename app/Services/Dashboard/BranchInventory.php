@@ -253,22 +253,29 @@ class BranchInventory
     }
     public function appSale(\App\Models\Order $order): void
     {
-        if($order->type!=='current'||!$order->resturant_id)return;$branch='f:'.$order->resturant_id;
-        DB::table('resturants')->where('id',$order->resturant_id)->lockForUpdate()->first();
-        if(DB::table('branch_recipe_sales')->where('branch',$branch)->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
+        if($order->type!=='current'||!$order->resturant_id)return;
+        $origin='f:'.$order->resturant_id;$branch=FasakhanstaStoreFulfillment::branch($origin);
+        // The origin keeps its catalog and receipt; fulfillment owns the stock lock.
+        DB::table('resturants')->whereIn('id',array_unique([(int)$order->resturant_id,(int)substr($branch,2)]))->orderBy('id')->lockForUpdate()->get();
+        // A pre-upgrade sale already consumed at its old branch must never be replayed.
+        if(DB::table('branch_recipe_sales')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
+        if(Schema::hasTable('branch_stock_movements')&&DB::table('branch_stock_movements')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
         $lines=[];foreach(DB::table('carts')->where('order_id',$order->id)->orderBy('id')->lockForUpdate()->get() as $c){
-            if(preg_match('/^0+(?:\.0+)?$/D',(string)$c->qty))continue;$p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$c->resturant_product_id)->first();if(!$p)continue;
+            if(preg_match('/^0+(?:\.0+)?$/D',(string)$c->qty))continue;$p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$c->resturant_product_id)->first();if(!$p){abort_unless($branch===$origin,422,'صنف طلب الإستور لم يعد مرتبطًا بالمينيو؛ راجع ربطه بفرع شبرا.');continue;}
             $feature=!empty($c->product_feature)&&!empty($p->product_id)&&Schema::hasTable('product_features')?DB::table('product_features')->where('id',$c->product_feature)->where('product_id',$p->product_id)->value('name'):null;
             $lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($this->units((string)$c->qty),1000),'feature_id'=>(int)($c->product_feature??0),'option_label'=>self::FEATURES[$feature]??''];
         }
-        $this->consume($branch,'app',(string)$order->id,$this->snapshots($branch,$lines),null);
+        abort_unless($branch===$origin||$lines,422,'أصناف طلب الإستور غير متاحة للخصم من فرع شبرا.');
+        $lines=$this->snapshots($branch,FasakhanstaStoreFulfillment::inventoryLines($origin,$lines));
+        if($branch!==$origin)foreach($lines as $line)abort_unless(!empty($line['inventory']['components'])||($line['inventory']['stock_source']??'')==='direct',422,'يلزم ربط وصفة صنف الإستور ببضاعة فرع شبرا: '.$line['name']);
+        $this->consume($branch,'app',(string)$order->id,$lines,null);
     }
     private function consume(string $branch,string $type,string $source,array $lines,?int $actor): void
     {
         if(DB::table('branch_recipe_sales')->where('branch',$branch)->where('source_type',$type)->where('source_id',$source)->exists())return;
         $totals=[];$snapshots=[];$unmapped=[];$direct=[];
         foreach($lines as $line){$s=$line['inventory'];abort_unless(($s['version']??null)===1&&($s['branch']??null)===$branch&&($s['product_id']??null)===(int)$line['product_id'],409,'لقطة وصفة الفاتورة غير صالحة.');
-            $qty=(int)$line['quantity_millis'];if($s['unit']==='piece')abort_unless($qty%1000===0,422);$snapshots[]=['product_id'=>$line['product_id'],'name'=>$line['name'],'quantity_millis'=>$qty,'recipe'=>$s];
+            $qty=(int)$line['quantity_millis'];if($s['unit']==='piece')abort_unless($qty%1000===0,422);$snapshots[]=['product_id'=>$line['product_id'],'name'=>$line['name'],'quantity_millis'=>$qty,'recipe'=>$s]+array_intersect_key($line,array_flip(['origin_branch','origin_product_id','origin_feature_id']));
             if(($s['stock_source']??'')==='direct')$direct[]=$line;
             elseif(!$s['components'])$unmapped[]=['product_id'=>$line['product_id'],'name'=>$line['name']];
             foreach($s['components'] as $c){$id=(int)$c['ingredient_id'];$delta=(int)$c['quantity_units']*$qty;abort_unless(is_int($delta)&&$delta<=1000000000000000000-($totals[$id]??0),422,'كمية مكونات الفاتورة أكبر من الحد المسموح.');$totals[$id]=($totals[$id]??0)+$delta;}

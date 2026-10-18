@@ -3,6 +3,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Services\Dashboard\BranchExpenses;
+use App\Services\Dashboard\OperatingDay;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use App\Services\Dashboard\PosServiceTicket;
@@ -157,6 +158,57 @@ class DashboardBranchShiftTest extends TestCase
         $this->assertSame(0,$this->shifts()->ownerBalances(['f:100'],$this->actor(1))['f:100']['expected_cents']);
         $this->sale(962,'takeaway',2000,2000);$this->assertSame(2000,$this->shifts()->ownerBalances(['f:100'],$this->actor(1))['f:100']['expected_cents']);
         $next=$this->shifts()->close($this->closing(963,'20.00',$closed['id']),$this->actor())['closing'];$this->assertSame('0.00',$this->shifts()->receipt($next['id'],$this->actor())['opening_cash']);$this->assertSame($paper,$this->shifts()->receipt($closed['id'],$this->actor()));
+    }
+
+    public function test_fasakhansta_store_cash_is_counted_only_in_shubra_and_delivery_and_noncash_stay_outside_the_drawer(): void
+    {
+        DB::table('resturants')->insert([
+            ['id'=>301,'user_id'=>10,'name'=>'شبرا','parent_id'=>null],
+            ['id'=>309,'user_id'=>11,'name'=>'المقطم ستور','parent_id'=>301],
+            ['id'=>313,'user_id'=>11,'name'=>'مصر الجديده','parent_id'=>null],
+        ]);
+        $this->appSale('cash','vendor',10000,2000,'309');
+        $this->appSale('cash','delegate',20000,3000,'309');
+        $this->appSale('card','admin',30000,4000,'313');
+        $this->appSale('cash','vendor',5000,2000,'301');
+        $cancelled=$this->appSale('cash','vendor',90000,5000,'309');DB::table('orders')->where('id',$cancelled)->update(['status'=>'cancelled']);
+        $this->appSale('cash','vendor',50000,0,'100');
+        $balances=$this->shifts()->ownerBalances(['f:301','f:309','f:313','f:100'],$this->actor(1));
+        $this->assertSame(15000,$balances['f:301']['expected_cents']);
+        $this->assertSame(0,$balances['f:309']['expected_cents']);$this->assertSame(0,$balances['f:313']['expected_cents']);
+        $this->assertSame(50000,$balances['f:100']['expected_cents']);
+        $report=$this->shifts()->desktopReview(['branch'=>'f:301'],$this->actor(1))['snapshot'];
+        $this->assertSame(4,$report['channels']['app']['count']);$this->assertSame('760.00',$report['channels']['app']['gross']);
+        $this->assertSame('110.00',$report['channels']['app']['delivery']);$this->assertSame('150.00',$report['app_branch_cash']);
+        $this->assertSame('500.00',$report['app_outside_drawer']);
+        $this->assertSame(0,DB::table('takeaway_tills')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
+        $this->denied(fn()=>$this->shifts()->data(['branch'=>'f:301'],$this->actor(11)),404);
+    }
+
+    public function test_store_app_claims_remain_immutable_and_late_cash_is_recognized_once_in_shubra(): void
+    {
+        DB::table('resturants')->insert([
+            ['id'=>301,'user_id'=>10,'name'=>'شبرا','parent_id'=>null],
+            ['id'=>309,'user_id'=>11,'name'=>'المقطم ستور','parent_id'=>301],
+        ]);
+        $paid=$this->appSale('cash','vendor',10000,2000,'309');$late=$this->appSale('cash',null,5000,1000,'309');
+        $closing=DB::table('branch_shift_closings')->insertGetId(['branch'=>'f:309','sequence'=>1,'actor_id'=>1,'request_key'=>$this->key(980),'request_hash'=>str_repeat('a',64),'activated_at'=>OperatingDay::start()->utc(),'started_at'=>now('UTC'),'closed_at'=>now('UTC'),'counted_cents'=>10000,'expected_cents'=>10000,'variance_cents'=>0,'till_balance_cents'=>0,'snapshot'=>'{}','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        DB::table('branch_shift_sources')->insert([
+            ['closing_id'=>$closing,'branch'=>'f:309','source'=>'app','source_id'=>$paid],
+            ['closing_id'=>$closing,'branch'=>'f:309','source'=>'app_cash','source_id'=>$paid],
+            ['closing_id'=>$closing,'branch'=>'f:309','source'=>'app','source_id'=>$late],
+        ]);
+        $this->assertSame(0,$this->shifts()->ownerBalances(['f:301'],$this->actor(1))['f:301']['expected_cents']);
+        DB::table('orders')->where('id',$late)->update(['transfer_price_by'=>'vendor','updated_at'=>now('UTC')]);
+        $review=$this->shifts()->desktopReview(['branch'=>'f:301'],$this->actor(1));
+        $this->assertSame('50.00',$review['snapshot']['app_branch_cash']);$this->assertSame(0,$review['snapshot']['channels']['app']['count']);
+        $this->assertSame([['source'=>'app_cash','source_id'=>$late]],$review['sources']);
+        $values=['branch'=>'f:301','idempotency_key'=>$this->key(981),'previous_closing_id'=>0,'review_token'=>$this->shifts()->data(['branch'=>'f:301'],$this->actor(1))['review_token'],'counted_cash'=>'50.00'];
+        $closed=$this->shifts()->close($values,$this->actor(1));$this->assertTrue($this->shifts()->close($values,$this->actor(1))['replayed']);
+        $this->assertSame(0,$this->shifts()->ownerBalances(['f:301'],$this->actor(1))['f:301']['expected_cents']);
+        $this->assertSame('{}',DB::table('branch_shift_closings')->where('id',$closing)->value('snapshot'));
+        $this->assertSame(2,DB::table('branch_shift_sources')->where('source','app_cash')->count());
+        $this->assertSame('50.00',$this->shifts()->receipt($closed['closing']['id'],$this->actor(1))['app_branch_cash']);
     }
 
 }
