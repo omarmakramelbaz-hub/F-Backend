@@ -14,6 +14,7 @@ class CustomerMessagingService
     private const GRAPH = 'https://graph.facebook.com/v25.0/';
     private const FEEDBACK_TEMPLATE_NAME = 'fasakhansta_order_feedback_v1';
     private const FEEDBACK_TEMPLATE_LANGUAGE = 'ar';
+    private const MARKETING_TEMPLATE_PREFIX = 'fasakhansta_promotion_';
     private $transport;
     private $authorizer;
     private $clock;
@@ -38,7 +39,8 @@ class CustomerMessagingService
             'feedback_template' => $cfg['feedback_template_name'] ?? '',
             'feedback_language' => $cfg['feedback_language'] ?? 'ar',
             'feedback_body' => $this->feedbackBody($cfg), 'marketing_templates' => [], 'campaigns' => [],
-            'feedback_setup' => $this->feedbackSetupUnavailable($this->connectionReason())];
+            'feedback_setup' => $this->feedbackSetupUnavailable($this->connectionReason()),
+            'marketing_setup' => $this->marketingSetupUnavailable($this->connectionReason())];
         if (!$this->tables()) return $out;
         $out['total_count'] = DB::table('crm_customers')->count();
         $out['eligible_count'] = $this->eligible('marketing')->count();
@@ -62,9 +64,11 @@ class CustomerMessagingService
             }
             $out['available'] = true; $out['reason'] = null;
             $out['feedback_setup'] = $this->feedbackSetup($this->rawTemplates());
+            $out['marketing_setup'] = $this->marketingSetup($this->rawTemplates());
         } catch (\Throwable $error) {
             $out['reason'] = 'TEMPLATE_LOOKUP_UNAVAILABLE';
             $out['feedback_setup'] = $this->feedbackSetupUnavailable($this->lookupReason($error));
+            $out['marketing_setup'] = $this->marketingSetupUnavailable($this->lookupReason($error));
             return $out;
         }
         try { $selected = $this->feedbackTemplate(); $out['feedback_ready'] = true; $out['feedback_body'] = $selected['body']; }
@@ -119,6 +123,52 @@ class CustomerMessagingService
         $raw['status'] = $body['status']; $raw['category'] = $body['category'];
         $this->rawTemplateCache = $this->templateCache = null;
         return ['success' => true, 'created' => true, 'feedback_setup' => $this->feedbackSetup([$raw])];
+    }
+
+    /** Explicitly submits authored static promotional text; creates no campaign or customer message. */
+    public function prepareMarketingTemplate($actor, array $input): array
+    {
+        $this->actor($actor);
+        $reason = $this->connectionReason();
+        if ($reason !== null) throw new HttpException(422, $reason);
+        $body = $input['body'] ?? null;
+        if (!is_string($body) || preg_match('//u', $body) !== 1
+            || preg_match('/[\x00-\x09\x0B\x0C\x0E-\x1F\x{007F}-\x{009F}{}]/u', $body)) {
+            throw new HttpException(422, 'INVALID_MARKETING_TEMPLATE_BODY');
+        }
+        $body = trim(str_replace(["\r\n", "\r"], "\n", $body));
+        if ($body === '' || mb_strlen($body, 'UTF-8') > 1024) throw new HttpException(422, 'INVALID_MARKETING_TEMPLATE_BODY');
+        $name = self::MARKETING_TEMPLATE_PREFIX . substr(hash('sha256', $body), 0, 16);
+        $this->rawTemplateCache = $this->templateCache = null;
+        try { $templates = $this->rawTemplates(); }
+        catch (\Throwable $error) {
+            $reason = $this->lookupReason($error);
+            throw new HttpException($reason === 'TEMPLATE_LOOKUP_PERMISSION_REQUIRED' ? 403 : ($reason === 'TEMPLATE_PAGINATION_LIMIT' ? 422 : 503), $reason);
+        }
+        $setup = $this->marketingSetup($templates, $body);
+        if ($setup['state'] === 'conflict') throw new HttpException(409, 'MARKETING_TEMPLATE_CONFLICT');
+        if ($setup['template_status'] !== null) return ['success' => true, 'created' => false, 'marketing_setup' => $setup];
+        $raw = ['name' => $name, 'language' => 'ar', 'category' => 'MARKETING', 'status' => 'PENDING',
+            'components' => [['type' => 'BODY', 'text' => $body]]];
+        $payload = array_intersect_key($raw, array_flip(['name', 'language', 'category', 'components']));
+        try { $response = $this->request('POST', WhatsAppInboxAccess::WABA_ID . '/message_templates', $payload); }
+        catch (\Throwable $error) { throw new HttpException(503, 'MARKETING_TEMPLATE_CREATE_UNCONFIRMED'); }
+        $receipt = $response['json'];
+        if ($response['status'] >= 400 && $response['status'] < 500 && is_array($receipt['error'] ?? null)) {
+            $code = $receipt['error']['code'] ?? null;
+            $permission = in_array($code, [10, 190, 200, '10', '190', '200'], true) || in_array($response['status'], [401, 403], true);
+            throw new HttpException($permission ? 403 : 422,
+                $permission ? 'TEMPLATE_MANAGEMENT_PERMISSION_REQUIRED' : 'MARKETING_TEMPLATE_PROVIDER_REJECTED');
+        }
+        if (!in_array($response['status'], [200, 201], true) || isset($receipt['error'])
+            || !is_string($receipt['id'] ?? null) || !preg_match('/\A[1-9][0-9]{0,30}\z/', $receipt['id'])
+            || !is_string($receipt['status'] ?? null) || !preg_match('/\A[A-Z_]{1,40}\z/', $receipt['status'])
+            || !in_array($receipt['category'] ?? null, ['UTILITY', 'MARKETING'], true)) {
+            throw new HttpException(503, 'MARKETING_TEMPLATE_CREATE_UNCONFIRMED');
+        }
+        $raw['status'] = $receipt['status']; $raw['category'] = $receipt['category'];
+        $this->rawTemplateCache = $this->templateCache = null;
+        return ['success' => true, 'created' => true, 'marketing_setup' => $this->marketingSetup(array_merge($templates, [$raw]), $body)];
     }
 
     /** Persists an explicit central-admin configuration, without sending or changing AI replies. */
@@ -516,6 +566,91 @@ class CustomerMessagingService
             $seen[$after] = true;
         }
         return $this->rawTemplateCache = $templates;
+    }
+
+    private function marketingSetupUnavailable(?string $reason): array
+    {
+        return ['state' => 'unavailable', 'name' => null, 'language' => 'ar', 'category' => 'MARKETING', 'body' => '',
+            'template_status' => null, 'reason' => $reason ?? 'TEMPLATE_LOOKUP_UNAVAILABLE', 'can_prepare' => false,
+            'matches' => [], 'managed_templates' => [], 'supported_count' => 0, 'unsupported_count' => 0, 'unsupported_templates' => []];
+    }
+
+    private function marketingLifecycle(array $template): array
+    {
+        $state = ['APPROVED' => 'approved', 'PENDING' => 'pending', 'REJECTED' => 'rejected'][$template['status']] ?? 'unavailable';
+        return $this->publicTemplate($template) + ['category' => $template['category'], 'status' => $template['status'],
+            'managed' => $template['language'] === 'ar' && preg_match('/\Afasakhansta_promotion_[a-f0-9]{16}\z/', $template['name']) === 1,
+            'state' => $state, 'reason' => $state === 'unavailable' ? 'MARKETING_TEMPLATE_NOT_APPROVED' : null];
+    }
+
+    private function marketingBodyMatches($raw, ?array $template, string $body): bool
+    {
+        // Authored promotions are body-only static text; other formats are never treated as this same content.
+        return $template !== null && $template['category'] === 'MARKETING' && $template['body'] === $body
+            && $template['language'] === 'ar' && $template['parameters'] === 0
+            && is_array($raw['components'] ?? null) && count($raw['components']) === 1
+            && strtoupper((string) ($raw['components'][0]['type'] ?? '')) === 'BODY';
+    }
+
+    private function marketingSetup(array $rawTemplates, ?string $body = null): array
+    {
+        $setup = $this->marketingSetupUnavailable(null);
+        $setup['state'] = 'missing'; $setup['reason'] = null; $setup['can_prepare'] = true;
+        $name = $body !== null ? self::MARKETING_TEMPLATE_PREFIX . substr(hash('sha256', $body), 0, 16) : null;
+        $exact = []; $sameName = []; $hasManagedConflict = false; $statuses = [];
+        foreach ($rawTemplates as $raw) {
+            if (!is_array($raw)) continue;
+            $value = $this->validateTemplate($raw, false);
+            $managed = is_string($raw['name'] ?? null) && preg_match('/\Afasakhansta_promotion_[a-f0-9]{16}\z/', $raw['name']) === 1
+                && ($raw['language'] ?? null) === 'ar';
+            if ($body !== null && ($raw['name'] ?? null) === $name && ($raw['language'] ?? null) === 'ar') $sameName[] = $raw;
+            if ($body !== null && $this->marketingBodyMatches($raw, $value, $body)) $exact[] = $this->marketingLifecycle($value);
+            if ($value !== null && $value['category'] === 'MARKETING') {
+                $lifecycle = $this->marketingLifecycle($value);
+                $setup['supported_count']++; $statuses[$value['status']] = true;
+                if (count($setup['matches']) < 50) $setup['matches'][] = $lifecycle;
+                if ($managed && count($setup['managed_templates']) < 50) $setup['managed_templates'][] = $lifecycle;
+            } elseif (($raw['category'] ?? null) === 'MARKETING' || $managed) {
+                $setup['unsupported_count']++;
+                if ($managed) $hasManagedConflict = true;
+                if (count($setup['unsupported_templates']) < 20 && is_string($raw['name'] ?? null)
+                    && preg_match('/\A[a-z0-9_]{1,512}\z/', $raw['name']) && is_string($raw['language'] ?? null)
+                    && preg_match('/\A[a-zA-Z_]{2,20}\z/', $raw['language'])) {
+                    $setup['unsupported_templates'][] = ['name' => $raw['name'], 'language' => $raw['language'], 'managed' => $managed,
+                        'category' => in_array($raw['category'] ?? null, ['MARKETING', 'UTILITY', 'AUTHENTICATION'], true) ? $raw['category'] : 'UNKNOWN',
+                        'status' => is_string($raw['status'] ?? null) && preg_match('/\A[A-Z_]{1,40}\z/', $raw['status']) ? $raw['status'] : 'UNKNOWN'];
+                }
+            }
+        }
+        if ($body !== null) {
+            $setup['name'] = $name; $setup['body'] = $body;
+            if (count($sameName) > 1 || ($sameName && !$this->marketingBodyMatches($sameName[0], $this->validateTemplate($sameName[0], false), $body))) {
+                $setup['state'] = 'conflict'; $setup['reason'] = 'MARKETING_TEMPLATE_CONFLICT'; return $setup;
+            }
+            if ($sameName) $selected = $this->marketingLifecycle($this->validateTemplate($sameName[0], false));
+            else {
+                $selected = null;
+                foreach (['APPROVED', 'PENDING', 'REJECTED'] as $status) {
+                    foreach ($exact as $match) if ($match['status'] === $status) { $selected = $match; break 2; }
+                }
+                if ($selected === null && $exact) $selected = $exact[0];
+            }
+            if ($selected !== null) {
+                foreach (['name', 'language', 'body', 'state', 'reason'] as $key) $setup[$key] = $selected[$key];
+                $setup['template_status'] = $selected['status'];
+            }
+            return $setup;
+        }
+        foreach (['APPROVED' => 'approved', 'PENDING' => 'pending', 'REJECTED' => 'rejected'] as $status => $state) {
+            if (isset($statuses[$status])) { $setup['state'] = $state; $setup['template_status'] = $status; return $setup; }
+        }
+        if ($setup['unsupported_count'] > 0) {
+            $setup['state'] = $hasManagedConflict ? 'conflict' : 'unavailable';
+            $setup['reason'] = $hasManagedConflict ? 'MARKETING_TEMPLATE_CONFLICT' : 'MARKETING_TEMPLATE_FORMAT_UNSUPPORTED';
+        } elseif ($setup['matches']) {
+            $setup['state'] = 'unavailable'; $setup['reason'] = 'MARKETING_TEMPLATE_NOT_APPROVED';
+        }
+        return $setup;
     }
 
     private function feedbackSetupUnavailable(?string $reason): array

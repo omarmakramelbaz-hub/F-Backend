@@ -21,6 +21,7 @@ final class CustomerCrmRouteCheck
         'customers.messaging-status'=>['GET', 'admin/customers/messaging-status', 'BranchOperationsController', 'messagingStatus'],
         'customers.messaging-configure'=>['POST', 'admin/customers/messaging-configure', 'BranchOperationsController', 'configureMessaging'],
         'customers.feedback-template-prepare'=>['POST', 'admin/customers/feedback-template-prepare', 'BranchOperationsController', 'prepareFeedbackTemplate'],
+        'customers.marketing-template-prepare'=>['POST', 'admin/customers/marketing-template-prepare', 'BranchOperationsController', 'prepareMarketingTemplate'],
         'customers.campaign-queue'=>['POST', 'admin/customers/campaign-queue', 'BranchOperationsController', 'queueCampaign'],
         'branch-operations.recover'=>['GET', 'admin/branch-operations/recover', 'BranchOperationsController', 'recover'],
         'takeaway.checkout'=>['POST', 'admin/takeaway/checkout', 'TakeawayController', 'checkout'],

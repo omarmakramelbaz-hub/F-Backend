@@ -11,6 +11,7 @@ Route::middleware(['lang','IsAdmin'])->group(function(){
             Route::get('messaging-status',[Operations::class,'messagingStatus'])->name('messaging-status');
             Route::post('messaging-configure',[Operations::class,'configureMessaging'])->name('messaging-configure');
             Route::post('feedback-template-prepare',[Operations::class,'prepareFeedbackTemplate'])->name('feedback-template-prepare');
+            Route::post('marketing-template-prepare',[Operations::class,'prepareMarketingTemplate'])->name('marketing-template-prepare');
             Route::post('campaign-queue',[Operations::class,'queueCampaign'])->name('campaign-queue');
         }
         if($module==='employees'){
