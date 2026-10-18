@@ -38,6 +38,17 @@ when its exact product ID/name and genuine empty-ID whole preparation agree.
 It still submits one piece of that existing quarter pack, without treating
 arbitrary selectable products as pieces or converting another recapped weight.
 There is no global alias choosing a variant for a generic feseekh sandwich.
+The separate owner-choice CLI is limited to the exact individually approved
+receipt, evidence bounds, draft revision and control revision. Its default
+`--check` runs under a MySQL read-only session and checks the current receipt and
+catalog; `READY_TO_DISPATCH` does not claim a final delivery, price or stock quote.
+Only explicit `--execute` invokes the reviewed workflow's normal quote and
+automatic dispatch after rechecking current-day proof, location, live catalog,
+permissions, capture, policy and duplicate protections. The one-order choice is
+sealed in that order's review audit, without changing customer text or installing
+a generic sandwich alias. A matching repeat reports the existing ticket instead
+of creating another order. No database row count is asserted for a successful new
+dispatch or an uncertain post-execute outcome.
 Only the latest recognized customer-confirmed recap supplies an order. Earlier
 recaps do not contribute items or contact data, and a malformed latest recap does
 not fall back to an earlier valid one. The current Cairo-day rule still applies

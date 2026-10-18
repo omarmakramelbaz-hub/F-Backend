@@ -253,6 +253,84 @@ class WhatsAppOrderWorkflow
         return $this->dispatchInternal($draft, $review, $this->actor($actor), false);
     }
 
+    /** CLI owner choice for one bound receipt; never a stored or global alias. */
+    public function resolveCustomerReceiptChoice(int $draft,array $expected,bool $execute=false): array
+    {
+        $keys=['conversation','control_revision','draft_revision','floor','ceiling','snapshot_hash'];
+        abort_unless(PHP_SAPI==='cli',403,'OWNER_CHOICE_CLI_ONLY');
+        abort_unless(count($expected)===count($keys)&&array_diff(array_keys($expected),$keys)===[]
+            &&is_int($expected['conversation']??null)&&$expected['conversation']>0
+            &&is_int($expected['control_revision']??null)&&$expected['control_revision']>0
+            &&is_int($expected['draft_revision']??null)&&$expected['draft_revision']>0
+            &&is_int($expected['floor']??null)&&$expected['floor']>=0
+            &&is_int($expected['ceiling']??null)&&$expected['ceiling']>$expected['floor']
+            &&is_string($expected['snapshot_hash']??null)&&preg_match('/\A[a-f0-9]{64}\z/D',$expected['snapshot_hash']),
+            422,'OWNER_CHOICE_EXPECTATION_INVALID');
+        $this->ready();
+        $choice=['scope'=>'OWNER_ONE_ORDER_ITEM_CHOICE_V1','draft_id'=>$draft,'expected'=>$expected,
+            'item_ordinal'=>5,'product_id'=>2557,'product_name'=>'ساندوتش فسيخ دسوق نبروه مظبوط',
+            'quantity'=>'2','quantity_mode'=>'piece','option_id'=>''];
+        $operation=function()use($draft,$expected,$choice,$execute) {
+            $row=$this->draft($draft,$execute);$conversation=(int)$row->conversation_id;
+            abort_unless($conversation===$expected['conversation']&&(int)$row->evidence_floor===$expected['floor']
+                &&(int)$row->evidence_ceiling===$expected['ceiling']
+                &&hash_equals((string)$row->evidence_hash,$expected['snapshot_hash']),409,'OWNER_CHOICE_SCOPE_CHANGED');
+            $this->conversation($conversation,$execute);
+            if ($row->status==='DISPATCHED') {
+                $sealed=$this->decode($row->sealed_payload);
+                abort_unless(is_array($sealed['owner_item_choice']['choice']??null)
+                    &&hash_equals(PosServiceTicket::fingerprint($choice),PosServiceTicket::fingerprint($sealed['owner_item_choice']['choice']))
+                    &&(int)$row->ticket_id>0&&$row->assigned_branch==='f:363'
+                    &&is_array($sealed['review']['items']??null)&&count($sealed['review']['items'])===5
+                    &&($sealed['review']['branch']??null)==='f:363',409,'OWNER_CHOICE_REPLAY_CHANGED');
+                return ['success'=>true,'status'=>'ALREADY_DISPATCHED','conversation_id'=>$conversation,'draft_id'=>$draft,
+                    'branch'=>'f:363','items'=>array_map(static fn($item)=>array_intersect_key($item,array_flip(['product_id','option_id','quantity','quantity_mode'])),$sealed['review']['items']),
+                    'ticket_id'=>(int)$row->ticket_id,'writes'=>0,'erp_writes'=>0,'ai_calls'=>0,'message_sends'=>0];
+            }
+            abort_unless($this->controlInstalled()&&$this->mode()==='auto'&&$this->customerReceiptEnabled($conversation),
+                403,'OWNER_CHOICE_MODE_REQUIRED');
+            abort_unless((int)$row->revision===$expected['draft_revision']&&in_array($row->status,['REVIEW','READY'],true)
+                &&$row->ticket_id===null,409,'DRAFT_REVISION_CHANGED');
+            $authority=$this->controlToken($conversation);
+            abort_unless($authority!==null&&$authority['revision']===$expected['control_revision'],409,'AI_CONTROL_CHANGED');
+            $actor=$this->automaticActor($conversation);
+            $scanQuery=DB::table(static::SCANS)->where('conversation_id',$conversation);
+            if ($execute) $scanQuery->lockForUpdate();$scan=$scanQuery->first();
+            abort_if($scan&&$scan->claim_nonce&&$scan->lease_until>=now('UTC')->format('Y-m-d H:i:s'),409,'ANALYSIS_BUSY');
+            abort_if($this->pendingCapture($execute),409,'CAPTURE_PENDING');
+            abort_unless($this->ceiling($conversation,$execute)===$expected['ceiling'],409,'STALE_TRANSCRIPT');
+            $snapshot=$this->snapshot($conversation,$expected['floor'],$expected['ceiling'],$execute);
+            abort_unless(($snapshot['complete']??false)===true&&hash_equals($expected['snapshot_hash'],$snapshot['hash']),409,'STALE_TRANSCRIPT');
+            $observed=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$conversation)->max('created_at');
+            abort_unless(is_string($observed)&&$observed<=$this->settledBefore(),409,'TRANSCRIPT_SETTLING');
+            abort_unless($this->primaryAuthority($conversation,$snapshot)===$authority,409,'AI_CONTROL_BLOCKED');
+            $this->requireDispatchHours($conversation,$authority);
+            $reason=null;$review=$this->automaticReview($row,$actor,$reason,$execute,$choice);
+            abort_unless($review!==null,409,$reason??'OWNER_CHOICE_REVIEW_REQUIRED');
+            $public=['success'=>true,'conversation_id'=>$conversation,'draft_id'=>$draft,'branch'=>$review['branch'],
+                'items'=>array_map(static fn($item)=>array_intersect_key($item,array_flip(['product_id','option_id','quantity','quantity_mode'])),$review['items']),
+                'ai_calls'=>0,'message_sends'=>0];
+            if (!$execute) {
+                abort_unless($this->controlToken($conversation)===$authority
+                    &&$this->ceiling($conversation)===$expected['ceiling']
+                    &&hash_equals($expected['snapshot_hash'],$this->snapshot($conversation,$expected['floor'],$expected['ceiling'])['hash']),409,'STALE_TRANSCRIPT');
+                return $public+['status'=>'READY_TO_DISPATCH','writes'=>0,'erp_writes'=>0];
+            }
+            // Quote, choice audit and automatic dispatch share one transaction.
+            // A failed reproof/quote/stock operation rolls the whole choice back.
+            $quoted=$this->quote($draft,$review,$actor);$row=$this->draft($draft,true);
+            $sealed=$this->decode($row->sealed_payload);
+            abort_unless(is_array($sealed),409,'OWNER_CHOICE_REVIEW_REQUIRED');
+            $sealed['owner_item_choice']=['choice'=>$choice,'actor_id'=>(int)$actor->id,'recorded_at_utc'=>now('UTC')->format('Y-m-d H:i:s')];
+            DB::table(static::DRAFTS)->where('id',$draft)->update(['sealed_payload'=>$this->encrypt($sealed)]);
+            $review=$quoted['draft']['review'];$review['expected_revision']=$quoted['draft']['revision'];
+            $sent=$this->dispatchInternal($draft,$review,$actor,true,$authority,$choice);
+            return $public+['status'=>$sent['replayed']?'ALREADY_DISPATCHED':'DISPATCHED','ticket_id'=>$sent['ticket_id'],
+                'writes'=>$sent['replayed']?0:null,'erp_writes'=>$sent['replayed']?0:null];
+        };
+        return $execute?DB::transaction($operation,3):$operation();
+    }
+
     /** CLI only: bounded unanswered native turns, with immutable completed receipts. */
     public function process(int $limit = 10): array
     {
@@ -502,10 +580,10 @@ class WhatsAppOrderWorkflow
         }
     }
 
-    private function dispatchInternal(int $draft, array $review, $actor, bool $automatic,?array $authority=null): array
+    private function dispatchInternal(int $draft, array $review, $actor, bool $automatic,?array $authority=null,?array $ownerChoice=null): array
     {
         $this->ready(); $v = $this->review($this->storedDeliveryOrigin($this->draft($draft),$review), true);
-        return DB::transaction(function () use ($draft, $v, $actor, $automatic,$authority) {
+        return DB::transaction(function () use ($draft, $v, $actor, $automatic,$authority,$ownerChoice) {
             if ($automatic) abort_unless($this->mode()==='auto',403,'AUTO_NOT_CONFIGURED');
             $row = $this->draft($draft, true);
             $actor = $automatic ? $this->automaticActor((int)$row->conversation_id) : $this->actor($actor);
@@ -526,7 +604,7 @@ class WhatsAppOrderWorkflow
             $this->current($row,true); $this->branch($v['branch'],$actor,true); $this->deliveryOrigin($v,$actor,true);
             if ($automatic) {
                 abort_if($this->pendingCapture(true),409,'CAPTURE_PENDING');
-                $reason=null; $candidate=$this->automaticReview($row,$actor,$reason,true);
+                $reason=null; $candidate=$this->automaticReview($row,$actor,$reason,true,$ownerChoice);
                 abort_unless($candidate!==null && $this->reviewHash($candidate) === $this->reviewHash($v,false),409,'AUTO_REVIEW_REQUIRED');
             }
             // The native authority stays locked/current; the calendar can still
@@ -536,6 +614,9 @@ class WhatsAppOrderWorkflow
                 (int)$row->evidence_floor,(int)$row->evidence_ceiling,true)['transcript']:null;
             $sealed=$this->decode($row->sealed_payload);
             abort_unless($sealed && $this->reviewHash($v) === $this->reviewHash($sealed['review']),409,'REVIEW_CHANGED');
+            if ($ownerChoice!==null) abort_unless($automatic&&is_array($sealed['owner_item_choice']['choice']??null)
+                &&hash_equals(PosServiceTicket::fingerprint($ownerChoice),PosServiceTicket::fingerprint($sealed['owner_item_choice']['choice'])),
+                409,'OWNER_CHOICE_REPLAY_CHANGED');
             // Reprice immediately before writing; drift never creates a new ticket.
             $delivery=app(PhoneDelivery::class)->quote($v,$actor)['delivery'];
             abort_unless(hash_equals((string)$delivery['delivery_quote_hash'],$v['delivery_quote_hash']),409,'DELIVERY_QUOTE_CHANGED');
@@ -602,7 +683,7 @@ class WhatsAppOrderWorkflow
         return $v;
     }
 
-    private function automaticReview(object $row, $actor, ?string &$reason,bool $lock=false): ?array
+    private function automaticReview(object $row, $actor, ?string &$reason,bool $lock=false,?array $ownerChoice=null): ?array
     {
         $eventFloor=$this->activationBoundary('activation_event_id',(int)$row->conversation_id);
         if ($eventFloor===null || $this->activationBoundary('activation_message_id',(int)$row->conversation_id)===null || $this->activationInstant((int)$row->conversation_id)===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
@@ -614,7 +695,8 @@ class WhatsAppOrderWorkflow
         $data=$this->decode($row->extraction); $snapshot=$this->snapshot((int)$row->conversation_id,(int)$row->evidence_floor,(int)$row->evidence_ceiling);
         if ($this->controlInstalled()&&$this->primaryAuthority((int)$row->conversation_id,$snapshot)===null) { $reason='AUTO_NOT_CONFIGURED'; return null; }
         if (isset($data['type'])&&$data['type']===WhatsAppCustomerOrderConfirmation::TYPE)
-            return $this->customerReceiptReview($row,$data,$snapshot,$actor,$reason,$lock);
+            return $this->customerReceiptReview($row,$data,$snapshot,$actor,$reason,$lock,$ownerChoice);
+        if ($ownerChoice!==null) { $reason='OWNER_CHOICE_REVIEW_REQUIRED'; return null; }
         // An unanswered product question never consents to execute an older basket,
         // including when a cached model result still calls that basket CONFIRMED.
         if ($this->controlInstalled()&&$this->informationTurn($snapshot['transcript'])!==null) { $reason='REVIEW_REQUIRED'; return null; }
@@ -746,13 +828,16 @@ class WhatsAppOrderWorkflow
     }
 
     /** Re-prove the actual inbound rows on every quote/dispatch; never trust a cached marker. */
-    private function customerReceiptReview(object $row,array $data,array $snapshot,$actor,?string &$reason,bool $lock): ?array
+    private function customerReceiptReview(object $row,array $data,array $snapshot,$actor,?string &$reason,bool $lock,?array $ownerChoice=null): ?array
     {
         $conversation=(int)$row->conversation_id;
         if (!$this->customerReceiptEnabled($conversation)||($snapshot['complete']??false)!==true) { $reason='REVIEW_REQUIRED'; return null; }
         $proved=WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
         if (($proved['ok']??false)!==true||!hash_equals(PosServiceTicket::fingerprint($proved['data']),PosServiceTicket::fingerprint($data))) {
             $reason='INVALID_EXTRACTION'; return null;
+        }
+        if ($ownerChoice!==null&&($this->table('whatsapp_inbox_messages')!=='whatsapp_inbox_messages'||count($data['items'])!==5)) {
+            $reason='OWNER_CHOICE_REVIEW_REQUIRED'; return null;
         }
         if (WhatsAppOrderExtraction::hasProbe($snapshot['transcript'])) { $reason='REVIEW_REQUIRED'; return null; }
         $receipt=$data['evidence_receipt']; $rows=array_column($snapshot['transcript'],null,'id');
@@ -790,8 +875,12 @@ class WhatsAppOrderWorkflow
         $catalog=$this->dialogueCatalog($branch,$actor);
         if ($catalog===null) { $reason='CATALOG_UNRESOLVED'; return null; }
         $items=[]; $identities=[];
-        foreach ($data['items'] as $item) {
+        foreach ($data['items'] as $index=>$item) {
             $mapped=$this->customerReceiptItem($item,$catalog,$branch);
+            if ($ownerChoice!==null&&$index===4) {
+                if ($mapped!==null) { $reason='OWNER_CHOICE_REVIEW_REQUIRED'; return null; }
+                $mapped=$this->customerReceiptOwnerItem($row,$data,$snapshot,$catalog,$branch,$ownerChoice);
+            }
             if ($mapped===null) { $reason='CATALOG_UNRESOLVED'; return null; }
             $identity=$mapped['product_id'].':'.$mapped['option_id'];
             if (isset($identities[$identity])) { $reason='CATALOG_UNRESOLVED'; return null; }
@@ -824,6 +913,42 @@ class WhatsAppOrderWorkflow
             }
         }
         return $values;
+    }
+
+    /** Resolve only the owner's bound fifth-line choice; customer facts stay native. */
+    private function customerReceiptOwnerItem(object $row,array $data,array $snapshot,array $catalog,string $branch,array $choice): ?array
+    {
+        $expected=$choice['expected']??[];$item=$data['items'][4]??null;
+        if (($choice['scope']??null)!=='OWNER_ONE_ORDER_ITEM_CHOICE_V1'||($choice['draft_id']??null)!==(int)$row->id
+            ||($expected['conversation']??null)!==(int)$row->conversation_id
+            ||($expected['floor']??null)!==(int)$row->evidence_floor||($expected['ceiling']??null)!==(int)$row->evidence_ceiling
+            ||($expected['snapshot_hash']??null)!==$row->evidence_hash||$snapshot['hash']!==$row->evidence_hash
+            ||$branch!=='f:363'||($choice['item_ordinal']??null)!==5||($choice['product_id']??null)!==2557
+            ||($choice['product_name']??null)!=='ساندوتش فسيخ دسوق نبروه مظبوط'
+            ||($choice['quantity']??null)!=='2'||($choice['quantity_mode']??null)!=='piece'||($choice['option_id']??null)!==''
+            ||($data['evidence_receipt']['summary_format']??null)!=='BRANCH_ORDER_SUMMARY'||count($data['items'])!==5
+            ||!is_array($item)||$this->customerReceiptName($item['name'])!==$this->customerReceiptName('ساندوتش فسيخ')
+            ||$this->quantityMillis($item['quantity'])!==2000||$item['quantity_mode']!=='piece'
+            ||($item['option_hint']??null)!==null||($item['cart_reference']??null)!==null||($item['conversation_reference']??null)!==null) return null;
+        $recap=array_column($snapshot['transcript'],null,'id')[$data['evidence_receipt']['recap_id']]??null;$priceProof=0;
+        foreach (preg_split('/\R/u',$recap['text']??'') as $line) {
+            $line=$this->customerReceiptName(trim(preg_replace('/\A\s*[•–—-]\s*/u','',str_replace(['*','_'],'',$line))));
+            if (preg_match('/\Aساندوتشين فسيخ\s+[–—-]\s+260(?:\.0{1,2})?\s*(?:ج|جنيه)\s+\(الواحد\s+130(?:\.0{1,2})?\s*(?:ج|جنيه)\)\z/u',$line)) $priceProof++;
+        }
+        if ($priceProof!==1) return null;
+        $selected=array_values(array_filter($catalog,static fn($product)=>$product['id']===2557));
+        if (count($selected)!==1) return null;$product=$selected[0];
+        if ($product['available']!==true||$this->customerReceiptName($product['name'])!==$this->customerReceiptName($choice['product_name'])
+            ||!in_array($product['quantity_mode'],['piece','select'],true)
+            ||$this->informationPrice($product['price']??null)===null||(int)round((float)$product['price']*100)!==13000) return null;
+        $normal=array_values(array_filter($product['preparation_options']??[],fn($preparation)=>$preparation['id']===''
+            &&$preparation['feature_id']===0&&$preparation['product_clean']===''
+            &&$this->customerReceiptName($preparation['label'])===$this->customerReceiptName('عادي')));
+        if (count($normal)!==1) return null;
+        $literal=$item;$literal['name']=$product['name'];
+        $mapped=$this->customerReceiptItem($literal,[$product],$branch);
+        return $mapped!==null&&$mapped['product_id']===2557&&$mapped['option_id']===''
+            &&$mapped['quantity']==='2'&&$mapped['quantity_mode']==='piece'?$mapped:null;
     }
 
     /** A newer explicit recap point supersedes old pins, never a later change. */
