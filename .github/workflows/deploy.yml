@@ -1,9 +1,8 @@
-name: Deploy Backend to VPS
+# Current production uses reviewed incremental scripts on srv1836524.
+# Keep this legacy target manual so source integration never resets its checkout.
+name: Legacy Backend Deployment (manual only)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

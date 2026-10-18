@@ -1,0 +1,52 @@
+name: Backend code quality
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'routes/**'
+      - 'config/**'
+      - 'database/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'package*.json'
+      - 'resources/js/**'
+      - 'resources/css/**'
+      - 'webpack.mix.js'
+      - '.github/workflows/code-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, dom, xml, xmlwriter, tokenizer, exif, gd
+          tools: composer:2.7
+          coverage: none
+      - name: Check PHP syntax
+        run: find app routes config database tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Test notification dispatch and money rules
+        run: |
+          php tests/notification_dispatch_unit.php
+          php tests/go_services_unit.php
+      - name: Install PHP test dependencies
+        run: composer install --no-interaction --prefer-dist --no-scripts --no-plugins --no-progress
+      - name: Test address ownership and password recovery
+        run: vendor/bin/phpunit tests/Feature/AuthAddressSafetyTest.php
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run production
