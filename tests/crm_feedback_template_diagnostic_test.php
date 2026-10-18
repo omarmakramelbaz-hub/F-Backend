@@ -55,4 +55,86 @@ $out = $diagnostic->run(function () { throw new RuntimeException('unexpected sec
 checkDiagnostic($out['service']['code'] === 'DIAGNOSTIC_UNAVAILABLE' && !isset($out['service']['message']), 'unknown exception messages and backtraces never included');
 $out = $diagnostic->run(fn() => ['success' => true, 'created' => false, 'feedback_setup' => ['state' => 'pending', 'private' => 'never-expose']]);
 checkDiagnostic($out === ['ok' => true, 'created' => false, 'feedback_setup' => ['state' => 'pending'], 'provider' => []], 'existing pending template returns safe lifecycle result without a retry');
+$statusCalls = [];
+$rawRows = [['name' => 'other_template', 'language' => 'ar', 'category' => 'UTILITY', 'status' => 'APPROVED',
+    'components' => [['text' => 'catalogue-private']]],
+    ['name' => 'fasakhansta_order_feedback_v1', 'language' => 'ar', 'category' => 'MARKETING', 'status' => 'REJECTED',
+    'rejected_reason' => 'Rejected ' . $token, 'components' => [['text' => 'body-private']]]];
+$statusTransport = function ($method, $url, $payload, $provided) use (&$statusCalls, $rawRows) {
+    $statusCalls[] = [$method, $url, $payload];
+    return ['status' => 200, 'body' => json_encode(['data' => $rawRows])];
+};
+$statusDiagnostic = new CustomerFollowupTemplateDiagnostic($statusTransport, true);
+$fixture = ['available' => true, 'reason' => null, 'enabled' => false, 'feedback_enabled' => false, 'feedback_ready' => false,
+    'feedback_reason' => 'APPROVED_FEEDBACK_TEMPLATE_REQUIRED', 'feedback_template' => '', 'feedback_language' => 'ar',
+    'feedback_body' => 'طلب رقم {{1}} – فرع {{2}}. شكرًا لاختيارك فسخانستا.',
+    'feedback_setup' => ['state' => 'conflict', 'name' => 'fasakhansta_order_feedback_v1', 'language' => 'ar', 'category' => 'UTILITY',
+        'template_status' => null, 'reason' => 'FEEDBACK_TEMPLATE_CONFLICT', 'can_prepare' => false,
+        'matches' => array_fill(0, 25, ['name' => 'feedback', 'language' => 'ar', 'category' => 'UTILITY', 'status' => 'PENDING', 'body' => 'match-private'])],
+    'feedback_templates' => array_fill(0, 25, ['name' => 'feedback', 'language' => 'ar', 'body' => 'template-private', 'parameters' => 2]),
+    'total_count' => 12345, 'eligible_count' => 123, 'feedback_eligible_count' => 42, 'campaigns' => [['customer' => 'customer-private']],
+    'marketing_templates' => [['body' => 'marketing-private']]];
+$out = $statusDiagnostic->run(function () use ($statusDiagnostic, $endpoint, $token, $fixture) {
+    $statusDiagnostic->request('GET', $endpoint, ['fields' => 'name,status', 'after' => 'cursor'], $token);
+    return $fixture;
+});
+checkDiagnostic($out['ok'] && $out['status']['feedback_setup']['state'] === 'conflict' && !$out['status']['enabled'], 'read-only snapshot preserves conflict and inactive sender distinction');
+checkDiagnostic($statusCalls[0][2]['fields'] === 'name,status,language,category,components,rejected_reason'
+    && $statusCalls[0][2]['after'] === 'cursor', 'read-only GET adds rejection metadata while preserving bounded service pagination');
+checkDiagnostic($out['provider'][0]['fixed_templates'] === [['name' => 'fasakhansta_order_feedback_v1', 'language' => 'ar',
+    'category' => 'MARKETING', 'status' => 'REJECTED', 'rejected_reason' => 'Rejected [redacted]']], 'fixed-name raw category and rejection visible even when unsupported for feedback selector');
+checkDiagnostic($out['status']['expected_body_sha256'] === hash('sha256', $fixture['feedback_body']) && $out['status']['contains_substantive_suffix'], 'expected body hash and substantive suffix verify deployed feedback text without dumping body');
+checkDiagnostic(count($out['status']['feedback_setup']['matches']) === 20 && count($out['status']['feedback_templates']) === 20, 'template identifier lists capped at twenty');
+$encoded = json_encode($out);
+foreach (['catalogue-private', 'body-private', 'match-private', 'template-private', 'customer-private', 'marketing-private',
+    'total_count', 'eligible_count', 'campaigns', 'parameters', $token] as $private) {
+    checkDiagnostic(strpos($encoded, $private) === false, 'status output excludes customer/catalogue/body field ' . $private);
+}
+foreach ([['POST', $endpoint], ['POST', 'https://graph.facebook.com/v25.0/515388018324075/messages'], ['DELETE', $endpoint]] as $blocked) {
+    $before = count($statusCalls);
+    $out = $statusDiagnostic->run(fn() => $statusDiagnostic->request($blocked[0], $blocked[1], [], $token));
+    checkDiagnostic(!$out['ok'] && $out['service']['code'] === 'DIAGNOSTIC_REQUEST_BLOCKED' && count($statusCalls) === $before,
+        'read-only mode rejects mutation and customer message endpoints before transport');
+}
+foreach (['pending', 'rejected', 'missing', 'conflict', 'unavailable', 'approved'] as $state) {
+    $fixture['feedback_setup']['state'] = $state;
+    $fixture['reason'] = $state === 'unavailable' ? 'TEMPLATE_LOOKUP_UNAVAILABLE' : null;
+    $fixture['feedback_setup']['reason'] = $state === 'unavailable' ? 'TEMPLATE_LOOKUP_PERMISSION_REQUIRED' : null;
+    $fixture['enabled'] = $state === 'approved'; $fixture['feedback_enabled'] = false; $fixture['feedback_ready'] = $state === 'approved';
+    $out = $statusDiagnostic->run(fn() => $fixture);
+    checkDiagnostic($out['status']['feedback_setup']['state'] === $state && $out['status']['enabled'] === ($state === 'approved')
+        && !$out['status']['feedback_enabled'] && $out['status']['feedback_ready'] === ($state === 'approved'), 'snapshot keeps lifecycle, readiness and activation distinct: ' . $state);
+    if ($state === 'unavailable') checkDiagnostic($out['status']['feedback_setup']['reason'] === 'TEMPLATE_LOOKUP_PERMISSION_REQUIRED', 'permission diagnostic retained in read-only setup');
+}
+$fixture['reason'] = 'customer-private'; $fixture['feedback_setup']['reason'] = 'customer-private';
+$fixture['feedback_body'] = 'legacy {{2}}.';
+$out = $statusDiagnostic->run(fn() => $fixture);
+checkDiagnostic($out['status']['reason'] === 'UNRECOGNIZED_STATUS_REASON' && $out['status']['feedback_setup']['reason'] === 'UNRECOGNIZED_STATUS_REASON'
+    && !$out['status']['contains_substantive_suffix'], 'unknown reason values never leak arbitrary text and old period-only body is identified');
+
+$fallbackCalls = [];
+$fallback = new CustomerFollowupTemplateDiagnostic(function ($method, $url, $payload) use (&$fallbackCalls, $rawRows) {
+    $fallbackCalls[] = [$method, $url, $payload];
+    return count($fallbackCalls) === 1
+        ? ['status' => 400, 'body' => '{"error":{"code":100,"message":"Unknown field rejected_reason"}}']
+        : ['status' => 200, 'body' => json_encode(['data' => $rawRows])];
+}, true);
+$out = $fallback->run(function () use ($fallback, $endpoint, $token, $fixture) {
+    $response = $fallback->request('GET', $endpoint, ['fields' => 'name,status,language,category,components', 'after' => 'safe-cursor'], $token);
+    checkDiagnostic($response['status'] === 200, 'unsupported optional rejection field falls back to standard successful lookup');
+    return $fixture;
+});
+checkDiagnostic(count($fallbackCalls) === 2 && $fallbackCalls[1] === ['GET', $endpoint,
+    ['fields' => 'name,status,language,category,components', 'after' => 'safe-cursor']], 'fallback repeats only fixed GET using original fields and cursor');
+checkDiagnostic(count($out['provider']) === 2 && $out['provider'][0]['error']['code'] === 100
+    && $out['provider'][1]['fixed_templates'][0]['category'] === 'MARKETING', 'first optional-field error remains safely visible alongside fallback raw metadata');
+foreach ([[403, 200], [500, 100], [400, 10]] as $failure) {
+    $attempts = 0;
+    $oneAttempt = new CustomerFollowupTemplateDiagnostic(function () use (&$attempts, $failure) {
+        $attempts++; return ['status' => $failure[0], 'body' => json_encode(['error' => ['code' => $failure[1]]])];
+    }, true);
+    $oneAttempt->run(fn() => $oneAttempt->request('GET', $endpoint, ['fields' => 'name,status'], $token));
+    checkDiagnostic($attempts === 1, 'permissions/server errors never trigger optional-field retry');
+}
+
 echo "CRM_FEEDBACK_TEMPLATE_DIAGNOSTIC_OK {$checks}\n";
