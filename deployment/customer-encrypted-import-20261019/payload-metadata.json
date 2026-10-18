@@ -1,0 +1,9 @@
+{
+  "format": "AES-256-GCM",
+  "magic": "FASAKHANSTA-CUSTOMERS-AES256GCM-V1\n",
+  "plain_size": 6744684,
+  "plain_sha256": "f842c1a0b8106bb884f1cb915113fa0e366e1823b86e0e5435279ec901ae9e6e",
+  "cipher_size": 6744747,
+  "cipher_sha256": "a39247c6d0ef339aed7017f82d2570f1cfef793591ad8dc8d59cd2f866795932",
+  "cipher_git_blob": "83dab70d626ffe564a67ff7ae50b1270973f19a1"
+}
