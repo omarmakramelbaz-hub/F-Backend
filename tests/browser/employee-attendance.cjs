@@ -4,6 +4,7 @@ const path=require('node:path');
 const assert=require('node:assert/strict');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE||'playwright');
 const source=path.resolve(__dirname,'../..');
+const attendanceSource=process.env.ATTENDANCE_JS_SOURCE?path.resolve(process.env.ATTENDANCE_JS_SOURCE):path.join(source,'public/dashboard/js/branch-operations.js');
 const posts=[];
 const rule={starts_at:'10:00',ends_at:'18:00',late_half_hour:'10.00',early_half_hour:'5.00',absence:'300.00',revision:1};
 const data={success:true,can_manage_attendance:true,attendance_rules:{'f:100':{morning:rule,evening:{...rule,starts_at:'20:00',ends_at:'04:00'}}},
@@ -58,7 +59,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.addStyleTag({path:path.join(source,'public/dashboard/dist/css/select2.min.css')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/plugins/jquery/jquery.min.js')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/select2.min.js')});
-  await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
+  await page.addScriptTag({path:attendanceSource});
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/adminlte.js')});
   assert.ok(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')));
 

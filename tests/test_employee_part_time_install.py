@@ -106,6 +106,24 @@ class Fixture:
     def receipt(self):
         return json.loads(next((self.root.parent / 'employee-part-time-backups').glob('*/receipt.json')).read_text())
 
+    def use_live_clock_js(self):
+        # Give the release its real employee code, while the deployed file is the
+        # pinned production clock variant. Its canonical Git hunk must conflict.
+        relative = installer.EMPLOYEE_JS
+        released = (ROOT / relative).read_bytes()
+        self.git('reset', '--hard', self.release)
+        self.write(relative, released)
+        self.git('add', relative)
+        self.git('commit', '-qm', 'real reviewed employee UI')
+        self.release = self.git('rev-parse', 'HEAD').strip()
+        self.git('reset', '--hard', self.base)
+        before = (ROOT / 'tests/fixtures/employee-clock-before.js').read_bytes()
+        self.before[relative] = before
+        self.after[relative] = installer.scoped_js_candidate(before, released)
+        self.write(relative, before)
+        for path in installer.MODIFIED_PATHS:
+            (self.root / path).chmod(0o640)
+
 
 class EmployeePartTimeInstallerTests(unittest.TestCase):
     def setUp(self):
@@ -239,6 +257,75 @@ class EmployeePartTimeInstallerTests(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, stdout=b'{"present":false,"recorded":true}', stderr=b'')):
             with self.assertRaisesRegex(RuntimeError, 'RECORDED_MIGRATION_INCOMPLETE'):
                 installer.schema_state(self.fixture.root, 'fixture-php')
+
+
+class EmployeeClockCompatibilityTests(unittest.TestCase):
+    setUp = EmployeePartTimeInstallerTests.setUp
+    tearDown = EmployeePartTimeInstallerTests.tearDown
+
+    def test_clock_source_preserves_rollover_and_records_only_employee_patch(self):
+        self.fixture.use_live_clock_js()
+        before = self.fixture.before[installer.EMPLOYEE_JS]
+        self.assertEqual(installer.blob_sha(before), installer.CLOCK_JS_BEFORE)
+        backup = self.fixture.apply()
+        after = (self.fixture.root / installer.EMPLOYEE_JS).read_bytes()
+        self.assertEqual(installer.blob_sha(after), installer.CLOCK_JS_AFTER)
+        for marker in (b'timer,dayTimer,focus', b'syncClock();advanceDay();',
+                       b'function noticeDay(day)', b'function resumeDay()',
+                       b'clearInterval(dayTimer)', b'dayTimer=setInterval(resumeDay,30000)',
+                       b"if(data.filters.day!==filters.day.value"):
+            self.assertIn(marker, before)
+            self.assertIn(marker, after)
+        self.assertEqual((backup / installer.EMPLOYEE_JS).read_bytes(), before)
+        installed_patch = (backup / 'release.diff').read_bytes()
+        self.assertIn(installer.CLOCK_JS_BEFORE.encode(), installed_patch)
+        self.assertIn(installer.CLOCK_JS_AFTER.encode(), installed_patch)
+        self.assertNotIn(b'-function noticeDay', installed_patch)
+        self.assertNotIn(b'-function resumeDay', installed_patch)
+
+    def test_clock_check_only_preserves_source_and_database(self):
+        self.fixture.use_live_clock_js()
+        self.assertIsNone(self.fixture.apply(check=True))
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_clock_repeat_does_not_add_helpers_or_remigrate(self):
+        self.fixture.use_live_clock_js()
+        self.fixture.apply()
+        after = (self.fixture.root / installer.EMPLOYEE_JS).read_bytes()
+        self.assertIsNone(self.fixture.apply())
+        self.assertEqual((self.fixture.root / installer.EMPLOYEE_JS).read_bytes(), after)
+        self.assertEqual(after.count(b'function employeeSchedule(item){'), 1)
+        self.assertEqual(len(self.fixture.calls), 1)
+
+    def test_clock_postcheck_failure_restores_original_clock_bytes(self):
+        self.fixture.use_live_clock_js()
+        self.fixture.fail_post_lint = True
+        with self.assertRaisesRegex(RuntimeError, 'PHP_PARSE_INVALID'):
+            self.fixture.apply()
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.receipt()['status'], 'code_restored')
+        self.assertTrue(self.fixture.state['recorded'])
+
+    def test_unreviewed_clock_edit_stops_before_any_install(self):
+        self.fixture.use_live_clock_js()
+        relative = installer.EMPLOYEE_JS
+        changed = self.fixture.before[relative] + b'// another live correction\n'
+        self.fixture.write(relative, changed)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.fixture.apply()
+        self.assertEqual((self.fixture.root / relative).read_bytes(), changed)
+        self.assertEqual(self.fixture.calls, [])
+        self.assertFalse((self.fixture.root / installer.MIGRATION).exists())
+
+    def test_partial_employee_install_and_changed_release_are_rejected(self):
+        before = (ROOT / 'tests/fixtures/employee-clock-before.js').read_bytes()
+        released = (ROOT / installer.EMPLOYEE_JS).read_bytes()
+        partial = before.replace(b'var names={morning:', b'var names={part_time:"partial",morning:', 1)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            installer.scoped_js_candidate(partial, released)
+        with self.assertRaisesRegex(RuntimeError, 'EMPLOYEE_JS_RELEASE_NEEDS_REVIEW'):
+            installer.scoped_js_candidate(before, released + b'// changed feature\n')
 
 
 if __name__ == '__main__':

@@ -2,6 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE||'playwright');
 const source=path.resolve(__dirname,'../..'),posts=[];
+const attendanceSource=process.env.ATTENDANCE_JS_SOURCE?path.resolve(process.env.ATTENDANCE_JS_SOURCE):path.join(source,'public/dashboard/js/branch-operations.js');
 const item={id:1,branch:'f:100',name:'موظف الساعة السادسة',job_title:'كاشير',shift:'مسائي',revision:1,
  active:true,hired_on:'2026-01-01',schedule_type:'branch',attendance:null,day_closed:false,
  statement:{salary:'3100.00',net:'1800.00',status:'draft',month:'2026-10'},
@@ -32,7 +33,7 @@ const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"
  async function edit(){await page.locator('.op-row-more summary').click();await page.getByRole('button',{name:'تعديل الموظف'}).click();}
  const input=k=>page.locator(`[data-op-body] [name="${k}"]`);
  try{
-  await page.goto('https://part-time.test/');await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
+  await page.goto('https://part-time.test/');await page.addScriptTag({path:attendanceSource});
   await page.locator('[data-op-add]').click();
   assert.equal(await input('schedule_type').inputValue(),'branch');assert.equal(await input('attendance_start').isVisible(),false);assert.equal(await input('attendance_start').isDisabled(),true);
   await input('schedule_type').selectOption('part_time');assert.equal(await input('attendance_start').isVisible(),true);assert.equal(await input('attendance_start').getAttribute('required'),'');

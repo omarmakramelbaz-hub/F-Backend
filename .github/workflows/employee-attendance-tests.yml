@@ -3,7 +3,7 @@ on:
   push:
     branches: ['codex/employee-attendance-rules-20261008','codex/employee-part-time-20261018']
   pull_request:
-    paths: ['database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+    paths: ['tests/fixtures/employee-clock-before.js','tests/browser/employee-part-time-clock.cjs','database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,3 +41,18 @@ jobs:
           node tests/browser/employee-attendance.cjs
           node tests/browser/employee-part-time.cjs
           node tests/browser/operating-day.cjs
+          python3 - <<'PYCODE'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('part_time_installer', 'deployment/apply_employee_part_time.py')
+          installer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(installer)
+          before = Path('tests/fixtures/employee-clock-before.js').read_bytes()
+          released = Path('public/dashboard/js/branch-operations.js').read_bytes()
+          candidate = installer.scoped_js_candidate(before, released)
+          (Path(os.environ['RUNNER_TEMP']) / 'employee-clock-part-time.js').write_bytes(candidate)
+          PYCODE
+          export ATTENDANCE_JS_SOURCE="$RUNNER_TEMP/employee-clock-part-time.js"
+          node tests/browser/employee-attendance.cjs
+          node tests/browser/employee-part-time.cjs
+          node tests/browser/employee-part-time-clock.cjs

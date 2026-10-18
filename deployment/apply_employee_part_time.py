@@ -2,6 +2,7 @@
 """Apply only employee part-time attendance changes and their additive schema."""
 import argparse
 import datetime
+import difflib
 import fcntl
 import hashlib
 import json
@@ -26,6 +27,10 @@ MODIFIED_PATHS = (
 )
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
 MAX_BYTES = 4 * 1024 * 1024
+EMPLOYEE_JS = 'public/dashboard/js/branch-operations.js'
+PART_TIME_JS_BLOB = '11b1a99c105594e574c327d74b4b16425b1503cc'
+CLOCK_JS_BEFORE = '038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c'
+CLOCK_JS_AFTER = '1160afb81c92879f0b957fb2305dea5617dde055'
 
 
 def require(condition, message):
@@ -109,6 +114,57 @@ def patch_apply(directory, patch, reverse=False):
     if reverse:
         command.append('--reverse')
     return run([*command, str(patch)], cwd=directory).returncode == 0
+
+
+def blob_sha(body):
+    return hashlib.sha1(b'blob ' + str(len(body)).encode() + b'\x00' + body).hexdigest()
+
+
+def scoped_js_candidate(before, released):
+    """Preserve the fully pinned, reviewed live clock variant outside four employee edits."""
+    observed = blob_sha(before)
+    require(observed in (CLOCK_JS_BEFORE, CLOCK_JS_AFTER), 'LIVE_CHANGE_NEEDS_REVIEW: ' + EMPLOYEE_JS)
+    require(blob_sha(released) == PART_TIME_JS_BLOB, 'EMPLOYEE_JS_RELEASE_NEEDS_REVIEW')
+    if observed == CLOCK_JS_AFTER:
+        return before
+    current, wanted = before.decode('utf-8'), released.decode('utf-8')
+
+    def region(source, start, end):
+        require(source.count(start) == source.count(end) == 1,
+                'EMPLOYEE_JS_BOUNDARY_NEEDS_REVIEW')
+        first, last = source.index(start), source.index(end)
+        require(first < last, 'EMPLOYEE_JS_BOUNDARY_ORDER_INVALID')
+        return source[first:last]
+
+    attendance = region(current, 'function attendanceCell(item){',
+                        'function recordAttendance(item,status,action){')
+    helpers_and_attendance = region(wanted, 'function employeeSchedule(item){',
+                                    'function recordAttendance(item,status,action){')
+    edits = (
+        ('var names={morning:', "var names={part_time:'حضور دوام جزئي',morning:"),
+        ('labelNode(item.job_title,item.shift)', 'labelNode(item.job_title,employeeSchedule(item))'),
+        ("field(f,'shift','الوردية',source.shift);",
+         "field(f,'shift','الوردية',source.shift);employeeScheduleFields(f,source);"),
+        (attendance, helpers_and_attendance),
+    )
+    for old, new in edits:
+        require(current.count(old) == 1, 'EMPLOYEE_JS_ANCHOR_NEEDS_REVIEW')
+        current = current.replace(old, new, 1)
+    candidate = current.encode('utf-8')
+    require(blob_sha(candidate) == CLOCK_JS_AFTER, 'EMPLOYEE_JS_CANDIDATE_NEEDS_REVIEW')
+    return candidate
+
+
+def exact_live_patch(relative, before, after):
+    """Use the actual live bytes as both the install and reverse-rollback patch base."""
+    body = ''.join(difflib.unified_diff(
+        before.decode('utf-8').splitlines(keepends=True),
+        after.decode('utf-8').splitlines(keepends=True),
+        fromfile='a/' + relative, tofile='b/' + relative, n=3)).encode('utf-8')
+    require(body and len(body) <= MAX_BYTES, 'EMPLOYEE_JS_COMPAT_PATCH_INVALID')
+    header = ('diff --git a/' + relative + ' b/' + relative + '\nindex '
+              + blob_sha(before) + '..' + blob_sha(after) + ' 100644\n').encode()
+    return header + body
 
 
 def lint_sources(php, directory, application_root, cache_directory):
@@ -329,6 +385,13 @@ def install(root, revision, php, check_only=False):
                 # Reverse first prevents duplicate insertion-only hunks on reruns.
                 if relative not in NEW_PATHS and patch_check(stage, patch, reverse=True):
                     continue
+                if relative == EMPLOYEE_JS and not patch_check(stage, patch):
+                    candidate = scoped_js_candidate(before, release_body(root, revision, relative))
+                    if candidate == before:
+                        continue
+                    # Never relax the canonical patch's checks or replace the full live file.
+                    # This fresh patch retains clock changes and reverses to these exact bytes.
+                    patch.write_bytes(exact_live_patch(relative, before, candidate))
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 require(patch_apply(stage, patch), 'STAGED_PATCH_FAILED: ' + relative)
                 pending.append((relative, patch, staged.read_bytes()))
