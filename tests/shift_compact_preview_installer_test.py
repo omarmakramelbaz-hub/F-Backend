@@ -251,5 +251,56 @@ class CompactPreviewInstallerTest(unittest.TestCase):
         self.assertEqual(list(target.parent.glob('.*.shift-*')), [])
 
 
+class PublishedBladeCompatibilityTest(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[1]
+    INDEX = 'resources/views/admin/branch_shifts/index.blade.php'
+    RELEASE_REVISION = 'a3abc86be81b308f23302bf8f18484d6a479c2c1'
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.stage = Path(self.temporary.name)
+        self.base = self.source(INSTALLER.BASE_REVISION)
+        self.release = self.source(self.RELEASE_REVISION)
+        self.live = self.base.replace(b'@endif@foreach(', b'@endif\n@foreach(')
+
+    def source(self, revision):
+        return subprocess.check_output(['git', '-C', str(self.ROOT), 'show', revision + ':' + self.INDEX])
+
+    def test_exact_published_blade_repair_accepts_compact_management_page_and_replay(self):
+        self.assertNotEqual(self.base, self.live)
+        result = INSTALLER.merge_candidate(self.stage, self.INDEX, self.live, self.base, self.release)
+        self.assertEqual(result, self.release)
+        self.assertNotIn(b'@endif@foreach(', result)
+        # Preserve the release's existing management branch selector, close action,
+        # saved-report preview and branch-print history controls byte for byte.
+        for marker in [b"@if(!empty($boot['can_all']))", b'data-sh-branch', b'data-sh-form',
+                       b'data-sh-preview disabled', b'data-sh-history', b'branch-shifts-bootstrap']:
+            self.assertIn(marker, result)
+        self.assertIn('إغلاق الوردية وطباعة القفلة'.encode(), result)
+        self.assertIn('الكشف يُرسل لطابعة الفرع'.encode(), result)
+        self.assertEqual(INSTALLER.merge_candidate(self.stage, self.INDEX, result, self.base, self.release), result)
+
+    def test_unknown_overlapping_live_edit_still_requires_review(self):
+        unknown = self.live.replace('عدّ الكاش الموجود فعليًا'.encode(), 'تعديل حي غير مراجع'.encode())
+        self.assertNotEqual(unknown, self.live)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            INSTALLER.merge_candidate(self.stage, self.INDEX, unknown, self.base, self.release)
+
+    def test_formatting_exception_never_applies_to_a_different_template_path(self):
+        conflict = subprocess.CompletedProcess([], 1, b'conflict', b'')
+        with mock.patch.object(INSTALLER, 'run', return_value=conflict) as merge:
+            with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                INSTALLER.merge_candidate(self.stage, 'resources/views/admin/other.blade.php', self.live, self.base, self.release)
+        merge.assert_called_once()
+
+    def test_exception_requires_release_to_have_separated_directives(self):
+        conflict = subprocess.CompletedProcess([], 1, b'conflict', b'')
+        with mock.patch.object(INSTALLER, 'run', return_value=conflict) as merge:
+            with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                INSTALLER.merge_candidate(self.stage, self.INDEX, self.live, self.base, self.release + b'@endif@foreach(')
+        merge.assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()

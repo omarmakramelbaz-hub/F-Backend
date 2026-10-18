@@ -177,6 +177,13 @@ def merge_candidate(stage, relative, before, base, release):
     require(before is not None, 'LIVE_SOURCE_REQUIRED: ' + relative)
     if before == base:
         return release
+    if relative == 'resources/views/admin/branch_shifts/index.blade.php':
+        # The pinned branch-view repair separated only these adjacent Blade
+        # directives. Accept that exact whole-file variant, never arbitrary
+        # whitespace normalization or an overlapping unreviewed source edit.
+        separated = base.replace(b'@endif@foreach(', b'@endif\n@foreach(')
+        if separated != base and before == separated and b'@endif@foreach(' not in release:
+            return release
     merge_dir = Path(tempfile.mkdtemp(prefix='merge-', dir=stage))
     paths = [merge_dir / name for name in ('current', 'base', 'release')]
     for path, body in zip(paths, (before, base, release)):
