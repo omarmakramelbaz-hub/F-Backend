@@ -71,8 +71,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException('OWNER_INVALID');
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'901a6c739abc1daf592a1574f18f1f779d9cc971',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'638b3d39dc63b0c27e9f827253e192e8cae82fc2',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'2156bbd7be4902e9d9442ce3b0590ffc10d4b89b',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -83,6 +83,7 @@ try{
         'app/Support/WhatsAppInboxProtocol.php'=>'c64f8cf89437bb7822fc767202f7cf5112bfd7fd',
         'app/Services/Dashboard/TakeawayAccess.php'=>'d063ee444c347c41620916b4513d0f03785141aa',
         'app/Services/Dashboard/TakeawayCatalog.php'=>'e96fce33037a06330f95d6a91553950cdf32d763',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'=>'25d29335acb16eff59666875b9d4bb9fff172e7e',
     ];
     $protocols=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];
     $sources=waOwnerChoiceSources($pins,$protocols);

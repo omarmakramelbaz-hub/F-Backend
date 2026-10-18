@@ -18,7 +18,7 @@ recoverExpect(is_file($helper),'real recovery helper exists');
 $source=file_get_contents($helper);
 preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);
 preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);
-recoverExpect(count($pins)===10,'narrow reviewed source guard roster');
+recoverExpect(count($pins)===11,'narrow reviewed source guard roster');
 foreach($pins as[$match,$path,$pin]){
     $content=file_get_contents($root.'/'.$path);$actual=sha1('blob '.strlen($content)."\0".$content);
     $destination=$fixture.'/'.$path;if(!is_dir(dirname($destination)))mkdir(dirname($destination),0700,true);

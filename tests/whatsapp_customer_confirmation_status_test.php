@@ -12,7 +12,7 @@ function statusExpect($condition,string$label):void{
 }
 preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);
 preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);
-statusExpect(count($pins)===10,'narrow source guard roster');
+statusExpect(count($pins)===11,'narrow source guard roster');
 foreach($pins as[$all,$path,$pin]){
     $content=file_get_contents($root.'/'.$path);$actual=sha1('blob '.strlen($content)."\0".$content);
     if($path==='app/Services/Dashboard/WhatsAppOrderWorkflow.php')statusExpect($pin===$actual,'status guards the exact reviewed preparation workflow');

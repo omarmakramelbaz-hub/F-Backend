@@ -167,8 +167,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException('OWNER_INVALID');
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'901a6c739abc1daf592a1574f18f1f779d9cc971',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'638b3d39dc63b0c27e9f827253e192e8cae82fc2',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'2156bbd7be4902e9d9442ce3b0590ffc10d4b89b',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -179,6 +179,7 @@ try{
         'app/Support/WhatsAppInboxProtocol.php'=>'c64f8cf89437bb7822fc767202f7cf5112bfd7fd',
         'app/Services/Dashboard/TakeawayAccess.php'=>'d063ee444c347c41620916b4513d0f03785141aa',
         'app/Services/Dashboard/TakeawayCatalog.php'=>'e96fce33037a06330f95d6a91553950cdf32d763',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'=>'25d29335acb16eff59666875b9d4bb9fff172e7e',
     ];
     $protocols=['c64f8cf89437bb7822fc767202f7cf5112bfd7fd','f2eec9099f9a27915cda50b7c8e267efb1f0b030'];$sources=waCatalogSources($pins,$protocols);
     $stage='BOOTSTRAP';require'vendor/autoload.php';$app=require'bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
@@ -200,7 +201,10 @@ try{
     if(!$draft||!is_string($draft->extraction)||$draft->ticket_id!==null||(int)$draft->evidence_floor!==$floor||(int)$draft->evidence_ceiling!==$ceiling
         ||!hash_equals((string)$draft->evidence_hash,$snapshot['hash']))throw new RuntimeException('DRAFT_EXPECTATION_CHANGED');
     $plain=\Illuminate\Support\Facades\Crypt::decryptString($draft->extraction);if(strlen($plain)>131072)throw new RuntimeException('DRAFT_UNAVAILABLE');
-    $data=json_decode($plain,true,32,JSON_THROW_ON_ERROR);$proof=\App\Support\WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
+    $data=json_decode($plain,true,32,JSON_THROW_ON_ERROR);
+    $proof=is_array($data['evidence_receipt']['ai_extraction']??null)
+        ?\App\Support\WhatsAppCustomerOrderConfirmation::reprove($data,$snapshot['transcript'])
+        :\App\Support\WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
     if(!is_array($data)||($proof['ok']??null)!==true||($data['type']??null)!=='CUSTOMER_CONFIRMED_RECAP'||!hash_equals(waCatalogFingerprint($data),waCatalogFingerprint($proof['data'])))throw new RuntimeException('CUSTOMER_RECEIPT_CHANGED');
     $out+=['conversation_id'=>$conversation,'draft_id'=>(int)$draft->id,'draft_revision'=>(int)$draft->revision,
         'draft_reason'=>waCatalogCode($draft->reason),'floor'=>$floor,'ceiling'=>$ceiling,'control_revision'=>$options['revision'],

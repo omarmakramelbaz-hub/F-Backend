@@ -19,12 +19,14 @@ APP_ROOT = pathlib.Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 LIBRARY_BLOB = '65cad14ba90b505be88649da73da045746429abc'
 BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
-# Initial installations publish both declared targets. Reviewed upgrades skip
+# Initial installations publish all three declared targets. Reviewed upgrades skip
 # any target whose exact bytes are already current, retaining its original inode.
 TARGET_PINS = {
-    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '901a6c739abc1daf592a1574f18f1f779d9cc971'),
+    # The provider was an exactly pinned runtime dependency on every prior profile.
+    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '27afc58ef43d1c6fffa90c9a7bb519e353b7e244'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '638b3d39dc63b0c27e9f827253e192e8cae82fc2'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '2156bbd7be4902e9d9442ce3b0590ffc10d4b89b'),
+    'app/Services/Dashboard/WhatsAppOrderAiProvider.php': ('79970f2f9157ae718dce9004f1d3e3b4ccfd4714', '25d29335acb16eff59666875b9d4bb9fff172e7e'),
 }
 INSTALLED_SOURCE_PROFILES = {
     # The verified d6b404 installation contains this exact parser/workflow pair.
@@ -78,13 +80,20 @@ INSTALLED_SOURCE_PROFILES = {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '27920dab654cc15e7bbbc6d818033d55d792c4a8',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
     },
+    # Verified installed customer-pair protocol; provider remains its original pin.
+    'INSTALLED_V11': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '901a6c739abc1daf592a1574f18f1f779d9cc971',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '638b3d39dc63b0c27e9f827253e192e8cae82fc2',
+    },
 }
+for _profile in INSTALLED_SOURCE_PROFILES.values():
+    _profile['app/Services/Dashboard/WhatsAppOrderAiProvider.php'] = '79970f2f9157ae718dce9004f1d3e3b4ccfd4714'
+
 RUNTIME_PINS = {
     'app/Support/MetaAiSchedule.php': ('667ffd6530444ef00dc6a05f76a5700d217fff80',),
     'app/Services/Dashboard/MetaAiControl.php': ('de44620835b22666417fc37752ab944d4419df36',),
     'app/Support/WhatsAppOrderExtraction.php': ('a44f791013642aeca4b4f50dd96ec96b59eda012',),
     'app/Services/Dashboard/WhatsAppOrderConversationEvidence.php': ('478d620d36d801b5fc38bab8e8be2afcfdf5dd8c',),
-    'app/Services/Dashboard/WhatsAppOrderAiProvider.php': ('79970f2f9157ae718dce9004f1d3e3b4ccfd4714',),
     'app/Services/Dashboard/WhatsAppOrderFollowupService.php': ('e817b327ba1fdfd042288d20b5c4ba8bef00cc81',),
     'app/Services/Dashboard/WhatsAppOrderSourceSelection.php': ('03db3211b80da905f07415fd16f1e7a62e0395b1',),
     'app/Services/Dashboard/WhatsAppInboxAccess.php': ('186789d42113e81818de8d82a2327e3ee9d8d0b5',),

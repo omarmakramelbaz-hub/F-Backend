@@ -5,7 +5,7 @@ $workflowSource=file_get_contents($root.'/app/Services/Dashboard/WhatsAppOrderWo
 $fixture=sys_get_temp_dir().'/wa-catalog-'.bin2hex(random_bytes(8));mkdir($fixture,0700);$checks=0;
 register_shutdown_function(static function()use($fixture){if(!is_dir($fixture))return;$it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixture,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as$item){if($item->isDir())rmdir($item->getPathname());else unlink($item->getPathname());}rmdir($fixture);});
 function catalogExpect($ok,string$label):void{$GLOBALS['checks']++;if(!$ok)throw new RuntimeException('CATALOG_DIAGNOSTIC_FAILED:'.$label);}
-preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);catalogExpect(count($pins)===12,'exact runtime source guard roster');
+preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);catalogExpect(count($pins)===13,'exact runtime source guard roster');
 foreach($pins as[$all,$path,$pin]){
     $original=$root.'/'.$path;
     if(!is_file($original))$original=$root.'/tests/fixtures/whatsapp_confirmation_runtime/'.basename($path);

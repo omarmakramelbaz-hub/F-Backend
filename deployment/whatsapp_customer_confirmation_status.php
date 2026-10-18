@@ -316,8 +316,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'901a6c739abc1daf592a1574f18f1f779d9cc971',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'638b3d39dc63b0c27e9f827253e192e8cae82fc2',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'2156bbd7be4902e9d9442ce3b0590ffc10d4b89b',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -326,6 +326,7 @@ try{
         'app/Services/Dashboard/WhatsAppInboxMessage.php'=>'bedd91db5266d83bdce84a04836e988518891728',
         'app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php'=>'4b571f7f4a5cef9257c414886dba515c06dae2a1',
         'app/Support/WhatsAppInboxProtocol.php'=>'c64f8cf89437bb7822fc767202f7cf5112bfd7fd',
+        'app/Services/Dashboard/WhatsAppOrderAiProvider.php'=>'25d29335acb16eff59666875b9d4bb9fff172e7e',
     ];
     // Both exact reviewed protocols authenticate the same native messages. The
     // later CRM revision additionally projects scoped status receipts; no other
@@ -415,6 +416,25 @@ try{
             $plain=\Illuminate\Support\Facades\Crypt::decryptString($row->extraction);
             if(strlen($plain)>131072)throw new RuntimeException();
             $stored=json_decode($plain,true,32,JSON_THROW_ON_ERROR);if(!is_array($stored))throw new RuntimeException();
+        }
+        if(is_array($stored['evidence_receipt']['ai_extraction']??null)){
+            $aiProof=\App\Support\WhatsAppCustomerOrderConfirmation::reprove($stored,$snapshot['transcript']);
+            $aiData=is_array($aiProof['data']??null)?$aiProof['data']:[];
+            $aiValid=($aiProof['ok']??false)===true
+                &&hash('sha256',json_encode($aiData,JSON_THROW_ON_ERROR))===hash('sha256',json_encode($stored,JSON_THROW_ON_ERROR));
+            $out['ai_understanding']=['scope'=>'CACHED_AI_SELECTION_REPROVED_WITHOUT_API_CALL','available'=>true,
+                'valid'=>$aiValid,'reason'=>$aiValid?null:waConfirmationCode($aiProof['reason']??'INVALID_EXTRACTION')];
+            if($aiValid){
+                $aiLocation=$aiData['textual_location']??null;
+                $out['candidate']=array_replace($out['candidate'],['valid'=>true,'reason'=>null,'type'=>'CUSTOMER_CONFIRMED_RECAP',
+                    'customer_recap_captured'=>true,'customer_approval_captured'=>true,
+                    'receipt_day'=>waConfirmationReceiptDay($aiData,$snapshot['transcript'],$readAt),
+                    'approval_basis'=>'SEPARATE_CUSTOMER_APPROVAL','recap_is_approval'=>false,
+                    'summary_format'=>'AI_CUSTOMER_ORDER_SUMMARY','items_count'=>count($aiData['items']),
+                    'fields_present'=>waConfirmationFields($aiData),'textual_location_present'=>is_array($aiLocation),
+                    'coordinate_order'=>is_array($aiLocation)?'LAT_LONG':null,
+                    'coordinates_valid'=>is_array($aiLocation['point']??null)]);
+            }
         }
         $branch=is_string($row->assigned_branch)&&preg_match('/\A(?:f|gs):[1-9][0-9]{0,18}\z/D',$row->assigned_branch)?$row->assigned_branch:null;
         $out['draft']=['id'=>(int)$row->id,

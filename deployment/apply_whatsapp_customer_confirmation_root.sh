@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 exec /usr/bin/python3 - "$@" <<'PY'
-"""Quiesce existing pipelines for a two-file publication; install no units."""
+"""Quiesce existing pipelines for a three-file publication; install no units."""
 import argparse
 import hashlib
 import importlib.util
@@ -19,7 +19,7 @@ import tempfile
 import time
 
 ROOT = pathlib.Path('/home/fasakha/public_html')
-PUBLISHER_BLOB = '931b7d4831cdb90632616cbe0a64eaf16a0f5def'
+PUBLISHER_BLOB = '02716b221a005779a08733df95ca4154e3306123'
 ROOT_LIBRARY_BLOB = '98ab88bba322c87c115f5ca95ff9aebbc96190f2'
 HELPERS = {
     'apply_whatsapp_customer_confirmation.py': PUBLISHER_BLOB,
@@ -28,7 +28,8 @@ HELPERS = {
     'install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
 }
 SOURCE_ROSTER = ('app/Support/WhatsAppCustomerOrderConfirmation.php',
-                 'app/Services/Dashboard/WhatsAppOrderWorkflow.php')
+                 'app/Services/Dashboard/WhatsAppOrderWorkflow.php',
+                 'app/Services/Dashboard/WhatsAppOrderAiProvider.php')
 STATE_KEYS = {'sources', 'configuration_fingerprint', 'dependencies_fingerprint',
               'control_fingerprint', 'source_profile'}
 
@@ -163,7 +164,7 @@ def expected_state(value):
             or any(pin is not None and not re.fullmatch('[a-f0-9]{40}', pin) for pin in value['sources'].values())
             or any(not isinstance(value[key], str) or not re.fullmatch('[a-f0-9]{64}', value[key])
                    for key in ('configuration_fingerprint', 'dependencies_fingerprint', 'control_fingerprint'))
-            or value['source_profile'] not in ('BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4', 'INSTALLED_V5', 'INSTALLED_V6', 'INSTALLED_V7', 'INSTALLED_V8', 'INSTALLED_V9', 'INSTALLED_V10', 'CURRENT')):
+            or value['source_profile'] not in ('BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4', 'INSTALLED_V5', 'INSTALLED_V6', 'INSTALLED_V7', 'INSTALLED_V8', 'INSTALLED_V9', 'INSTALLED_V10', 'INSTALLED_V11', 'CURRENT')):
         raise SafeError('WA_CONFIRMATION_STATE_OUTPUT_INVALID')
     return {key: value[key] for key in STATE_KEYS}
 

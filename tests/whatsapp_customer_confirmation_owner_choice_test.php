@@ -8,7 +8,7 @@ register_shutdown_function(static function()use($fixture){if(!is_dir($fixture))r
 });
 function choiceExpect($ok,string$label):void{$GLOBALS['checks']++;if(!$ok)throw new RuntimeException('OWNER_CHOICE_CLI_FAILED:'.$label);}
 preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);
-choiceExpect(count($pins)===12,'exact reviewed source roster');
+choiceExpect(count($pins)===13,'exact reviewed source roster');
 foreach($pins as[$match,$path,$pin]){
     $original=$root.'/'.$path;if(!is_file($original))$original=$root.'/tests/fixtures/whatsapp_confirmation_runtime/'.basename($path);
     $bytes=file_get_contents($original);$actual=sha1('blob '.strlen($bytes)."\0".$bytes);

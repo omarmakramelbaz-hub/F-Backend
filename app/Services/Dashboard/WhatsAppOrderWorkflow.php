@@ -495,10 +495,16 @@ class WhatsAppOrderWorkflow
                 $stored=$this->decode($existing->extraction);
                 $candidate=$this->snapshot($conversation,$floor,$ceiling);
                 $proved=($candidate['complete']??false)===true
-                    ?WhatsAppCustomerOrderConfirmation::inspect($candidate['transcript']):null;
+                    ?WhatsAppCustomerOrderConfirmation::reprove($stored??[],$candidate['transcript']):null;
                 $receiptRefresh=($proved['ok']??false)===true
                     &&(($stored['type']??null)!==WhatsAppCustomerOrderConfirmation::TYPE
                         ||!hash_equals(PosServiceTicket::fingerprint($stored),PosServiceTicket::fingerprint($proved['data'])));
+                // Upgrade a pending deterministic rejection once through the new
+                // understanding path. Preserve attempt counts and ordinary backoff.
+                if (!$receiptRefresh&&($proved['ok']??false)!==true&&($candidate['complete']??false)===true
+                    &&($stored['customer_receipt_ai_version']??null)!==1
+                    &&(WhatsAppCustomerOrderConfirmation::aiPlan($candidate['transcript'])['ok']??false)===true)
+                    $receiptRefresh=true;
             }
             if ($existing && !$staleBounded && !$staleEvidence && !$force && !$retry&&!$receiptRefresh) return ['existing'=>$existing,'baselined'=>$baselined];
             if (!$force) abort_if($scan->next_attempt_at && $scan->next_attempt_at > now('UTC')->format('Y-m-d H:i:s')
@@ -528,9 +534,15 @@ class WhatsAppOrderWorkflow
             $receipt=$snapshot['complete']&&$receiptOnly
                 ?WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']):null;
             if ($receiptOnly) {
-                // Native ANALYZE_ONLY orders use just the customer's complete
-                // recap and distinct exact approval. Other chat is never sent
-                // to an extraction provider as a fallback order authority.
+                // Known formats remain a fast path. Other customer wording is
+                // understood by AI; its selections are grounded and independently
+                // approved by the same original customer's distinct exact reply.
+                if (($receipt['ok']??false)!==true&&$snapshot['complete']
+                    &&(WhatsAppCustomerOrderConfirmation::aiPlan($snapshot['transcript'])['ok']??false)===true) {
+                    $customerProvider=$this->automaticProvider($authority);
+                    if (method_exists($customerProvider,'extractCustomerRecap'))
+                        $receipt=$customerProvider->extractCustomerRecap($snapshot['transcript']);
+                }
                 if (($receipt['ok']??false)===true) {
                     $data=$receipt['data'];$reason='REVIEW_REQUIRED';$status='REVIEW';
                 } else {
@@ -538,7 +550,11 @@ class WhatsAppOrderWorkflow
                     $reason=!$snapshot['complete']?'CONTEXT_INCOMPLETE':($missing?'NO_ORDER':
                         (($receipt['reason']??null)==='CUSTOMER_APPROVAL_REQUIRED'?'CUSTOMER_APPROVAL_REQUIRED':
                             (($receipt['reason']??null)==='CUSTOMER_CHANGED_AFTER_RECAP'?'CUSTOMER_CHANGE':'REVIEW_REQUIRED')));
-                    $data=['customer_receipt_review'=>$reason];$status=$missing?'NONE':'REVIEW';
+                    $providerFailure=is_array($receipt['diagnostic']??null);
+                    if ($providerFailure) $reason='AI_UNAVAILABLE';
+                    $data=['customer_receipt_review'=>$reason,'customer_receipt_ai_version'=>1];
+                    if ($providerFailure) $data['analysis_failure']=$this->safeAnalysisFailure($receipt);
+                    $status=$missing?'NONE':'REVIEW';
                 }
             } else {
                 $result = $snapshot['complete']
@@ -855,7 +871,7 @@ class WhatsAppOrderWorkflow
     {
         $conversation=(int)$row->conversation_id;
         if (!$this->customerReceiptEnabled($conversation)||($snapshot['complete']??false)!==true) { $reason='REVIEW_REQUIRED'; return null; }
-        $proved=WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']);
+        $proved=WhatsAppCustomerOrderConfirmation::reprove($data,$snapshot['transcript']);
         if (($proved['ok']??false)!==true||!hash_equals(PosServiceTicket::fingerprint($proved['data']),PosServiceTicket::fingerprint($data))) {
             $reason='INVALID_EXTRACTION'; return null;
         }
@@ -979,7 +995,7 @@ class WhatsAppOrderWorkflow
     {
         $recap=$data['evidence_receipt']['recap_id']??null;
         $approval=$data['evidence_receipt']['approval_id']??null;
-        $separatePinRecap=($data['evidence_receipt']['summary_format']??null)==='BRANCH_ORDER_SUMMARY';
+        $separatePinRecap=in_array($data['evidence_receipt']['summary_format']??null,['BRANCH_ORDER_SUMMARY','AI_CUSTOMER_ORDER_SUMMARY'],true);
         $literal=$data['textual_location']['point']??null;
         $point=$literal===null?null:$this->validPoint($literal['lat']??null,$literal['long']??null);
         if ($literal!==null&&$point===null) { $reason='LOCATION_UNCONFIRMED'; return null; }
@@ -2309,7 +2325,7 @@ class WhatsAppOrderWorkflow
         $data=$this->decode($row->extraction); $ids=$data['evidence']['confirmation_ids']??[]; $anchor=null;
         if (isset($data['type'])&&$data['type']===WhatsAppCustomerOrderConfirmation::TYPE) {
             $proved=$this->customerReceiptEnabled((int)$row->conversation_id)&&($snapshot['complete']??false)===true
-                ?WhatsAppCustomerOrderConfirmation::inspect($snapshot['transcript']):null;
+                ?WhatsAppCustomerOrderConfirmation::reprove($data??[],$snapshot['transcript']):null;
             abort_unless(($proved['ok']??false)===true
                 &&hash_equals(PosServiceTicket::fingerprint($proved['data']),PosServiceTicket::fingerprint($data)),422,'CUSTOMER_CONFIRMATION_REQUIRED');
             $receipt=$data['evidence_receipt'];

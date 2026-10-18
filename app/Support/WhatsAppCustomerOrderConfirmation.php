@@ -18,6 +18,127 @@ final class WhatsAppCustomerOrderConfirmation
     private const MAX_TEXT = 12000;
     private const MAX_ITEMS = 30;
 
+    /** Flexible understanding selects original customer facts; code owns consent. */
+    public static function aiPlan(array $transcript): array
+    {
+        if (!self::transcript($transcript)) return self::result(false, 'TRANSCRIPT_INVALID');
+        $messages=[];$approval=false;
+        foreach ($transcript as $row) if ($row['speaker']==='customer'&&is_string($row['text'])) {
+            $messages[]=['id'=>$row['id'],'text'=>$row['text']];
+            $approval=$approval||self::positiveApproval($row['text']);
+        }
+        if (!$approval) return self::result(false,'CUSTOMER_APPROVAL_REQUIRED');
+        $nullable=['type'=>['string','null']];$string=['type'=>'string'];
+        $object=static fn(array $properties)=>['type'=>'object','additionalProperties'=>false,'properties'=>$properties,'required'=>array_keys($properties)];
+        $ids=array_column($messages,'id');
+        $schema=$object([
+            'status'=>['type'=>'string','enum'=>['COMPLETE','INCOMPLETE','NONE']],
+            'recap_id'=>['type'=>['string','null'],'enum'=>array_merge($ids,[null])],
+            'turns'=>['type'=>'array','items'=>$object(['id'=>['type'=>'string','enum'=>$ids],
+                'kind'=>['type'=>'string','enum'=>['SUMMARY','OTHER','CHANGE','CANCEL']]])],
+            'fulfillment'=>['type'=>'string','enum'=>['DELIVERY','PICKUP','UNKNOWN']],
+            'customer'=>$object(array_fill_keys(['name','phone','address','area','notes'],$nullable)),
+            'items'=>['type'=>'array','items'=>$object(['name'=>$string,'quantity'=>$string,
+                'quantity_mode'=>['type'=>'string','enum'=>['piece','weight']],
+                'quantity_source'=>$string,'option_hint'=>$nullable])],
+            'total_source'=>$nullable,'location_literal'=>$nullable,
+        ]);
+        return self::result(true,null,['input'=>['customer_messages'=>$messages],'schema'=>$schema]);
+    }
+
+    /** Re-run this pure proof for cached extraction before every quote and dispatch. */
+    public static function validateAi(array $selection,array $transcript): array
+    {
+        if (!self::transcript($transcript)) return self::result(false,'TRANSCRIPT_INVALID');
+        $fail=static fn()=>self::result(false,'INVALID_EXTRACTION');
+        $keys=['status','recap_id','turns','fulfillment','customer','items','total_source','location_literal'];
+        if (count($selection)!==count($keys)||array_diff(array_keys($selection),$keys)
+            ||!in_array($selection['status']??null,['COMPLETE','INCOMPLETE','NONE'],true)
+            ||!is_array($selection['turns']??null)||!array_is_list($selection['turns'])) return $fail();
+        $rows=array_column($transcript,null,'id');$positions=[];$textIds=[];
+        foreach ($transcript as $position=>$row) {
+            $positions[$row['id']]=$position;
+            if ($row['speaker']==='customer'&&is_string($row['text'])) $textIds[]=$row['id'];
+        }
+        if (count($selection['turns'])!==count($textIds)) return $fail();
+        $kinds=[];$latest=null;
+        foreach ($selection['turns'] as $index=>$turn) {
+            if (!is_array($turn)||count($turn)!==2||array_diff(array_keys($turn),['id','kind'])
+                ||($turn['id']??null)!==$textIds[$index]||!in_array($turn['kind']??null,['SUMMARY','OTHER','CHANGE','CANCEL'],true)) return $fail();
+            $id=$turn['id'];$kinds[$id]=$turn['kind'];
+            // An existing known summary title can never be hidden as ordinary chat.
+            if (self::headerKind($rows[$id]['text'])!==null&&$turn['kind']!=='SUMMARY') return $fail();
+            if ($turn['kind']==='SUMMARY') $latest=$id;
+        }
+        if ($latest===null) return self::result(false,'NO_CUSTOMER_RECAP');
+        if (($selection['recap_id']??null)!==$latest) return $fail();
+        if ($selection['status']!=='COMPLETE') return self::result(false,'RECAP_REQUIRED_FIELDS_MISSING');
+        if (($selection['fulfillment']??null)!=='DELIVERY') return self::result(false,'RECAP_FULFILLMENT_AMBIGUOUS');
+        $recap=$rows[$latest];$body=$recap['text'];$approval=null;
+        foreach ($transcript as $position=>$row) if ($position>$positions[$latest]&&$row['speaker']==='customer') {
+            if (($row['cart']??null)!==null||in_array($kinds[$row['id']]??null,['CHANGE','CANCEL'],true)
+                ||(is_string($row['text'])&&self::explicitOrderChange($row['text'])))
+                return self::result(false,'CUSTOMER_CHANGED_AFTER_RECAP');
+            if (self::positiveApproval($row['text'])) $approval??=$row;
+        }
+        if ($approval===null) return self::result(false,'CUSTOMER_APPROVAL_REQUIRED');
+        $customer=$selection['customer']??null;
+        if (!is_array($customer)||count($customer)!==5||array_diff(array_keys($customer),['name','phone','address','area','notes'])) return $fail();
+        foreach (['name'=>100,'phone'=>200,'address'=>500,'area'=>150,'notes'=>500] as $field=>$limit) {
+            $value=$customer[$field];
+            if ($value===null&&in_array($field,['area','notes'],true)) continue;
+            if (!is_string($value)||!self::bounded($value,$limit)||trim($value)!==$value||!str_contains($body,$value)) return $fail();
+        }
+        $phones=self::phones($customer['phone']);if ($phones===null) return self::result(false,'RECAP_PHONE_INVALID');
+        $customer['phone']=$phones[0];
+        $rawItems=$selection['items']??null;
+        if (!is_array($rawItems)||!array_is_list($rawItems)||count($rawItems)<1||count($rawItems)>self::MAX_ITEMS) return $fail();
+        $items=[];$names=[];$sources=[];
+        foreach ($rawItems as $item) {
+            if (!is_array($item)||count($item)!==5||array_diff(array_keys($item),['name','quantity','quantity_mode','quantity_source','option_hint'])) return $fail();
+            foreach (['name'=>200,'quantity_source'=>1000] as $field=>$limit)
+                if (!is_string($item[$field]??null)||!self::bounded($item[$field],$limit)||!str_contains($body,$item[$field])) return $fail();
+            if (!str_contains($item['quantity_source'],$item['name'])||isset($sources[$item['quantity_source']])) return $fail();
+            $sources[$item['quantity_source']]=true;
+            $quantity=is_string($item['quantity']??null)?self::decimal($item['quantity']):null;
+            if ($quantity===null||(float)$quantity<=0||(float)$quantity>10000||!in_array($item['quantity_mode']??null,['piece','weight'],true)) return $fail();
+            if ($item['quantity_mode']==='piece'&&str_contains($quantity,'.')) return self::result(false,'RECAP_ITEM_INVALID');
+            $amounts=\App\Services\Dashboard\WhatsAppOrderConversationEvidence::quantities($item['quantity_source']);
+            if (count($amounts)!==1||($amounts[0]['quantity']??null)!==(int)round((float)$quantity*1000)
+                ||($amounts[0]['mode']??null)!==$item['quantity_mode']) return self::result(false,'RECAP_ITEM_INVALID');
+            $option=$item['option_hint'];
+            if ($option!==null&&(!is_string($option)||!self::bounded($option,200)||!str_contains($item['quantity_source'],$option))) return $fail();
+            $name=self::matchingText($item['name']);if (isset($names[$name])) return self::result(false,'RECAP_DUPLICATE_ITEM');$names[$name]=true;
+            $items[]=['name'=>$item['name'],'quantity'=>$quantity,'quantity_mode'=>$item['quantity_mode'],'option_hint'=>$option,
+                'cart_reference'=>null,'conversation_reference'=>null];
+        }
+        $location=null;$literal=$selection['location_literal'];
+        if ($literal!==null) {
+            if (!is_string($literal)||!str_contains($body,$literal)||($location=self::location($literal))===null) return self::result(false,'RECAP_LOCATION_INVALID');
+            $location['source_message_id']=$latest;
+        }
+        if (($recap['cart']??null)!==null) return self::result(false,'CUSTOMER_CHANGED_AFTER_RECAP');
+        $point=$location['point']??null;
+        foreach ($transcript as $position=>$row) if ($position>=$positions[$latest]&&$row['speaker']==='customer'&&$row['location']!==null) {
+            if ($point!==null&&!self::samePoint($row['location'],$point)) return self::result(false,'CUSTOMER_CHANGED_AFTER_RECAP');
+        }
+        $total=null;$totalSource=$selection['total_source'];
+        if ($totalSource!==null&&(!is_string($totalSource)||!str_contains($body,$totalSource)||($total=self::money($totalSource,true))===null)) return $fail();
+        $receipt=['version'=>self::VERSION,'recap_id'=>$latest,'approval_id'=>$approval['id'],
+            'recap_sha256'=>hash('sha256',$body),'approval_sha256'=>hash('sha256',$approval['text']),
+            'summary_format'=>'AI_CUSTOMER_ORDER_SUMMARY','ai_extraction'=>$selection];
+        $receipt['receipt_sha256']=hash('sha256',json_encode([self::TYPE,$receipt],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+        return self::result(true,null,['type'=>self::TYPE,'decision'=>'CONFIRMED','customer'=>$customer,
+            'alternate_phones'=>array_slice($phones,1),'branch_hint'=>null,'fulfillment'=>'DELIVERY','items'=>$items,
+            'approximate_total'=>$total,'textual_location'=>$location,'evidence_receipt'=>$receipt]);
+    }
+
+    public static function reprove(array $data,array $transcript): array
+    {
+        $selection=$data['evidence_receipt']['ai_extraction']??null;
+        return is_array($selection)?self::validateAi($selection,$transcript):self::inspect($transcript);
+    }
+
     /**
      * Inspect an authentic ordered snapshot. A copied instruction containing an
      * approval phrase is not approval: every format requires the customer's

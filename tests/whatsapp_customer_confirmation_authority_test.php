@@ -11,7 +11,7 @@ function authorityExpect($condition,string$label):void{
     $GLOBALS['checks']++;if(!$condition)throw new RuntimeException('AUTHORITY_DIAGNOSTIC_TEST_FAILED:'.$label);
 }
 preg_match('/\$pins=\[(.*?)\n    \];/s',$source,$map);preg_match_all("/'([^']+)'=>'([^']+)'/",$map[1]??'',$pins,PREG_SET_ORDER);
-authorityExpect(count($pins)===10,'exact source guard roster');
+authorityExpect(count($pins)===11,'exact source guard roster');
 foreach($pins as[$all,$path,$pin]){
     $content=file_get_contents($root.'/'.$path);$actual=sha1('blob '.strlen($content)."\0".$content);
     authorityExpect($actual===$pin,'source pin matches reviewed local file '.$path);
