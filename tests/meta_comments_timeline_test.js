@@ -9,7 +9,7 @@ const key = value => value.repeat(64);
 const post = (id,text) => ({key:key(id),handle:'post-'+id,text,created_at:'2026-10-18T20:00:00Z',permalink:'https://facebook.com/posts/123'});
 const comment = (id,text) => ({key:key(id),handle:'comment-'+id,text,author:'عميل',created_at:'2026-10-18T20:01:00Z',can_reply:true,replies_count:0});
 const settle = async () => { for(let n=0;n<12;n++) await new Promise(resolve=>setImmediate(resolve)); };
-function fixture(legacy=false) {
+function fixture(legacy=false, options={}) {
     const view=fs.readFileSync(path.join(root,'resources/views/admin/meta/comments.blade.php'),'utf8');
     const markup=view.slice(view.indexOf('<div class="content-wrapper'),view.indexOf('@endsection')).replace(/{{[\s\S]*?}}/g,'label');
     const dom=new JSDOM(markup+'<script id="meta-comments-bootstrap" type="application/json"></script>',{url:'https://dashboard.test/admin/meta/comments',runScripts:'outside-only',pretendToBeVisual:true});
@@ -17,7 +17,7 @@ function fixture(legacy=false) {
     const config={viewer_key:key('a'),csrf:'fixture',locale:'ar',labels:{choose_post:'اختر بوست',choose_comment:'اختر تعليق',reply:'رد',send:'نشر',accepted:'تم',loading:'تحميل'},accounts:[{account_key:key('b'),channel:'facebook',label:'الصفحة'}]};
     w.document.getElementById('meta-comments-bootstrap').textContent=JSON.stringify(config);
     w.DashboardSPA={isCurrentPage:()=>true,onCleanup:()=>{}};
-    const rows=[post('1','البوست الأول'),post('2','البوست الثاني')];
+    const rows=options.postRows || [post('1','البوست الأول'),post('2','البوست الثاني')];
     w.fetch=async(url,options)=>{
         const u=new URL(url), endpoint=u.pathname.split('/').pop(); calls.push({endpoint,url:u,options});
         let data={success:true};
@@ -52,7 +52,7 @@ function fixture(legacy=false) {
     host.legacyCounts=()=>({legacyMounts,legacyDestroys});
     return {dom,w,host,calls};
 }
-(async()=>{
+async function run() {
     let f=fixture(); await settle();
     let {host,w}=f, list=host.querySelector('[data-mc-posts]'), panel=host.querySelector('.mc-comments-panel');
     assert.equal(list.children.length,2); assert(panel.hidden,'No detached comments area before selection');
@@ -89,4 +89,6 @@ function fixture(legacy=false) {
     assert.equal(f.calls.filter(c=>c.endpoint==='posts').length,1,'Remount does not duplicate reads');
     f.dom.window.close();
     console.log('META_COMMENTS_TIMELINE_PASS selection placement, shared reply form, preserved focus/caret/draft/scroll, deliberate send, older-post scroll, and cleanup; rendered=false');
-})().catch(error=>{console.error(error);process.exitCode=1;});
+}
+module.exports={fixture,settle,key,post};
+if(require.main===module) run().catch(error=>{console.error(error);process.exitCode=1;});

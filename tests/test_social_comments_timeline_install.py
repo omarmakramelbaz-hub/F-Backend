@@ -15,8 +15,8 @@ SPEC.loader.exec_module(m)
 class TimelineInstallTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.js = (ROOT / m.JS).read_bytes()
-        cls.view = (ROOT / m.VIEW).read_bytes()
+        cls.js = subprocess.check_output(['git','-C',str(ROOT),'cat-file','blob','67c3def10fd7cb77551bea30fdaa78bda8d90447'])
+        cls.view = subprocess.check_output(['git','-C',str(ROOT),'cat-file','blob','c60a1feb29ca62de6a9f0385c302c82616f75c05'])
         cls.block, cls.link = m.timeline_block(cls.js), m.stylesheet_link(cls.view)
         cls.old_js = m.strip_js(cls.js, cls.block)
         cls.old_view = cls.view.replace(cls.link, b'', 1)
@@ -47,7 +47,10 @@ class TimelineInstallTest(unittest.TestCase):
             target.write_bytes(data)
             target.chmod(0o640)
         (root / m.CSS).parent.mkdir(parents=True, exist_ok=True)
-        args = [str(root), 'fixture-php', str(ROOT / m.VIEW), str(ROOT / m.JS), str(ROOT / m.CSS),
+        release_view, release_js = Path(directory) / 'release-view.php', Path(directory) / 'release.js'
+        release_view.write_bytes(self.view)
+        release_js.write_bytes(self.js)
+        args = [str(root), 'fixture-php', str(release_view), str(release_js), str(ROOT / m.CSS),
                 m.sha(self.view), m.sha(self.js), m.sha(self.css)]
         return root, args
 

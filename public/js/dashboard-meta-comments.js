@@ -1,7 +1,7 @@
 (function () {
     'use strict';
     if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
-    if (window.DashboardMetaComments && window.DashboardMetaComments.timelineVersion === 1) { window.DashboardMetaComments.mount(); return; }
+    if (window.DashboardMetaComments && window.DashboardMetaComments.timelineVersion === 2) { window.DashboardMetaComments.mount(); return; }
     if (window.DashboardMetaComments) {
         window.DashboardMetaComments.destroy();
         document.removeEventListener('dashboard:before-unload',window.DashboardMetaComments.destroy);
@@ -10,11 +10,101 @@
 
     var active = null, draftStores = new Map(), sendStores = new Map();
     // BEGIN META_COMMENTS_TIMELINE
+    function originalPostUrl(value, width) {
+        if (typeof value !== 'string' || value.length > 2048 || /[\x00-\x20\x7f]/.test(value)) return null;
+        try {
+            var source = new URL(value), name = source.hostname.toLowerCase(), match;
+            if (source.protocol !== 'https:' || source.username || source.password || source.port) return null;
+            if (Array.from(source.searchParams.keys()).some(function(key) { return /access_token|appsecret_proof|authorization|^token$/i.test(key); })) return null;
+            if (name === 'instagram.com' || name === 'www.instagram.com') {
+                match = source.pathname.match(/^\/(?:p|reel|tv)\/([A-Za-z0-9_-]{1,100})\/?$/);
+                return match ? {src:'https://www.instagram.com/p/' + match[1] + '/embed/captioned/',platform:'Instagram',href:'https://www.instagram.com/p/' + match[1] + '/'} : null;
+            }
+            if (name !== 'facebook.com' && name !== 'www.facebook.com') return null;
+            var canonical = new URL('https://www.facebook.com/');
+            if (/^\/[A-Za-z0-9_.-]{1,150}\/(?:posts|videos)\/[A-Za-z0-9_-]{1,250}\/?$/.test(source.pathname)
+                || /^\/reel\/[0-9]{1,32}\/?$/.test(source.pathname)) canonical.pathname = source.pathname;
+            else if ((match = source.pathname.match(/^\/([0-9]{1,32})_([0-9]{1,32})\/?$/))) canonical.pathname = '/' + match[1] + '/posts/' + match[2];
+            else if (/^\/(?:permalink|story)\.php$/.test(source.pathname)
+                && /^[0-9]{1,32}$/.test(source.searchParams.get('id') || '')
+                && /^[A-Za-z0-9_-]{1,250}$/.test(source.searchParams.get('story_fbid') || '')) {
+                canonical.pathname = source.pathname; canonical.searchParams.set('id',source.searchParams.get('id'));
+                canonical.searchParams.set('story_fbid',source.searchParams.get('story_fbid'));
+            } else if (/^\/(?:[A-Za-z0-9_.-]{1,150}\/)?photos\/[A-Za-z0-9_.\/-]{1,500}$/.test(source.pathname)) canonical.pathname = source.pathname;
+            else if (source.pathname === '/photo.php' && /^[0-9]{1,32}$/.test(source.searchParams.get('fbid') || '')) {
+                canonical.pathname = '/photo.php'; canonical.searchParams.set('fbid',source.searchParams.get('fbid'));
+            } else if (/^\/watch\/?$/.test(source.pathname) && /^[0-9]{1,32}$/.test(source.searchParams.get('v') || '')) {
+                canonical.pathname = '/watch/'; canonical.searchParams.set('v',source.searchParams.get('v'));
+            } else return null;
+            var video = /\/videos\/|^\/reel\/|^\/watch\//.test(canonical.pathname);
+            var embed = new URL('https://www.facebook.com/plugins/' + (video ? 'video.php' : 'post.php'));
+            embed.searchParams.set('href',canonical.href); embed.searchParams.set('show_text','true');
+            embed.searchParams.set('width',String(Math.max(220,Math.min(500,Math.floor(width || 500)))));
+            return {src:embed.href,platform:'Facebook',href:canonical.href};
+        } catch (_) { return null; }
+    }
+    function createOriginalPost(host, panel) {
+        var wrapper = document.createElement('section'), frame = null, current = '', timer = null, resizeTimer = null, activeKey = '', activePermalink = '';
+        var arabic = host.getAttribute('dir') === 'rtl', status = document.createElement('p');
+        wrapper.className = 'mc-original-post'; wrapper.hidden = true;
+        status.className = 'mc-original-status'; status.setAttribute('role','status');
+        panel.insertBefore(wrapper,panel.firstChild);
+        function clear() {
+            clearTimeout(timer); timer = null;
+            if (frame) { frame.onload = null; frame.onerror = null; frame.src = 'about:blank'; frame.remove(); frame = null; }
+            wrapper.textContent = ''; wrapper.classList.remove('is-tall'); current = '';
+        }
+        var api = {
+            update:function(key, permalink) {
+                activeKey = key; activePermalink = permalink;
+                var target = key ? originalPostUrl(permalink,host.clientWidth - 48) : null;
+                var next = key + ':' + (target && target.src || '');
+                if (current === next) return;
+                clear(); current = next; wrapper.hidden = !key;
+                if (!key) return;
+                if (!target) {
+                    status.hidden = false; status.textContent = arabic ? 'رابط هذا البوست لا يدعم العرض الأصلي هنا. التعليقات متاحة بالأسفل.' : 'This post link cannot be embedded here. Dashboard comments are available below.';
+                    wrapper.appendChild(status); return;
+                }
+                var header = document.createElement('div'), title = document.createElement('strong'), link = document.createElement('a');
+                header.className = 'mc-original-heading'; title.textContent = arabic ? 'البوست الأصلي' : 'Original post';
+                link.textContent = (arabic ? 'فتح على ' : 'Open on ') + target.platform;
+                link.href = target.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                header.appendChild(title); header.appendChild(link); wrapper.appendChild(header);
+                status.hidden = false; status.textContent = arabic ? 'جارٍ تحميل البوست الأصلي…' : 'Loading original post…'; wrapper.appendChild(status);
+                frame = document.createElement('iframe'); frame.className = 'mc-original-frame';
+                frame.title = (arabic ? 'البوست الأصلي على ' : 'Original post on ') + target.platform;
+                frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation');
+                frame.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
+                frame.setAttribute('referrerpolicy','no-referrer'); frame.setAttribute('loading','eager');
+                frame.setAttribute('allowfullscreen','');
+                function unavailable() { status.hidden = false; status.textContent = arabic ? 'لو لم يظهر البوست، افتحه من رابط المنصة بالأعلى. قد تمنع إعدادات المنصة تضمينه.' : 'If the post does not appear, use the platform link above. Platform settings may prevent embedding.'; }
+                frame.onload = function() { clearTimeout(timer); status.hidden = true; };
+                frame.onerror = function() { clearTimeout(timer); unavailable(); };
+                frame.src = target.src; wrapper.appendChild(frame); timer = setTimeout(unavailable,18000);
+                var expand = document.createElement('button'); expand.type = 'button'; expand.className = 'mc-button mc-secondary mc-original-expand';
+                expand.textContent = arabic ? 'تكبير العرض' : 'Expand post'; expand.setAttribute('aria-expanded','false');
+                expand.addEventListener('click',function() {
+                    var open = wrapper.classList.toggle('is-tall'); expand.setAttribute('aria-expanded',open ? 'true' : 'false');
+                    expand.textContent = arabic ? (open ? 'تصغير العرض' : 'تكبير العرض') : (open ? 'Compact post' : 'Expand post');
+                }); wrapper.appendChild(expand);
+            },
+            destroy:function() { clearTimeout(resizeTimer); window.removeEventListener('resize',resize); clear(); wrapper.remove(); }
+        };
+        function resize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(function() { if (activeKey) api.update(activeKey,activePermalink); },150); }
+        window.addEventListener('resize',resize);
+        return api;
+    }
     function createTimeline(host, fields) {
         var panel = host.querySelector('.mc-comments-panel'), workspace = host.querySelector('.mc-workspace');
         var footer = host.querySelector('.mc-posts-panel > .mc-panel-footer');
-        var fallback = {scroller:fields.scroll,beforePosts:function(){},afterPosts:function(){},destroy:function(){}};
+        var fallback = {needsRender:function(){return true;},scroller:fields.scroll,beforePosts:function(){},afterPosts:function(){},destroy:function(){}};
         if (!panel || !workspace || !fields.posts || !fields.posts.parentNode) return fallback;
+        var original = createOriginalPost(host,panel), paint = '';
+        function place(parent,child) {
+            if (typeof parent.moveBefore === 'function' && parent.isConnected && child.isConnected) parent.moveBefore(child,null);
+            else parent.appendChild(child);
+        }
         var parking = document.createElement('div'), anchor = null, focused = null, selection = null;
         var timer = null, closed = false, requested = '', signature = '', selected = '', focusedPost = '';
         parking.hidden = true; workspace.appendChild(parking); panel.id = 'mc-inline-comments'; panel.hidden = true;
@@ -28,6 +118,12 @@
         }
         host.addEventListener('scroll',maybeMore,{passive:true});
         return {
+            needsRender:function(rows, key, channel) {
+                var next = JSON.stringify([key,channel,Array.from(rows.entries()).map(function(entry) {
+                    var row = entry[1]; return [entry[0],row.text,row.created_at,row.permalink,row.comments_count];
+                })]);
+                if (next === paint) return false; paint = next; return true;
+            },
             scroller:host,
             beforePosts:function(key) {
                 var viewport = host.getBoundingClientRect(); anchor = null;
@@ -41,9 +137,9 @@
                 focused = panel.contains(document.activeElement) ? document.activeElement : null;
                 focusedPost = document.activeElement && fields.posts.contains(document.activeElement) && document.activeElement.dataset.mcPost || '';
                 selection = focused && typeof focused.selectionStart === 'number' ? [focused.selectionStart,focused.selectionEnd] : null;
-                parking.appendChild(panel); panel.hidden = true;
+                place(parking,panel); panel.hidden = true;
             },
-            afterPosts:function(key) {
+            afterPosts:function(key, permalink) {
                 var retained = null, keys = [];
                 Array.from(fields.posts.children).forEach(function(item) {
                     var button = item.querySelector('[data-mc-post]'); if (!button) return;
@@ -51,9 +147,10 @@
                     var selected = !!key && button.dataset.mcPost === key;
                     button.setAttribute('aria-expanded',selected ? 'true' : 'false');
                     button.setAttribute('aria-controls',panel.id);
-                    if (selected) { item.classList.add('mc-post-expanded'); item.appendChild(panel); panel.hidden = false; }
+                    if (selected) { item.classList.add('mc-post-expanded'); place(item,panel); panel.hidden = false; }
                     if (anchor && button.dataset.mcPost === anchor.key) retained = item;
                 });
+                original.update(key,permalink);
                 signature = keys.join(':'); selected = key || '';
                 if (retained) host.scrollTop += retained.getBoundingClientRect().top - anchor.top;
                 if (focused && !panel.hidden) {
@@ -70,7 +167,7 @@
                 clearTimeout(timer); timer = setTimeout(maybeMore,0);
             },
             destroy:function() {
-                closed = true; clearTimeout(timer); host.removeEventListener('scroll',maybeMore);
+                closed = true; clearTimeout(timer); host.removeEventListener('scroll',maybeMore); original.destroy();
                 workspace.appendChild(panel); panel.hidden = false;
                 if (footer && fields.posts.parentNode) fields.posts.parentNode.parentNode.appendChild(footer);
                 parking.remove();
@@ -203,6 +300,11 @@
             chooseAccount(fields.account.value);
         }
         function renderPosts() {
+            if (!timeline.needsRender(posts,post && identity(post),account && account.channel)) {
+                fields['post-count'].textContent = String(posts.size);
+                fields['more-posts'].hidden = !postCursor; fields['more-posts'].disabled = busy.has('posts');
+                return;
+            }
             timeline.beforePosts(post && identity(post));
             fields.posts.textContent = '';
             posts.forEach(function(row,key) {
@@ -217,7 +319,7 @@
             });
             fields['post-count'].textContent = String(posts.size);
             fields['more-posts'].hidden = !postCursor; fields['more-posts'].disabled = busy.has('posts');
-            timeline.afterPosts(post && identity(post));
+            timeline.afterPosts(post && identity(post),post && post.permalink);
         }
         function commentCard(row,key,nested) {
             var item = node('li',nested ? 'mc-reply' : 'mc-comment' + (selectedKey === key ? ' is-selected' : ''));
@@ -669,6 +771,6 @@
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function() { if (active === session) destroy(); else session.destroy(); });
     }
     function destroy() { if (active) active.destroy(); active = null; }
-    window.DashboardMetaComments = {mount:mount,destroy:destroy,dispose:destroy,timelineVersion:1};
+    window.DashboardMetaComments = {mount:mount,destroy:destroy,dispose:destroy,timelineVersion:2};
     document.addEventListener('dashboard:before-unload',destroy); document.addEventListener('dashboard:page-mounted',mount); mount();
 }());
