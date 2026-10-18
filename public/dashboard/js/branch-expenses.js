@@ -58,13 +58,24 @@
     }
     function actionButton(label, callback, icon) { var button = el('button'); button.type = 'button'; button.title = t(label); button.setAttribute('aria-label', t(label)); if (icon) button.appendChild(el('i', undefined, 'fas ' + icon)); else button.textContent = t(label); button.addEventListener('click', callback); return button; }
     function categoryName(key){return (current.categories||{})[key]||t('cat_'+key);}
+    function branchName(value){
+        if(value==='all')return t('all_branches');
+        var selected=boot.branches.find(function(item){return item.value===value;});return selected?selected.name:'';
+    }
+    function branchCategoryLabel(name,value){var suffix=branchName(value);return suffix?name+' — '+suffix:name;}
+    function expenseCategoryLabel(item){
+        if(item.category_base_name&&item.category_name)return item.category_name;
+        var name=item.category_name||categoryName(item.category),suffix=item.branch_name||branchName(item.branch);
+        return suffix&&!name.endsWith(' — '+suffix)?name+' — '+suffix:name;
+    }
+
     function categoryOptions(data){
         current.categories=data.categories;current.active_categories=data.active_categories||data.categories;current.category_items=data.category_items||[];current.stock_categories=data.stock_categories||current.stock_categories||{};
         [form.elements.category,filters.elements.category].forEach(function(select){
             var chosen=select.value,items=select===form.elements.category?Object.assign({},current.active_categories):current.categories;
             if(select===form.elements.category&&editing&&current.categories[editing.category])items[editing.category]=current.categories[editing.category];
             select.replaceChildren(el('option',select===form.elements.category?t('category'):t('all_categories')));select.firstChild.value='';
-            Object.keys(items).forEach(function(key){var option=el('option',items[key]+(!current.active_categories[key]?' · '+t('deleted_category'):''));option.value=key;select.appendChild(option);});select.value=chosen;
+            Object.keys(items).forEach(function(key){var option=el('option',branchCategoryLabel(items[key],select===form.elements.category?form.elements.branch.value:branch.value)+(!current.active_categories[key]?' · '+t('deleted_category'):''));option.value=key;select.appendChild(option);});select.value=chosen;
             if(window.jQuery)window.jQuery(select).trigger('change.select2');
         });
         renderCategories(); quantityField();
@@ -72,11 +83,11 @@
     function renderCategories(){
         var list=root.querySelector('[data-expense-category-list]');if(!list)return;list.replaceChildren();
         current.category_items.forEach(function(item){
-            var row=el('div',undefined,'ex-category-row'),actions=el('div');row.dataset.categoryKey=item.key;row.appendChild(el('strong',item.name));
+            var row=el('div',undefined,'ex-category-row'),actions=el('div');row.dataset.categoryKey=item.key;row.appendChild(el('strong',branchCategoryLabel(item.name,branch.value)));
             var editButton=actionButton('edit',function(){if(locked())return;categoryEditing=item;var input=root.querySelector('[data-expense-category-name]');input.value=item.name;root.querySelector('[data-expense-category-save]').textContent=t('save_category_edit');root.querySelector('[data-expense-category-cancel]').hidden=false;input.focus();},'fa-pen');
             var removeButton=actionButton('delete_category',function(){if(!locked()&&confirm(t('confirm_delete_category')+'\n'+item.name))changeCategory({action:'delete',key:item.key,expected_revision:item.revision});},'fa-trash');
             removeButton.className='ex-category-delete';
-            if(item.protected){editButton.disabled=true;removeButton.disabled=true;editButton.title=t('stock_category_fixed');removeButton.title=t('stock_category_fixed');editButton.dataset.expenseProtected='';removeButton.dataset.expenseProtected='';}
+            if(item.protected){removeButton.disabled=true;removeButton.title=t('stock_category_fixed');removeButton.dataset.expenseProtected='';}
             actions.append(editButton,removeButton);row.appendChild(actions);list.appendChild(row);
         });
         if(!list.children.length)list.appendChild(el('p',t('no_categories'),'ex-category-help'));
@@ -106,7 +117,7 @@
         current = data; if(data.categories)categoryOptions(data); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
-            [item.number,item.occurred_on,item.branch_name,item.category_name||categoryName(item.category),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value,index) {
+            [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value,index) {
                 var cell=el('td',value);
                 if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t('kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
                 row.appendChild(cell);
@@ -135,7 +146,7 @@
         catch (error) { if (!disposed && error.name !== 'AbortError') notice(error.message); }
     }
     function reset() {
-        editing = null; categoryOptions(current); form.reset(); boot.today=window.DashboardOperatingDay?window.DashboardOperatingDay.current():boot.today;form.elements.occurred_on.value = boot.today;form.elements.occurred_on.max=boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value;
+        editing = null; form.reset(); boot.today=window.DashboardOperatingDay?window.DashboardOperatingDay.current():boot.today;form.elements.occurred_on.value = boot.today;form.elements.occurred_on.max=boot.today; form.elements.branch.value = branch.value === 'all' ? boot.branches[0].value : branch.value; categoryOptions(current);
         var recovery=form.querySelector('[data-expense-recovery-file]');if(recovery)recovery.remove();root.querySelector('[data-expense-form-title]').textContent = t('new'); dirty = false; lock();
     }
     async function print(address) { if (locked()) return; try { await window.DashboardPrint.print(url(address)); } catch (error) { notice(error.message || t('error')); } }
@@ -198,7 +209,7 @@
         try {
             var data = await request(url(boot.urls.show, null, id)); if (disposed || token !== generation) return;
             var item = data.expense, content = root.querySelector('[data-expense-detail]'); content.replaceChildren(); var grid = el('dl', undefined, 'ex-detail-grid');
-            [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',item.category_name||categoryName(item.category)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
+            [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',expenseCategoryLabel(item)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
             if(item.stock_quantity_kg){
                 var stockInfo=el('p',item.stock_item_name+' · '+item.stock_quantity_kg+' '+t('kg')+' · '+t(item.stock_reversed?'stock_reversed':'stock_received'),'ex-stock-detail');content.appendChild(stockInfo);
             }
@@ -210,6 +221,8 @@
     }
     on(form,'submit',function(event){event.preventDefault();save(false);}); on(form,'input',function(){dirty=true;});
     on(form.elements.category,'change',quantityField);
+    on(form.elements.quantity_kg,'input',function(){if(!locked())notice('');});
+    on(form.elements.branch,'change',function(){if(!locked()){dirty=true;categoryOptions(current);}});
     on(filters,'submit',function(event){event.preventDefault();if(!locked())load(1);});
     function changeBranch(){if(locked() || branch.value === current.filters.branch)return;if(dirty&&!confirm(t('unsaved'))){branch.value=current.filters.branch;if(branch.selectize)branch.selectize.setValue(branch.value,true);return;}reset();filters.elements.actor_id.value='';load(1);}
     on(branch,'change',changeBranch);if(window.jQuery)window.jQuery(branch).on('change.branchExpenses',changeBranch);
@@ -223,5 +236,5 @@
     on(window,'beforeunload',function(event){if(locked()||dirty){event.preventDefault();event.returnValue='';}});
     if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();if(categoriesDialog)categoriesDialog.close();});}
     reset();Object.keys(boot.initial.filters).forEach(function(key){if(filters.elements[key])filters.elements[key].value=boot.initial.filters[key];});render(boot.initial);
-    try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
+    try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});categoryOptions(current);notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
 }());

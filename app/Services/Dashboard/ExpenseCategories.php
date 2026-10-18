@@ -13,26 +13,28 @@ class ExpenseCategories
     }
     public function catalog(): array
     {
-        $items=[];
+        $items=[];$stock=app(ExpenseStockPurchases::class);
         foreach(BranchExpenses::CATEGORIES as $key)$items[$key]=['key'=>$key,'name'=>__('expenses.cat_'.$key),'active'=>true,'revision'=>0];
         if(Schema::hasTable('branch_expense_categories'))foreach(DB::table('branch_expense_categories')->orderBy('id')->get() as $row){
-            $key='custom_'.$row->id;$items[$key]=['key'=>$key,'name'=>$row->name,'active'=>true,'revision'=>0];
+            $key='custom_'.$row->id;$items[$key]=['key'=>$key,'name'=>$row->name,'active'=>true,'revision'=>0,'stock_category'=>$stock->categoryProduct($row->name)];
+        }
+        // The six stock purchases are shared by every branch, including branches
+        // whose old vocabulary never contained them. Their identity is stable so
+        // renaming an expense choice cannot silently remove its stock requirement.
+        foreach(ExpenseStockPurchases::CATEGORIES as $key=>$name){
+            $items[$key]=['key'=>$key,'name'=>$name,'active'=>true,'revision'=>0,'protected'=>true,'stock_category'=>$key];
         }
         if(Schema::hasTable('branch_expense_category_settings'))foreach(DB::table('branch_expense_category_settings')->get() as $row){
             if(!isset($items[$row->category_key]))continue;
             $items[$row->category_key]['name']=$row->name??$items[$row->category_key]['name'];
             $items[$row->category_key]['active']=(bool)$row->active;$items[$row->category_key]['revision']=(int)$row->revision;
         }
-        // The six stock purchases are shared by every branch, including branches
-        // whose old vocabulary never contained them. Their identity is stable so
-        // renaming an expense choice cannot silently remove its stock requirement.
-        foreach(ExpenseStockPurchases::CATEGORIES as $key=>$name){
-            $items[$key]=['key'=>$key,'name'=>$name,'active'=>true,'revision'=>0,'protected'=>true];
-        }
-        $stock=app(ExpenseStockPurchases::class);$representatives=[];
+        $representatives=[];
         foreach($items as $key=>&$item){
             $item['name']=$this->sharedName($item['name']);
-            $item['stock_category']=isset(ExpenseStockPurchases::CATEGORIES[$key])?$key:$stock->categoryProduct($item['name']);
+            // An old branch alias retains its original stock identity even when
+            // its shared display name no longer contains the material name.
+            $item['stock_category']=$item['stock_category']??$stock->categoryProduct($item['name']);
             $identity=$item['stock_category']?'stock:'.$item['stock_category']:'name:'.$this->normalized($item['name']);
             $item['shared_identity']=$identity;
             if($item['stock_category'])$representatives[$identity]=$item['stock_category'];
@@ -113,11 +115,12 @@ class ExpenseCategories
                 }elseif(!$category['active']&&!$legacy){$category['active']=true;$category['revision']++;$this->store($category);}
             }else{
                 $category=$items[$v['key']]??null;abort_unless($category,404);
-                if($category['protected']??false)throw ValidationException::withMessages(['category'=>'بنود مشتريات المخزون أساسية وموحدة لجميع الفروع ولا يمكن تعديلها أو حذفها.']);
+                if($v['action']==='delete'&&($category['protected']??false))throw ValidationException::withMessages(['category'=>'بنود مشتريات المخزون أساسية وموحدة لجميع الفروع ولا يمكن حذفها.']);
                 abort_unless($category['active']&&$category['revision']===(int)$v['expected_revision'],409,__('expenses.category_stale'));
                 $group=array_filter($items,fn($item)=>$item['canonical_key']===$category['canonical_key']);
                 if($v['action']==='update'){
                     $stockCategory=app(ExpenseStockPurchases::class)->categoryProduct($name);
+                    if($category['stock_category']&&$stockCategory&&$stockCategory!==$category['stock_category'])throw ValidationException::withMessages(['name'=>__('expenses.category_duplicate')]);
                     foreach($items as $item)if(!isset($group[$item['key']])&&($this->normalized($item['name'])===$normalized||($stockCategory&&$item['stock_category']===$stockCategory)))throw ValidationException::withMessages(['name'=>__('expenses.category_duplicate')]);
                     $category['name']=$name;
                 }else $category['active']=false;

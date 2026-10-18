@@ -35,7 +35,7 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
   check(posted.length===1&&posted[0].quantity_kg==='2.500','Arabic kg normalizes in actual request');
   check(posted[0].branch==='f:100'&&posted[0].category==='purchase_oil','request keeps selected branch and material');
   check(quantity.value===''&&!quantity.required&&quantity.disabled,'success clears and hides stale kg');
-  check([...doc.querySelectorAll('[data-expense-protected]')].every(button=>button.disabled),'protected stock categories remain disabled after lock cycle');
+  check([...doc.querySelectorAll('[data-expense-protected]')].every(button=>button.disabled),'stock category deletion remains disabled after lock cycle');
   setCategory('purchases');form.elements.description.value='مشتريات عامة';form.elements.amount.value='10';quantity.value='99';submit();await tick();await tick();
   check(posted.length===2&&!('quantity_kg' in posted[1]),'general expense omits stale kilograms');
   console.log(checks+' DOM checks passed against actual expense page script');

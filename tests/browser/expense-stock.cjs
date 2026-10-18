@@ -21,7 +21,7 @@ const branches=[{value:'f:100',name:'فرع المحلة'}];
 function data(){return {success:true,items:[],categories:{purchases:'مشتريات',purchase_oil:'زيت'},active_categories:{purchases:'مشتريات',purchase_oil:'زيت'},stock_categories:{purchase_oil:'purchase_oil'},category_items:[{key:'purchase_oil',name:'زيت',protected:true,revision:0}],actors:[],filters:{branch:'f:100',from:'2026-10-01',to:'2026-10-07'},pagination:{page:1,last_page:1,total:0},summary:{today:'0.00',month:'0.00',average:'0.00',count:0,top_category:null,top_amount:'0.00',period:'0.00',pending:0,cash_balance:'1000.00'}};}
 const shell='<style>body{margin:0;font-family:Arial,sans-serif}.app-head{height:58px;background:#0b1928}.app-foot{height:51px;background:#0b1928}.content-wrapper{margin-inline-end:250px}aside.app-side{position:fixed;inset-inline-end:0;width:250px;top:58px;bottom:0;background:#0b1928}@media(max-width:999px){aside.app-side{display:none}.content-wrapper{margin-inline-end:0}}</style>';
 (async()=>{
- const browser=await chromium.launch({headless:true});fs.mkdirSync('test-results/phone-delivery',{recursive:true});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});fs.mkdirSync('test-results/phone-delivery',{recursive:true});
  try{for(const [width,height,role] of [[1366,768,'branch'],[1024,650,'admin'],[1920,1080,'owner'],[390,844,'branch']]){
   const page=await browser.newPage({viewport:{width,height}}),errors=[],posted=[],approve=role!=='branch';page.on('pageerror',e=>errors.push(e.message));
   const boot={actor_id:1,today:'2026-10-07',initial:data(),branches,permissions:{can_create:true,can_approve:approve,can_manage_categories:approve},urls:{data:'/data',save:'/save',recover:'/recover',export:'/export',report:'/report',categories:'/categories'}};
@@ -44,7 +44,7 @@ const shell='<style>body{margin:0;font-family:Arial,sans-serif}.app-head{height:
   await form.locator('[data-expense-save]').click();assert.equal(posted.length,0,'missing kg must block request');
   for(const invalid of ['0','-1','2.1234','1000001']){await quantity.fill(invalid);await form.locator('[data-expense-save]').click();assert.equal(posted.length,0,'invalid kg must block request');}
   await quantity.fill('٢٫٥٠٠');
-  const before=await page.evaluate(()=>{const form=document.querySelector('[data-expense-form]'),button=form.querySelector('[data-expense-save]').getBoundingClientRect();return {pageScroll:document.documentElement.scrollHeight>innerHeight+1,formScroll:form.scrollHeight>form.clientHeight+1,buttonBottom:button.bottom,wide:document.documentElement.scrollWidth>innerWidth+1};});
+  const before=await page.evaluate(()=>{const form=document.querySelector('[data-expense-form]'),button=form.querySelector('[data-expense-save]').getBoundingClientRect();return {pageScroll:document.documentElement.scrollHeight>innerHeight+1,formScroll:form.scrollHeight>form.clientHeight+1,formScrollDelta:form.scrollHeight-form.clientHeight,buttonBottom:button.bottom,wide:document.documentElement.scrollWidth>innerWidth+1};});
   assert(!before.wide);if(width>=1024){assert(!before.pageScroll,JSON.stringify(before));assert(!before.formScroll,JSON.stringify(before));assert(before.buttonBottom<=height-51);}
   await page.screenshot({path:`test-results/phone-delivery/expense-stock-${width}-${role}.png`,fullPage:true});
   await form.locator('[data-expense-save]').click();
@@ -56,7 +56,7 @@ const shell='<style>body{margin:0;font-family:Arial,sans-serif}.app-head{height:
   await form.locator('[name="description"]').fill('مشتريات عامة');await form.locator('[name="amount"]').fill('10');
   await form.locator('[data-expense-save]').click();await page.waitForFunction(()=>document.querySelector('[data-expense-message] span').textContent==='تم حفظ المصروف.');
   assert.equal(posted.length,2);assert(!('quantity_kg' in posted[1]),'unlinked expenses must send no stale kilograms');
-  if(approve){await page.locator('[data-expense-categories-open]').first().click();assert.equal(await page.locator('[data-expense-protected]:disabled').count(),2);await page.locator('[data-expense-categories-close]').click();}
+  if(approve){await page.locator('[data-expense-categories-open]').first().click();assert.equal(await page.locator('[data-expense-protected]:disabled').count(),1);await page.locator('[data-expense-categories-close]').click();}
   for(const name of ['payment_reference','supplier','cost_center','attachment','notes'])assert(!(name in posted[0]));
   assert.deepEqual(errors,[]);console.log({width,height,role,...before});await page.close();
  }}finally{await browser.close();}

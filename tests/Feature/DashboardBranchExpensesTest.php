@@ -253,7 +253,7 @@ class DashboardBranchExpensesTest extends TestCase
     public function test_new_categories_are_usable_in_scoped_expenses_filters_prints_and_exports(): void
     {
         $r=app(\App\Services\Dashboard\ExpenseCategories::class)->save(['name'=>'أدوات نظافة','idempotency_key'=>$this->key(984)],$this->actor(1));$category=$r['category']['key'];
-        $item=$this->create(985,['category'=>$category]);$this->assertSame('أدوات نظافة',$item['category_name']);
+        $item=$this->create(985,['category'=>$category]);$this->assertSame('أدوات نظافة',$item['category_base_name']);$this->assertSame('أدوات نظافة — فرع Main',$item['category_name']);
         $listing=$this->service()->listing(['branch'=>'f:100','category'=>$category],$this->actor());$this->assertCount(1,$listing['items']);$this->assertSame('أدوات نظافة',$listing['categories'][$category]);
         $this->assertCount(0,$this->service()->listing(['branch'=>'f:101','category'=>$category],$this->actor(11))['items']);
         $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$item['id']]))->assertStatus(410);$this->get(route('branch-expenses.report',['branch'=>'f:100','category'=>$category]))->assertOk()->assertSee('أدوات نظافة');
@@ -277,13 +277,13 @@ class DashboardBranchExpensesTest extends TestCase
             $removed=$categories->save($delete,$owner);$this->assertFalse($removed['category']['active']);$this->assertSame('Revised '.$i,$removed['categories'][$item['key']]);$this->assertArrayNotHasKey($item['key'],$removed['active_categories']);
             $this->assertTrue($categories->save($delete,$owner)['replayed']);
             $this->invalid(fn()=>$this->create(940+$i,['category'=>$item['key']]));
-            $r=$this->service()->listing(['branch'=>'f:100','category'=>$item['key']],$this->actor());$this->assertCount(1,$r['items']);$this->assertSame('Revised '.$i,$r['items'][0]['category_name']);$this->assertSame([],$r['category_items']);
+            $r=$this->service()->listing(['branch'=>'f:100','category'=>$item['key']],$this->actor());$this->assertCount(1,$r['items']);$this->assertSame('Revised '.$i.' — فرع Main',$r['items'][0]['category_name']);$this->assertSame([],$r['category_items']);
             $this->actingAs($this->actor(),'admin');$this->get(route('branch-expenses.print',['id'=>$r['items'][0]['id']]))->assertStatus(410);
         }
         $this->assertSame(2,DB::table('branch_expenses')->count());$this->assertSame(25100,(int)DB::table('branch_expenses')->sum('amount_cents'));
         // Registered expenses remain immutable even when their category is removed.
         $this->denied(fn()=>$this->create(950,['expense_id'=>$pending['id'],'expected_revision'=>$pending['revision'],'category'=>$custom['key'],'description'=>'Corrected']),403);
-        $this->assertSame('Revised 0',$this->service()->show($pending['id'],$this->actor())['expense']['category_name']);
+        $this->assertSame('Revised 0 — فرع Main',$this->service()->show($pending['id'],$this->actor())['expense']['category_name']);
         $restored=$categories->save(['name'=>'Revised 0','idempotency_key'=>$this->key(951)],$owner);$this->assertSame($custom['key'],$restored['category']['key']);$this->assertTrue($restored['category']['active']);$this->assertSame(3,$restored['category']['revision']);
         $this->create(952,['category'=>$custom['key']]);
     }

@@ -4,7 +4,7 @@ return [
     'kg'=>'kg',
     'stock_hint'=>'Saving this expense adds the quantity to this branch’s inventory.',
     'quantity_invalid'=>'Enter a positive quantity up to 1,000,000 kg with at most 3 decimal places.',
-    'stock_category_fixed'=>'Inventory category shared by all branches.',
+    'stock_category_fixed'=>'Rename this category while keeping its inventory link; deletion is unavailable.',
     'stock_received'=>'Added to inventory',
     'stock_reversed'=>'Inventory addition reversed',
 
@@ -13,7 +13,7 @@ return [
     'save_category_edit'=>'Save changes',
     'delete_category'=>'Delete category',
     'confirm_delete_category'=>'Remove this category from new expenses? Existing expenses will be preserved.',
-    'category_help'=>'Add, edit or remove categories. Removing a category preserves all previously recorded expenses.',
+    'category_help'=>'Renaming a category applies to all branches. Branch names distinguish expenses, and purchase categories keep their inventory links.',
     'category_removed'=>'Category removed from new expense choices.',
     'no_categories'=>'No categories. Add your first expense category.',
     'deleted_category'=>'Deleted',
