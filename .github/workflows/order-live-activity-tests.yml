@@ -1,0 +1,43 @@
+name: Customer order tracking and Live Activity
+
+on:
+  push:
+    branches: ['codex/order-live-activity-sync-20261018']
+  pull_request:
+    paths:
+      - 'app/Services/OrderTrackingState.php'
+      - 'app/Services/Dashboard/*LiveActivity*'
+      - 'app/Services/Dashboard/OrderProviderDelivery.php'
+      - 'app/Http/Controllers/Api/V1/User/OrderLiveActivityController.php'
+      - 'routes/order_live_activity.php'
+      - 'tests/*tracking*'
+      - 'tests/*live_activity*'
+      - 'deployment/apply_order_live_activity*'
+      - '.github/workflows/order-live-activity-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tracking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, curl
+          coverage: none
+      - name: Install isolated test dependencies
+        run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress
+      - name: Verify real order lifecycle and device registration
+        env:
+          ORDER_BOARD_TEST_VENDOR: ${{ github.workspace }}/tests/desktop_pos_runtime/vendor
+        run: |
+          php tests/order_tracking_sync_runtime.php
+          php tests/order_live_activity_runtime.php
+      - name: Verify scoped installer
+        run: python3 tests/test_order_live_activity_install.py
