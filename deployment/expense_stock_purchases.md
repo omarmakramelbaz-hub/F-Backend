@@ -19,3 +19,9 @@ Private backups and a JSON receipt are saved beside the application in `expense-
 `python3 tests/test_expense_stock_purchases_install.py` uses private real Git repositories and mocked database calls. It covers check-only behavior, targeted preservation, conflicts, new-file collisions, metadata, reruns, publication order, scoped migration failure, rollback after migration, concurrent changes, symlink refusal, and schema reply validation. Business integration coverage is in `tests/expense_stock_integration_test.php`.
 
 Final local verification: 206 real-service SQLite integration checks, 63 stock-ledger checks, 13 installer tests, and 12 DOM checks of the actual expense script passed. PHP, JavaScript, and shell syntax checks passed. Full Playwright visual checks could not run in the local environment because a Chromium binary was unavailable; the browser test is included for a browser-enabled environment. Live MySQL concurrency and server execution are not represented by the SQLite suite.
+
+## Live source compatibility
+
+The observed 2026-10-18 server has the original direct attachment store/cleanup and no desktop schema/bootstrap export pair. The installer preserves those three reviewed attachment differences by building checked, reversible release hunks against that exact legacy variant. It does not add a desktop attachment dependency. Desktop export files are skipped only when both are absent; a half-present pair stops for review. Skipped paths are recorded in the receipt and checked for concurrent creation.
+
+Compatibility verification reconstructs the supplied server source exactly (BranchExpenses blob d29f769e4efcf5f1be1570fbad887ba90b8b23ca), reproduces the prior failure and verifies successful targeted install, retry, unrelated-edit preservation, conflict rejection, complete desktop mode and rollback. All 24 installer tests pass. All 206 business integration checks also pass with the actual patched legacy BranchExpenses class preloaded.

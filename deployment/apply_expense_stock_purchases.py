@@ -2,6 +2,7 @@
 """Apply reviewed expense/inventory hunks and only their additive receipt migration."""
 import argparse
 import datetime
+import difflib
 import fcntl
 import hashlib
 import json
@@ -31,6 +32,11 @@ MODIFIED_PATHS = (
     'resources/lang/en/expenses.php',
 )
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
+BRANCH_EXPENSES = 'app/Services/Dashboard/BranchExpenses.php'
+DESKTOP_PATHS = (
+    'app/Services/Dashboard/DesktopDashboardSchema.php',
+    'app/Services/Dashboard/DesktopDashboardBootstrap.php',
+)
 MAX_BYTES = 4 * 1024 * 1024
 
 
@@ -132,7 +138,8 @@ if ($source === false) { throw new RuntimeException('BLADE_SOURCE_UNREADABLE'); 
 token_get_all($compiler->compileString($source), TOKEN_PARSE);
 """
     node = shutil.which('node')
-    for relative in SOURCE_PATHS:
+    paths, _ = deployment_paths(directory)
+    for relative in paths:
         if relative.endswith('.blade.php'):
             result = run([php, '-r', blade_program, str(autoload),
                           str(directory / relative), str(cache_directory)])
@@ -265,6 +272,53 @@ def release_body(root, revision, relative):
     return result.stdout
 
 
+def legacy_expense_source(body):
+    """Retain precisely the three attachment differences reviewed on the live server."""
+    replacements = (
+        (b'        // A journal/reconciliation transaction can fail after this nested service returns.\n'
+         b'        // Immutable private bytes must survive that rollback so the same UUID can retry.\n'
+         b'        $enclosed=DB::transactionLevel()>0;\n', b''),
+        (b'$path=$enclosed?app(DesktopDashboardExpenseAttachments::class)->store($file,$v,(int)$actor->id):'
+         b"$file->store('branch-expenses','local');",
+         b"$path=$file->store('branch-expenses','local');"),
+        (b'if($path&&!$keepUpload&&!$enclosed)Storage::disk',
+         b'if($path&&!$keepUpload)Storage::disk'),
+    )
+    require(all(body.count(before) == 1 for before, _ in replacements),
+            'LEGACY_EXPENSE_ATTACHMENT_SOURCE_NEEDS_REVIEW')
+    for before, after in replacements:
+        body = body.replace(before, after, 1)
+    return body
+
+
+def legacy_expense_patch(root, revision):
+    """Generate scoped release hunks against the reviewed attachment implementation."""
+    before = legacy_expense_source(release_body(root, BASE_REVISION, BRANCH_EXPENSES))
+    after = legacy_expense_source(release_body(root, revision, BRANCH_EXPENSES))
+    body = (('diff --git a/' + BRANCH_EXPENSES + ' b/' + BRANCH_EXPENSES + '\n').encode()
+            + b''.join(difflib.diff_bytes(difflib.unified_diff,
+                       before.splitlines(keepends=True), after.splitlines(keepends=True),
+                       fromfile=('a/' + BRANCH_EXPENSES).encode(),
+                       tofile=('b/' + BRANCH_EXPENSES).encode(), n=3)))
+    require(before != after and len(body) <= MAX_BYTES,
+            'LEGACY_EXPENSE_ATTACHMENT_PATCH_INVALID')
+    return body
+
+
+def deployment_paths(root):
+    """The desktop export pair is optional only when both live files are absent."""
+    absent = [relative for relative in DESKTOP_PATHS
+              if read_source(root / relative, absent_ok=True)[0] is None]
+    require(len(absent) in (0, len(DESKTOP_PATHS)), 'DESKTOP_EXPORT_PAIR_NEEDS_REVIEW')
+    return tuple(relative for relative in SOURCE_PATHS if relative not in absent), absent
+
+
+def check_skipped_paths(root, skipped):
+    for relative in skipped:
+        require(read_source(root / relative, absent_ok=True)[0] is None,
+                'LIVE_FILE_CHANGED_DURING_PREFLIGHT: ' + relative)
+
+
 def save_receipt(path, receipt):
     safe(path)
     descriptor, name = tempfile.mkstemp(prefix='.receipt-', dir=path.parent)
@@ -327,8 +381,9 @@ def install(root, revision, php, check_only=False):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with tempfile.TemporaryDirectory(prefix='preflight-', dir=private) as temporary:
             stage = Path(temporary)
+            paths, skipped = deployment_paths(root)
             originals, pending = {}, []
-            for index, relative in enumerate(SOURCE_PATHS):
+            for index, relative in enumerate(paths):
                 before, source_info = read_source(root / relative, absent_ok=relative in NEW_PATHS)
                 originals[relative] = (before, source_info)
                 staged = stage / relative
@@ -345,18 +400,26 @@ def install(root, revision, php, check_only=False):
                 # Reverse first prevents duplicate insertion-only hunks on reruns.
                 if relative not in NEW_PATHS and patch_check(stage, patch, reverse=True):
                     continue
+                if relative == BRANCH_EXPENSES and not patch_check(stage, patch):
+                    patch = stage / ('patch-' + str(index) + '-legacy-attachments.diff')
+                    patch.write_bytes(legacy_expense_patch(root, revision))
+                    if patch_check(stage, patch, reverse=True):
+                        continue
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 require(patch_apply(stage, patch), 'STAGED_PATCH_FAILED: ' + relative)
                 pending.append((relative, patch, staged.read_bytes()))
             lint_sources(php, stage, root, stage / '.blade-cache')
             initial_schema = schema_state(root, php)
-            for relative in SOURCE_PATHS:
+            for relative in paths:
                 require(unchanged(root / relative, originals[relative]),
                         'LIVE_FILE_CHANGED_DURING_PREFLIGHT: ' + relative)
+            check_skipped_paths(root, skipped)
             if not pending and initial_schema['recorded']:
-                print('EXPENSE_STOCK_PURCHASES_OK already_current=1 files=0', flush=True)
+                print('EXPENSE_STOCK_PURCHASES_OK already_current=1 files=0'
+                      + ' skipped=' + str(len(skipped)), flush=True)
                 return None
             print('EXPENSE_STOCK_PURCHASES_PREFLIGHT_OK files=' + str(len(pending))
+                  + ' skipped=' + str(len(skipped))
                   + ' migration_required=' + str(int(not initial_schema['recorded'])), flush=True)
             if check_only:
                 return None
@@ -364,7 +427,8 @@ def install(root, revision, php, check_only=False):
             backup = Path(tempfile.mkdtemp(prefix=stamp + revision[:10] + '-', dir=private))
             receipt = {'revision': revision, 'base_revision': BASE_REVISION, 'status': 'prepared',
                        'migration': MIGRATION, 'schema_before': initial_schema,
-                       'migration_attempted': False, 'database_rollback_attempted': False, 'files': []}
+                       'migration_attempted': False, 'database_rollback_attempted': False,
+                       'skipped_paths': skipped, 'files': []}
             for relative, patch, after in pending:
                 before, source_info = originals[relative]
                 saved = backup / relative
@@ -381,9 +445,10 @@ def install(root, revision, php, check_only=False):
             (backup / 'release.diff').write_bytes(b''.join(p.read_bytes() for _, p, _ in pending))
             receipt_path = backup / 'receipt.json'
             save_receipt(receipt_path, receipt)
-            for relative in SOURCE_PATHS:
+            for relative in paths:
                 require(unchanged(root / relative, originals[relative]),
                         'LIVE_FILE_CHANGED_BEFORE_INSTALL: ' + relative)
+            check_skipped_paths(root, skipped)
             require(schema_state(root, php) == initial_schema, 'SCHEMA_CHANGED_DURING_PREFLIGHT')
             applied = []
             try:
@@ -409,6 +474,7 @@ def install(root, revision, php, check_only=False):
                         require(read_source(root / relative)[0] == after,
                                 'LIVE_FILE_CHANGED_DURING_INSTALL: ' + relative)
                 lint_sources(php, root, root, stage / '.blade-cache')
+                check_skipped_paths(root, skipped)
                 final_schema = schema_state(root, php)
                 require(all(final_schema.values()), 'EXPENSE_STOCK_POSTCHECK_FAILED')
                 for relative, _, after in pending:
@@ -428,7 +494,7 @@ def install(root, revision, php, check_only=False):
             receipt['schema_after'] = final_schema
             save_receipt(receipt_path, receipt)
             print('EXPENSE_STOCK_PURCHASES_OK files=' + str(len(pending))
-                  + '; BACKUP=' + str(backup), flush=True)
+                  + ' skipped=' + str(len(skipped)) + '; BACKUP=' + str(backup), flush=True)
             return backup
 
 
