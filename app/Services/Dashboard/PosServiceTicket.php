@@ -111,7 +111,7 @@ class PosServiceTicket
                 'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>$when];
             if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
-            else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
+            else{$data+=app(BranchOrderSequence::class)->next($v['branch'],$channel);$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
             $directory=app(CustomerDirectory::class);
             $customer=$directory->capture($v,$channel==='phone'?'delivery':'dine',$v['branch']);
             if($customer&&(!empty($v['service_consent'])||!empty($v['marketing_consent']))) {
@@ -226,6 +226,7 @@ class PosServiceTicket
             'quote_hash'=>$q['quote_hash']??null,'discount_reason'=>$cart['discount_reason']??'','bill_print_url'=>!$paid||$canReprint?route($prefix.'.print',['id'=>$row->id]):null,
             'kitchen_print_url'=>$row->last_kitchen_id?route($prefix.'.kitchen',['id'=>$row->last_kitchen_id]):null,
             'can_reprint'=>$canReprint,'receipt_url'=>$row->paid_order_id&&$canReprint?route('takeaway.print',['id'=>$row->paid_order_id]):null];
+        if(!empty($row->shift_order_number))$data['number']=BranchOrderSequence::display($row,$row->branch,$row->channel,(string)$row->id);
         foreach(['subtotal','discount','tax','tax_rate','service','service_rate','delivery','total'] as $key)$data[$key]=$q[$key]??'0.00';
         if($full){$data['items']=$q['items'];$data['cart']=$cart+['delivery_fee'=>Money::decimal((int)$row->delivery_cents)];}
         return $data;

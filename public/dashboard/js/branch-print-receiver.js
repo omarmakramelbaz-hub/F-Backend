@@ -36,20 +36,24 @@
             if (latest !== null && state.latest > latest) alertOrder();
             latest = state.latest;
             report(result.attention ? boot.labels.attention : boot.labels.ready);
-            for (var job of result.jobs || []) {
+            await processJobs(result.jobs || [],boot);
+            if(boot.shifts){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
+        } catch (_) { if (!stopped) report(boot.labels.offline); }
+        finally { if (!stopped) timer = setTimeout(poll,2500); }
+    }
+    async function processJobs(jobs,queue){
+            for (var job of jobs) {
                 if (stopped) break;
                 var values = { branch: boot.branch, job_id: job.id, claim_token: crypto.randomUUID() }, claim;
-                try { claim = await request(boot.claim,values); }
+                try { claim = await request(queue.claim,values); }
                 catch (error) { if (error.status === 409) continue; throw error; }
                 if (stopped) break;
                 var printed = 'failed';
                 try { if (!window.DashboardPrint) throw new Error('Printer unavailable'); await window.DashboardPrint.print(address(claim.print_url)); printed = 'invoked'; }
                 catch (_) { report(boot.labels.attention); }
                 if (stopped) break;
-                await request(boot.complete,Object.assign({},values,{result:printed}));
+                await request(queue.complete,Object.assign({},values,{result:printed}));
             }
-        } catch (_) { if (!stopped) report(boot.labels.offline); }
-        finally { if (!stopped) timer = setTimeout(poll,2500); }
     }
     window.addEventListener('pagehide', function () { stopped = true; clearTimeout(timer); });
     timer = setTimeout(poll,500);

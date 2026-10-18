@@ -9,7 +9,7 @@ class DesktopDashboardSchema
         'branch_attendance_rules','branch_employees','branch_employee_days','branch_employee_entries','branch_employee_salaries','branch_expenses',
         'branch_expense_categories','branch_expense_category_commands','branch_expense_category_settings','branch_expense_category_overrides','branch_expense_commands','branch_inventory',
         'branch_inventory_movements','branch_operation_commands','branch_payrolls','branch_recipe_sales','branch_shift_closings',
-        'branch_shift_sources','branch_stock','branch_stock_movements','branch_stock_recipes','carts',
+        'branch_shift_sources','branch_order_sequences','branch_shift_print_jobs','branch_stock','branch_stock_movements','branch_stock_recipes','carts',
         'categories','commissions','contacts','contracts','conversations',
         'coupon_subscripes','coupon_wheels','coupon_wheel_resturants','dashboard_push_campaigns','dashboard_push_devices',
         'delegate_notifications','desktop_pos_devices','desktop_pos_operations','desktop_pos_orders','desktop_pos_snapshots',
@@ -29,7 +29,7 @@ class DesktopDashboardSchema
         'users','user_address','user_tokens','wallets','wishlists',
         'zayed_price_release_20260923',
     ];
-    public const EMPTY=['failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
+    public const EMPTY=['branch_shift_print_jobs','failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
         'desktop_pos_devices','desktop_pos_operations','desktop_pos_orders','desktop_pos_snapshots',
         'go_service_outbox','menu_price_release_20260923','store_delivery_release_20260923','zayed_price_release_20260923','migrations'];
 }

@@ -147,6 +147,7 @@ class TakeawayService
                 'service_bps'=>$quote['service_bps'],'service_cents'=>$quote['service_cents'],'delivery_cents'=>$quote['delivery_cents'],
                 'context_snapshot'=>json_encode($customer,JSON_UNESCAPED_UNICODE), 'tenders_snapshot'=>json_encode(array_values($tenders),JSON_UNESCAPED_UNICODE),
             ];
+            $orderValues += app(BranchOrderSequence::class)->forSale($branch['value'],$context['channel']??'takeaway',isset($context['ticket_id'])?(int)$context['ticket_id']:null);
             $id=DB::table('takeaway_orders')->insertGetId($orderValues);
             foreach ($quote['items'] as $line) DB::table('takeaway_order_items')->insert([
                 'order_id'=>$id, 'product_id'=>$line['product_id'], 'name'=>$line['name'],
@@ -427,7 +428,7 @@ class TakeawayService
             'unit'=>$line->unit ?? '', 'quantity_mode'=>$line->quantity_mode, 'quantity'=>$this->catalog->quantity((int) $line->quantity_millis),
             'unit_price'=>Money::decimal((int) $line->unit_price_cents), 'total'=>Money::decimal((int) $line->total_cents),
         ])->all();
-        $receipt = ['id'=>(int) $row->id, 'number'=>'TA-'.strtoupper(str_replace(':', '-', $row->branch)).'-'.str_pad((string) $row->id, 7, '0', STR_PAD_LEFT),
+        $receipt = ['id'=>(int) $row->id, 'number'=>BranchOrderSequence::display($row,$row->branch,$row->channel??'takeaway','TA-'.strtoupper(str_replace(':', '-', $row->branch)).'-'.str_pad((string) $row->id, 7, '0', STR_PAD_LEFT)),
             'idempotency_key'=>$row->request_key, 'branch'=>json_decode($row->branch_snapshot, true), 'cashier'=>json_decode($row->cashier_snapshot, true),
             'business_date'=>$row->business_date, 'created_at'=>$this->iso($row->created_at), 'items'=>$items,
             'payment_method'=>$row->payment_method, 'payment_confirmed'=>(bool) $row->payment_confirmed,
