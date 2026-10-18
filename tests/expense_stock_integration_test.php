@@ -32,7 +32,7 @@ function database_path($path = '') { return dirname(__DIR__).'/database/'.$path;
 function trans($key, $replace = [], $locale = null) { return app('translator')->get($key, $replace, $locale); }
 function __($key, $replace = [], $locale = null) { return trans($key, $replace, $locale); }
 class ExpenseStockApplication extends Container { public function getLocale() { return 'ar'; } }
-class ExpenseStockUser extends \Illuminate\Database\Eloquent\Model { protected $table = 'users'; public function can($permission) { return false; } }
+class ExpenseStockUser extends \Illuminate\Database\Eloquent\Model { protected $table = 'users'; public function can($permission) { return (int)$this->id===2&&$permission==='order-list'; } }
 class_alias(ExpenseStockUser::class, 'App\\Models\\User');
 
 $container = new ExpenseStockApplication;
@@ -54,9 +54,11 @@ config(['app.timezone' => 'Africa/Cairo']);
 \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-18T12:00:00Z'));
 
 Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('account_type'); $t->unsignedBigInteger('owner_resturant_id')->nullable(); });
+Schema::create('permissions', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('guard_name'); });
+DB::table('permissions')->insert(['name'=>'order-list','guard_name'=>'admin']);
 Schema::create('resturants', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->unsignedBigInteger('parent_id')->nullable(); $t->string('name'); });
 Schema::create('resturant_products', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('resturant_id'); $t->string('product_name'); $t->string('status')->default('show'); });
-foreach ([[1, 'admin', null], [10, 'vendor', null], [11, 'vendor', null], [12, 'resturant_owner', 100]] as [$id, $type, $parent]) DB::table('users')->insert(['id' => $id, 'name' => 'اختبار '.$id, 'account_type' => $type, 'owner_resturant_id' => $parent]);
+foreach ([[1, 'admin', null], [2, 'admin', null], [10, 'vendor', null], [11, 'vendor', null], [12, 'resturant_owner', 100]] as [$id, $type, $parent]) DB::table('users')->insert(['id' => $id, 'name' => 'اختبار '.$id, 'account_type' => $type, 'owner_resturant_id' => $parent]);
 DB::table('resturants')->insert([['id' => 100, 'user_id' => 10, 'name' => 'المحلة'], ['id' => 101, 'user_id' => 11, 'name' => 'المنصورة']]);
 foreach ([
     '2026_10_03_140000_create_takeaway_pos.php' => 'CreateTakeawayPos',
@@ -122,17 +124,34 @@ foreach (['زيت', 'خل'] as $name) check(DB::table('stock_ingredients')->wher
 
 $categories = app(ExpenseCategories::class);
 $choices = $categories->choices(true);
+$categorySequence=900;
 foreach (ExpenseStockPurchases::CATEGORIES as $category => $name) {
     check(isset($choices['active_categories'][$category]), 'shared category '.$category.' is available to Mahalla and other branches');
-    foreach (['update', 'delete'] as $action) {
-        $before = json_encode($categories->catalog());
-        denied(fn () => $categories->save(['action' => $action, 'key' => $category, 'name' => 'بند آخر', 'expected_revision' => 0, 'idempotency_key' => keyFor(890)], actor(1)), 422, 'protected '.$category.' cannot '.$action);
-        check(json_encode($categories->catalog()) === $before, 'protected category rejection preserves shared choices');
-    }
+    $rename=['action'=>'update','key'=>$category,'name'=>'مشتريات يومية '.++$categorySequence,'expected_revision'=>0,'idempotency_key'=>keyFor($categorySequence)];
+    $before=databaseSnapshot();$renamed=$categories->save($rename,actor(1));
+    check($renamed['category']['name']===$rename['name']&&$renamed['category']['revision']===1&&$renamed['category']['active'], 'primary owner can rename '.$category.' without resetting its revision');
+    $fresh=(new ExpenseCategories)->catalog()[$category];
+    check($fresh['name']===$rename['name']&&$fresh['revision']===1&&$fresh['stock_category']===$category, 'fresh catalog keeps renamed '.$category.' linked to its original material');
+    check(databaseSnapshot()===$before, 'renaming '.$category.' never changes expenses or either ledger');
+    $replayed=$categories->save($rename,actor(1));
+    check($replayed['replayed']&&$replayed['category']===$renamed['category']&&DB::table('branch_expense_category_commands')->where('request_key',$rename['idempotency_key'])->count()===1, 'category rename replay preserves one revision and command for '.$category);
+    denied(fn ()=>$categories->save(array_merge($rename,['idempotency_key'=>keyFor($categorySequence+100)]),actor(1)),409,'stale revision cannot rename '.$category.' again');
+    denied(fn ()=>$categories->save(array_merge($rename,['name'=>'اسم مختلف']),actor(1)),409,'rename request key cannot be reused with different input for '.$category);
+    $before = json_encode($categories->catalog());
+    denied(fn () => $categories->save(['action' => 'delete', 'key' => $category, 'expected_revision' => 1, 'idempotency_key' => keyFor(890)], actor(1)), 422, 'linked '.$category.' still cannot be deleted');
+    check(json_encode($categories->catalog()) === $before, 'linked category delete rejection preserves shared choices');
     foreach ([null, '', '0', '-1', '0.000', '1.0001', '1000000.001', '2e3'] as $invalid) noWrites(fn () => saveExpense(100, ['category' => $category, 'quantity_kg' => $invalid]), 422, $category.' rejects missing or invalid kilograms '.var_export($invalid, true));
 }
+$choices=$categories->choices(true);
 check(($choices['stock_categories']['custom_1'] ?? null) === 'purchase_pepper', 'legacy material category alias resolves to the stock item');
 check(($choices['stock_categories']['custom_4'] ?? null) === 'purchase_onion', 'branch suffix on legacy onion category resolves to the stock item');
+check($categories->filterKeys('purchase_pepper')===['custom_1','purchase_pepper']&&$categories->catalog()['custom_1']['name']===$choices['active_categories']['purchase_pepper'], 'renamed material keeps original branch alias in its canonical group and display name');
+foreach (['طماطم','tomatoes','أدوات نظافة',$choices['active_categories']['purchase_onion']] as $collision) denied(fn ()=>$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>$collision,'expected_revision'=>1,'idempotency_key'=>keyFor(980)],actor(1)),422,'linked rename rejects another shared name or material alias: '.$collision);
+foreach ([2,10,11,12] as $actorId) {
+    $before=json_encode($categories->catalog());
+    denied(fn ()=>$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>'اسم غير مصرح','expected_revision'=>1,'idempotency_key'=>keyFor(981)],actor($actorId)),403,'existing actor '.$actorId.' cannot manage shared expense categories');
+    check(json_encode($categories->catalog())===$before,'unauthorized category rename leaves vocabulary unchanged');
+}
 $cleaning = array_filter($choices['active_categories'], fn ($name) => mb_strpos($name, 'نظافة') !== false);
 check(count($cleaning) === 1, 'duplicate branch-specific expense names have one shared active choice');
 $categoryResult = $categories->save(['name' => 'أدوات نظافة المنصورة', 'idempotency_key' => keyFor(850)], actor(1));
@@ -153,6 +172,14 @@ check($expense['status'] === 'pending' && !$first['replayed'], 'new linked expen
 check(quantityFor('f:100', 'فلفل') === 3250000 && quantityFor('f:101', 'فلفل') === 9000000, 'Arabic decimal kilograms increase only the selected branch stock');
 check(DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents') === 100000 && DB::table('takeaway_till_entries')->count() === 0, 'pending expense leaves drawer cash unchanged');
 check(DB::table('expense_inventory_receipts')->where('expense_id', $expense['id'])->count() === 1 && DB::table('branch_inventory_movements')->where('source_type', 'expense')->count() === 1, 'one linked receipt and one inventory ledger movement are recorded');
+$beforeRename=databaseSnapshot();
+$savedCommand=DB::table('branch_expense_commands')->where('expense_id',$expense['id'])->value('snapshot');
+$materialRename=$categories->save(['action'=>'update','key'=>'purchase_pepper','name'=>'توريدات المطبخ','expected_revision'=>1,'idempotency_key'=>keyFor(910)],actor(1));
+$renamedExpense=app(BranchExpenses::class)->show($expense['id'],actor())['expense'];
+check($materialRename['category']['revision']===2&&$renamedExpense['category_base_name']==='توريدات المطبخ'&&$renamedExpense['category_name']==='توريدات المطبخ — فرع المحلة','expense displays updated shared name beside its actual branch');
+check(databaseSnapshot()===$beforeRename&&DB::table('branch_expense_commands')->where('expense_id',$expense['id'])->value('snapshot')===$savedCommand,'renaming a category preserves existing expense receipt, ingredient and immutable audit snapshot');
+check($renamedExpense['stock_category']==='purchase_pepper'&&$renamedExpense['stock_item_name']==='فلفل'&&$renamedExpense['stock_quantity_kg']==='1.25','renamed purchase retains original material and kilogram metadata');
+noWrites(fn()=>saveExpense(982,['quantity_kg'=>null]),422,'second arbitrary material rename still requires kilograms');
 $replay = saveExpense(1, ['quantity_kg' => '1.25']);
 check($replay['replayed'] && $replay['expense']['id'] === $expense['id'] && quantityFor('f:100', 'فلفل') === 3250000, 'normalized retry returns original expense without adding goods twice');
 noWrites(fn () => saveExpense(1, ['quantity_kg' => '1.251']), 409, 'reusing request key with changed weight is rejected');
@@ -207,6 +234,14 @@ $listedIds = array_column($listing['items'], 'id');
 check(in_array($legacyId, $listedIds, true) && in_array($expense['id'], $listedIds, true), 'shared material filter includes historical alias and new canonical expenses');
 $otherListing = app(BranchExpenses::class)->listing(['branch' => 'f:101', 'from' => '2026-10-17', 'to' => '2026-10-18'], actor(11));
 check($listing['active_categories'] === $otherListing['active_categories'], 'Mahalla and Mansoura receive exactly the same active expense vocabulary');
+foreach ([1,2] as $actorId) {
+    $all=app(BranchExpenses::class)->listing(['branch'=>'all','from'=>'2026-10-17','to'=>'2026-10-18'],actor($actorId),true);
+    $branches=array_column($all['branches'],'name','value');
+    check(count(array_unique(array_column($all['items'],'branch')))===2,'authorized admin '.$actorId.' sees expenses from both branches');
+    foreach($all['items'] as $item) check($item['category_name']===$item['category_base_name'].' — فرع '.$branches[$item['branch']], 'all-branch export/list item '.$item['number'].' identifies its actual branch for actor '.$actorId);
+}
+denied(fn()=>app(BranchExpenses::class)->listing(['branch'=>'all','from'=>'2026-10-17','to'=>'2026-10-18'],actor()),403,'branch staff still cannot list all branches');
+check(!$renamedExpense['can_edit'],'renaming expense choices does not enable editing recorded expenses');
 check($voided['expense']['stock_quantity_kg'] === '1.25' && $voided['expense']['stock_item_name'] === 'فلفل' && $voided['expense']['stock_reversed'], 'expense response exposes original kilograms and reversed stock state');
 
 // A shared non-stock category remains one logical item through its full lifecycle.
@@ -226,6 +261,7 @@ check($categories->filterKeys($cleaningKey) === $aliasKeys, 'category restoratio
 $renamed = $categories->save(['action' => 'update', 'key' => $cleaningKey, 'name' => 'مستهلكات التنظيف', 'expected_revision' => $restored['category']['revision'], 'idempotency_key' => keyFor(862)], actor(1));
 check(!array_filter($renamed['active_categories'], fn ($name) => $name === 'أدوات نظافة') && array_keys(array_filter($renamed['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'renaming shared category leaves one new choice and no active old aliases');
 foreach ($aliasKeys as $aliasKey) check($categories->catalog()[$aliasKey]['name'] === 'مستهلكات التنظيف', 'renaming updates display name for historical alias '.$aliasKey);
+denied(fn()=>$categories->save(['action'=>'update','key'=>$cleaningKey,'name'=>'توريدات المطبخ','expected_revision'=>$renamed['category']['revision'],'idempotency_key'=>keyFor(983)],actor(1)),422,'ordinary category cannot collide with a renamed material category');
 $sameName = $categories->save(['name' => 'مستهلكات التنظيف - فرع المنصورة', 'idempotency_key' => keyFor(863)], actor(1));
 check($sameName['category']['key'] === $cleaningKey && DB::table('branch_expense_categories')->count() === 4 && array_keys(array_filter($sameName['active_categories'], fn ($name) => $name === 'مستهلكات التنظيف')) === [$cleaningKey], 'new request for renamed branch alias reuses exactly one shared key');
 check($categories->filterKeys($cleaningKey) === $aliasKeys, 'renaming preserves category group identity and historical filters');

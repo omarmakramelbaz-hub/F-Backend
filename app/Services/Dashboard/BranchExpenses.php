@@ -180,7 +180,10 @@ class BranchExpenses
     {
         $result=(array)$row;unset($result['attachment_path'],$result['attachment_hash'],$result['attachment_mime']);$result['id']=(int)$row->id;$result['revision']=(int)$row->revision;$result['actor_id']=(int)$row->actor_id;
         $result['number']='EXP-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT);$result['amount']=Money::decimal((int)$row->amount_cents);$result['actor_name']=$name;$result['reviewer_name']=$reviewer;$result['branch_name']=$branchName;
-        $result['category_name']=$categories[$row->category]??$row->category;
+        $result['category_base_name']=$categories[$row->category]??$row->category;
+        $branchLabel=trim($branchName)?:$row->branch;
+        if(str_starts_with($row->branch,'f:')&&!preg_match('/^فرع(?:\s|$)/u',$branchLabel))$branchLabel='فرع '.$branchLabel;
+        $result['category_name']=$result['category_base_name'].' — '.$branchLabel;
         $result['can_edit']=false;
         $result['attachment_url']=$row->attachment_path?route('branch-expenses.attachment',['id'=>$row->id]):null;
         $result['print_url']=null;return $result+$this->stockPurchases()->present($row);
