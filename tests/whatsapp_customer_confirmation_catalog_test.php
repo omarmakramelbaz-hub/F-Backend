@@ -92,16 +92,21 @@ namespace {
         $data=['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
             'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
         if(str_starts_with($case,'ai-')){
-            $data['items'][0]['option_hint']=$case==='ai-full-hint'?'مخلي صافي':'مخلي';
+            $data['items'][0]['option_hint']=match($case){'ai-full-hint'=>'مخلي صافي','ai-whole-full-hint'=>'كامل صافي',default=>'مخلي'};
+            $source=match($case){'ai-negated'=>'كيلو فسيخ بدون مخلي','ai-alternative'=>'كيلو فسيخ مخلي أو تنظيف',
+                'ai-shared'=>'كيلو فسيخ ورنجة مخلي','ai-private-hint'=>'كيلو فسيخ مخلي PRIVATE_OPTION_HINT',
+                'ai-whole-full-hint'=>'كيلو فسيخ كامل صافي',default=>'كيلو فسيخ مخلي صافي'};
+            if($case==='ai-private-hint')$data['items'][0]['option_hint']='PRIVATE_OPTION_HINT';
+            if($case==='ai-shared')$data['items'][]=['name'=>'رنجة','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null];
             $data['evidence_receipt']=['summary_format'=>'AI_CUSTOMER_ORDER_SUMMARY',
-                'ai_extraction'=>['items'=>[['quantity_source'=>$case==='ai-negated'?'كيلو فسيخ بدون مخلي':'كيلو فسيخ مخلي صافي']]]];
+                'ai_extraction'=>['items'=>[['quantity_source'=>$source]]]];
         }
         return$data;
     }
     function catalogProducts(){
         $case=getenv('WA_CATALOG_CASE');$options=[];$preparation=[];
         if(str_starts_with($case,'ai-')||in_array($case,['inline','whole','compact-many','option-label','option-id','option-empty','prep-invalid','prep-drift'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
-        if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift'],true))$preparation=[
+        if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift','ai-whole-full-hint'],true))$preparation=[
             ['id'=>'','label'=>'كامل','price'=>'100','feature_id'=>0,'product_clean'=>''],
             ['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120','feature_id'=>0,'product_clean'=>'extra_clear']];
         if($case==='prep-invalid')unset($preparation[0]['feature_id']);
@@ -210,8 +215,25 @@ foreach(['no-match'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','unavailable'=>'MATCHE
     'AI source clause survives diagnostic public-product lookup and selects actual live option');
 catalogExpect(!str_contains(json_encode($value),'quantity_source')&&!str_contains(json_encode($value),'ai_extraction'),
     'diagnostic keeps private source clause and selection out of output');
-foreach(['ai-negated','ai-full-hint']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===0&&!$value['items'][0]['mapped'],
-    'same source-proof guard rejects negation and unrecognized qualifiers '.$case);}
+$observation=$value['items'][0]['literal_candidates'][0]['source_option_observation'];
+catalogExpect($observation['available']&&$observation['actual_source_option_id']==='f:0:extra_clear'
+    &&$observation['without_hint_probe_option_id']==='f:0:extra_clear'&&!$observation['hint_blocks_explicit_source_choice']
+    &&$observation['hint_exact_live_label_ids']===['f:0:extra_clear'],'short live hint agrees with unchanged native clause');
+foreach(['ai-negated','ai-full-hint','ai-alternative','ai-shared','ai-private-hint','ai-whole-full-hint']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===0&&!$value['items'][0]['mapped'],
+    'same source-proof guard retains actual mapping rejection '.$case);
+    $observation=$value['items'][0]['literal_candidates'][0]['source_option_observation'];
+    $hintOnly=in_array($case,['ai-full-hint','ai-private-hint','ai-whole-full-hint'],true);
+    $probeOption=$case==='ai-whole-full-hint'?'':($hintOnly?'f:0:extra_clear':($case==='ai-negated'?'':null));
+    catalogExpect($observation['available']&&$observation['actual_source_option_id']===null
+        &&$observation['without_hint_probe_option_id']===$probeOption
+        &&$observation['probe_has_explicit_source_choice']===$hintOnly
+        &&$observation['hint_blocks_explicit_source_choice']===$hintOnly,
+        'counterfactual distinguishes hint coverage from native negation alternative or attribution '.$case);
+    catalogExpect($value['draft_unchanged_during_read']&&$value['snapshot_unchanged_during_read']
+        &&$value['catalog_unchanged_during_read'],'probe preserves actual receipt source and menu '.$case);
+}
+[$exit,$value]=catalogRun('valid');catalogExpect(!isset($value['items'][0]['literal_candidates'][0]['source_option_observation']),
+    'legacy receipt does not acquire a counterfactual AI observation');
 [$exit,$value]=catalogRun('duplicate-effective');catalogExpect($value['catalog']['duplicate_effective_item']&&$value['items'][1]['reason']==='DUPLICATE_EFFECTIVE_ITEM','duplicate effective identities remain separate blocker');
 foreach(['duplicate-name'=>'CATALOG_DUPLICATE_AVAILABLE_NAME','duplicate-id'=>'CATALOG_DUPLICATE_PRODUCT_ID','option-label'=>'CATALOG_DUPLICATE_OPTION_LABEL',
     'option-id'=>'CATALOG_DUPLICATE_OPTION_ID','option-empty'=>'CATALOG_OPTION_EMPTY_LABEL','malformed'=>'CATALOG_PRODUCT_MALFORMED','pages'=>'CATALOG_PAGINATION_LIMIT',

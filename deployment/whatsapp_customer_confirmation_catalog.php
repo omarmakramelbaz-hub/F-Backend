@@ -114,6 +114,31 @@ function waCatalogRead($workflow,string$branch,$actor):array{
     return['catalog'=>$reason===null?$catalog:null,'raw'=>$raw,'reason'=>$reason,'detail'=>$detail,'pages'=>$pages,
         'signature'=>hash('sha256',serialize([$catalog,$raw,$reason,$detail,$pages]))];
 }
+/** A local comparison isolates the cached hint guard; it grants no sale choice. */
+function waCatalogSourceOptionObservation($workflow,array$item,array$product,string$source,array$sourceItems):array{
+    $out=['scope'=>'DIAGNOSTIC_COUNTERFACTUAL_NOT_MAPPING_AUTHORITY','available'=>false,
+        'item_name_literal_in_source'=>str_contains($source,$item['name']),
+        'product_name_literal_in_source'=>str_contains($source,$product['name']),
+        'hint_present'=>is_string($item['option_hint']??null),'hint_exact_live_label_ids'=>[],
+        'actual_source_option_id'=>null,'without_hint_probe_option_id'=>null,
+        'probe_has_explicit_source_choice'=>null,'hint_blocks_explicit_source_choice'=>null];
+    $index=array_search($item,$sourceItems,true);if($index===false)return$out;
+    $hint=$item['option_hint']??null;
+    foreach(array_merge($product['options']??[],$product['preparation_options']??[])as$option)
+        if(is_string($hint)&&waCatalogCall($workflow,'name',[$hint])===waCatalogCall($workflow,'name',[$option['label']]))
+            $out['hint_exact_live_label_ids'][]=$option['id'];
+    $out['hint_exact_live_label_ids']=array_values(array_unique($out['hint_exact_live_label_ids']));
+    $actual=waCatalogCall($workflow,'customerReceiptSourceOption',[$item,$product,$source,$sourceItems]);
+    $probe=$item;$probe['option_hint']=null;$probeItems=$sourceItems;$probeItems[$index]=$probe;
+    $without=waCatalogCall($workflow,'customerReceiptSourceOption',[$probe,$product,$source,$probeItems]);
+    $out['available']=true;$out['actual_source_option_id']=$actual['option_id']??null;
+    $out['without_hint_probe_option_id']=$without['option_id']??null;
+    $probeId=$without['option_id']??null;$base=$without['explicit_base_preparation']??null;
+    $explicit=is_string($probeId)&&($probeId!==''||(is_string($base)&&$base!==''));
+    $out['probe_has_explicit_source_choice']=$explicit;
+    $out['hint_blocks_explicit_source_choice']=is_string($hint)&&$actual===null&&$explicit;
+    return$out;
+}
 function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,bool$compact=false,?string$branch=null,?string$itemSource=null,array$sourceItems=[]):array{
     $name=waCatalogCall($workflow,'customerReceiptName',[$item['name']]);$candidates=[];$matches=[];$defaults=[];$eligible=0;$available=0;$literal=0;
     foreach($catalog as$product){
@@ -134,8 +159,12 @@ function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,
             foreach($inline as$optionId)$matches[$product['id'].':'.$optionId]=['product_id'=>$product['id'],'option_id'=>$optionId];
         }
         $source=null;foreach($raw as$r)if((int)$r['id']===$product['id']){$source=$r;break;}
-        if(count($candidates)<($compact?3:30))$candidates[]=waCatalogPublicProduct($source??$product,$compact)+['base_name_exact'=>$baseMatch,
-            'inline_option_ids'=>$inline,'quantity_mode_matches'=>$mode,'default_option_resolved'=>$baseMatch?$default!==null:null];
+        if(count($candidates)<($compact?3:30)){
+            $candidate=waCatalogPublicProduct($source??$product,$compact)+['base_name_exact'=>$baseMatch,
+                'inline_option_ids'=>$inline,'quantity_mode_matches'=>$mode,'default_option_resolved'=>$baseMatch?$default!==null:null];
+            if($itemSource!==null)$candidate['source_option_observation']=waCatalogSourceOptionObservation($workflow,$item,$product,$itemSource,$sourceItems);
+            $candidates[]=$candidate;
+        }
     }
     $mapped=waCatalogCall($workflow,'customerReceiptItem',[$item,$catalog,$branch,$itemSource,$sourceItems]);
     $mappedProduct=null;if($mapped!==null)foreach($catalog as$product)if($product['id']===$mapped['product_id']){$mappedProduct=$product;break;}
