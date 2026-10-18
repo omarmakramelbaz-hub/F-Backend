@@ -12,7 +12,12 @@ function html(kind, boot) {
     const bootFile = path.join(tmp, `${kind}-boot.json`);
     fs.writeFileSync(bootFile, JSON.stringify(boot));
     const rendered = JSON.parse(cp.execFileSync(php, ['-r', render], { encoding: 'utf8', env: { ...process.env, QA_KIND: kind, QA_ROOT: root, QA_BOOT: bootFile, QA_CACHE: tmp } }));
-    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-token"><style>*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif}.content-wrapper{margin:0}</style><style>${fs.readFileSync(path.join(root, `public/dashboard/css/${kind}-pos.css`), 'utf8')}</style></head><body class="dashboard-theme dashboard-${kind}-page">${rendered.content}<script type="application/json" id="${kind}-bootstrap">${safe(boot)}</script><script type="application/json" id="${kind}-translations">${safe(rendered.labels)}</script><script>${fs.readFileSync(path.join(root, `public/dashboard/js/${kind}-pos.js`), 'utf8')}</script></body></html>`;
+    if (kind === 'dining' && process.env.POS_BRANCH_COMPACT_DETAIL === '1') {
+        rendered.content = rendered.content.replace(/<dl data-dining-detail><\/dl>/, '').replace(/<label><span>[^<]*<\/span><strong data-dining-table-number>[^<]*<\/strong><\/label>/, '');
+        assert(!rendered.content.includes('data-dining-detail>') && !rendered.content.includes('data-dining-table-number'), 'compact live fixture removes the old detail fields');
+    }
+    const scriptPath = kind === 'dining' && process.env.POS_BRANCH_DINING_JS || path.join(root, `public/dashboard/js/${kind}-pos.js`);
+    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-token"><style>*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif}.content-wrapper{margin:0}</style><style>${fs.readFileSync(path.join(root, `public/dashboard/css/${kind}-pos.css`), 'utf8')}</style></head><body class="dashboard-theme dashboard-${kind}-page">${rendered.content}<script type="application/json" id="${kind}-bootstrap">${safe(boot)}</script><script type="application/json" id="${kind}-translations">${safe(rendered.labels)}</script><script>${fs.readFileSync(scriptPath, 'utf8')}</script></body></html>`;
 }
 
 const branches=[{id:100,value:'f:100',name:'المحلة'},{id:101,value:'f:101',name:'المنصورة'}];
@@ -24,7 +29,7 @@ async function setup(browser,kind,stored){
  urls:{catalog:`/admin/${kind}/catalog`,quote:`/admin/${kind}/quote`,daily:'/admin/takeaway/receipts',tables:'/admin/dining/tables',show:'/admin/dining/tickets/__TICKET__'}};
  const rendered=html(kind,boot), page=await browser.newPage(), calls=[], errors=[];
  page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(stored=>{window.confirm=()=>true;window.DashboardInvoiceDetails={open:()=>{}};if(stored)sessionStorage.setItem('takeaway-invoices:v2:1',JSON.stringify(stored));},stored);
+ await page.addInitScript(stored=>{window.posBranchIntervals=[];const originalSetInterval=window.setInterval;window.setInterval=(callback,delay,...args)=>{window.posBranchIntervals.push({callback,delay});return originalSetInterval(callback,delay,...args);};window.confirm=()=>true;window.DashboardInvoiceDetails={open:()=>{}};if(stored)sessionStorage.setItem('takeaway-invoices:v2:1',JSON.stringify(stored));},stored);
  await page.route('**/*',async route=>{
   const request=route.request(),url=new URL(request.url());
   if(url.origin!=='https://pos.test')throw Error('External browser request forbidden');
@@ -73,6 +78,7 @@ async function setup(browser,kind,stored){
  assert.strictEqual(await uncertain.page.locator('[data-pos-branch]').inputValue(),'f:100','pending sale retains its immutable branch');
  assert(await uncertain.page.locator('[data-pos-branch]').isDisabled());
  const dining=await setup(browser,'dining');
+ if(process.env.POS_BRANCH_COMPACT_DETAIL==='1'){assert.strictEqual(await dining.page.locator('[data-dining-detail]').count(),0);assert.strictEqual(await dining.page.locator('[data-dining-table-number]').count(),0);assert.strictEqual(await dining.page.locator('[data-dining-detail-title]').count(),1);}
  await dining.page.locator('[data-dining-table="100"]').waitFor();
  await dining.page.locator('[data-dining-table="101"]').waitFor();
  assert.strictEqual(await dining.page.locator('[data-dining-branch]').inputValue(),'');
@@ -86,6 +92,10 @@ async function setup(browser,kind,stored){
  await dining.page.locator('[data-dining-branch]').selectOption('');
  await dining.page.locator('[data-dining-table="100"]').waitFor();
  assert.strictEqual(dining.calls.filter(call=>call.path.endsWith('/tables')).at(-1).payload.branch,'all');
+ const floorReads=dining.calls.filter(call=>call.path.endsWith('/tables')).length;
+ await dining.page.evaluate(()=>window.posBranchIntervals.filter(item=>item.delay===15000).forEach(item=>item.callback()));
+ await dining.page.waitForFunction(()=>document.querySelectorAll('[data-dining-table]').length===2);
+ assert(dining.calls.filter(call=>call.path.endsWith('/tables')).length>floorReads,'periodic floor refresh remains active with compact detail markup');
  for(const context of [takeaway,reset,draft,sold,uncertain,dining])assert.deepStrictEqual(context.errors,[]);
  console.log('POS all branches browser checks passed: default selection, aggregate receipts and floor, concrete table routing, draft/pending preservation, completed reset.');
 }finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}})().catch(error=>{console.error(error);process.exit(1);});

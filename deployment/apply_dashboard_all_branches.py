@@ -58,6 +58,9 @@ MODIFIED_PATHS = (
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
 BRANCH_EXPENSES = 'app/Services/Dashboard/BranchExpenses.php'
 BRANCH_STOCK_CONTROLLER = 'app/Http/Controllers/Dashboard/BranchStockController.php'
+DINING_POS = 'public/dashboard/js/dining-pos.js'
+DINING_DETAIL_BASE_SHA256 = 'b6d2704adc03b01b97754c14da5abea049f6e0709b52dfba6852267ab74d153b'
+DINING_DETAIL_SHORT = (b"    function renderDetail() { root.querySelector('[data-dining-detail-title]').textContent = selectedTable ? label('table') + ' ' + selectedTable.name : label('select_table'); }\n")
 STOCK_INDEX_ANCHOR = b'    public function index(Request $r,BranchStock $s)\n    {\n'
 STOCK_INDEX_REPLACEMENTS = (
     (b"        $actor=auth('admin')->user();$branches=$s->branches($actor);abort_unless(count($branches),403);$branch=$r->input('branch',$branches[0]['value']);\n",
@@ -254,22 +257,12 @@ def stock_controller_candidate(before, base, release):
     return prefix + STOCK_INDEX_ANCHOR + method + separator + rest
 
 
-def merge_candidate(stage, relative, before, base, release):
-    """Three-way merge preserves live edits and accepts already-applied release hunks."""
+def merge_text(stage, relative, before, base, release, scoped_candidate=None):
+    """Merge disposable complete sources, refusing every unresolved surrounding edit."""
     if before == release:
         return before
-    if relative in NEW_PATHS:
-        require(before is None, 'NEW_SOURCE_COLLISION_NEEDS_REVIEW: ' + relative)
-        return release
-    require(before is not None, 'LIVE_SOURCE_REQUIRED: ' + relative)
     if before == base:
         return release
-    compatibility = {
-        BRANCH_EXPENSES: expense_defaults_candidate,
-        BRANCH_STOCK_CONTROLLER: stock_controller_candidate,
-    }
-    scoped_candidate = (compatibility[relative](before, base, release)
-                        if relative in compatibility else None)
     merge_dir = Path(tempfile.mkdtemp(prefix='merge-', dir=stage))
     current_path, base_path, release_path = (merge_dir / name for name in ('current', 'base', 'release'))
     current_path.write_bytes(before)
@@ -284,6 +277,53 @@ def merge_candidate(stage, relative, before, base, release):
     require(scoped_candidate is None or result.stdout == scoped_candidate,
             'SCOPED_DEFAULT_MERGE_NEEDS_REVIEW: ' + relative)
     return result.stdout
+
+
+def dining_detail_line(body):
+    definitions = [line for line in body.splitlines(keepends=True)
+                   if b'function renderDetail(' in line]
+    require(len(re.findall(rb'\bfunction\s+renderDetail\s*\(', body)) == 1
+            and len(definitions) == 1 and definitions[0].startswith(b'    function renderDetail() { ')
+            and definitions[0].endswith(b' }\n'), 'DINING_DETAIL_DEFINITION_NEEDS_REVIEW')
+    return definitions[0]
+
+
+def dining_sidebar_candidate(stage, before, base, release):
+    """Retain the reviewed live title-only detail without changing aggregate behavior."""
+    original = dining_detail_line(base)
+    require(digest(original) == DINING_DETAIL_BASE_SHA256
+            and dining_detail_line(release) == original, 'DINING_DETAIL_RELEASE_NEEDS_REVIEW')
+    live = dining_detail_line(before)
+    require(live in (original, DINING_DETAIL_SHORT), 'DINING_DETAIL_LIVE_VARIANT_NEEDS_REVIEW')
+    if live == original:
+        return merge_text(stage, DINING_POS, before, base, release)
+    # Only this exact reviewed function is normalized; every other byte remains
+    # an input to the ordinary conflict-detecting merge, then the live function returns.
+    normalized = before.replace(DINING_DETAIL_SHORT, original, 1)
+    merged = merge_text(stage, DINING_POS, normalized, base, release)
+    require(dining_detail_line(merged) == original, 'DINING_DETAIL_MERGED_VARIANT_NEEDS_REVIEW')
+    return merged.replace(original, DINING_DETAIL_SHORT, 1)
+
+
+def merge_candidate(stage, relative, before, base, release):
+    """Three-way merge preserves live edits and accepts already-applied release hunks."""
+    if before == release:
+        return before
+    if relative in NEW_PATHS:
+        require(before is None, 'NEW_SOURCE_COLLISION_NEEDS_REVIEW: ' + relative)
+        return release
+    require(before is not None, 'LIVE_SOURCE_REQUIRED: ' + relative)
+    if before == base:
+        return release
+    if relative == DINING_POS:
+        return dining_sidebar_candidate(stage, before, base, release)
+    compatibility = {
+        BRANCH_EXPENSES: expense_defaults_candidate,
+        BRANCH_STOCK_CONTROLLER: stock_controller_candidate,
+    }
+    scoped_candidate = (compatibility[relative](before, base, release)
+                        if relative in compatibility else None)
+    return merge_text(stage, relative, before, base, release, scoped_candidate)
 
 
 def exact_patch(relative, before, after):

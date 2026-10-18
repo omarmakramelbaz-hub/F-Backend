@@ -280,6 +280,81 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'STOCK_CONTROLLER_RELEASE_NEEDS_REVIEW'):
             INSTALLER.stock_controller_candidate(live, base, release + b'// extra release edit\n')
 
+    def dining_fixture(self):
+        original = b'    function renderDetail() { buildFullSidebar(); }\n'
+        old_tables = b'    function renderTables() { baseTables(); }\n'
+        new_tables = b'    function renderTables() { aggregateTables(); }\n'
+        old_load = b'    function loadTables() { concreteBranchOnly(); }\n'
+        new_load = b'    function loadTables() { concreteOrAllBranches(); }\n'
+        prefix = b''.join(('prefix ' + str(index) + '\n').encode() for index in range(1, 21))
+        suffix = b''.join(('suffix ' + str(index) + '\n').encode() for index in range(1, 21))
+        base = prefix + old_tables + original + old_load + suffix
+        release = base.replace(old_tables, new_tables, 1).replace(old_load, new_load, 1)
+        live = base.replace(original, INSTALLER.DINING_DETAIL_SHORT, 1)
+        return base, release, live, original, old_tables, new_tables
+
+    def test_dining_keeps_short_live_detail_and_merges_all_neighbor_changes(self):
+        base, release, live, original, _, _ = self.dining_fixture()
+        live = live.replace(b'prefix 10\n', b'independent live change\n')
+        expected = release.replace(original, INSTALLER.DINING_DETAIL_SHORT, 1).replace(
+            b'prefix 10\n', b'independent live change\n')
+        with mock.patch.object(INSTALLER, 'DINING_DETAIL_BASE_SHA256', INSTALLER.digest(original)):
+            with tempfile.TemporaryDirectory(dir=self.parent) as temporary:
+                stage = Path(temporary)
+                paths = [stage / name for name in ('live', 'base', 'release')]
+                for path, body in zip(paths, (live, base, release)):
+                    path.write_bytes(body)
+                result = INSTALLER.run(['git', 'merge-file', '-p', '--diff3', *map(str, paths)])
+                self.assertNotEqual(result.returncode, 0)
+                merged = INSTALLER.merge_candidate(stage, INSTALLER.DINING_POS, live, base, release)
+                self.assertEqual(merged, expected)
+                self.assertNotIn(b'buildFullSidebar()', merged)
+                self.assertIn(b'aggregateTables()', merged)
+                self.assertIn(b'concreteOrAllBranches()', merged)
+                self.assertEqual(INSTALLER.merge_candidate(
+                    stage, INSTALLER.DINING_POS, merged, base, release), merged)
+
+    def test_dining_accepts_partial_applied_changes_and_original_detail_drift(self):
+        base, release, live, original, old_tables, new_tables = self.dining_fixture()
+        with mock.patch.object(INSTALLER, 'DINING_DETAIL_BASE_SHA256', INSTALLER.digest(original)):
+            with tempfile.TemporaryDirectory(dir=self.parent) as temporary:
+                stage = Path(temporary)
+                partial = live.replace(old_tables, new_tables, 1)
+                self.assertEqual(INSTALLER.merge_candidate(stage, INSTALLER.DINING_POS, partial, base, release),
+                                 release.replace(original, INSTALLER.DINING_DETAIL_SHORT, 1))
+                drift = base.replace(b'prefix 10\n', b'independent original-detail change\n')
+                self.assertEqual(INSTALLER.merge_candidate(stage, INSTALLER.DINING_POS, drift, base, release),
+                                 release.replace(b'prefix 10\n', b'independent original-detail change\n'))
+
+    def test_dining_refuses_unknown_duplicate_or_changed_release_detail(self):
+        base, release, live, original, _, _ = self.dining_fixture()
+        variants = [
+            live.replace(INSTALLER.DINING_DETAIL_SHORT, b'    function renderDetail() { unknown(); }\n'),
+            live + INSTALLER.DINING_DETAIL_SHORT,
+            live + b'function renderDetail () { duplicate(); }\n',
+            live + b'function\trenderDetail() { duplicate(); }\n',
+        ]
+        with tempfile.TemporaryDirectory(dir=self.parent) as temporary:
+            stage = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, 'DINING_DETAIL_RELEASE_NEEDS_REVIEW'):
+                INSTALLER.dining_sidebar_candidate(stage, live, base, release)
+            with mock.patch.object(INSTALLER, 'DINING_DETAIL_BASE_SHA256', INSTALLER.digest(original)):
+                for variant in variants:
+                    with self.subTest(variant=variant):
+                        with self.assertRaisesRegex(RuntimeError, 'DINING_DETAIL_'):
+                            INSTALLER.dining_sidebar_candidate(stage, variant, base, release)
+                with self.assertRaisesRegex(RuntimeError, 'DINING_DETAIL_RELEASE_NEEDS_REVIEW'):
+                    INSTALLER.dining_sidebar_candidate(
+                        stage, live, base, release.replace(original, INSTALLER.DINING_DETAIL_SHORT, 1))
+
+    def test_dining_refuses_unresolved_surrounding_live_edits(self):
+        base, release, live, original, old_tables, _ = self.dining_fixture()
+        live = live.replace(old_tables, b'    function renderTables() { conflictingLiveTables(); }\n')
+        with mock.patch.object(INSTALLER, 'DINING_DETAIL_BASE_SHA256', INSTALLER.digest(original)):
+            with tempfile.TemporaryDirectory(dir=self.parent) as temporary:
+                with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                    INSTALLER.merge_candidate(Path(temporary), INSTALLER.DINING_POS, live, base, release)
+
 
 if __name__ == '__main__':
     unittest.main()
