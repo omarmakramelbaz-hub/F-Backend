@@ -47,6 +47,15 @@ runs only `2026_10_18_230000_create_branch_stock_minimum_alerts.php`.
 The additive tables preserve existing balances, sales, expenses, and recipes.
 The installer does not send a test email or dispatch pending notifications.
 
+The minimum endpoint uses its own controller, and the stock view adds its URL to
+the existing bootstrap data without editing the live stock controller. This
+preserves independently installed basic recipe routes, controls, and URLs. The
+installer recognizes the exact reviewed BasicRecipes JavaScript busy event and
+CSS additions from release `5617979f658ff79e416b9600f099b72cd48e8836`, retaining
+them while adding minimum editing. A changed recipe gate or CSS block requires
+review. Regression fixtures reproduce that published live variant and verify
+preservation, rollback, and repeat installation.
+
 After installation, open **إضافة بضاعة → البضاعة والأرصدة** and use **تحديد** in
 the **الحد الأدنى** column. Save the required values for each branch. Delivery
 requires a valid saved Owner email and a working delivery mail transport.

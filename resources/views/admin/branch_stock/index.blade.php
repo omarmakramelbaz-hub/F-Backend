@@ -37,6 +37,9 @@
 </main></div>
 @endsection
 @push('custom-js')
+@php
+    $boot['urls']['minimum_save'] = route('branch-stock.minimum-save');
+@endphp
 <script type="application/json" id="branch-stock-bootstrap">@json($boot)</script>
 <script src="{{ asset('dashboard/js/branch-stock.js') }}?v={{ filemtime(public_path('dashboard/js/branch-stock.js')) }}"></script>
 <script src="{{ asset('dashboard/js/branch-recipes.js') }}?v={{ filemtime(public_path('dashboard/js/branch-recipes.js')) }}"></script>

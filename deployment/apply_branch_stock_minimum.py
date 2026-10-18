@@ -20,6 +20,7 @@ BASE_REVISION = 'd99f094b6c23fd198757e5e4bb663b44f688d0f8'
 MIGRATION = 'database/migrations/2026_10_18_230000_create_branch_stock_minimum_alerts.php'
 NEW_PATHS = (
     'app/Services/Dashboard/BranchStockMinimums.php',
+    'app/Http/Controllers/Dashboard/BranchStockMinimumController.php',
     'app/Console/Commands/DispatchBranchStockMinimumAlerts.php',
     'app/Mail/BranchStockMinimumAlert.php',
     'resources/views/emails/branch_stock_minimum.blade.php',
@@ -28,7 +29,6 @@ NEW_PATHS = (
 MODIFIED_PATHS = (
     'app/Services/Dashboard/BranchInventory.php',
     'app/Services/Dashboard/BranchStock.php',
-    'app/Http/Controllers/Dashboard/BranchStockController.php',
     'routes/branch_stock.php',
     'app/Console/Kernel.php',
     'public/dashboard/js/branch-stock.js',
@@ -37,6 +37,27 @@ MODIFIED_PATHS = (
 )
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
 MAX_BYTES = 4 * 1024 * 1024
+BASIC_COMPAT_PATHS = ('public/dashboard/js/branch-stock.js', 'public/dashboard/css/branch-stock.css')
+# These independently deployed integrations are from the reviewed BasicRecipes
+# release 5617979f658ff79e416b9600f099b72cd48e8836, not inferred live content.
+BASIC_STOCK_BUSY = (
+    b'        var stockBusy = busy || loading || !!frozen;\n'
+    b'        root.dataset.stockBusy = String(stockBusy);\n'
+    b"        root.dispatchEvent(new CustomEvent('inventory:stock-busy', { detail: stockBusy }));\n"
+)
+BASIC_RECIPE_CSS = b'''
+/* The basic recipe review stays within the recipes tab at narrow widths. */
+#branch-stock .bs-recipe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+#branch-stock .bs-basic-button{background:#f58220;color:#fff;border-color:#f58220;font-weight:700;white-space:normal}
+#branch-stock .bs-basic-button:hover{background:#df7012}
+#branch-stock .bs-basic-dialog{color:#17304a;background:#fff;border:1px solid #dde5ef;border-radius:14px;padding:22px;max-width:620px;width:calc(100% - 32px);max-height:85vh;overflow:auto;box-sizing:border-box;box-shadow:0 16px 60px #0b1a3440;direction:rtl;text-align:right}
+#branch-stock .bs-basic-dialog::backdrop{background:#07142299}
+#branch-stock .bs-basic-dialog h2{font-size:21px;margin:0 0 12px}
+#branch-stock .bs-basic-dialog p{font-size:14px;line-height:1.8}
+#branch-stock [data-basic-skipped],#branch-stock [data-basic-result-skipped]{max-height:230px;overflow:auto;font-size:13px;line-height:1.8;padding-inline-start:24px}
+#branch-stock .bs-basic-actions{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:18px}
+#branch-stock [data-basic-result-summary]{margin:0}
+'''
 
 
 def require(condition, message):
@@ -233,7 +254,8 @@ try {
  $transportReady=is_string($mailer)&&in_array(config('mail.mailers.'.$mailer.'.transport',$mailer),['smtp','sendmail','ses','mailgun','postmark'],true);
  if(($argv[1]??'')==='target'){
   $route=app('router')->getRoutes()->getByName('branch-stock.minimum-save');
-  if(!$route||!in_array('POST',$route->methods(),true)||!in_array('IsAdmin',$route->gatherMiddleware(),true))throw new \RuntimeException();
+  if(!$route||!in_array('POST',$route->methods(),true)||!in_array('IsAdmin',$route->gatherMiddleware(),true)
+   ||$route->getActionName()!==\App\Http\Controllers\Dashboard\BranchStockMinimumController::class.'@store')throw new \RuntimeException();
   if(!array_key_exists('branch-stock:notify-minimum',$kernel->all()))throw new \RuntimeException();
   $scheduled=array_values(array_filter(app(\Illuminate\Console\Scheduling\Schedule::class)->events(),
    static fn($event)=>str_contains($event->command??'','branch-stock:notify-minimum')));
@@ -336,6 +358,38 @@ def release_body(root, revision, relative):
     return result.stdout
 
 
+def basic_recipe_compatibility_patch(root, revision, relative, live_body):
+    """Apply only minimum feature hunks while retaining the known recipe integration."""
+    require(relative in BASIC_COMPAT_PATHS, 'BASIC_RECIPE_COMPATIBILITY_PATH_INVALID')
+    before = release_body(root, BASE_REVISION, relative)
+    after = release_body(root, revision, relative)
+    if relative.endswith('.js'):
+        anchor = b'    function lock() {\n'
+        require(before.count(anchor) == after.count(anchor) == 1
+                and b'inventory:stock-busy' not in before + after
+                and b'minimumBusy' in after, 'BASIC_RECIPE_BUSY_ANCHOR_NEEDS_REVIEW')
+        before = before.replace(anchor, anchor + BASIC_STOCK_BUSY, 1)
+        integrated_busy = BASIC_STOCK_BUSY.replace(b'busy || loading || !!frozen',
+                           b'busy || minimumBusy || !!minimumEditor || loading || !!frozen', 1)
+        require(live_body.count(BASIC_STOCK_BUSY) + live_body.count(integrated_busy) == 1
+                and live_body.count(b'inventory:stock-busy') == 1,
+                'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+        after = after.replace(anchor, anchor + integrated_busy, 1)
+    else:
+        require(after.startswith(before) and BASIC_RECIPE_CSS not in before + after,
+                'BASIC_RECIPE_CSS_ANCHOR_NEEDS_REVIEW')
+        require(live_body.count(BASIC_RECIPE_CSS) == 1, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+        after = before + BASIC_RECIPE_CSS + after[len(before):]
+        before += BASIC_RECIPE_CSS
+    body = (('diff --git a/' + relative + ' b/' + relative + '\n').encode()
+            + b''.join(difflib.diff_bytes(difflib.unified_diff,
+                       before.splitlines(keepends=True), after.splitlines(keepends=True),
+                       fromfile=('a/' + relative).encode(),
+                       tofile=('b/' + relative).encode(), n=3)))
+    require(before != after and len(body) <= MAX_BYTES, 'BASIC_RECIPE_COMPATIBILITY_PATCH_INVALID')
+    return body
+
+
 def save_receipt(path, receipt):
     safe(path)
     descriptor, name = tempfile.mkstemp(prefix='.receipt-', dir=path.parent)
@@ -417,6 +471,11 @@ def install(root, revision, php, check_only=False):
                 # Reverse first prevents duplicate insertion-only hunks on reruns.
                 if relative not in NEW_PATHS and patch_check(stage, patch, reverse=True):
                     continue
+                if relative in BASIC_COMPAT_PATHS and not patch_check(stage, patch):
+                    patch = stage / ('patch-' + str(index) + '-basic-recipes.diff')
+                    patch.write_bytes(basic_recipe_compatibility_patch(root, revision, relative, before))
+                    if patch_check(stage, patch, reverse=True):
+                        continue
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 require(patch_apply(stage, patch), 'STAGED_PATCH_FAILED: ' + relative)
                 pending.append((relative, patch, staged.read_bytes()))

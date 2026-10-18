@@ -153,6 +153,39 @@ class ActualSourceFixture(Fixture):
             (self.root / relative).chmod(0o640)
 
 
+class BasicRecipeSourceFixture(ActualSourceFixture):
+    """The independently published recipe patch is the live source evidence."""
+    def __init__(self, folder):
+        super().__init__(folder)
+        self.git('apply', str(ROOT / 'tests/fixtures/branch_stock_basic_recipes_20261018.patch'))
+        for relative in installer.MODIFIED_PATHS:
+            self.before[relative] = (self.root / relative).read_bytes()
+        self.main_controller = 'app/Http/Controllers/Dashboard/BranchStockController.php'
+        self.write(self.main_controller, (ROOT / 'tests/fixtures/branch_stock_basic_recipes_controller.php').read_bytes())
+        (self.root / self.main_controller).chmod(0o640)
+        self.controller_before = installer.read_source(self.root / self.main_controller)
+        # The expected source keeps the original recipe block and adds minimum busy gating.
+        relative = 'public/dashboard/js/branch-stock.js'
+        stock_busy = (b'        var stockBusy = busy || minimumBusy || !!minimumEditor || loading || !!frozen;\n'
+                      b'        root.dataset.stockBusy = String(stockBusy);\n'
+                      b"        root.dispatchEvent(new CustomEvent('inventory:stock-busy', { detail: stockBusy }));\n")
+        self.after[relative] = self.after[relative].replace(b'    function lock() {\n', b'    function lock() {\n' + stock_busy, 1)
+        relative = 'public/dashboard/css/branch-stock.css'
+        base = subprocess.run(['git', '-C', str(ROOT), 'show', installer.BASE_REVISION + ':' + relative],
+                              check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+        feature_suffix = self.after[relative][len(base):]
+        self.after[relative] = self.before[relative] + feature_suffix
+        # Recipe view and routes receive their unchanged independent patch alongside minimums.
+        for relative in ('routes/branch_stock.php', 'resources/views/admin/branch_stock/index.blade.php'):
+            original = self.root / relative
+            original.write_bytes(self.after[relative])
+        retained_patch = ROOT / 'tests/fixtures/branch_stock_basic_recipes_20261018.patch'
+        self.git('apply', '--include=routes/branch_stock.php', '--include=resources/views/admin/branch_stock/index.blade.php', str(retained_patch))
+        for relative in ('routes/branch_stock.php', 'resources/views/admin/branch_stock/index.blade.php'):
+            self.after[relative] = (self.root / relative).read_bytes()
+            self.write(relative, self.before[relative])
+
+
 class StockMinimumInstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -344,6 +377,87 @@ class StockMinimumInstallerTests(unittest.TestCase):
         self.assertEqual([call[2] for call in actual.calls], ['migrate'])
         self.assertIsNone(actual.apply())
         self.assertEqual(len(actual.calls), 1)
+
+    def basic_fixture(self):
+        folder = Path(self.temporary.name) / 'basic-recipes'
+        folder.mkdir()
+        return BasicRecipeSourceFixture(folder)
+
+    def test_known_live_basic_recipe_js_and_css_reproduce_original_hunk_conflicts(self):
+        actual = self.basic_fixture()
+        with mock.patch.object(installer, 'BASE_REVISION', actual.base):
+            for relative in installer.BASIC_COMPAT_PATHS:
+                patch = actual.root.parent / 'original-feature.diff'
+                patch.write_bytes(installer.release_patch(actual.root, actual.release, relative))
+                self.assertFalse(installer.patch_check(actual.root, patch), relative)
+
+    def test_live_basic_recipe_feature_is_preserved_without_touching_its_controller(self):
+        actual = self.basic_fixture()
+        self.assertNotIn(actual.main_controller, installer.SOURCE_PATHS)
+        actual.apply()
+        self.assertTrue(installer.unchanged(actual.root / actual.main_controller, actual.controller_before))
+        for relative, expected in actual.after.items():
+            self.assertEqual((actual.root / relative).read_bytes(), expected, relative)
+        self.assertIsNone(actual.apply())
+        self.assertEqual([call[2] for call in actual.calls], ['migrate'])
+        self.assertTrue(installer.unchanged(actual.root / actual.main_controller, actual.controller_before))
+
+    def test_live_basic_recipe_variant_rolls_back_exactly_on_migration_failure(self):
+        actual = self.basic_fixture()
+        actual.fail_migration = True
+        with self.assertRaisesRegex(RuntimeError, 'SCOPED_STOCK_MINIMUM_MIGRATION_FAILED'):
+            actual.apply()
+        actual.originals(self)
+        self.assertTrue(installer.unchanged(actual.root / actual.main_controller, actual.controller_before))
+
+    def test_published_basic_compatibility_hunks_reverse_exactly_on_postcheck_failure(self):
+        actual = self.basic_fixture()
+        actual.fail_post_lint = True
+        with self.assertRaisesRegex(RuntimeError, 'PHP_PARSE_INVALID'):
+            actual.apply()
+        actual.originals(self)
+        self.assertTrue(installer.unchanged(actual.root / actual.main_controller, actual.controller_before))
+        self.assertTrue(all(actual.state.values()))
+        self.assertEqual(actual.receipt()['status'], 'code_restored')
+
+    def test_unknown_live_edit_inside_minimum_affected_js_still_stops_without_writes(self):
+        actual = self.basic_fixture()
+        relative = 'public/dashboard/js/branch-stock.js'
+        changed = actual.before[relative].replace(b'function locked() { return recipeBusy || busy || loading || !!frozen; }',
+                         b'function locked() { return independently_changed_lock(); }', 1)
+        self.assertNotEqual(changed, actual.before[relative])
+        actual.before[relative] = changed
+        actual.write(relative, changed)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative):
+            actual.apply()
+        actual.originals(self)
+        self.assertEqual(actual.calls, [])
+
+    def test_independently_changed_recipe_busy_gate_requires_review(self):
+        actual = self.basic_fixture()
+        relative = 'public/dashboard/js/branch-stock.js'
+        changed = actual.before[relative].replace(b'var stockBusy = busy || loading || !!frozen;',
+                                                 b'var stockBusy = customRecipeBusy();', 1)
+        self.assertNotEqual(changed, actual.before[relative])
+        actual.before[relative] = changed
+        actual.write(relative, changed)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative):
+            actual.apply()
+        actual.originals(self)
+        self.assertEqual(actual.calls, [])
+
+    def test_independently_changed_recipe_css_requires_review(self):
+        actual = self.basic_fixture()
+        relative = 'public/dashboard/css/branch-stock.css'
+        changed = actual.before[relative].replace(b'.bs-basic-dialog h2{font-size:21px;',
+                                                 b'.bs-basic-dialog h2{font-size:23px;', 1)
+        self.assertNotEqual(changed, actual.before[relative])
+        actual.before[relative] = changed
+        actual.write(relative, changed)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative):
+            actual.apply()
+        actual.originals(self)
+        self.assertEqual(actual.calls, [])
 
 
 if __name__ == '__main__':

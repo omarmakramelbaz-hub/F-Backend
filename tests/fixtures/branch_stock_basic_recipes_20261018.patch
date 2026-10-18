@@ -1,0 +1,62 @@
+diff --git a/public/dashboard/css/branch-stock.css b/public/dashboard/css/branch-stock.css
+index 60a21b2..e9be674 100644
+--- a/public/dashboard/css/branch-stock.css
++++ b/public/dashboard/css/branch-stock.css
+@@ -96,3 +96,15 @@
+     #branch-stock .bs-supplier-field, #branch-stock .bs-notes-field { grid-column: 1 / -1; }
+     #branch-stock .bs-balances table { min-width: 480px; }
+ }
++
++/* The basic recipe review stays within the recipes tab at narrow widths. */
++#branch-stock .bs-recipe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
++#branch-stock .bs-basic-button{background:#f58220;color:#fff;border-color:#f58220;font-weight:700;white-space:normal}
++#branch-stock .bs-basic-button:hover{background:#df7012}
++#branch-stock .bs-basic-dialog{color:#17304a;background:#fff;border:1px solid #dde5ef;border-radius:14px;padding:22px;max-width:620px;width:calc(100% - 32px);max-height:85vh;overflow:auto;box-sizing:border-box;box-shadow:0 16px 60px #0b1a3440;direction:rtl;text-align:right}
++#branch-stock .bs-basic-dialog::backdrop{background:#07142299}
++#branch-stock .bs-basic-dialog h2{font-size:21px;margin:0 0 12px}
++#branch-stock .bs-basic-dialog p{font-size:14px;line-height:1.8}
++#branch-stock [data-basic-skipped],#branch-stock [data-basic-result-skipped]{max-height:230px;overflow:auto;font-size:13px;line-height:1.8;padding-inline-start:24px}
++#branch-stock .bs-basic-actions{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:18px}
++#branch-stock [data-basic-result-summary]{margin:0}
+diff --git a/public/dashboard/js/branch-stock.js b/public/dashboard/js/branch-stock.js
+index 17b30d3..784512b 100644
+--- a/public/dashboard/js/branch-stock.js
++++ b/public/dashboard/js/branch-stock.js
+@@ -11,6 +11,9 @@
+     function notice(message, retry) { var box = root.querySelector('[data-stock-message]'); box.hidden = !message; box.textContent = message || ''; root.querySelector('[data-stock-retry]').hidden = !retry; }
+     function locked() { return recipeBusy || busy || loading || !!frozen; }
+     function lock() {
++        var stockBusy = busy || loading || !!frozen;
++        root.dataset.stockBusy = String(stockBusy);
++        root.dispatchEvent(new CustomEvent('inventory:stock-busy', { detail: stockBusy }));
+         root.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (!control.closest('[data-recipe-panel]')) control.disabled = locked(); });
+         // Search remains editable while a read is in flight; stale responses are discarded.
+         search.disabled = recipeBusy || busy || !!frozen;
+diff --git a/resources/views/admin/branch_stock/index.blade.php b/resources/views/admin/branch_stock/index.blade.php
+index 8c8b3c4..b150f92 100644
+--- a/resources/views/admin/branch_stock/index.blade.php
++++ b/resources/views/admin/branch_stock/index.blade.php
+@@ -22,8 +22,10 @@
+ <div class="bs-message" data-stock-unmapped hidden></div>
+ </div></div></div>
+ <section data-inventory-panel="recipes" data-recipe-panel hidden>
+-<header class="bs-recipe-heading"><div><h2>وصفات أصناف المينيو</h2><p>حدد ما يُستهلك عند بيع وحدة واحدة أو كيلو واحد من الصنف. لكل حجم وصفة مستقلة.</p></div></header>
++<header class="bs-recipe-heading"><div><h2>وصفات أصناف المينيو</h2><p>حدد ما يُستهلك عند بيع وحدة واحدة أو كيلو واحد من الصنف. لكل حجم وصفة مستقلة.</p></div><button type="button" class="bs-button bs-basic-button" data-basic-preview hidden>استخدم الوصفة الأساسية</button></header>
+ <div class="bs-message" data-recipe-message role="status" hidden></div><button type="button" class="bs-button" data-recipe-retry hidden>التحقق من حفظ الوصفة وإعادة المحاولة</button>
++<div class="bs-message is-success" data-basic-result role="status" hidden><p data-basic-result-summary></p><ul data-basic-result-skipped></ul></div>
++<dialog class="bs-basic-dialog" data-basic-dialog aria-labelledby="bs-basic-title"><h2 id="bs-basic-title">استخدم الوصفة الأساسية</h2><p>تُستبدل وصفات الأصناف المتطابقة في الفرع المختار بالنسخة الأساسية المحفوظة من فرع المحلة. تبقى أرصدة البضاعة وأسعار البيع كما هي.</p><p data-basic-summary></p><ul data-basic-skipped></ul><div class="bs-basic-actions"><button type="button" class="bs-button bs-basic-button" data-basic-confirm>تطبيق على هذا الفرع</button><button type="button" class="bs-button" data-basic-cancel>رجوع</button></div></dialog>
+ <div class="bs-recipe-layout"><section class="bs-panel"><header><h2>أصناف البيع</h2><button class="bs-button" type="button" data-recipe-refresh>تحديث</button></header><label class="bs-recipe-search">بحث في المينيو<input type="search" maxlength="100" data-recipe-search placeholder="وجبة، ساندوتش، سلطة أو صنف مباشر"></label><div class="bs-recipe-list" data-recipe-products></div><footer class="bs-pagination"><button type="button" class="bs-button" data-recipe-prev>السابق</button><span data-recipe-page></span><button type="button" class="bs-button" data-recipe-next>التالي</button></footer></section>
+ <section class="bs-panel"><header><div><h2 data-recipe-title>اختر صنفًا لتسجيل وصفته</h2><p data-recipe-revision></p></div></header><form data-recipe-form hidden>
+ <div class="bs-pair"><label>حجم الصنف<select name="feature_id" data-recipe-feature></select></label><label>المقادير لكل<select name="unit"><option value="piece">وحدة واحدة / طبق / وجبة / ساندوتش</option><option value="kg">كيلو واحد مباع</option></select></label></div>
+diff --git a/routes/branch_stock.php b/routes/branch_stock.php
+index fa03c08..6c7891f 100644
+--- a/routes/branch_stock.php
++++ b/routes/branch_stock.php
+@@ -6,5 +6,7 @@ Route::middleware(['lang','IsAdmin'])->prefix('admin/branch-stock')->name('branc
+     Route::get('data',[BranchStockController::class,'data'])->name('data');
+     Route::get('recipes',[BranchStockController::class,'recipes'])->name('recipes');
+     Route::post('recipes',[BranchStockController::class,'saveRecipe'])->name('recipe-save');
++    Route::get('basic-recipes',[BranchStockController::class,'basicRecipes'])->name('basic-status');
++    Route::post('basic-recipes',[BranchStockController::class,'applyBasicRecipes'])->name('basic-apply');
+     Route::post('receive',[BranchStockController::class,'receive'])->name('receive');
+ });
