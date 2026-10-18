@@ -7,7 +7,7 @@ revision=${1:?Full revision is required}
 [[ $(id -u) = 0 ]] || { printf '%s\n' 'Run this installer as root.'; exit 1; }
 direct_print_root=/home/fasakha/public_html
 direct_print_php=/opt/cpanel/ea-php82/root/usr/bin/php
-direct_print_source=deployment/apply_pos_direct_print_policy.py
+direct_print_source=deployment/apply_direct_order_printing.py
 [[ -x "$direct_print_php" ]] || { printf '%s\n' 'PHP82_EXECUTABLE_REQUIRED'; exit 1; }
 command -v python3 >/dev/null
 direct_print_tmp=$(mktemp -d /tmp/direct-order-printing.XXXXXXXX)
