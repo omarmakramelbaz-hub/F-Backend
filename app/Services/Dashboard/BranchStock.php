@@ -24,7 +24,7 @@ class BranchStock
     {
         if(!$ids||!$this->installed()||!str_starts_with($branch,'f:'))return [];$result=[];
         foreach(DB::table('branch_stock')->where('branch',$branch)->whereIn('product_id',$ids)->get() as $r)$result[(int)$r->product_id]=$this->present($r);
-        return $result;
+        return app(BranchStockMinimums::class)->decorateStocks($branch,'product',$result);
     }
     public function quoteLines(string $branch,array $lines): array
     {
@@ -58,7 +58,7 @@ class BranchStock
         $total=(clone $q)->count();$last=max(1,(int)ceil($total/100));$page=min($last,(int)($v['page']??1));$rows=$q->orderBy('product_name')->orderBy('id')->offset(($page-1)*100)->limit(100)->get();
         $stocks=$this->balances($b['value'],$rows->pluck('id')->all());$items=[];foreach($rows as $r)$items[]=['id'=>(int)$r->id,'name'=>$r->product_name,'available'=>$r->status==='show','stock'=>$stocks[$r->id]??null];
         $history=DB::table('branch_stock_movements')->where('branch',$b['value'])->orderByDesc('id')->limit(30)->get();$actors=DB::table('users')->whereIn('id',$history->pluck('actor_id')->filter())->pluck('name','id');
-        return ['success'=>true,'branch'=>$b,'items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],'history'=>$history->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->product_name,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'balance'=>$this->quantity((int)$r->balance_units),'source_type'=>$r->source_type,'source_id'=>$r->source_id,'actor'=>$actors[$r->actor_id]??'النظام','supplier'=>$r->supplier,'notes'=>$r->notes,'created_at'=>\Carbon\Carbon::parse($r->created_at,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i')])->all()];
+        return app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'branch'=>$b,'items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],'history'=>$history->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->product_name,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'balance'=>$this->quantity((int)$r->balance_units),'source_type'=>$r->source_type,'source_id'=>$r->source_id,'actor'=>$actors[$r->actor_id]??'النظام','supplier'=>$r->supplier,'notes'=>$r->notes,'created_at'=>\Carbon\Carbon::parse($r->created_at,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i')])->all()];
     }
     /** Read each accessible branch separately so quantities and recipe warnings retain their branch. */
     private function allListing(array $values,$actor): array
@@ -81,7 +81,7 @@ class BranchStock
             foreach($data['unmapped_sales']??[] as $entry)$unmapped[]=$entry+$label;
         }
         usort($history,fn($a,$b)=>$b['id']<=>$a['id']);$total=count($items);$last=max(1,(int)ceil($total/100));$page=min($last,(int)($v['page']??1));
-        return ['success'=>true,'all_branches'=>true,'branch'=>['value'=>'all','name'=>'جميع الفروع'],'items'=>array_slice($items,($page-1)*100,100),'ingredients'=>$ingredients,'can_manage_recipes'=>false,'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,'legacy'=>$legacy,'history'=>array_slice($history,0,30),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
+        return app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'all_branches'=>true,'branch'=>['value'=>'all','name'=>'جميع الفروع'],'items'=>array_slice($items,($page-1)*100,100),'ingredients'=>$ingredients,'can_manage_recipes'=>false,'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,'legacy'=>$legacy,'history'=>array_slice($history,0,30),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
     }
     public function receive(array $values,$actor): array
     {
@@ -102,6 +102,7 @@ class BranchStock
         $old=DB::table('branch_stock_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',$source)->first();if($old)return (int)$old->id;
         $balance=(int)$r->quantity_units+$delta;abort_if(abs($balance)>1000000000000000,422,'رصيد البضاعة خارج الحد المسموح.');
         DB::table('branch_stock')->where('id',$r->id)->update(['quantity_units'=>$balance,'revision'=>(int)$r->revision+1,'updated_at'=>now('UTC')]);
+        if(class_exists(BranchStockMinimums::class))app(BranchStockMinimums::class)->observe($r->branch,'product',(int)$r->product_id,$balance,$r->unit);
         return DB::table('branch_stock_movements')->insertGetId(['stock_id'=>$r->id,'branch'=>$r->branch,'product_id'=>$r->product_id,'product_name'=>mb_substr($name,0,255),'unit'=>$r->unit,'quantity_units'=>$delta,'balance_units'=>$balance,'source_type'=>$type,'source_id'=>$source,'actor_id'=>$actor,'supplier'=>$supplier?:null,'notes'=>$notes?:null,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     public function posSale(array $branch,int $orderId,array $lines,int $actorId): void

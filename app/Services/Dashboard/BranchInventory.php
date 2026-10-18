@@ -30,12 +30,13 @@ class BranchInventory
         $this->ready();$v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$b=$this->branch($v['branch'],$actor);
         $ingredients=$this->ingredientList();$stocks=$this->stocks($b['value']);$search=trim($v['search']??'');$items=[];
         foreach($ingredients as $i)if($search===''||mb_stripos($i['name'],$search)!==false)$items[]=$i+['stock'=>$this->stock($i,$stocks[$i['id']]??null)];
+        $minimums=app(BranchStockMinimums::class);$minimumStocks=$minimums->decorateStocks($b['value'],'ingredient',array_column($items,'stock','id'));foreach($items as &$item)$item['stock']=$minimumStocks[$item['id']];unset($item);
         $history=DB::table('branch_inventory_movements')->where('branch',$b['value'])->orderByDesc('id')->limit(30)->get();$actors=DB::table('users')->whereIn('id',$history->pluck('actor_id')->filter())->pluck('name','id');
         $legacy=Schema::hasTable('branch_stock')?DB::table('branch_stock')->leftJoin('resturant_products','resturant_products.id','=','branch_stock.product_id')->where('branch_stock.branch',$b['value'])->where('branch_stock.quantity_units','!=',0)->select('branch_stock.*','resturant_products.product_name')->orderBy('branch_stock.id')->get():collect();
         $ids=DB::table('resturant_products')->where('resturant_id',$b['id'])->where('status','show')->pluck('id')->all();
         $mapped=$this->saleRecipes($b['value'],$ids)+app(BranchStock::class)->directBalances($b['value'],$ids);$unconfigured=count(array_diff($ids,array_keys($mapped)));
         $unmapped=DB::table('branch_recipe_sales')->where('branch',$b['value'])->orderByDesc('id')->limit(30)->get()->map(function($r){$s=json_decode($r->snapshot,true);return !empty($s['unmapped'])?['source_type'=>$r->source_type,'source_id'=>$r->source_id,'items'=>$s['unmapped']]:null;})->filter()->values()->all();
-        return ['success'=>true,'branch'=>$b,'items'=>$items,'ingredients'=>array_values($ingredients),'can_manage_recipes'=>$this->canManage($actor),'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,
+        return ['success'=>true,'branch'=>$b,'items'=>$items,'ingredients'=>array_values($ingredients),'can_manage_recipes'=>$this->canManage($actor)]+$minimums->metadata($actor)+['unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,
             'pagination'=>['page'=>1,'last_page'=>1,'total'=>count($items)],'legacy'=>$legacy->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->product_name?:'صنف سابق #'.$r->product_id,'quantity'=>$this->quantity((int)$r->quantity_units),'unit_label'=>$r->unit==='kg'?'كجم':'قطعة'])->all(),
             'history'=>$history->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->name,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'balance'=>$this->quantity((int)$r->balance_units),'source_type'=>$r->source_type,'source_id'=>$r->source_id,'actor'=>$actors[$r->actor_id]??'النظام','supplier'=>$r->supplier,'notes'=>$r->notes,'created_at'=>\Carbon\Carbon::parse($r->created_at,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i')])->all()];
     }
@@ -72,6 +73,7 @@ class BranchInventory
         $old=DB::table('branch_inventory_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',$source)->first();if($old)return (int)$old->id;
         $balance=(int)$r->quantity_units+$delta;abort_if(abs($balance)>1000000000000000,422,'رصيد البضاعة خارج الحد المسموح.');
         DB::table('branch_inventory')->where('id',$r->id)->update(['quantity_units'=>$balance,'revision'=>(int)$r->revision+1,'updated_at'=>now('UTC')]);
+        if(class_exists(BranchStockMinimums::class))app(BranchStockMinimums::class)->observe($r->branch,'ingredient',(int)$i['id'],$balance,$i['unit']);
         return DB::table('branch_inventory_movements')->insertGetId(['stock_id'=>$r->id,'branch'=>$r->branch,'ingredient_id'=>$i['id'],'name'=>$i['name'],'unit'=>$i['unit'],'quantity_units'=>$delta,'balance_units'=>$balance,'source_type'=>$type,'source_id'=>$source,'actor_id'=>$actor,'supplier'=>$supplier?:null,'notes'=>$notes?:null,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     private function features(object $product): array

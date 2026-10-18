@@ -4,18 +4,18 @@
     var root = document.getElementById('branch-stock'); if (!root) return;
     var boot = JSON.parse(document.getElementById('branch-stock-bootstrap').textContent);
     var form = root.querySelector('[data-stock-form]'), branch = root.querySelector('[data-stock-branch]'), search = root.querySelector('[data-stock-search]');
-    var product = form.elements.ingredient_id, current = boot.initial, items = new Map(), recipeBusy = false, busy = false, loading = false, frozen = null, disposed = false, dirty = false, generation = 0, timer, controller, listeners = [];
+    var product = form.elements.ingredient_id, current = boot.initial, items = new Map(), recipeBusy = false, busy = false, minimumBusy = false, minimumEditor = null, loading = false, frozen = null, disposed = false, dirty = false, generation = 0, timer, refreshTimer, controller, listeners = [];
     var pendingKey = 'fasakhansta:ingredient-receipt-pending:' + boot.actor_id;
     function el(tag, text, css) { var n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (css) n.className = css; return n; }
     function on(target, event, fn) { target.addEventListener(event, fn); listeners.push(function () { target.removeEventListener(event, fn); }); }
     function notice(message, retry) { var box = root.querySelector('[data-stock-message]'); box.hidden = !message; box.textContent = message || ''; root.querySelector('[data-stock-retry]').hidden = !retry; }
-    function locked() { return recipeBusy || busy || loading || !!frozen; }
+    function locked() { return recipeBusy || busy || minimumBusy || loading || !!frozen; }
     function lock() {
-        root.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (!control.closest('[data-recipe-panel]')) control.disabled = locked(); });
+        root.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (!control.closest('[data-recipe-panel]')) control.disabled = locked() || !!minimumEditor; });
         // Search remains editable while a read is in flight; stale responses are discarded.
-        search.disabled = recipeBusy || busy || !!frozen;
-        root.querySelector('[data-stock-retry]').disabled = recipeBusy || busy || loading;
-        if (!locked()) {
+        search.disabled = recipeBusy || busy || minimumBusy || !!minimumEditor || !!frozen;
+        root.querySelector('[data-stock-retry]').disabled = recipeBusy || busy || minimumBusy || loading || !!minimumEditor;
+        if (!locked() && !minimumEditor) {
             branch.disabled = boot.branches.length === 1 && !boot.can_all;
             if (branch.value === 'all') form.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (control !== search) control.disabled = true; });
             root.querySelectorAll('[data-stock-rows] .bs-item').forEach(function (control) { control.disabled = branch.value === 'all'; });
@@ -23,6 +23,7 @@
             root.querySelector('[data-stock-previous]').disabled = current.pagination.page <= 1;
             root.querySelector('[data-stock-next]').disabled = current.pagination.page >= current.pagination.last_page;
         }
+        if (minimumEditor) minimumEditor.form.querySelectorAll('button,input').forEach(function (control) { control.disabled = locked(); });
         root.querySelector('[data-stock-save]').textContent = busy ? 'جارٍ تسجيل البضاعة…' : 'إضافة البضاعة لرصيد الفرع';
     }
     function address(value, params) { var url = new URL(value, location.href); if (url.origin !== location.origin) throw new Error('رابط العملية غير صالح.'); Object.keys(params || {}).forEach(function (key) { url.searchParams.set(key, params[key]); }); return url.href; }
@@ -36,21 +37,57 @@
         var item = items.get(product.value), stock = item && item.stock, output = root.querySelector('[data-stock-current]');
         output.textContent = branch.value === 'all' ? 'اختر الفرع لتسجيل البضاعة' : stock ? stock.quantity + ' ' + stock.unit_label : item ? 'لم يبدأ تسجيل رصيد هذا الصنف' : 'اختر الصنف';
         output.classList.toggle('is-negative', !!stock && stock.negative);
+        output.classList.toggle('is-low-stock', !!stock && stock.low_stock === true);
         if (stock) form.elements.unit.value = stock.unit;
         form.elements.quantity.placeholder = form.elements.unit.value === 'piece' ? '0' : '0.000';
         lock();
+    }
+    function canManageMinimum() { return current.can_manage_minimum === true && current.minimum_alerts_available === true && !!boot.urls.minimum_save; }
+    function closeMinimum() { if (!minimumEditor || minimumBusy) return; var button = minimumEditor.button; minimumEditor.form.remove(); button.hidden = false; button.setAttribute('aria-expanded', 'false'); minimumEditor = null; lock(); button.focus(); }
+    function editMinimum(cell, button, item) {
+        if (locked() || minimumEditor || !canManageMinimum()) return;
+        var stock = item.stock || {}, editor = el('form', undefined, 'bs-minimum-editor'), input = el('input'), actions = el('div', undefined, 'bs-minimum-actions'), save = el('button', 'حفظ', 'bs-button bs-minimum-save'), cancel = el('button', 'إلغاء', 'bs-button');
+        input.type = 'text'; input.inputMode = stock.unit === 'piece' || item.unit === 'piece' ? 'numeric' : 'decimal'; input.maxLength = 16; input.autocomplete = 'off'; input.value = stock.minimum_quantity == null ? '' : stock.minimum_quantity; input.placeholder = 'بدون تنبيه'; input.setAttribute('aria-label', 'الحد الأدنى: ' + (item.branch_name ? item.branch_name + ' · ' : '') + item.name);
+        save.type = 'submit'; cancel.type = 'button'; cancel.addEventListener('click', closeMinimum); actions.appendChild(save); actions.appendChild(cancel); editor.appendChild(input); editor.appendChild(actions); editor.appendChild(el('small', 'فارغ = إيقاف التنبيه · صفر = تنبيه عند النفاد'));
+        minimumEditor = { form: editor, input: input, button: button }; button.hidden = true; button.setAttribute('aria-expanded', 'true'); cell.appendChild(editor); lock(); input.focus(); input.select();
+        editor.addEventListener('submit', function (event) { event.preventDefault(); saveMinimum(item); });
+        editor.addEventListener('keydown', function (event) { if (event.key === 'Escape') { event.preventDefault(); closeMinimum(); } });
+    }
+    async function saveMinimum(item) {
+        if (locked() || !minimumEditor || !canManageMinimum()) return;
+        var stock = item.stock || {}, amount = minimumEditor.input.value.trim().replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace(/٫/g, '.');
+        if (amount !== '' && (!/^\d{1,7}(?:\.\d{1,3})?$/.test(amount) || Number(amount) > 1000000 || (stock.unit || item.unit) === 'piece' && !Number.isInteger(Number(amount)))) { notice('أدخل حدًا أدنى يساوي صفرًا أو أكثر؛ القطع أعداد صحيحة والكيلو حتى 3 منازل عشرية.'); minimumEditor.input.focus(); return; }
+        var selectedBranch = item.branch || current.branch.value, page = current.pagination.page, refresh = false;
+        minimumBusy = true; lock(); minimumEditor.form.querySelector('[type="submit"]').textContent = 'جارٍ الحفظ…';
+        try {
+            await request(address(boot.urls.minimum_save), { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify({ branch: selectedBranch, stock_type: stock.stock_type || 'ingredient', stock_item_id: Number(item.id), minimum_quantity: amount === '' ? null : amount, expected_revision: Number(stock.minimum_revision || 0), idempotency_key: crypto.randomUUID() }) });
+            notice(amount === '' ? 'تم إيقاف تنبيه الحد الأدنى لهذا الصنف في الفرع.' : 'تم حفظ الحد الأدنى لهذا الصنف في الفرع. يظهر بالأحمر عند الوصول إليه أو أقل.'); refresh = true;
+        } catch (error) {
+            notice(error.message + (error.status === 409 || !error.status ? ' جارٍ تحديث الرصيد والحد المحفوظ.' : ''));
+            refresh = error.status === 409 || !error.status;
+        } finally {
+            minimumBusy = false;
+            if (refresh) closeMinimum();
+            else if (minimumEditor) minimumEditor.form.querySelector('[type="submit"]').textContent = 'حفظ';
+            lock();
+        }
+        if (refresh && !disposed) load(page);
     }
     function render(data) {
         var chosen = product.value; current = data; items.clear(); product.replaceChildren(el('option', 'اختر صنف البضاعة')); product.firstChild.value = '';
         var body = root.querySelector('[data-stock-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             if (!data.all_branches) items.set(String(item.id), item); var stock = item.stock, option = el('option', item.name + ' — ' + (stock ? stock.quantity + ' ' + stock.unit_label : 'دون رصيد مسجل')); option.value = item.id; product.appendChild(option);
-            var row = el('tr'), name = el('td'), choose = el('button', (item.branch_name ? item.branch_name + ' · ' : '') + item.name, 'bs-item'); choose.disabled = !!data.all_branches; choose.type = 'button'; choose.addEventListener('click', function () { if (locked() || branch.value === 'all') return; product.value = String(item.id); selected(); form.elements.quantity.focus(); }); name.appendChild(choose); row.appendChild(name);
+            var row = el('tr', undefined, stock && stock.low_stock === true ? 'bs-low-stock' : ''), name = el('td'), choose = el('button', (item.branch_name ? item.branch_name + ' · ' : '') + item.name, 'bs-item'); choose.disabled = !!data.all_branches; choose.type = 'button'; choose.addEventListener('click', function () { if (locked() || minimumEditor || branch.value === 'all') return; product.value = String(item.id); selected(); form.elements.quantity.focus(); }); name.appendChild(choose); if (stock && stock.low_stock === true) name.appendChild(el('span', 'مخزون منخفض', 'bs-low-badge')); row.appendChild(name);
             row.appendChild(el('td', stock ? stock.unit_label : '—'));
             row.appendChild(el('td', stock ? stock.quantity : 'لم يبدأ التسجيل', stock && stock.negative ? 'is-negative' : 'bs-quantity'));
+            var minimum = el('td', undefined, 'bs-minimum-cell'), minimumText = stock && stock.minimum_quantity != null ? stock.minimum_quantity : 'غير محدد';
+            if (canManageMinimum()) { var minimumButton = el('button', minimumText === 'غير محدد' ? 'تحديد' : minimumText, 'bs-button bs-minimum-toggle'); minimumButton.type = 'button'; minimumButton.setAttribute('aria-label', 'تعديل الحد الأدنى: ' + (item.branch_name ? item.branch_name + ' · ' : '') + item.name); minimumButton.setAttribute('aria-expanded', 'false'); minimumButton.addEventListener('click', function () { editMinimum(minimum, minimumButton, item); }); minimum.appendChild(minimumButton); }
+            else minimum.appendChild(el('span', minimumText, minimumText === 'غير محدد' ? 'bs-untracked' : 'bs-quantity'));
+            row.appendChild(minimum);
             row.appendChild(el('td', item.unit === 'kg' ? 'خامة بالوزن' : 'بضاعة بالقطعة')); body.appendChild(row);
         });
-        if (!data.items.length) { var empty = el('tr'), cell = el('td', 'لا توجد بضاعة مطابقة للبحث.'); cell.colSpan = 4; empty.appendChild(cell); body.appendChild(empty); }
+        if (!data.items.length) { var empty = el('tr'), cell = el('td', 'لا توجد بضاعة مطابقة للبحث.'); cell.colSpan = 5; empty.appendChild(cell); body.appendChild(empty); }
         product.value = items.has(chosen) ? chosen : '';
         root.querySelector('[data-stock-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total + ' صنف';
         var history = root.querySelector('[data-stock-history]'); history.replaceChildren();
@@ -62,7 +99,7 @@
         selected();
     }
     async function load(page) {
-        if (recipeBusy || busy || frozen || disposed) return;
+        if (recipeBusy || busy || minimumBusy || minimumEditor || frozen || disposed) return;
         clearTimeout(timer); if (controller) controller.abort(); controller = new AbortController(); var token = ++generation, selectedBranch = branch.value;
         loading = true; lock();
         try { var data = await request(address(boot.urls.data, { branch: selectedBranch, search: search.value.trim(), page: page || 1 }), { signal: controller.signal }); if (!disposed && token === generation && branch.value === selectedBranch) render(data); }
@@ -113,11 +150,12 @@
     on(root.querySelector('[data-stock-previous]'), 'click', function () { load(current.pagination.page - 1); });
     on(root.querySelector('[data-stock-next]'), 'click', function () { load(current.pagination.page + 1); });
     on(root.querySelector('[data-stock-retry]'), 'click', function () { if (frozen) commit(frozen, true); });
-    on(window, 'beforeunload', function (event) { if (dirty || frozen || busy) { event.preventDefault(); event.returnValue = ''; } });
-    if (window.DashboardSPA) { window.DashboardSPA.onBeforeLeave(function () { if (frozen || busy) { notice('تحقق من آخر إضافة قبل مغادرة الصفحة.', true); return false; } return !dirty || confirm('مغادرة الصفحة دون تسجيل الإضافة؟'); }); window.DashboardSPA.onCleanup(function () { disposed = true; generation++; clearTimeout(timer); if (controller) controller.abort(); listeners.forEach(function (off) { off(); }); }); }
+    on(window, 'beforeunload', function (event) { if (dirty || frozen || busy || minimumBusy || minimumEditor) { event.preventDefault(); event.returnValue = ''; } });
+    if (window.DashboardSPA) { window.DashboardSPA.onBeforeLeave(function () { if (minimumBusy) { notice('انتظر اكتمال حفظ الحد الأدنى قبل مغادرة الصفحة.'); return false; } if (frozen || busy) { notice('تحقق من آخر إضافة قبل مغادرة الصفحة.', true); return false; } return !(dirty || minimumEditor) || confirm('مغادرة الصفحة دون حفظ التغييرات؟'); }); window.DashboardSPA.onCleanup(function () { disposed = true; generation++; clearTimeout(timer); clearInterval(refreshTimer); if (controller) controller.abort(); listeners.forEach(function (off) { off(); }); }); }
     on(root,'inventory:busy',function(event){recipeBusy=!!event.detail;lock();});
     on(root,'inventory:recipe-saved',function(){load(1);});
     render(boot.initial);
+    refreshTimer = setInterval(function () { if (!document.hidden && !disposed && !dirty && !minimumEditor && !locked()) load(current.pagination.page); }, 30000);
     try { var stored = JSON.parse(localStorage.getItem(pendingKey) || 'null'); if (stored) { frozen = stored; branch.value = stored.branch; notice('جارٍ التحقق من الإضافة السابقة…', true); lock(); recover(stored); } }
     catch (_) { notice('تعذر قراءة الإضافة السابقة المخزنة على الجهاز.'); }
 }());

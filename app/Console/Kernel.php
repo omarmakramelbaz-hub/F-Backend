@@ -45,6 +45,7 @@ class Kernel extends ConsoleKernel
         // The command checks schema/readiness before touching marketplace tables.
         $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
         $schedule->command('go-stores:prune-signup-uploads')->hourly()->withoutOverlapping();
+        $schedule->command('branch-stock:notify-minimum')->everyMinute()->withoutOverlapping(20);
 
         // One-time approved menu release through the existing application scheduler.
         // The migration receipt prevents overwriting later dashboard price edits.

@@ -96,3 +96,22 @@
     #branch-stock .bs-supplier-field, #branch-stock .bs-notes-field { grid-column: 1 / -1; }
     #branch-stock .bs-balances table { min-width: 480px; }
 }
+
+/* Minimums belong to the branch shown on each row, including all-branch views. */
+#branch-stock .bs-low-stock { background: #fff1f2; }
+#branch-stock .bs-low-stock td, #branch-stock .bs-low-stock .bs-item,
+#branch-stock .is-low-stock { color: #b4232e !important; }
+#branch-stock .bs-low-stock td { border-bottom-color: #f3ced3; }
+#branch-stock .bs-item:disabled { opacity: 1; cursor: default; }
+#branch-stock .bs-low-badge { display: inline-block; margin-inline-start: 7px; border: 1px solid #efb9c0; border-radius: 5px; padding: 1px 5px; color: #a01e29; background: #ffe1e5; font-size: 10px; font-weight: 700; white-space: nowrap; }
+#branch-stock .bs-minimum-cell { min-width: 95px; font-variant-numeric: tabular-nums; }
+#branch-stock .bs-minimum-toggle { padding: 4px 9px; min-width: 55px; font-size: 12px; }
+#branch-stock .bs-low-stock .bs-minimum-toggle { color: #a01e29; border-color: #efb9c0; }
+#branch-stock .bs-minimum-editor { display: grid; grid-template-columns: minmax(75px,100px) auto; align-items: center; gap: 5px; min-width: 175px; margin: 0; }
+#branch-stock .bs-minimum-editor input { min-height: 31px; margin: 0; padding: 5px 7px; font-size: 12px; direction: ltr; text-align: right; }
+#branch-stock .bs-minimum-actions { display: flex; gap: 4px; }
+#branch-stock .bs-minimum-actions button { padding: 5px 7px; font-size: 11px; }
+#branch-stock .bs-minimum-save { background: #17304a; color: #fff; border-color: #17304a; }
+#branch-stock .bs-minimum-save:hover { background: #234e72; }
+#branch-stock .bs-minimum-editor small { grid-column: 1 / -1; color: #687c91; font-size: 10px; line-height: 1.6; }
+@media (max-width: 600px) { #branch-stock .bs-balances table { min-width: 580px; } }

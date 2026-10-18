@@ -1,7 +1,7 @@
 <?php
 namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
-use App\Services\Dashboard\{BranchStock,BranchInventory,TakeawayAccess};
+use App\Services\Dashboard\{BranchStock,BranchInventory,BranchStockMinimums,TakeawayAccess};
 use Illuminate\Http\Request;
 
 class BranchStockController extends Controller
@@ -10,11 +10,12 @@ class BranchStockController extends Controller
     public function index(Request $r,BranchStock $s)
     {
         $actor=auth('admin')->user();$branches=$s->branches($actor);abort_unless(count($branches),403);$canAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$branch=$r->input('branch',$canAll?'all':$branches[0]['value']);
-        $boot=['actor_id'=>(int)$actor->id,'branches'=>$branches,'can_all'=>$canAll,'branch'=>$branch,'initial'=>$s->listing(['branch'=>$branch],$actor),'urls'=>['data'=>route('branch-stock.data'),'receive'=>route('branch-stock.receive'),'recover'=>route('branch-operations.recover'),'recipes'=>route('branch-stock.recipes'),'recipe_save'=>route('branch-stock.recipe-save')]];
+        $boot=['actor_id'=>(int)$actor->id,'branches'=>$branches,'can_all'=>$canAll,'branch'=>$branch,'initial'=>$s->listing(['branch'=>$branch],$actor),'urls'=>['data'=>route('branch-stock.data'),'receive'=>route('branch-stock.receive'),'recover'=>route('branch-operations.recover'),'recipes'=>route('branch-stock.recipes'),'recipe_save'=>route('branch-stock.recipe-save'),'minimum_save'=>route('branch-stock.minimum-save')]];
         return view('admin.branch_stock.index',compact('boot'));
     }
     public function data(Request $r,BranchStock $s){return response()->json($s->listing($r->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function recipes(Request $r,BranchInventory $s){return response()->json($s->recipes($r->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function saveRecipe(Request $r,BranchInventory $s){return response()->json($s->saveRecipe($r->all(),auth('admin')->user()));}
+    public function saveMinimum(Request $r,BranchStockMinimums $s){return response()->json($s->save($r->all(),auth('admin')->user()));}
     public function receive(Request $r,BranchStock $s){return response()->json($s->receive($r->all(),auth('admin')->user()));}
 }
