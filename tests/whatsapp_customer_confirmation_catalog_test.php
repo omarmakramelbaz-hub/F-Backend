@@ -20,7 +20,7 @@ $source=str_replace("posix_getpwnam('fasakha')","['uid'=>posix_geteuid()+(getenv
 $source=str_replace("chdir('/home/fasakha/public_html')",'chdir('.var_export($fixture,true).')',$source,$count);catalogExpect($count===1,'root seam');
 catalogExpect(!preg_match('/(?:->|::)(?:analyze|process|extract|dispatch|send|quote|save|insert|update|delete|prepare|project|transaction|beginTransaction|lockForUpdate)\s*\(/',$source),'no action method or lock');
 catalogExpect(substr_count($source,'SET SESSION TRANSACTION READ ONLY')===1&&!str_contains($source,'READ WRITE'),'session stays read only');
-$methods='';foreach(['customerReceiptItem'=>'customerReceiptName','customerReceiptName'=>'customerReceiptReviewFingerprint','dialogueCatalog'=>'catalogClarification',
+$methods='';foreach(['customerReceiptSourceOption'=>'customerReceiptItem','customerReceiptItem'=>'customerReceiptName','customerReceiptName'=>'customerReceiptReviewFingerprint','dialogueCatalog'=>'catalogClarification',
     'informationPrice'=>'dialogueContext','catalogOption'=>'completeCart','quantityMillis'=>'branchOpen','name'=>'reviewHash',
     'menuTokens'=>'relatedMenuTokens','relatedMenuTokens'=>'freshFollowupIntent']as$method=>$next){
     $start=strpos($workflowSource,'    private function '.$method.'(');$end=strpos($workflowSource,'    private function '.$next.'(',$start);
@@ -36,7 +36,8 @@ namespace Illuminate\Support\Facades {
     class Crypt{public static function decryptString($value){return$value;}}
 }
 namespace App\Support {
-    class WhatsAppCustomerOrderConfirmation{public static function inspect($transcript){return['ok'=>true,'data'=>\catalogData()];}}
+    class WhatsAppCustomerOrderConfirmation{public static function inspect($transcript){return['ok'=>true,'data'=>\catalogData()];}
+        public static function reprove($data,$transcript){return['ok'=>true,'data'=>\catalogData()];}}
 }
 namespace App\Services\Dashboard {
     use App\Support\WhatsAppOrderExtraction;
@@ -88,12 +89,18 @@ namespace {
         if(str_starts_with($case,'alias-'))$items=[['name'=>'رنجة مبطرخ','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null],
             ['name'=>'سردين بلدي كبير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
         if(str_starts_with($case,'pack-quarter'))$items=[['name'=>'سلطة رنجة','quantity'=>'0.25','quantity_mode'=>'weight','option_hint'=>null]];
-        return['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
+        $data=['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
             'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
+        if(str_starts_with($case,'ai-')){
+            $data['items'][0]['option_hint']=$case==='ai-full-hint'?'مخلي صافي':'مخلي';
+            $data['evidence_receipt']=['summary_format'=>'AI_CUSTOMER_ORDER_SUMMARY',
+                'ai_extraction'=>['items'=>[['quantity_source'=>$case==='ai-negated'?'كيلو فسيخ بدون مخلي':'كيلو فسيخ مخلي صافي']]]];
+        }
+        return$data;
     }
     function catalogProducts(){
         $case=getenv('WA_CATALOG_CASE');$options=[];$preparation=[];
-        if(in_array($case,['inline','whole','compact-many','option-label','option-id','option-empty','prep-invalid','prep-drift'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
+        if(str_starts_with($case,'ai-')||in_array($case,['inline','whole','compact-many','option-label','option-id','option-empty','prep-invalid','prep-drift'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
         if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift'],true))$preparation=[
             ['id'=>'','label'=>'كامل','price'=>'100','feature_id'=>0,'product_clean'=>''],
             ['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120','feature_id'=>0,'product_clean'=>'extra_clear']];
@@ -197,6 +204,14 @@ foreach(['no-match'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','unavailable'=>'MATCHE
 [$exit,$value]=catalogRun('inline');catalogExpect($value['items'][0]['mapped']&&$value['items'][0]['mapped_option_id']==='f:0:extra_clear'
     &&$value['items'][0]['literal_candidates'][0]['preparation_options']===[['id'=>'','label'=>'كامل'],['id'=>'f:0:extra_clear','label'=>'مخلي']],
     'legacy and preparation overlap maps once through actual mapper');
+[$exit,$value]=catalogRun('ai-source');catalogExpect($exit===0&&$value['status']==='READ_READY'
+    &&$value['items'][0]['mapped']&&$value['items'][0]['mapped_option_id']==='f:0:extra_clear'
+    &&$value['items'][0]['literal_candidates'][0]['default_option_resolved'],
+    'AI source clause survives diagnostic public-product lookup and selects actual live option');
+catalogExpect(!str_contains(json_encode($value),'quantity_source')&&!str_contains(json_encode($value),'ai_extraction'),
+    'diagnostic keeps private source clause and selection out of output');
+foreach(['ai-negated','ai-full-hint']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===0&&!$value['items'][0]['mapped'],
+    'same source-proof guard rejects negation and unrecognized qualifiers '.$case);}
 [$exit,$value]=catalogRun('duplicate-effective');catalogExpect($value['catalog']['duplicate_effective_item']&&$value['items'][1]['reason']==='DUPLICATE_EFFECTIVE_ITEM','duplicate effective identities remain separate blocker');
 foreach(['duplicate-name'=>'CATALOG_DUPLICATE_AVAILABLE_NAME','duplicate-id'=>'CATALOG_DUPLICATE_PRODUCT_ID','option-label'=>'CATALOG_DUPLICATE_OPTION_LABEL',
     'option-id'=>'CATALOG_DUPLICATE_OPTION_ID','option-empty'=>'CATALOG_OPTION_EMPTY_LABEL','malformed'=>'CATALOG_PRODUCT_MALFORMED','pages'=>'CATALOG_PAGINATION_LIMIT',

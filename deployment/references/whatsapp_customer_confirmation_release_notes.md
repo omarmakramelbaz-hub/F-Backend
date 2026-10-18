@@ -7,8 +7,12 @@ Other acknowledgements such as `تمام`, `موافق` or `OK` do not confirm a
 The workflow parses that literal customer pair without generating a reply or
 requiring invisible agent text. Every supported recap format needs that distinct
 later customer message. In native WhatsApp `ANALYZE_ONLY`, an absent or invalid
-pair produces deterministic no-order/review metadata; the extraction provider is
-not called as a fallback. Other messaging modes retain their existing provider.
+pair first produces deterministic no-order/review metadata. When the snapshot
+contains a genuine exact customer approval, the existing configured AI provider
+can extract a flexible customer summary using a strict structured response. All
+fields, item clauses, quantities, recap and later approval IDs are re-proved
+against the original customer rows. Missing approval makes no extraction call.
+Other messaging modes retain their existing provider.
 
 The owner's compact `طلبك المؤكد:` customer-copy format is a separate protocol.
 It has item lines with explicit weight or piece quantities, a total, the name, address, contact number and literal
@@ -29,6 +33,9 @@ the inline point without changing it. A conflicting pin, cart or unknown native
 media still requires review. Ordinary typed customer/business chat is not an order
 input and does not invalidate an otherwise complete pair. Explicit customer
 cancellation/change commands still require review and never rewrite the receipt.
+The flexible text-only customer protocol ignores ordinary nontext attachments as
+order inputs, while preserving all native rows and checking conflicting pins and
+carts. It never invents media content or changes the customer's identity.
 No preparation alias is inferred
 from words such as `مخلي صافي`, and the descriptive branch never replaces
 coordinate-based execution routing.
@@ -113,13 +120,28 @@ delivery information. Current branch catalog and quote checks run for the select
 branch, and the previously approved Mansoura-only product aliases do not extend to
 another branch.
 
-The narrow installer publishes only the new parser and changed WhatsApp workflow.
+The narrow installer declares the parser, WhatsApp workflow and extraction
+provider as exact targets, retaining each unchanged target's inode and mode.
+The source-clause preparation repair upgrades the verified flexible-AI profile
+by changing only the workflow; its parser and provider remain byte-identical.
 It preserves installed policy, configuration, activation cutoffs and timer states.
 This includes the currently saved all-day dispatch choice; the installer does not
 run a dispatch-hours repair or reactivate the control.
 It does not call analysis, send replies, create orders, replace units or modify
 the independent CRM, storefront or logo releases. The existing worker picks up
-eligible captured recaps when its analysis schedule is open.
+eligible captured recaps when its analysis schedule is open. A cached AI receipt
+is re-proved without another API call and can be dispatched under the independent
+dispatch schedule after the analysis window closes.
+
+AI extraction may return the bare product noun and a separate preparation hint.
+Catalog mapping therefore uses that item's complete original quantity clause,
+not a synthetic product-name-only text. The same live option coverage check
+handles negation, competing choices and other-item attribution. Inline names and
+split hints must agree with the same proved sale-option identity. An explicit
+whole/normal preparation retains its genuine configured-counterpart guard.
+Unknown hint qualifiers are not stripped to fabricate a menu synonym. Menu,
+receipt, quote and source changes still invalidate dispatch; no model-generated
+product ID, option ID, price or quantity overrides ERP authority.
 
 The status CLI is read-only and reports receipt/candidate and ERP receipt metadata
 without customer text, phone numbers, addresses, coordinates or credentials.

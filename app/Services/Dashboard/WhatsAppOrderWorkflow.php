@@ -915,7 +915,8 @@ class WhatsAppOrderWorkflow
         if ($catalog===null) { $reason='CATALOG_UNRESOLVED'; return null; }
         $items=[]; $identities=[];
         foreach ($data['items'] as $index=>$item) {
-            $mapped=$this->customerReceiptItem($item,$catalog,$branch);
+            $source=$data['evidence_receipt']['ai_extraction']['items'][$index]['quantity_source']??null;
+            $mapped=$this->customerReceiptItem($item,$catalog,$branch,is_string($source)?$source:null,$data['items']);
             if ($ownerChoice!==null&&$index===4) {
                 if ($mapped!==null) { $reason='OWNER_CHOICE_REVIEW_REQUIRED'; return null; }
                 $mapped=$this->customerReceiptOwnerItem($row,$data,$snapshot,$catalog,$branch,$ownerChoice);
@@ -1083,8 +1084,34 @@ class WhatsAppOrderWorkflow
         } catch (\Throwable $error) { return null; }
     }
 
+    /** Reuse the native AI item clause, never a synthetic noun-plus-hint string. */
+    private function customerReceiptSourceOption(array $item,array $product,string $source,array $sourceItems): ?array
+    {
+        $index=array_search($item,$sourceItems,true);
+        if ($index===false||!str_contains($source,$item['name'])) return null;
+        $proofItem=$item;
+        // A full extracted name can contain its preparation. Use the real noun
+        // when it occurs literally, so overlapping-name suppression cannot hide
+        // a contradictory or negated preparation elsewhere in the same clause.
+        if (str_contains($source,$product['name'])) $proofItem['name']=$product['name'];
+        $sourceItems[$index]=$proofItem; $choices=$product;
+        $seen=array_column($choices['options']??[],'id');
+        foreach ($product['preparation_options']??[] as $preparation) {
+            if (in_array($preparation['id'],$seen,true)) continue;
+            $choices['options'][]=$preparation; $seen[]=$preparation['id'];
+        }
+        $option=$this->catalogOption($proofItem,$sourceItems,[$source],$choices);
+        if ($option===null) return null;
+        $base=null;
+        foreach ($product['preparation_options']??[] as $preparation) if ($preparation['id']===''&&$option==='') {
+            $labels=WhatsAppOrderExtraction::optionClauseLabels($proofItem,$sourceItems,[$source],[$preparation['label']]);
+            if ($labels===[$preparation['label']]) $base=$preparation['label'];
+        }
+        return ['option_id'=>$option,'explicit_base_preparation'=>$base];
+    }
+
     /** Match whole literal product/option labels only; similarity is never order authority. */
-    private function customerReceiptItem(array $item,array $catalog,?string $branch=null): ?array
+    private function customerReceiptItem(array $item,array $catalog,?string $branch=null,?string $source=null,array $sourceItems=[]): ?array
     {
         $name=$this->customerReceiptName($item['name']); $matches=[];
         $add=static function(int $product,string $option,?array $amount=null)use(&$matches,$item):void {
@@ -1146,21 +1173,35 @@ class WhatsAppOrderWorkflow
                             &&$this->informationPrice($option['price']??null)!==null) $literal=$base.' '.$this->customerReceiptName('مخلي');
                 }
             }
+            $sourceChoice=$source!==null?$this->customerReceiptSourceOption($item,$product,$source,$sourceItems):null;
+            if ($source!==null&&$sourceChoice===null) continue;
+            // An explicit whole/normal choice still uses the genuine preparation
+            // path and its configured-counterpart guard, including split AI hints.
+            if ($literal===$base&&($sourceChoice['explicit_base_preparation']??null)!==null)
+                $literal=$base.' '.$this->customerReceiptName($sourceChoice['explicit_base_preparation']);
             if ($literal===$base) {
                 $options=$product['options']??[];
-                // Default options still pass the existing qualifier coverage guard.
+                // AI receipts separate the literal product noun from its selected
+                // preparation. The caller has re-proved this exact native item
+                // clause; a product-name-only string loses its option evidence.
+                // Keep the full clause (including negation/other item names) and
+                // the original noun, so the ordinary coverage guard still decides.
                 $literalItem=array_replace($item,$amount??[]); $literalItem['name']=$product['name'];
-                $option=$options===[]?'':$this->catalogOption($literalItem,[$literalItem],[$product['name']],$product);
+                if ($source!==null) $literalItem['name']=$item['name'];
+                $option=$source!==null?$sourceChoice['option_id']
+                    :($options===[]?'':$this->catalogOption($literalItem,[$literalItem],[$product['name']],$product));
                 if ($option!==null) $add($product['id'],$option,$amount);
             }
             foreach ($product['options']??[] as $option) {
                 $label=$this->customerReceiptName($option['label']);
-                if ($label!==''&&in_array($literal,[$base.' '.$label,$label.' '.$base],true))
+                if ($label!==''&&in_array($literal,[$base.' '.$label,$label.' '.$base],true)
+                    &&($source===null||$sourceChoice['option_id']===$option['id']))
                     $add($product['id'],$option['id'],$amount);
             }
             foreach ($product['preparation_options']??[] as $preparation) {
                 $label=$this->customerReceiptName($preparation['label']);
                 if ($label===''||!in_array($literal,[$base.' '.$label,$label.' '.$base],true)) continue;
+                if ($source!==null&&$sourceChoice['option_id']!==$preparation['id']) continue;
                 if ($preparation['id']==='') {
                     // POS exposes a base preparation for plain SKUs too. Whole
                     // fish needs an actual configured full-unit cleaning choice;

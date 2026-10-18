@@ -114,7 +114,7 @@ function waCatalogRead($workflow,string$branch,$actor):array{
     return['catalog'=>$reason===null?$catalog:null,'raw'=>$raw,'reason'=>$reason,'detail'=>$detail,'pages'=>$pages,
         'signature'=>hash('sha256',serialize([$catalog,$raw,$reason,$detail,$pages]))];
 }
-function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,bool$compact=false,?string$branch=null):array{
+function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,bool$compact=false,?string$branch=null,?string$itemSource=null,array$sourceItems=[]):array{
     $name=waCatalogCall($workflow,'customerReceiptName',[$item['name']]);$candidates=[];$matches=[];$defaults=[];$eligible=0;$available=0;$literal=0;
     foreach($catalog as$product){
         $base=waCatalogCall($workflow,'customerReceiptName',[$product['name']]);$baseMatch=$name===$base;$inline=[];
@@ -125,7 +125,10 @@ function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,
         $mode=in_array($product['quantity_mode']??'select',[$item['quantity_mode'],'select'],true);
         if($product['available'])$available++;if($product['available']&&$mode)$eligible++;
         $default=null;
-        if($baseMatch&&$product['available']&&$mode){$copy=$item;$copy['name']=$product['name'];$default=$product['options']===[]?'':waCatalogCall($workflow,'catalogOption',[$copy,[$copy],[$product['name']],$product]);$defaults[]=$default;}
+        if($baseMatch&&$product['available']&&$mode){$copy=$item;$copy['name']=$itemSource!==null?$item['name']:$product['name'];
+            $sourceChoice=$itemSource!==null?waCatalogCall($workflow,'customerReceiptSourceOption',[$item,$product,$itemSource,$sourceItems]):null;
+            $default=$itemSource!==null?($sourceChoice['option_id']??null)
+                :($product['options']===[]?'':waCatalogCall($workflow,'catalogOption',[$copy,[$copy],[$product['name']],$product]));$defaults[]=$default;}
         if($product['available']&&$mode){
             if($baseMatch&&$default!==null)$matches[$product['id'].':'.$default]=['product_id'=>$product['id'],'option_id'=>$default];
             foreach($inline as$optionId)$matches[$product['id'].':'.$optionId]=['product_id'=>$product['id'],'option_id'=>$optionId];
@@ -134,7 +137,7 @@ function waCatalogItem($workflow,array$item,array$catalog,array$raw,int$ordinal,
         if(count($candidates)<($compact?3:30))$candidates[]=waCatalogPublicProduct($source??$product,$compact)+['base_name_exact'=>$baseMatch,
             'inline_option_ids'=>$inline,'quantity_mode_matches'=>$mode,'default_option_resolved'=>$baseMatch?$default!==null:null];
     }
-    $mapped=waCatalogCall($workflow,'customerReceiptItem',[$item,$catalog,$branch]);
+    $mapped=waCatalogCall($workflow,'customerReceiptItem',[$item,$catalog,$branch,$itemSource,$sourceItems]);
     $mappedProduct=null;if($mapped!==null)foreach($catalog as$product)if($product['id']===$mapped['product_id']){$mappedProduct=$product;break;}
     $reason=$mapped!==null?'MAPPED':(waCatalogCall($workflow,'quantityMillis',[$item['quantity']])===null?'QUANTITY_INVALID':
         ($literal===0?'NO_LITERAL_PRODUCT_OR_OPTION_MATCH':($available===0?'MATCHED_PRODUCT_UNAVAILABLE':
@@ -168,7 +171,7 @@ try{
     $stage='SOURCE_GUARD';
     $pins=[
         'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'2156bbd7be4902e9d9442ce3b0590ffc10d4b89b',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'7a791b03fd10961bc0fdae0ba69d8cd97850adcd',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
@@ -226,7 +229,8 @@ try{
         if($read['catalog']===null){$out['items'][]=['ordinal'=>$index+1,'recapped_name'=>mb_substr($item['name'],0,200),
             'quantity'=>$item['quantity'],'quantity_mode'=>$item['quantity_mode'],'mapped'=>false,'mapped_quantity'=>null,
             'mapped_quantity_mode'=>null,'reason'=>'CATALOG_GLOBAL_GUARD_BLOCKED'];continue;}
-        $row=waCatalogItem($workflow,$item,$read['catalog'],$read['raw'],$index+1,$options['compact'],$branch);
+        $source=$data['evidence_receipt']['ai_extraction']['items'][$index]['quantity_source']??null;
+        $row=waCatalogItem($workflow,$item,$read['catalog'],$read['raw'],$index+1,$options['compact'],$branch,is_string($source)?$source:null,$data['items']);
         if($row['mapped']){$identity=$row['mapped_product_id'].':'.$row['mapped_option_id'];if(isset($seen[$identity])){$row['reason']='DUPLICATE_EFFECTIVE_ITEM';$row['duplicates_ordinal']=$seen[$identity];$duplicate=true;}$seen[$identity]=$index+1;}
         $out['items'][]=$row;
     }
