@@ -96,3 +96,15 @@
     #branch-stock .bs-supplier-field, #branch-stock .bs-notes-field { grid-column: 1 / -1; }
     #branch-stock .bs-balances table { min-width: 480px; }
 }
+
+/* The basic recipe review stays within the recipes tab at narrow widths. */
+#branch-stock .bs-recipe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+#branch-stock .bs-basic-button{background:#f58220;color:#fff;border-color:#f58220;font-weight:700;white-space:normal}
+#branch-stock .bs-basic-button:hover{background:#df7012}
+#branch-stock .bs-basic-dialog{color:#17304a;background:#fff;border:1px solid #dde5ef;border-radius:14px;padding:22px;max-width:620px;width:calc(100% - 32px);max-height:85vh;overflow:auto;box-sizing:border-box;box-shadow:0 16px 60px #0b1a3440;direction:rtl;text-align:right}
+#branch-stock .bs-basic-dialog::backdrop{background:#07142299}
+#branch-stock .bs-basic-dialog h2{font-size:21px;margin:0 0 12px}
+#branch-stock .bs-basic-dialog p{font-size:14px;line-height:1.8}
+#branch-stock [data-basic-skipped],#branch-stock [data-basic-result-skipped]{max-height:230px;overflow:auto;font-size:13px;line-height:1.8;padding-inline-start:24px}
+#branch-stock .bs-basic-actions{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:18px}
+#branch-stock [data-basic-result-summary]{margin:0}

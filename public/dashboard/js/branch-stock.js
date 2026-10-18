@@ -11,6 +11,9 @@
     function notice(message, retry) { var box = root.querySelector('[data-stock-message]'); box.hidden = !message; box.textContent = message || ''; root.querySelector('[data-stock-retry]').hidden = !retry; }
     function locked() { return recipeBusy || busy || loading || !!frozen; }
     function lock() {
+        var stockBusy = busy || loading || !!frozen;
+        root.dataset.stockBusy = String(stockBusy);
+        root.dispatchEvent(new CustomEvent('inventory:stock-busy', { detail: stockBusy }));
         root.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (!control.closest('[data-recipe-panel]')) control.disabled = locked(); });
         // Search remains editable while a read is in flight; stale responses are discarded.
         search.disabled = recipeBusy || busy || !!frozen;
