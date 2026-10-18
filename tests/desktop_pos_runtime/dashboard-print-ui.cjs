@@ -14,6 +14,11 @@ const server=http.createServer((req,res)=>{if(req.url==='/print.js'){res.setHead
     const denied=await page.evaluate(()=>DashboardPrint.print('https://example.com/admin/receipt').then(()=>false,()=>true));assert.ok(denied);assert.equal(calls.length,2);
     reject=true;const error=await page.evaluate(()=>DashboardPrint.print('/admin/takeaway/3/print').then(()=>'',error=>error.message));assert.match(error,/طابعة غير متاحة/);
     reject=false;await page.evaluate(()=>DashboardPrint.print('/admin/takeaway/3/print'));assert.equal(calls.length,4);assert.equal(errors.length,0);
-    console.log('PASS dashboard print UI: native printer, duplicate suppression, queued receipts, denied external URL and retry after printer failure');
+    const orderReceipts=['/admin/takeaway/receipts/10/print','/admin/takeaway/receipts/11/print?channel=dining','/admin/phone-orders/12/bill','/admin/order-board/legacy/13/print'];
+    await page.evaluate(urls=>Promise.all(urls.map(url=>DashboardPrint.print(url))),orderReceipts);
+    assert.equal(calls.length,8);assert.equal(await page.locator('iframe').count(),0);
+    assert.deepEqual(calls.slice(4).map(url=>new URL(url).pathname),orderReceipts.map(url=>new URL(url,'http://localhost').pathname));
+    assert.ok(calls.slice(4).every(url=>new URL(url).searchParams.get('dashboard_print')==='1'));
+    console.log('PASS all four order receipt types without browser preview; dashboard print UI: native printer, duplicate suppression, queued receipts, denied external URL and retry after printer failure');
   }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -4,3 +4,4 @@
 *.js linguist-vendored
 CHANGELOG.md export-ignore
 public/dashboard/vendor/desktop-external/** -text
+public/dashboard/start-branch-pos-printing.cmd -text whitespace=cr-at-eol
