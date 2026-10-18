@@ -10,7 +10,7 @@
     <header class="tp-header">
         <div class="tp-heading"><h1 id="takeaway-title">{{ __('takeaway.title') }}</h1><p>{{ __('takeaway.subtitle') }}</p></div>
         <label class="tp-branch"><span class="tp-sr-only">{{ __('takeaway.branch') }}</span><i class="fas fa-map-marker-alt" aria-hidden="true"></i><select data-pos-branch>
-            <option value="">{{ __('takeaway.select_branch') }}</option>
+            <option value="">{{ !empty($pos['can_view_all_branches']) ? __('takeaway.all_branches') : __('takeaway.select_branch') }}</option>
             @foreach($pos['branches'] ?? [] as $branch)
                 <option value="{{ $branch['value'] ?? $branch['id'] }}" @if((string)($pos['selected_branch'] ?? '') === (string)($branch['value'] ?? $branch['id'])) selected @endif>{{ $branch['name'] }}</option>
             @endforeach

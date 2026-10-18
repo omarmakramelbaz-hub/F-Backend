@@ -115,13 +115,15 @@
 
     function renderOwnerStock(){
         var select=$('stock-branch'),selected=select.value,n=$('stock');select.replaceChildren();
+        var all=el('option',text.all_branches);all.value='';select.appendChild(all);
         data.branch_cards.forEach(function(branch){var option=el('option',branch.name);option.value=branch.value;select.appendChild(option);});
         if(data.branch_cards.some(function(b){return b.value===selected;}))select.value=selected;
         if(window.jQuery&&select.classList.contains('select2-hidden-accessible'))window.jQuery(select).trigger('change.select2');
         n.replaceChildren();
-        if(select.value&&data.modules.inventory)data.inventory.items.forEach(function(item){
-            var balance=item.balances[select.value],row=el('article',undefined,'ho-owner-row'),name=el('span',item.name,'ho-row-name');name.title=item.name;row.dataset.hoIngredient=item.id;
-            var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,balance&&balance.quantity_units<0?'ho-stock-warning':'');row.append(name,qty);n.appendChild(row);
+        if(data.modules.inventory)data.inventory.items.forEach(function(item){
+            var balance=select.value?item.balances[select.value]:(item.tracked_branches?item:null),row=el('article',undefined,'ho-owner-row'),name=el('span',item.name,'ho-row-name');name.title=item.name;row.dataset.hoIngredient=item.id;
+            var warning=balance&&(select.value?balance.quantity_units<0:item.negative_branches>0);
+            var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,warning?'ho-stock-warning':'');row.append(name,qty);n.appendChild(row);
         });
         if(!n.children.length)n.appendChild(el('p',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty'));
         routeLink($('stock-link'),select.value||data.filters.branch);

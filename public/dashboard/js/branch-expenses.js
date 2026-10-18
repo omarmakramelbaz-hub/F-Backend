@@ -41,7 +41,7 @@
         root.querySelector('[data-expense-retry]').disabled = busy;
         if (frozen && !busy && frozen.fileName && !frozen.file) form.elements.attachment.disabled = false;
         if (!locked()) {
-            branch.disabled = boot.branches.length === 1; form.elements.branch.disabled = boot.branches.length === 1 || !!editing;
+            branch.disabled = !boot.allow_all && boot.branches.length === 1; form.elements.branch.disabled = boot.branches.length === 1 || !!editing;
             root.querySelector('[data-expense-previous]').disabled = current.pagination.page <= 1; root.querySelector('[data-expense-next]').disabled = current.pagination.page >= current.pagination.last_page;
             form.querySelectorAll('button').forEach(function (button) { button.disabled = !boot.permissions.can_create; });
         }

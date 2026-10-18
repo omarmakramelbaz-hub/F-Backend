@@ -59,6 +59,8 @@ class BranchCustomers
     /** One row per canonical phone; source badges remain limited to the permitted branches. */
     public function listing(array $values,$actor): array
     {
+        $actor=$this->ops->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
         if(!Schema::hasTable('crm_customers')||!Schema::hasTable('crm_customer_sources')){if(!in_array($values['source']??'all',['all','saved','app','history'],true))$values['source']='all';return $this->legacyListing($values,$actor);}
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','source'=>'nullable|in:all,takeaway,dine,app,delivery,saved,history','page'=>'nullable|integer|min:1'])->validate();
         $branches=$this->ops->branches($v['branch'],$actor);$scope=array_column($branches,'value');if($v['branch']==='all')$scope[]='';$source=$v['source']??'all';

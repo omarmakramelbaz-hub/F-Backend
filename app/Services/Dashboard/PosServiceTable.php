@@ -26,8 +26,18 @@ class PosServiceTable
     }
     public function listing(string $value,$actor): array
     {
-        $this->requireReady();$branch=$this->access->branch($value,$actor);$tables=[];
-        foreach(DB::table('pos_service_tables')->where('branch',$value)->orderBy('id')->get() as $row)$tables[]=$this->present($row);
+        $this->requireReady();$tables=[];
+        if($value===''||$value==='all'){
+            $actor=$this->access->actor($actor);
+            abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+            $branches=$this->access->branches($actor);$names=array_column($branches,'name','value');
+            foreach(DB::table('pos_service_tables')->whereIn('branch',array_keys($names))->orderBy('branch')->orderBy('id')->get() as $row){
+                $table=$this->present($row);$table['branch_name']=$names[$row->branch];$tables[]=$table;
+            }
+            return ['success'=>true,'branch'=>['value'=>'','name'=>__('dining.all_branches')],'tables'=>$tables,'policy'=>[], 'permissions'=>$this->access->permissions($actor)];
+        }
+        $branch=$this->access->branch($value,$actor);
+        foreach(DB::table('pos_service_tables')->where('branch',$value)->orderBy('id')->get() as $row)$tables[]=$this->present($row)+['branch_name'=>$branch['name']];
         return ['success'=>true,'branch'=>$branch,'tables'=>$tables,'policy'=>$this->policy($value),'permissions'=>$this->access->permissions($actor)];
     }
     public function present(object $row): array

@@ -1,5 +1,6 @@
 <?php
 return [
+    'all_branches' => 'All branches',
     'cash_paid'=>'Amount paid',
     'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to complete the invoice).',
     'consent_required'=>'Confirm the customer’s follow-up consent before completing the invoice.',

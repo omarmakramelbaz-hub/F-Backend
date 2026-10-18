@@ -34,10 +34,24 @@ class BranchShiftClosing
     }
     public function data(array $values,$actor): array
     {
+        if(($values['branch']??null)==='all')return $this->allData($actor);
         $v=Validator::make($values,['branch'=>'required|string|max:40'])->validate();$branch=$this->branch($v['branch'],$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
         $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','pending_expenses','unsettled_app_cash']));
         $history=DB::table('branch_shift_closings')->where('branch',$branch['value'])->orderByDesc('sequence')->limit(30)->get()->map(fn($r)=>$this->stub($r))->all();
         return ['success'=>true,'previous_closing_id'=>$last?(int)$last->id:0,'review_token'=>$this->token($built),'report'=>$visible,'history'=>$history];
+    }
+    private function allData($actor): array
+    {
+        $actor=$this->access->actor($actor);abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        $branches=$this->branches($actor);abort_unless($branches,403);$reports=[];$history=[];$pending=0;$unsettled=0;
+        foreach($branches as $branch){
+            $data=$this->data(['branch'=>$branch['value']],$actor);$reports[]=$data['report'];
+            $pending+=(int)$data['report']['pending_expenses'];$unsettled+=(int)$data['report']['unsettled_app_cash'];
+            foreach($data['history'] as $entry)$history[]=$entry+['branch_name'=>$branch['name']];
+        }
+        usort($history,fn($a,$b)=>$b['id']<=>$a['id']);
+        // Aggregate previews deliberately omit review tokens and all monetary totals.
+        return ['success'=>true,'all_branches'=>true,'report'=>['branch'=>['value'=>'all','name'=>'جميع الفروع'],'started_at'=>'—','pending_expenses'=>$pending,'unsettled_app_cash'=>$unsettled],'branch_reports'=>$reports,'history'=>array_slice($history,0,30)];
     }
     private function cents($amount): int
     {

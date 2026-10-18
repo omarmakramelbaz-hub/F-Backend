@@ -1,5 +1,6 @@
 <?php
 return [
+    'all_branches' => 'All branches',
     'quantity_short'=>'Qty.',
     'receipt_thanks'=>'Thank you for your visit',
     'receipt_welcome'=>'We look forward to serving you again',

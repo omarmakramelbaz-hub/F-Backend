@@ -12,13 +12,13 @@ class BranchOperationsController extends Controller
     private function actor(Request $r){$actor=auth('admin')->user();if($this->module($r)==='employees')abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);return $actor;}
     public function index(Request $r,TakeawayAccess $access)
     {
-        $actor=$this->actor($r);$branches=$access->branches($actor);abort_unless(count($branches),403);$module=$this->module($r);$selected=$r->input('branch',$module==='customers'&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id)?'all':$branches[0]['value']);
+        $actor=$access->actor($this->actor($r));$branches=$access->branches($actor);abort_unless(count($branches),403);$module=$this->module($r);$allowAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$selected=$r->input('branch',$allowAll?'all':$branches[0]['value']);
         $initial=$this->service($r)->listing($r->all()+['branch'=>$selected],$actor);$urls=[];
         foreach(['data','save'] as $name)$urls[$name]=route($module.'.'.$name);
         if($module==='customers')foreach(['directory-save','consent','messaging-status','messaging-configure','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
         if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export'] as $name)$urls[$name]=route($module.'.'.$name);
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
-        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
+        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$allowAll,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
         if($module==='customers')$boot['can_message']=app(WhatsAppInboxAccess::class)->canAccess($actor);
         $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
         return view($view,compact('boot'));

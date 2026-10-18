@@ -57,6 +57,8 @@ class BranchExpenses
     }
     public function listing(array $values,$actor,bool $export=false): array
     {
+        $actor=$this->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
         $v=$this->filters($values);[$base,$branches]=$this->scope($v,$actor);
         $permissions=$this->permissions($actor);$categoryService=app(ExpenseCategories::class);$branchCategories=[];$categoryCatalog=[];
         foreach($this->access->branches($actor) as $available)$branchCategories[$available['value']]=$categoryService->choices($permissions['can_manage_categories'],$available['value']);

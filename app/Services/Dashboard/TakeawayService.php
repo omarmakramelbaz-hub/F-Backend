@@ -204,9 +204,11 @@ class TakeawayService
     public function receipts(array $values, $actor): array
     {
         $this->requireReady();
-        $branch = $this->access->branch($values['branch'], $actor);
+        $selection = $this->readBranches($values['branch'] ?? '', $actor);
+        $branch = $selection['branch'];
+        abort_unless(empty($values['idempotency_key']) || $branch['value'] !== '', 422, 'اختر الفرع لتأكيد نتيجة عملية البيع.');
         $date = $values['date'] ?? $this->businessDate();
-        $query = DB::table('takeaway_orders')->where('branch', $branch['value']);
+        $query = DB::table('takeaway_orders')->whereIn('branch', $selection['values']);
         if (!empty($values['idempotency_key'])) {
             // Recovery of an uncertain POST returns only this cashier's exact key.
             $query->where('actor_id', $this->access->actor($actor)->id)->where('request_key', $values['idempotency_key']);
@@ -219,7 +221,7 @@ class TakeawayService
             $items[] = $this->presentReceipt($row, $actor);
             if (!empty($values['idempotency_key'])) $firstPrintUrl = app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
         }
-        return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($branch['value'], $date), 'items'=>$items,
+        return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($selection['values'], $date), 'items'=>$items,
             'receipt'=>!empty($values['idempotency_key']) ? ($items[0] ?? null) : null,
             'replayed'=>!empty($values['idempotency_key']) && count($items) > 0, 'first_print_url'=>$firstPrintUrl,
             'pagination'=>['page'=>$page, 'last_page'=>$last, 'per_page'=>$perPage, 'total'=>$total]];
@@ -292,12 +294,13 @@ class TakeawayService
 
     public function summary(string $value, $actor): array
     {
-        $branch = $this->access->branch($value, $actor);
+        $selection = $this->readBranches($value, $actor);
+        $branch = $selection['branch'];
         if (!$this->access->ready()) return ['ready'=>false, 'register'=>['revision'=>1,'tax_rate'=>'0.00'], 'today'=>['date'=>$this->businessDate(),'count'=>0,'total'=>'0.00']];
         $permissions = $this->access->permissions($actor);
-        $till = $this->presentTill($this->till($branch['value']), $actor);
-        return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($branch['value'], $this->businessDate()), 'permissions'=>$permissions,
-            'policy'=>['tax_rate'=>$till['tax_rate'], 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
+        $till = $branch['value'] !== '' ? $this->presentTill($this->till($branch['value']), $actor) : null;
+        return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($selection['values'], $this->businessDate()), 'permissions'=>$permissions,
+            'policy'=>['tax_rate'=>$till['tax_rate'] ?? '0.00', 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
                 'payment_methods'=>['cash'], 'currency'=>'EGP']];
     }
 
@@ -441,9 +444,21 @@ class TakeawayService
         return $receipt;
     }
 
-    private function daily(string $branch, string $date): array
+    /** Aggregate reads are available only to central dashboard administrators. */
+    private function readBranches(string $value, $actor): array
     {
-        $base = DB::table('takeaway_orders')->where('branch', $branch)->where('business_date', $date);
+        if ($value !== '' && $value !== 'all') {
+            $branch = $this->access->branch($value, $actor);
+            return ['branch'=>$branch, 'values'=>[$branch['value']]];
+        }
+        $actor = $this->access->actor($actor);
+        abort_unless($actor->account_type === 'admin' && empty($actor->owner_resturant_id), 403);
+        return ['branch'=>['value'=>'', 'name'=>__('takeaway.all_branches')], 'values'=>array_column($this->access->branches($actor), 'value')];
+    }
+
+    private function daily($branch, string $date): array
+    {
+        $base = DB::table('takeaway_orders')->whereIn('branch', (array) $branch)->where('business_date', $date);
         $result = ['date'=>$date, 'count'=>(clone $base)->count(), 'total'=>Money::decimal((int) (clone $base)->sum('total_cents'))];
         foreach (array_merge(self::METHODS,['mixed']) as $method) $result[$method] = Money::decimal((int) (clone $base)->where('payment_method', $method)->sum('total_cents'));
         if ($this->access->has('takeaway_orders','tenders_snapshot')) {

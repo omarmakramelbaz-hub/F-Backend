@@ -16,8 +16,10 @@
         search.disabled = recipeBusy || busy || !!frozen;
         root.querySelector('[data-stock-retry]').disabled = recipeBusy || busy || loading;
         if (!locked()) {
-            branch.disabled = boot.branches.length === 1;
-            form.elements.unit.disabled = !!(items.get(product.value) || {}).stock;
+            branch.disabled = boot.branches.length === 1 && !boot.can_all;
+            if (branch.value === 'all') form.querySelectorAll('button,input,textarea,select').forEach(function (control) { if (control !== search) control.disabled = true; });
+            root.querySelectorAll('[data-stock-rows] .bs-item').forEach(function (control) { control.disabled = branch.value === 'all'; });
+            form.elements.unit.disabled = branch.value === 'all' || !!(items.get(product.value) || {}).stock;
             root.querySelector('[data-stock-previous]').disabled = current.pagination.page <= 1;
             root.querySelector('[data-stock-next]').disabled = current.pagination.page >= current.pagination.last_page;
         }
@@ -32,7 +34,7 @@
     }
     function selected() {
         var item = items.get(product.value), stock = item && item.stock, output = root.querySelector('[data-stock-current]');
-        output.textContent = stock ? stock.quantity + ' ' + stock.unit_label : item ? 'لم يبدأ تسجيل رصيد هذا الصنف' : 'اختر الصنف';
+        output.textContent = branch.value === 'all' ? 'اختر الفرع لتسجيل البضاعة' : stock ? stock.quantity + ' ' + stock.unit_label : item ? 'لم يبدأ تسجيل رصيد هذا الصنف' : 'اختر الصنف';
         output.classList.toggle('is-negative', !!stock && stock.negative);
         if (stock) form.elements.unit.value = stock.unit;
         form.elements.quantity.placeholder = form.elements.unit.value === 'piece' ? '0' : '0.000';
@@ -42,8 +44,8 @@
         var chosen = product.value; current = data; items.clear(); product.replaceChildren(el('option', 'اختر صنف البضاعة')); product.firstChild.value = '';
         var body = root.querySelector('[data-stock-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
-            items.set(String(item.id), item); var stock = item.stock, option = el('option', item.name + ' — ' + (stock ? stock.quantity + ' ' + stock.unit_label : 'دون رصيد مسجل')); option.value = item.id; product.appendChild(option);
-            var row = el('tr'), name = el('td'), choose = el('button', item.name, 'bs-item'); choose.type = 'button'; choose.addEventListener('click', function () { if (locked()) return; product.value = String(item.id); selected(); form.elements.quantity.focus(); }); name.appendChild(choose); row.appendChild(name);
+            if (!data.all_branches) items.set(String(item.id), item); var stock = item.stock, option = el('option', item.name + ' — ' + (stock ? stock.quantity + ' ' + stock.unit_label : 'دون رصيد مسجل')); option.value = item.id; product.appendChild(option);
+            var row = el('tr'), name = el('td'), choose = el('button', (item.branch_name ? item.branch_name + ' · ' : '') + item.name, 'bs-item'); choose.disabled = !!data.all_branches; choose.type = 'button'; choose.addEventListener('click', function () { if (locked() || branch.value === 'all') return; product.value = String(item.id); selected(); form.elements.quantity.focus(); }); name.appendChild(choose); row.appendChild(name);
             row.appendChild(el('td', stock ? stock.unit_label : '—'));
             row.appendChild(el('td', stock ? stock.quantity : 'لم يبدأ التسجيل', stock && stock.negative ? 'is-negative' : 'bs-quantity'));
             row.appendChild(el('td', item.unit === 'kg' ? 'خامة بالوزن' : 'بضاعة بالقطعة')); body.appendChild(row);
@@ -52,11 +54,11 @@
         product.value = items.has(chosen) ? chosen : '';
         root.querySelector('[data-stock-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total + ' صنف';
         var history = root.querySelector('[data-stock-history]'); history.replaceChildren();
-        data.history.forEach(function (entry) { var row = el('tr'); [entry.created_at, entry.name, entry.source_type === 'receipt' ? 'توريد بضاعة' : entry.source_type === 'expense' ? 'مشتريات مصروف #'+entry.source_id : entry.source_type === 'expense_reverse' ? 'عكس مشتريات مصروف #'+entry.source_id : entry.source_type === 'app' ? 'بيع تطبيق #' + entry.source_id : 'بيع فاتورة #' + entry.source_id, entry.quantity + ' ' + entry.unit_label, entry.balance + ' ' + entry.unit_label, entry.actor, [entry.supplier, entry.notes].filter(Boolean).join(' · ') || '—'].forEach(function (text, index) { row.appendChild(el('td', text, index === 3 || index === 4 ? 'bs-quantity' : '')); }); history.appendChild(row); });
+        data.history.forEach(function (entry) { var row = el('tr'); [entry.created_at, (entry.branch_name ? entry.branch_name + ' · ' : '') + entry.name, entry.source_type === 'receipt' ? 'توريد بضاعة' : entry.source_type === 'expense' ? 'مشتريات مصروف #'+entry.source_id : entry.source_type === 'expense_reverse' ? 'عكس مشتريات مصروف #'+entry.source_id : entry.source_type === 'app' ? 'بيع تطبيق #' + entry.source_id : 'بيع فاتورة #' + entry.source_id, entry.quantity + ' ' + entry.unit_label, entry.balance + ' ' + entry.unit_label, entry.actor, [entry.supplier, entry.notes].filter(Boolean).join(' · ') || '—'].forEach(function (text, index) { row.appendChild(el('td', text, index === 3 || index === 4 ? 'bs-quantity' : '')); }); history.appendChild(row); });
         if (!data.history.length) { var row = el('tr'), cell = el('td', 'لا توجد حركات بضاعة مسجلة بعد.'); cell.colSpan = 7; row.appendChild(cell); history.appendChild(row); }
-        var legacy=root.querySelector('[data-stock-legacy]'), oldRows=root.querySelector('[data-stock-legacy-rows]');legacy.hidden=!(data.legacy||[]).length;oldRows.replaceChildren();(data.legacy||[]).forEach(function(item){var row=el('tr');[item.name,item.quantity,item.unit_label].forEach(function(value){row.appendChild(el('td',value));});oldRows.appendChild(row);});
-        root.querySelector('[data-stock-guidance]').textContent='كروت الأصناف مرتبطة بالبضاعة والوصفات المسجلة. '+(data.unconfigured_count ? data.unconfigured_count+' صنف بيع لم تُسجّل وصفته بعد؛ لن تخصم مكونات هذه الأصناف حتى تسجيل الوصفات.' : 'راجع وصفة كل حجم من أحجام المينيو.');
-        var unmapped=root.querySelector('[data-stock-unmapped]');unmapped.hidden=!(data.unmapped_sales||[]).length;unmapped.textContent=(data.unmapped_sales||[]).map(function(sale){return (sale.source_type==='app'?'طلب تطبيق #':'فاتورة #')+sale.source_id+': '+sale.items.map(function(i){return i.name;}).join('، ');}).join(' | ');if(!unmapped.hidden)unmapped.prepend(document.createTextNode('مبيعات حديثة بلا وصفة مسجلة (راجع المقادير والمخزون): '));
+        var legacy=root.querySelector('[data-stock-legacy]'), oldRows=root.querySelector('[data-stock-legacy-rows]');legacy.hidden=!(data.legacy||[]).length;oldRows.replaceChildren();(data.legacy||[]).forEach(function(item){var row=el('tr');[(item.branch_name ? item.branch_name + ' · ' : '') + item.name,item.quantity,item.unit_label].forEach(function(value){row.appendChild(el('td',value));});oldRows.appendChild(row);});
+        root.querySelector('[data-stock-guidance]').textContent=(data.all_branches ? 'عرض أرصدة جميع الفروع. اختر فرعًا لتسجيل بضاعة أو مراجعة وصفاته. ' : '')+'كروت الأصناف مرتبطة بالبضاعة والوصفات المسجلة. '+(data.unconfigured_count ? data.unconfigured_count+' صنف بيع لم تُسجّل وصفته بعد؛ لن تخصم مكونات هذه الأصناف حتى تسجيل الوصفات.' : 'راجع وصفة كل حجم من أحجام المينيو.');
+        var unmapped=root.querySelector('[data-stock-unmapped]');unmapped.hidden=!(data.unmapped_sales||[]).length;unmapped.textContent=(data.unmapped_sales||[]).map(function(sale){return (sale.branch_name ? sale.branch_name + ' · ' : '')+(sale.source_type==='app'?'طلب تطبيق #':'فاتورة #')+sale.source_id+': '+sale.items.map(function(i){return i.name;}).join('، ');}).join(' | ');if(!unmapped.hidden)unmapped.prepend(document.createTextNode('مبيعات حديثة بلا وصفة مسجلة (راجع المقادير والمخزون): '));
         selected();
     }
     async function load(page) {
@@ -98,7 +100,7 @@
         finally { busy = false; lock(); if (!frozen) load(1); }
     }
     on(form, 'submit', function (event) {
-        event.preventDefault(); if (locked() || !items.has(product.value)) return;
+        event.preventDefault(); if (branch.value === 'all') { notice('اختر فرعًا قبل تسجيل البضاعة.'); return; } if (locked() || !items.has(product.value)) return;
         var amount = form.elements.quantity.value.trim().replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace(/٫/g, '.');
         if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1000000 || form.elements.unit.value === 'piece' && !Number.isInteger(Number(amount))) { notice('أدخل كمية موجبة: القطع أعداد صحيحة والكيلو حتى 3 منازل عشرية.'); form.elements.quantity.focus(); return; }
         commit({ branch: branch.value, ingredient_id: Number(product.value), quantity: amount, unit: form.elements.unit.value, supplier: form.elements.supplier.value.trim(), notes: form.elements.notes.value.trim(), idempotency_key: crypto.randomUUID() }, false);

@@ -12,7 +12,7 @@ let checks = 0;
 function check(value, message) { assert(value, message); checks++; }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function settled() { await tick(); await tick(); }
-function fixture(manage = true) {
+function fixture(manage = true, branchChoices = branches, allowAll = true) {
     const catalogs = Object.fromEntries(branches.map(branch => [branch.value, {
         categories: {purchases: 'مشتريات', purchase_oil: 'زيت', custom_88: 'نظافة'},
         active_categories: {purchases: 'مشتريات', purchase_oil: 'زيت', custom_88: 'نظافة'},
@@ -32,14 +32,14 @@ function fixture(manage = true) {
             category_name: catalogs[branch.value].categories.purchase_oil + ' — ' + branch.name, description: '', amount: '10.00', payment_method: 'cash', actor_name: 'المالك', status: 'pending'}));
         return d;
     }
-    const boot = {actor_id: manage ? 1 : 99, today: '2026-10-18', initial: dataset(), branches,
+    const boot = {actor_id: manage ? 1 : 99, today: '2026-10-18', initial: dataset(), branches: branchChoices, allow_all: allowAll,
         permissions: {can_create: true, can_approve: manage, can_manage_categories: manage},
         urls: {data: '/data', save: '/save', recover: '/recover', export: '/export', report: '/report', categorySave: '/category-save'}};
     const dom = new JSDOM(`<meta name="csrf-token" content="test">${template(manage, manage)}<script type="application/json" id="branch-expenses-bootstrap">${JSON.stringify(boot)}</script><script type="application/json" id="branch-expenses-labels">${JSON.stringify(labels)}</script>`, {url: 'https://expense-test.invalid/', runScripts: 'outside-only'});
     const w = dom.window, doc = w.document;
     const form = doc.querySelector('[data-expense-form]'), header = doc.querySelector('[data-expense-branch]');
-    const options = branches.map(branch => `<option value="${branch.value}">${branch.name}</option>`).join('');
-    header.innerHTML = '<option value="all">جميع الفروع</option>' + options; header.value = 'all'; form.elements.branch.innerHTML = options;
+    const options = branchChoices.map(branch => `<option value="${branch.value}">${branch.name}</option>`).join('');
+    header.innerHTML = (allowAll ? '<option value="all">جميع الفروع</option>' : '') + options; header.value = allowAll ? 'all' : branchChoices[0].value; form.elements.branch.innerHTML = options;
     w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     w.HTMLDialogElement.prototype.close = function () { this.open = false; };
     w.confirm = () => true;
@@ -173,5 +173,18 @@ function fixture(manage = true) {
     try {
         check(!denied.doc.querySelector('[data-expense-categories-open]') && denied.errors.length === 0, 'branch users without management permission render safely without category controls');
     } finally { denied.close(); }
+    const soleBranch = fixture(true, branches.slice(0, 1));
+    try {
+        check(soleBranch.header.value === 'all' && !soleBranch.header.disabled, 'administrator can switch between all and the sole branch');
+        check(soleBranch.form.elements.branch.value === 'f:100' && soleBranch.form.elements.branch.disabled, 'expense destination remains a concrete branch in all mode');
+        soleBranch.change(soleBranch.header, 'f:100'); await settled();
+        check(!soleBranch.header.disabled && soleBranch.header.value === 'f:100', 'sole branch refresh keeps the all-branches selector available');
+        soleBranch.change(soleBranch.header, 'all'); await settled();
+        check(!soleBranch.header.disabled && soleBranch.header.value === 'all' && soleBranch.errors.length === 0, 'administrator can return to all branches after refresh');
+    } finally { soleBranch.close(); }
+    const restricted = fixture(false, branches.slice(0, 1), false);
+    try {
+        check(restricted.header.disabled && restricted.header.value === 'f:100' && !restricted.header.querySelector('[value="all"]'), 'restricted single branch selection stays locked without an all option');
+    } finally { restricted.close(); }
     console.log(checks + ' branch-local category DOM checks passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

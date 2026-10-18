@@ -1,5 +1,6 @@
 <?php
 return [
+    'all_branches' => 'جميع الفروع',
     'quantity_short'=>'الكمية',
     'receipt_thanks'=>'شكرًا لزيارتكم',
     'receipt_welcome'=>'نسعد بخدمتكم مجددًا',

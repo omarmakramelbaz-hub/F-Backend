@@ -10,6 +10,8 @@ class DeliveryCompanies
     public function __construct(BranchOperations $ops){$this->ops=$ops;}
     public function listing(array $values,$actor): array
     {
+        $actor=$this->ops->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1','active'=>'nullable|boolean'])->validate();
         $branches=$this->ops->branches($v['branch'],$actor);$q=DB::table('branch_delivery_companies')->whereIn('branch',array_column($branches,'value'));
         if(isset($v['active']))$q->where('active',$v['active']);if(!empty($v['search']))$q->where('name','like','%'.trim($v['search']).'%');

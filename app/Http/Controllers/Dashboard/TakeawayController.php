@@ -20,12 +20,15 @@ class TakeawayController extends Controller
 
     public function index(Request $request, TakeawayAccess $access, TakeawayService $service)
     {
-        $values = $request->validate(['branch'=>['nullable','string','regex:/^(f|gs):[1-9][0-9]{0,18}$/D']]);
-        $actor = auth('admin')->user();
+        $values = $request->validate(['branch'=>['nullable','string','regex:/^(?:all|(f|gs):[1-9][0-9]{0,18})$/D']]);
+        $actor = $access->actor(auth('admin')->user());
         $branches = $access->branches($actor);
         abort_unless(count($branches), 403);
-        $selected = $values['branch'] ?? $branches[0]['value'];
-        $access->branch($selected, $actor);
+        $canViewAll = $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
+        $selected = $values['branch'] ?? ($canViewAll ? '' : $branches[0]['value']);
+        if ($selected === 'all') $selected = '';
+        if ($selected !== '') $access->branch($selected, $actor);
+        else abort_unless($canViewAll, 403);
         $permissions = $access->permissions($actor);
         $permissions['can_operate'] = $permissions['can_checkout'];
         $urls = [];
@@ -33,7 +36,7 @@ class TakeawayController extends Controller
         $urls['daily'] = $urls['receipts']; $urls['register'] = $urls['till'];
         $pos = array_merge($service->summary($selected, $actor), [
             'branches'=>$branches, 'selected_branch'=>$selected, 'cashier'=>['id'=>(int) $actor->id, 'name'=>(string) $actor->name],
-            'urls'=>$urls, 'permissions'=>$permissions,
+            'urls'=>$urls, 'permissions'=>$permissions, 'can_view_all_branches'=>$canViewAll,
         ]);
         return view('admin.takeaway.index', compact('pos'));
     }
@@ -58,7 +61,7 @@ class TakeawayController extends Controller
 
     public function receipts(Request $request, TakeawayService $service)
     {
-        $values = $request->validate($this->branchRules() + ['date'=>'nullable|date_format:Y-m-d', 'idempotency_key'=>'nullable|uuid',
+        $values = $request->validate(['branch'=>['nullable','string','regex:/^(?:all|(f|gs):[1-9][0-9]{0,18})$/D']] + ['date'=>'nullable|date_format:Y-m-d', 'idempotency_key'=>'nullable|uuid',
             'page'=>'nullable|integer|min:1', 'per_page'=>'nullable|integer|min:1|max:50']);
         return response()->json($service->receipts($values, auth('admin')->user()));
     }

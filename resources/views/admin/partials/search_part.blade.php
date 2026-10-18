@@ -23,7 +23,7 @@
         @if(auth('admin')->user()->account_type=='admin')
         <div class="p-1">
             <select name="resturant_id" class="form-select">
-                <option value="">@lang('main.filterByResturants')</option>
+                <option value="">{{ __(empty(auth('admin')->user()->owner_resturant_id) ? 'home_overview.all_branches' : 'main.filterByResturants') }}</option>
                 @foreach(\App\Models\Resturant::whereNull('parent_id')->get() as $resturant)
                 <option value="{{$resturant->id}}" @if(old('resturant_id', request('resturant_id')) == $resturant->id) selected @endif>{{$resturant->name}} / {{$resturant->area?->title}}</option>
                 @endforeach
@@ -35,7 +35,7 @@
         @if(auth('admin')->user()->account_type=='admin')
         <div class="p-1">
             <select name="resturant_id" class="form-select">
-                <option value="">@lang('main.filterByResturants')</option>
+                <option value="">{{ __(empty(auth('admin')->user()->owner_resturant_id) ? 'home_overview.all_branches' : 'main.filterByResturants') }}</option>
                 @foreach(\App\Models\Resturant::get() as $resturant)
                 <option value="{{$resturant->id}}" @if(old('resturant_id', request('resturant_id')) == $resturant->id) selected @endif>{{$resturant->name}} / {{$resturant->area?->title}}</option>
                 @endforeach

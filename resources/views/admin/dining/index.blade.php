@@ -10,7 +10,7 @@
     <header class="dp-header">
         <div class="dp-heading"><h1 id="dining-title">{{ __('dining.title') }}</h1><p>{{ __('dining.subtitle') }}</p></div>
         <label class="dp-branch"><span class="dp-sr-only">{{ __('dining.branch') }}</span><i class="fas fa-map-marker-alt" aria-hidden="true"></i><select data-dining-branch>
-            <option value="">{{ __('dining.select_branch') }}</option>
+            <option value="">{{ !empty($dining['can_view_all_branches']) ? __('dining.all_branches') : __('dining.select_branch') }}</option>
             @foreach($dining['branches'] ?? [] as $branch)
                 <option value="{{ $branch['value'] ?? $branch['id'] }}" @if((string)($dining['selected_branch'] ?? '') === (string)($branch['value'] ?? $branch['id'])) selected @endif>{{ $branch['name'] }}</option>
             @endforeach

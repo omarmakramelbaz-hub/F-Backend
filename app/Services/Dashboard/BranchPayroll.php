@@ -286,6 +286,8 @@ class BranchPayroll
     }
     public function listing(array $values,$actor,bool $export=false): array
     {
+        $actor=$this->ops->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
         $v=Validator::make($values,['branch'=>'required|string|max:30','day'=>'nullable|date_format:Y-m-d','month'=>'nullable|date_format:Y-m','search'=>'nullable|string|max:100','job_title'=>'nullable|string|max:100','shift'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$v['day']=$v['day']??OperatingDay::date();$v['month']=$v['month']??substr($v['day'],0,7);
         $branches=$this->ops->branches($v['branch'],$actor);$q=DB::table('branch_employees')->whereIn('branch',array_column($branches,'value'));
         $options=[];foreach(['job_title','shift'] as $key)$options[$key]=(clone $q)->whereNotNull($key)->where($key,'<>','')->distinct()->orderBy($key)->pluck($key)->all();

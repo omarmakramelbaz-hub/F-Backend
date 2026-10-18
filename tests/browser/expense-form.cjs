@@ -12,7 +12,7 @@ function template(manage,approve){
  html=html.replace(/@if\(\$boot\['allow_all'\]\)[\s\S]*?@endif/g,'');
  html=html.replace(/@if\(\$boot\['permissions'\]\['can_manage_categories'\]\)([\s\S]*?)@endif/g,(_,body)=>manage?body:'');
  html=html.replace(/@if\(\$boot\['permissions'\]\['can_approve'\]\)([\s\S]*?)@endif/g,(_,body)=>approve?body:'');
- html=html.replace(/@if\(count\(\$boot\['branches'\]\)===1\) disabled @endif/g,'disabled');
+ html=html.replace(/@if\((?:!\$boot\['allow_all'\]&&)?count\(\$boot\['branches'\]\)===1\) disabled @endif/g,'disabled');
  html=html.replace(/{{\s*__\('expenses\.([^']+)'\)\s*}}/g,(_,k)=>labels[k]);
  html=html.replace(/{{\s*\$boot\['today'\]\s*}}/g,'2026-10-07').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['from'\]\s*}}/g,'2026-10-01').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['to'\]\s*}}/g,'2026-10-07');
  assert(!/@if|@foreach|{{/.test(html));return html;
