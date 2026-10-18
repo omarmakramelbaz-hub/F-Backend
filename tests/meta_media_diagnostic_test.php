@@ -70,6 +70,36 @@ foreach ($redirectCases as [$location, $host, $scheme, $reason, $pathClass, $ows
 }
 $probe = new MetaMediaDiagnostic(fn () => ['status' => 302, 'location' => 'https://scontent.fbcdn.net/' . str_repeat('sensitive', 1100), 'body' => '']);
 mediaDiagnosticCheck($probe->probe($url)['redirect_validation_reason'] === 'TOO_LONG', 'overlong redirect classified without exposure');
+$userAgents = [];
+$transport = function ($source, $bytes, $seconds, $userAgent) use (&$userAgents, $gif, $url) {
+    mediaDiagnosticCheck($source === $url && $bytes === 20971520 && $seconds === 5, 'browser comparison preserves source and bounds');
+    $userAgents[] = $userAgent;
+    return count($userAgents) > 1
+        ? ['status' => 200, 'content_type' => 'image/gif', 'body' => $gif]
+        : ['status' => 302, 'location' => 'https://www.facebook.com/unsupportedbrowser?secret=never-print', 'body' => ''];
+};
+$baseline = (new MetaMediaDiagnostic($transport))->probe($url);
+mediaDiagnosticCheck(MetaMediaDiagnostic::browserComparisonEligible('instagram', $url, $baseline), 'exact Instagram unsupported-browser response enables comparison');
+$candidate = (new MetaMediaDiagnostic($transport, MetaMediaDiagnostic::BROWSER_USER_AGENT))->probe($url);
+$expectedDefault = method_exists(\App\Services\Dashboard\MetaMediaService::class, 'userAgentForUrl')
+    ? \App\Services\Dashboard\MetaMediaService::userAgentForUrl($url) : null;
+mediaDiagnosticCheck($candidate['category'] === 'VALID_IMAGE' && $userAgents === [$expectedDefault, MetaMediaDiagnostic::BROWSER_USER_AGENT], 'deployed default and explicit browser agent are passed to the probes');
+$otherAgent = false;
+(new MetaMediaDiagnostic(function ($source, $bytes, $seconds, $userAgent) use (&$otherAgent, $gif) {
+    $otherAgent = $userAgent; return ['status' => 200, 'content_type' => 'image/gif', 'body' => $gif];
+}))->probe('https://scontent.fbcdn.net/photo');
+mediaDiagnosticCheck($otherAgent === null, 'ordinary CDN probe preserves default agent');
+foreach ([['messenger', $url, $baseline], ['instagram', 'https://evil.test/ig_messaging_cdn/', $baseline],
+    ['instagram', 'https://lookaside.fbsbx.com/other/', $baseline],
+    ['instagram', $url, array_replace($baseline, ['http_status' => 301])],
+    ['instagram', $url, array_replace($baseline, ['redirect_observed_host' => 'evil.test'])],
+    ['instagram', $url, array_replace($baseline, ['redirect_path_class' => 'LOGIN'])]] as [$channel, $source, $observed])
+    mediaDiagnosticCheck(!MetaMediaDiagnostic::browserComparisonEligible($channel, $source, $observed), 'comparison is narrowly gated');
+$before = count($userAgents);
+mediaDiagnosticCheck((new MetaMediaDiagnostic($transport, MetaMediaDiagnostic::BROWSER_USER_AGENT))->probe('https://evil.test/private')['category'] === 'SOURCE_REJECTED'
+    && count($userAgents) === $before, 'browser agent never bypasses source allowlist');
+try { new MetaMediaDiagnostic($transport, 'arbitrary-agent-private'); mediaDiagnosticCheck(false, 'arbitrary user agent must fail'); }
+catch (InvalidArgumentException $expected) { mediaDiagnosticCheck(true, 'only fixed browser user agent accepted'); }
 $probe = new MetaMediaDiagnostic(fn () => throw new RuntimeException('private signed URL'));
 mediaDiagnosticCheck($probe->probe($url)['category'] === 'CHECK_UNAVAILABLE', 'exception details suppressed');
 $calls = 0; $probe = new MetaMediaDiagnostic(function () use (&$calls) { $calls++; });

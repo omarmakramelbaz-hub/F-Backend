@@ -7,9 +7,32 @@ final class MetaMediaDiagnostic
     public const MAX_BYTES = 20971520;
     public const SECONDS = 5;
     public const SCAN_LIMIT = 100;
+    public const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     private $transport;
+    private $userAgent;
+    private array $dnsCache = [];
 
-    public function __construct(?callable $transport = null) { $this->transport = $transport; }
+    public function __construct(?callable $transport = null, ?string $userAgent = null)
+    {
+        if ($userAgent !== null && $userAgent !== self::BROWSER_USER_AGENT) throw new InvalidArgumentException('USER_AGENT_UNSUPPORTED');
+        $this->transport = $transport; $this->userAgent = $userAgent;
+    }
+
+    public static function browserComparisonEligible(string $channel, string $url, array $result): bool
+    {
+        return $channel === 'instagram' && self::approvedHost($url) === 'lookaside.fbsbx.com'
+            && parse_url($url, PHP_URL_PATH) === '/ig_messaging_cdn/'
+            && ($result['http_status'] ?? null) === 302
+            && ($result['redirect_observed_host'] ?? null) === 'www.facebook.com'
+            && ($result['redirect_path_class'] ?? null) === 'UNSUPPORTED_BROWSER';
+    }
+
+    private function effectiveUserAgent(string $url): ?string
+    {
+        if ($this->userAgent !== null) return $this->userAgent;
+        $class = \App\Services\Dashboard\MetaMediaService::class;
+        return method_exists($class, 'userAgentForUrl') ? $class::userAgentForUrl($url) : null;
+    }
 
     public static function modules(): array
     {
@@ -107,7 +130,7 @@ final class MetaMediaDiagnostic
         $out['source_host'] = $host;
         try {
             $response = $this->transport !== null
-                ? ($this->transport)($url, self::MAX_BYTES, self::SECONDS) : $this->download($url);
+                ? ($this->transport)($url, self::MAX_BYTES, self::SECONDS, $this->effectiveUserAgent($url)) : $this->download($url);
             if (!is_array($response)) throw new RuntimeException();
             if (in_array($response['resolver_status'] ?? null, ['PUBLIC_IP_PINNED', 'FAILED', 'UNSAFE', 'UNAVAILABLE'], true))
                 $out['resolver_status'] = $response['resolver_status'];
@@ -158,12 +181,16 @@ final class MetaMediaDiagnostic
         $curl = null; $resolved = false;
         try {
             $host = (string) parse_url($url, PHP_URL_HOST);
-            $records = @dns_get_record($host, DNS_A | DNS_AAAA); $ips = [];
-            foreach (is_array($records) ? $records : [] as $record) {
-                $ip = $record['ip'] ?? $record['ipv6'] ?? null;
-                if ($ip === null) continue;
-                if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return ['error' => 'UNSAFE_DNS', 'resolver_status' => 'UNSAFE'];
-                $ips[] = $ip;
+            $ips = $this->dnsCache[$host] ?? [];
+            if (!$ips) {
+                $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+                foreach (is_array($records) ? $records : [] as $record) {
+                    $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+                    if ($ip === null) continue;
+                    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return ['error' => 'UNSAFE_DNS', 'resolver_status' => 'UNSAFE'];
+                    $ips[] = $ip;
+                }
+                if ($ips) $this->dnsCache[$host] = $ips;
             }
             if (!$ips) return ['error' => 'DNS_FAILURE', 'resolver_status' => 'FAILED'];
             $resolved = true;
@@ -173,7 +200,8 @@ final class MetaMediaDiagnostic
                 CURLOPT_MAXREDIRS => 0, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
                 CURLOPT_CONNECTTIMEOUT_MS => 2000, CURLOPT_TIMEOUT_MS => self::SECONDS * 1000,
                 CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_PROXY => '',
-                CURLOPT_RESOLVE => [$host . ':443:' . $ip], CURLOPT_HTTPHEADER => ['Accept: image/*, application/octet-stream'],
+                CURLOPT_RESOLVE => [$host . ':443:' . $ip],
+                CURLOPT_HTTPHEADER => ['Accept: image/*, audio/*, video/*, application/pdf, application/octet-stream'],
                 CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$location, &$oversized, &$headers) {
                     $headers += strlen($line); if ($headers > 65536) return 0;
                     if (preg_match('/\AContent-Length:\s*([0-9]+)/i', $line, $match) && (float) $match[1] > self::MAX_BYTES) {
@@ -185,6 +213,8 @@ final class MetaMediaDiagnostic
                     $bytes += strlen($chunk); if ($bytes > self::MAX_BYTES) { $oversized = true; return 0; }
                     $body .= $chunk; return strlen($chunk);
                 }]);
+            $userAgent = $this->effectiveUserAgent($url);
+            if ($userAgent !== null) curl_setopt($curl, CURLOPT_USERAGENT, $userAgent);
             $ok = curl_exec($curl); $errno = curl_errno($curl);
             $out = ['status' => (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE),
                 'content_type' => curl_getinfo($curl, CURLINFO_CONTENT_TYPE), 'body' => $body,
@@ -200,7 +230,7 @@ final class MetaMediaDiagnostic
     public function run(): array
     {
         $out = ['diagnostic' => 'READ_ONLY_META_MEDIA', 'writes' => 0, 'message_sends' => 0,
-            'graph_gets' => 0, 'redirects_followed' => 0, 'max_image_probes' => 2,
+            'graph_gets' => 0, 'redirects_followed' => 0, 'max_image_probes' => 3,
             'request_timeout_seconds' => self::SECONDS, 'timeout_scope' => 'HTTP_TRANSFER_EXCLUDES_RESOLVER',
             'max_bytes' => self::MAX_BYTES,
             'modules' => self::modules(), 'status' => 'FAILED', 'phase' => 'BOOTSTRAP'];
@@ -250,7 +280,13 @@ final class MetaMediaDiagnostic
                             if (($descriptor['type'] ?? null) !== 'image') continue;
                             $url = $dto['content']['message']['meta']['attachments'][$descriptor['index']]['payload']['url'] ?? null;
                             if (!is_string($url) || !self::approvedHost($url)) continue;
-                            $sample['status'] = 'IMAGE_PROBED'; $sample['result'] = $this->probe($url); break 2;
+                            $sample['status'] = 'IMAGE_PROBED'; $sample['result'] = $this->probe($url);
+                            if (self::browserComparisonEligible($channel, $url, $sample['result'])) {
+                                $comparison = new self($this->transport, self::BROWSER_USER_AGENT);
+                                $comparison->dnsCache = $this->dnsCache;
+                                $sample['browser_agent_result'] = $comparison->probe($url);
+                            }
+                            break 2;
                         }
                     } catch (Throwable $ignored) { /* Invalid/unsupported evidence is skipped without revealing values. */ }
                 }

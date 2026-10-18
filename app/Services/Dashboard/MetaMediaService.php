@@ -12,9 +12,20 @@ class MetaMediaService
 {
     public const MAX_BYTES = 20971520;
     public const HIDES_TABLE = 'meta_message_hides';
+    public const INSTAGRAM_MEDIA_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     private $transport;
 
     public function __construct(?callable $transport = null) { $this->transport = $transport; }
+
+    /** Browser negotiation is needed only at Instagram's signed attachment endpoint. */
+    public static function userAgentForUrl(string $url): ?string
+    {
+        $parts = parse_url($url);
+        return is_array($parts) && ($parts['scheme'] ?? null) === 'https'
+            && strtolower((string) ($parts['host'] ?? '')) === 'lookaside.fbsbx.com'
+            && in_array($parts['path'] ?? null, ['/ig_messaging_cdn', '/ig_messaging_cdn/'], true)
+            ? self::INSTAGRAM_MEDIA_USER_AGENT : null;
+    }
 
     public function hiddenIds($actor, array $ids): array
     {
@@ -165,7 +176,7 @@ class MetaMediaService
         abort_unless($ips !== [], 502);
         $body = ''; $bytes = 0; $curl = curl_init($url);
         $resolved = strpos($ips[0], ':') === false ? $ips[0] : '[' . $ips[0] . ']';
-        curl_setopt_array($curl, [CURLOPT_HTTPGET => true, CURLOPT_FOLLOWLOCATION => false,
+        $options = [CURLOPT_HTTPGET => true, CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_MAXREDIRS => 0, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 20, CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_PROXY => '', CURLOPT_RESOLVE => [$host . ':443:' . $resolved],
@@ -178,7 +189,10 @@ class MetaMediaService
                 $bytes += strlen($chunk);
                 if ($bytes > self::MAX_BYTES) return 0;
                 $body .= $chunk; return strlen($chunk);
-            }]);
+            }];
+        $userAgent = self::userAgentForUrl($url);
+        if ($userAgent !== null) $options[CURLOPT_USERAGENT] = $userAgent;
+        curl_setopt_array($curl, $options);
         try {
             $ok = curl_exec($curl);
             $response = ['status' => $ok === false ? 0 : (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE),
