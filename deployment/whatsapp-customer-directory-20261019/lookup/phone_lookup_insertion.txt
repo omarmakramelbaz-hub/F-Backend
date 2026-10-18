@@ -1,0 +1,42 @@
+        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V3_BEGIN
+        // An authorized F delivery lookup can find matching directory contacts
+        // across F branches. Bulk lists and order permissions are unchanged.
+        $directoryFBranches=array_values(array_filter($scope,fn($value)=>preg_match('/^f:[1-9][0-9]{0,18}$/D',$value)));
+        if(count($items)<8&&$directoryFBranches) {
+            $directoryKeys=array_values(array_unique(array_merge($keys,array_map(fn($value)=>str_starts_with($value,'00')?substr($value,2):ltrim($value,'+'),$keys))));
+            $legacyRows=[];$completeLegacyPhones=[];
+            if(\Illuminate\Support\Facades\Schema::hasColumns('legacy_customer_import_profiles',[
+                'id','dataset_id','branch','phone','phone_key','name','address','area','delivery_notes','latitude','longitude','lookup_eligible'
+            ])&&\Illuminate\Support\Facades\Schema::hasColumns('legacy_customer_import_datasets',['id','schema_version'])) {
+                $legacy=DB::table('legacy_customer_import_profiles as lp')
+                    ->join('legacy_customer_import_datasets as ld','ld.id','=','lp.dataset_id')
+                    ->where('ld.schema_version',1)->where('lp.lookup_eligible',true)->whereNotNull('lp.phone')
+                    ->where(function($q){$q->where('lp.branch','')->orWhere('lp.branch','like','f:%');});
+                $this->numberFilter($legacy,'lp.phone_key',$directoryKeys,$prefix);
+                $legacyRows=$legacy->select(['lp.id','lp.branch','lp.phone','lp.name','lp.address','lp.area','lp.delivery_notes','lp.latitude','lp.longitude'])
+                    ->orderByDesc('lp.id')->limit(40)->get();
+                foreach($legacyRows as $row)if(trim((string)$row->name)!==''&&trim((string)$row->address)!=='')$completeLegacyPhones[$row->phone]=true;
+            }
+            if(\Illuminate\Support\Facades\Schema::hasColumns('crm_customers',[
+                'id','phone','phone_key','name','address','area','delivery_notes','latitude','longitude'
+            ])&&\Illuminate\Support\Facades\Schema::hasColumns('crm_customer_sources',['customer_id','branch','channel'])) {
+                $directory=DB::table('crm_customers as dc')->where(function($q){
+                    $q->whereExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dsf')->whereColumn('dsf.customer_id','dc.id')->where('dsf.branch','like','f:%');})
+                        ->orWhereExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dsg')->whereColumn('dsg.customer_id','dc.id')->where('dsg.branch','')->whereIn('dsg.channel',['delivery','whatsapp']);})
+                        ->orWhereNotExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dss')->whereColumn('dss.customer_id','dc.id')->where('dss.branch','like','gs:%');});
+                });
+                $this->numberFilter($directory,'dc.phone_key',$directoryKeys,$prefix);
+                foreach($directory->select(['dc.id','dc.phone','dc.name','dc.address','dc.area','dc.delivery_notes','dc.latitude','dc.longitude'])
+                    ->orderByDesc('dc.id')->limit(20)->get() as $row) {
+                    if(trim((string)$row->name)===''&&trim((string)$row->address)===''&&isset($completeLegacyPhones[$row->phone]))continue;
+                    $add(['branch'=>null,'name'=>$row->name??'','phone'=>$row->phone,'address'=>$row->address??'',
+                        'area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'','latitude'=>$row->latitude,'longitude'=>$row->longitude]);
+                }
+            }
+            foreach($legacyRows as $row) {
+                $add(['branch'=>$row->branch===''?null:$row->branch,'name'=>$row->name,'phone'=>$row->phone,
+                    'address'=>$row->address,'area'=>$row->area,'delivery_notes'=>$row->delivery_notes,
+                    'latitude'=>$row->latitude,'longitude'=>$row->longitude]);
+            }
+        }
+        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V3_END

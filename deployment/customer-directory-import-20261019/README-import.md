@@ -42,3 +42,7 @@ Repeated application of the same extract is idempotent. A recorded dataset canno
 Direct importer flags: `--root PATH --data PATH [--dry-run | --apply --backup-dir PATH] [--branch f:ID] [--expected-data-sha256 HEX]`. The wrapper defaults root to `/home/fasakha/public_html`, backup directory to `/home/fasakha/legacy-customer-import-backups`, and extract to `data/customers.json`. A custom `--data` requires an explicit `--expected-data-sha256`.
 
 Do not upload customer extracts, backup snapshots or this private bundle into a publicly served directory. Counts and hashes are safe to share; the saved snapshots contain customer data.
+
+## WhatsApp-compatible lookup release
+
+This release installs unified lookup V3 and recognizes the explicit global `whatsapp` source. The guarded installer accepts exact original, V1, V2, and current V3 phone lookup sources. It preserves the exact predecessor on rollback. The root entry defaults to the private ZIP at `/home/fasakha/Fasakhansta-Customer-Import-20261018.zip`; the ZIP contents and customer JSON hashes remain unchanged. Automatic WhatsApp sender capture is a separate code-only deployment and does not require this ZIP.

@@ -1,0 +1,43 @@
+    public function inbound(array $message): void
+    {
+        if (($message['direction'] ?? null) !== 'inbound' || !$this->directory->ready()) return;
+
+        DB::transaction(function () use ($message) {
+            $profile = $this->profile($message);
+            if ($profile === null) return;
+            // WhatsApp contact is not evidence of a completed delivery purchase.
+            $customer = (new WhatsAppCustomerDirectory($this->directory))->capture($profile);
+            if (!$customer) return;
+            $text = $message['text'] ?? null;
+            if (self::isOptOut(is_string($text) ? $text : null)) {
+                $this->directory->consent((int)$customer->id, false, false, 'whatsapp-inbound:opt-out');
+                return;
+            }
+            if (!is_string($text) || trim($text) === ''
+                || !is_string($message['message_id'] ?? null)
+                || !$this->timestamp($message['sent_at'] ?? null)
+                || !Schema::hasTable('crm_whatsapp_deliveries')
+                || !Schema::hasTable('crm_customer_feedback_replies')) return;
+
+            $query = DB::table('crm_whatsapp_deliveries')->where('customer_id', $customer->id)
+                ->where('kind', 'feedback')->where('state', 'accepted')
+                ->whereNotNull('accepted_at')->where('accepted_at', '<=', $message['sent_at']);
+            // An explicit reply must match its own feedback message. An unrelated
+            // quoted order message cannot be attached to the latest survey.
+            $context = $message['content']['message']['context']['id'] ?? null;
+            if (is_string($context) && $context !== '') $query->where('provider_message_id', $context);
+            $delivery = $query->orderByDesc('accepted_at')->orderByDesc('id')->lockForUpdate()->first();
+            if (!$delivery) return;
+
+            $inboxId = null;
+            if (Schema::hasTable('whatsapp_inbox_messages')) {
+                $inboxId = DB::table('whatsapp_inbox_messages')->where('message_key', $this->inboxKey($message['message_id']))->value('id');
+            }
+            DB::table('crm_customer_feedback_replies')->insertOrIgnore([
+                'delivery_id'=>$delivery->id, 'customer_id'=>$customer->id,
+                'inbox_message_id'=>$inboxId, 'provider_message_id'=>$message['message_id'],
+                'body'=>Crypt::encryptString($text), 'replied_at'=>$message['sent_at'],
+                'created_at'=>now('UTC'), 'updated_at'=>now('UTC'),
+            ]);
+        }, 3);
+    }

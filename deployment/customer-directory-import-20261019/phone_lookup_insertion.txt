@@ -1,4 +1,4 @@
-        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V2_BEGIN
+        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V3_BEGIN
         // An authorized F delivery lookup can find matching directory contacts
         // across F branches. Bulk lists and order permissions are unchanged.
         $directoryFBranches=array_values(array_filter($scope,fn($value)=>preg_match('/^f:[1-9][0-9]{0,18}$/D',$value)));
@@ -22,7 +22,7 @@
             ])&&\Illuminate\Support\Facades\Schema::hasColumns('crm_customer_sources',['customer_id','branch','channel'])) {
                 $directory=DB::table('crm_customers as dc')->where(function($q){
                     $q->whereExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dsf')->whereColumn('dsf.customer_id','dc.id')->where('dsf.branch','like','f:%');})
-                        ->orWhereExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dsg')->whereColumn('dsg.customer_id','dc.id')->where('dsg.branch','')->where('dsg.channel','delivery');})
+                        ->orWhereExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dsg')->whereColumn('dsg.customer_id','dc.id')->where('dsg.branch','')->whereIn('dsg.channel',['delivery','whatsapp']);})
                         ->orWhereNotExists(function($s){$s->selectRaw('1')->from('crm_customer_sources as dss')->whereColumn('dss.customer_id','dc.id')->where('dss.branch','like','gs:%');});
                 });
                 $this->numberFilter($directory,'dc.phone_key',$directoryKeys,$prefix);
@@ -39,4 +39,4 @@
                     'latitude'=>$row->latitude,'longitude'=>$row->longitude]);
             }
         }
-        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V2_END
+        // UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V3_END

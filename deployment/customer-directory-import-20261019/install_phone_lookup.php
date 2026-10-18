@@ -2,8 +2,7 @@
 <?php
 declare(strict_types=1);
 
-define('LEGACY_CUSTOMER_IMPORT_LIBRARY',true);
-require __DIR__.'/import_customers.php';
+require __DIR__.'/lookup_helpers.php';
 
 function lci_lint_candidate(string $path): void {
     $pipes=[];
@@ -47,7 +46,7 @@ function lci_lookup_install(array $argv): int {
             if(in_array($key,['dry-run','apply','help'],true)) { if(count($v)!==1) lci_fail('Flag does not accept a value.'); $args[$key]=true; }
             else { $args[$key]=$v[1]??($argv[++$i]??null); if(!is_string($args[$key])||str_starts_with($args[$key],'--')) lci_fail('Option requires a value.'); }
         }
-        if(isset($args['help'])) { echo "Usage: php install_phone_lookup.php --root /home/fasakha/public_html [--dry-run | --apply --backup-dir /private/backups]\nRestore own new patch after failed import: --apply --restore-from /private/backups/run/PosServicePhone.before.php\nDefault: dry-run without filesystem writes; exact known base or V1 import lookup only.\n"; return 0; }
+        if(isset($args['help'])) { echo "Usage: php install_phone_lookup.php --root /home/fasakha/public_html [--dry-run | --apply --backup-dir /private/backups]\nRestore own new patch after failed import: --apply --restore-from /private/backups/run/PosServicePhone.before.php\nDefault: dry-run without filesystem writes; exact known base, V1, V2 or this V3 lookup only.\n"; return 0; }
         if(isset($args['apply'],$args['dry-run'])) lci_fail('Choose apply or dry-run.');
         $apply=isset($args['apply']); $root=realpath($args['root']??'');
         if(!$root||!is_dir($root)||!is_file($root.'/artisan')) lci_fail('Laravel root is invalid.');
@@ -55,18 +54,23 @@ function lci_lookup_install(array $argv): int {
         if(!is_file($target)||is_link($target)||realpath($target)!==$target) lci_fail('PosServicePhone target is missing or symlinked.');
         $source=file_get_contents($target); $snippet=file_get_contents(__DIR__.'/phone_lookup_insertion.txt');
         $v1Snippet=file_get_contents(__DIR__.'/phone_lookup_v1_reference.txt');
-        if($source===false||$snippet===false||$v1Snippet===false) lci_fail('Cannot read source or insertion snippet.');
+        $v2Snippet=file_get_contents(__DIR__.'/phone_lookup_v2_reference.txt');
+        if($source===false||$snippet===false||$v1Snippet===false||$v2Snippet===false) lci_fail('Cannot read source or insertion snippet.');
         $snippet=rtrim($snippet,"\r\n")."\n";
         $v1Snippet=rtrim($v1Snippet,"\r\n")."\n";
+        $v2Snippet=rtrim($v2Snippet,"\r\n")."\n";
         $anchor="        \$query=DB::table('pos_service_tickets')->where('channel','phone')->whereIn('branch',\$scope);\n";
-        $v1Anchor="        // Existing app customers are available to the call center. Branch staff\n";
         $baseSha='1a42ef9691ef731dbe23d469a6b0ffb7658dd229b331045faec223c4cffeada5';
         $v1Sha='be4c837346b9a7d6973514b29f31dc44c75d447ac145351d1a17adc049671c18';
-        $baseOf=function(string $bytes)use($baseSha,$v1Sha,$v1Snippet):string {
+        $baseOf=function(string $bytes)use($baseSha,$v1Sha,$v1Snippet,$v2Snippet):string {
             $sha=hash('sha256',$bytes);
             if($sha===$baseSha) return $bytes;
             if($sha===$v1Sha&&substr_count($bytes,$v1Snippet)===1) {
                 $base=str_replace($v1Snippet,'',$bytes);
+                if(hash('sha256',$base)===$baseSha) return $base;
+            }
+            if(substr_count($bytes,$v2Snippet)===1) {
+                $base=str_replace($v2Snippet,'',$bytes);
                 if(hash('sha256',$base)===$baseSha) return $base;
             }
             lci_fail('Unknown PosServicePhone version; a new compatibility review is required.');
@@ -85,7 +89,7 @@ function lci_lookup_install(array $argv): int {
             lci_lint_bytes($before); lci_replace_lookup($target,$before,$sourceSha);
             echo lci_json(['status'=>'restored','file_sha256'=>hash('sha256',$before)])."\n"; return 0;
         }
-        if(str_contains($source,'UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V2_BEGIN')) {
+        if(str_contains($source,'UNIFIED_CUSTOMER_DIRECTORY_LOOKUP_V3_BEGIN')) {
             if(substr_count($source,$snippet)!==1||hash('sha256',str_replace($snippet,'',$source))!==$baseSha) lci_fail('Existing lookup patch differs from this reviewed release.');
             echo lci_json(['status'=>'already_installed','file_sha256'=>$sourceSha])."\n"; return 0;
         }

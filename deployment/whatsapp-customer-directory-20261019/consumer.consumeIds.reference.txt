@@ -1,0 +1,98 @@
+    private function consumeIds($ids, string $key, bool $retryQuarantined, bool $unavailableOnly): array
+    {
+        $metrics = [
+            'events_seen' => 0, 'events_processed' => 0, 'events_skipped' => 0,
+            'messages_inserted' => 0, 'messages_replayed' => 0, 'messages_hydrated' => 0,
+            'quarantined_events' => 0, 'ignored_records' => 0,
+            'status_records' => 0, 'errors' => 0,
+        ];
+        foreach ($ids as $id) {
+            $metrics['events_seen']++;
+            try {
+                $result = $this->withUniqueRetry(function () use ($id, $key, $retryQuarantined, $unavailableOnly) {
+                    $event = DB::table('whatsapp_webhook_events')->where('id', $id)
+                        ->lockForUpdate()->first();
+                    if (!$event || $event->processed_at !== null) {
+                        return ['events_skipped' => 1];
+                    }
+                    // A quarantine can be recorded after batch selection while this worker waits
+                    // for the raw-event lock. Automatic projection must preserve that decision.
+                    if (!$retryQuarantined && DB::table('whatsapp_inbox_ingestion_failures')
+                        ->where('event_id', $id)->lockForUpdate()->first()) {
+                        return ['events_skipped' => 1];
+                    }
+                    if ($unavailableOnly) {
+                        $failure = DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $id)->lockForUpdate()->first();
+                        if (!$failure || $failure->reason !== 'CONFLICTING_MESSAGE') throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
+                    }
+                    try {
+                        $json = Crypt::decryptString($event->payload);
+                        if (strlen($json) > self::MAX_EVENT_BYTES) {
+                            throw new WhatsAppInboxQuarantinedEvent();
+                        }
+                        $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+                        if (!is_array($payload)) {
+                            throw new WhatsAppInboxQuarantinedEvent();
+                        }
+                        $report = WhatsAppInboxProtocol::report($payload, self::WABA_ID, self::PHONE_ID);
+                    } catch (DecryptException | \JsonException | InvalidArgumentException $error) {
+                        throw new WhatsAppInboxQuarantinedEvent();
+                    }
+                    if (!is_array($report['messages'] ?? null)
+                        || !is_int($report['quarantined_count'] ?? null)
+                        || !is_int($report['ignored_count'] ?? null)
+                        || !is_int($report['status_count'] ?? null)
+                        || $report['quarantined_count'] < 0
+                        || $report['ignored_count'] < 0 || $report['status_count'] < 0
+                        || $report['quarantined_count'] > 0) {
+                        throw new WhatsAppInboxQuarantinedEvent();
+                    }
+                    $rawHash = hash('sha256', $json);
+                    $rawVerified = is_string($event->payload_hash ?? null)
+                        && preg_match('/\A[a-f0-9]{64}\z/', $event->payload_hash) && hash_equals($event->payload_hash, $rawHash);
+                    if ($unavailableOnly && (!$rawVerified || count($report['messages']) !== 1 || $report['ignored_count'] !== 0
+                        || $report['status_count'] !== 0)) throw new RuntimeException('RECOVERY_NOT_ELIGIBLE');
+                    $counts = [
+                        'events_processed' => 1, 'messages_inserted' => 0,
+                        'messages_replayed' => 0, 'messages_hydrated' => 0,
+                        'ignored_records' => $report['ignored_count'],
+                        'status_records' => $report['status_count'],
+                    ];
+                    foreach ($report['messages'] as $message) {
+                        $this->assertMessage($message);
+                        $kind = $this->persist($message, $key, (int) $id, $rawVerified ? $rawHash : null, $unavailableOnly);
+                        $counts[$kind === 'inserted' ? 'messages_inserted' : ($kind === 'hydrated' ? 'messages_hydrated' : 'messages_replayed')]++;
+                        // The CRM projection shares the raw-event transaction. A replay
+                        // must not reapply an old opt-out after a newer consent decision.
+                        if ($kind !== 'replayed' && class_exists(CustomerMessageEvents::class)) {
+                            (new CustomerMessageEvents())->inbound($message);
+                        }
+                    }
+                    if (class_exists(CustomerMessageEvents::class)) {
+                        foreach ($report['statuses'] ?? [] as $status) {
+                            (new CustomerMessageEvents())->status($status);
+                        }
+                    }
+                    DB::table('whatsapp_webhook_events')->where('id', $id)->whereNull('processed_at')
+                        ->update(['processed_at' => now('UTC')]);
+                    DB::table('whatsapp_inbox_ingestion_failures')->where('event_id', $id)->delete();
+                    return $counts;
+                });
+                foreach ($result as $name => $count) {
+                    $metrics[$name] += $count;
+                }
+            } catch (WhatsAppInboxQuarantinedEvent $error) {
+                // The transaction rolled back. Retain the encrypted raw event unprocessed.
+                $metrics['quarantined_events']++;
+                try {
+                    $this->recordQuarantine((int) $id, $error->reasonCode());
+                } catch (Throwable $recordError) {
+                    $metrics['errors']++;
+                }
+            } catch (Throwable $error) {
+                // Never include an exception message, customer data, or ciphertext in output.
+                $metrics['errors']++;
+            }
+        }
+        return $metrics;
+    }

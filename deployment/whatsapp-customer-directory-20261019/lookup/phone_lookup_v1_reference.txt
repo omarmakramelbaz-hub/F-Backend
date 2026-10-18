@@ -1,0 +1,21 @@
+        // LEGACY_CUSTOMER_IMPORT_LOOKUP_V1_BEGIN
+        // Imported alternatives retain their source identity. Global records
+        // are visible to central staff only; mapped records remain in F scope.
+        $legacyFBranches=array_values(array_filter($scope,fn($value)=>preg_match('/^f:[1-9][0-9]{0,18}$/D',$value)));
+        if(count($items)<8&&$legacyFBranches&&\Illuminate\Support\Facades\Schema::hasColumns('legacy_customer_import_profiles',[
+            'id','dataset_id','branch','phone','phone_key','name','address','area','delivery_notes','latitude','longitude','lookup_eligible'
+        ])&&\Illuminate\Support\Facades\Schema::hasColumns('legacy_customer_import_datasets',['id','schema_version'])) {
+            $legacy=DB::table('legacy_customer_import_profiles as lp')
+                ->join('legacy_customer_import_datasets as ld','ld.id','=','lp.dataset_id')
+                ->where('ld.schema_version',1)->where('lp.lookup_eligible',true)->whereNotNull('lp.phone')
+                ->where(function($q)use($legacyFBranches,$central){$q->whereIn('lp.branch',$legacyFBranches);if($central)$q->orWhere('lp.branch','');});
+            $legacyKeys=array_values(array_unique(array_merge($keys,array_map(fn($value)=>ltrim($value,'+'),$keys))));
+            $this->numberFilter($legacy,'lp.phone_key',$legacyKeys,$prefix);
+            foreach($legacy->select(['lp.id','lp.branch','lp.phone','lp.name','lp.address','lp.area','lp.delivery_notes','lp.latitude','lp.longitude'])
+                ->orderByDesc('lp.id')->limit(40)->get() as $row) {
+                $add(['branch'=>$row->branch===''?null:$row->branch,'name'=>$row->name,'phone'=>$row->phone,
+                    'address'=>$row->address,'area'=>$row->area,'delivery_notes'=>$row->delivery_notes,
+                    'latitude'=>$row->latitude,'longitude'=>$row->longitude]);
+            }
+        }
+        // LEGACY_CUSTOMER_IMPORT_LOOKUP_V1_END

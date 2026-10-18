@@ -4,7 +4,7 @@ umask 077
 
 migration_mode=check
 migration_mode_seen=0
-migration_input_zip=/root/Fasakhansta-Customer-Import-20261018.zip
+migration_input_zip=/home/fasakha/Fasakhansta-Customer-Import-20261018.zip
 migration_php="$(command -v php || true)"
 migration_code="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 migration_root=/home/fasakha/public_html
@@ -22,7 +22,7 @@ while (($#)); do
             shift 2 ;;
         --help)
             printf '%s\n' 'Usage: bash apply_customer_directory_import_root.sh [--check | --apply] [--input-zip PRIVATE_ZIP] [--php PHP_BINARY]'
-            printf '%s\n' 'Default ZIP: /root/Fasakhansta-Customer-Import-20261018.zip; default mode: check.'
+            printf '%s\n' 'Default ZIP: /home/fasakha/Fasakhansta-Customer-Import-20261018.zip; default mode: check.'
             exit 0 ;;
         *) printf '%s\n' 'Unknown option.' >&2; exit 2 ;;
     esac
@@ -31,7 +31,7 @@ done
 if [[ "$(id -u)" != 0 ]]; then printf '%s\n' 'Run this guarded entry from the root terminal.' >&2; exit 2; fi
 if [[ "$(hostname -s)" != srv1836524 ]]; then printf '%s\n' 'Unexpected server; this entry is pinned to srv1836524.' >&2; exit 2; fi
 if [[ ! -f "$migration_input_zip" ]]; then
-    printf '%s\n' 'PRIVATE_ZIP_MISSING: upload the original private ZIP to /root/Fasakhansta-Customer-Import-20261018.zip, then rerun (or supply --input-zip PATH).' >&2
+    printf '%s\n' 'PRIVATE_ZIP_MISSING: upload the original private ZIP to /home/fasakha/Fasakhansta-Customer-Import-20261018.zip, then rerun (or supply --input-zip PATH).' >&2
     exit 2
 fi
 if [[ -z "$migration_php" || ! -x "$migration_php" ]]; then printf '%s\n' 'Select an executable PHP CLI with --php.' >&2; exit 2; fi
@@ -42,9 +42,9 @@ if [[ -z "$migration_uid" || "$migration_uid" == 0 || ! -d "$migration_root" || 
     printf '%s\n' 'Expected fasakha-owned application root is unavailable; stopped before bootstrap.' >&2; exit 2
 fi
 if ! runuser -u fasakha -- test -x "$migration_php"; then printf '%s\n' 'Selected PHP is not executable by fasakha.' >&2; exit 2; fi
-migration_files=(INSTALL.sh import_customers.php install_phone_lookup.php phone_lookup_insertion.txt phone_lookup_v1_reference.txt README-import.md)
+migration_files=(INSTALL.sh import_customers.php install_phone_lookup.php phone_lookup_insertion.txt phone_lookup_v1_reference.txt phone_lookup_v2_reference.txt lookup_helpers.php README-import.md)
 for migration_file in "${migration_files[@]}"; do
-    if [[ ! -f "$migration_code/$migration_file" || -L "$migration_code/$migration_file" ]]; then printf '%s\n' 'Required committed V2 code file is missing or symlinked.' >&2; exit 2; fi
+    if [[ ! -f "$migration_code/$migration_file" || -L "$migration_code/$migration_file" ]]; then printf '%s\n' 'Required committed V3 code file is missing or symlinked.' >&2; exit 2; fi
 done
 
 # Check the private data archive before creating any staging paths.
@@ -68,7 +68,7 @@ mkdir -p -- "$migration_base"
 if [[ "$(realpath -- "$migration_base")" != "$migration_base" ]]; then printf '%s\n' 'Private staging base resolves elsewhere.' >&2; exit 2; fi
 chown -- fasakha:"$(id -gn fasakha)" "$migration_base"
 chmod 0700 -- "$migration_base"
-migration_stage="$(mktemp -d "$migration_base/customer-directory-v2-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX")"
+migration_stage="$(mktemp -d "$migration_base/customer-directory-v3-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX")"
 for migration_file in "${migration_files[@]}"; do cp -- "$migration_code/$migration_file" "$migration_stage/$migration_file"; done
 mkdir -m 0700 -- "$migration_stage/data"
 
