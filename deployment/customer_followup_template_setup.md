@@ -11,6 +11,12 @@ reuses its existing WhatsApp account and credentials to submit the fixed Arabic
 templates are reused. Provider permission failures and conflicting template names
 are shown separately. Customer sending remains restricted to approved templates.
 
+Meta error `100/2388299` rejected the initial submission because its final
+parameter had only a period after it. New submissions now end with substantive
+static words: `فرع {{2}}. شكرًا لاختيارك فسخانستا.` The original exact body and
+the earlier period-only body remain compatible if already approved. Existing
+remote templates are reused, never overwritten by this correction.
+
 Preparing a template does not enable messaging, change customer permissions, queue
 a campaign, or send a customer message. After approval, open **قائمة العملاء →
 متابعة العملاء ورسائل واتساب**, refresh the template status, select the template,

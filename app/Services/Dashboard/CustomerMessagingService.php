@@ -448,15 +448,21 @@ class CustomerMessagingService
     {
         $cfg = $cfg ?? $this->cfg();
         $body = (string) ($cfg['feedback_body'] ?? '');
-        // New submissions end with static punctuation; legacy approved text stays valid verbatim.
-        return preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body) ? $body . '.' : $body;
+        // Meta also treats punctuation-only endings as trailing variables; use actual closing words.
+        if (preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body)) return $body . '. شكرًا لاختيارك فسخانستا.';
+        if (preg_match('/\{\{[1-9][0-9]*\}\}\.\z/', $body)) return $body . ' شكرًا لاختيارك فسخانستا.';
+        return $body;
     }
 
     private function feedbackMatches(array $template, ?array $cfg = null): bool
     {
         $cfg = $cfg ?? $this->cfg();
+        $body = (string) ($cfg['feedback_body'] ?? '');
+        $bodies = [$body, $this->feedbackBody($cfg)];
+        // Keep both earlier exact variants compatible only where they were previously generated.
+        if (preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body)) $bodies[] = $body . '.';
         return $template['category'] === 'UTILITY' && $template['parameters'] === count($cfg['feedback_parameters'] ?? [])
-            && in_array($template['body'], [(string) ($cfg['feedback_body'] ?? ''), $this->feedbackBody($cfg)], true);
+            && in_array($template['body'], $bodies, true);
     }
 
     private function feedbackTemplate(): array

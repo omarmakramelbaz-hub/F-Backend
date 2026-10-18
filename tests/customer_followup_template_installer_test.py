@@ -32,13 +32,19 @@ class InstallerTest(unittest.TestCase):
         self.git('config', 'user.name', 'Installer test')
         self.git('config', 'user.email', 'installer-test@example.invalid')
         self.base = b''.join(('line ' + str(index) + '\n').encode() for index in range(1, 41))
-        self.release = self.base.replace(b'line 3\n', b'followup route\n').replace(
-            b'line 30\n', b'prepare approved template\n')
+        self.previous = self.base.replace(b'line 3\n', b'followup route\n') + b'new helper\nold trailing period\nend helper\n'
+        self.release = self.previous.replace(b'line 30\n', b'prepare approved template\n').replace(
+            b'old trailing period\n', b'full static trailing phrase\n')
         for relative in (self.FIRST, self.SECOND):
             self.write(relative, self.base)
         self.git('add', '.')
         self.git('commit', '--quiet', '-m', 'Fixture baseline')
         self.base_revision = self.git('rev-parse', 'HEAD').strip().decode()
+        for relative in (self.FIRST, self.SECOND):
+            self.write(relative, self.previous)
+        self.git('add', '.')
+        self.git('commit', '--quiet', '-m', 'Fixture previous feature release')
+        self.previous_revision = self.git('rev-parse', 'HEAD').strip().decode()
         for relative in (self.FIRST, self.SECOND):
             self.write(relative, self.release)
         self.git('add', '.')
@@ -48,6 +54,7 @@ class InstallerTest(unittest.TestCase):
         for relative in (self.FIRST, self.SECOND):
             self.write(relative, self.base)
         self.source_patch = mock.patch.multiple(INSTALLER, BASE_REVISION=self.base_revision,
+                                                PREVIOUS_RELEASE=self.previous_revision,
                                                 SOURCE_PATHS=(self.FIRST, self.SECOND))
         self.source_patch.start()
         self.addCleanup(self.source_patch.stop)
@@ -111,6 +118,56 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
             self.install()
         self.assertEqual((self.root / self.FIRST).read_bytes(), self.base)
+        self.assertEqual((self.root / self.SECOND).read_bytes(), conflict)
+        self.assertEqual(self.receipts(), [])
+
+    def test_correction_of_previously_added_helper_preserves_independent_drift(self):
+        live = self.previous.replace(b'line 15\n', b'independent live feature\n')
+        self.write(self.FIRST, live)
+        self.write(self.SECOND, self.previous)
+        self.install()
+        expected = self.release.replace(b'line 15\n', b'independent live feature\n')
+        self.assertEqual((self.root / self.FIRST).read_bytes(), expected)
+        self.assertEqual((self.root / self.SECOND).read_bytes(), self.release)
+        self.assertIsNone(self.install())
+
+    def test_partial_old_feature_does_not_qualify_for_upgrade_ancestor(self):
+        # A matching old helper alone must not hide another missing old feature hunk.
+        partial = self.previous.replace(b'followup route\n', b'line 3\n')
+        self.write(self.FIRST, self.previous)
+        self.write(self.SECOND, partial)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.install()
+        self.assertEqual((self.root / self.FIRST).read_bytes(), self.previous)
+        self.assertEqual((self.root / self.SECOND).read_bytes(), partial)
+        self.assertEqual(self.receipts(), [])
+
+    def test_pre_feature_live_conflict_cannot_use_previous_ancestor(self):
+        live = self.base.replace(b'line 30\n', b'pre-feature operator change\n')
+        self.write(self.SECOND, live)
+        with mock.patch.object(INSTALLER, 'run', wraps=INSTALLER.run) as commands:
+            with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                self.install()
+        merges = [call.args[0] for call in commands.call_args_list if call.args[0][:2] == ['git', 'merge-file']]
+        self.assertEqual(len(merges), 2)  # Original conflict and containment probe; no upgrade merge.
+        self.assertEqual((self.root / self.FIRST).read_bytes(), self.base)
+        self.assertEqual((self.root / self.SECOND).read_bytes(), live)
+        self.assertEqual(self.receipts(), [])
+
+    def test_missing_pinned_previous_release_fails_closed(self):
+        with mock.patch.object(INSTALLER, 'PREVIOUS_RELEASE', '0' * 40):
+            with self.assertRaisesRegex(RuntimeError, 'PINNED_COMMIT_UNAVAILABLE'):
+                self.install()
+        self.assert_originals()
+        self.assertEqual(self.receipts(), [])
+
+    def test_conflicting_live_change_to_old_helper_is_not_overwritten(self):
+        conflict = self.previous.replace(b'old trailing period\n', b'operator helper change\n')
+        self.write(self.FIRST, self.previous)
+        self.write(self.SECOND, conflict)
+        with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+            self.install()
+        self.assertEqual((self.root / self.FIRST).read_bytes(), self.previous)
         self.assertEqual((self.root / self.SECOND).read_bytes(), conflict)
         self.assertEqual(self.receipts(), [])
 

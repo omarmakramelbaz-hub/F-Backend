@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 BASE_REVISION = 'a1c50bd9871aa88a1bf37a840358a6185b1fe580'
+PREVIOUS_RELEASE = '3232f1ec6d6e62ddcd0baaffd0d3cbbe3ac40167'
 SOURCE_PATHS = (
     'app/Services/Dashboard/CustomerMessagingService.php',
     'app/Http/Controllers/Dashboard/BranchOperationsController.php',
@@ -115,7 +116,7 @@ def validate_release(root, revision):
     safe(root)
     require(root.is_dir() and root.resolve() == root, 'APPLICATION_ROOT_INVALID')
     require(SOURCE_PATHS and len(set(SOURCE_PATHS)) == len(SOURCE_PATHS), 'RELEASE_MANIFEST_INVALID')
-    for commit in (BASE_REVISION, revision):
+    for commit in (BASE_REVISION, PREVIOUS_RELEASE, revision):
         result = git(root, 'rev-parse', '--verify', commit + '^{commit}')
         require(result.returncode == 0 and result.stdout.decode().strip() == commit,
                 'PINNED_COMMIT_UNAVAILABLE: ' + commit)
@@ -129,6 +130,9 @@ def validate_release(root, revision):
                     and relative.decode() in SOURCE_PATHS, 'RELEASE_SOURCE_NOT_REGULAR')
     require(git(root, 'merge-base', '--is-ancestor', BASE_REVISION, revision).returncode == 0,
             'RELEASE_BASE_MISMATCH')
+    require(git(root, 'merge-base', '--is-ancestor', BASE_REVISION, PREVIOUS_RELEASE).returncode == 0
+            and git(root, 'merge-base', '--is-ancestor', PREVIOUS_RELEASE, revision).returncode == 0,
+            'PREVIOUS_RELEASE_BASE_MISMATCH')
     changed = git(root, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames',
                   '--name-status', BASE_REVISION, revision, '--', *SOURCE_PATHS)
     require(changed.returncode == 0 and set(changed.stdout.decode().splitlines())
@@ -142,14 +146,24 @@ def release_body(root, revision, relative):
     return result.stdout
 
 
-def merge_candidate(stage, relative, before, base, release):
+def merge_candidate(stage, relative, before, base, release, previous=None):
     if before == release or before == base:
         return release
     directory = Path(tempfile.mkdtemp(prefix='merge-', dir=stage))
     current, ancestor, incoming = (directory / name for name in ('current', 'base', 'release'))
-    for path, body in ((current, before), (ancestor, base), (incoming, release)):
-        path.write_bytes(body)
-    result = run(['git', 'merge-file', '-p', '--diff3', str(current), str(ancestor), str(incoming)])
+    def merge(current_body, ancestor_body, incoming_body):
+        for path, body in ((current, current_body), (ancestor, ancestor_body), (incoming, incoming_body)):
+            path.write_bytes(body)
+        return run(['git', 'merge-file', '-p', '--diff3', str(current), str(ancestor), str(incoming)])
+    result = merge(before, base, release)
+    if result.returncode != 0 and previous is not None:
+        # An incremental correction may edit helpers first added in the previous release.
+        # Prove its entire feature is already present before changing the merge ancestor;
+        # otherwise missing feature code could be mistaken for intentional live deletions.
+        contained = merge(before, base, previous)
+        require(contained.returncode == 0 and contained.stdout == before,
+                'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
+        result = merge(before, previous, release)
     require(result.returncode == 0, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
     require(0 < len(result.stdout) <= MAX_BYTES and b'\x00' not in result.stdout,
             'MERGED_SOURCE_INVALID: ' + relative)
@@ -302,7 +316,8 @@ def install(root, revision, php, check_only=False):
                 originals[relative] = (before, source_info)
                 after = merge_candidate(stage, relative, before,
                                         release_body(root, BASE_REVISION, relative),
-                                        release_body(root, revision, relative))
+                                        release_body(root, revision, relative),
+                                        previous=release_body(root, PREVIOUS_RELEASE, relative))
                 staged = stage / relative
                 staged.parent.mkdir(parents=True, exist_ok=True)
                 staged.write_bytes(after)
@@ -322,7 +337,8 @@ def install(root, revision, php, check_only=False):
                 return None
             stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ-')
             backup = Path(tempfile.mkdtemp(prefix=stamp + revision[:10] + '-', dir=private))
-            receipt = {'revision': revision, 'base_revision': BASE_REVISION, 'status': 'prepared',
+            receipt = {'revision': revision, 'base_revision': BASE_REVISION,
+                       'previous_release': PREVIOUS_RELEASE, 'status': 'prepared',
                        'database_writes': False, 'messages_sent': False, 'settings_enabled': False,
                        'files': []}
             for relative, after in pending:

@@ -33,7 +33,8 @@ require __DIR__ . '/../database/migrations/2026_10_17_000002_create_crm_whatsapp
 
 $checks = 0; $calls = []; $rawTemplates = []; $mode = 'ok';
 $body = "رأيك يهمنا في المنتج والخدمة المقدمة، يُرجى تقديم ملاحظات حضرتك في هذه الرسالة لتحسين جودة المنتج والخدمة.\nطلب رقم {{1}} – فرع {{2}}";
-$preparedBody = $body . '.';
+$periodBody = $body . '.';
+$preparedBody = $body . '. شكرًا لاختيارك فسخانستا.';
 $configuration = ['enabled' => false, 'feedback_enabled' => false, 'feedback_template_name' => '', 'feedback_language' => 'ar',
     'feedback_body' => $body, 'feedback_parameters' => ['source_id', 'branch'], 'access_token' => 'fixture-only', 'sender_enabled' => true];
 $actor = (object) ['id' => 1];
@@ -83,12 +84,13 @@ resetSetup();
 $service = serviceSetup(); $status = $service->status();
 checkSetup($status['feedback_setup']['state'] === 'missing' && $status['feedback_setup']['can_prepare'] && !$status['feedback_ready']
     && !$status['enabled'] && !$status['feedback_enabled'] && !$status['feedback_templates'], 'empty approved list explains missing template without activation');
-checkSetup($status['feedback_body'] === $preparedBody, 'new template preview has fixed terminal punctuation');
+checkSetup($status['feedback_body'] === $preparedBody, 'new template preview has substantive static words after its final parameter');
 $service->status(); checkSetup(count($calls) === 1, 'empty template discovery caches within one service instance');
 $result = $service->prepareFeedbackTemplate($actor); $post = postsSetup()[0];
 checkSetup($result['success'] && $result['created'] && $result['feedback_setup']['state'] === 'pending' && !$result['feedback_setup']['can_prepare'], 'explicit prepare returns pending review');
 checkSetup($post[2] === ['name' => 'fasakhansta_order_feedback_v1', 'language' => 'ar', 'category' => 'UTILITY',
     'components' => [['type' => 'BODY', 'text' => $preparedBody, 'example' => ['body_text' => [['12345', 'شبرا الخيمة']]]]]], 'fixed creation payload and deterministic example parameters');
+checkSetup(preg_match('/\{\{2\}\}\. شكرًا لاختيارك فسخانستا\.\z/u', $post[2]['components'][0]['text']) === 1, 'outgoing body has real static words after final variable, not punctuation alone');
 checkSetup(!DB::table('crm_whatsapp_settings')->value('enabled') && !DB::table('crm_whatsapp_settings')->value('feedback_enabled')
     && DB::table('crm_whatsapp_campaigns')->count() === 0 && DB::table('crm_whatsapp_deliveries')->count() === 0, 'template creation leaves sender, feedback, campaigns and outbox disabled');
 $result = $service->prepareFeedbackTemplate($actor);
@@ -110,11 +112,18 @@ foreach (['APPROVED', 'PENDING'] as $remote) {
     $result = serviceSetup()->prepareFeedbackTemplate($actor);
     checkSetup(!$result['created'] && !postsSetup() && $result['feedback_setup']['matches'][0]['name'] === 'legacy_feedback', 'reuse compatible legacy name ' . $remote);
 }
-foreach ([$body, $preparedBody] as $text) {
+foreach ([$body, $periodBody, $preparedBody] as $text) {
     resetSetup(); $rawTemplates = [templateSetup('APPROVED', $text)];
     serviceSetup()->configure($actor, ['enabled' => true, 'feedback_enabled' => true,
         'feedback_template_name' => 'fasakhansta_order_feedback_v1', 'feedback_language' => 'ar']);
-    $status = serviceSetup()->status(); checkSetup($status['feedback_ready'] && $status['feedback_body'] === $text, 'configured exact legacy or new approved body remains selectable and shows its real text');
+    $status = serviceSetup()->status(); checkSetup($status['feedback_ready'] && $status['feedback_body'] === $text, 'configured exact legacy, period-only or substantive suffix body remains selectable and shows its real text');
+}
+resetSetup(); $rawTemplates = [templateSetup('PENDING', $periodBody)];
+checkSetup(!serviceSetup()->prepareFeedbackTemplate($actor)['created'] && !postsSetup(), 'period-only pending fixed template remains compatible and is never overwritten');
+foreach ([$periodBody, $body . ' — نتمنى معرفة رأيك.'] as $configured) {
+    resetSetup(); serviceSetup(['feedback_body' => $configured])->prepareFeedbackTemplate($actor);
+    $submitted = postsSetup()[0][2]['components'][0]['text'];
+    checkSetup($submitted === ($configured === $periodBody ? $preparedBody : $configured), 'creation adds closing words only for terminal parameter or period-only ending');
 }
 foreach (['body', 'category', 'buttons', 'malformed', 'duplicate'] as $conflict) {
     resetSetup(); $rawTemplates = [templateSetup('PENDING')];
