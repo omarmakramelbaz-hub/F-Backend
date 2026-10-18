@@ -37,7 +37,7 @@ command -v runuser >/dev/null || { printf '%s\n' 'runuser is required.' >&2; exi
 if ! runuser -u fasakha -- test -x "$capture_php"; then printf '%s\n' 'Selected PHP is not executable by fasakha.' >&2; exit 2; fi
 
 # The release manifest is pinned by the committed root entry; only listed code is staged.
-capture_manifest_sha=6d0347338faeb06785bee39d59da04e305e02be4379a21ca8c61c497b39cb2e2
+capture_manifest_sha=5851f94831ec952a1d11fd092f2f2a468c2c2a7930bcfc89bc09709728fc2294
 if [[ ! -f "$capture_code/release-files.sha256" || -L "$capture_code/release-files.sha256" || "$(sha256sum -- "$capture_code/release-files.sha256" | cut -d ' ' -f 1)" != "$capture_manifest_sha" ]]; then
     printf '%s\n' 'RELEASE_MANIFEST_INVALID: stopped before application access.' >&2; exit 2
 fi

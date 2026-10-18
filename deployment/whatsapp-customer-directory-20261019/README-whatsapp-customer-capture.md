@@ -35,6 +35,15 @@ publication with checks immediately before replacement. An installation failure
 restores its own exact hook backup when the current file still matches this
 release. Rerunning an installed release is safe.
 
+The customer-list frontend receives two reviewed, unique expression replacements
+for the WhatsApp label and global-customer help. Every byte outside those edits
+is preserved, including the later follow-up template setup. Each expression must
+match its exact before or after form once; missing or ambiguous anchors are
+refused. Backend editing still uses the exact reviewed method guard. If lookup
+or capture installation fails later, the wrapper restores only the UI and lookup
+changes made by that run, using their exact private receipts. It retains changes
+that were already installed before the run.
+
 The success record includes the private backup directory. Exact code rollback
 is available through the staged installer as `fasakha`:
 

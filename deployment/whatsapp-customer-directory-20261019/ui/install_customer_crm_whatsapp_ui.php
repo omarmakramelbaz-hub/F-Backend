@@ -24,9 +24,24 @@ function wui_candidate(string $kind,string $source,array $release): array
         return[substr($source,0,$start).$release['directory-save.after.txt'].substr($source,$end),false];
     }
     if($kind!=='frontend')wac_fail('UI_TARGET_KIND_INVALID');
-    if(hash_equals($release['customer-crm.after.js'],$source))return[$source,true];
-    if(!hash_equals($release['customer-crm.before.js'],$source))wac_fail('UNKNOWN_CUSTOMER_CRM_FRONTEND');
-    return[$release['customer-crm.after.js'],false];
+    // These two presentation edits must preserve later template-setup changes.
+    // Each reviewed expression occurs exactly once in either its before or after form.
+    $edits=[
+        "var names={takeaway:'عميل تيك أواي',dine:'عميل صالة',delivery:'عميل دليفري',app:'عميل تطبيق'};"
+            =>"var names={takeaway:'عميل تيك أواي',dine:'عميل صالة',delivery:'عميل دليفري',app:'عميل تطبيق',whatsapp:'واتساب'};",
+        "if(!item.branch)f.appendChild(n('p','عميل تطبيق لم يرتبط بفرع بعد.','op-help'));"
+            =>"if(!item.branch)f.appendChild(n('p','عميل لم يرتبط بفرع بعد.','op-help'));",
+    ];
+    $installed=true;$candidate=$source;$proof=$release['customer-crm.before.js'];
+    foreach($edits as $before=>$after){
+        if(substr_count($proof,$before)!==1||substr_count($proof,$after)!==0)wac_fail('UI_RELEASE_ANCHOR_INVALID');
+        $proof=str_replace($before,$after,$proof);
+        $old=substr_count($candidate,$before);$new=substr_count($candidate,$after);
+        if($old+$new!==1)wac_fail('UNKNOWN_OR_AMBIGUOUS_CUSTOMER_CRM_ANCHOR');
+        if($old===1){$candidate=str_replace($before,$after,$candidate);$installed=false;}
+    }
+    if(!hash_equals($release['customer-crm.after.js'],$proof))wac_fail('UI_RELEASE_PATCH_PROOF_INVALID');
+    return[$candidate,$installed];
 }
 
 function wui_definitions(): array
