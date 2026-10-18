@@ -317,7 +317,7 @@ try{
     $stage='SOURCE_GUARD';
     $pins=[
         'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'7a791b03fd10961bc0fdae0ba69d8cd97850adcd',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'e7943ad4f50cdd620ce213cc17ecd0f749d25222',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',

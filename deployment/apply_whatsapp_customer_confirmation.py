@@ -25,7 +25,7 @@ TARGET_PINS = {
     # The provider was an exactly pinned runtime dependency on every prior profile.
     'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '27afc58ef43d1c6fffa90c9a7bb519e353b7e244'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '7a791b03fd10961bc0fdae0ba69d8cd97850adcd'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', 'e7943ad4f50cdd620ce213cc17ecd0f749d25222'),
     'app/Services/Dashboard/WhatsAppOrderAiProvider.php': ('79970f2f9157ae718dce9004f1d3e3b4ccfd4714', '25d29335acb16eff59666875b9d4bb9fff172e7e'),
 }
 INSTALLED_SOURCE_PROFILES = {
@@ -93,6 +93,12 @@ for _profile in INSTALLED_SOURCE_PROFILES.values():
 INSTALLED_SOURCE_PROFILES['INSTALLED_V12'] = {
     'app/Support/WhatsAppCustomerOrderConfirmation.php': '27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '2156bbd7be4902e9d9442ce3b0590ffc10d4b89b',
+    'app/Services/Dashboard/WhatsAppOrderAiProvider.php': '25d29335acb16eff59666875b9d4bb9fff172e7e',
+}
+# Verified preparation-mapping fix; preserve its unchanged parser and provider.
+INSTALLED_SOURCE_PROFILES['INSTALLED_V13'] = {
+    'app/Support/WhatsAppCustomerOrderConfirmation.php': '27afc58ef43d1c6fffa90c9a7bb519e353b7e244',
+    'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '7a791b03fd10961bc0fdae0ba69d8cd97850adcd',
     'app/Services/Dashboard/WhatsAppOrderAiProvider.php': '25d29335acb16eff59666875b9d4bb9fff172e7e',
 }
 

@@ -36,9 +36,12 @@ cancellation/change commands still require review and never rewrite the receipt.
 The flexible text-only customer protocol ignores ordinary nontext attachments as
 order inputs, while preserving all native rows and checking conflicting pins and
 carts. It never invents media content or changes the customer's identity.
-No preparation alias is inferred
-from words such as `مخلي صافي`, and the descriptive branch never replaces
-coordinate-based execution routing.
+The exact native preparation phrase `مخلي صافي` (also `صافى`) can resolve the
+same product's genuine configured `مخلي`/`extra_clear` preparation. Only a local
+proof clone uses the menu label: the full source and cached phrase stay intact.
+A distinct live full-phrase option retains its own identity; negation, competing
+choices and unknown qualifiers remain guarded. The descriptive branch never
+replaces coordinate-based execution routing.
 The observed `ملخص الأوردر - فرع نبروه ✅` summary is another strict legacy
 format: its `الأصناف:` section, structured customer fields and delivery footer are
 recognized, but the headline does not confirm the order. A genuine customer

@@ -125,10 +125,92 @@ foreach(['conflicting','negated','hint-negated','unknown-hint','missing-option',
     primaryRun();customerRecapNoErp('source preparation retains '.$guard.' guard');
 }
 
-// The generic option-coverage rules retain an unsupported qualifier instead of
-// stripping it from a model hint to manufacture a catalog synonym.
-aiPrepSetup('سردين (كيلو) مخلي صافي','مخلي صافي');primaryRun();
-customerRecapNoErp('uncatalogued full preparation hint cannot be silently reduced to a live substring');
+// This exact colloquial preparation is interpreted only in the native customer
+// receipt path. The original clause and AI hint remain the immutable evidence.
+foreach(['مخلي صافي','مخلي صافى'] as $hint) {
+    $source='سردين (كيلو) '.$hint;
+    aiPrepSetup($source,$hint);
+    $native=AiPrepDB::table('whatsapp_inbox_messages')->orderBy('id')->get()->map(static fn($r)=>(array)$r)->all();
+    $r=primaryRun();$stored=customerRecapStored();
+    aiPrepExpect($r['errors']===0&&$r['dispatched']===1&&AiPreparationProvider::$callsMade===1
+        &&AiPrepPos::$lastPayload['items'][0]['option_id']==='f:0:extra_clear'
+        &&AiPrepPos::$lastPayload['items'][0]['quantity']==='1'
+        &&AiPrepPos::$lastPayload['items'][0]['quantity_mode']==='weight',
+        'exact source-backed colloquial preparation keeps the genuine deboned sale identity '.$hint);
+    aiPrepExpect($stored['items'][0]['option_hint']===$hint
+        &&$stored['evidence_receipt']['ai_extraction']['items'][0]['option_hint']===$hint
+        &&$stored['evidence_receipt']['ai_extraction']['items'][0]['quantity_source']===$source,
+        'local preparation interpretation never rewrites original cached hint or clause '.$hint);
+    aiPrepExpect(AiPrepDB::table('whatsapp_inbox_messages')->orderBy('id')->get()->map(static fn($r)=>(array)$r)->all()===$native,
+        'colloquial preparation mapping preserves every native message byte '.$hint);
+    primaryRun();
+    aiPrepExpect(AiPrepDB::table('test_tickets')->count()===1&&AiPrepDB::table('test_print')->count()===1
+        &&AiPreparationProvider::$callsMade===1,'colloquial preparation does not create a duplicate on repeat '.$hint);
+    customerRecapSilent('colloquial preparation keeps internal replies off '.$hint);
+}
+
+aiPrepSetup('سردين (كيلو) مخلي صافي','مخلي صافي');PrimaryFixtureControl::$strictDispatchClock=true;primaryRun();
+$cached=customerRecapStored();
+aiPrepExpect(AiPreparationProvider::$callsMade===1&&AiPrepDB::table('test_tickets')->count()===0
+    &&$cached['items'][0]['option_hint']==='مخلي صافي',
+    'full literal preparation hint remains cached while independent dispatch clock is closed');
+PrimaryFixtureControl::$analysisSchedule=['enabled'=>true,'days'=>[0,1,2,3,4,5,6],'start'=>'09:00','end'=>'10:00','all_day'=>false];
+PrimaryFixtureControl::$strictDispatchClock=false;customerRecapClock('2026-10-09 22:07:00');$r=primaryRun();
+$reused=customerRecapStored();
+aiPrepExpect($r['dispatched']===1&&AiPreparationProvider::$callsMade===1
+    &&AiPrepPos::$lastPayload['items'][0]['option_id']==='f:0:extra_clear'
+    &&$reused['items']===$cached['items']
+    &&$reused['evidence_receipt']['ai_extraction']===$cached['evidence_receipt']['ai_extraction'],
+    'cached full preparation hint dispatches after analysis closes without API call or source rewrite');
+
+foreach(['unknown-modifier','whole-full-hint','negated-full-hint','conflicting-full-hint','sale-option-only',
+    'wrong-preparation-id','wrong-clean-metadata','nonzero-feature','missing-clean-metadata','missing-feature-metadata'] as $guard) {
+    $source='سردين (كيلو) مخلي صافي';$hint='مخلي صافي';
+    if($guard==='unknown-modifier'){$source='كيلو سردين مخلي تجهيز خاص';$hint='مخلي تجهيز خاص';}
+    if($guard==='whole-full-hint'){$source='كيلو سردين كامل صافي';$hint='كامل صافي';}
+    if($guard==='negated-full-hint')$source='كيلو سردين بدون مخلي صافي';
+    if($guard==='conflicting-full-hint')$source='كيلو سردين مخلي صافي وتنظيف';
+    aiPrepSetup($source,$hint);
+    if($guard==='sale-option-only')array_splice(DialogueFixtureCatalog::$products[0]['preparation_options'],1,1);
+    if($guard==='wrong-preparation-id')DialogueFixtureCatalog::$products[0]['preparation_options'][1]['id']='f:9:extra_clear';
+    if($guard==='wrong-clean-metadata')DialogueFixtureCatalog::$products[0]['preparation_options'][1]['product_clean']='extra_clean';
+    if($guard==='nonzero-feature')DialogueFixtureCatalog::$products[0]['preparation_options'][1]['feature_id']=7;
+    if($guard==='missing-clean-metadata')unset(DialogueFixtureCatalog::$products[0]['preparation_options'][1]['product_clean']);
+    if($guard==='missing-feature-metadata')unset(DialogueFixtureCatalog::$products[0]['preparation_options'][1]['feature_id']);
+    primaryRun();customerRecapNoErp('bounded colloquial preparation interpretation retains '.$guard.' guard');
+}
+
+// A real separately priced full-label variant retains its own identity. The
+// colloquial interpretation cannot silently substitute the shorter live label.
+aiPrepSetup('سردين (كيلو) مخلي صافي','مخلي صافي');
+$variant=['id'=>'f:7:extra_clear','label'=>'مخلي صافي','price'=>'130.00'];
+DialogueFixtureCatalog::$products[0]['options'][]=$variant;
+DialogueFixtureCatalog::$products[0]['preparation_options'][]=$variant+['feature_id'=>7,'product_clean'=>'extra_clear'];
+$item=['name'=>'سردين','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>'مخلي صافي'];
+$mapper=new ReflectionMethod($workflow,'customerReceiptItem');$mapper->setAccessible(true);
+$mapped=$mapper->invoke($workflow,$item,DialogueFixtureCatalog::$products,'f:363','سردين (كيلو) مخلي صافي',[$item]);
+aiPrepExpect(($mapped['option_id']??null)==='f:7:extra_clear',
+    'a genuine distinct full-label live preparation keeps its own identity instead of being normalized');
+
+class AiPreparationChangingPricePos extends AiPrepPos {
+    public static int $quotes=0;
+    public function quote($channel,array $values,$actor):array {
+        $quote=parent::quote($channel,$values,$actor);
+        self::$quotes++;
+        if(self::$quotes>1) {
+            $quote['total_cents']+=100;
+            $quote['total']=number_format($quote['total_cents']/100,2,'.','');
+            $quote['quote_hash']=self::fingerprint([$values['branch'],$values['items'],$quote['total_cents']]);
+        }
+        return $quote;
+    }
+}
+aiPrepSetup('سردين (كيلو) مخلي صافي','مخلي صافي');
+AiPreparationChangingPricePos::$quotes=0;
+app()->instance(AiPrepPos::class,new AiPreparationChangingPricePos());
+primaryRun();
+aiPrepExpect(AiPreparationChangingPricePos::$quotes>1,'full colloquial preparation rechecks ordinary ERP quote before price drift');
+customerRecapNoErp('changed live preparation price blocks stale full-hint receipt before ERP save');
 
 aiPrepSetup();app()->instance(\App\Services\Dashboard\PhoneDelivery::class,new CustomerRecapRaceDelivery());
 CustomerRecapRaceDelivery::$duringQuote=static function():void {

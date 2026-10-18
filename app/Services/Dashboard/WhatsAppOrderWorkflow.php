@@ -1100,6 +1100,23 @@ class WhatsAppOrderWorkflow
             if (in_array($preparation['id'],$seen,true)) continue;
             $choices['options'][]=$preparation; $seen[]=$preparation['id'];
         }
+        // In the customer's copied fish line, this exact descriptive phrase
+        // denotes the configured deboning preparation. Keep every native byte
+        // and cached hint; only the local proof uses the real menu label. A
+        // distinct live full-phrase variant always retains its own identity.
+        $hint=$proofItem['option_hint']??null;
+        if (is_string($hint)&&$this->name(strtr($hint,['ى'=>'ي']))==='مخلي صافي'&&str_contains($source,$hint)) {
+            $distinct=false;$deboned=null;
+            foreach ($choices['options']??[] as $choice)
+                if ($this->name(strtr($choice['label'],['ى'=>'ي']))==='مخلي صافي') $distinct=true;
+            foreach ($product['preparation_options']??[] as $preparation)
+                if ($preparation['id']==='f:0:extra_clear'&&($preparation['feature_id']??null)===0
+                    &&($preparation['product_clean']??null)==='extra_clear'
+                    &&$this->name($preparation['label'])==='مخلي') $deboned=$preparation['label'];
+            if (!$distinct&&$deboned!==null) {
+                $proofItem['option_hint']=$deboned;$sourceItems[$index]=$proofItem;
+            }
+        }
         $option=$this->catalogOption($proofItem,$sourceItems,[$source],$choices);
         if ($option===null) return null;
         $base=null;

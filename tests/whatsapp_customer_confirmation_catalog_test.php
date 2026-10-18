@@ -92,7 +92,7 @@ namespace {
         $data=['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
             'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
         if(str_starts_with($case,'ai-')){
-            $data['items'][0]['option_hint']=match($case){'ai-full-hint'=>'مخلي صافي','ai-whole-full-hint'=>'كامل صافي',default=>'مخلي'};
+            $data['items'][0]['option_hint']=match($case){'ai-full-hint','ai-native-full-hint'=>'مخلي صافي','ai-whole-full-hint'=>'كامل صافي',default=>'مخلي'};
             $source=match($case){'ai-negated'=>'كيلو فسيخ بدون مخلي','ai-alternative'=>'كيلو فسيخ مخلي أو تنظيف',
                 'ai-shared'=>'كيلو فسيخ ورنجة مخلي','ai-private-hint'=>'كيلو فسيخ مخلي PRIVATE_OPTION_HINT',
                 'ai-whole-full-hint'=>'كيلو فسيخ كامل صافي',default=>'كيلو فسيخ مخلي صافي'};
@@ -106,7 +106,7 @@ namespace {
     function catalogProducts(){
         $case=getenv('WA_CATALOG_CASE');$options=[];$preparation=[];
         if(str_starts_with($case,'ai-')||in_array($case,['inline','whole','compact-many','option-label','option-id','option-empty','prep-invalid','prep-drift'],true))$options=[['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120']];
-        if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift','ai-whole-full-hint'],true))$preparation=[
+        if(in_array($case,['inline','whole','compact-many','prep-invalid','prep-drift','ai-whole-full-hint','ai-native-full-hint'],true))$preparation=[
             ['id'=>'','label'=>'كامل','price'=>'100','feature_id'=>0,'product_clean'=>''],
             ['id'=>'f:0:extra_clear','label'=>'مخلي','price'=>'120','feature_id'=>0,'product_clean'=>'extra_clear']];
         if($case==='prep-invalid')unset($preparation[0]['feature_id']);
@@ -219,6 +219,10 @@ $observation=$value['items'][0]['literal_candidates'][0]['source_option_observat
 catalogExpect($observation['available']&&$observation['actual_source_option_id']==='f:0:extra_clear'
     &&$observation['without_hint_probe_option_id']==='f:0:extra_clear'&&!$observation['hint_blocks_explicit_source_choice']
     &&$observation['hint_exact_live_label_ids']===['f:0:extra_clear'],'short live hint agrees with unchanged native clause');
+[$exit,$value]=catalogRun('ai-native-full-hint');$observation=$value['items'][0]['literal_candidates'][0]['source_option_observation'];
+catalogExpect($exit===0&&$value['items'][0]['mapped']&&$observation['actual_source_option_id']==='f:0:extra_clear'
+    &&$observation['probe_has_explicit_source_choice']&&!$observation['hint_blocks_explicit_source_choice'],
+    'native full deboning phrase maps genuine configured preparation without hiding original hint mismatch');
 foreach(['ai-negated','ai-full-hint','ai-alternative','ai-shared','ai-private-hint','ai-whole-full-hint']as$case){[$exit,$value]=catalogRun($case);catalogExpect($exit===0&&!$value['items'][0]['mapped'],
     'same source-proof guard retains actual mapping rejection '.$case);
     $observation=$value['items'][0]['literal_candidates'][0]['source_option_observation'];
