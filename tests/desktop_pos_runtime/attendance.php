@@ -25,7 +25,7 @@ Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->st
 Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->string('name');});
 Schema::create('permissions',function(Blueprint $t){$t->id();$t->string('guard_name');$t->string('name');});
 Schema::create('pos_service_tickets',fn(Blueprint $t)=>$t->id());
-foreach(['2026_10_04_080000_create_branch_operations.php'=>'CreateBranchOperations','2026_10_06_140000_add_employee_wallet_phone.php'=>'AddEmployeeWalletPhone','2026_10_08_190000_add_employee_attendance_rules.php'=>'AddEmployeeAttendanceRules'] as $file=>$class){require dirname(__DIR__,2).'/database/migrations/'.$file;(new $class)->up();}
+foreach(['2026_10_04_080000_create_branch_operations.php'=>'CreateBranchOperations','2026_10_06_140000_add_employee_wallet_phone.php'=>'AddEmployeeWalletPhone','2026_10_08_190000_add_employee_attendance_rules.php'=>'AddEmployeeAttendanceRules','2026_10_18_160000_add_employee_part_time_schedule.php'=>'AddEmployeePartTimeSchedule'] as $file=>$class){require dirname(__DIR__,2).'/database/migrations/'.$file;(new $class)->up();}
 foreach([[1,'admin'],[2,'admin'],[10,'vendor'],[11,'vendor']] as [$id,$type])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type]);
 DB::table('permissions')->insert(['guard_name'=>'admin','name'=>'order-list']);
 DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main'],['id'=>101,'user_id'=>11,'name'=>'Other']]);

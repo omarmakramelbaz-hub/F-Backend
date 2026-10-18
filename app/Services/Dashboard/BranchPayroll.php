@@ -49,13 +49,26 @@ class BranchPayroll
     }
     public function employeeSave(array $values,$actor): array
     {
-        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','wallet_phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m'])->validate();
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','wallet_phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m',
+            'schedule_type'=>'sometimes|required|in:branch,part_time',
+            'attendance_start'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
+            'attendance_end'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
+            'attendance_shift'=>'required_if:schedule_type,part_time|nullable|in:morning,evening'])->validate();
+        $scheduleKeys=['schedule_type','attendance_start','attendance_end','attendance_shift'];
+        if(array_intersect_key($v,array_flip($scheduleKeys))){
+            abort_unless(isset($v['schedule_type']),422,'اختر نوع الدوام عند تعديل مواعيد الموظف.');
+            abort_unless(Schema::hasColumns('branch_employees',$scheduleKeys),503,'يجب تثبيت تحديث الدوام الجزئي أولًا.');
+            if($v['schedule_type']==='part_time'){
+                abort_if($v['attendance_start']===$v['attendance_end'],422,'وقت الانصراف يجب أن يختلف عن وقت الحضور.');
+                if(empty(trim($v['shift']??'')))$v['shift']='دوام جزئي';
+            }else foreach(['attendance_start','attendance_end','attendance_shift'] as $key)$v[$key]=null;
+        }
         if(array_key_exists('wallet_phone',$v))$v['wallet_phone']=$this->walletNumber($v['wallet_phone']);
         $v['left_on']=!empty($v['left_on'])?$v['left_on']:null;
         $amount=$this->ops->money($v['salary']);foreach(['name','phone','job_title','shift','notes'] as $key)$v[$key]=trim($v[$key]??'');abort_if($v['name']===''||$v['job_title']==='',422,'أدخل اسم الموظف ووظيفته.');
         return $this->ops->write('employee.save',$v,$actor,function($branch,$actor)use($v,$amount){
             $row=!empty($v['employee_id'])?$this->employee($v['employee_id'],$v['branch'],true):null;if($row)$this->ops->revision($row,$v);
-            $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active','schedule_type','attendance_start','attendance_end','attendance_shift']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
             if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else $id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);
             $previous=DB::table('branch_employee_salaries')->where('employee_id',$id)->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
             if(!$previous||(int)$previous->amount_cents!==$amount){
@@ -121,13 +134,13 @@ class BranchPayroll
     {
         $this->attendanceReady();
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d',
-            'status'=>'required|in:morning,evening,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
+            'status'=>'required|in:morning,evening,part_time,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
             'check_in'=>'prohibited','check_out'=>'prohibited','checked_in_at'=>'prohibited','checked_out_at'=>'prohibited','notes'=>'nullable|string|max:1000'])->validate();
         abort_if($v['day']>OperatingDay::date(),422,'لا يمكن تسجيل الحضور ليوم مستقبلي.');
         return $this->ops->write('employee.attendance',$v,$actor,function($branch,$actor)use($v){
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first();if($old)$this->ops->revision($old,$v);
-            $status=$v['status'];$present=in_array($status,['morning','evening'],true);$clock=now('Africa/Cairo');
+            $status=$v['status'];$present=in_array($status,['morning','evening','part_time'],true);$clock=now('Africa/Cairo');
             if($old&&$old->status!=='unrecorded'){
                 abort_unless($old->status===$status,409,'تم تثبيت حالة الحضور لهذا اليوم؛ لا يمكن تغييرها بعد التسجيل.');
                 // A retry returns the original punch/status without changing its time, ledger or notes.
@@ -137,15 +150,18 @@ class BranchPayroll
             }
             $snapshot=$old&&$old->status===$status?json_decode($old->attendance_rule_snapshot??'',true):null;
             if(!$snapshot){
-                $shift=$present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning');
+                $partTime=($employee->schedule_type??'branch')==='part_time';
+                if($present)abort_unless(($status==='part_time')===$partTime,422,$partTime?'اختر حضور دوام جزئي لهذا الموظف.':'هذا الموظف يتبع مواعيد الفرع؛ اختر حضور صباحًا أو مساءً.');
+                if($partTime)abort_unless($employee->attendance_start&&$employee->attendance_end&&in_array($employee->attendance_shift,['morning','evening'],true),422,'أكمل مواعيد الدوام الجزئي في بيانات الموظف.');
+                $shift=$partTime?$employee->attendance_shift:($present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning'));
                 $rule=DB::table('branch_attendance_rules')->where('branch',$v['branch'])->where('shift',$shift)->first();
                 abort_unless($rule||$status==='preapproved_leave',422,'يجب أن يحدد الأونر مواعيد وخصومات هذا الفرع أولًا.');
-                $snapshot=$rule?EmployeeAttendanceRules::snapshot($rule,$v['day']):[];
+                $snapshot=$rule?EmployeeAttendanceRules::forEmployee($rule,$employee,$v['day']):[];
             }
             $in=null;$out=null;
             if($present){
                 abort_unless(in_array($v['action'],['check_in','check_out'],true),422,'اختر تسجيل الحضور أو الانصراف.');
-                $wasPresent=$old&&in_array($old->status,['morning','evening'],true);
+                $wasPresent=$old&&in_array($old->status,['morning','evening','part_time'],true);
                 $in=$wasPresent?$old->checked_in_at:null;$out=$wasPresent?$old->checked_out_at:null;
                 if($v['action']==='check_in'){
                     abort_unless($v['day']===OperatingDay::date($clock),422,'تسجيل الحضور يتم ليوم التشغيل الحالي من 6 صباحًا إلى 6 صباحًا بتوقيت مصر.');
@@ -299,6 +315,6 @@ class BranchPayroll
         $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
         $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
         $attendanceRules=[];if(Schema::hasTable('branch_attendance_rules'))foreach(DB::table('branch_attendance_rules')->whereIn('branch',array_column($branches,'value'))->get() as $rule)$attendanceRules[$rule->branch][$rule->shift]=$this->ruleData($rule);
-        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
+        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0)+(int)($today['part_time']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
     }
 }

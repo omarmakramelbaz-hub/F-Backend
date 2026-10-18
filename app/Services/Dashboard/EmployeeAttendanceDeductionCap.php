@@ -18,7 +18,7 @@ class EmployeeAttendanceDeductionCap
             throw new RuntimeException('Install the attendance schema before correcting deductions.');
         }
         $counts=['days'=>0,'entries'=>0,'closed'=>0];
-        DB::table('branch_employee_days')->whereIn('status',['morning','evening'])->whereNotNull('attendance_rule_snapshot')
+        DB::table('branch_employee_days')->whereIn('status',['morning','evening','part_time'])->whereNotNull('attendance_rule_snapshot')
             ->whereExists(function($q){
                 $q->selectRaw('1')->from('branch_employee_entries')->whereColumn('employee_id','branch_employee_days.employee_id')
                     ->whereColumn('day','branch_employee_days.day')->where('kind','deduction')->whereNull('voided_at')
@@ -30,7 +30,7 @@ class EmployeeAttendanceDeductionCap
                         $employee=DB::table('branch_employees')->where('id',$day->employee_id)->lockForUpdate()->first();
                         if(!$employee)return ['days'=>0,'entries'=>0,'closed'=>0];
                         $record=DB::table('branch_employee_days')->where('id',$day->id)->lockForUpdate()->first();
-                        if(!$record||!in_array($record->status,['morning','evening'],true))return ['days'=>0,'entries'=>0,'closed'=>0];
+                        if(!$record||!in_array($record->status,['morning','evening','part_time'],true))return ['days'=>0,'entries'=>0,'closed'=>0];
                         if(DB::table('branch_payrolls')->where('employee_id',$employee->id)->where('month',substr($record->day,0,7))->exists()){
                             return ['days'=>0,'entries'=>0,'closed'=>1];
                         }

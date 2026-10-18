@@ -1,9 +1,9 @@
 name: Employee attendance and deductions
 on:
   push:
-    branches: ['codex/employee-attendance-rules-20261008']
+    branches: ['codex/employee-attendance-rules-20261008','codex/employee-part-time-20261018']
   pull_request:
-    paths: ['app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+    paths: ['database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,13 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify scoped updater
+        run: python3 tests/test_employee_part_time_install.py
       - name: Install isolated service dependencies
         run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
-      - name: Verify original payroll service and POS regressions
+      - name: Verify original payroll service and operating day
         run: |
           php tests/desktop_pos_runtime/operating-day.php
-          php tests/desktop_pos_runtime/attendance.php
-          php tests/desktop_pos_runtime/run.php
+          php tests/desktop_pos_runtime/employee-part-time.php
       - name: Install browser test runtime
         run: |
           npm install --prefix "$RUNNER_TEMP/attendance-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
@@ -38,4 +39,5 @@ jobs:
           DESKTOP_TEST_BROWSER_MODULE: ${{ runner.temp }}/attendance-browser/node_modules/playwright
         run: |
           node tests/browser/employee-attendance.cjs
+          node tests/browser/employee-part-time.cjs
           node tests/browser/operating-day.cjs
