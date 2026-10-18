@@ -1,0 +1,53 @@
+name: Incremental dashboard methods
+
+on:
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/PosServiceTicket.php'
+      - 'app/Services/Dashboard/PhoneDeliveryBoard.php'
+      - 'app/Http/Controllers/Api/V1/Auth/**'
+      - 'app/Http/Traits/SendNotification.php'
+      - 'deployment/*dashboard*'
+      - 'tests/Feature/AuthAddressSafetyTest.php'
+      - 'tests/phone_board_presentation_batch_test.php'
+      - 'tests/test_dashboard_guarded_methods.py'
+      - 'tests/notification_dispatch_unit.php'
+      - '.github/workflows/dashboard-incremental-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, mbstring, pdo_sqlite, sqlite3, dom, xml, xmlwriter, tokenizer, exif, gd
+          tools: composer:2.7
+          coverage: none
+      - name: Install application test dependencies without application scripts
+        run: composer install --quiet --no-interaction --prefer-dist --no-scripts --no-plugins
+      - name: Test address ownership and recovery compatibility
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          vendor/bin/phpunit tests/Feature/AuthAddressSafetyTest.php
+      - name: Install the locked isolated SQLite service runtime
+        run: composer install --working-dir=tests/desktop_pos_runtime --quiet --no-interaction --prefer-dist --no-scripts --no-plugins
+      - name: Test card query counts, current reads and delivery regression
+        env:
+          CRM_TEST_AUTOLOAD: ${{ github.workspace }}/tests/desktop_pos_runtime/vendor/autoload.php
+        run: |
+          php tests/phone_board_presentation_batch_test.php
+          php tests/phone_delivery_completion_time_test.php
+          php tests/notification_dispatch_unit.php
+      - name: Test guarded install, conflicts, repeat application and rollback
+        run: python -m unittest tests/test_dashboard_guarded_methods.py -q

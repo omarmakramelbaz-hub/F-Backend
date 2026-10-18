@@ -1,0 +1,100 @@
+name: Dashboard baseline failure comparison
+
+on:
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/PosServiceTicket.php'
+      - 'app/Services/Dashboard/PhoneDeliveryBoard.php'
+      - 'tests/dashboard_failure_comparison.py'
+      - 'tests/test_dashboard_failure_comparison.py'
+      - '.github/workflows/dashboard-baseline-comparison.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture ${{ matrix.revision }} ${{ matrix.engine }} failures
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: ['baseline', 'candidate']
+        engine: ['sqlite', 'mysql']
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: takeaway_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest_password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: ${{ matrix.engine }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: ${{ matrix.engine == 'mysql' && 'takeaway_test' || ':memory:' }}
+      DB_USERNAME: root
+      DB_PASSWORD: test_password
+      CACHE_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: support
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.revision == 'baseline' && '9984a1f6ee065ced2fcc5eefcec5bd2f599914df' || github.event.pull_request.head.sha || github.sha }}
+          path: application
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, pdo_mysql, gd, zip
+          coverage: none
+      - name: Install the same application dependencies as the existing board workflow
+        working-directory: application
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the same isolated application runtime
+        working-directory: application
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Capture diagnostic failures without changing the original red workflow
+        working-directory: application
+        env:
+          COMPARISON_ENGINE: ${{ matrix.engine }}
+          COMPARISON_REVISION: ${{ matrix.revision }}
+        run: |
+          if [ "$COMPARISON_ENGINE" = mysql ]; then
+            export TAKEAWAY_TEST_CONNECTION=mysql
+            comparison_filter='DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
+          else
+            comparison_filter='OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'
+          fi
+          comparison_status=0
+          vendor/bin/phpunit --filter "$comparison_filter" --log-junit "$RUNNER_TEMP/results.xml" > "$RUNNER_TEMP/phpunit.log" 2>&1 || comparison_status=$?
+          python ../support/tests/dashboard_failure_comparison.py collect "$RUNNER_TEMP/results.xml" "$comparison_status" "$RUNNER_TEMP/$COMPARISON_REVISION-$COMPARISON_ENGINE.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-baseline-${{ matrix.revision }}-${{ matrix.engine }}
+          path: ${{ runner.temp }}/${{ matrix.revision }}-${{ matrix.engine }}.json
+          if-no-files-found: error
+          retention-days: 7
+  compare:
+    name: Verify no added failure signatures
+    needs: capture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m unittest tests/test_dashboard_failure_comparison.py -q
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dashboard-baseline-*
+          path: comparison
+          merge-multiple: true
+      - name: Compare test names, issue types and messages without timings or stack paths
+        run: python tests/dashboard_failure_comparison.py compare comparison

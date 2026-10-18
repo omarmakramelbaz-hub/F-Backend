@@ -208,17 +208,67 @@ class PosServiceTicket
         $snapshot=json_decode($row->snapshot,true);abort_unless($snapshot['channel']===$channel,404);
         return ['id'=>(int)$row->id,'ticket_id'=>(int)$row->ticket_id,'revision'=>(int)$row->revision,'created_at'=>$this->iso($row->created_at),'ticket'=>$snapshot];
     }
-    public function present(object $row,bool $full=true,$viewer=null): array
+    public function present(object $row, bool $full = true, $viewer = null): array
     {
-        $q=json_decode($row->quote_snapshot,true);$cart=json_decode($row->cart_snapshot,true);$actor=DB::table('users')->where('id',$row->actor_id)->first();
-        $prefix=$row->channel==='dine'?'dining':'phone-orders';
-        $paid=$row->payment_status==='paid';$canReprint=$paid&&$viewer!==null&&$this->access->canReprintReceipts($viewer);
+        $actor = DB::table('users')->where('id', $row->actor_id)->first();
+        $customerRevision = !empty($row->customer_id)
+            ? (int) DB::table('branch_customers')->where('branch', $row->branch)->where('id', $row->customer_id)->value('revision')
+            : null;
+        $canReprint = $row->payment_status === 'paid' && $viewer !== null
+            && $this->access->canReprintReceipts($viewer);
+
+        return $this->presentation($row, $full, $actor->name ?? '', $customerRevision, $canReprint);
+    }
+
+    /** Batch only the supplied response rows; the next poll always reads live data. */
+    public function presentMany(array $rows, bool $full = true, $viewer = null): array
+    {
+        if (!$rows) {
+            return [];
+        }
+        $actorIds = [];
+        $customerIds = [];
+        $branches = [];
+        $hasPaid = false;
+        foreach ($rows as $row) {
+            $actorIds[] = $row->actor_id;
+            if (!empty($row->customer_id)) {
+                $customerIds[] = $row->customer_id;
+                $branches[] = $row->branch;
+            }
+            $hasPaid = $hasPaid || $row->payment_status === 'paid';
+        }
+        $names = DB::table('users')->whereIn('id', array_unique($actorIds))->pluck('name', 'id');
+        $revisions = [];
+        if ($customerIds) {
+            $customers = DB::table('branch_customers')->whereIn('id', array_unique($customerIds))
+                ->whereIn('branch', array_unique($branches))->get(['id', 'branch', 'revision']);
+            foreach ($customers as $customer) {
+                $revisions[$customer->branch.':'.$customer->id] = (int) $customer->revision;
+            }
+        }
+        $canReprint = $hasPaid && $viewer !== null && $this->access->canReprintReceipts($viewer);
+
+        return array_map(function ($row) use ($full, $names, $revisions, $canReprint) {
+            $revision = !empty($row->customer_id) ? ($revisions[$row->branch.':'.$row->customer_id] ?? 0) : null;
+
+            return $this->presentation($row, $full, $names[$row->actor_id] ?? '', $revision,
+                $row->payment_status === 'paid' && $canReprint);
+        }, $rows);
+    }
+
+    private function presentation(object $row, bool $full, string $cashierName, ?int $customerRevision, bool $canReprint): array
+    {
+        $q = json_decode($row->quote_snapshot, true);
+        $cart = json_decode($row->cart_snapshot, true);
+        $prefix = $row->channel === 'dine' ? 'dining' : 'phone-orders';
+        $paid = $row->payment_status === 'paid';
         $data=['id'=>(int)$row->id,'channel'=>$row->channel,'branch'=>$q['branch'],'revision'=>(int)$row->revision,'status'=>$row->status,'payment_status'=>$row->payment_status,
             'table'=>json_decode($row->table_snapshot??'null',true),'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count?(int)$row->guest_count:null,
             'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'',
-            'customer_id'=>isset($row->customer_id)?(int)$row->customer_id:null,'customer_revision'=>!empty($row->customer_id)?(int)DB::table('branch_customers')->where('branch',$row->branch)->where('id',$row->customer_id)->value('revision'):null,'delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),
+            'customer_id'=>isset($row->customer_id)?(int)$row->customer_id:null,'customer_revision'=>$customerRevision,'delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),
             'delivery_fee'=>Money::decimal((int)$row->delivery_cents),'notes'=>$row->notes??'','cancel_reason'=>$row->cancel_reason??'',
-            'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$actor->name??''],
+            'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$cashierName],
             'kitchen_sent'=>(bool)$row->last_kitchen_id,'bill_locked'=>$this->billLocked($row),
             'bill_issued_at'=>!empty($row->bill_issued_at)?$this->iso($row->bill_issued_at):null,'bill_issued_by'=>isset($row->bill_issued_by)?(int)$row->bill_issued_by:null,
             'bill_issued_revision'=>isset($row->bill_issued_revision)?(int)$row->bill_issued_revision:null,

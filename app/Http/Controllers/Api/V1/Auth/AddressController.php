@@ -83,7 +83,7 @@ class AddressController extends Controller
     public function store(AddressRequest $request)
     {
         try {
-            $address = UserAddress::create($request->input() + ['user_id' => auth('api')->user()->id]);
+            $address = auth('api')->user()->addresses()->create($request->validated());
 
             $city_name = getCityName($address->lat, $address->lng);
 
@@ -122,7 +122,7 @@ class AddressController extends Controller
         try {
             $address = auth('api')->user()->addresses()->where('id', $id)->first();
             if ($address) {
-                $address->update($request->input());
+                $address->update($request->validated());
                 $user = UserAddressResource::collection(auth('api')->user()->addresses);
 
                 $city_name = getCityName($address->lat, $address->lng);
