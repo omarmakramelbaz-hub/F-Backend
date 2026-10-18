@@ -1,9 +1,9 @@
 name: Employee attendance and deductions
 on:
   push:
-    branches: ['codex/employee-attendance-rules-20261008','codex/employee-part-time-20261018']
+    branches: ['codex/employee-attendance-rules-20261008','codex/employee-part-time-20261018','codex/employee-part-time-salary-20261018']
   pull_request:
-    paths: ['tests/fixtures/employee-clock-before.js','tests/browser/employee-part-time-clock.cjs','database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
+    paths: ['app/Services/Dashboard/EmployeePayHours.php','app/Services/Dashboard/DesktopDashboardSchema.php','app/Services/Dashboard/DesktopDashboardBootstrap.php','app/Http/Controllers/Dashboard/BranchOperationsController.php','database/migrations/2026_10_18_180000_add_employee_pay_hours.php','deployment/apply_employee_pay_hours.py','deployment/apply_employee_pay_hours_root.sh','tests/test_employee_pay_hours_install.py','tests/desktop_pos_runtime/employee-pay-hours.php','tests/browser/employee-pay-hours.cjs','tests/fixtures/employee-part-time-before-pay.js','tests/fixtures/employee-clock-before.js','tests/browser/employee-part-time-clock.cjs','database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php','tests/desktop_pos_runtime/employee-part-time.php','tests/browser/employee-part-time.cjs','deployment/apply_employee_part_time.py','deployment/apply_employee_part_time_root.sh','tests/test_employee_part_time_install.py','app/Services/Dashboard/BranchPayroll.php','app/Services/Dashboard/EmployeeAttendanceRules.php','app/Services/Dashboard/OperatingDay.php','public/dashboard/js/dashboard-operating-day.js','tests/desktop_pos_runtime/operating-day.php','tests/browser/operating-day.cjs','app/Services/Dashboard/EmployeeAttendanceDeductionCap.php','app/Console/Commands/CapEmployeeAttendanceDeductions.php','public/dashboard/js/branch-operations.js','public/dashboard/css/branch-operations.css','tests/desktop_pos_runtime/attendance.php','tests/browser/employee-attendance.cjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,13 +23,15 @@ jobs:
         with:
           node-version: '24'
       - name: Verify scoped updater
-        run: python3 tests/test_employee_part_time_install.py
+        run: |
+          python3 tests/test_employee_part_time_install.py
+          python3 tests/test_employee_pay_hours_install.py
       - name: Install isolated service dependencies
         run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
       - name: Verify original payroll service and operating day
         run: |
           php tests/desktop_pos_runtime/operating-day.php
-          php tests/desktop_pos_runtime/employee-part-time.php
+          php tests/desktop_pos_runtime/employee-pay-hours.php
       - name: Install browser test runtime
         run: |
           npm install --prefix "$RUNNER_TEMP/attendance-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
@@ -40,6 +42,7 @@ jobs:
         run: |
           node tests/browser/employee-attendance.cjs
           node tests/browser/employee-part-time.cjs
+          node tests/browser/employee-pay-hours.cjs
           node tests/browser/operating-day.cjs
           python3 - <<'PYCODE'
           import importlib.util, os
@@ -48,11 +51,17 @@ jobs:
           installer = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(installer)
           before = Path('tests/fixtures/employee-clock-before.js').read_bytes()
+          previous = Path('tests/fixtures/employee-part-time-before-pay.js').read_bytes()
+          live = installer.scoped_js_candidate(before, previous)
+          spec = importlib.util.spec_from_file_location('pay_hours_installer', 'deployment/apply_employee_pay_hours.py')
+          pay_installer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(pay_installer)
           released = Path('public/dashboard/js/branch-operations.js').read_bytes()
-          candidate = installer.scoped_js_candidate(before, released)
+          candidate = pay_installer.scoped_js_candidate(live, released)
           (Path(os.environ['RUNNER_TEMP']) / 'employee-clock-part-time.js').write_bytes(candidate)
           PYCODE
           export ATTENDANCE_JS_SOURCE="$RUNNER_TEMP/employee-clock-part-time.js"
           node tests/browser/employee-attendance.cjs
           node tests/browser/employee-part-time.cjs
+          node tests/browser/employee-pay-hours.cjs
           node tests/browser/employee-part-time-clock.cjs

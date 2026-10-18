@@ -110,7 +110,7 @@ class Fixture:
         # Give the release its real employee code, while the deployed file is the
         # pinned production clock variant. Its canonical Git hunk must conflict.
         relative = installer.EMPLOYEE_JS
-        released = (ROOT / relative).read_bytes()
+        released = (ROOT / 'tests/fixtures/employee-part-time-before-pay.js').read_bytes()
         self.git('reset', '--hard', self.release)
         self.write(relative, released)
         self.git('add', relative)
@@ -320,7 +320,7 @@ class EmployeeClockCompatibilityTests(unittest.TestCase):
 
     def test_partial_employee_install_and_changed_release_are_rejected(self):
         before = (ROOT / 'tests/fixtures/employee-clock-before.js').read_bytes()
-        released = (ROOT / installer.EMPLOYEE_JS).read_bytes()
+        released = (ROOT / 'tests/fixtures/employee-part-time-before-pay.js').read_bytes()
         partial = before.replace(b'var names={morning:', b'var names={part_time:"partial",morning:', 1)
         with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
             installer.scoped_js_candidate(partial, released)
