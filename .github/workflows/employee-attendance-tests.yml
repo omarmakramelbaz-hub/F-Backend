@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Fetch pinned installer base for exact server fixtures
+        run: git fetch --quiet --no-tags --depth=1 origin 14f030e50de11fb83c4bed4a4ee3d2353492f4d5
       - name: Verify scoped updater
         run: |
           python3 tests/test_employee_part_time_install.py
