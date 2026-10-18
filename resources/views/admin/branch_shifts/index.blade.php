@@ -4,7 +4,8 @@
 @endpush
 @section('content')
 <div class="content-wrapper"><main id="branch-shifts" dir="rtl">
-<header class="sh-heading"><div><small>حسابات الفروع</small><h1>تقفيل الوردية</h1><p>عدّ الكاش الموجود فعليًا، ثم إغلاق الوردية وطباعة كشف الحساب.</p></div><label>الفرع<select data-sh-branch>@if(!empty($boot['can_all']))<option value="all" @if($boot['selected_branch']==='all') selected @endif>جميع الفروع</option>@endif@foreach($boot['branches'] as $branch)<option value="{{ $branch['value'] }}" @if($boot['selected_branch']===$branch['value']) selected @endif>{{ $branch['name'] }}</option>@endforeach</select></label></header>
+<header class="sh-heading"><div><small>حسابات الفروع</small><h1>تقفيل الوردية</h1><p>عدّ الكاش الموجود فعليًا، ثم إغلاق الوردية وطباعة كشف الحساب.</p></div><label>الفرع<select data-sh-branch>@if(!empty($boot['can_all']))<option value="all" @if($boot['selected_branch']==='all') selected @endif>جميع الفروع</option>@endif
+@foreach($boot['branches'] as $branch)<option value="{{ $branch['value'] }}" @if($boot['selected_branch']===$branch['value']) selected @endif>{{ $branch['name'] }}</option>@endforeach</select></label></header>
 <p data-sh-message role="status" hidden></p><button type="button" data-sh-retry hidden>التحقق وإعادة نفس الإغلاق</button>
 <section class="sh-period"><span data-sh-period></span><button type="button" data-sh-refresh>تحديث الوردية</button></section>
 <section class="sh-report" data-sh-all hidden><h2>الورديات الحالية لجميع الفروع</h2><p class="sh-hint">اختر فرعًا من القائمة لعدّ النقدية وإغلاق ورديته.</p><div class="sh-table-wrap"><table><thead><tr><th>الفرع</th><th>بداية الوردية</th><th>مصروفات معلقة</th><th>طلبات نقدية لم تسوّ بعد</th></tr></thead><tbody data-sh-branch-reports></tbody></table></div></section>

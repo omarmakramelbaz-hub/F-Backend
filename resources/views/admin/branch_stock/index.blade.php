@@ -6,7 +6,8 @@
 <div class="content-wrapper branch-stock-wrapper"><main id="branch-stock" dir="rtl" data-inventory-tab="goods">
 <header class="bs-heading"><div><h1><i class="fas fa-boxes" aria-hidden="true"></i> إضافة بضاعة</h1><p>توريد البضاعة وربط أصناف البيع بوصفات المكونات</p></div>
 <nav class="bs-tabs" aria-label="المخزون والوصفات"><button type="button" data-inventory-tab="goods" aria-pressed="true">البضاعة والأرصدة</button><button type="button" data-inventory-tab="recipes" aria-pressed="false">وصفات المينيو</button></nav>
-<label>الفرع<select data-stock-branch @if(count($boot['branches'])===1 && empty($boot['can_all'])) disabled @endif>@if(!empty($boot['can_all']))<option value="all" @if($boot['branch']==='all') selected @endif>جميع الفروع</option>@endif@foreach($boot['branches'] as $b)<option value="{{ $b['value'] }}" @if($boot['branch']===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label></header>
+<label>الفرع<select data-stock-branch @if(count($boot['branches'])===1 && empty($boot['can_all'])) disabled @endif>@if(!empty($boot['can_all']))<option value="all" @if($boot['branch']==='all') selected @endif>جميع الفروع</option>@endif
+@foreach($boot['branches'] as $b)<option value="{{ $b['value'] }}" @if($boot['branch']===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label></header>
 <p class="bs-note bs-guidance" data-stock-guidance></p>
 <div data-inventory-panel="goods"><div class="bs-layout"><section class="bs-panel bs-entry"><header><h2>تسجيل بضاعة واردة</h2><span>إضافة جديدة</span></header>
 <form data-stock-form><label class="bs-search-field">البحث عن صنف البضاعة<input data-stock-search type="search" maxlength="100" placeholder="اكتب اسم الصنف لتصفية القائمة"></label><label class="bs-product-field">الصنف<select name="ingredient_id" data-stock-product required><option value="">اختر صنف البضاعة</option></select></label>
