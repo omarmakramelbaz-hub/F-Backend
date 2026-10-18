@@ -91,11 +91,10 @@ class BranchExpenses
     private function commandRules(): array {return ['branch'=>['required','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid','expected_revision'=>'nullable|integer|min:1'];}
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
-        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','quantity_kg'=>'nullable','approve'=>'nullable|boolean'])->validate();
+        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'nullable|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','quantity_kg'=>'nullable','approve'=>'nullable|boolean'])->validate();
         abort_if($v['occurred_on']>OperatingDay::date(),422,'لا يمكن تسجيل مصروف ليوم تشغيل مستقبلي.');
         abort_if(!empty($v['expense_id']),403,'تعديل المصروفات المسجلة غير متاح.');
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
-        if($v['description']==='')throw ValidationException::withMessages(['description'=>'اكتب بيان المصروف.']);
         try{$amount=Money::minor($v['amount']);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages(['amount'=>'القيمة غير صالحة.']);}
         if($amount<=0||$amount>100000000)throw ValidationException::withMessages(['amount'=>'القيمة أكبر من صفر وبحد أقصى مليون جنيه.']);
         $this->ready();$actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor);$permissions=$this->permissions($actor);abort_unless($permissions['can_create'],403);abort_if(($v['approve']??false)&&!$permissions['can_approve'],403);

@@ -81,6 +81,7 @@ class ExpenseCategories
     public function save(array $values,$actor): array
     {
         abort_unless($this->canCreate($actor),403);
+        if(($values['action']??null)==='apply_basic')return $this->applyBasic($values,$actor);
         $values+=['action'=>'create'];
         $v=Validator::make($values,['action'=>'required|in:create,update,delete','key'=>'required_unless:action,create|nullable|string|max:60',
             'name'=>'required_unless:action,delete|nullable|string|max:80','expected_revision'=>'required_unless:action,create|nullable|integer|min:0','idempotency_key'=>'required|uuid'])->validate();
@@ -135,6 +136,44 @@ class ExpenseCategories
             $category=$this->catalog()[$category['key']];
             DB::table('branch_expense_category_commands')->insert(['request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'actor_id'=>1,'action'=>$v['action'],'snapshot'=>json_encode($category,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC')]);
             return $this->response($category,$replayed);
+        },3);
+    }
+    private function applyBasic(array $values,$actor): array
+    {
+        $v=Validator::make($values,['branch'=>['required','regex:/^f:[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid'])->validate();
+        abort_unless(Schema::hasTable('branch_expense_categories')&&Schema::hasTable('branch_expense_category_commands')&&Schema::hasTable('branch_expense_category_settings'),503,__('expenses.category_upgrade'));
+        $hash=hash('sha256',json_encode(['apply_basic',$v['branch']]));
+        return DB::transaction(function()use($v,$actor,$hash){
+            DB::table('users')->where('id',1)->lockForUpdate()->first();abort_unless($this->canCreate($actor),403);
+            $access=app(TakeawayAccess::class);
+            $command=DB::table('branch_expense_category_commands')->where('request_key',$v['idempotency_key'])->first();
+            if($command){
+                abort_unless($command->action==='apply_basic'&&hash_equals($command->request_hash,$hash),409,__('expenses.category_conflict'));
+                $access->branch($v['branch'],$actor,true);
+                return ['success'=>true,'basic_categories'=>json_decode($command->snapshot,true),'replayed'=>true]+$this->choices(true);
+            }
+            // Lock the branch catalog before resolving the source so another
+            // rename cannot change which Mahalla branch this command adopts.
+            DB::table('resturants')->orderBy('id')->lockForUpdate()->get(['id']);
+            $target=$access->branch($v['branch'],$actor,true);
+            $sources=array_values(array_filter($access->branches($actor),function($branch){
+                if($branch['kind']!=='f')return false;
+                $name=preg_replace('/[\x{0640}\x{064B}-\x{065F}\x{0670}\x{200B}-\x{200F}\x{FEFF}]/u','',$branch['name']);
+                $name=trim(preg_replace('/\s+/u',' ',strtr($name,['ة'=>'ه','ى'=>'ي','أ'=>'ا','إ'=>'ا','آ'=>'ا'])));
+                $name=preg_replace('/^فرع\s+/u','',$name);
+                return in_array($name,['المحله','محله','المحله الكبري','محله الكبري'],true);
+            }));
+            abort_unless(count($sources)===1,422,__(count($sources)?'expenses.basic_categories_source_ambiguous':'expenses.basic_categories_source_missing'));
+            $source=$access->branch($sources[0]['value'],$actor,true);
+            // Categories are a shared vocabulary already visible in Mahalla and
+            // every branch. Adopt that canonical catalog without duplicating
+            // names, reviving deleted choices, or creating financial records.
+            $categories=[];
+            foreach($this->catalog() as $key=>$item)if($item['active']&&$item['canonical_key']===$key)$categories[$key]=$item['name'];
+            $snapshot=['source_branch'=>$source['value'],'source_name'=>$source['name'],'target_branch'=>$target['value'],'target_name'=>$target['name'],
+                'count'=>count($categories),'keys'=>array_keys($categories),'categories'=>$categories,'applied_at'=>now('UTC')->toIso8601String()];
+            DB::table('branch_expense_category_commands')->insert(['request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'actor_id'=>1,'action'=>'apply_basic','snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC')]);
+            return ['success'=>true,'basic_categories'=>$snapshot,'replayed'=>false]+$this->choices(true);
         },3);
     }
     private function store(array $item): void

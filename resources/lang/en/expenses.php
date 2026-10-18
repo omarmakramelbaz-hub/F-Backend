@@ -1,5 +1,10 @@
 <?php
 return [
+    'use_basic_categories'=>'Use basic expense categories',
+    'basic_categories_choose_branch'=>'Select a specific restaurant branch to use Mahalla’s basic categories.',
+    'basic_categories_used'=>'Using :count Mahalla basic categories for :branch. Existing categories were not duplicated.',
+    'basic_categories_source_missing'=>'Mahalla branch was not found. Check its name.',
+    'basic_categories_source_ambiguous'=>'More than one Mahalla branch was found. Check branch names before using basic categories.',
     'quantity_kg'=>'Quantity (kg)',
     'kg'=>'kg',
     'stock_hint'=>'Saving this expense adds the quantity to this branch’s inventory.',

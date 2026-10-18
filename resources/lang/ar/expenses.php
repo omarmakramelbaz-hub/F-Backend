@@ -1,5 +1,10 @@
 <?php
 return [
+    'use_basic_categories'=>'استخدم بنود المصروفات الأساسية',
+    'basic_categories_choose_branch'=>'اختر فرعًا محددًا لاستخدام بنود المحلة الأساسية.',
+    'basic_categories_used'=>'تم استخدام :count بندًا من بنود المحلة الأساسية لـ :branch. البنود الموجودة لم تتكرر.',
+    'basic_categories_source_missing'=>'لم يتم العثور على فرع المحلة. راجع اسم الفرع.',
+    'basic_categories_source_ambiguous'=>'يوجد أكثر من فرع باسم المحلة. راجع أسماء الفروع قبل استخدام البنود الأساسية.',
     'quantity_kg'=>'الكمية بالكيلو',
     'kg'=>'كجم',
     'stock_hint'=>'تُضاف الكمية لرصيد بضاعة الفرع عند حفظ المصروف.',
