@@ -114,17 +114,21 @@ class BranchStock
     {
         if(app(BranchInventory::class)->installed()){app(BranchInventory::class)->appSale($order);return;}
         if($order->type!=='current'||!$order->resturant_id||!$this->installed())return;
-        // Completion already owns the order lock; serialize with receipts/POS on its branch.
-        DB::table('resturants')->where('id',$order->resturant_id)->lockForUpdate()->first();
-        $tracked=DB::table('branch_stock')->where('branch','f:'.$order->resturant_id)->pluck('product_id');if($tracked->isEmpty())return;
-        $rows=DB::table('carts')->where('order_id',$order->id)->whereIn('resturant_product_id',$tracked)->orderBy('id')->lockForUpdate()->get();$lines=[];
+        // Completion owns the order lock; stores fulfill from the shared Shubra stock.
+        $origin='f:'.$order->resturant_id;$branch=FasakhanstaStoreFulfillment::branch($origin);
+        DB::table('resturants')->whereIn('id',array_unique([(int)$order->resturant_id,(int)substr($branch,2)]))->orderBy('id')->lockForUpdate()->get();
+        if(DB::table('branch_stock_movements')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
+        $rows=DB::table('carts')->where('order_id',$order->id)->orderBy('id')->lockForUpdate()->get();$lines=[];
         foreach($rows as $r){
-            $p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$r->resturant_product_id)->first();if(!$p)continue;
+            $p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$r->resturant_product_id)->first();if(!$p){abort_unless($branch===$origin,422,'صنف طلب الإستور لم يعد مرتبطًا بالمينيو؛ راجع ربطه بفرع شبرا.');continue;}
             $feature=!empty($r->product_feature)&&Schema::hasTable('product_features')?DB::table('product_features')->where('id',$r->product_feature)->where('product_id',$p->product_id??0)->value('name'):null;
             if(preg_match('/^0+(?:\.0+)?$/D',(string)$r->qty))continue;
-            $units=$this->units((string)$r->qty);$lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($units,1000),'option_label'=>$feature==='half'?'نصف':($feature==='quarter'?'ربع':'')];
+            $units=$this->units((string)$r->qty);$lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($units,1000),'feature_id'=>(int)($r->product_feature??0),'option_label'=>$feature==='half'?'نصف':($feature==='quarter'?'ربع':'')];
         }
-        $this->consume('f:'.$order->resturant_id,'app',(string)$order->id,$lines,null);
+        abort_unless($branch===$origin||$lines,422,'أصناف طلب الإستور غير متاحة للخصم من فرع شبرا.');
+        $lines=FasakhanstaStoreFulfillment::inventoryLines($origin,$lines);
+        if($branch!==$origin){$tracked=$this->directBalances($branch,array_column($lines,'product_id'));foreach($lines as $line)abort_unless(isset($tracked[$line['product_id']]),422,'يلزم ربط رصيد صنف الإستور ببضاعة فرع شبرا: '.$line['name']);}
+        $this->consume($branch,'app',(string)$order->id,$lines,null);
     }
     public function consumeDirect(string $branch,string $type,string $source,array $lines,?int $actor): void
     {

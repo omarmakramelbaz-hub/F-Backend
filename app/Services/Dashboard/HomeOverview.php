@@ -47,6 +47,11 @@ class HomeOverview
         $finance = $centralAccount ? $owner : $this->access->permissions($actor)['can_manage'];
         $central = $centralAccount && $filters['branch'] === '';
         $keys = array_column($selected, 'value'); $ids = array_column($selected, 'id');
+        // Sales belong to the fulfillment branch; order ownership and active-order
+        // access retain their original restaurant scope below.
+        $appSalesBranches=[];
+        foreach($selected as $b)foreach(FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$b['id']) as $source)$appSalesBranches[$source]=$b['value'];
+        $appSalesIds=array_keys($appSalesBranches);
         $from = OperatingDay::start($filters['from']); $until = OperatingDay::end($filters['to']);
         $previousFrom = $from->copy()->subDays($from->diffInDays($until));
         $modules = ['app'=>$this->has('orders', ['resturant_id','type','status','created_at','updated_at']),
@@ -76,13 +81,15 @@ class HomeOverview
         }
         $appFallback = 0;
         if ($modules['app']) {
-            $q = $this->appQuery($ids)->where('orders.status','completed');
+            $q = $this->appQuery($appSalesIds)->where('orders.status','completed');
             $clock = $this->has('order_board_clocks', ['source','order_id','closed_at']);
             $saleClock = $this->has('branch_recipe_sales', ['branch','source_type','source_id','created_at']);
             if ($clock) $q->leftJoin('order_board_clocks as clock', function($j){$j->on('clock.order_id','=','orders.id')->where('clock.source','legacy');});
             if ($saleClock) {
-                $branchExpression = DB::connection()->getDriverName() === 'sqlite' ? "'f:' || orders.resturant_id" : "CONCAT('f:', orders.resturant_id)";
-                $q->leftJoin('branch_recipe_sales as stock_sale', function($j) use($branchExpression){$j->on('stock_sale.source_id','=','orders.id')->where('stock_sale.source_type','app')->on('stock_sale.branch','=',DB::raw($branchExpression));});
+                // Keep the first recorded sale timestamp across the old store and
+                // physical-branch identities without multiplying a historical row.
+                $saleDates=DB::table('branch_recipe_sales')->whereIn('branch',array_map(fn($id)=>'f:'.$id,$appSalesIds))->where('source_type','app')->select('source_id')->selectRaw('MIN(created_at) AS created_at')->groupBy('source_id');
+                $q->leftJoinSub($saleDates,'stock_sale',fn($j)=>$j->on('stock_sale.source_id','=','orders.id'));
             }
             $clockExpr = $clock && $saleClock ? 'COALESCE(clock.closed_at, stock_sale.created_at)' : ($clock ? 'clock.closed_at' : ($saleClock ? 'stock_sale.created_at' : 'NULL'));
             $q->select('orders.*')->selectRaw($clockExpr.' AS completed_utc')->where(function($w) use($clockExpr,$previousFrom,$until) {
@@ -90,13 +97,13 @@ class HomeOverview
                     ->orWhere(function($old) use($clockExpr,$previousFrom,$until){$old->whereRaw($clockExpr.' IS NULL')->where('orders.updated_at','>=',$previousFrom->toDateTimeString())->where('orders.updated_at','<',$until->toDateTimeString());});
             });
             $bps = $this->serviceRate();
-            $q->orderBy('orders.id')->chunkById(500, function($rows) use(&$sales,&$previous,&$branches,&$trend,&$appFallback,$from,$bps) {
+            $q->orderBy('orders.id')->chunkById(500, function($rows) use(&$sales,&$previous,&$branches,&$trend,&$appFallback,$from,$bps,$appSalesBranches) {
                 $carts = $this->has('carts',['order_id','price','qty']) ? DB::table('carts')->whereIn('order_id',$rows->pluck('id'))->get()->groupBy('order_id') : collect();
                 foreach ($rows as $r) {
                     $when = Carbon::parse($r->completed_utc ?: $r->updated_at, $r->completed_utc ? 'UTC' : config('app.timezone'))->setTimezone('Africa/Cairo');
                     [$total,$delivery] = $this->appAmount($r,$carts[$r->id] ?? collect(),$bps);
                     if ($when->lt($from)) $this->add($previous,'app',$total,$delivery);
-                    else { if (!$r->completed_utc) $appFallback++; $this->add($sales,'app',$total,$delivery); $this->add($branches['f:'.$r->resturant_id]['sales'],'app',$total,$delivery); $this->point($trend,$when,$total); }
+                    else { if (!$r->completed_utc) $appFallback++; $this->add($sales,'app',$total,$delivery); $this->add($branches[$appSalesBranches[$r->resturant_id]]['sales'],'app',$total,$delivery); $this->point($trend,$when,$total); }
                 }
             }, 'orders.id', 'id');
         }

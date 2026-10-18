@@ -30,7 +30,12 @@ class BranchShiftClosing
     private function latest(string $branch){return DB::table('branch_shift_closings')->where('branch',$branch)->orderByDesc('sequence')->first();}
     private function unclaimed($q,string $branch,string $source,string $column)
     {
-        return $q->whereNotExists(function($s)use($branch,$source,$column){$s->selectRaw('1')->from('branch_shift_sources')->where('branch',$branch)->where('source',$source)->whereColumn('source_id',$column);});
+        return $q->whereNotExists(function($s)use($branch,$source,$column){
+            $s->selectRaw('1')->from('branch_shift_sources')->where('source',$source)->whereColumn('source_id',$column);
+            // An app order keeps one financial identity when its store is fulfilled
+            // by Shubra. Saved claims at an old store must never be collected twice.
+            if(!in_array($source,['app','app_cash'],true))$s->where('branch',$branch);
+        });
     }
     public function data(array $values,$actor): array
     {
@@ -110,8 +115,9 @@ class BranchShiftClosing
         }
         // App orders use their own settlement stream. Vendor-collected cash is distinct
         // from delegate/electronic receipts; a later cash handover can be recognized once.
-        $appRows=DB::table('orders')->where('resturant_id',$branch['id'])->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
-        $claimed=DB::table('branch_shift_sources')->where('branch',$value)->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
+        $appSources=FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$branch['id']);
+        $appRows=DB::table('orders')->whereIn('resturant_id',$appSources)->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
+        $claimed=DB::table('branch_shift_sources')->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
         foreach($appRows as $row){$saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);$vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';if($saleClaimed&&(!$vendorCash||$cashClaimed))continue;[$total,$delivery]=$this->appAmount($row);
             if(!$saleClaimed){$channels['app']['count']++;$channels['app']['gross_cents']+=$total;$channels['app']['delivery_cents']+=$delivery;$sources[]=['source'=>'app','source_id'=>$row->id];if(!$vendorCash)$appOutside+=$total-$delivery;}
             if($vendorCash&&!$cashClaimed){$appCash+=$total-$delivery;$sources[]=['source'=>'app_cash','source_id'=>$row->id];}

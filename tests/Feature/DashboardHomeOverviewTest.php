@@ -175,6 +175,36 @@ class DashboardHomeOverviewTest extends TestCase
         $this->assertSame(154950,$r['owner_drawer']['total_cents']);
         $this->assertSame(148450,(int)DB::table('takeaway_tills')->value('balance_cents'));
     }
+    public function test_store_app_sales_and_cash_are_attributed_once_to_shubra_with_original_sale_dates_and_branch_access(): void
+    {
+        DB::table('resturants')->insert([
+            ['id'=>301,'user_id'=>10,'name'=>'شبرا','parent_id'=>null],
+            ['id'=>309,'user_id'=>11,'name'=>'المقطم ستور','parent_id'=>301],
+            ['id'=>313,'user_id'=>11,'name'=>'مصر الجديده','parent_id'=>null],
+        ]);
+        $this->order(1,['resturant_id'=>309,'transfer_price_by'=>'vendor','updated_at'=>'2026-10-06 10:00:00']);
+        $this->order(2,['resturant_id'=>313,'payment_type'=>'card','transfer_price_by'=>'admin']);
+        $this->order(3,['resturant_id'=>301,'transfer_price_by'=>'vendor']);
+        $this->order(4,['resturant_id'=>309,'status'=>'cancelled','transfer_price_by'=>'vendor']);
+        $this->order(5,['resturant_id'=>100,'transfer_price_by'=>'vendor']);
+        DB::table('branch_recipe_sales')->insert([
+            ['branch'=>'f:301','source_type'=>'app','source_id'=>'1','snapshot'=>'{}','created_at'=>'2026-10-05 03:30:00'],
+            ['branch'=>'f:309','source_type'=>'app','source_id'=>'1','snapshot'=>'{}','created_at'=>'2026-10-05 03:30:00'],
+        ]);
+        $shubra=$this->overview(['branch'=>'f:301']);
+        $this->assertSame(3,$shubra['sales']['count']);$this->assertSame(40500,$shubra['sales']['gross_cents']);
+        $this->assertSame(6000,$shubra['sales']['delivery_cents']);$this->assertSame(23000,$shubra['owner_drawer']['total_cents']);
+        $all=$this->overview();$cards=array_column($all['branch_cards'],null,'value');
+        $this->assertSame(4,$all['sales']['count']);$this->assertSame(54000,$all['sales']['gross_cents']);
+        $this->assertSame(40500,$cards['f:301']['sales']['gross_cents']);
+        foreach(['f:309','f:313'] as $store){
+            $this->assertSame(0,$cards[$store]['sales']['count']);
+            $storeView=$this->overview(['branch'=>$store]);$this->assertSame(0,$storeView['sales']['count']);$this->assertSame(0,$storeView['owner_drawer']['total_cents']);
+        }
+        $this->assertSame(13500,$this->overview(['branch'=>'f:100'])['sales']['gross_cents']);
+        $this->denied(fn()=>$this->overview(['branch'=>'f:301'],11),404);
+        $foreign=$this->overview([],11);$this->assertArrayNotHasKey('owner_drawer',$foreign);$this->assertSame(0,$foreign['completed']);
+    }
     public function test_stock_balances_keep_units_negative_branch_warnings_and_unknown_opening_balances(): void
     {
         DB::table('branch_inventory')->insert([['branch'=>'f:100','ingredient_id'=>1,'quantity_units'=>5000000],['branch'=>'f:101','ingredient_id'=>1,'quantity_units'=>-1000000],['branch'=>'f:100','ingredient_id'=>20,'quantity_units'=>3000000],['branch'=>'f:100','ingredient_id'=>22,'quantity_units'=>0]]);
