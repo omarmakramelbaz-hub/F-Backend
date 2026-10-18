@@ -88,12 +88,13 @@
         if (phoneField) {
             consentEnterAffirmed = false;
             if (!normalizedCustomerPhone(customerPhone.value)) { notify(label('customer_phone_required')); customerPhone.focus(); return true; }
-            if (message.querySelector('span').textContent === label('customer_phone_required')) notify('');
-            customerConsent.focus(); return true;
+            if (['customer_phone_required', 'consent_required'].some(function (key) { return message.querySelector('span').textContent === label(key); })) notify('');
+            // Focusing first flushes the phone's change event, which clears the previous customer's approval.
+            customerConsent.focus(); customerConsent.checked = true; return true;
         }
         if (consentField) {
             if (!customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return true; }
-            consentEnterAffirmed = false; if (billLocked()) { cashInput.focus(); cashInput.select(); } else focusKitchenAction();
+            consentEnterAffirmed = false; cashInput.focus(); cashInput.select();
             return true;
         }
         if (metadataField) { consentEnterAffirmed = false; focusKitchenAction(); return true; }

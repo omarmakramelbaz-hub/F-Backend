@@ -119,6 +119,8 @@ foreach(['01112345678','01512345678'] as $phone){
         'cart_snapshot'=>json_encode($cart),'quote_snapshot'=>json_encode($phoneQuote),'business_date'=>'2026-10-07','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     $phoneTickets[]=['id'=>$id,'revision'=>1,'quote_hash'=>$phoneQuote['quote_hash']];
 }
+$savedDeliveryCustomer=$directory->capture(['phone'=>'01112345678'],'delivery','f:100');
+$directory->consent((int)$savedDeliveryCustomer->id,true,true,'pos-ticket:phone:'.$phoneTickets[0]['id'],(int)$actor->id);
 $phoneTickets[0]['service_consent']=true;$phoneTickets[0]['marketing_consent']=true;
 $batch=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'items'=>$phoneTickets,'total'=>'57.00','payment_method'=>'cash','cash_received'=>'60.00','payment_confirmed'=>true];
 $board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);
@@ -126,7 +128,7 @@ $invalidConsent=$batch;$invalidConsent['items'][1]['service_consent']='all';
 denied(fn()=>$board->finish($invalidConsent,$actor),422,'batch rejects non-boolean per-customer consent');
 $batchResult=$board->finish($batch,$actor);
 $firstDelivery=DB::table('crm_customers')->where('phone','+201112345678')->first();$secondDelivery=DB::table('crm_customers')->where('phone','+201512345678')->first();
-check((bool)$firstDelivery->service_consent&&(bool)$firstDelivery->marketing_consent,'delivery batch grants only explicitly selected customer consents');
+check((bool)$firstDelivery->service_consent&&(bool)$firstDelivery->marketing_consent,'delivery batch preserves the permission recorded at order creation');
 check(!(bool)$secondDelivery->service_consent&&!(bool)$secondDelivery->marketing_consent,'delivery batch absent consent remains off for other customer');
 check(DB::table('crm_purchases')->where('channel','delivery')->where('source_type','takeaway_orders')->count()===2,'delivery batch creates individual feedback opportunities');
 $repeatedBatch=$board->finish($batch,$actor);

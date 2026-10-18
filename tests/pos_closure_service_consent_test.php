@@ -84,7 +84,7 @@ check(httpCheckout($legacy)['replayed']&&closureState()===$state&&$writes===[],'
 $fresh=array_replace($legacy,['idempotency_key'=>(string)Str::uuid()]);
 closureRejected(fn()=>httpCheckout($fresh),'service_consent','new unchecked sale cannot reuse trusted legacy checkout behavior');
 
-foreach(['dine','phone'] as $channel) {
+foreach(['dine'] as $channel) {
     [$id,$v]=closureTicket($channel,'01233000001');
     foreach(['missing'=>null,'false'=>false,'zero'=>0,'null'=>null,'invalid'=>'true'] as $name=>$value) {
         $input=$v; if($name!=='missing')$input['service_consent']=$value;
@@ -100,29 +100,65 @@ foreach(['dine','phone'] as $channel) {
     check(httpSettle($channel,$legacyId,$legacyV)['replayed']&&closureState()===$state&&$writes===[],$channel.' legacy trusted unchecked settlement can still be recovered');
 }
 
-// Validate every batch item before settling the first item, preserving all-or-nothing closure.
-[$one,$onePay,$oneQuote]=closureTicket('phone','01233000005'); [$two,$twoPay,$twoQuote]=closureTicket('phone','01233000006');
-$batchValues=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'items'=>[
-    ['id'=>$one,'revision'=>1,'quote_hash'=>$oneQuote['quote_hash'],'service_consent'=>true,'marketing_consent'=>false],
-    ['id'=>$two,'revision'=>1,'quote_hash'=>$twoQuote['quote_hash']]],
-    'total'=>\App\Services\GoServices\Money::decimal($oneQuote['total_cents']+$twoQuote['total_cents']),
-    'payment_method'=>'cash','cash_received'=>'100.00','payment_confirmed'=>true];
-foreach(['missing'=>null,'false'=>false,'zero'=>0,'invalid'=>'yes'] as $name=>$value) {
-    $v=$batchValues; if($name!=='missing')$v['items'][1]['service_consent']=$value;
-    closureRejected(fn()=>httpBatch($v),'items.1.service_consent','batch requires every invoice checkbox before any settlement: '.$name);
+// Phone collection reuses the directory choice; only composition can record a new permission.
+function phoneConsentAudit(string $phone): array {
+    $row=DB::table('crm_customers')->where('phone',CustomerDirectory::normalizePhone($phone))->first();
+    $fields=['service_consent','service_consented_at','service_consent_evidence','service_consented_by',
+        'marketing_consent','marketing_consented_at','marketing_consent_evidence','marketing_consented_by','opted_out_at'];
+    return array_intersect_key((array)$row,array_flip($fields));
 }
-$v=$batchValues; $v['items'][1]['marketing_consent']=true;
-closureRejected(fn()=>httpBatch($v),'items.1.service_consent','batch marketing approval cannot substitute for the missing invoice checkbox');
-$v['items'][1]['service_consent']=true; $v['items'][1]['marketing_consent']=false;
-$paid=httpBatch($v); check(!$paid['replayed']&&count($paid['batch']['items'])===2,'approved service consent on every invoice permits atomic batch collection');
-foreach(['+201233000005','+201233000006'] as $phone) {
-    $customer=DB::table('crm_customers')->where('phone',$phone)->first();
-    check((bool)$customer->service_consent&&!(bool)$customer->marketing_consent,'batch grants service follow-up separately for each customer without marketing');
+function phoneClosureFixture(string $phone,string $state): array {
+    global $directory;
+    [$id,$pay,$quote]=closureTicket('phone',$phone);
+    $customer=$directory->capture(['phone'=>$phone],'delivery','f:100');
+    if($state!=='never')$directory->consent((int)$customer->id,true,true,'pos-ticket:phone:'.$id,10);
+    if($state==='withdrawn')$directory->consent((int)$customer->id,false,false,'whatsapp-inbound:opt-out',10);
+    return [$id,$pay,$quote];
 }
-$state=closureState(); $writes=[];
-check(httpBatch($v)['replayed']&&closureState()===$state&&$writes===[],'exact approved batch replay never repeats sales, stock, customer or money writes');
-$state=closureState(); $writes=[];
-check(httpBatch($batch)['replayed']&&closureState()===$state&&$writes===[],'legacy exact batch without every checkbox remains a read-only recovery');
+$sequence=1;
+foreach(['saved','never','withdrawn'] as $choice)foreach(['missing','false','true'] as $stale) {
+    $phone=sprintf('012331%05d',$sequence++);[$id,$pay]=phoneClosureFixture($phone,$choice);
+    if($stale!=='missing')$pay+=['service_consent'=>$stale==='true','marketing_consent'=>$stale==='true'];
+    $audit=phoneConsentAudit($phone);$before=closureState();$withoutPayment=array_replace($pay,['payment_confirmed'=>false]);
+    denied(fn()=>httpSettle('phone',$id,$withoutPayment),422,'phone '.$choice.'/'.$stale.' still requires actual cash confirmation');
+    check(closureState()===$before,'unconfirmed phone collection changes no sale, cash, stock, ticket or customer');
+    denied(fn()=>httpSettle('phone',$id,array_replace($pay,['cash_received'=>'0.00'])),422,'phone '.$choice.'/'.$stale.' rejects insufficient cash');
+    check(closureState()===$before,'insufficient phone cash leaves the order and saved permission intact');
+    \Carbon\Carbon::setTestNow(now('UTC')->addMinute());
+    $paid=httpSettle('phone',$id,$pay);
+    check(!$paid['replayed']&&$paid['ticket']['payment_status']==='paid','phone '.$choice.'/'.$stale.' closes without a repeated approval');
+    check(phoneConsentAudit($phone)===$audit,'phone '.$choice.'/'.$stale.' preserves exact saved permission, audit evidence and latest opt-out');
+    check(DB::table('crm_purchases')->where('source_type','takeaway_orders')->where('source_id',(string)$paid['receipt']['id'])->count()===1,'phone completion records exactly one purchase for follow-up eligibility');
+    $state=closureState();$writes=[];
+    check(httpSettle('phone',$id,$pay)['replayed']&&closureState()===$state&&$writes===[],'phone '.$choice.'/'.$stale.' retry makes no duplicate fiscal or permission write');
+}
+
+// Mixed batches remain atomic, including old clients that still send checkbox values.
+foreach(['missing','false','true'] as $stale) {
+    $items=[];$audits=[];$total=0;
+    foreach(['saved','never','withdrawn'] as $choice) {
+        $phone=sprintf('012331%05d',$sequence++);[$id,$pay,$quote]=phoneClosureFixture($phone,$choice);
+        $item=['id'=>$id,'revision'=>1,'quote_hash'=>$quote['quote_hash']];
+        if($stale!=='missing')$item+=['service_consent'=>$stale==='true','marketing_consent'=>$stale==='true'];
+        $items[]=$item;$audits[$phone]=phoneConsentAudit($phone);$total+=$quote['total_cents'];
+    }
+    $v=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'items'=>$items,
+        'total'=>\App\Services\GoServices\Money::decimal($total),'payment_method'=>'cash','cash_received'=>'100.00','payment_confirmed'=>true];
+    $before=closureState();denied(fn()=>httpBatch(array_replace($v,['payment_confirmed'=>false])),422,'batch '.$stale.' still requires actual payment confirmation');
+    check(closureState()===$before,'unconfirmed batch makes no changes to any invoice');
+    denied(fn()=>httpBatch(array_replace($v,['cash_received'=>'0.00'])),422,'batch '.$stale.' rejects insufficient cash');
+    check(closureState()===$before,'insufficient batch cash settles no invoice');
+    $invalid=$v;$invalid['items'][1]['service_consent']='yes';
+    closureRejected(fn()=>httpBatch($invalid),'items.1.service_consent','legacy malformed batch permission is rejected before any settlement');
+    \Carbon\Carbon::setTestNow(now('UTC')->addMinute());
+    $paid=httpBatch($v);
+    check(!$paid['replayed']&&count($paid['batch']['items'])===3,'batch '.$stale.' settles all three saved choices without repeated approval');
+    foreach($audits as $phone=>$audit)check(phoneConsentAudit($phone)===$audit,'batch '.$stale.' preserves per-customer permission, evidence and opt-out');
+    $state=closureState();$writes=[];
+    check(httpBatch($v)['replayed']&&closureState()===$state&&$writes===[],'batch '.$stale.' replay never repeats sales, stock, customer or money writes');
+}
+$state=closureState();$writes=[];
+check(httpBatch($batch)['replayed']&&closureState()===$state&&$writes===[],'legacy exact batch remains a read-only recovery');
 
 // Simulate another matching request completing after the first lookup but before the register lock.
 // SQLite cannot model MySQL contention; the grammar annotation observes the actual locking-read flag.

@@ -585,19 +585,6 @@
         if (!target || !root.contains(target) || target.isContentEditable || target.closest('input,textarea,select,[contenteditable],[role="textbox"]')) return false;
         return !!target.closest('.ph-catalog,[data-phone-key],[data-phone-product]');
     }
-    function finalServiceConsentControl(container, ticketId) {
-        var label = element('label', 'ph-settle-confirm'), checkbox = element('input');
-        checkbox.type = 'checkbox'; checkbox.required = true; checkbox.checked = false;
-        checkbox.dataset.phoneFinalServiceConsent = ''; checkbox.setAttribute('aria-required', 'true');
-        if (ticketId !== undefined) checkbox.dataset.phoneConsentTicket = String(ticketId);
-        label.appendChild(checkbox); label.appendChild(element('span', '', text('final_service_consent'))); container.appendChild(label);
-        return checkbox;
-    }
-    function finalServiceConsentReady(form) {
-        var missing = form.querySelector('[data-phone-final-service-consent]:not(:checked)');
-        if (!missing) return true;
-        notify(text('final_service_consent_required')); missing.focus(); return false;
-    }
     function cashKeyboard(form, cash, confirmed, submit, total) {
         form.addEventListener('keydown', function (event) {
             if (event.key !== 'Enter') return;
@@ -606,31 +593,24 @@
             if (locked() || form.closest('[data-phone-modal]').hidden) { event.preventDefault(); return; }
             if (event.target === cash) {
                 event.preventDefault();
-                if (validCash(cash, total) !== null && finalServiceConsentReady(form)) { confirmed.focus(); notify(text('confirm_payment')); }
+                if (validCash(cash, total) !== null) { confirmed.focus(); notify(text('confirm_payment')); }
                 return;
             }
             if (event.target === confirmed) {
                 event.preventDefault();
-                if (validCash(cash, total) === null || !finalServiceConsentReady(form)) return;
+                if (validCash(cash, total) === null) return;
                 confirmed.checked = true;
                 form.requestSubmit(submit);
-                return;
-            }
-            if (event.target.matches('[data-phone-final-service-consent]')) {
-                event.preventDefault();
-                if (!event.target.checked) { notify(text('final_service_consent_required')); return; }
-                if (finalServiceConsentReady(form)) confirmed.focus();
                 return;
             }
             if (event.target !== submit && !event.target.matches('button')) { event.preventDefault(); cash.focus(); }
         });
         cash.addEventListener('input', function () { confirmed.checked = false; });
-        form.querySelectorAll('[data-phone-final-service-consent]').forEach(function (checkbox) { checkbox.addEventListener('change', function () { confirmed.checked = false; }); });
     }
     function finishBatch(){
         if(locked()||!canWrite()||!selectedOrders.size)return;
         var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody');
-        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));var consent=element('td');finalServiceConsentControl(consent,t.id);row.appendChild(consent);body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
         function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
         var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
         var method=element('select');['cash'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
@@ -639,8 +619,8 @@
         var confirm=element('label','ph-settle-confirm'),check=element('input');check.type='checkbox';check.dataset.phoneBatchConfirmed='';confirm.appendChild(check);confirm.appendChild(element('span','',text('payment_confirmed')));form.appendChild(confirm);
         var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
         method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
-        form.addEventListener('submit',function(event){event.preventDefault();if(locked()||!finalServiceConsentReady(form))return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
-            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash,service_consent:true,marketing_consent:false};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
+        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
+            execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
         });cashKeyboard(form,cash,check,submit,total);lock();cash.focus();
     }
     function validateWriteResult(result, operation, recovered) {
@@ -751,11 +731,10 @@
             var methodLabel = element('label', 'ph-field'); methodLabel.appendChild(element('span', '', text('payment_method'))); var method = element('select'); method.dataset.phoneSettleMethod = ''; ['cash'].forEach(function (key) { var option = element('option', '', text(key)); option.value = key; method.appendChild(option); }); methodLabel.appendChild(method); form.appendChild(methodLabel);
             var cashLabel = element('label', 'ph-field ph-cash-paid'); cashLabel.appendChild(element('span', '', text('cash_paid'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
             var referenceLabel = element('label', 'ph-field'); referenceLabel.hidden = true; referenceLabel.appendChild(element('span', '', text('payment_reference'))); var reference = element('input'); reference.maxLength = 100; reference.dataset.phoneSettleReference = ''; referenceLabel.appendChild(reference); form.appendChild(referenceLabel);
-            finalServiceConsentControl(form);
             var confirmation = element('label', 'ph-settle-confirm'), confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.dataset.phoneSettleConfirmed = ''; confirmation.appendChild(confirmed); confirmation.appendChild(element('span', '', text('payment_confirmed'))); form.appendChild(confirmation); var submit = element('button', '', text('collect')); submit.type = 'submit'; submit.dataset.phoneSettleSubmit = ''; form.appendChild(submit); content.appendChild(form);
             method.addEventListener('change', function () { cashLabel.hidden = method.value !== 'cash'; referenceLabel.hidden = method.value === 'cash'; confirmed.checked = false; });
-            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration || !finalServiceConsentReady(form)) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
-                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, service_consent: true, marketing_consent: false, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
+            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
+                execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
             }); cashKeyboard(form, cash, confirmed, submit, scaled(value.total, 2)); lock(); cash.focus();
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('quote_error'))); }
     }

@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class PhoneDeliveryBoard
 {
@@ -114,12 +113,8 @@ class PhoneDeliveryBoard
             'courier_name'=>'nullable|string|max:100','total'=>'required|string|max:14','payment_method'=>'required|in:cash,card,mobile_wallet,other','cash_received'=>'nullable|string|max:14','payment_reference'=>'nullable|string|max:150','payment_confirmed'=>'required|accepted',
         ])->validate(); $this->ready();
         $expected=$this->ops->money($v['total']); $received=$v['payment_method']==='cash'?$this->ops->money($v['cash_received']??''):0;
-        return $this->ops->write('phone.batch',$v,$actor,function($branch,$actor)use($v,$expected,$received,$requireServiceConsent){
-            // BranchOperations resolves exact retries before invoking this mutation callback.
-            if($requireServiceConsent)foreach($v['items'] as $index=>$item){
-                if(!in_array($item['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
-                    'items.'.$index.'.service_consent'=>'يجب تأكيد موافقة كل عميل على متابعة الخدمة قبل إنهاء فواتير الدليفري.']);
-            }
+        // Keep the legacy argument compatible; follow-up permission is recorded only at order composition.
+        return $this->ops->write('phone.batch',$v,$actor,function($branch,$actor)use($v,$expected,$received){
             abort_unless($v['payment_method']==='cash',422,'الدفع متاح كاش فقط.');
             $requested=collect($v['items'])->keyBy('id');
             $rows=DB::table('pos_service_tickets')->where('branch',$branch['value'])->where('channel','phone')->whereIn('id',$requested->keys())->orderBy('id')->lockForUpdate()->get();
@@ -142,8 +137,7 @@ class PhoneDeliveryBoard
             $lines=[];
             foreach($rows as $row){
                 $quote=json_decode($row->quote_snapshot,true);
-                $consent=array_intersect_key($requested[$row->id],array_flip(['service_consent','marketing_consent']));
-                $result=$this->tickets->settle('phone',(int)$row->id,['branch'=>$branch['value'],'expected_revision'=>(int)$row->revision,'idempotency_key'=>(string)Str::uuid(),'quote_hash'=>$quote['quote_hash'],'payment_method'=>$v['payment_method'],'cash_received'=>$v['payment_method']==='cash'?$quote['total']:null,'payment_confirmed'=>true,'payment_reference'=>$v['payment_reference']??'']+$consent,$actor);
+                $result=$this->tickets->settle('phone',(int)$row->id,['branch'=>$branch['value'],'expected_revision'=>(int)$row->revision,'idempotency_key'=>(string)Str::uuid(),'quote_hash'=>$quote['quote_hash'],'payment_method'=>$v['payment_method'],'cash_received'=>$v['payment_method']==='cash'?$quote['total']:null,'payment_confirmed'=>true,'payment_reference'=>$v['payment_reference']??''],$actor);
                 $lines[]=['ticket_id'=>(int)$row->id,'order_id'=>(int)$result['receipt']['id'],'total'=>$quote['total']];
             }
             $snapshot=['branch'=>$branch,'cashier'=>['id'=>(int)$actor->id,'name'=>$actor->name],'company'=>$company,'courier_name'=>trim($v['courier_name']??''),'created_at'=>now('Africa/Cairo')->toIso8601String(),'items'=>$lines,'total'=>Money::decimal($total),'payment_method'=>$v['payment_method'],'cash_received'=>Money::decimal($received),'change'=>Money::decimal($v['payment_method']==='cash'?$received-$total:0),'payment_reference'=>$v['payment_reference']??'','idempotency_key'=>$v['idempotency_key']];

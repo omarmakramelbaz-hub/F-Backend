@@ -1,0 +1,17 @@
+# Dining Enter and single delivery follow-up approval
+
+This release starts from `c27278519f923a2fe351523ff3a149f14a38c04d`. It changes exactly four application files: `public/dashboard/js/dining-pos.js`, `public/dashboard/js/phone-orders.js`, `app/Services/Dashboard/PosServiceTicket.php`, and `app/Services/Dashboard/PhoneDeliveryBoard.php`.
+
+Dining checkout accepts follow-up approval with Enter after a valid customer phone, then moves to the paid amount on the next released Enter press. Phone orders retain the approval collected while creating the order. Single and batch delivery collection no longer ask for it again; collection keeps its payment confirmation. Existing saved approval and subsequent customer opt-outs are preserved. This release does not change takeaway checkout.
+
+`deployment/apply_pos_followup_once.py` generates exact-context Git hunks from the pinned baseline and the full release SHA. It applies them to temporary copies of the current live files, preserving compatible independent edits and rejecting overlapping edits before publication. Forward and reverse checks support fresh installs, repeats, and per-file partial installs. It loads filesystem/Git utilities only from blob `a438bfdcb17f43ef11605bcb48de926c190b3f73` at `6582750c2ef925500504a83d89141e49f0bd62a3`, verifies the blob and its ancestry in the baseline, and never executes an earlier feature installer.
+
+All changed PHP files are linted before publication. A read-only Laravel probe checks the existing dining settlement, phone settlement and batch routes, their authentication/session/CSRF middleware, public service methods, and existing ticket, payment, batch and CRM columns. It reads schema metadata without reading customer records or issuing order or consent mutations. The probe has a 45-second timeout, limits accepted output, and returns only named success/failure markers; runtime details and configuration are not printed.
+
+The installer checks live snapshots immediately before publication and each individual write. Each file is atomically replaced with the bytes produced by applying this release's hunks to its live snapshot; a release file is never copied wholesale over live code. Original files and a hashed receipt are saved below `/home/fasakha/pos-followup-once-backups/` in a private directory. Source permissions and the caller's umask are preserved. If a post-check fails, owned changes are restored. A concurrent operator edit is retained with the source group and reported as `POS_FOLLOWUP_ONCE_ROLLBACK_REVIEW_REQUIRED`, with its backup location.
+
+Run the hash-verified `deployment/apply_pos_followup_once_root.sh` with the full release SHA as its single argument. It requires root on `srv1836524`, verifies the Python installer against its release blob, ensures both pinned base commits exist, and runs as `fasakha` with cPanel PHP 8.2 against `/home/fasakha/public_html`. Success is `POS_FOLLOWUP_ONCE_OK`; `already_current=1 files=0` confirms a repeat. Direct Python `--check` mode performs preflight without publishing application files or writing a backup receipt.
+
+No migrations, backfills, customer messages, changes to stored consent, or cache clears run during installation. Existing filemtime asset URLs pick up the updated JavaScript.
+
+Deployment verification: `python3 -m unittest discover -s tests -p 'test_pos_followup_once_update.py' -v`; `bash -n deployment/apply_pos_followup_once_root.sh`.

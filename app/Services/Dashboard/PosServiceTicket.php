@@ -177,7 +177,7 @@ class PosServiceTicket
         return DB::transaction(function()use($channel,$id,$v,$actor,$hash,$requireServiceConsent){
             $actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
-            if($requireServiceConsent&&!in_array($v['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
+            if($requireServiceConsent&&$channel==='dine'&&!in_array($v['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
                 'service_consent'=>'يجب تأكيد موافقة العميل على متابعة الخدمة قبل إنهاء الفاتورة.']);
             abort_unless($v['payment_method']==='cash'&&empty($v['tenders']),422,'الدفع متاح كاش فقط.');
             $row=$this->locked($channel,$id,$v['branch']);$this->collectible($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
@@ -189,7 +189,10 @@ class PosServiceTicket
             $q=json_decode($row->quote_snapshot,true);abort_unless(!empty($q['quote_hash'])&&hash_equals($q['quote_hash'],$v['quote_hash']),409,'راجع الفاتورة المحفوظة.');
             $cart=json_decode($row->cart_snapshot,true);$snapshot=$this->contextSnapshot($row);$context=['channel'=>$channel,'ticket_id'=>$id,'saved_quote'=>$q,
                 'branch_snapshot'=>$q['branch'],'snapshot'=>$snapshot];
-            $payment=$this->sales->checkout($cart+$v+['notes'=>$row->notes??''],$actor,$context);$when=now('UTC');
+            // Phone permission was recorded when the order was composed. Collection never renews it,
+            // including old clients that still submit consent or a customer who later opted out.
+            $paymentValues=$v;if($channel==='phone')unset($paymentValues['service_consent'],$paymentValues['marketing_consent']);
+            $payment=$this->sales->checkout($cart+$paymentValues+['notes'=>$row->notes??''],$actor,$context);$when=now('UTC');
             DB::table('pos_service_tickets')->where('id',$id)->update(['status'=>$channel==='dine'?'paid':'finished','payment_status'=>'paid','paid_order_id'=>$payment['receipt']['id'],'revision'=>(int)$row->revision+1,'updated_at'=>$when]);
             $this->release($row,$when);$op=$this->record($v,$actor,$hash,'settle',$id,(int)$row->revision+1,['order_id'=>$payment['receipt']['id']]);
             return $this->result($op,$actor,false)+['register'=>$payment['register'],'today'=>$payment['today']];
