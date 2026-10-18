@@ -43,7 +43,7 @@ function mustReject(callable $mutate, string $reason, string $label): void
 
 $router=fixtureRouter();
 $report=CustomerCrmRouteCheck::verify($router);
-routeCheck($report === ['ok'=>true,'verified_routes'=>13,'requests_dispatched'=>0], 'all real customer and POS contracts verified without dispatch');
+routeCheck($report === ['ok'=>true,'verified_routes'=>14,'requests_dispatched'=>0], 'all real customer and POS contracts verified without dispatch');
 routeCheck($router->getRoutes()->getByName('unrelated.broken')->controller === null, 'unrelated nonexistent controller is never resolved');
 
 // Reproduce Laravel 8 path filtering behavior: middleware resolution happens before filtering.
@@ -60,6 +60,10 @@ mustReject(function ($router) { $router->getRoutes()->getByName('customers.conse
 mustReject(function ($router) { $router->getRoutes()->getByName('customers.consent')->methods=['GET','HEAD']; }, 'CRM_ROUTE_METHODS', 'write endpoint cannot silently become a GET route');
 mustReject(function ($router) { $r=$router->getRoutes()->getByName('customers.consent'); $a=$r->getAction(); $a['middleware']=['web','lang']; $r->setAction($a); }, 'CRM_ROUTE_AUTH_MIDDLEWARE', 'removed admin authentication is rejected');
 mustReject(function ($router) { $router->getRoutes()->getByName('customers.campaign-queue')->withoutMiddleware('App\\Http\\Middleware\\VerifyCsrfToken'); }, 'CRM_ROUTE_MIDDLEWARE_EXCLUDED', 'CSRF exclusion on campaign endpoint is rejected');
+mustReject(function ($router) { $routes=new \Illuminate\Routing\RouteCollection; foreach ($router->getRoutes()->getRoutes() as $route) if ($route->getName()!=='customers.feedback-template-prepare') $routes->add($route); $router->setRoutes($routes); }, 'CRM_ROUTE_MISSING:customers.feedback-template-prepare', 'template preparation route must be published with the customer dashboard');
+mustReject(function ($router) { $router->getRoutes()->getByName('customers.feedback-template-prepare')->methods=['GET','HEAD']; }, 'CRM_ROUTE_METHODS:customers.feedback-template-prepare', 'creating a provider template requires a POST route');
+mustReject(function ($router) { $r=$router->getRoutes()->getByName('customers.feedback-template-prepare'); $a=$r->getAction(); $a['middleware']=['web','lang']; $r->setAction($a); }, 'CRM_ROUTE_AUTH_MIDDLEWARE:customers.feedback-template-prepare', 'template preparation retains admin authentication');
+mustReject(function ($router) { $router->getRoutes()->getByName('customers.feedback-template-prepare')->withoutMiddleware('App\\Http\\Middleware\\VerifyCsrfToken'); }, 'CRM_ROUTE_MIDDLEWARE_EXCLUDED:customers.feedback-template-prepare', 'template preparation cannot exclude CSRF protection');
 mustReject(function ($router) { $router->aliasMiddleware('IsAdmin', 'UnprotectedMiddleware'); }, 'CRM_ROUTE_EFFECTIVE_MIDDLEWARE', 'wrong authentication alias is rejected');
 mustReject(function ($router) { $router->middlewareGroup('web', ['App\\Http\\Middleware\\VerifyCsrfToken']); }, 'CRM_ROUTE_EFFECTIVE_MIDDLEWARE', 'web group missing session protection is rejected');
 mustReject(function ($router) { $router->post('duplicate/customer-consent', [\App\Http\Controllers\Dashboard\BranchOperationsController::class, 'customerConsent'])->name('customers.consent'); }, 'CRM_ROUTE_DUPLICATE', 'duplicate feature route names are rejected');
@@ -90,7 +94,7 @@ $command=new \App\Console\Commands\CheckCustomerCrm; $command->setLaravel($conta
 $output=new \Symfony\Component\Console\Output\BufferedOutput;
 $exit=$command->run(new \Symfony\Component\Console\Input\ArrayInput([]), $output);
 $json=json_decode(trim($output->fetch()), true);
-routeCheck($exit===0&&$kernelConstructions===1&&($json['verified_routes']??0)===13, 'crm:check command constructs kernel metadata and exits zero on valid scoped routes');
+routeCheck($exit===0&&$kernelConstructions===1&&($json['verified_routes']??0)===14, 'crm:check command constructs kernel metadata and exits zero on valid scoped routes');
 $router->getRoutes()->getByName('customers.consent')->withoutMiddleware('IsAdmin');
 $output=new \Symfony\Component\Console\Output\BufferedOutput;
 $exit=$command->run(new \Symfony\Component\Console\Input\ArrayInput([]), $output);

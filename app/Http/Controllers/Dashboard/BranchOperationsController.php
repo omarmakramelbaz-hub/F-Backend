@@ -15,7 +15,7 @@ class BranchOperationsController extends Controller
         $actor=$this->actor($r);$branches=$access->branches($actor);abort_unless(count($branches),403);$module=$this->module($r);$selected=$r->input('branch',$module==='customers'&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id)?'all':$branches[0]['value']);
         $initial=$this->service($r)->listing($r->all()+['branch'=>$selected],$actor);$urls=[];
         foreach(['data','save'] as $name)$urls[$name]=route($module.'.'.$name);
-        if($module==='customers')foreach(['directory-save','consent','messaging-status','messaging-configure','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
+        if($module==='customers')foreach(['directory-save','consent','messaging-status','messaging-configure','feedback-template-prepare','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
         if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export'] as $name)$urls[$name]=route($module.'.'.$name);
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
         $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
@@ -38,6 +38,13 @@ class BranchOperationsController extends Controller
         $v=$r->validate($ops->rules()+['enabled'=>'required|boolean','feedback_enabled'=>'required|boolean','feedback_template_name'=>'nullable|string|max:512','feedback_language'=>'nullable|string|max:30']);
         $ops->access->branch($v['branch'],$actor);
         return response()->json($s->configure($actor,$v));
+    }
+    public function prepareFeedbackTemplate(Request $r,CustomerMessagingService $s,BranchOperations $ops)
+    {
+        $actor=app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        $v=$r->validate($ops->rules());
+        $ops->access->branch($v['branch'],$actor);
+        return response()->json($s->prepareFeedbackTemplate($actor));
     }
     public function queueCampaign(Request $r,CustomerMessagingService $s,BranchOperations $ops)
     {

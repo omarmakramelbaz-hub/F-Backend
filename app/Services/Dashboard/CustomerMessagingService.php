@@ -12,12 +12,15 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 class CustomerMessagingService
 {
     private const GRAPH = 'https://graph.facebook.com/v25.0/';
+    private const FEEDBACK_TEMPLATE_NAME = 'fasakhansta_order_feedback_v1';
+    private const FEEDBACK_TEMPLATE_LANGUAGE = 'ar';
     private $transport;
     private $authorizer;
     private $clock;
     private $purchaseGuard;
     private ?array $configuration;
-    private array $templateCache = [];
+    private ?array $templateCache = null;
+    private ?array $rawTemplateCache = null;
 
     public function __construct(?callable $transport = null, ?callable $authorizer = null,
         ?callable $clock = null, ?array $configuration = null, ?callable $purchaseGuard = null)
@@ -28,12 +31,14 @@ class CustomerMessagingService
 
     public function status(): array
     {
+        $cfg = $this->cfg();
         $out = ['available' => false, 'reason' => $this->reason(), 'total_count' => 0, 'eligible_count' => 0,
-            'feedback_eligible_count' => 0, 'enabled' => (bool) ($this->cfg()['enabled'] ?? false),
-            'feedback_enabled' => (bool) ($this->cfg()['feedback_enabled'] ?? false), 'feedback_templates' => [], 'feedback_ready' => false, 'feedback_reason' => null,
-            'feedback_template' => $this->cfg()['feedback_template_name'] ?? '',
-            'feedback_language' => $this->cfg()['feedback_language'] ?? 'ar',
-            'feedback_body' => $this->cfg()['feedback_body'] ?? '', 'marketing_templates' => [], 'campaigns' => []];
+            'feedback_eligible_count' => 0, 'enabled' => (bool) ($cfg['enabled'] ?? false),
+            'feedback_enabled' => (bool) ($cfg['feedback_enabled'] ?? false), 'feedback_templates' => [], 'feedback_ready' => false, 'feedback_reason' => null,
+            'feedback_template' => $cfg['feedback_template_name'] ?? '',
+            'feedback_language' => $cfg['feedback_language'] ?? 'ar',
+            'feedback_body' => $this->feedbackBody($cfg), 'marketing_templates' => [], 'campaigns' => [],
+            'feedback_setup' => $this->feedbackSetupUnavailable($this->connectionReason())];
         if (!$this->tables()) return $out;
         $out['total_count'] = DB::table('crm_customers')->count();
         $out['eligible_count'] = $this->eligible('marketing')->count();
@@ -51,16 +56,69 @@ class CustomerMessagingService
         try {
             foreach ($this->templates() as $template) {
                 if ($template['category'] === 'MARKETING') $out['marketing_templates'][] = $this->publicTemplate($template);
-                if ($template['category'] === 'UTILITY' && $template['body'] === ($this->cfg()['feedback_body'] ?? '')
-                    && $template['parameters'] === count($this->cfg()['feedback_parameters'] ?? [])) {
+                if ($this->feedbackMatches($template, $cfg)) {
                     $out['feedback_templates'][] = $this->publicTemplate($template);
                 }
             }
             $out['available'] = true; $out['reason'] = null;
-        } catch (\Throwable $error) { $out['reason'] = 'TEMPLATE_LOOKUP_UNAVAILABLE'; return $out; }
-        try { $this->feedbackTemplate(); $out['feedback_ready'] = true; }
+            $out['feedback_setup'] = $this->feedbackSetup($this->rawTemplates());
+        } catch (\Throwable $error) {
+            $out['reason'] = 'TEMPLATE_LOOKUP_UNAVAILABLE';
+            $out['feedback_setup'] = $this->feedbackSetupUnavailable($this->lookupReason($error));
+            return $out;
+        }
+        try { $selected = $this->feedbackTemplate(); $out['feedback_ready'] = true; $out['feedback_body'] = $selected['body']; }
         catch (\Throwable $error) { $out['feedback_reason'] = 'APPROVED_FEEDBACK_TEMPLATE_REQUIRED'; }
         return $out;
+    }
+
+    /** Explicitly submits the fixed feedback template for review; never enables or sends messages. */
+    public function prepareFeedbackTemplate($actor): array
+    {
+        $this->actor($actor);
+        $reason = $this->connectionReason();
+        if ($reason !== null) throw new HttpException(422, $reason);
+        $cfg = $this->cfg();
+        // This operation only provisions the established two-field order feedback contract.
+        if (($cfg['feedback_parameters'] ?? []) !== ['source_id', 'branch']) throw new HttpException(422, 'FEEDBACK_TEMPLATE_CONFIGURATION_INVALID');
+        $raw = ['name' => self::FEEDBACK_TEMPLATE_NAME, 'language' => self::FEEDBACK_TEMPLATE_LANGUAGE,
+            'category' => 'UTILITY', 'status' => 'PENDING',
+            'components' => [['type' => 'BODY', 'text' => $this->feedbackBody($cfg),
+                'example' => ['body_text' => [['12345', 'شبرا الخيمة']]]]]];
+        $candidate = $this->validateTemplate($raw, false);
+        if ($candidate === null || $candidate['parameters'] !== 2 || trim($candidate['body']) === '') {
+            throw new HttpException(422, 'FEEDBACK_TEMPLATE_CONFIGURATION_INVALID');
+        }
+        // A new explicit action always checks Meta again, including pending/rejected and unsupported rows.
+        $this->rawTemplateCache = $this->templateCache = null;
+        try { $templates = $this->rawTemplates(); }
+        catch (\Throwable $error) {
+            $reason = $this->lookupReason($error);
+            throw new HttpException($reason === 'TEMPLATE_LOOKUP_PERMISSION_REQUIRED' ? 403 : ($reason === 'TEMPLATE_PAGINATION_LIMIT' ? 422 : 503), $reason);
+        }
+        $setup = $this->feedbackSetup($templates);
+        if ($setup['state'] === 'conflict') throw new HttpException(409, 'FEEDBACK_TEMPLATE_CONFLICT');
+        if (!$setup['can_prepare']) return ['success' => true, 'created' => false, 'feedback_setup' => $setup];
+        $payload = array_intersect_key($raw, array_flip(['name', 'language', 'category', 'components']));
+        try { $response = $this->request('POST', WhatsAppInboxAccess::WABA_ID . '/message_templates', $payload); }
+        catch (\Throwable $error) { throw new HttpException(503, 'FEEDBACK_TEMPLATE_CREATE_UNCONFIRMED'); }
+        $body = $response['json'];
+        if ($response['status'] >= 400 && $response['status'] < 500 && is_array($body['error'] ?? null)) {
+            $code = $body['error']['code'] ?? null;
+            $permission = in_array($code, [10, 190, 200], true) || in_array($response['status'], [401, 403], true);
+            throw new HttpException($permission ? 403 : 422,
+                $permission ? 'TEMPLATE_MANAGEMENT_PERMISSION_REQUIRED' : 'FEEDBACK_TEMPLATE_PROVIDER_REJECTED');
+        }
+        if (!in_array($response['status'], [200, 201], true) || isset($body['error'])
+            || !is_string($body['id'] ?? null) || !preg_match('/\A[1-9][0-9]{0,30}\z/', $body['id'])
+            || !is_string($body['status'] ?? null) || !preg_match('/\A[A-Z_]{1,40}\z/', $body['status'])
+            || !in_array($body['category'] ?? null, ['UTILITY', 'MARKETING'], true)) {
+            throw new HttpException(503, 'FEEDBACK_TEMPLATE_CREATE_UNCONFIRMED');
+        }
+        // Return review state from the creation receipt. Sending still requires a fresh approved GET.
+        $raw['status'] = $body['status']; $raw['category'] = $body['category'];
+        $this->rawTemplateCache = $this->templateCache = null;
+        return ['success' => true, 'created' => true, 'feedback_setup' => $this->feedbackSetup([$raw])];
     }
 
     /** Persists an explicit central-admin configuration, without sending or changing AI replies. */
@@ -78,8 +136,7 @@ class CustomerMessagingService
         if ($feedback) {
             try { $template = $this->template($name, $language, 'UTILITY'); }
             catch (\Throwable $error) { throw new HttpException(422, 'APPROVED_FEEDBACK_TEMPLATE_REQUIRED'); }
-            if ($template['body'] !== ($this->cfg()['feedback_body'] ?? '')
-                || $template['parameters'] !== count($this->cfg()['feedback_parameters'] ?? [])) throw new HttpException(422, 'FEEDBACK_TEMPLATE_BODY_MISMATCH');
+            if (!$this->feedbackMatches($template)) throw new HttpException(422, 'FEEDBACK_TEMPLATE_BODY_MISMATCH');
         }
         DB::table('crm_whatsapp_settings')->where('id', 1)->update(['enabled' => $enabled, 'feedback_enabled' => $feedback,
             'feedback_template_name' => $name, 'feedback_language' => $language, 'actor_id' => $actor->id, 'updated_at' => $this->stamp()]);
@@ -387,11 +444,26 @@ class CustomerMessagingService
         return $customer && (bool) $customer->$flag && $customer->$evidence !== null && $customer->opted_out_at === null;
     }
 
+    private function feedbackBody(?array $cfg = null): string
+    {
+        $cfg = $cfg ?? $this->cfg();
+        $body = (string) ($cfg['feedback_body'] ?? '');
+        // New submissions end with static punctuation; legacy approved text stays valid verbatim.
+        return preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body) ? $body . '.' : $body;
+    }
+
+    private function feedbackMatches(array $template, ?array $cfg = null): bool
+    {
+        $cfg = $cfg ?? $this->cfg();
+        return $template['category'] === 'UTILITY' && $template['parameters'] === count($cfg['feedback_parameters'] ?? [])
+            && in_array($template['body'], [(string) ($cfg['feedback_body'] ?? ''), $this->feedbackBody($cfg)], true);
+    }
+
     private function feedbackTemplate(): array
     {
         $cfg = $this->cfg();
         $template = $this->template((string) ($cfg['feedback_template_name'] ?? ''), (string) ($cfg['feedback_language'] ?? 'ar'), 'UTILITY');
-        if ($template['body'] !== ($cfg['feedback_body'] ?? '') || $template['parameters'] !== count($cfg['feedback_parameters'] ?? [])) {
+        if (!$this->feedbackMatches($template, $cfg)) {
             throw new \RuntimeException('APPROVED_FEEDBACK_TEMPLATE_REQUIRED');
         }
         return $template;
@@ -405,7 +477,18 @@ class CustomerMessagingService
 
     private function templates(): array
     {
-        if ($this->templateCache) return $this->templateCache;
+        if ($this->templateCache !== null) return $this->templateCache;
+        $templates = [];
+        foreach ($this->rawTemplates() as $raw) {
+            $value = $this->validateTemplate($raw); if ($value !== null) $templates[] = $value;
+        }
+        return $this->templateCache = $templates;
+    }
+
+    /** All lifecycle states must be retained to prevent duplicate or conflicting submissions. */
+    private function rawTemplates(): array
+    {
+        if ($this->rawTemplateCache !== null) return $this->rawTemplateCache;
         if ($this->connectionReason() !== null) throw new \RuntimeException('SENDER_UNAVAILABLE');
         $templates = []; $after = null; $seen = [];
         for ($page = 0; $page < 5; $page++) {
@@ -413,10 +496,12 @@ class CustomerMessagingService
             if ($after !== null) $query['after'] = $after;
             $response = $this->request('GET', WhatsAppInboxAccess::WABA_ID . '/message_templates', $query);
             if ($response['status'] !== 200 || isset($response['json']['error']) || !is_array($response['json']['data'] ?? null)
-                || count($response['json']['data']) > 100) throw new \RuntimeException('TEMPLATE_LOOKUP_UNAVAILABLE');
-            foreach ($response['json']['data'] as $raw) {
-                $value = $this->validateTemplate($raw); if ($value !== null) $templates[] = $value;
+                || count($response['json']['data']) > 100) {
+                $code = $response['json']['error']['code'] ?? null;
+                throw new \RuntimeException(in_array($code, [10, 190, 200], true) || in_array($response['status'], [401, 403], true)
+                    ? 'TEMPLATE_LOOKUP_PERMISSION_REQUIRED' : 'TEMPLATE_LOOKUP_UNAVAILABLE');
             }
+            foreach ($response['json']['data'] as $raw) $templates[] = $raw;
             if (empty($response['json']['paging']['next'])) break;
             $after = $response['json']['paging']['cursors']['after'] ?? null;
             if (!is_string($after) || !preg_match('/\A[\x21-\x7E]{1,2048}\z/', $after) || isset($seen[$after]) || $page === 4) {
@@ -424,12 +509,64 @@ class CustomerMessagingService
             }
             $seen[$after] = true;
         }
-        return $this->templateCache = $templates;
+        return $this->rawTemplateCache = $templates;
     }
 
-    private function validateTemplate($raw): ?array
+    private function feedbackSetupUnavailable(?string $reason): array
     {
-        if (!is_array($raw) || ($raw['status'] ?? null) !== 'APPROVED' || !in_array($raw['category'] ?? null, ['MARKETING', 'UTILITY'], true)
+        return ['state' => 'unavailable', 'name' => self::FEEDBACK_TEMPLATE_NAME, 'language' => self::FEEDBACK_TEMPLATE_LANGUAGE,
+            'category' => 'UTILITY', 'template_status' => null, 'reason' => $reason ?? 'TEMPLATE_LOOKUP_UNAVAILABLE',
+            'matches' => [], 'can_prepare' => false];
+    }
+
+    private function lookupReason(\Throwable $error): string
+    {
+        return in_array($error->getMessage(), ['TEMPLATE_LOOKUP_PERMISSION_REQUIRED', 'TEMPLATE_PAGINATION_LIMIT'], true)
+            ? $error->getMessage() : 'TEMPLATE_LOOKUP_UNAVAILABLE';
+    }
+
+    private function feedbackSetup(array $rawTemplates): array
+    {
+        $setup = $this->feedbackSetupUnavailable(null);
+        $setup['state'] = 'missing'; $setup['reason'] = null; $setup['can_prepare'] = true;
+        $fixed = []; $matches = []; $cfg = $this->cfg();
+        foreach ($rawTemplates as $raw) {
+            $value = $this->validateTemplate($raw, false);
+            $compatible = $value !== null && $this->feedbackMatches($value, $cfg);
+            $isFixed = is_array($raw) && ($raw['name'] ?? null) === self::FEEDBACK_TEMPLATE_NAME
+                && ($raw['language'] ?? null) === self::FEEDBACK_TEMPLATE_LANGUAGE;
+            if ($isFixed) {
+                if (!$compatible) {
+                    $setup['state'] = 'conflict'; $setup['reason'] = 'FEEDBACK_TEMPLATE_CONFLICT'; $setup['can_prepare'] = false;
+                }
+                $fixed[] = $value;
+            }
+            if ($compatible) $matches[] = array_intersect_key($value, array_flip(['name', 'language', 'category', 'status']));
+        }
+        $setup['matches'] = $matches;
+        // Never overwrite an existing fixed-name variant even if another usable template exists.
+        if ($setup['state'] === 'conflict' || count($fixed) > 1) {
+            $setup['state'] = 'conflict'; $setup['reason'] = 'FEEDBACK_TEMPLATE_CONFLICT'; $setup['can_prepare'] = false;
+            return $setup;
+        }
+        $selected = $fixed[0] ?? null;
+        foreach (['APPROVED', 'PENDING'] as $priority) {
+            foreach ($matches as $match) if ($match['status'] === $priority) { $selected = $match; break 2; }
+        }
+        if ($selected === null && $matches) $selected = $matches[0];
+        if ($selected !== null) {
+            $setup['template_status'] = $selected['status'];
+            $setup['can_prepare'] = !$fixed && $selected['status'] === 'REJECTED';
+            $setup['state'] = ['APPROVED' => 'approved', 'PENDING' => 'pending', 'REJECTED' => 'rejected'][$selected['status']] ?? 'unavailable';
+            if ($setup['state'] === 'unavailable') $setup['reason'] = 'FEEDBACK_TEMPLATE_NOT_APPROVED';
+        }
+        return $setup;
+    }
+
+    private function validateTemplate($raw, bool $approvedOnly = true): ?array
+    {
+        if (!is_array($raw) || !is_string($raw['status'] ?? null) || !preg_match('/\A[A-Z_]{1,40}\z/', $raw['status'])
+            || ($approvedOnly && $raw['status'] !== 'APPROVED') || !in_array($raw['category'] ?? null, ['MARKETING', 'UTILITY'], true)
             || !is_string($raw['name'] ?? null) || !preg_match('/\A[a-z0-9_]{1,512}\z/', $raw['name'])
             || !is_string($raw['language'] ?? null) || !preg_match('/\A[a-zA-Z_]{2,20}\z/', $raw['language'])
             || !is_array($raw['components'] ?? null)) return null;
@@ -448,7 +585,7 @@ class CustomerMessagingService
         $clean = preg_replace('/\{\{[1-9][0-9]*\}\}/', '', $body);
         if (strpos($clean, '{{') !== false || count($variables) > 10
             || ($variables && $variables !== range(1, count($variables)))) return null;
-        return ['name' => $raw['name'], 'language' => $raw['language'], 'category' => $raw['category'],
+        return ['name' => $raw['name'], 'language' => $raw['language'], 'category' => $raw['category'], 'status' => $raw['status'],
             'body' => $body, 'parameters' => count($variables), 'hash' => hash('sha256', json_encode([
                 $raw['name'], $raw['language'], $raw['category'], $raw['components']], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR))];
     }
