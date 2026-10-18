@@ -6,6 +6,7 @@ return [
     'no_today_expenses'=>'لا توجد مصروفات معتمدة اليوم',
     'expense_category'=>'صنف المصروف',
     'expense_amount'=>'القيمة',
+    'stock_minimum_note'=>'عند الحد الأدنى أو أقل في أحد الفروع المعروضة',
 
  'compact_orders'=>'طلبات الفروع',
  'top_ten_orders'=>'أعلى 10 فروع بعدد الطلبات',

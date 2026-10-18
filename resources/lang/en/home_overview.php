@@ -6,6 +6,7 @@ return [
     'no_today_expenses'=>'No approved expenses today',
     'expense_category'=>'Expense category',
     'expense_amount'=>'Amount',
+    'stock_minimum_note'=>'At or below minimum in a displayed branch',
 
  'compact_orders'=>'Branch orders',
  'top_ten_orders'=>'Top 10 branches by order count',

@@ -215,13 +215,30 @@ class HomeOverview
     {
         if(!$ready)return ['items'=>[],'attention'=>[],'tracked'=>0,'unconfigured_recipes'=>0];
         $stock=DB::table('branch_inventory')->whereIn('branch',$keys)->get()->groupBy('ingredient_id');$items=[];$attention=[];
-        foreach(DB::table('stock_ingredients')->orderBy('position')->get() as $i){$rows=$stock[$i->id]??collect();$units=(int)$rows->sum('quantity_units');$items[]=['id'=>(int)$i->id,'name'=>$i->name,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity($units),'quantity_units'=>$units,'tracked_branches'=>$rows->count(),'negative_branches'=>$rows->where('quantity_units','<',0)->count()];foreach($rows as $r)if($r->quantity_units<=0)$attention[]=['name'=>$i->name,'branch'=>$r->branch,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity((int)$r->quantity_units),'quantity_units'=>(int)$r->quantity_units];}
-        if($byBranch)foreach($items as &$item){
+        // Read minimums in one scoped batch. Viewing the dashboard must not
+        // reconcile stock episodes or dispatch any pending email.
+        $minimums=[];
+        if($this->has('branch_stock_minimums',['branch','stock_type','stock_item_id','unit','minimum_units'])){
+            foreach(DB::table('branch_stock_minimums')->whereIn('branch',$keys)->where('stock_type','ingredient')->whereNotNull('minimum_units')->get(['branch','stock_item_id','unit','minimum_units']) as $minimum)
+                $minimums[$minimum->branch][(int)$minimum->stock_item_id]=$minimum;
+        }
+        $inventory=app(BranchInventory::class);
+        foreach(DB::table('stock_ingredients')->orderBy('position')->get() as $i){
+            $rows=$stock[$i->id]??collect();$units=(int)$rows->sum('quantity_units');$low=false;
             // Null means no opening/receipt has been recorded, not zero stock.
-            $balances=array_fill_keys($keys,null);
-            foreach($stock[$item['id']]??collect() as $row)$balances[$row->branch]=['quantity'=>app(BranchInventory::class)->quantity((int)$row->quantity_units),'quantity_units'=>(int)$row->quantity_units];
-            $item['balances']=$balances;
-        }unset($item);
+            $balances=$byBranch?array_fill_keys($keys,null):[];
+            foreach($rows as $r){
+                $quantity=(int)$r->quantity_units;$minimum=$minimums[$r->branch][(int)$i->id]??null;
+                $isLow=$minimum && $minimum->unit===$i->unit && $quantity<=(int)$minimum->minimum_units;
+                // A healthy branch's balance must not hide another branch's shortage.
+                $low=$low||$isLow;
+                if($byBranch)$balances[$r->branch]=['quantity'=>$inventory->quantity($quantity),'quantity_units'=>$quantity,'is_low'=>$isLow];
+                if($quantity<=0)$attention[]=['name'=>$i->name,'branch'=>$r->branch,'unit'=>$i->unit,'quantity'=>$inventory->quantity($quantity),'quantity_units'=>$quantity];
+            }
+            $item=['id'=>(int)$i->id,'name'=>$i->name,'unit'=>$i->unit,'quantity'=>$inventory->quantity($units),'quantity_units'=>$units,'tracked_branches'=>$rows->count(),'negative_branches'=>$rows->where('quantity_units','<',0)->count(),'is_low'=>$low];
+            if($byBranch)$item['balances']=$balances;
+            $items[]=$item;
+        }
         usort($attention,fn($a,$b)=>$a['quantity_units']<=>$b['quantity_units']);$missing=0;
         if($this->has('branch_stock_recipes',['branch','product_id'])&&$this->has('resturant_products',['resturant_id','status'])){foreach($keys as $key){$id=(int)substr($key,2);$missing+=DB::table('resturant_products')->where('resturant_id',$id)->where('status','show')->whereNotIn('id',DB::table('branch_stock_recipes')->where('branch',$key)->select('product_id'))->count();}}
         return ['items'=>$items,'attention'=>$attention,'tracked'=>count(array_filter($items,fn($i)=>$i['tracked_branches']>0)),'unconfigured_recipes'=>$missing];
