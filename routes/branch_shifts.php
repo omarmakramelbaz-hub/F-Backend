@@ -6,6 +6,7 @@ Route::middleware(['lang','IsAdmin'])->prefix('admin/branch-shifts')->name('bran
     foreach(['data','recover'] as $method)Route::get($method,[BranchShiftClosingController::class,$method])->name($method);
     Route::post('reprint',[BranchShiftClosingController::class,'reprint'])->name('reprint');
     Route::post('close',[BranchShiftClosingController::class,'close'])->name('close');
+    Route::get('{id}/details',[BranchShiftClosingController::class,'details'])->whereNumber('id')->name('details');
     Route::get('{id}/print',[BranchShiftClosingController::class,'print'])->whereNumber('id')->name('print');
 });
 

@@ -11,5 +11,6 @@ class BranchShiftClosingController extends Controller
     public function close(Request $r,BranchShiftClosing $shifts){return response()->json($shifts->close($r->all(),auth('admin')->user()));}
     public function recover(Request $r,BranchShiftClosing $shifts){return response()->json($shifts->recover($r->all(),auth('admin')->user()));}
     public function reprint(Request $r,\App\Services\Dashboard\BranchShiftPrinting $printing){return response()->json($printing->reprint($r->all(),auth('admin')->user()));}
+    public function details(int $id,BranchShiftClosing $shifts){$report=$shifts->receipt($id,auth('admin')->user());$preview=true;return response()->view('admin.branch_shifts.receipt',compact('report','preview'))->header('Cache-Control','private, no-store, max-age=0')->header('Referrer-Policy','no-referrer');}
     public function print(int $id,BranchShiftClosing $shifts){$report=$shifts->receipt($id,auth('admin')->user());return response()->view('admin.branch_shifts.receipt',compact('report'))->header('Cache-Control','private, no-store');}
 }

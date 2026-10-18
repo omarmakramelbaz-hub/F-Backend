@@ -6,7 +6,7 @@
     async function open(url) {
         if (!url) return;
         var target = new URL(url, location.href);
-        if (target.origin !== location.origin || !/\/(?:receipts|tickets)\/[1-9][0-9]*\/details$/.test(target.pathname)) return;
+        if (target.origin !== location.origin || !/\/(?:receipts|tickets|branch-shifts)\/[1-9][0-9]*\/details$/.test(target.pathname)) return;
         close();
         var ar = document.documentElement.lang === 'ar', dialog = document.createElement('dialog'), header = document.createElement('div'), title = document.createElement('strong'), button = document.createElement('button'), message = document.createElement('p');
         dialog.className = 'dashboard-invoice-details'; dialog.setAttribute('aria-label', ar ? 'تفاصيل الفاتورة' : 'Invoice details');

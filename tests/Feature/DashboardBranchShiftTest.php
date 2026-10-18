@@ -135,6 +135,27 @@ class DashboardBranchShiftTest extends TestCase
         $result=$this->shifts()->close($this->closing(931,'20.00'),$this->actor(1));$this->assertSame('مطابق',$this->shifts()->receipt($result['closing']['id'],$this->actor(1))['variance_label']);
     }
 
+    public function test_saved_closing_details_are_screen_visible_for_owner_admin_and_do_not_dispatch_printing(): void
+    {
+        $this->sale(940,'takeaway',1000,1000);
+        $closed=$this->shifts()->close($this->closing(941,'10.00'),$this->actor(1))['closing'];
+        $before=[DB::table('branch_shift_closings')->count(),DB::table('branch_shift_print_jobs')->count(),DB::table('branch_shift_sources')->count(),DB::table('takeaway_tills')->sum('balance_cents')];
+        foreach([1,2] as $manager){
+            $this->actingAs($this->actor($manager),'admin');
+            $this->get(route('branch-shifts.details',['id'=>$closed['id']]))->assertOk()
+                ->assertHeader('Cache-Control','max-age=0, no-store, private')
+                ->assertHeader('Referrer-Policy','no-referrer')
+                ->assertSee('data-dashboard-invoice-details="1"',false)->assertSee($closed['number'])
+                ->assertSee('الكاش الفعلي')->assertSee('معاينة فاتورة الإغلاق المحفوظة')
+                ->assertDontSee('data-dashboard-receipt=',false)->assertDontSee('name="dashboard-print-document"',false)
+                ->assertDontSee('<script',false)->assertDontSee('window.print()',false)->assertDontSee('<button',false)->assertDontSee('<form',false);
+        }
+        foreach([4,10,11,12] as $branchActor){$this->actingAs($this->actor($branchActor),'admin');$this->get(route('branch-shifts.details',['id'=>$closed['id']]))->assertForbidden();}
+        $this->actingAs($this->actor(1),'admin');
+        $this->get(route('branch-shifts.details',['id'=>999999]))->assertNotFound();
+        $this->assertSame($before,[DB::table('branch_shift_closings')->count(),DB::table('branch_shift_print_jobs')->count(),DB::table('branch_shift_sources')->count(),DB::table('takeaway_tills')->sum('balance_cents')]);
+    }
+
     public function test_owner_cash_is_preserved_when_closing_without_touching_other_branch(): void
     {
         $this->sale(950,'phone',12000,12000,2000);$this->sale(951,'takeaway',9000,9000,0,'f:101');$this->appSale('cash','vendor',5000,500);
