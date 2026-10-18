@@ -203,6 +203,42 @@ class StockMinimumInstallerTests(unittest.TestCase):
         private = self.fixture.root.parent / 'branch-stock-minimum-backups'
         self.assertEqual([path.name for path in private.iterdir()], ['install.lock'])
 
+    def test_check_rejects_unwritable_mail_directory_before_any_live_write(self):
+        mail = self.fixture.root / 'app/Mail'
+        mail.mkdir(parents=True, exist_ok=True)
+        real_access = os.access
+        def access(path, mode, **options):
+            self.assertTrue(options.get('effective_ids'))
+            return False if Path(path) == mail else real_access(path, mode, **options)
+        with mock.patch.object(installer.os, 'access', side_effect=access):
+            with self.assertRaisesRegex(RuntimeError, 'DESTINATION_PARENT_NOT_WRITABLE: app/Mail'):
+                self.fixture.apply(check=True)
+        self.fixture.originals(self)
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_destination_check_handles_missing_parent_and_rejects_non_directory(self):
+        # New nested directories can be created only under a writable existing ancestor.
+        installer.preflight_destination(self.fixture.root, 'new/nested/class.php')
+        self.fixture.write('blocked', b'existing ordinary file\n')
+        with self.assertRaisesRegex(RuntimeError, 'DESTINATION_PARENT_NOT_DIRECTORY'):
+            installer.preflight_destination(self.fixture.root, 'blocked/class.php')
+
+    def test_patch_failure_diagnostic_never_emits_raw_git_output(self):
+        private = b'error: unable to write app/Mail/file.php: Permission denied PRIVATE_TOKEN_AND_CUSTOMER_DATA'
+        output = io.StringIO()
+        with mock.patch.object(installer, 'run', return_value=subprocess.CompletedProcess(
+                [], 1, stdout=b'PRIVATE_STDOUT', stderr=private)), contextlib.redirect_stdout(output):
+            self.assertFalse(installer.patch_apply(self.fixture.root, self.fixture.root / 'dummy.diff'))
+        self.assertIn('category=permission_denied', output.getvalue())
+        self.assertNotIn('PRIVATE', output.getvalue())
+        for expected, stderr in (
+                ('read_only_filesystem', b'Read-only file system'),
+                ('storage_full', b'No space left on device'),
+                ('destination_conflict', b'File already exists'),
+                ('hunk_conflict', b'patch failed: untrusted path'),
+                ('git_error', b'unknown private output')):
+            self.assertEqual(installer.patch_failure_category(stderr), expected)
+
     def test_install_preserves_unrelated_live_edits_and_modes(self):
         relative = installer.MODIFIED_PATHS[0]
         suffix = b'\nunrelated live production correction\n'

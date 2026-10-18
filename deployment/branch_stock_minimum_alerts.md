@@ -41,7 +41,10 @@ operations run as `fasakha`.
 
 The installer applies only this feature's reviewed hunks to shared live files.
 Unrelated live changes are retained; an overlapping edit stops the update for
-review. New files must be absent or byte-identical. It backs up originals outside
+review. New files must be absent or byte-identical. Preflight also checks that
+the deployment user can write/search the destination directories, including the
+nearest existing parent for a new directory; it does not change their ownership
+or permissions. A failed Git write reports a redacted failure category. It backs up originals outside
 the public web directory, compiles staged Blade templates, checks PHP syntax, and
 runs only `2026_10_18_230000_create_branch_stock_minimum_alerts.php`.
 The additive tables preserve existing balances, sales, expenses, and recipes.

@@ -129,6 +129,37 @@ def unchanged(path, original):
             and info.st_mtime_ns == old_info.st_mtime_ns)
 
 
+def preflight_destination(root, relative):
+    """Git hunk checks do not check whether Git can create/replace a live file."""
+    target = root / relative
+    safe(target)
+    parent = target.parent
+    while not parent.exists():
+        require(parent != root, 'APPLICATION_ROOT_INVALID')
+        parent = parent.parent
+    info = parent.stat()
+    require(stat.S_ISDIR(info.st_mode), 'DESTINATION_PARENT_NOT_DIRECTORY: ' + relative)
+    require(os.access(parent, os.W_OK | os.X_OK, effective_ids=True),
+            'DESTINATION_PARENT_NOT_WRITABLE: ' + str(parent.relative_to(root))
+            + '; file=' + relative + '; uid=' + str(info.st_uid) + '; gid=' + str(info.st_gid)
+            + '; mode=' + format(stat.S_IMODE(info.st_mode), '04o')
+            + '; effective_uid=' + str(os.geteuid()))
+
+
+def patch_failure_category(stderr):
+    """Expose an actionable filesystem category without printing Git's raw output."""
+    observed = stderr.lower()
+    categories = (
+        ('permission_denied', (b'permission denied', b'operation not permitted')),
+        ('read_only_filesystem', (b'read-only file system',)),
+        ('storage_full', (b'no space left on device', b'disk quota exceeded')),
+        ('destination_conflict', (b'already exists', b'not a directory', b'no such file or directory')),
+        ('hunk_conflict', (b'does not apply', b'patch failed')),
+    )
+    return next((name for name, phrases in categories if any(phrase in observed for phrase in phrases)),
+                'git_error')
+
+
 def patch_check(directory, patch, reverse=False):
     command = ['git', 'apply', '--check', '--whitespace=nowarn']
     if reverse:
@@ -140,7 +171,11 @@ def patch_apply(directory, patch, reverse=False):
     command = ['git', 'apply', '--whitespace=nowarn']
     if reverse:
         command.append('--reverse')
-    return run([*command, str(patch)], cwd=directory).returncode == 0
+    result = run([*command, str(patch)], cwd=directory)
+    if result.returncode != 0:
+        print('STOCK_MINIMUM_PATCH_DIAGNOSTIC category=' + patch_failure_category(result.stderr)
+              + ' exit_code=' + str(result.returncode), flush=True)
+    return result.returncode == 0
 
 
 def lint_sources(php, directory, application_root, cache_directory):
@@ -479,6 +514,8 @@ def install(root, revision, php, check_only=False):
                 require(patch_check(stage, patch), 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 require(patch_apply(stage, patch), 'STAGED_PATCH_FAILED: ' + relative)
                 pending.append((relative, patch, staged.read_bytes()))
+            for relative, _, _ in pending:
+                preflight_destination(root, relative)
             lint_sources(php, stage, root, stage / '.blade-cache')
             initial_schema = schema_state(root, php)
             runtime = runtime_state(root, php)
@@ -497,6 +534,8 @@ def install(root, revision, php, check_only=False):
                 else:
                     print('BRANCH_STOCK_MINIMUM_OK already_current=1 files=0' + mail_status(current_runtime), flush=True)
                     return None
+            if cache_original[0] is not None:
+                preflight_destination(root, cache_relative)
             print('BRANCH_STOCK_MINIMUM_PREFLIGHT_OK files=' + str(len(pending))
                   + ' migration_required=' + str(int(not initial_schema['recorded']))
                   + mail_status(runtime), flush=True)
@@ -538,6 +577,8 @@ def install(root, revision, php, check_only=False):
                         'LIVE_FILE_CHANGED_BEFORE_INSTALL: ' + relative)
             require(schema_state(root, php) == initial_schema, 'SCHEMA_CHANGED_DURING_PREFLIGHT')
             require(unchanged(root / cache_relative, cache_original), 'ROUTE_CACHE_CHANGED_DURING_PREFLIGHT')
+            for relative, _, _ in pending:
+                preflight_destination(root, relative)
             applied = []
             try:
                 # Publish the guarded helper and additive migration before their callers.
