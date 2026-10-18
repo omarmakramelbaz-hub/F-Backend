@@ -29,7 +29,7 @@
 </form></aside></div>
 @if($boot['permissions']['can_manage_categories'])
 <dialog class="ex-dialog ex-categories-dialog" data-expense-categories-dialog aria-labelledby="ex-categories-title">
-<header><h2 id="ex-categories-title">{{ __('expenses.manage_categories') }}</h2><button type="button" data-expense-categories-close aria-label="{{ __('expenses.close') }}">×</button></header>
+<header><h2 id="ex-categories-title">{{ __('expenses.manage_categories') }} <span data-expense-category-branch></span></h2><button type="button" data-expense-categories-close aria-label="{{ __('expenses.close') }}">×</button></header>
 <div><p class="ex-category-help">{{ __('expenses.category_help') }}</p>
 <form data-expense-category-form class="ex-category-form"><label>{{ __('expenses.category_name') }}<input data-expense-category-name maxlength="80" autocomplete="off" required></label><button type="submit" class="ex-primary" data-expense-category-save>{{ __('expenses.add_category') }}</button><button type="button" class="ex-button" data-expense-category-cancel hidden>{{ __('expenses.cancel_category_edit') }}</button></form>
 <p class="ex-category-status" data-expense-category-status role="status"></p>

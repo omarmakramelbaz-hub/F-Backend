@@ -12,7 +12,7 @@ class DesktopDashboardBootstrap
         'takeaway_tills','takeaway_orders','takeaway_till_entries','takeaway_commands',
         'pos_service_settings','pos_service_tables','pos_service_tickets','pos_service_commands','pos_service_kitchen_tickets',
         'branch_stock','branch_stock_movements','branch_inventory','branch_inventory_movements','branch_stock_recipes','branch_recipe_sales',
-        'branch_expenses','branch_expense_commands','expense_inventory_receipts',
+        'branch_expenses','branch_expense_commands','branch_expense_category_overrides','expense_inventory_receipts',
         'branch_customers','branch_delivery_companies','branch_employees','branch_operation_commands',
         'branch_attendance_rules','branch_employee_salaries','branch_employee_days','branch_employee_entries','branch_payrolls',
         'branch_shift_closings','phone_delivery_dispatches','phone_delivery_batches',

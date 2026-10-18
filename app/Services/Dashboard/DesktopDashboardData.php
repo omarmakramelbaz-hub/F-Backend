@@ -32,6 +32,17 @@ class DesktopDashboardData
         foreach(DesktopDashboardBootstrap::BRANCH_TABLES as $table)if(isset($queries[$table])){
             abort_unless(Schema::hasColumn($table,'branch'),409,'مخطط بيانات الفرع يحتاج مراجعة.');$queries[$table]=DB::table($table)->whereIn('branch',$branches);
         }
+        if(isset($queries['branch_expense_categories'])&&Schema::hasColumn('branch_expense_categories','origin_branch')){
+            // A copied definition can originate outside this device's branches.
+            // Include it only when a scoped override makes that key available.
+            $copied=[];
+            if(isset($queries['branch_expense_category_overrides']))foreach((clone $queries['branch_expense_category_overrides'])->pluck('category_key') as $key)
+                if(preg_match('/^custom_([1-9][0-9]*)$/D',$key,$match))$copied[]=(int)$match[1];
+            $queries['branch_expense_categories']=DB::table('branch_expense_categories')->where(function($query)use($branches,$copied){
+                $query->whereNull('origin_branch')->orWhereIn('origin_branch',$branches);
+                if($copied)$query->orWhereIn('id',array_unique($copied));
+            });
+        }
         foreach(['resturants'=>'id','resturant_products'=>'resturant_id','resturant_areas'=>'resturant_id','orders'=>'resturant_id','advertisings'=>'resturant_id','reviews'=>'resturant_id','coupon_wheel_resturants'=>'resturant_id'] as $table=>$column)
             if(isset($queries[$table])&&!$all)$queries[$table]=DB::table($table)->whereIn($column,$restaurantIds);
         foreach(['go_stores'=>'user_id','go_store_products'=>'user_id','go_store_orders'=>'store_id'] as $table=>$column)
