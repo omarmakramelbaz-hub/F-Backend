@@ -1,17 +1,27 @@
 <?php
+
 namespace App\Http\Traits;
-use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use Notification;
-trait SendNotification {
 
-    public function sendNotification($modelNotification =  [], $notifiable = [])
+use App\Models\User;
+use Illuminate\Notifications\Notification as BaseNotification;
+use Illuminate\Support\Facades\Notification;
+use InvalidArgumentException;
+
+trait SendNotification
+{
+    public function sendNotification(string $modelNotification, $notifiable = [])
     {
-        $admins = Admin::where('roles_name','["Super Admin"]')->get();
+        $notificationClass = 'App\\Notifications\\' . $modelNotification;
 
-        foreach ($admins as $key => $value) {   
-        
-            Notification::send($value,new \App\Notifications\$modelNotification($notifiable));
+        if (!is_subclass_of($notificationClass, BaseNotification::class)) {
+            throw new InvalidArgumentException('Unknown notification class.');
+        }
+
+        $admins = User::where('account_type', 'admin')
+            ->where('roles_name', '["Super Admin"]')->get();
+
+        foreach ($admins as $admin) {
+            Notification::send($admin, new $notificationClass($notifiable));
         }
     }
 }
