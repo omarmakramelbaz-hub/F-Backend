@@ -57,6 +57,14 @@ MODIFIED_PATHS = (
 )
 SOURCE_PATHS = NEW_PATHS + MODIFIED_PATHS
 BRANCH_EXPENSES = 'app/Services/Dashboard/BranchExpenses.php'
+BRANCH_STOCK_CONTROLLER = 'app/Http/Controllers/Dashboard/BranchStockController.php'
+STOCK_INDEX_ANCHOR = b'    public function index(Request $r,BranchStock $s)\n    {\n'
+STOCK_INDEX_REPLACEMENTS = (
+    (b"        $actor=auth('admin')->user();$branches=$s->branches($actor);abort_unless(count($branches),403);$branch=$r->input('branch',$branches[0]['value']);\n",
+     b"        $actor=auth('admin')->user();$branches=$s->branches($actor);abort_unless(count($branches),403);$canAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$branch=$r->input('branch',$canAll?'all':$branches[0]['value']);\n"),
+    (b"        $boot=['actor_id'=>(int)$actor->id,'branches'=>$branches,'branch'=>$branch,",
+     b"        $boot=['actor_id'=>(int)$actor->id,'branches'=>$branches,'can_all'=>$canAll,'branch'=>$branch,"),
+)
 EXPENSE_LISTING_ANCHOR = (b'    public function listing(array $values,$actor,bool $export=false): array\n'
                           b'    {\n')
 EXPENSE_DEFAULT_LINES = (
@@ -221,6 +229,31 @@ def expense_defaults_candidate(before, base, release):
     return prefix + EXPENSE_LISTING_ANCHOR + addition + tail
 
 
+def stock_controller_candidate(before, base, release):
+    """Change only reviewed index defaults beside the newer basic-recipe routes."""
+    expected = base
+    for old, new in STOCK_INDEX_REPLACEMENTS:
+        require(expected.count(old) == 1 and new not in expected,
+                'STOCK_CONTROLLER_RELEASE_NEEDS_REVIEW')
+        expected = expected.replace(old, new, 1)
+    require(expected == release, 'STOCK_CONTROLLER_RELEASE_NEEDS_REVIEW')
+    require(before.count(STOCK_INDEX_ANCHOR) == 1, 'STOCK_CONTROLLER_LIVE_ANCHOR_NEEDS_REVIEW')
+    prefix, _, tail = before.partition(STOCK_INDEX_ANCHOR)
+    method, separator, rest = tail.partition(b'\n    public function ')
+    require(separator and method.endswith(b'    }'), 'STOCK_CONTROLLER_LIVE_METHOD_NEEDS_REVIEW')
+    defaults, boots = STOCK_INDEX_REPLACEMENTS
+    recognized_start = any(method.startswith(default + boot)
+                           for default in defaults for boot in boots)
+    require(recognized_start, 'STOCK_CONTROLLER_LIVE_METHOD_NEEDS_REVIEW')
+    for old, new in STOCK_INDEX_REPLACEMENTS:
+        old_count, new_count = method.count(old), method.count(new)
+        require((old_count, new_count) in ((1, 0), (0, 1)),
+                'STOCK_CONTROLLER_LIVE_DEFAULTS_NEED_REVIEW')
+        if old_count:
+            method = method.replace(old, new, 1)
+    return prefix + STOCK_INDEX_ANCHOR + method + separator + rest
+
+
 def merge_candidate(stage, relative, before, base, release):
     """Three-way merge preserves live edits and accepts already-applied release hunks."""
     if before == release:
@@ -231,21 +264,25 @@ def merge_candidate(stage, relative, before, base, release):
     require(before is not None, 'LIVE_SOURCE_REQUIRED: ' + relative)
     if before == base:
         return release
-    expense_candidate = (expense_defaults_candidate(before, base, release)
-                         if relative == BRANCH_EXPENSES else None)
+    compatibility = {
+        BRANCH_EXPENSES: expense_defaults_candidate,
+        BRANCH_STOCK_CONTROLLER: stock_controller_candidate,
+    }
+    scoped_candidate = (compatibility[relative](before, base, release)
+                        if relative in compatibility else None)
     merge_dir = Path(tempfile.mkdtemp(prefix='merge-', dir=stage))
     current_path, base_path, release_path = (merge_dir / name for name in ('current', 'base', 'release'))
     current_path.write_bytes(before)
     base_path.write_bytes(base)
     release_path.write_bytes(release)
     result = run(['git', 'merge-file', '-p', '--diff3', str(current_path), str(base_path), str(release_path)])
-    if result.returncode != 0 and expense_candidate is not None:
-        return expense_candidate
+    if result.returncode != 0 and scoped_candidate is not None:
+        return scoped_candidate
     require(result.returncode == 0, 'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
     require(0 < len(result.stdout) <= MAX_BYTES and b'\x00' not in result.stdout,
             'MERGED_SOURCE_INVALID: ' + relative)
-    require(expense_candidate is None or result.stdout == expense_candidate,
-            'EXPENSE_DEFAULT_MERGE_NEEDS_REVIEW')
+    require(scoped_candidate is None or result.stdout == scoped_candidate,
+            'SCOPED_DEFAULT_MERGE_NEEDS_REVIEW: ' + relative)
     return result.stdout
 
 

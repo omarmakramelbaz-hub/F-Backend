@@ -214,6 +214,72 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'EXPENSE_DEFAULT_RELEASE_NEEDS_REVIEW'):
             INSTALLER.expense_defaults_candidate(live, base, release + b'// unrelated release change\n')
 
+    def stock_controller_fixture(self):
+        default, boot = (pair[0] for pair in INSTALLER.STOCK_INDEX_REPLACEMENTS)
+        base = (b'<?php\nuse App\\Services\\Dashboard\\{BranchStock,BranchInventory,TakeawayAccess};\n'
+                + b'class BranchStockController\n{\n' + INSTALLER.STOCK_INDEX_ANCHOR
+                + default + boot + b"'urls'=>['data'=>route('branch-stock.data'),'recipe_save'=>route('branch-stock.recipe-save')]];\n"
+                + b"        return view('admin.branch_stock.index',compact('boot'));\n"
+                + b'    }\n    public function data() {}\n}\n')
+        release = base
+        for old, new in INSTALLER.STOCK_INDEX_REPLACEMENTS:
+            release = release.replace(old, new, 1)
+        live = base.replace(b'BranchInventory,TakeawayAccess', b'BranchInventory,BranchBasicRecipes,TakeawayAccess')
+        live = live.replace(b"'recipe_save'=>route('branch-stock.recipe-save')",
+                            b"'recipe_save'=>route('branch-stock.recipe-save'),'basic_status'=>route('branch-stock.basic-status'),'basic_apply'=>route('branch-stock.basic-apply')")
+        live = live.replace(b'    public function data() {}',
+                            b'    public function data() {}\n    public function basicRecipes(BranchBasicRecipes $s) {}\n'
+                            + b'    public function applyBasicRecipes(BranchBasicRecipes $s) {}')
+        return base, release, live
+
+    def test_stock_controller_preserves_basic_recipe_routes_imports_and_methods(self):
+        base, release, live = self.stock_controller_fixture()
+        with tempfile.TemporaryDirectory(dir=self.parent) as temporary:
+            stage = Path(temporary)
+            paths = [stage / name for name in ('live', 'base', 'release')]
+            for path, body in zip(paths, (live, base, release)):
+                path.write_bytes(body)
+            result = INSTALLER.run(['git', 'merge-file', '-p', '--diff3', *map(str, paths)])
+            self.assertNotEqual(result.returncode, 0)
+            merged = INSTALLER.merge_candidate(stage, INSTALLER.BRANCH_STOCK_CONTROLLER, live, base, release)
+            expected = live
+            for old, new in INSTALLER.STOCK_INDEX_REPLACEMENTS:
+                expected = expected.replace(old, new, 1)
+            self.assertEqual(merged, expected)
+            self.assertIn(b'BranchBasicRecipes', merged)
+            self.assertIn(b"'basic_status'=>route('branch-stock.basic-status')", merged)
+            self.assertIn(b"'basic_apply'=>route('branch-stock.basic-apply')", merged)
+            self.assertIn(b'public function applyBasicRecipes', merged)
+            self.assertEqual(INSTALLER.merge_candidate(
+                stage, INSTALLER.BRANCH_STOCK_CONTROLLER, merged, base, release), merged)
+
+    def test_stock_controller_completes_each_recognized_partial_state(self):
+        base, release, live = self.stock_controller_fixture()
+        expected = live
+        for old, new in INSTALLER.STOCK_INDEX_REPLACEMENTS:
+            expected = expected.replace(old, new, 1)
+        for old, new in INSTALLER.STOCK_INDEX_REPLACEMENTS:
+            with self.subTest(partial=new):
+                partial = live.replace(old, new, 1)
+                self.assertEqual(INSTALLER.stock_controller_candidate(partial, base, release), expected)
+
+    def test_stock_controller_refuses_unknown_or_duplicate_defaults(self):
+        base, release, live = self.stock_controller_fixture()
+        default, boot = (pair[0] for pair in INSTALLER.STOCK_INDEX_REPLACEMENTS)
+        variants = [
+            live.replace(default, default.replace(b'$branches[0]', b'$branches[1]'), 1),
+            live.replace(default, default + default, 1),
+            live.replace(boot, boot + boot, 1),
+            live + INSTALLER.STOCK_INDEX_ANCHOR,
+            live.replace(boot, b"        $boot=customStockBoot($actor);\n", 1),
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                with self.assertRaisesRegex(RuntimeError, 'STOCK_CONTROLLER_'):
+                    INSTALLER.stock_controller_candidate(variant, base, release)
+        with self.assertRaisesRegex(RuntimeError, 'STOCK_CONTROLLER_RELEASE_NEEDS_REVIEW'):
+            INSTALLER.stock_controller_candidate(live, base, release + b'// extra release edit\n')
+
 
 if __name__ == '__main__':
     unittest.main()
