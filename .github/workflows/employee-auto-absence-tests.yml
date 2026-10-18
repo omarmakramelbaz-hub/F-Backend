@@ -1,0 +1,39 @@
+name: Employee automatic absence
+on:
+  push:
+    branches: ['codex/employee-auto-absence-20261018']
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/EmployeeAutomaticAbsence.php'
+      - 'app/Console/Commands/RecordEmployeeAutomaticAbsence.php'
+      - 'deployment/apply_employee_auto_absence.py'
+      - 'deployment/apply_employee_auto_absence_root.sh'
+      - 'tests/test_employee_auto_absence_install.py'
+      - 'tests/desktop_pos_runtime/employee-auto-absence.php'
+      - '.github/workflows/employee-auto-absence-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  automatic-absence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring
+          tools: composer:v2
+          coverage: none
+      - name: Verify scoped code and scheduler installation
+        run: |
+          bash -n deployment/apply_employee_auto_absence_root.sh
+          python3 tests/test_employee_auto_absence_install.py
+      - name: Install isolated service dependencies
+        run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
+      - name: Verify actual payroll and automatic absence
+        run: |
+          php -l app/Console/Commands/RecordEmployeeAutomaticAbsence.php
+          php tests/desktop_pos_runtime/operating-day.php
+          php tests/desktop_pos_runtime/employee-auto-absence.php
