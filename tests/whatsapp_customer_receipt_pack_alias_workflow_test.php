@@ -23,7 +23,29 @@ function packAliasRequest(string$kind):array{
         default=>['name'=>'رنجة مبطرخة','quantity'=>'0.5','quantity_mode'=>'weight'],
     };
 }
-function packAliasSetup(bool$explicitSandwich=true):int{
+function packAliasQuarterSelect():array{
+    $product=packAliasProduct('quarter');$product['quantity_mode']='select';
+    $product['preparation_options']=[['id'=>'','label'=>'كامل','price'=>'150.00','feature_id'=>0,'product_clean'=>'']];
+    return$product;
+}
+class PackAliasSelectFixturePos extends PackAliasPos {
+    public function quote($channel,array$values,$actor):array{
+        abort_unless($channel==='phone'&&isset($values['delivery_quote_hash']),422,'PACK_ALIAS_PHONE_CONTRACT');
+        app(\App\Services\Dashboard\TakeawayAccess::class)->branch($values['branch'],$actor);
+        $products=array_column(DialogueFixtureCatalog::$products,null,'id');$total=0;
+        foreach($values['items']as$item){
+            $product=$products[$item['product_id']]??null;
+            $unitMatches=$product&&($product['quantity_mode']===$item['quantity_mode']
+                ||($product['quantity_mode']==='select'&&$item['quantity_mode']==='piece'));
+            abort_unless($product&&$product['available']===true&&$unitMatches
+                &&$item['option_id']===''&&is_numeric($item['quantity'])&&(float)$item['quantity']>0,422,'PACK_ALIAS_LIVE_ITEM_CONTRACT');
+            $total+=(int)round((float)$item['quantity']*(float)$product['price']*100);
+        }
+        return['quote_hash'=>self::fingerprint([$values['branch'],$values['items'],$total]),
+            'total'=>number_format($total/100,2,'.',''),'total_cents'=>$total];
+    }
+}
+function packAliasSetup(bool$explicitSandwich=true,bool$quarterSelect=false):int{
     primarySetup();PrimaryFixtureControl::$analysisOnly=true;PrimaryFixtureControl::$replyClockClosed=true;dayControl();
     $c=addConversation('US.customer-confirmed');$text=branchSummaryText();
     if($explicitSandwich)$text=str_replace('ساندوتشين فسيخ','ساندوتشين فسيخ دسوق نبروه مظبوط',$text);
@@ -31,12 +53,44 @@ function packAliasSetup(bool$explicitSandwich=true):int{
     insertMessage($c,'wamid.pack-alias.point','inbound','',3,['lat'=>31.04,'long'=>31.37],'US.customer-confirmed');
     insertMessage($c,'wamid.pack-alias.approval','inbound','تمام كله تمام',4,null,'US.customer-confirmed');
     $catalog=branchSummaryCatalog();$catalog[0]=packAliasProduct('box');$catalog[2]=packAliasProduct('herring');$catalog[3]=packAliasProduct('quarter');
+    if($quarterSelect)$catalog[3]=packAliasQuarterSelect();
     // This fifth ID remains a synthetic literal fixture, not a claimed live SKU.
     // An actual new customer message naming that complete variant is unambiguous.
     $catalog[4]['name']='ساندوتش فسيخ دسوق نبروه مظبوط';
-    DialogueFixtureCatalog::$products=$catalog;app()->instance(PackAliasPos::class,new BranchSummaryFixturePos());
+    DialogueFixtureCatalog::$products=$catalog;app()->instance(PackAliasPos::class,$quarterSelect?new PackAliasSelectFixturePos():new BranchSummaryFixturePos());
     PackAliasAi::$data=extractionData();return$c;
 }
+$selectQuarter=packAliasQuarterSelect();$quarterRequest=packAliasRequest('quarter');
+packAliasExpect(aliasMap($quarterRequest,[$selectQuarter])===['product_id'=>2566,'option_id'=>'','quantity'=>'1','quantity_mode'=>'piece'],
+    'actual selectable quarter SKU with sole genuine whole preparation maps to one piece');
+foreach(['missing-preparation','empty-preparations','changed-label','nonbase-id','wrong-feature','changed-cleaning','duplicate-preparation','sale-option']as$guard){
+    $changed=$selectQuarter;
+    if($guard==='missing-preparation')unset($changed['preparation_options']);
+    if($guard==='empty-preparations')$changed['preparation_options']=[];
+    if($guard==='changed-label')$changed['preparation_options'][0]['label']='مخلي';
+    if($guard==='nonbase-id')$changed['preparation_options'][0]['id']='f:1:base';
+    if($guard==='wrong-feature')$changed['preparation_options'][0]['feature_id']=1;
+    if($guard==='changed-cleaning')$changed['preparation_options'][0]['product_clean']='extra_clean';
+    if($guard==='duplicate-preparation')$changed['preparation_options'][]=$changed['preparation_options'][0];
+    if($guard==='sale-option')$changed['options']=[['id'=>'f:1:base','label'=>'كومبو','price'=>'175.00']];
+    packAliasExpect(aliasMap($quarterRequest,[$changed])===null,'selectable quarter pack requires current exact whole/base preparation: '.$guard);
+}
+foreach([null,'f:94','f:301','f:307']as$branch)
+    packAliasExpect(aliasMap($quarterRequest,[$selectQuarter],$branch)===null,'selectable quarter pack cannot cross approved branch: '.($branch??'null'));
+packAliasExpect(aliasMap($quarterRequest,[$selectQuarter],'f:363',new ApprovedAliasMetaWorkflow())===null,
+    'selectable quarter pack cannot cross native WhatsApp namespace');
+foreach(['wrong-id','wrong-name','unavailable','wrong-quantity','wrong-mode']as$guard){
+    $changed=$selectQuarter;$request=$quarterRequest;
+    if($guard==='wrong-id')$changed['id']++;
+    if($guard==='wrong-name')$changed['name'].=' مختلف';
+    if($guard==='unavailable')$changed['available']=false;
+    if($guard==='wrong-quantity')$request['quantity']='0.5';
+    if($guard==='wrong-mode')$request['quantity_mode']='piece';
+    packAliasExpect(aliasMap($request,[$changed])===null,'selectable quarter pack retains existing identity and amount guard: '.$guard);
+}
+$literal=$selectQuarter;$literal['id']=999;$literal['name']=$quarterRequest['name'];$literal['quantity_mode']='weight';
+packAliasExpect(aliasMap($quarterRequest,[$selectQuarter,$literal])===null,
+    'selectable quarter alias never hides competing literal weight SKU');
 
 foreach(['box','quarter','herring']as$kind){
     $request=packAliasRequest($kind);$product=packAliasProduct($kind);$mapped=aliasMap($request,[$product]);
@@ -101,6 +155,26 @@ packAliasExpect($data['items'][3]['quantity']==='0.25'&&$data['items'][3]['quant
 customerRecapSilent('reviewed pack mapping does not enable internal customer replies');
 primaryRun();packAliasExpect(PackAliasDB::table('test_tickets')->count()===1&&PackAliasDB::table('test_print')->count()===1,
     'reviewed pack mapping keeps atomic ticket and print idempotency');
+
+packAliasSetup(quarterSelect:true);$native=PackAliasDB::table('whatsapp_inbox_messages')->orderBy('id')->pluck('content')->all();$r=primaryRun();
+packAliasExpect($r['errors']===0&&$r['dispatched']===1&&PackAliasAi::$calls===0,
+    'actual selectable quarter catalog dispatches through normal receipt, live quote and silent workflow');
+$quarterSale=PackAliasPos::$lastPayload['items'][3];
+packAliasExpect($quarterSale['product_id']===2566&&$quarterSale['quantity']==='1'
+    &&$quarterSale['quantity_mode']==='piece'&&$quarterSale['option_id']==='',
+    'actual selectable quarter is quoted and dispatched as one existing quarter pack');
+$data=customerRecapStored();
+packAliasExpect($data['items'][3]['quantity']==='0.25'&&$data['items'][3]['quantity_mode']==='weight'
+    &&PackAliasDB::table('whatsapp_inbox_messages')->orderBy('id')->pluck('content')->all()===$native,
+    'selectable quarter conversion preserves native receipt and original extracted weight');
+customerRecapSilent('selectable quarter dispatch does not enable internal replies');
+primaryRun();packAliasExpect(PackAliasDB::table('test_tickets')->count()===1&&PackAliasDB::table('test_print')->count()===1,
+    'selectable quarter retains ticket and print idempotency');
+
+packAliasSetup(quarterSelect:true);DialogueFixtureCatalog::$products[3]['preparation_options']=[];primaryRun();
+customerRecapNoErp('selectable quarter without genuine base preparation cannot create ERP work');
+packAliasExpect(PackAliasDB::table('whatsapp_order_drafts')->value('reason')==='CATALOG_UNRESOLVED',
+    'missing actual selectable quarter preparation stays a catalog review');
 
 packAliasSetup(false);primaryRun();customerRecapNoErp('generic feseekh sandwich is still unresolved against a specific Nabroh proper variant');
 packAliasExpect(PackAliasDB::table('whatsapp_order_drafts')->value('reason')==='CATALOG_UNRESOLVED',

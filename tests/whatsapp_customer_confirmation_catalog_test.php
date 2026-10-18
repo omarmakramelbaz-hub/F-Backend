@@ -87,7 +87,7 @@ namespace {
             ['name'=>'سردين بلدي صغير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
         if(str_starts_with($case,'alias-'))$items=[['name'=>'رنجة مبطرخ','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null],
             ['name'=>'سردين بلدي كبير مخلي','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]];
-        if(in_array($case,['pack-quarter','pack-quarter-unmapped'],true))$items=[['name'=>'سلطة رنجة','quantity'=>'0.25','quantity_mode'=>'weight','option_hint'=>null]];
+        if(str_starts_with($case,'pack-quarter'))$items=[['name'=>'سلطة رنجة','quantity'=>'0.25','quantity_mode'=>'weight','option_hint'=>null]];
         return['type'=>'CUSTOMER_CONFIRMED_RECAP','items'=>$items,'customer'=>['name'=>'PRIVATE_CUSTOMER_NAME','phone'=>'201011111111',
             'address'=>'PRIVATE_ADDRESS','area'=>'PRIVATE_AREA'],'textual_location'=>['point'=>['lat'=>$case==='float-roundtrip'?31.0:31.123456,'long'=>30.654321]]];
     }
@@ -123,9 +123,12 @@ namespace {
             $sardine=$product;$sardine['id']=2578;$sardine['name']='سردين';$items[]=$sardine;
             for($i=0;$i<15;$i++){$meal=$product;$meal['id']=3000+$i;$meal['name']='وجبة سردين عرض '.$i;$items[]=$meal;}
         }
-        if(in_array($case,['pack-quarter','pack-quarter-unmapped'],true))$items=[['id'=>$case==='pack-quarter'?2566:2567,
-            'name'=>'ربع سلطه رنجه','available'=>true,'quantity_mode'=>'piece','price'=>'150.00','options'=>[],
-            'preparation_options'=>[],'description'=>'صنف من المنيو']];
+        if(str_starts_with($case,'pack-quarter'))$items=[['id'=>$case==='pack-quarter-unmapped'?2567:2566,
+            'name'=>'ربع سلطه رنجه','available'=>true,'quantity_mode'=>str_starts_with($case,'pack-quarter-select')?'select':'piece',
+            'price'=>'150.00','options'=>[],
+            'preparation_options'=>$case==='pack-quarter-select'?
+                [['id'=>'','label'=>'كامل','price'=>'150.00','feature_id'=>0,'product_clean'=>'']]:[],
+            'description'=>'صنف من المنيو']];
         if($case==='duplicate-name'){$copy=$product;$copy['id']=502;$items[]=$copy;}
         if($case==='duplicate-id'){$copy=$product;$copy['name']='رنجة';$items[]=$copy;}
         if($case==='arabic-names'){$copy=$product;$copy['id']=502;$copy['name']='فَسيخ';$items[]=$copy;}
@@ -176,6 +179,15 @@ catalogExpect($exit===0&&$quarter['mapped']&&$quarter['mapped_product_id']===256
 [$exit,$value]=catalogRun('pack-quarter-unmapped');
 catalogExpect($exit===0&&!$value['items'][0]['mapped']&&$value['items'][0]['mapped_quantity']===null
     &&$value['items'][0]['mapped_quantity_mode']===null,'unmapped item reports no inferred sale quantity or mode');
+[$exit,$value]=catalogRun('pack-quarter-select');$quarter=$value['items'][0];
+catalogExpect($exit===0&&$value['actual_dialogue_catalog_agrees']&&$quarter['mapped']&&$quarter['mapped_product_id']===2566
+    &&$quarter['quantity']==='0.25'&&$quarter['quantity_mode']==='weight'
+    &&$quarter['mapped_quantity']==='1'&&$quarter['mapped_quantity_mode']==='piece'
+    &&$quarter['diagnostic_similar_products'][0]['quantity_mode']==='select',
+    'live selectable quarter SKU with genuine whole base reports one sale piece and original weight');
+[$exit,$value]=catalogRun('pack-quarter-select-missing-base');
+catalogExpect($exit===0&&!$value['items'][0]['mapped']&&$value['items'][0]['mapped_quantity']===null
+    &&$value['items'][0]['mapped_quantity_mode']===null,'selectable quarter SKU without actual base preparation remains unresolved');
 foreach(['no-match'=>'NO_LITERAL_PRODUCT_OR_OPTION_MATCH','unavailable'=>'MATCHED_PRODUCT_UNAVAILABLE','mode'=>'QUANTITY_MODE_MISMATCH']as$case=>$reason){
     [$exit,$value]=catalogRun($case);catalogExpect($exit===0&&$value['items'][0]['reason']===$reason,'per-item cause '.$case);
 }

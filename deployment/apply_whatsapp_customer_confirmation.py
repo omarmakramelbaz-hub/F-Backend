@@ -24,7 +24,7 @@ BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 TARGET_PINS = {
     'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '0e32b2f095f20442012f900b243af22478d620c1'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', 'fc9042a9cb110ecb4773861bfbe832f2b344df6c'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', 'e56f8c46b20b4693e9a5be5452f5d022dc411417'),
 }
 INSTALLED_SOURCE_PROFILES = {
     # The verified d6b404 installation contains this exact parser/workflow pair.
@@ -57,6 +57,11 @@ INSTALLED_SOURCE_PROFILES = {
     'INSTALLED_V6': {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '68fcd3144a9790a7bfe29aaceed1777ca1d325f1',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'd1d626d95e53d8299fe9af46b27d0f59cd77054f',
+    },
+    # The verified branch-summary release keeps this exact current parser.
+    'INSTALLED_V7': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': 'fc9042a9cb110ecb4773861bfbe832f2b344df6c',
     },
 }
 RUNTIME_PINS = {

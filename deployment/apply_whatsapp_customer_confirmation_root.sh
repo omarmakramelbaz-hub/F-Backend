@@ -19,7 +19,7 @@ import tempfile
 import time
 
 ROOT = pathlib.Path('/home/fasakha/public_html')
-PUBLISHER_BLOB = '85dac22b97b02e736de128be83535f35bd61ca14'
+PUBLISHER_BLOB = '7847441e73d6898b10358521b2f2fa9395b81c9e'
 ROOT_LIBRARY_BLOB = '98ab88bba322c87c115f5ca95ff9aebbc96190f2'
 HELPERS = {
     'apply_whatsapp_customer_confirmation.py': PUBLISHER_BLOB,
@@ -163,7 +163,7 @@ def expected_state(value):
             or any(pin is not None and not re.fullmatch('[a-f0-9]{40}', pin) for pin in value['sources'].values())
             or any(not isinstance(value[key], str) or not re.fullmatch('[a-f0-9]{64}', value[key])
                    for key in ('configuration_fingerprint', 'dependencies_fingerprint', 'control_fingerprint'))
-            or value['source_profile'] not in ('BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4', 'INSTALLED_V5', 'INSTALLED_V6', 'CURRENT')):
+            or value['source_profile'] not in ('BASELINE', 'INSTALLED_V1', 'INSTALLED_V2', 'INSTALLED_V3', 'INSTALLED_V4', 'INSTALLED_V5', 'INSTALLED_V6', 'INSTALLED_V7', 'CURRENT')):
         raise SafeError('WA_CONFIRMATION_STATE_OUTPUT_INVALID')
     return {key: value[key] for key in STATE_KEYS}
 

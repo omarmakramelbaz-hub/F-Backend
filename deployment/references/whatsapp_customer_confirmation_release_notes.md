@@ -33,6 +33,10 @@ herring salad maps to one existing quarter-pack piece of product 2566; and the
 observed feminine herring wording maps to weight product 2576. These rules retain
 catalog availability, option and price validation. The catalog diagnostic shows
 both the customer's original quantity/unit and the mapped sale quantity/unit.
+The quarter-pack identity also accepts the live catalog's `select` unit only
+when its exact product ID/name and genuine empty-ID whole preparation agree.
+It still submits one piece of that existing quarter pack, without treating
+arbitrary selectable products as pieces or converting another recapped weight.
 There is no global alias choosing a variant for a generic feseekh sandwich.
 Only the latest recognized customer-confirmed recap supplies an order. Earlier
 recaps do not contribute items or contact data, and a malformed latest recap does

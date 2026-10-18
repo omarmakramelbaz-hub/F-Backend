@@ -936,7 +936,17 @@ class WhatsAppOrderWorkflow
             // These exact public Mansoura packs were checked against their live
             // identities and units. A quarter of salad is one existing quarter
             // pack, not a quarter of that pack; the 400g roe box stays one piece.
-            if ($approvedScope&&$product['id']===2566&&($product['quantity_mode']??null)==='piece'
+            // The live quarter pack exposes a selectable sale unit. Only its
+            // sole genuine whole/base preparation and absence of sale options
+            // prove that this exact reviewed pack can be sold as one piece.
+            $preparations=$product['preparation_options']??[];
+            $quarterPiece=($product['quantity_mode']??null)==='piece'
+                ||(($product['quantity_mode']??null)==='select'&&($product['options']??null)===[]
+                    &&is_array($preparations)&&array_is_list($preparations)&&count($preparations)===1&&($preparations[0]['id']??null)===''
+                    &&($preparations[0]['feature_id']??null)===0&&($preparations[0]['product_clean']??null)===''
+                    &&is_string($preparations[0]['label']??null)
+                    &&$this->customerReceiptName($preparations[0]['label']??'')===$this->customerReceiptName('كامل'));
+            if ($approvedScope&&$product['id']===2566&&$quarterPiece
                 &&$base===$this->customerReceiptName('ربع سلطه رنجه')
                 &&$name===$this->customerReceiptName('سلطة رنجة')&&$item['quantity_mode']==='weight'
                 &&$this->quantityMillis($item['quantity'])===250) {
