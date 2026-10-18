@@ -20,6 +20,7 @@
 @if($boot['permissions']['can_manage_categories'])
 <button type="button" class="ex-button ex-category-open" data-expense-categories-open><i class="fas fa-list" aria-hidden="true"></i> {{ __('expenses.manage_categories') }}</button>
 @endif
+<label data-expense-quantity hidden>{{ __('expenses.quantity_kg') }} <b>*</b><input name="quantity_kg" inputmode="decimal" placeholder="0.000" maxlength="12" autocomplete="off" disabled aria-describedby="expense-stock-hint"><small id="expense-stock-hint">{{ __('expenses.stock_hint') }}</small></label>
 <label>{{ __('expenses.description') }} <b>*</b><textarea name="description" maxlength="500" rows="2" required></textarea></label>
 <div class="ex-pair"><label>{{ __('expenses.amount') }} <b>*</b><input name="amount" inputmode="decimal" placeholder="0.00" maxlength="14" required></label><label>{{ __('expenses.date') }} <b>*</b><input name="occurred_on" type="date" value="{{ $boot['today'] }}" max="{{ $boot['today'] }}" required></label></div>
 <p class="ex-cash-source">{{ __('expenses.payment_method') }}: <strong>{{ __('expenses.method_cash') }}</strong><input type="hidden" name="payment_method" value="cash"></p>
