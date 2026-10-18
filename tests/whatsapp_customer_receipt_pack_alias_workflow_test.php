@@ -51,7 +51,7 @@ function packAliasSetup(bool$explicitSandwich=true,bool$quarterSelect=false):int
     if($explicitSandwich)$text=str_replace('ساندوتشين فسيخ','ساندوتشين فسيخ دسوق نبروه مظبوط',$text);
     insertMessage($c,'wamid.pack-alias.summary','inbound',$text,2,null,'US.customer-confirmed');
     insertMessage($c,'wamid.pack-alias.point','inbound','',3,['lat'=>31.04,'long'=>31.37],'US.customer-confirmed');
-    insertMessage($c,'wamid.pack-alias.approval','inbound','تمام كله تمام',4,null,'US.customer-confirmed');
+    insertMessage($c,'wamid.pack-alias.approval','inbound','كل شئ تمام',4,null,'US.customer-confirmed');
     $catalog=branchSummaryCatalog();$catalog[0]=packAliasProduct('box');$catalog[2]=packAliasProduct('herring');$catalog[3]=packAliasProduct('quarter');
     if($quarterSelect)$catalog[3]=packAliasQuarterSelect();
     // This fifth ID remains a synthetic literal fixture, not a claimed live SKU.

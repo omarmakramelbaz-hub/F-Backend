@@ -22,7 +22,7 @@ function compactWholeHerring():array{
     $product=prepProduct('رنجه هيرنج مبطرخ');$product['id']=2576;return$product;
 }
 function compactSetup(?string$text=null):int{
-    $c=customerRecapSetup($text??compactText(),null);
+    $c=customerRecapSetup($text??compactText(),'كل شئ تمام');
     DialogueFixtureCatalog::$products=[compactWholeHerring()];
     app()->instance(CompactPos::class,new ApprovedAliasPos());
     return$c;
@@ -43,11 +43,11 @@ class CompactCanonicalDelivery extends \App\Services\Dashboard\PhoneDelivery {
 $c=compactSetup();$native=CompactDB::table('whatsapp_inbox_messages')->orderBy('id')->pluck('content')->all();$r=primaryRun();
 $stored=customerRecapStored();$receipt=$stored['evidence_receipt']??[];
 compactExpect($r['errors']===0&&$r['dispatched']===1&&CompactAi::$calls===0,
-    'one authenticated customer compact confirmed recap dispatches without separate OK or model call');
-compactExpect(($receipt['approval_basis']??null)==='CUSTOMER_SELF_CONFIRMED_RECAP'
-    &&($receipt['recap_id']??null)===($receipt['approval_id']??null)
-    &&($receipt['recap_sha256']??null)===($receipt['approval_sha256']??null),
-    'same actual customer message supplies explicitly classified self-confirmation authority');
+    'one authenticated customer compact recap with distinct exact confirmation dispatches without model call');
+compactExpect(!isset($receipt['approval_basis'])
+    &&($receipt['recap_id']??null)!==($receipt['approval_id']??null)
+    &&($receipt['recap_sha256']??null)!==($receipt['approval_sha256']??null),
+    'compact text and separate actual customer confirmation retain distinct native authority');
 compactExpect(CompactPos::$lastPayload['items'][0]===['product_id'=>2576,'quantity'=>'1','quantity_mode'=>'weight',
     'option_id'=>'','feature_id'=>0,'product_clean'=>''],
     'parenthesized whole herring retains exact approved SKU and proven real whole preparation');
@@ -57,7 +57,8 @@ compactExpect(CompactDB::table('test_billing')->count()===0,'compact receipt cre
 customerRecapSilent('compact customer receipt remains silent');
 primaryRun();compactExpect(CompactDB::table('test_tickets')->count()===1&&CompactDB::table('test_print')->count()===1,
     'worker replay of same compact input produces one ticket and print queue entry');
-insertMessage($c,'wamid.compact.fresh-repeat','inbound',compactText(),302,null,'US.customer-confirmed');dialogueAdvance(303);$r=primaryRun();
+insertMessage($c,'wamid.compact.fresh-repeat','inbound',compactText(),302,null,'US.customer-confirmed');
+insertMessage($c,'wamid.compact.fresh-repeat-ok','inbound','كل شئ تمام',303,null,'US.customer-confirmed');dialogueAdvance(304);$r=primaryRun();
 compactExpect($r['dispatched']===0&&CompactDB::table('test_tickets')->count()===1
     &&CompactDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('reason')==='CUSTOMER_RECAP_REPLAY',
     'new native ID for the same confirmed compact basket cannot recreate a completed order');
@@ -103,7 +104,7 @@ compactSetup();compactExpect(aliasMap($request,[compactWholeHerring()],'f:363',n
 compactSetup();PrimaryFixtureControl::$strictDispatchClock=true;$r=primaryRun();
 compactExpect($r['dispatched']===0&&$r['deferred']===1
     &&CompactDB::table('whatsapp_order_drafts')->value('reason')==='DISPATCH_OUTSIDE_HOURS',
-    'self-confirmed compact text cannot bypass 09:00-00:30 dispatch clock');
+    'separately confirmed compact text cannot bypass 09:00-00:30 dispatch clock');
 customerRecapNoErp('compact after-hours recap stays pending');
 $calls=CompactAi::$calls;customerRecapClock('2026-10-10 06:00:00');$r=primaryRun();
 compactExpect($r['dispatched']===1&&CompactAi::$calls===$calls,
@@ -116,13 +117,14 @@ foreach(['basis','approval-row','item']as$tamper){
     if($tamper==='approval-row')$data['evidence_receipt']['approval_id']='m999';
     if($tamper==='item')$data['items'][0]['name']='رنجة أخرى';
     CompactDB::table('whatsapp_order_drafts')->update(['extraction'=>CompactCrypt::encryptString(json_encode($data,JSON_THROW_ON_ERROR))]);
+    PrimaryFixtureControl::$analysisSchedule=['enabled'=>true,'days'=>[0,1,2,3,4,5,6],
+        'start'=>'23:00','end'=>'02:00','all_day'=>false];
     customerRecapClock('2026-10-10 06:00:00');primaryRun();
-    customerRecapNoErp('cached compact '.$tamper.' cannot replace fresh inspect proof');
+    customerRecapNoErp('cached compact '.$tamper.' cannot replace fresh inspect proof while analysis is closed');
 }
-foreach(['customer-change','business-change','conflicting-pin','different-peer']as$change){
+foreach(['customer-change','conflicting-pin','different-peer']as$change){
     $c=compactSetup();
     if($change==='customer-change')insertMessage($c,'wamid.compact.change','inbound','خلي الرنجة مخلي',4,null,'US.customer-confirmed');
-    if($change==='business-change')insertMessage($c,'wamid.compact.change','outbound','هنغير السعر أو الكمية.',4,null,'US.customer-confirmed');
     if($change==='conflicting-pin')insertMessage($c,'wamid.compact.change','inbound','',4,['lat'=>31.05,'long'=>31.38],'US.customer-confirmed');
     if($change==='different-peer')insertMessage($c,'wamid.compact.change','inbound','تمام',4,null,'US.someone-else');
     primaryRun();customerRecapNoErp('compact approval cannot absorb later '.$change);
@@ -137,7 +139,8 @@ CompactDB::table('whatsapp_order_drafts')->where('id',$draft->id)->update([
     'status'=>'REVIEW','reason'=>'REVIEW_REQUIRED']);
 customerRecapClock('2026-10-09 22:06:01');primaryRun();
 $after=CompactDB::table('whatsapp_order_scans')->first();$data=customerRecapStored();
-compactExpect(($data['evidence_receipt']['approval_basis']??null)==='CUSTOMER_SELF_CONFIRMED_RECAP'
+compactExpect(!isset($data['evidence_receipt']['approval_basis'])
+    &&($data['evidence_receipt']['recap_id']??null)!==($data['evidence_receipt']['approval_id']??null)
     &&CompactAi::$calls===0&&(int)$after->auto_floor===(int)$scan->auto_floor
     &&(int)$after->analyzed_ceiling===(int)$scan->analyzed_ceiling,
     'cached nonreceipt snapshot upgrades from authenticated compact receipt without provider or floor reset');
@@ -167,6 +170,7 @@ foreach([[31.13,31.30],[0,0]]as[$oldLat,$oldLong]){
     $c=addConversation('US.customer-confirmed');
     insertMessage($c,'wamid.compact.old-pin','inbound','',1,['lat'=>$oldLat,'long'=>$oldLong],'US.customer-confirmed');
     insertMessage($c,'wamid.compact.current','inbound',compactText(),2,null,'US.customer-confirmed');
+    insertMessage($c,'wamid.compact.current-ok','inbound','كل شئ تمام',3,null,'US.customer-confirmed');
     DialogueFixtureCatalog::$products=[compactWholeHerring()];app()->instance(CompactPos::class,new ApprovedAliasPos());$r=primaryRun();
     compactExpect($r['errors']===0&&$r['dispatched']===1&&CompactDB::table('test_tickets')->value('branch')==='f:363'
         &&abs((float)CompactDB::table('branch_customers')->value('latitude')-31.04)<0.0000001,

@@ -18,7 +18,8 @@ function dayCompact(string$nativeUtc,string$nowUtc,?string$legacyApprovalUtc=nul
     customerRecapClock($nowUtc);$c=addConversation('US.customer-confirmed');
     insertMessage($c,'wamid.day.confirmed','inbound',$legacyApprovalUtc===null?compactText():customerRecapText(),
         daySecond($nativeUtc),null,'US.customer-confirmed');
-    if($legacyApprovalUtc!==null)insertMessage($c,'wamid.day.approved','inbound','كل شيء تمام',daySecond($legacyApprovalUtc),null,'US.customer-confirmed');
+    insertMessage($c,'wamid.day.approved','inbound','كل شيء تمام',
+        $legacyApprovalUtc!==null?daySecond($legacyApprovalUtc):daySecond($nativeUtc)+1,null,'US.customer-confirmed');
     DialogueFixtureCatalog::$products=$legacyApprovalUtc===null?[compactWholeHerring()]
         :[['id'=>11,'name'=>'فسيخ','available'=>true,'quantity_mode'=>'weight','price'=>'100.00','options'=>[]]];
     app()->instance(DayPos::class,new ApprovedAliasPos());return$c;
@@ -53,14 +54,16 @@ customerRecapClock('2026-10-10 06:00:00');$r=primaryRun();dayExpect($r['dispatch
 // Only the newest full confirmed customer recap supplies the basket and dates.
 $c=dayCompact('2026-10-09 20:59:00','2026-10-09 21:10:00');
 insertMessage($c,'wamid.day.new-current','inbound',str_replace('كيلو رنجة مبطرخ','نصف كيلو رنجة مبطرخ',compactText()),
-    daySecond('2026-10-09 21:09:00'),null,'US.customer-confirmed');$r=primaryRun();
+    daySecond('2026-10-09 21:09:00'),null,'US.customer-confirmed');
+insertMessage($c,'wamid.day.new-current-ok','inbound','كل شئ تمام',daySecond('2026-10-09 21:09:01'),null,'US.customer-confirmed');$r=primaryRun();
 dayExpect($r['errors']===0&&$r['dispatched']===1&&DayPos::$lastPayload['items'][0]['quantity']==='0.5',
     'new today complete recap replaces yesterday recap rather than merging quantities');
-$stored=customerRecapStored();dayExpect(($stored['evidence_receipt']['recap_id']??null)==='m2',
-    'today native recap is the actual same-message order authority');
+$stored=customerRecapStored();dayExpect(($stored['evidence_receipt']['recap_id']??null)==='m3',
+    'today native recap remains distinct from its later actual customer confirmation');
 $c=dayCompact('2026-10-09 21:01:00','2026-10-09 21:10:00');
 insertMessage($c,'wamid.day.latest-current','inbound',str_replace('كيلو رنجة مبطرخ','ربع كيلو رنجة مبطرخ',compactText()),
-    daySecond('2026-10-09 21:09:00'),null,'US.customer-confirmed');$r=primaryRun();
+    daySecond('2026-10-09 21:09:00'),null,'US.customer-confirmed');
+insertMessage($c,'wamid.day.latest-current-ok','inbound','كل شئ تمام',daySecond('2026-10-09 21:09:01'),null,'US.customer-confirmed');$r=primaryRun();
 dayExpect($r['errors']===0&&$r['dispatched']===1&&DayPos::$lastPayload['items'][0]['quantity']==='0.25',
     'two today confirmed recaps select only latest whole basket');
 
@@ -72,6 +75,7 @@ $old=DayDB::table('test_tickets')->first();$oldDraft=DayDB::table('whatsapp_orde
 customerRecapClock('2026-10-09 21:01:00');primaryRun();
 dayExpect(DayDB::table('test_tickets')->count()===1,'old native command cannot create another ticket after midnight');
 insertMessage($c,'wamid.day.new-same-basket','inbound',compactText(),daySecond('2026-10-09 21:01:00'),null,'US.customer-confirmed');
+insertMessage($c,'wamid.day.new-same-basket-ok','inbound','كل شئ تمام',daySecond('2026-10-09 21:01:01'),null,'US.customer-confirmed');
 customerRecapClock('2026-10-09 21:02:00');$r=primaryRun();
 dayExpect($r['errors']===0&&$r['dispatched']===1&&DayDB::table('test_tickets')->count()===2,
     'new today confirmed basket identical to yesterday can create a new current-day unpaid order');
@@ -79,6 +83,7 @@ dayExpect((array)DayDB::table('test_tickets')->where('id',$old->id)->first()===(
     &&(array)DayDB::table('whatsapp_order_drafts')->where('id',$oldDraft->id)->first()===(array)$oldDraft,
     'current-day fresh order never changes yesterday completed ticket or draft');
 insertMessage($c,'wamid.day.same-day-repeat','inbound',compactText(),daySecond('2026-10-09 21:03:00'),null,'US.customer-confirmed');
+insertMessage($c,'wamid.day.same-day-repeat-ok','inbound','كل شئ تمام',daySecond('2026-10-09 21:03:01'),null,'US.customer-confirmed');
 customerRecapClock('2026-10-09 21:04:00');$r=primaryRun();
 dayExpect($r['dispatched']===0&&DayDB::table('test_tickets')->count()===2
     &&DayDB::table('whatsapp_order_drafts')->orderByDesc('id')->value('reason')==='CUSTOMER_RECAP_REPLAY',
@@ -107,10 +112,12 @@ foreach(['أهلاً','اسمي عمر','موافق على الطلب']as$latest
 }
 $c=dayGeneric('2026-10-09 20:58:00','2026-10-09 21:00:10','2026-10-09 21:00:20','2026-10-09 21:01:00');
 primaryRun();customerRecapNoErp('today merchant summary and OK do not renew yesterday actual customer purchase request');
-dayExpect(DayDB::table('whatsapp_order_drafts')->value('reason')==='CUSTOMER_ORDER_PREVIOUS_DAY',
-    'generic genuine committing customer request must itself belong to current Cairo day');
+dayExpect(DayDB::table('whatsapp_order_drafts')->value('reason')==='NO_ORDER'&&DayAi::$calls===0,
+    'business recap never becomes customer authority or invokes provider in native analysis only');
 dayGeneric('2026-10-09 21:00:00','2026-10-09 21:00:10','2026-10-09 21:00:20','2026-10-09 21:01:00');$r=primaryRun();
-dayExpect($r['errors']===0&&$r['dispatched']===1,'fully current-day native external recap and approval remain supported');
+dayExpect($r['errors']===0&&$r['dispatched']===0&&DayAi::$calls===0,
+    'even current-day business recap and customer OK are not the required two customer messages');
+customerRecapNoErp('business summary cannot create order under the restricted native mode');
 
 // Midnight can occur inside a quote or inside the ERP save boundary. The latter
 // must roll the enclosing transaction back, including customer/kitchen/print.

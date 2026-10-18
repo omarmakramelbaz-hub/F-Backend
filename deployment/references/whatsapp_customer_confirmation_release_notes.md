@@ -2,33 +2,41 @@
 
 The native Meta agent remains the responder. In `ANALYZE_ONLY`, a customer can
 copy its complete labeled recap into the WhatsApp conversation, then send a
-separate whole approval such as `كل شيء تمام`. The workflow parses that literal
-customer receipt without generating a reply or requiring invisible agent text.
+separate whole-message approval `كل شئ تمام` (also the spelling `كل شيء تمام`).
+Other acknowledgements such as `تمام`, `موافق` or `OK` do not confirm an order.
+The workflow parses that literal customer pair without generating a reply or
+requiring invisible agent text. Every supported recap format needs that distinct
+later customer message. In native WhatsApp `ANALYZE_ONLY`, an absent or invalid
+pair produces deterministic no-order/review metadata; the extraction provider is
+not called as a fallback. Other messaging modes retain their existing provider.
 
 The owner's compact `طلبك المؤكد:` customer-copy format is a separate protocol.
 It has item lines with explicit weight or piece quantities, a total, the name, address, contact number and literal
 location coordinates in the combined `البيانات:` line or separate labeled fields,
-and the documented delivery footer. A complete matching message copied by the customer is its own
-confirmation; its receipt explicitly records `CUSTOMER_SELF_CONFIRMED_RECAP` and
-uses that original customer message for both recap and approval. The same text
-from the business, an incomplete message, an arbitrary embedded phrase or a later
-order change does not authorize an order. Legacy `ملخص طلبك:` recaps still require
-their separate whole-positive customer approval.
+and the documented delivery footer. Its title is summary syntax, not approval.
+A complete matching customer copy must be followed by the same distinct exact
+customer approval as every other supported format. Summary and approval IDs and
+raw hashes remain separate; `CUSTOMER_SELF_CONFIRMED_RECAP` is not issued by this
+policy. A business summary, incomplete message or embedded quoted approval phrase
+does not authorize an order.
 The labeled `ملخص الطلب - فرع ...` customer copy is another separately approved
 format. Its `الصنف:` lines retain every literal qualifier and explicit quantity,
 including a parenthesized unit such as `(كيلو)`. Labeled total, contact, address,
 literal coordinates, informational branch contact and delivery terms are required.
 The optional instruction to copy the summary does not supply approval; a later
-whole-positive native customer message does. An identical native pin can repeat
-the inline point without changing it. A conflicting pin, cart, caption or later
-unclassified customer text still requires review. No preparation alias is inferred
+exact positive native customer message does. An identical native pin can repeat
+the inline point without changing it. A conflicting pin, cart or unknown native
+media still requires review. Ordinary typed customer/business chat is not an order
+input and does not invalidate an otherwise complete pair. Explicit customer
+cancellation/change commands still require review and never rewrite the receipt.
+No preparation alias is inferred
 from words such as `مخلي صافي`, and the descriptive branch never replaces
 coordinate-based execution routing.
 The observed `ملخص الأوردر - فرع نبروه ✅` summary is another strict legacy
 format: its `الأصناف:` section, structured customer fields and delivery footer are
 recognized, but the headline does not confirm the order. A genuine customer
 location pin after this recap and before a separate whole-positive turn such as
-`تمام كله تمام` can provide its location proof. The pin and approval must belong
+`كل شئ تمام` can provide its location proof. The pin and approval must belong
 to the same authenticated conversation and current order. Business summaries,
 question-like approvals and later material changes remain non-authoritative.
 Packaging descriptors remain part of each item name and do not imply a kilogram

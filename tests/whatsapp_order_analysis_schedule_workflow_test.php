@@ -1,6 +1,6 @@
 <?php
 // Actual native capture/extraction/ERP flow with independently controlled Cairo clocks.
-require __DIR__.'/whatsapp_order_analysis_only_workflow_test.php';
+require __DIR__.'/whatsapp_customer_confirmation_workflow_test.php';
 use App\Services\Dashboard\WhatsAppOrderAiProvider as ScheduleAi;
 use Illuminate\Support\Facades\DB as ScheduleDB;
 
@@ -15,7 +15,7 @@ function scheduleHours(string $start='23:00',string $end='02:00',array $days=[5]
     return ['enabled'=>true,'days'=>$days,'start'=>$start,'end'=>$end,'all_day'=>false];
 }
 function scheduleDraft():int {
-    $c=analysisDraft();PrimaryFixtureControl::$analysisSchedule=scheduleHours();PrimaryFixtureControl::$strictDispatchClock=true;
+    $c=customerRecapSetup();PrimaryFixtureControl::$analysisSchedule=scheduleHours();PrimaryFixtureControl::$strictDispatchClock=true;
     return $c;
 }
 class ScheduleRaceControl extends PrimaryFixtureControl {
@@ -35,7 +35,7 @@ scheduleExpect($r['errors']===0&&ScheduleAi::$calls===0&&ScheduleDB::table('what
 analysisNoReplies('analysis-closed worker cannot ask or reserve');primaryNoErp('fresh closed analysis has no cached order');
 
 $c=scheduleDraft();$r=primaryRun();
-scheduleExpect($r['errors']===0&&$r['deferred']===1&&ScheduleAi::$calls===1
+scheduleExpect($r['errors']===0&&$r['deferred']===1&&ScheduleAi::$calls===0
     &&ScheduleDB::table('whatsapp_order_drafts')->value('reason')==='DISPATCH_OUTSIDE_HOURS',
     'Saturday 01:05 belongs to Friday overnight analysis while dispatch is closed');
 primaryNoErp('open analysis does not bypass dispatch hours');analysisNoReplies('overnight extraction stays silent');
@@ -57,7 +57,7 @@ scheduleClock('2026-10-10 05:59:59');primaryRun();
 scheduleExpect(ScheduleAi::$calls===0&&ScheduleDB::table('whatsapp_order_scans')->count()===0,
     'one second before analysis start cannot claim an attempt');
 scheduleClock('2026-10-10 06:00:00');$r=primaryRun();
-scheduleExpect($r['dispatched']===1&&ScheduleAi::$calls===1,
+scheduleExpect($r['dispatched']===1&&ScheduleAi::$calls===0,
     '09:00 opening picks up the existing unanswered native turn without a fresh message');analysisNoReplies('opening stays analysis-only');
 
 $c=scheduleDraft();PrimaryFixtureControl::$analysisSchedule=scheduleHours('09:00','10:00',[0,1,2,3,4,5,6]);
@@ -70,25 +70,14 @@ analysisNoReplies('claim race stays silent');
 app()->instance('App\\Services\\Dashboard\\MetaAiControl',new PrimaryFixtureControl());
 
 $c=scheduleDraft();PrimaryFixtureControl::$analysisSchedule=scheduleHours('09:00','10:00',[0,1,2,3,4,5,6]);
-scheduleClock('2026-10-10 06:59:59');ScheduleAi::$callback=static function(){scheduleClock('2026-10-10 07:00:00');};
-$r=primaryRun();
-scheduleExpect($r['errors']===0&&$r['deferred']===1&&ScheduleAi::$calls===1
-    &&ScheduleDB::table('whatsapp_order_drafts')->count()===0&&ScheduleDB::table('whatsapp_order_scans')->value('claim_nonce')===null,
-    'analysis end during AI discards the result and releases the owned lease');
-primaryNoErp('clock boundary cannot persist or execute an AI result');analysisNoReplies('in-flight boundary cannot reply');
-
-foreach(['enabled','revision','mode']as$change) {
-    $c=scheduleDraft();ScheduleAi::$callback=static function()use($change){
-        if($change==='enabled')ScheduleDB::table('meta_ai_controls')->update(['enabled'=>false]);
-        else ScheduleDB::table('meta_ai_controls')->update(['revision'=>2]);
-        if($change==='mode')PrimaryFixtureControl::$analysisOnly=false;
-    };
-    primaryRun();scheduleExpect(ScheduleDB::table('whatsapp_order_drafts')->count()===0,
-        'fresh '.$change.' policy change during extraction discards result');primaryNoErp('policy race vetoes writes');analysisNoReplies('policy race never replies');
-}
+scheduleClock('2026-10-10 06:59:59');$providerReached=false;
+ScheduleAi::$callback=static function()use(&$providerReached){$providerReached=true;};$r=primaryRun();
+scheduleExpect($r['errors']===0&&$r['dispatched']===1&&ScheduleAi::$calls===0&&!$providerReached,
+    'current exact customer pair is deterministic even immediately before analysis schedule end');
+analysisNoReplies('deterministic analysis boundary never invokes a reply provider');
 
 $c=scheduleDraft();primaryRun();$attempts=ScheduleDB::table('whatsapp_order_scans')->value('attempts');$calls=ScheduleAi::$calls;
-insertMessage($c,'wamid.schedule.changed','inbound','خلي الطلب 2 كيلو',400,null,'US.analysis-only');
+insertMessage($c,'wamid.schedule.changed','inbound','خلي الطلب 2 كيلو',400,null,'US.customer-confirmed');
 scheduleClock('2026-10-10 06:00:00');primaryRun();
 scheduleExpect(ScheduleAi::$calls===$calls&&ScheduleDB::table('whatsapp_order_scans')->value('attempts')===$attempts,
     'new native correction outside analysis does not re-extract or spend a retry');
@@ -109,7 +98,7 @@ scheduleExpect(ScheduleAi::$calls===0&&ScheduleDB::table('whatsapp_order_scans')
     'master OFF overrides open dispatch and consumes no analysis attempt');primaryNoErp('master OFF creates no order');
 
 $c=scheduleDraft();scheduleClock('2026-10-10 06:00:00');$manual=$workflow->analyze($c,(object)['id'=>7]);
-scheduleExpect(($manual['success']??false)&&ScheduleAi::$calls===1,
-    'an explicit permitted manual Analyze action retains its existing behavior');primaryNoErp('manual analysis does not dispatch');
+scheduleExpect(($manual['success']??false)&&ScheduleAi::$calls===0,
+    'an explicit permitted manual Analyze action uses deterministic native pair without provider');primaryNoErp('manual analysis does not dispatch');
 analysisNoReplies('manual analysis composes no reply');
 echo 'whatsapp_order_analysis_schedule_workflow: '.$scheduleChecks." checks passed\n";

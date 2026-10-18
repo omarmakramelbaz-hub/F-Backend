@@ -46,9 +46,9 @@ statusExpect($value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL
     'legacy receipt still reports independent customer approval');
 $compact="تم توصيلك بفريقنا وسيتم متابعة طلبك حالاً.\n\nطلبك المؤكد:\n• كيلو فسيخ - 100 جنيه\nالإجمالي 100 جنيه غير التوصيل\n\nالبيانات: PRIVATE_NAME - PRIVATE_ADDRESS - 01033333333 - اللوكيشن 31.123456,30.654321\nالتوصيل خلال 60 دقيقة داخل المنصورة، وسعر التوصيل يأكده المندوب لما يكلمك.";
 [$exit,$value]=formatRun(formatRows($compact,'customer',null));$row=$value['format_observation']['rows'][0];
-statusExpect($exit===0&&$value['candidate']['valid']&&$value['candidate']['approval_basis']==='CUSTOMER_SELF_CONFIRMED_RECAP'
-    &&$value['candidate']['recap_is_approval'],'compact customer copy reports same-message authority honestly');
-statusExpect($row['compact_header_match']&&$row['exact_header_match']&&$row['standalone_self_confirmed']
+statusExpect($exit===0&&!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED'
+    &&!$value['candidate']['recap_is_approval'],'compact copy also requires distinct exact customer approval');
+statusExpect($row['compact_header_match']&&$row['exact_header_match']&&!$row['standalone_self_confirmed']
     &&$row['recap_shape']['combined_data_label'],'compact protocol has safe diagnostic booleans');
 statusExpect($row['safe_title_lines'][0]['literal']==='طلبك المؤكد:'&&$row['safe_title_lines'][0]['line']===3,
     'only fixed compact title is exposed');
@@ -67,7 +67,7 @@ statusExpect($branchStart!==false&&$branchEnd!==false,'reuse only the reviewed s
 eval(substr($branchFixture,$branchStart,$branchEnd-$branchStart));
 $branchRows=[['id'=>'m1','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:01','text'=>branchSummaryText(),'location'=>null],
     ['id'=>'m2','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:02','text'=>null,'location'=>['lat'=>30.125,'long'=>31.625]],
-    ['id'=>'m3','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:03','text'=>'تمام كله تمام','location'=>null]];
+    ['id'=>'m3','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:03','text'=>'كل شئ تمام','location'=>null]];
 [$exit,$value]=formatRun($branchRows);$row=$value['format_observation']['rows'][0];
 statusExpect($exit===0&&$value['candidate']['valid']&&$value['candidate']['summary_format']==='BRANCH_ORDER_SUMMARY'
     &&$value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL'&&!$value['candidate']['recap_is_approval'],
@@ -126,7 +126,7 @@ $row=$value['format_observation']['rows'][0];
 statusExpect(!$row['text_present']&&$row['text_length']===null&&$row['standalone_parse_ok']===null
     &&$row['standalone_parse_reason']===null&&!$row['positive_approval']&&$row['safe_title_lines']===[],'media/location without text stays absent text');
 [$exit,$value]=formatRun(formatRows($recap,'customer','تمام تمام'));
-statusExpect($value['candidate']['reason']==='CUSTOMER_CHANGED_AFTER_RECAP'&&!$value['format_observation']['rows'][1]['positive_approval'],
+statusExpect($value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED'&&!$value['format_observation']['rows'][1]['positive_approval'],
     'repeated approval words do not become positive through diagnostic');
 [$exit,$value]=formatRun(array_fill(0,101,['speaker'=>'customer','text'=>null]));
 statusExpect(count($value['format_observation']['rows'])===100&&$value['format_observation']['rows_truncated'],'defensive row cap100');
@@ -156,7 +156,8 @@ foreach(['عميل افتراضي','شارع افتراضي','مدينة افت�
 statusExpect(!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_APPROVAL_REQUIRED','copied footer never supplies approval');
 $labeledRows=formatRows(labeledBranchText());$labeledRows[]=['id'=>'m3','speaker'=>'customer','sent_at'=>'2026-10-17 12:00:03','text'=>'رسالة لاحقة غير معروفة','location'=>null];
 [$exit,$value]=formatRun($labeledRows);
-statusExpect(!$value['candidate']['valid']&&$value['candidate']['reason']==='CUSTOMER_CHANGED_AFTER_RECAP','unknown later text still blocks candidate');
+statusExpect($value['candidate']['valid']&&$value['candidate']['approval_basis']==='SEPARATE_CUSTOMER_APPROVAL',
+    'ordinary later chat is not order input and does not invalidate the exact pair');
 statusExpect(!preg_match('/(?:->|::)(?:table|select|first|get|insert|update|delete|analyze|process|dispatch|send|quote)\s*\(/',
     substr($source,strpos($source,'function waConfirmationFormatObservation'),strpos($source,'/** Optional worker observations.')-strpos($source,'function waConfirmationFormatObservation'))),
     'pure observer adds no queries or domain actions');

@@ -40,7 +40,7 @@ class BranchSummaryFixturePos extends BranchSummaryPos {
             'total'=>number_format($total/100,2,'.',''),'total_cents'=>$total];
     }
 }
-function branchSummarySetup(?string$approval='تمام كله تمام',?array$point=['lat'=>31.04,'long'=>31.37],bool$priorAddress=true,
+function branchSummarySetup(?string$approval='كل شئ تمام',?array$point=['lat'=>31.04,'long'=>31.37],bool$priorAddress=true,
     string$recapUtc='2026-10-09 22:02:00',string$pinUtc='2026-10-09 22:03:00',
     string$approvalUtc='2026-10-09 22:04:00',string$nowUtc='2026-10-09 22:05:00'):int{
     primarySetup();PrimaryFixtureControl::$analysisOnly=true;PrimaryFixtureControl::$replyClockClosed=true;dayControl();customerRecapClock($nowUtc);

@@ -79,12 +79,13 @@ foreach (['الغي الطلب.', 'غير الكمية لنصف كيلو.', 'ل�
         'observed footer does not permit appended cancellation changes or delivery constraints');
 }
 
-foreach (['كل شيء تمام','كل شئ تمام','كل شيء تمام.','موافق على الطلب','أؤكد طلبي','تمام موافق'] as $approval) {
+foreach (['كل شيء تمام','كل شئ تمام','كل شيء تمام.','*كل شئ تمام*!'] as $approval) {
     $candidate = $rows; $candidate[1]['text'] = $approval;
     confirmationExpect(Confirmation::inspect($candidate)['ok'], true, 'whole positive approval '.$approval);
 }
 foreach (['"كل شيء تمام"','قال لي اكتب كل شيء تمام','كل شيء تمام؟','كل شيء تمام بس غير العنوان','مش كل شيء تمام',
-    'تمام لا تنفذ الطلب','لو كل شيء تمام','للموافقة اكتب كل شيء تمام','كل شيء تمام والغِ الرنجة','👍'] as $approval) {
+    'تمام لا تنفذ الطلب','لو كل شيء تمام','للموافقة اكتب كل شيء تمام','كل شيء تمام والغِ الرنجة','👍',
+    'موافق على الطلب','أؤكد طلبي','تمام موافق','تمام','موافق','yes','ok','كل شي تمام'] as $approval) {
     $candidate = $rows; $candidate[1]['text'] = $approval;
     confirmationExpect(Confirmation::inspect($candidate)['ok'], false, 'no quoted conditional changed or ambiguous approval');
 }
@@ -96,10 +97,26 @@ $changed = $rows; $changed[] = confirmationRow('m3','customer','غير العن�
 confirmationExpect(Confirmation::inspect($changed)['reason'], 'CUSTOMER_CHANGED_AFTER_RECAP', 'later customer change blocks dispatch authority');
 $changed = $rows; $changed[] = confirmationRow('m3','customer','تمام',3);
 confirmationExpect(Confirmation::inspect($changed)['data']['evidence_receipt'], $data['evidence_receipt'], 'repeated approval retains first stable receipt');
-$between = [$rows[0], confirmationRow('m3','business','تقصد نصف كيلو؟',2),confirmationRow('m2','customer','تمام',3)];
-confirmationExpect(Confirmation::inspect($between)['reason'], 'INTERVENING_TURN', 'OK after different question is not recap approval');
+$between = [$rows[0], confirmationRow('m3','business','تقصد نصف كيلو؟',2),confirmationRow('m2','customer','كل شئ تمام',3)];
+confirmationExpect(Confirmation::inspect($between)['ok'], true, 'ordinary typed business chat does not replace the two customer messages');
 $changed = $rows; $changed[] = confirmationRow('m3','business','الصنف غير متاح',3);
-confirmationExpect(Confirmation::inspect($changed)['ok'], false, 'later business correction cannot disappear');
+confirmationExpect(Confirmation::inspect($changed)['ok'], true, 'business text is not native customer order authority');
+foreach (['أهلا','تمام تمام','هل الطلب وصل؟','خلي بالك شكرا','كنت بسأل عن كلمة الغي الطلب','قال لي غير الكمية','كل شئ تمام بس شكرا'] as $ordinary) {
+    $candidate=$rows;$candidate[]=confirmationRow('m3','customer',$ordinary,3);
+    confirmationExpect(Confirmation::inspect($candidate)['data']['evidence_receipt'],$data['evidence_receipt'],'ordinary customer chat does not replace or cancel exact two-message receipt');
+}
+foreach (['الغي الطلب','الغِ الطلب.','الغي الطلب لو سمحت','الغي الطلب من فضلك.','بدل الصنف بسردين','عدل الكمية لنصف كيلو','زود كيلو سردين','احذف الرنجة','لا تنفذ الطلب','خلي الطلب 2 كيلو','خلي الرنجة مخلي','تمام بس غير الكمية','كل شئ تمام بس غير العنوان','كل شيء تمام بس غير العنوان','بس غير الكمية'] as $change) {
+    $candidate=$rows;$candidate[]=confirmationRow('m3','customer',$change,3);
+    confirmationExpect(Confirmation::inspect($candidate)['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','anchored explicit customer change remains review');
+}
+foreach (['عايز الغي الطلب','مش عايز الطلب','متبعتش الطلب'] as $cancel) foreach (['',' لو سمحت',' من فضلك.'] as $polite) {
+    $candidate=$rows;$candidate[]=confirmationRow('m3','customer',$cancel.$polite,3);
+    confirmationExpect(Confirmation::inspect($candidate)['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','finite whole colloquial cancellation and optional polite suffix');
+}
+$samePin=$rows;$samePin[]=confirmationRow('m3','customer',null,3);$samePin[2]['location']=['lat'=>30.125,'long'=>31.625];
+confirmationExpect(Confirmation::inspect($samePin)['ok'],true,'same inline native point allowed for legacy format');
+$recapCart=$rows;$recapCart[0]['cart']=['fixture'=>'unproven cart'];
+confirmationExpect(Confirmation::inspect($recapCart)['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','native recap cart never hidden by text-only evidence');
 $changed = $rows; $changed[] = confirmationRow('m3','business',null,3);
 confirmationExpect(Confirmation::inspect($changed)['reason'], 'BUSINESS_TURN_AFTER_APPROVAL', 'null-text business media or audio cannot disappear after approval');
 $changed = $rows; $changed[] = confirmationRow('m3','business',null,3);

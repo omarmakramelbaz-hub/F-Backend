@@ -71,9 +71,13 @@ $captioned=$pin;$captioned['text']='تمام';
 labeledBranchExpect(Confirmation::inspect([$recap,$captioned,$laterApproval])['ok'],false,'even same pin caption is not ignored');
 labeledBranchExpect(Confirmation::inspect([labeledBranchRow('m1','تمام'),labeledBranchRow('m2',$text,'customer',null,2)])['reason'],'CUSTOMER_APPROVAL_REQUIRED','positive before recap cannot approve it');
 labeledBranchExpect(Confirmation::inspect([labeledBranchRow('m1',$text,'business'),$approval])['reason'],'NO_CUSTOMER_RECAP','business summary never becomes customer consent');
-foreach(['غير الطلب','الغِ الطلب','نص لاحق غير معروف','تمام بس غير الكمية','قال لي اكتب كل شئ تمام','كل شئ تمام؟']as$tail)
-    labeledBranchExpect(Confirmation::inspect([$recap,$approval,labeledBranchRow('m3',$tail,'customer',null,3)])['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','later unknown changed or nonpositive typed turn remains guard');
-labeledBranchExpect(Confirmation::inspect([$recap,labeledBranchRow('m2','راجع الكمية','business',null,2),$laterApproval])['reason'],'INTERVENING_TURN','business before approval blocks');
+foreach(['غير الطلب','الغِ الطلب','بدل الصنف بسردين','عدل الكمية','تمام بس غير الكمية','كل شئ تمام بس غير العنوان','الغي الطلب لو سمحت','الغي الطلب من فضلك']as$tail)
+    labeledBranchExpect(Confirmation::inspect([$recap,$approval,labeledBranchRow('m3',$tail,'customer',null,3)])['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','anchored customer material change remains guard');
+foreach(['عايز الغي الطلب','مش عايز الطلب','متبعتش الطلب من فضلك']as$tail)
+    labeledBranchExpect(Confirmation::inspect([$recap,$approval,labeledBranchRow('m3',$tail,'customer',null,3)])['reason'],'CUSTOMER_CHANGED_AFTER_RECAP','finite whole common cancellation remains guard');
+foreach(['نص لاحق غير معروف','كل شئ تمام بس شكرا','تمام بس شكرا','قال لي اكتب كل شئ تمام','كل شئ تمام؟','قال لي اكتب تمام بس غير الكمية','"الغي الطلب لو سمحت"']as$tail)
+    labeledBranchExpect(Confirmation::inspect([$recap,$approval,labeledBranchRow('m3',$tail,'customer',null,3)])['data']['evidence_receipt'],$receipt,'ordinary later typed customer text is not order evidence');
+labeledBranchExpect(Confirmation::inspect([$recap,labeledBranchRow('m2','راجع الكمية','business',null,2),$laterApproval])['ok'],true,'typed business before approval does not replace two customer messages');
 labeledBranchExpect(Confirmation::inspect([$recap,$approval,labeledBranchRow('m3',null,'business',null,3)])['reason'],'BUSINESS_TURN_AFTER_APPROVAL','media business turn after approval blocks');
 foreach([
     ['250 ج بدون توصيل','251 ج بدون توصيل'],['250 ج بدون توصيل','250 ج شامل التوصيل'],['— 250 ج','— 250 دولار'],

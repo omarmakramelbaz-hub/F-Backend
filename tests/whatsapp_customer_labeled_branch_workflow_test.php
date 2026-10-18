@@ -54,7 +54,7 @@ foreach([false,true]as$pin){
 foreach([null,'كل شئ تمام؟','كل شئ تمام بس غير الصنف']as$approval){
     labeledWorkflowSetup($approval);primaryRun();customerRecapNoErp('missing or conditional consent cannot send labeled receipt');
 }
-foreach(['change','unknown-text','conflicting-pin','cart']as$guard){
+foreach(['change','conflicting-pin','cart']as$guard){
     $c=labeledWorkflowSetup();
     if($guard==='cart')customerRecapNativeExtra($c,'wamid.labeled.cart','order',4,
         ['catalog_id'=>'synthetic','product_items'=>[['product_retailer_id'=>'x','quantity'=>1,'item_price'=>'250','currency'=>'EGP']]]);
@@ -62,6 +62,10 @@ foreach(['change','unknown-text','conflicting-pin','cart']as$guard){
     else insertMessage($c,'wamid.labeled.later-text','inbound',$guard==='change'?'بدل السردين':'هل تم إرسال الطلب للفرع؟',4,null,'US.customer-confirmed');
     primaryRun();customerRecapNoErp('later unproved material turn remains blocked '.$guard);
 }
+$c=labeledWorkflowSetup();
+insertMessage($c,'wamid.labeled.ordinary-followup','inbound','هل تم إرسال الطلب للفرع؟',4,null,'US.customer-confirmed');
+$r=primaryRun();labeledWorkflowExpect($r['errors']===0&&$r['dispatched']===1&&LabeledAi::$calls===0,
+    'ordinary typed followup is ignored while exact customer recap and confirmation retain order authority');
 labeledWorkflowSetup();DialogueFixtureCatalog::$products[0]['options'][0]['label']='مخلي';primaryRun();
 customerRecapNoErp('parser does not drop صافي or infer an unapproved preparation alias');
 labeledWorkflowExpect(LabeledDB::table('whatsapp_order_drafts')->value('reason')==='CATALOG_UNRESOLVED',

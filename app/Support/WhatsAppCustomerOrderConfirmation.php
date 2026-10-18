@@ -20,9 +20,9 @@ final class WhatsAppCustomerOrderConfirmation
 
     /**
      * Inspect an authentic ordered snapshot. A copied instruction containing an
-     * approval phrase is not approval for the legacy summary: it requires a
-     * separate whole-positive customer turn. The owner's distinct "طلبك المؤكد"
-     * compact protocol is itself approval only when copied by the customer.
+     * approval phrase is not approval: every format requires the customer's
+     * separate whole-message "كل شئ تمام" after the complete customer recap.
+     * Ordinary typed conversation is not order evidence or a replacement recap.
      * All returned IDs still name original customer rows.
      */
     public static function inspect(array $transcript): array
@@ -42,15 +42,18 @@ final class WhatsAppCustomerOrderConfirmation
         if ($recap === null) return self::result(false, 'NO_CUSTOMER_RECAP');
         $parsed = self::parseRecap($recap['row']['text']);
         if (!$parsed['ok']) return $parsed;
-        $selfConfirmed = ($parsed['self_confirmed'] ?? false) === true;
         $branchSummary = ($parsed['format'] ?? null) === self::BRANCH_SUMMARY_FORMAT;
         $labeledBranchSummary = ($parsed['format'] ?? null) === self::LABELED_BRANCH_SUMMARY_FORMAT;
-        $approval = $selfConfirmed ? $recap['row'] : null;
-        if (($selfConfirmed || $labeledBranchSummary) && (($recap['row']['cart'] ?? null) !== null
-            || ($recap['row']['location'] !== null && !self::samePoint($recap['row']['location'], $parsed['data']['textual_location']['point']))))
+        $approval = null;
+        $inlinePoint = $parsed['data']['textual_location']['point'] ?? null;
+        if (($recap['row']['cart'] ?? null) !== null
+            || ($recap['row']['location'] !== null && ($inlinePoint === null || !self::samePoint($recap['row']['location'], $inlinePoint))))
             return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
         foreach ($transcript as $position => $row) {
             if ($position <= $recap['position']) continue;
+            $changedReason = $row['speaker'] === 'customer' ? 'CUSTOMER_CHANGED_AFTER_RECAP'
+                : ($approval === null ? 'INTERVENING_TURN' : 'BUSINESS_TURN_AFTER_APPROVAL');
+            if (($row['cart'] ?? null) !== null) return self::result(false, $changedReason);
             if ($row['speaker'] === 'customer') {
                 // This separately approved summary format receives its native
                 // delivery pin before the customer's distinct approval. The
@@ -58,22 +61,18 @@ final class WhatsAppCustomerOrderConfirmation
                 // manufactured as an inline point or treated as approval here.
                 if ($branchSummary && $approval === null && $row['text'] === null
                     && $row['location'] !== null && ($row['cart'] ?? null) === null) continue;
-                if ($selfConfirmed && $row['text'] === null && ($row['cart'] ?? null) === null
-                    && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
-                if ($labeledBranchSummary && $row['text'] === null && ($row['cart'] ?? null) === null
-                    && $row['location'] !== null && self::samePoint($row['location'], $parsed['data']['textual_location']['point'])) continue;
-                if (!self::positiveApproval($row['text']) || $row['location'] !== null || ($row['cart'] ?? null) !== null)
-                    return self::result(false, 'CUSTOMER_CHANGED_AFTER_RECAP');
-                // Repeated positive turns do not replace the original authority.
-                $approval ??= $row;
-            } elseif ($approval === null) {
-                // Even an apparently helpful new business question may change the
-                // scope of the next "OK". This protocol does not guess that scope.
-                return self::result(false, 'INTERVENING_TURN');
+                if ($row['text'] === null && $row['location'] !== null && $inlinePoint !== null
+                    && self::samePoint($row['location'], $inlinePoint)) continue;
+                if ($row['text'] === null || $row['location'] !== null || self::explicitOrderChange($row['text']))
+                    return self::result(false, $changedReason);
+                // Only this distinct exact phrase is approval. Ordinary chat,
+                // including other acknowledgements, is not order authority.
+                if (self::positiveApproval($row['text'])) $approval ??= $row;
             } else {
-                // A media-only business turn can also change the order. Its
-                // missing transcript text is not proof of a harmless acknowledgement.
-                return self::result(false, 'BUSINESS_TURN_AFTER_APPROVAL');
+                // Text from the business is never customer approval. Unknown
+                // native media, carts and points remain outside this text policy.
+                if ($row['text'] === null || $row['location'] !== null)
+                    return self::result(false, $changedReason);
             }
         }
         if ($approval === null) return self::result(false, 'CUSTOMER_APPROVAL_REQUIRED');
@@ -87,7 +86,6 @@ final class WhatsAppCustomerOrderConfirmation
             'recap_sha256' => hash('sha256', $recap['row']['text']),
             'approval_sha256' => hash('sha256', $approval['text']),
         ];
-        if ($selfConfirmed) $receipt['approval_basis'] = self::SELF_CONFIRMED_BASIS;
         if ($branchSummary) $receipt['summary_format'] = self::BRANCH_SUMMARY_FORMAT;
         if ($labeledBranchSummary) $receipt['summary_format'] = self::LABELED_BRANCH_SUMMARY_FORMAT;
         $receipt['receipt_sha256'] = hash('sha256', json_encode([self::TYPE, $receipt], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
@@ -190,8 +188,19 @@ final class WhatsAppCustomerOrderConfirmation
     public static function positiveApproval($text): bool
     {
         if (!is_string($text) || !self::bounded($text, 100)) return false;
-        $text = self::matchingText($text);
-        return preg_match('/\A(?:كل (?:شيء|شئ|شي) تمام|تمام كله تمام|موافق علي الطلب|اوافق علي الطلب|اكد طلبي|اؤكد طلبي|تمام موافق|موافق|تمام|نعم|yes|ok|okay)[.!]?\z/iu', $text) === 1;
+        $text = self::matchingText(self::displayLine($text));
+        return preg_match('/\Aكل (?:شيء|شئ) تمام[.!]?\z/u', $text) === 1;
+    }
+
+    private static function explicitOrderChange(string $text): bool
+    {
+        if (!self::bounded($text, 1000)) return false;
+        $text = self::matchingText(self::displayLine($text));
+        // A whole acknowledgement followed by "but" and an explicit imperative
+        // is a change, while ordinary thanks after the same prefix is not.
+        if (preg_match('/\A(?:(?:تمام|كل (?:شيء|شئ) تمام) )?بس (.+)\z/u', $text, $match)) $text = $match[1];
+        // Standalone imperatives, not a substring search through ordinary chat.
+        return preg_match('/\A(?:(?:الغي|الغ|الغاء|عايز (?:الغي|الغ)|مش عايز|متبعتش) (?:الطلب|الاوردر)(?: (?:لو سمحت|من فضلك))?|(?:لا|مت|ما) (?:تنفذ|ترسل|تبعت) (?:الطلب|الاوردر)|خلي (?:الطلب|الاوردر|الصنف|الكميه|العنوان|الرنجه|السردين|الفسيخ) [\p{Arabic}0-9][\p{Arabic}0-9 ,،.()\-]{0,190}|(?:بدل|عدل|غير|زود|قلل|احذف|شيل) [\p{Arabic}0-9][\p{Arabic}0-9 ,،.()\-]{0,190})[.!]?\z/u', $text) === 1;
     }
 
     /** Shared display normalization; the returned format name grants no approval. */

@@ -256,14 +256,18 @@ customerRecapExpect($r['errors']===0&&$r['dispatched']===1
     'first explicitly listed contact stays primary while extra supplied contact is retained in delivery notes');
 customerRecapSilent('multiple contacts create no customer reply');
 
-foreach(['customer-change','business-change','new-pin','new-recap-without-approval']as$change){
+foreach(['customer-change','new-pin','new-recap-without-approval']as$change){
     $c=customerRecapSetup();
     if($change==='customer-change')insertMessage($c,'wamid.customer-recap.changed','inbound','خلي الطلب 2 كيلو',4,null,'US.customer-confirmed');
-    if($change==='business-change')insertMessage($c,'wamid.customer-recap.changed','outbound','هنغير الكمية إلى 2 كيلو.',4,null,'US.customer-confirmed');
     if($change==='new-pin')insertMessage($c,'wamid.customer-recap.changed','inbound','',4,['lat'=>31.05,'long'=>31.38],'US.customer-confirmed');
     if($change==='new-recap-without-approval')insertMessage($c,'wamid.customer-recap.changed','inbound',str_replace('1 كيلو فسيخ','2 كيلو فسيخ',customerRecapText()),4,null,'US.customer-confirmed');
-    primaryRun();customerRecapNoErp('new activity after the approved recap invalidates the old customer receipt');
+    primaryRun();customerRecapNoErp('material activity after the approved recap invalidates the old customer receipt: '.$change);
 }
+$c=customerRecapSetup();
+insertMessage($c,'wamid.customer-recap.business-text','outbound','غير الكمية إلى 2 كيلو.',4,null,'US.customer-confirmed');
+$r=primaryRun();customerRecapExpect($r['errors']===0&&$r['dispatched']===1&&CustomerRecapAi::$calls===0,
+    'typed business text is neither customer order input nor customer authority to alter the two-message basket');
+customerRecapSilent('ignored business text cannot cause a reply');
 
 foreach(['missing-phone','missing-address','duplicate-field','extra-item','unknown-item','pickup','location-shortlink']as$change){
     $text=customerRecapText();

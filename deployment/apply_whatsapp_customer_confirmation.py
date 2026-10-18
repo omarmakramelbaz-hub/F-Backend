@@ -22,9 +22,9 @@ BASE_BLOB = 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'
 # Initial installations publish both declared targets. Reviewed upgrades skip
 # any target whose exact bytes are already current, retaining its original inode.
 TARGET_PINS = {
-    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '27920dab654cc15e7bbbc6d818033d55d792c4a8'),
+    'app/Support/WhatsAppCustomerOrderConfirmation.php': (None, '901a6c739abc1daf592a1574f18f1f779d9cc971'),
     'app/Services/Dashboard/WhatsAppOrderWorkflow.php':
-        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19'),
+        ('bd0e1cc3536f7d84f3c31bc956317d3374004937', '638b3d39dc63b0c27e9f827253e192e8cae82fc2'),
 }
 INSTALLED_SOURCE_PROFILES = {
     # The verified d6b404 installation contains this exact parser/workflow pair.
@@ -71,6 +71,11 @@ INSTALLED_SOURCE_PROFILES = {
     # The verified one-order-choice release is the current installed pair.
     'INSTALLED_V9': {
         'app/Support/WhatsAppCustomerOrderConfirmation.php': '0e32b2f095f20442012f900b243af22478d620c1',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
+    },
+    # The verified labeled-summary release is the current installed pair.
+    'INSTALLED_V10': {
+        'app/Support/WhatsAppCustomerOrderConfirmation.php': '27920dab654cc15e7bbbc6d818033d55d792c4a8',
         'app/Services/Dashboard/WhatsAppOrderWorkflow.php': '4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
     },
 }

@@ -16,7 +16,7 @@ function ownerChoiceSetup(?string$summary=null):array{
         OwnerChoiceDB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->delete();
         insertMessage($c,'wamid.owner-choice.summary','inbound',$summary,2,null,'US.customer-confirmed');
         insertMessage($c,'wamid.owner-choice.pin','inbound','',3,['lat'=>31.04,'long'=>31.37],'US.customer-confirmed');
-        insertMessage($c,'wamid.owner-choice.approval','inbound','تمام كله تمام',4,null,'US.customer-confirmed');
+        insertMessage($c,'wamid.owner-choice.approval','inbound','كل شئ تمام',4,null,'US.customer-confirmed');
     }
     DialogueFixtureCatalog::$products[4]=['id'=>2557,'name'=>'ساندوتش فسيخ دسوق نبروه مظبوط','available'=>true,
         'quantity_mode'=>'select','price'=>'130.00','options'=>[['id'=>'f:28:base','label'=>'كومبو','price'=>'150.00']],
@@ -78,7 +78,7 @@ customerRecapSilent('scoped owner choice never uses AI or sends customer message
 
 insertMessage($case['expected']['conversation'],'wamid.owner-choice.repeat-summary','inbound',branchSummaryText(),6,null,'US.customer-confirmed');
 insertMessage($case['expected']['conversation'],'wamid.owner-choice.repeat-pin','inbound','',7,['lat'=>31.04,'long'=>31.37],'US.customer-confirmed');
-insertMessage($case['expected']['conversation'],'wamid.owner-choice.repeat-approval','inbound','تمام كله تمام',8,null,'US.customer-confirmed');
+insertMessage($case['expected']['conversation'],'wamid.owner-choice.repeat-approval','inbound','كل شئ تمام',8,null,'US.customer-confirmed');
 primaryRun();$new=OwnerChoiceDB::table('whatsapp_order_drafts')->orderByDesc('id')->first();
 $repeat=['conversation'=>(int)$new->conversation_id,'control_revision'=>1,'draft_revision'=>(int)$new->revision,
     'floor'=>(int)$new->evidence_floor,'ceiling'=>(int)$new->evidence_ceiling,'snapshot_hash'=>$new->evidence_hash];

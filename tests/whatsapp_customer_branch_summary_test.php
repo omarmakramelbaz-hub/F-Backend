@@ -23,7 +23,7 @@ branchSummaryExpect($parsed['format'],Confirmation::BRANCH_SUMMARY_FORMAT,'disti
 branchSummaryExpect($parsed['data']['decision'],'DRAFT','summary contents do not self-confirm');
 branchSummaryExpect($parsed['data']['textual_location'],null,'native pin never invented as textual location');
 $recap=branchSummaryRow('m1',$text);$pin=branchSummaryRow('m2',null,'customer',['lat'=>30.125,'long'=>31.625],2);
-$approval=branchSummaryRow('m3','تمام كله تمام','customer',null,3);
+$approval=branchSummaryRow('m3','كل شئ تمام','customer',null,3);
 branchSummaryExpect(Confirmation::inspect([$recap])['reason'],'CUSTOMER_APPROVAL_REQUIRED','copied summary alone has no approval');
 branchSummaryExpect(Confirmation::inspect([$recap,$pin])['reason'],'CUSTOMER_APPROVAL_REQUIRED','location-only row is not approval');
 $result=Confirmation::inspect([$recap,$pin,$approval]);$data=$result['data'];
@@ -52,12 +52,12 @@ branchSummaryExpect(array_key_exists('approval_basis',$receipt),false,'branch su
 branchSummaryExpect($receipt['recap_id'],'m1','customer recap id retained');
 branchSummaryExpect($receipt['approval_id'],'m3','separate customer approval id retained');
 branchSummaryExpect($receipt['recap_sha256'],hash('sha256',$text),'raw full recap hash including decorative and branch information');
-branchSummaryExpect($receipt['approval_sha256'],hash('sha256','تمام كله تمام'),'raw exact approval hash');
+branchSummaryExpect($receipt['approval_sha256'],hash('sha256','كل شئ تمام'),'raw exact approval hash');
 $receiptBody=$receipt;unset($receiptBody['receipt_sha256']);
 branchSummaryExpect($receipt['receipt_sha256'],hash('sha256',json_encode([Confirmation::TYPE,$receiptBody],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)),'summary format included in receipt seal');
 branchSummaryExpect(Confirmation::inspect([branchSummaryRow('m1','تمام'),branchSummaryRow('m2',$text,'customer',null,2)])['reason'],'CUSTOMER_APPROVAL_REQUIRED','positive before recap cannot approve later summary');
 branchSummaryExpect(Confirmation::inspect([branchSummaryRow('m1',$text,'business'),$pin,$approval])['reason'],'NO_CUSTOMER_RECAP','business summary never becomes customer-owned evidence');
-foreach(['تمام كله تمام؟','تمام كله تمام بس غير الصنف','مش تمام كله تمام','لو تمام كله تمام','"تمام كله تمام"','قال لي اكتب تمام كله تمام','الغي الطلب']as$tail)
+foreach(['تمام كله تمام','تمام','yes','ok','موافق','تمام كله تمام؟','تمام كله تمام بس غير الصنف','مش تمام كله تمام','لو تمام كله تمام','"تمام كله تمام"','قال لي اكتب تمام كله تمام','الغي الطلب']as$tail)
     branchSummaryExpect(Confirmation::inspect([$recap,$pin,branchSummaryRow('m3',$tail,'customer',null,3)])['ok'],false,'conditional quoted changed or cancelled approval blocks');
 $afterApproval=branchSummaryRow('m4',null,'customer',['lat'=>30.125,'long'=>31.625],4);
 branchSummaryExpect(Confirmation::inspect([$recap,$pin,$approval,$afterApproval])['ok'],false,'summary pin exception is only before separate approval');
@@ -65,7 +65,7 @@ $pinWithText=$pin;$pinWithText['text']='تمام';
 branchSummaryExpect(Confirmation::inspect([$recap,$pinWithText,$approval])['ok'],false,'pin exception requires no caption or text');
 $pinWithCart=$pin;$pinWithCart['cart']=['fixture'=>'basket'];
 branchSummaryExpect(Confirmation::inspect([$recap,$pinWithCart,$approval])['ok'],false,'pin exception cannot hide a cart');
-branchSummaryExpect(Confirmation::inspect([$recap,branchSummaryRow('m2','تقصد طلب تاني؟','business',null,2),$approval])['ok'],false,'business question before approval blocks');
+branchSummaryExpect(Confirmation::inspect([$recap,branchSummaryRow('m2','تقصد طلب تاني؟','business',null,2),$approval])['ok'],true,'typed business question does not replace full customer summary and exact phrase');
 branchSummaryExpect(Confirmation::inspect([$recap,$pin,$approval,branchSummaryRow('m4','الغِ الطلب','customer',null,4)])['ok'],false,'later cancellation blocks');
 foreach([
     ['*الأصناف:*',''],['*البيانات:*',''],['• الاسم: عميل افتراضي',''],['• العنوان: شارع افتراضي',''],
@@ -90,7 +90,7 @@ branchSummaryExpect($arabicResult['ok'],true,'Arabic amounts prices phones pack 
 branchSummaryExpect($arabicResult['data']['items'][0]['name'],'علبة بطارخ ٤٠٠ جرام','pack descriptor literal Arabic digits preserved');
 branchSummaryExpect($arabicResult['data']['items'][0]['quantity'],'1','Arabic pack weight is still one item');
 $lastText=str_replace('عميل افتراضي','عميل افتراضي آخر',$text);
-$lastRows=[$recap,branchSummaryRow('m2',$lastText,'customer',null,2),branchSummaryRow('m3',null,'customer',['lat'=>30.125,'long'=>31.625],3),branchSummaryRow('m4','تمام كله تمام','customer',null,4)];
+$lastRows=[$recap,branchSummaryRow('m2',$lastText,'customer',null,2),branchSummaryRow('m3',null,'customer',['lat'=>30.125,'long'=>31.625],3),branchSummaryRow('m4','كل شئ تمام','customer',null,4)];
 $last=Confirmation::inspect($lastRows);
 branchSummaryExpect($last['ok'],true,'latest branch summary selected');
 branchSummaryExpect($last['data']['evidence_receipt']['recap_id'],'m2','latest native receipt id');

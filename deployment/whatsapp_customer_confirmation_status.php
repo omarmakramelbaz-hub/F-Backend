@@ -102,7 +102,8 @@ function waConfirmationFormatObservation(array$transcript):array{
             'standalone_parse_ok'=>$text===null?null:$ok,
             'standalone_parse_reason'=>is_array($parsed)?waConfirmationCode($parsed['reason']??null):null,
             'standalone_format'=>$ok?waConfirmationCode($parsed['format']??null,['BRANCH_ORDER_SUMMARY','LABELED_BRANCH_ORDER_SUMMARY']):null,
-            'standalone_self_confirmed'=>$ok&&($parsed['self_confirmed']??null)===true,
+            // Parsing a compact title no longer supplies customer approval.
+            'standalone_self_confirmed'=>false,
             'positive_approval'=>$positive,'recap_shape'=>$shape,
             'safe_title_lines'=>$titles,'safe_title_lines_truncated'=>$titlesTruncated];
         if($exact&&$speaker==='customer')$out['counts']['customer_exact_headers']++;
@@ -220,8 +221,8 @@ try{
     if(!is_array($owner)||posix_geteuid()!==$owner['uid']||!chdir('/home/fasakha/public_html'))throw new RuntimeException();
     $stage='SOURCE_GUARD';
     $pins=[
-        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'27920dab654cc15e7bbbc6d818033d55d792c4a8',
-        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'4aa5cd5a5fb653ec1022dbee02e6768733f3dc19',
+        'app/Support/WhatsAppCustomerOrderConfirmation.php'=>'901a6c739abc1daf592a1574f18f1f779d9cc971',
+        'app/Services/Dashboard/WhatsAppOrderWorkflow.php'=>'638b3d39dc63b0c27e9f827253e192e8cae82fc2',
         'app/Support/MetaAiSchedule.php'=>'667ffd6530444ef00dc6a05f76a5700d217fff80',
         'app/Services/Dashboard/MetaAiControl.php'=>'de44620835b22666417fc37752ab944d4419df36',
         'app/Support/WhatsAppOrderExtraction.php'=>'a44f791013642aeca4b4f50dd96ec96b59eda012',
