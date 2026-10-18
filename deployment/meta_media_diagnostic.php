@@ -46,6 +46,56 @@ final class MetaMediaDiagnostic
             'text/html', 'text/plain', 'application/pdf', 'video/mp4', 'audio/mp4'], true) ? $value : 'OTHER';
     }
 
+    /** Observation never expands the deployed media allowlist or follows a redirect. */
+    private static function redirect($raw, string $sourceHost): array
+    {
+        $out = ['redirect_host' => null, 'redirect_destination' => 'MISSING', 'redirect_observed_host' => null,
+            'redirect_scheme' => null, 'redirect_validation_reason' => 'MISSING',
+            'redirect_path_class' => null, 'redirect_had_outer_ows' => false];
+        if (!is_string($raw) || $raw === '') return $out;
+        $out['redirect_destination'] = 'UNAPPROVED';
+        if (strlen($raw) > 8192) { $out['redirect_validation_reason'] = 'TOO_LONG'; return $out; }
+        $value = trim($raw, " \t"); $out['redirect_had_outer_ows'] = $value !== $raw;
+        // Preserve the original approval decision, including its handling of relative references.
+        $target = $raw;
+        if (strncmp($target, '//', 2) === 0) $target = 'https:' . $target;
+        elseif (strncmp($target, '/', 1) === 0) $target = 'https://' . $sourceHost . $target;
+        $out['redirect_host'] = self::approvedHost($target);
+        $out['redirect_destination'] = $out['redirect_host'] === null ? 'UNAPPROVED' : 'APPROVED';
+        $absolute = preg_match('/\A([a-z][a-z0-9+.-]*):/i', $value, $match) === 1;
+        $scheme = $absolute ? $match[1] : null;
+        $out['redirect_scheme'] = !$absolute ? 'RELATIVE'
+            : (in_array(strtolower($scheme), ['http', 'https'], true) ? strtolower($scheme) : 'OTHER');
+        $observed = $value;
+        if (strncmp($observed, '//', 2) === 0) $observed = 'https:' . $observed;
+        elseif (strncmp($observed, '/', 1) === 0) $observed = 'https://' . $sourceHost . $observed;
+        try { $parts = parse_url($observed); } catch (Throwable $ignored) { $parts = false; }
+        $host = is_array($parts) ? strtolower((string) ($parts['host'] ?? '')) : '';
+        if (strlen($host) <= 253 && preg_match('/\A[a-z0-9.-]+\z/', $host)) {
+            foreach (['facebook.com', 'instagram.com', 'fbcdn.net', 'fbsbx.com', 'cdninstagram.com'] as $domain) {
+                if ($host === $domain || substr($host, -strlen('.' . $domain)) === '.' . $domain) {
+                    $out['redirect_observed_host'] = $host; break;
+                }
+            }
+        }
+        $path = is_array($parts) ? ($parts['path'] ?? '') : '';
+        $out['redirect_path_class'] = is_string($path) && preg_match('~\A/(?:accounts/login|login|checkpoint|dialog/oauth)(?:/|\z)~i', $path)
+            ? 'LOGIN' : ($path === '/unsupportedbrowser' ? 'UNSUPPORTED_BROWSER' : 'OTHER');
+        if (preg_match('/[\x00-\x20\x7f\\\\]/', $raw)) $reason = 'WHITESPACE_OR_BACKSLASH';
+        elseif (!is_array($parts)) $reason = 'PARSE_FAILED';
+        elseif (isset($parts['user']) || isset($parts['pass'])) $reason = 'CREDENTIALS';
+        elseif (!$absolute && strncmp($value, '/', 1) !== 0) $reason = 'RELATIVE_UNRESOLVED';
+        elseif ($absolute && strtolower($scheme) !== 'https') $reason = 'SCHEME_NOT_HTTPS';
+        elseif ($absolute && $scheme !== 'https') $reason = 'SCHEME_CASE_UNSUPPORTED';
+        elseif (isset($parts['port']) && $parts['port'] !== 443) $reason = 'PORT_NOT_443';
+        elseif (isset($parts['fragment'])) $reason = 'FRAGMENT_PRESENT';
+        elseif ($out['redirect_host'] !== null) $reason = 'APPROVED';
+        elseif (!filter_var($observed, FILTER_VALIDATE_URL)) $reason = 'URL_INVALID';
+        else $reason = 'HOST_NOT_ALLOWLISTED';
+        $out['redirect_validation_reason'] = $reason;
+        return $out;
+    }
+
     public function probe(string $url): array
     {
         $out = ['status' => 'FAILED', 'category' => 'SOURCE_REJECTED', 'source_host' => null,
@@ -75,12 +125,7 @@ final class MetaMediaDiagnostic
                 $out['category'] = $error; return $out;
             }
             if (in_array($out['http_status'], [301, 302, 303, 307, 308], true)) {
-                $location = $response['location'] ?? null;
-                if (is_string($location) && strncmp($location, '//', 2) === 0) $location = 'https:' . $location;
-                elseif (is_string($location) && strncmp($location, '/', 1) === 0) $location = 'https://' . $host . $location;
-                $out['redirect_host'] = self::approvedHost($location);
-                $out['redirect_destination'] = !is_string($location) || $location === '' ? 'MISSING'
-                    : ($out['redirect_host'] === null ? 'UNAPPROVED' : 'APPROVED');
+                $out = array_replace($out, self::redirect($response['location'] ?? null, $host));
                 $out['category'] = 'REDIRECT_NOT_FOLLOWED'; return $out;
             }
             if ($out['http_status'] !== 200) {
@@ -134,7 +179,7 @@ final class MetaMediaDiagnostic
                     if (preg_match('/\AContent-Length:\s*([0-9]+)/i', $line, $match) && (float) $match[1] > self::MAX_BYTES) {
                         $oversized = true; return 0;
                     }
-                    if (preg_match('/\ALocation:\s*(.*?)\r?\n\z/i', $line, $match)) $location = strlen($match[1]) <= 8192 ? $match[1] : null;
+                    if (preg_match('/\ALocation:\s*(.*?)\r?\n\z/i', $line, $match)) $location = $match[1];
                     return strlen($line);
                 }, CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$body, &$bytes, &$oversized) {
                     $bytes += strlen($chunk); if ($bytes > self::MAX_BYTES) { $oversized = true; return 0; }

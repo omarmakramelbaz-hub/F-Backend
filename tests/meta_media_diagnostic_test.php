@@ -43,6 +43,33 @@ mediaDiagnosticCheck($result['redirect_host'] === null && $result['redirect_dest
 $probe = new MetaMediaDiagnostic(fn () => ['status' => 302, 'location' => '/private?signature=secret', 'body' => '']);
 $result = $probe->probe($url);
 mediaDiagnosticCheck($result['redirect_host'] === 'lookaside.fbsbx.com' && $result['redirect_destination'] === 'APPROVED', 'relative redirect reveals approved host only');
+$redirectCases = [
+    ['https://lookaside.instagram.com/photo?secret=never-print', 'lookaside.instagram.com', 'https', 'HOST_NOT_ALLOWLISTED', 'OTHER', false, 'UNAPPROVED'],
+    ['https://www.facebook.com/login/?secret=never-print', 'www.facebook.com', 'https', 'HOST_NOT_ALLOWLISTED', 'LOGIN', false, 'UNAPPROVED'],
+    ['https://www.facebook.com/unsupportedbrowser?secret=never-print', 'www.facebook.com', 'https', 'HOST_NOT_ALLOWLISTED', 'UNSUPPORTED_BROWSER', false, 'UNAPPROVED'],
+    ['https://customer-123456.evil.test/login?secret=never-print', null, 'https', 'HOST_NOT_ALLOWLISTED', 'LOGIN', false, 'UNAPPROVED'],
+    ['https://scontent.fbcdn.net/photo?secret=never-print#fragment-private', 'scontent.fbcdn.net', 'https', 'FRAGMENT_PRESENT', 'OTHER', false, 'UNAPPROVED'],
+    ["https://scontent.fbcdn.net/photo?secret=never-print \t", 'scontent.fbcdn.net', 'https', 'WHITESPACE_OR_BACKSLASH', 'OTHER', true, 'UNAPPROVED'],
+    ['HTTPS://scontent.fbcdn.net/photo?secret=never-print', 'scontent.fbcdn.net', 'https', 'SCHEME_CASE_UNSUPPORTED', 'OTHER', false, 'UNAPPROVED'],
+    ['http://scontent.fbcdn.net/photo?secret=never-print', 'scontent.fbcdn.net', 'http', 'SCHEME_NOT_HTTPS', 'OTHER', false, 'UNAPPROVED'],
+    ['/photo?secret=never-print', 'lookaside.fbsbx.com', 'RELATIVE', 'APPROVED', 'OTHER', false, 'APPROVED'],
+    ['//scontent.fbcdn.net/photo?secret=never-print', 'scontent.fbcdn.net', 'RELATIVE', 'APPROVED', 'OTHER', false, 'APPROVED'],
+    ['../photo?secret=never-print', null, 'RELATIVE', 'RELATIVE_UNRESOLVED', 'OTHER', false, 'UNAPPROVED'],
+    ['?secret=never-print', null, 'RELATIVE', 'RELATIVE_UNRESOLVED', 'OTHER', false, 'UNAPPROVED'],
+    ['https://name:password@scontent.fbcdn.net/photo?secret=never-print', 'scontent.fbcdn.net', 'https', 'CREDENTIALS', 'OTHER', false, 'UNAPPROVED'],
+    ['https://scontent.fbcdn.net:444/photo?secret=never-print', 'scontent.fbcdn.net', 'https', 'PORT_NOT_443', 'OTHER', false, 'UNAPPROVED'],
+];
+foreach ($redirectCases as [$location, $host, $scheme, $reason, $pathClass, $ows, $approval]) {
+    $probe = new MetaMediaDiagnostic(fn () => ['status' => 302, 'location' => $location, 'body' => '']);
+    $result = $probe->probe($url);
+    mediaDiagnosticCheck($result['redirect_observed_host'] === $host && $result['redirect_scheme'] === $scheme
+        && $result['redirect_validation_reason'] === $reason && $result['redirect_path_class'] === $pathClass
+        && $result['redirect_had_outer_ows'] === $ows && $result['redirect_destination'] === $approval, 'redirect classification ' . $reason);
+    foreach (['secret', 'never-print', 'fragment-private', 'customer-123456', 'password', 'https://'] as $sensitive)
+        mediaDiagnosticCheck(strpos(json_encode($result), $sensitive) === false, 'redirect values remain private');
+}
+$probe = new MetaMediaDiagnostic(fn () => ['status' => 302, 'location' => 'https://scontent.fbcdn.net/' . str_repeat('sensitive', 1100), 'body' => '']);
+mediaDiagnosticCheck($probe->probe($url)['redirect_validation_reason'] === 'TOO_LONG', 'overlong redirect classified without exposure');
 $probe = new MetaMediaDiagnostic(fn () => throw new RuntimeException('private signed URL'));
 mediaDiagnosticCheck($probe->probe($url)['category'] === 'CHECK_UNAVAILABLE', 'exception details suppressed');
 $calls = 0; $probe = new MetaMediaDiagnostic(function () use (&$calls) { $calls++; });
