@@ -96,7 +96,8 @@ class SourcePreflightTests(unittest.TestCase):
         before_maintenance = source[:source.index("printf '%s\\n' 'ENTERING_MAINTENANCE")]
         for name in ('bonus_owner_patch.py', 'customer_global_patch.py', 'employee_profile_patch.py'):
             self.assertIn('"$launch_tmp/' + name + '"', before_maintenance)
-        self.assertEqual(before_maintenance.count('--check'), 3)
+        self.assertEqual(before_maintenance.count('--check'), 4)
+        self.assertIn('"$launch_tmp/worker_control.py"', before_maintenance)
         self.assertIn('"$launch_tmp/bonus_owner_patch.py" \\\n  --root "$launch_root" --php "$launch_php" --check', before_maintenance)
         self.assertIn('"$launch_tmp/customer_global_patch.py" \\\n  --root "$launch_root" --php "$launch_php" --check', before_maintenance)
 

@@ -28,28 +28,48 @@ launch_tmp=$(mktemp -d /tmp/actual-launch-reset.XXXXXXXX)
 chmod 0755 "$launch_tmp"
 launch_down=0
 launch_reset_started=0
+launch_worker_state="$launch_tmp/worker-state.json"
 launch_cleanup() {
   local launch_exit=$?
+  local launch_retain=0
   trap - EXIT
+  trap '' INT TERM HUP
   if [[ "$launch_down" = 1 ]]; then
     if [[ "$launch_reset_started" = 0 || -f "$launch_backup/safe-to-reopen" ]]; then
       if runuser -u fasakha -- "$launch_php" "$launch_root/artisan" up --no-interaction; then
         printf '%s\n' 'APPLICATION_REOPENED'
+        if [[ -f "$launch_worker_state" ]]; then
+          if ! python3 "$launch_tmp/worker_control.py" --root "$launch_root" --php "$launch_php" \
+            --state "$launch_worker_state" --restore; then
+            printf '%s\n' 'WORKER_RESTORE_REVIEW_REQUIRED'
+            launch_retain=1
+            launch_exit=1
+          fi
+        fi
       else
         printf '%s\n' 'APPLICATION_UP_FAILED_MAINTENANCE_MAY_REMAIN'
+        launch_retain=1
         launch_exit=1
       fi
     else
       printf '%s\n' 'MAINTENANCE_RETAINED_REVIEW_REQUIRED'
+      launch_retain=1
       launch_exit=1
     fi
   fi
   printf 'BACKUP_DIRECTORY=%s\n' "$launch_backup"
-  rm -rf -- "$launch_tmp"
+  if [[ "$launch_retain" = 1 && -f "$launch_worker_state" ]]; then
+    printf 'WORKER_RECOVERY_DIRECTORY=%s\n' "$launch_tmp"
+  else
+    rm -rf -- "$launch_tmp"
+  fi
   exit "$launch_exit"
 }
 trap launch_cleanup EXIT
-for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py; do
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py worker_control.py quiesce_workers.py queue_manager.py; do
   launch_source="deployment/launch_reset/$launch_name"
   launch_blob=$(runuser -u fasakha -- git -C "$launch_root" rev-parse "$launch_revision:$launch_source")
   [[ "$launch_blob" =~ ^[0-9a-f]{40}$ ]]
@@ -65,6 +85,7 @@ runuser -u fasakha -- python3 "$launch_tmp/customer_global_patch.py" \
   --root "$launch_root" --php "$launch_php" --check
 runuser -u fasakha -- python3 "$launch_tmp/employee_profile_patch.py" \
   --root "$launch_root" --php "$launch_php" --check
+python3 "$launch_tmp/worker_control.py" --root "$launch_root" --php "$launch_php" --check
 printf '%s\n' 'ALL_LIVE_SOURCE_PREFLIGHTS_PASSED'
 # The attendance worker honors this existing shared/exclusive installer lock.
 launch_absence_lock=/home/fasakha/employee-auto-absence-backups/install.lock
@@ -76,13 +97,15 @@ fi
 printf '%s\n' 'ENTERING_MAINTENANCE_FOR_OWNER_LAUNCH_RESET'
 runuser -u fasakha -- "$launch_php" "$launch_root/artisan" down --retry=60 --no-interaction
 launch_down=1
+python3 "$launch_tmp/worker_control.py" --root "$launch_root" --php "$launch_php" \
+  --state "$launch_worker_state" --pause
 runuser -u fasakha -- python3 "$launch_tmp/bonus_owner_patch.py" \
   --root "$launch_root" --backup "$launch_backup/bonus-source" --php "$launch_php"
 runuser -u fasakha -- python3 "$launch_tmp/customer_global_patch.py" \
   --root "$launch_root" --backup "$launch_backup/customer-source" --php "$launch_php"
 runuser -u fasakha -- python3 "$launch_tmp/employee_profile_patch.py" \
   --root "$launch_root" --backup "$launch_backup/employee-source" --php "$launch_php"
+runuser -u fasakha -- "$launch_php" "$launch_root/artisan" view:clear --no-interaction
 launch_reset_started=1
 runuser -u fasakha -- "$launch_php" "$launch_tmp/reset.php" --apply "$launch_root" "$launch_backup" "$launch_run"
-runuser -u fasakha -- "$launch_php" "$launch_root/artisan" view:clear --no-interaction
 printf '%s\n' 'OWNER_BONUSES_ADMIN_EMPLOYEE_PROFILES_GLOBAL_CUSTOMERS_INSTALLED'
