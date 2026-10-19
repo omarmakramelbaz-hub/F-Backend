@@ -257,3 +257,98 @@
         fitNavigation();
     }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }());
+
+/* dashboard-collapsed-shortcuts:start */
+(function () {
+    'use strict';
+    const header = document.querySelector('.main-header');
+    const sidebar = document.getElementById('dashboard-sidebar');
+    if (!header || !sidebar || header.querySelector('[data-dashboard-quick-links]')) return;
+
+    // Reuse the actual sound button so its mute state and click handler survive.
+    const language = header.querySelector('select[onchange*="changeLanguage"]');
+    const sound = header.querySelector('#toggle-sound');
+    const languageItem = language && language.closest('li');
+    if (sound && languageItem) {
+        const soundItem = document.createElement('li');
+        soundItem.className = 'nav-item dashboard-header-sound';
+        languageItem.after(soundItem);
+        soundItem.append(sound);
+    }
+
+    const arabic = document.documentElement.dir === 'rtl';
+    const entries = [
+        ['takeaway', 'طلبات التيك أواي', 'Takeaway orders', 'fa-shopping-bag', 'تيك أواي', 'Takeaway'],
+        ['phone-orders', 'طلبات الدليفري', 'Delivery orders', 'fa-phone-alt', 'الدليفري', 'Delivery'],
+        ['dining', 'طلبات الصالة', 'Dining orders', 'fa-chair', 'الصالة', 'Dining'],
+        ['applies-orders', 'طلبات التطبيق', 'App orders', 'fa-mobile-alt', 'التطبيق', 'App'],
+        ['branch-expenses', 'مصروفات الفروع', 'Branch expenses', 'fa-file-invoice-dollar', 'المصروفات', 'Expenses'],
+        ['branch-stock', 'إضافة بضاعة', 'Add stock', 'fa-boxes', 'بضاعة', 'Stock']
+    ];
+    const links = Array.from(sidebar.querySelectorAll('[data-dashboard-navigation] a[href]'))
+        .filter(link => !link.getAttribute('href').startsWith('#'));
+    const bar = document.createElement('div');
+    bar.className = 'dashboard-quick-links';
+    bar.setAttribute('data-dashboard-quick-links', '');
+    bar.setAttribute('role', 'navigation');
+    bar.setAttribute('aria-label', arabic ? 'اختصارات التشغيل' : 'Operations shortcuts');
+    bar.hidden = true;
+    const shortcuts = [];
+    entries.forEach(([route, ar, en, icon, shortAr, shortEn]) => {
+        // A shortcut exists only when the server rendered this route for this account.
+        const source = links.find(link => {
+            try { return new URL(link.href).pathname.replace(/\/$/, '') === '/admin/' + route; }
+            catch (error) { return false; }
+        });
+        if (!source) return;
+        const link = document.createElement('a');
+        link.className = 'dashboard-quick-link';
+        link.href = source.href;
+        link.setAttribute('data-dashboard-shortcut', route);
+        link.title = arabic ? ar : en;
+        link.setAttribute('aria-label', link.title);
+        const symbol = document.createElement('i');
+        symbol.className = 'fas ' + icon;
+        symbol.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.className = 'dashboard-quick-label';
+        label.textContent = arabic ? ar : en;
+        const shortLabel = document.createElement('span');
+        shortLabel.className = 'dashboard-quick-label-short';
+        shortLabel.textContent = arabic ? shortAr : shortEn;
+        link.append(symbol, label, shortLabel);
+        bar.append(link);
+        shortcuts.push({ link, source });
+    });
+    const controls = header.querySelector('[data-widget="pushmenu"]')?.closest('ul');
+    if (controls) controls.after(bar);
+    else header.append(bar);
+
+    function syncShortcuts() {
+        const collapsed = innerWidth < 992
+            ? !document.body.classList.contains('sidebar-open')
+            : document.body.classList.contains('sidebar-collapse');
+        bar.hidden = !collapsed || !shortcuts.length;
+        let activeLink = null;
+        shortcuts.forEach(({ link, source }) => {
+            const path = new URL(source.href).pathname.replace(/\/$/, '');
+            const active = location.pathname === path || location.pathname.startsWith(path + '/');
+            link.classList.toggle('active', active);
+            if (active) { link.setAttribute('aria-current', 'page'); activeLink = link; }
+            else link.removeAttribute('aria-current');
+        });
+        if (activeLink && !bar.hidden) {
+            // Reveal the active shortcut inside this strip without scrolling the POS page.
+            const box = activeLink.getBoundingClientRect();
+            const viewport = bar.getBoundingClientRect();
+            if (box.left < viewport.left) bar.scrollLeft += box.left - viewport.left - 4;
+            else if (box.right > viewport.right) bar.scrollLeft += box.right - viewport.right + 4;
+        }
+    }
+    syncShortcuts();
+    document.addEventListener('dashboard:page-loaded', syncShortcuts);
+    window.addEventListener('resize', syncShortcuts);
+    if (document.fonts?.ready) document.fonts.ready.then(syncShortcuts);
+    new MutationObserver(syncShortcuts).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}());
+/* dashboard-collapsed-shortcuts:end */
