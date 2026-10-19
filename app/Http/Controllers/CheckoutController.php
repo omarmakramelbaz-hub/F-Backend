@@ -27,6 +27,19 @@ class CheckoutController extends Controller
     {
         $pay = Payment::where('intention_order_id', $order_id)->firstOrFail();
         $order = Order::findOrFail($pay->order_id);
+        if ($order->type === 'wallet') {
+            // Legacy returns share the same verified, atomic settlement path.
+            try {
+                $details = json_decode($payment, true);
+                $transaction = is_array($details) ? ($details['id'] ?? null) : null;
+                $transaction = (is_string($transaction) || is_int($transaction))
+                    && preg_match('/\A[1-9][0-9]{0,19}\z/', (string) $transaction) ? (string) $transaction : null;
+                app(\App\Services\Payments\WalletTopupSettlement::class)->settle((int) $pay->id, $transaction);
+                return redirect()->route('paySuccess');
+            } catch (\Throwable $exception) {
+                return redirect()->route('payFailed');
+            }
+        }
         if ($order->type === 'current') {
             // Serialize activation with dashboard cancellation. A replayed gateway
             // callback must not resurrect a cancelled order or reset its delivery phase.
