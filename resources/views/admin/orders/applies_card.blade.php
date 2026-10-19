@@ -459,18 +459,8 @@ $(document).on('click',".all_orders .modal .btn-close",function(e){
         });
     }
     function printInvoice(id) {
-        // فتح نافذة صغيرة
-        let printWindow = window.open(
-            "{{url('admin/print-pdf/?id=')}}"+id+"&type=admin", 
-            "_blank", 
-            "width=800,height=600"
-        );
-    
-        // تنفيذ الطباعة فور التحميل
-        printWindow.onload = function() {
-            printWindow.print();
-            printWindow.close();
-        };
+        window.DashboardPrint.print("{{ route('order-board.print', ['source'=>'legacy','id'=>'__ORDER__']) }}".replace('__ORDER__', encodeURIComponent(id)))
+            .catch(function(error){ toastr.error(error.message); });
     }
 
     

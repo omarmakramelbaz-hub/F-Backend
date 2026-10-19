@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Events\OrderUpdated;
 use App\Events\UserUpdated;
+use App\Services\Dashboard\OrderProviderDelivery;
 
 class OrderBroadcastService
 {
@@ -28,37 +29,37 @@ class OrderBroadcastService
         $admin = self::mainAdmin();
 
         if ($admin) {
-            broadcast(new OrderUpdated($order, 1, $admin->id, OrderAction::NEW));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $admin->id, OrderAction::NEW), (int) $order->id);
         }
     }
 
     public static function accept(Order $order)
     {
-        broadcast(new UserUpdated($order, 1, $order->user_id));
+        app(OrderProviderDelivery::class)->event(new UserUpdated($order, 1, $order->user_id), (int) $order->id);
 
         $vendor = self::vendor($order);
         if ($vendor) {
-            broadcast(new OrderUpdated($order, 1, $vendor->id, OrderAction::ACCEPTED));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $vendor->id, OrderAction::ACCEPTED), (int) $order->id);
         }
 
         $admin = self::mainAdmin();
         if ($admin) {
-            broadcast(new OrderUpdated($order, 1, $admin->id, OrderAction::ACCEPTED));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $admin->id, OrderAction::ACCEPTED), (int) $order->id);
         }
     }
 
     public static function decline(Order $order)
     {
-        broadcast(new UserUpdated($order, 1, $order->user_id));
+        app(OrderProviderDelivery::class)->event(new UserUpdated($order, 1, $order->user_id), (int) $order->id);
 
         $vendor = self::vendor($order);
         if ($vendor) {
-            broadcast(new OrderUpdated($order, 1, $vendor->id, OrderAction::DECLINED));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $vendor->id, OrderAction::DECLINED), (int) $order->id);
         }
 
         $admin = self::mainAdmin();
         if ($admin) {
-            broadcast(new OrderUpdated($order, 1, $admin->id, OrderAction::DECLINED));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $admin->id, OrderAction::DECLINED), (int) $order->id);
         }
     }
 
@@ -67,19 +68,19 @@ class OrderBroadcastService
         $vendor = self::vendor($order);
 
         if ($vendor) {
-            broadcast(new OrderUpdated($order, 1, $vendor->id, OrderAction::OUT_FOR_DELIVERY));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $vendor->id, OrderAction::OUT_FOR_DELIVERY), (int) $order->id);
         }
 
         $admin = self::mainAdmin();
 
         if ($admin) {
-            broadcast(new OrderUpdated($order, 1, $admin->id, OrderAction::OUT_FOR_DELIVERY));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $admin->id, OrderAction::OUT_FOR_DELIVERY), (int) $order->id);
         }
     }
 
     public static function prepared(Order $order)
     {
-        broadcast(new UserUpdated($order, 1, $order->user_id));
+        app(OrderProviderDelivery::class)->event(new UserUpdated($order, 1, $order->user_id), (int) $order->id);
     }
 
     public static function complete(Order $order)
@@ -87,13 +88,13 @@ class OrderBroadcastService
         $vendor = self::vendor($order);
 
         if ($vendor) {
-            broadcast(new OrderUpdated($order, 1, $vendor->id, "completed"));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $vendor->id, "completed"), (int) $order->id);
         }
 
         $admin = self::mainAdmin();
 
         if ($admin) {
-            broadcast(new OrderUpdated($order, 1, $admin->id, "completed"));
+            app(OrderProviderDelivery::class)->event(new OrderUpdated($order, 1, $admin->id, "completed"), (int) $order->id);
         }
     }
 }

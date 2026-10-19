@@ -65,7 +65,9 @@
           </div><!-- /.col -->
           <div class="col-sm-6">
             <ol class="breadcrumb float-sm-right">
-                <a href="{{route('mark_all_as_read')}}" class="btn btn-primary">@lang('main.mark all notification as read')</a>
+                <form action="{{route('mark_all_as_read')}}" method="post">@csrf
+                  <button type="submit" class="btn btn-primary">@lang('main.mark all notification as read')</button>
+                </form>
             </ol>
         </div><!-- /.col -->
         </div><!-- /.row -->

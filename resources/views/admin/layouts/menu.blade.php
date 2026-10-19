@@ -1,11 +1,10 @@
 <!-- Main Sidebar Container -->
-<aside class="main-sidebar sidebar-dark-primary ">
+<aside id="dashboard-sidebar" class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link" style="font-size: 16px;">
-        <span class="brand-text font-weight-light">{{ app(App\Models\GeneralSettings::class)->site_name }}</span>
-        <!--<img class="logo-ar" src="{{url('dashboard/dist/img/Layer.svg')}}" width="145px" alt="admin image">-->
-        <!--<img class="logo-en" src="{{url('dashboard/dist/img/logo-en.svg')}}" width="145px" alt="admin image">-->
+    <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
+        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
+        <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </a>
     <hr>
     <!-- Sidebar -->
@@ -13,16 +12,6 @@
         <!-- Sidebar user panel (optional) -->
         <div class="container user-panel mt-1 mb-1 d-flex">
             <div class="d-flex align-items-center gap-2">
-                <div class="">
-                    @if(auth('admin')->user()->getFirstMediaUrl('photo_profile', 'thumb'))
-                        <img class="avatar" src="{{auth('admin')->user()->getFirstMediaUrl('photo_profile', 'thumb')}}"
-                            alt="admin image">
-                    @else
-                        <!--<img class="avatar" src="{{url('dashboard/dist/img/avatar_icon.png')}}" alt="admin image">-->
-                        <i class="fas fa-user-gear"></i>
-                    @endif
-
-                </div>
                 <div class="">
                     @if(auth('admin')->user()->id == 1)
                         <a style="line-height: 45px;"
@@ -37,13 +26,10 @@
             </div>
         </div>
         <hr>
-        <nav class="mt-2">
-            <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" style="padding:0px"
-                data-accordion="false">
+        <nav class="mt-2" aria-label="{{ app()->getLocale() === 'ar' ? 'القائمة الرئيسية' : 'Main navigation' }}">
+            <ul class="nav nav-pills nav-sidebar flex-column" data-dashboard-navigation data-widget="treeview" role="menu" style="padding:0px"
+                data-accordion="true">
 
-                @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
-                <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
-                @endif
                 <!-- الصفحة الرئيسيه -->
                 <li class="nav-item">
                     <a href="{{ url('/admin/dashboard') }}"
@@ -54,7 +40,62 @@
                         </p>
                     </a>
                 </li>
+                @if(app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()))
+                    <li class="nav-item">
+                        <a href="{{ route('orders.applies') }}" class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-mobile-alt"></i>
+                            <p>{{ __('order_board.app_orders') }}</p>
+                        </a>
+                    </li>
+                @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
+                @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
+                    <li class="nav-item">
+                        <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-shopping-bag"></i>
+                            <p>{{ __('takeaway.title') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ route('phone-orders.index') }}" class="nav-link {{ request()->is('admin/phone-orders*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-phone-alt"></i>
+                            <p>{{ __('phone_orders.saved_orders') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ route('dining.index') }}" class="nav-link {{ request()->is('admin/dining*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-chair"></i>
+                            <p>{{ __('dining.title') }}</p>
+                        </a>
+                    </li>
+                    <li class="nav-item"><a href="{{ route('branch-expenses.index') }}" class="nav-link {{ request()->is('admin/branch-expenses*') ? 'active' : '' }}"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>{{ __('expenses.title') }}
+                        @if(app(\App\Services\Dashboard\BranchExpenses::class)->permissions(auth('admin')->user())['can_approve'])
+                            @php($pendingExpenses = app(\App\Services\Dashboard\BranchExpenses::class)->pendingCount(auth('admin')->user()))
+                            <span class="badge dashboard-expense-badge" data-expense-pending-count data-count-url="{{ route('branch-expenses.pendingCount') }}" data-count-label="{{ app()->getLocale() === 'ar' ? 'مصروفات تنتظر الاعتماد' : 'Expenses awaiting approval' }}" aria-live="polite" aria-atomic="true" aria-label="{{ $pendingExpenses }} {{ app()->getLocale() === 'ar' ? 'مصروفات تنتظر الاعتماد' : 'Expenses awaiting approval' }}" @if(!$pendingExpenses) hidden @endif>{{ $pendingExpenses }}</span>
+                        @endif
+                    </p></a></li>
+                    @if(count(app(\App\Services\Dashboard\BranchStock::class)->branches(auth('admin')->user())))
+                    <li class="nav-item"><a href="{{ route('branch-stock.index') }}" class="nav-link {{ request()->is('admin/branch-stock*') ? 'active' : '' }}"><i class="nav-icon fas fa-boxes"></i><p>إضافة بضاعة</p></a></li>
+                    @endif
+                    @if(count(app(\App\Services\Dashboard\BranchShiftClosing::class)->branches(auth('admin')->user())))
+                    <li class="nav-item"><a href="{{ route('branch-shifts.index') }}" class="nav-link {{ request()->is('admin/branch-shifts*') ? 'active' : '' }}"><i class="nav-icon fas fa-cash-register"></i><p>تقفيل الوردية</p></a></li>
+                    @endif
+                    @if(in_array(auth('admin')->user()->account_type,['admin','vendor','resturant_owner']))
+                    <li class="nav-item"><a href="{{ route('employees.index') }}" class="nav-link {{ request()->is('admin/employees*')?'active':'' }}"><i class="nav-icon fas fa-user-clock"></i><p>الموظفون والرواتب</p></a></li>
+                    @endif
+                    <li class="nav-item">
+                        <a href="{{ route('branch-orders.index') }}" class="nav-link {{ request()->is('admin/branch-orders') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-store"></i><p>{{ __('branch_orders.title') }}</p>
+                        </a>
+                    </li>
+                    @foreach(['delivery-companies'=>'شركات الدليفري','customers'=>'قائمة العملاء'] as $module=>$title)
+                    <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='customers'?'fa-address-book':'fa-shipping-fast' }}"></i><p>{{ $title }}</p></a></li>
+                    @endforeach
+                    <li class="nav-item"><a href="{{ route('print-settings.index') }}" class="nav-link {{ request()->is('admin/print-settings*') ? 'active' : '' }}"><i class="nav-icon fas fa-print"></i><p>{{ __('printing.title') }}</p></a></li>
+                @endif
+                @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
+                <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
+                @endif
                 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
                     <li class="nav-item">
@@ -90,24 +131,14 @@
                     <!--    </a>-->
                     <!--</li>-->
                 @endif
-                @if(Auth::guard('admin')->user()->can('support_contact-list'))
-                    @if(auth()->user()->roles->pluck("id")->first() == 11)
-                        <li class="nav-item">
-                            <a href="{{ url('/admin/chat') }}"
-                                class="nav-link {{ request()->is('admin/chat') ? 'active' : '' }}">
-                                <i class="fas fa-message nav-icon"></i>
-                                <p>@lang('main.Contact technical support')</p>
-                            </a>
-                        </li>
-                    @elseif(auth()->user()->roles->pluck("id")->first() == 2)
-                        <li class="nav-item">
-                            <a href="{{ url('/admin/chat?user_id=1') }}"
-                                class="nav-link {{ request()->is('admin/chat?user_id=1') ? 'active' : '' }}">
-                                <i class="fas fa-message nav-icon"></i>
-                                <p>@lang('main.Contact technical support')</p>
-                            </a>
-                        </li>
-                    @endif
+                @if(auth('admin')->id() === 1 || Auth::guard('admin')->user()->can('support_contact-list'))
+                    <li class="nav-item">
+                        <a href="{{ auth('admin')->user()->account_type === 'admin' ? url('/admin/chat') : url('/admin/chat?user_id=1') }}"
+                            class="nav-link {{ request()->is('admin/chat') ? 'active' : '' }}">
+                            <i class="fas fa-message nav-icon"></i>
+                            <p>@lang('main.Contact technical support') <span class="badge dashboard-support-badge" data-support-unread hidden aria-live="polite"></span></p>
+                        </a>
+                    </li>
                 @endif
                 @if(Auth::guard('admin')->user()->can('fcm_notification-create'))
                     <li class="nav-item has-treeview">
@@ -425,15 +456,6 @@
                     </li>
                     @if(in_array(auth()->user()->roles->pluck("id")->first(), [2, 13]))
                         <li class="nav-item">
-                            <a href="{{ url('/admin/applies-orders') }}"
-                                class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
-                                <i class="nav-icon fas fa-hand-holding-usd"></i>
-                                <p>
-                                    @lang('main.orders applies')
-                                </p>
-                            </a>
-                        </li>
-                        <li class="nav-item">
                             <a href="{{ url('/admin/resturant-reports?report_type=week') }}"
                                 class="nav-link {{ request()->is('admin/resturant-reports?report_type=week') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-chart-line"></i>
@@ -727,6 +749,5 @@
                 {{-- @endif --}}
             </ul>
         </nav>
-    </div>
     </div>
 </aside>

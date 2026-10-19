@@ -1,0 +1,42 @@
+.ob-workspace{height:100%;min-height:0;min-width:0;display:flex;gap:12px;position:relative;direction:ltr}
+.ob-workspace>.ob-board{flex:1;order:2;min-width:0;width:auto}
+html[dir="rtl"] .ob-workspace>.ob-board,html[dir="rtl"] .ob-menu{direction:rtl}
+.ob-header-tools{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.ob-menu-toggle{border:1px solid #46596e;background:#142536;color:#e8edf5;padding:6px 10px;border-radius:6px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
+.ob-menu{order:1;flex:0 0 260px;width:260px;min-height:0;display:flex;flex-direction:column;background:#f7f9fc;color:#23364b;border:1px solid #d8e1ed;border-radius:9px;overflow:hidden;font-family:inherit;text-transform:none}
+.ob-menu[hidden],.ob-menu-backdrop[hidden],.ob-menu-toggle[hidden]{display:none!important}
+.ob-menu *{box-sizing:border-box}
+.ob-menu-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:13px 12px;background:#142638;color:#fff}
+.ob-menu-heading h2{font-size:15px;font-weight:700;margin:0;line-height:1.5}
+.ob-menu-heading p{font-size:11px;color:#c8d6e5;margin:3px 0 0;overflow-wrap:anywhere}
+.ob-menu-heading button{border:0;background:transparent;color:#fff;font-size:24px;line-height:1;width:30px;height:30px;cursor:pointer;flex-shrink:0}
+.ob-menu-search{display:flex;gap:5px;padding:10px;border-bottom:1px solid #dfe6ef}
+.ob-menu-search input{width:100%;min-width:0;border:1px solid #cbd7e5;border-radius:6px;padding:8px;color:#23364b;background:#fff;font:inherit;font-size:11px}
+.ob-menu-search button{width:32px;flex-shrink:0;border:1px solid #cbd7e5;border-radius:6px;background:#fff;color:#344d68;font-size:21px;cursor:pointer}
+.ob-menu-message{font-size:11px;line-height:1.7;padding:8px 11px;margin:0;border-bottom:1px solid #e0e6ee;background:#fff0df;color:#86500e}
+.ob-menu-message.is-success{background:#e9f7ee;color:#147946}
+.ob-menu-items{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:9px}
+.ob-menu-items[aria-busy="true"]{opacity:.65}
+.ob-menu-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:10px;background:#fff;border:1px solid #dce5ef;border-radius:7px;margin-bottom:7px;font-size:11px;line-height:1.6}
+.ob-menu-item img{width:34px;height:34px;object-fit:cover;border-radius:6px}
+.ob-menu-item-copy{flex:1;min-width:0}
+.ob-menu-item-name{display:block;font-size:12px;font-weight:700;overflow-wrap:anywhere;line-height:1.6}
+.ob-menu-item-price{display:block;color:#5b7189;font-variant-numeric:tabular-nums}
+.ob-menu-item-status{font-size:10px;border-radius:4px;padding:2px 6px;background:#e6f5ec;color:#11733f}
+.ob-menu-item-status.is-unavailable{background:#fff0e9;color:#ad451d}
+.ob-menu-item-toggle{margin-inline-start:auto;min-height:30px;padding:4px 12px;font:inherit;font-size:11px;font-weight:700;border-radius:5px;border:1px solid #f0c4b4;background:#fff4ef;color:#ad3c20;cursor:pointer}
+.ob-menu-item-toggle.is-open{background:#eaf7ee;border-color:#b6dcc3;color:#13773e}
+.ob-menu-item-toggle:disabled{opacity:.55;cursor:wait}
+.ob-menu-empty{font-size:12px;color:#6e8196;text-align:center;padding:22px 10px;line-height:1.8}
+.ob-menu-footer{display:flex;align-items:center;justify-content:space-between;gap:7px;border-top:1px solid #dce5ef;padding:9px;font-size:10px;background:#fff}
+.ob-menu-footer button{font:inherit;font-size:11px;min-height:29px;padding:4px 8px;background:#f3f6fb;color:#354f69;border:1px solid #dce5ef;border-radius:5px;cursor:pointer}
+.ob-menu-footer button:disabled{opacity:.4;cursor:default}
+.ob-menu input:focus,.ob-menu button:focus-visible,.ob-menu-toggle:focus-visible{outline:2px solid #ee853b;outline-offset:2px}
+.ob-menu-backdrop{display:none}
+@media(max-width:1199px) and (min-width:992px){.ob-menu{flex-basis:230px;width:230px}.ob-workspace{gap:9px}}
+@media(max-width:991.98px){
+    .ob-menu{position:absolute;left:0;top:0;bottom:0;width:min(300px,90%);z-index:22;box-shadow:8px 0 30px #0005}
+    .ob-menu-backdrop:not([hidden]){display:block;position:absolute;inset:0;background:#0006;z-index:21}
+    .ob-menu-item-toggle{min-height:36px}.ob-menu-toggle{min-height:32px}
+}
+@media(max-width:576px){.ob-header-tools{flex-direction:column;align-items:flex-end;gap:4px}.ob-menu-toggle{padding:4px 8px;font-size:10px}.ob-menu-heading{padding:11px}}

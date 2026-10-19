@@ -1,9 +1,11 @@
 <?php
 namespace App\Http\Controllers\Api\V1\Delegate;
+use App\Services\Dashboard\OrderProviderDelivery;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Resturant;
 use App\Models\Order;
+use App\Services\Dashboard\LegacyOrderCompletion;
 use App\Models\DelegateNotification;
 use Illuminate\Http\Request;
 use App\Http\Requests\Api\Auth\StoreUserResturantRequest;
@@ -188,8 +190,8 @@ class DelegateOrderController extends Controller {
         $delegate = auth('api')->user();
         if($user){
             Notification::send($user,new \App\Notifications\NotifyUserAfterOrderShippingAccepted($order));
-            broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$request->price));
-            broadcast(new ShippingUpdated($order,1,$user->id));
+            app(OrderProviderDelivery::class)->event(new DelegateShippingUpdated($delegate,1,$user->id,$request->price), (int) $order->id);
+            app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$user->id), (int) $order->id);
         }
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.accepted order successfully'));
     }
@@ -210,7 +212,7 @@ class DelegateOrderController extends Controller {
         ]);
         $user = User::find($order->user_id);
         if($user){
-            broadcast(new ShippingUpdated($order,1,$user->id));
+            app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$user->id), (int) $order->id);
         }
         return $this->successResponse([
             'order' => OrderResource::make($order),
@@ -280,12 +282,22 @@ class DelegateOrderController extends Controller {
             ]);
         });
 
-        broadcast(new ShippingUpdated($order->fresh(),1,$order->user_id));
-        broadcast(new DelegateUpdated($order->fresh(),1,$order->delegate_id));
+        app(OrderProviderDelivery::class)->event(new ShippingUpdated($order->fresh(),1,$order->user_id), (int) $order->id);
+        app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->fresh(),1,$order->delegate_id), (int) $order->id);
         return $this->successResponse(OrderResource::make($order->fresh()), __('api.order updated successfully'));
     }
 
     public function acceptDeclineOrder(Request $request,Order $order){
+        if ($order->type !== 'current') return $this->acceptDeclineOrderLocked($request, $order);
+        return DB::transaction(function () use ($request, $order) {
+            $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $this->assertApiDelegateParty($locked, in_array($request->status, ['accept', 'declined'], true));
+            abort_if(in_array($locked->status, ['completed', 'cancelled', 'declined'], true), 409, 'تم إغلاق الطلب.');
+            return $this->acceptDeclineOrderLocked($request, $locked);
+        }, 3);
+    }
+
+    private function acceptDeclineOrderLocked(Request $request,Order $order){
         if(auth('api')->user()->status != 'accepted'){
             return $this->errorResponse(__('api.contact admin for account activation'));
         }
@@ -293,11 +305,11 @@ class DelegateOrderController extends Controller {
             if($order->delegate_id==null){
                 if($request->status=='accept'){
                     
-                    $order->update(['status'=>'accepted','delegate_id'=>auth('api')->user()->id]);
+                    $order->update(['status'=>$order->status === 'shipped' ? 'shipped' : 'accepted','delegate_id'=>auth('api')->user()->id]);
                     $title=__('api.accepted order successfully');
                     $delegates=DelegateNotification::where('order_id',$order->id)->where('delegate_id','!=',auth('api')->user()->id)->get();
                     foreach($delegates as $delegate){
-                     broadcast(new DelegateUpdated($order->id,1,$delegate->delegate_id));
+                     app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->id,1,$delegate->delegate_id), (int) $order->id);
                     }
                 }elseif($request->status=='shipped'){
                     $title=__('api.shipped order successfully');
@@ -317,8 +329,8 @@ class DelegateOrderController extends Controller {
                 $resturant_owner = User::where('id',$order->resturant?->user_id)->first();
                 if($resturant_owner){
                     Notification::send($resturant_owner,new \App\Notifications\NotifyResturantDelegateAcceptedNotification($order));
-                    broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                    broadcast(new UserUpdated($order->id,1,$order->user_id));
+                    app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                    app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
 
                 }
                 return $this->successResponse("success",$title);
@@ -330,8 +342,8 @@ class DelegateOrderController extends Controller {
                     $resturant_owner = User::where('id',$order->resturant?->user_id)->first();
                     if($resturant_owner && $order->status == 'accepted'){
                         Notification::send($resturant_owner,new \App\Notifications\NotifyResturantDelegateAcceptedNotification($order));
-                         broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                    broadcast(new UserUpdated($order->id,1,$order->user_id));
+                         app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                    app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
                     }
                     return $this->successResponse("success",$title);
         
@@ -350,7 +362,7 @@ class DelegateOrderController extends Controller {
                     $delegate = User::where('id', auth('api')->user()->id)->first();
                         //notify user after delegate accepted
                     Notification::send($user,new \App\Notifications\NotifyUserAfterOrderShippingAccepted($order));
-                    broadcast(new DelegateShippingUpdated($delegate,1,$user->id,$order->grand_total));
+                    app(OrderProviderDelivery::class)->event(new DelegateShippingUpdated($delegate,1,$user->id,$order->grand_total), (int) $order->id);
     
                 }elseif($request->status=='shipped'){
                     $title=__('api.shipped order successfully');
@@ -358,7 +370,7 @@ class DelegateOrderController extends Controller {
                     
                     // broadcast(new VendorUpdated($order,1,$user->id));
                     
-                   broadcast(new ShippingUpdated($order,1,$order->user_id));
+                   app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$order->user_id), (int) $order->id);
                
     
                 }elseif($request->status=='declined'){
@@ -370,7 +382,7 @@ class DelegateOrderController extends Controller {
                     DelegateNotification::where('delegate_id',auth('api')->user()->id)->where('order_id',$order->id)->update(['status' => 'declined']);
                     $title=__('api.declined order successfully');
                     // $order->update(['status'=>'another_delegate']);
-                    broadcast(new VendorUpdated($order->id,1,$user->id));
+                    app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$user->id), (int) $order->id);
                 }else{
                  return $this->errorResponse(__('api.sorry another delegate accept order'));
             }
@@ -381,10 +393,18 @@ class DelegateOrderController extends Controller {
     }
     
     public function orderCompleted(Order $order){
+        if ($order->type === 'current') {
+            DB::transaction(function () use ($order) {
+                $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $this->assertApiDelegateParty($locked);
+                app(LegacyOrderCompletion::class)->complete($locked);
+            }, 3);
+            return $this->successResponse('success', __('api.order updated successfully'));
+        }
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
-                   broadcast(new ShippingUpdated($order,1,$order->user_id));
+                   app(OrderProviderDelivery::class)->event(new ShippingUpdated($order,1,$order->user_id), (int) $order->id);
                }
 
         if($order->type=='current'){
@@ -393,8 +413,8 @@ class DelegateOrderController extends Controller {
                     if($resturant_owner){
                         Notification::send($resturant_owner,new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
                         
-                        broadcast(new VendorUpdated($order->id,1,$resturant_owner->id));
-                        broadcast(new UserUpdated($order->id,1,$order->user_id));
+                        app(OrderProviderDelivery::class)->event(new VendorUpdated($order->id,1,$resturant_owner->id), (int) $order->id);
+                        app(OrderProviderDelivery::class)->event(new UserUpdated($order->id,1,$order->user_id), (int) $order->id);
                     }
         
         
@@ -426,7 +446,7 @@ class DelegateOrderController extends Controller {
                     Notification::send($user_order_owner,new \App\Notifications\NotifyUserOrderStatusUpdatedNotification($order));
                      $email = $user_order_owner->email;
                         if($email){
-                            Mail::send('emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
+                            app(\App\Services\Dashboard\BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email', ['email' => $email, 'cart' => $order], function ($message) use ($email) {
                     			$message->to($email);
                     			$message->subject('Your order has been received!');
                     
@@ -624,8 +644,32 @@ class DelegateOrderController extends Controller {
     }
     
     public function transfer_order_price($id){
+        return DB::transaction(function () use ($id) {
+            $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
+            if ($locked->type === 'current') $this->assertApiDelegateParty($locked);
+            if ($locked->type === 'current') app(LegacyOrderCompletion::class)->lockParties($locked);
+            $eligible = $locked->type === 'current' && $locked->grand_total > 0 && $locked->delegate_id
+                && $locked->reason === null && $locked->transfer_price_by === null && $locked->status === 'completed';
+            $result = $this->transferOrderPriceLocked($id);
+            if ($result instanceof \Throwable) throw $result;
+            if ($eligible && Order::whereKey($id)->value('transfer_price_by') === null) throw new \RuntimeException('Courier settlement did not commit');
+            return $result;
+        }, 3);
+    }
+
+    private function transferOrderPriceLocked($id){
         try{
             $order=Order::find($id);
+            if ($order && auth('admin')->check()) {
+                // The dashboard may settle only this scoped order. Resolve its
+                // exact parties without the unrelated dashboard listing scope.
+                $restaurant = Resturant::withoutGlobalScopes()->find($order->resturant_id);
+                if ($restaurant) {
+                    $restaurant->setRelation('user', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($restaurant->user_id));
+                }
+                $order->setRelation('resturant', $restaurant);
+                $order->setRelation('delegate', User::withoutGlobalScope(\App\Scopes\AdminScope::class)->find($order->delegate_id));
+            }
             $delegate=$order->delegate;
             if($order && $order->grand_total>0 && $order->delegate_id !=null && $order->reason==null && $order->transfer_price_by==null  && $order->status == 'completed'){
                 $vendor_price=$order->vendor_percentage;
@@ -647,9 +691,7 @@ class DelegateOrderController extends Controller {
                             ]);
                     }
                     // transfer tax for app
-                    $setting=app(GeneralSettings::class);
-                    $setting->app_balance=$setting->app_balance+$app_price;
-                    $setting->save();
+                    app(LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($app_price, 2, '.', '')));
                         Wallet::create([
                             'from_user'=>$delegate->id,
                             'amount'=>$app_price,
@@ -683,6 +725,18 @@ class DelegateOrderController extends Controller {
         }catch(\Exception $e){
              return $this->errorResponse($e->getMessage());
           }
+    }
+
+    private function assertApiDelegateParty(Order $order, bool $allowInvitation = false): void
+    {
+        if (auth('admin')->check() || !auth('api')->check()) return;
+        $actor = auth('api')->user();
+        abort_unless($actor->account_type === 'delegate' && $actor->status === 'accepted', 403);
+        $assigned = (int) $order->delegate_id === (int) $actor->id;
+        $invited = $allowInvitation && !$order->delegate_id
+            && \Illuminate\Support\Facades\Schema::hasTable('delegate_notifications')
+            && DB::table('delegate_notifications')->where('order_id', $order->id)->where('delegate_id', $actor->id)->exists();
+        abort_unless($assigned || $invited, 403);
     }
     
 
