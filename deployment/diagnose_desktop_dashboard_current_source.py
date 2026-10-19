@@ -19,6 +19,7 @@ PINS = {
 LIMIT = 64 * 1024 * 1024
 RELATED_GUI = ('public/js/dashboard-meta-inbox.js', 'public/js/dashboard-meta-replies.js',
                'public/css/dashboard-meta-inbox.css')
+ADDITIONAL_GUI_DIRECTORIES = (('public/js', '.js'), ('public/css', '.css'))
 
 
 class DiagnosisError(Exception):
@@ -168,6 +169,48 @@ def source_map(root_fd, source):
     return files, metadata
 
 
+def additional_dashboard_gui(root_fd, source):
+    """Inventory only immediate dashboard assets in the two public directories."""
+    files, directories, cases = {}, {}, set()
+    total = 0
+    for relative, suffix in ADDITIONAL_GUI_DIRECTORIES:
+        fd = os.dup(root_fd)
+        try:
+            try:
+                for name in Path(relative).parts:
+                    following = open_directory(fd, name)
+                    os.close(fd)
+                    fd = following
+            except FileNotFoundError:
+                directories[relative] = None
+                continue
+            before = identity(os.fstat(fd))
+            for name in sorted(os.listdir(fd)):
+                path = relative + '/' + name
+                # Exclude private names before any stat/open and never recurse.
+                if source['SECRET'].search(path):
+                    continue
+                if not (name.startswith('dashboard-') and name.endswith(suffix)):
+                    continue
+                if not source['SAFE'].fullmatch(path):
+                    raise DiagnosisError('DESKTOP_SOURCE_DIAGNOSIS_PATH_INVALID')
+                if path.lower() in cases or len(files) >= 20000:
+                    raise DiagnosisError('DESKTOP_SOURCE_DIAGNOSIS_SOURCE_LIMIT')
+                item = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if stat.S_ISLNK(item.st_mode):
+                    raise DiagnosisError('DESKTOP_SOURCE_DIAGNOSIS_LINK')
+                data, checked = read_file(fd, name, min(8 * 1024 * 1024, LIMIT - total))
+                total += len(data)
+                cases.add(path.lower())
+                files[path] = (source['record'](data), identity(checked))
+            if identity(os.fstat(fd)) != before:
+                raise DiagnosisError('DESKTOP_SOURCE_DIAGNOSIS_DIRECTORY_CHANGED')
+            directories[relative] = before
+        finally:
+            os.close(fd)
+    return files, directories
+
+
 def snapshot(root, source, gui, rows, head_reader):
     fd = open_root(root)
     original_root = identity(os.fstat(fd))[:5]
@@ -175,6 +218,7 @@ def snapshot(root, source, gui, rows, head_reader):
         head = head_reader()
         files, metadata = source_map(fd, source)
         gui_values = {name: path_value(fd, name, source) for name in gui}
+        additional_gui, additional_gui_directories = additional_dashboard_gui(fd, source)
         scope = {row['path']: path_value(fd, row['path'], source, content=False) for row in rows}
         fresh = open_root(root)
         try:
@@ -183,7 +227,8 @@ def snapshot(root, source, gui, rows, head_reader):
         finally:
             os.close(fresh)
         return {'head': head, 'files': files, 'metadata': metadata,
-                'gui': gui_values, 'scope': scope}
+                'gui': gui_values, 'scope': scope, 'additional_dashboard_gui': additional_gui,
+                'additional_dashboard_gui_directories': additional_gui_directories}
     finally:
         os.close(fd)
 
@@ -214,6 +259,11 @@ def report(before, after, source, fixture, manifest, scope, release=None):
                         'uid': value[1][3], 'gid': value[1][4],
                         'mode': format(stat.S_IMODE(value[1][2]), '04o'), 'links': value[1][5]}}
                    for path in RELATED_GUI if path in after['gui'] for value in [after['gui'][path]]]
+    additional_gui = [{'path': path, 'actual': value[0],
+                       'metadata': {'uid': value[1][3], 'gid': value[1][4],
+                                    'mode': format(stat.S_IMODE(value[1][2]), '04o'),
+                                    'links': value[1][5], 'regular': stat.S_ISREG(value[1][2])}}
+                      for path, value in sorted(after.get('additional_dashboard_gui', {}).items())]
     states = {'original': 0, 'repaired': 0, 'unreviewed': 0, 'absent': 0}
     unusual = []
     for row in scope['rows']:
@@ -232,9 +282,10 @@ def report(before, after, source, fixture, manifest, scope, release=None):
             'actual_source': actual_source, 'expected_source': fixture['source'],
             'source_matches_before': actual_source == fixture['source'],
             'source_matches_release': actual_source == manifest['after_source'],
-            'source_difference_count': len(changed), 'source_differences': changed[:250],
-            'source_differences_truncated': len(changed) > 250, 'gui': gui,
+            'source_difference_count': len(changed), 'source_differences': changed,
+            'source_differences_truncated': False, 'gui': gui,
             'related_meta_gui': related_gui,
+            'additional_dashboard_gui': additional_gui,
             'publication_metadata_states': states, 'unreviewed_metadata': unusual,
             'deployment_performed': False, 'metadata_changed': False,
             'php_bootstrapped': False, 'database_read': False, 'source_content_printed': False}
