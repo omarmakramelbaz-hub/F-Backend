@@ -25,6 +25,13 @@ class DesktopDashboardReconciliation
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
+            if(DesktopDashboardCustomerDirectory::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
+                $adapter=app(DesktopDashboardCustomerDirectory::class);$adapter->validateReferences($v['payload']);
+                abort_unless($v['local_references']===$adapter->outputs($v['route_name'],$v['local_result']),409,'مراجع نتيجة العميل المحلي غير متطابقة.');
+                $crmPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($v['route_name'],$crmPayload,$actor,$locked);
+            }
             if(DesktopDashboardCustomerFacts::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
                 app(DesktopDashboardCustomerFacts::class)->validateReferences($v['payload']);
@@ -73,7 +80,7 @@ class DesktopDashboardReconciliation
                 if($v['route_name']==='branch-expenses.categorySave'&&!empty($payload['values']['branch']))
                     $this->devices->branch($locked,(string)$payload['values']['branch'],$actor);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
-                elseif(!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                elseif(!DesktopDashboardCustomerDirectory::handles($v['route_name'])&&!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
                     $this->devices->branch(DesktopDashboardCustomerFacts::handles($v['route_name'])?$locked:$device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();
@@ -88,6 +95,8 @@ class DesktopDashboardReconciliation
                     $execute=function()use($v,$payload,$actor,$when){
                     $run=fn()=>$this->commands->execute($v['route_name'],$payload,$actor);
                     $result=DesktopDashboardCustomerFacts::handles($v['route_name'])?app(DesktopDashboardCustomerFacts::class)->replay($payload,$run):$run();
+                    if(DesktopDashboardCustomerDirectory::handles($v['route_name']))
+                        app(DesktopDashboardCustomerDirectory::class)->verifyAfter($v['route_name'],$result,$v['local_result']);
                     if(DesktopDashboardRestaurantFlags::handles($v['route_name']))
                         app(DesktopDashboardRestaurantFlags::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardRestaurantProducts::handles($v['route_name']))

@@ -171,3 +171,75 @@ test('current stock settings reserve exact POST paths and recover committed lost
     assert.deepEqual(foreign.calls,[]);
   }
 });
+const crmPaths=['/admin/customers/directory-save','/admin/customers/consent'];
+test('customer profile and consent reservations accept only their exact reviewed POST paths',()=>{
+  const f=fixture();
+  for(const path of crmPaths){
+    const url=credential.serverOrigin+path;
+    assert.equal(f.attempts.supported({url,method:'POST'}),true);
+    for(const method of ['GET','HEAD','PUT','PATCH','DELETE','OPTIONS'])
+      assert.equal(f.attempts.supported({url,method}),false,path+' '+method);
+    for(const suffix of ['/','/12','/save','-send'])
+      assert.equal(f.attempts.supported({url:url+suffix,method:'POST'}),false,path+suffix);
+  }
+});
+test('customer profile and consent writes bind durable reservations before sending and recover committed lost replies',async()=>{
+  for(const path of crmPaths){
+    const f=fixture(),id=crypto.randomUUID();
+    const attempts=new RemoteAttempts({...f.options,request:async value=>{
+      if(value.action==='reserve'){
+        assert.deepEqual(f.records.get('remote-attempts/'+id),{
+          format:1,id,deviceId:credential.deviceId,actorId:credential.actorId,serverOrigin:credential.serverOrigin,method:'POST',path
+        });
+        assert.deepEqual((await f.state.read()).pending,[id],'The reservation binding and uncertain state precede the server call.');
+      }
+      return f.options.request(value);
+    }});
+    const proof=await attempts.begin(id,{url:credential.serverOrigin+path,method:'POST'});
+    assert.deepEqual(proof,{'X-Fasakhansta-Remote-Attempt':id,'X-Fasakhansta-Remote-Capability':'b'.repeat(64)});
+    await attempts.recover();assert.equal(f.calls.length,1,'Recovery cannot cancel the accepted in-flight customer write.');
+    f.decisions.set(id,'committed');attempts.failed(id);
+    await new RemoteAttempts(f.options).recover();
+    const saved=f.records.get('remote-attempts/'+id);
+    assert.equal(saved.receipt.status,'committed');assert.equal(saved.receipt.path,path);
+    assert.deepEqual((await f.state.read()).pending,[]);assert.equal((await f.state.read()).dirty,true);
+    await assert.rejects(f.state.assertClean(),'A terminal customer write still requires a coherent data refresh.');
+    assert.deepEqual(f.calls.map(value=>[value.action,value.id,value.method,value.path]),[
+      ['reserve',id,'POST',path],['settle',id,'POST',path]
+    ]);
+  }
+});
+test('lost customer reservation replies retain their exact identity and recover cancellation after restart',async()=>{
+  for(const path of crmPaths){
+    const f=fixture(),id=crypto.randomUUID();
+    const attempts=new RemoteAttempts({...f.options,request:async value=>{await f.options.request(value);throw Error('lost customer reserve reply');}});
+    await assert.rejects(attempts.begin(id,{url:credential.serverOrigin+path,method:'POST'}),/lost customer reserve reply/);
+    assert.equal(f.records.get('remote-attempts/'+id).path,path);assert.deepEqual((await f.state.read()).pending,[id]);
+    await new RemoteAttempts(f.options).recover();
+    assert.equal(f.records.get('remote-attempts/'+id).receipt.status,'cancelled');
+    assert.deepEqual((await f.state.read()).pending,[]);assert.equal((await f.state.read()).dirty,true);
+    assert.deepEqual(f.calls.map(value=>[value.action,value.id,value.method,value.path]),[
+      ['reserve',id,'POST',path],['settle',id,'POST',path]
+    ]);
+  }
+});
+test('customer reservations reject foreign origins before persisting or requesting a capability',async()=>{
+  for(const path of crmPaths){
+    const f=fixture(),id=crypto.randomUUID();
+    await assert.rejects(f.attempts.begin(id,{url:'https://foreign.test'+path,method:'POST'}));
+    assert.equal(f.records.size,0);assert.deepEqual(f.calls,[]);await f.state.assertClean();
+    assert.equal(f.attempts.active.has(id),false);
+  }
+});
+test('customer provider configuration, templates and campaign actions receive no reviewed reservation capability',async()=>{
+  for(const path of ['/admin/customers/messaging-status','/admin/customers/messaging-configure',
+    '/admin/customers/feedback-template-prepare','/admin/customers/marketing-template-prepare','/admin/customers/campaign-queue',
+    '/admin/customers/send','/admin/customers/consent/send']){
+    const f=fixture(),id=crypto.randomUUID(),details={url:credential.serverOrigin+path,method:'POST'};
+    assert.equal(f.attempts.supported(details),false);
+    assert.deepEqual(await f.attempts.begin(id,details),{});
+    assert.equal(f.records.has('remote-attempts/'+id),false);assert.deepEqual(f.calls,[]);
+    f.attempts.failed(id);await new RemoteAttempts(f.options).recover();
+    assert.deepEqual((await f.state.read()).pending,[id],'Unreviewed provider outcomes keep the existing uncertainty guard.');
+  }
+});

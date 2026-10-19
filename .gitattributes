@@ -8,6 +8,8 @@ public/dashboard/vendor/desktop-external/** -text
 tests/desktop_dashboard_runtime/*.php text eol=lf
 tests/desktop_dashboard_runtime/*.cjs text eol=lf
 tests/desktop_dashboard_runtime/fixtures/*.json text eol=lf
+# CRM browser receipts bind the exact source fingerprint helper on Windows.
+desktop-pos/src/dashboard-source.cjs text eol=lf
 # Preserve upstream notices verbatim and source-bound PDF helper bytes on Windows.
 desktop-pos/licenses/wkhtmltox/** -text -whitespace
 desktop-pos/src/wkhtmltox-windows.json text eol=lf

@@ -118,8 +118,15 @@ class DesktopDashboardCustomerFacts
     }
     public function replay(array $payload,callable $work): array
     {
-        $previous=self::$replayIdentities;$expected=[];
+        $expected=[];
         foreach($this->facts($payload)['targets'] as $target)$expected[$target['phone']]=$target['customer']['id']??null;
+        return $this->withIdentities($expected,$work);
+    }
+    public function withIdentities(array $expected,callable $work): array
+    {
+        foreach($expected as $phone=>$id)abort_unless(is_string($phone)&&CustomerDirectory::normalizePhone($phone)===$phone
+            &&($id===null||is_int($id)&&$id>0),409);
+        $previous=self::$replayIdentities;
         self::$replayIdentities=$expected;
         try{return $work();}finally{self::$replayIdentities=$previous;}
     }

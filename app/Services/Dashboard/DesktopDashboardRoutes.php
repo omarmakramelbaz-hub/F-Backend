@@ -26,7 +26,7 @@ class DesktopDashboardRoutes
         'phone-orders.save','phone-orders.action','phone-orders.settle','phone-orders.dispatch-company','phone-orders.finish-batch',
         'branch-stock.receive','branch-stock.recipe-save','branch-stock.minimum-save','branch-stock.basic-apply',
         'branch-expenses.save','branch-expenses.review','branch-expenses.categorySave',
-        'customers.save','delivery-companies.save','employees.save','employees.attendance','employees.entry',
+        'customers.save','customers.directory-save','customers.consent','delivery-companies.save','employees.save','employees.attendance','employees.entry',
         'employees.attendance-rules','employees.wallet','employees.daily-notes','employees.void-entry','employees.close','employees.pay',
         'branch-shifts.close',
     ];

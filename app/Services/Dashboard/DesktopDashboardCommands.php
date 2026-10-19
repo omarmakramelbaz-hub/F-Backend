@@ -9,6 +9,7 @@ class DesktopDashboardCommands
     public function execute(string $route,array $payload,$actor): array
     {
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
+        if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->execute($route,$payload,$actor);

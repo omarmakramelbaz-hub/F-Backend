@@ -29,6 +29,7 @@ class DesktopDashboardReferences
     ];
     public function outputs(string $route,array $result,array $values=[],int $actor=0,array $facts=[]): array
     {
+        if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->outputs($route,$result);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->outputs($result);
         if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->outputs($result);
         if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->outputs($result);
@@ -75,12 +76,14 @@ class DesktopDashboardReferences
             if(!is_numeric($id)||(int)$id<1)return $id;
             $row=DB::table('desktop_dashboard_entities')->where('device_id',$device)
                 ->where(fn($q)=>$q->where('entity',$entity)->orWhere('entity','like',$entity.'.%'))
+                ->where('command_id','!=',$currentCommand)
                 ->where('local_id',(int)$id)->first();
             if(!$row||$row->command_id===$currentCommand)return $id;
             $dependencies[$row->command_id]=true;
             return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
         if(DesktopDashboardCustomerFacts::handles($route))$payload=app(DesktopDashboardCustomerFacts::class)->inputs($payload,$reference);
+        if(DesktopDashboardCustomerDirectory::handles($route))return ['payload'=>app(DesktopDashboardCustomerDirectory::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantFlags::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantFlags::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProducts::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProducts::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProductCrud::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProductCrud::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];

@@ -38,8 +38,9 @@ class MeasuredBaselineTests(unittest.TestCase):
 
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
-        self.assertEqual(self.manifest['after_source']['files'],1287)
+        self.assertEqual(self.manifest['after_source']['files'],1288)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerFacts.php', self.target)
+        self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerDirectory.php', self.target)
         self.assertIn('resources/views/admin/contracts/pdf.blade.php', self.target)
         reversed_map=copy.deepcopy(self.target)
         for row in self.manifest['sources']:

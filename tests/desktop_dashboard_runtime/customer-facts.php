@@ -76,8 +76,8 @@ use App\Services\Dashboard\{BranchCustomers,CustomerDirectory,DesktopDashboardBo
         return app(DesktopDashboardJournal::class)->fingerprint($state);
     };
     try{
-        check(!DesktopDashboardRoutes::journaled('customers.directory-save')&&!DesktopDashboardRoutes::journaled('customers.consent'),
-            'the existing-creator safety increment leaves new CRM profile and consent routes unprepared');
+        check(DesktopDashboardRoutes::journaled('customers.directory-save')&&DesktopDashboardRoutes::journaled('customers.consent'),
+            'the customer UI increment journals its exact profile and consent routes');
         $consentFields=['service_consent','marketing_consent','service_consented_at','marketing_consented_at',
             'service_consent_evidence','marketing_consent_evidence','service_consented_by','marketing_consented_by','opted_out_at'];
         foreach(['scoped withdrawal'=>'01092000001','global STOP'=>'01092000002'] as $history=>$phone){
@@ -315,6 +315,7 @@ use App\Services\Dashboard\{BranchCustomers,CustomerDirectory,DesktopDashboardBo
             &&DB::table('crm_customers')->where('id',$racingCustomer->id)->value('name')==='سجل فرع آخر بعد فحص الحقائق'
             &&!DB::table('crm_customer_sources')->where('customer_id',$racingCustomer->id)->where('branch','f:100')->exists(),
             'the post-check canonical-phone race preserves the foreign profile and sources and rolls back every original financial effect');
+        require __DIR__.'/customer-provider-ui.php';
     }finally{
         config($savedConfig);DB::purge();\Carbon\Carbon::setTestNow($savedClock);
     }

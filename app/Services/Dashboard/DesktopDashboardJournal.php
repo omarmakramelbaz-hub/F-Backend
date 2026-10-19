@@ -59,6 +59,7 @@ class DesktopDashboardJournal
             if ($old) {
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');
                 $result=$this->saved($old->local_result_cipher)['result'];
+                if(DesktopDashboardCustomerDirectory::handles($route))app(DesktopDashboardCustomerDirectory::class)->authorizeSaved($route,$result,$payload,$device,$actor);
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantMenuCopy::handles($route))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($result);
@@ -69,7 +70,7 @@ class DesktopDashboardJournal
             }
             if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
-            $customerClock=config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route);
+            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route));
             $previousClock=\Carbon\Carbon::getTestNow();
             if($customerClock)\Carbon\Carbon::setTestNow($started);
             try{$result=$work();}finally{if($customerClock)\Carbon\Carbon::setTestNow($previousClock);}

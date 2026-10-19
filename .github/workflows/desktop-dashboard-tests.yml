@@ -121,6 +121,27 @@ jobs:
             $pdfReceipt = Get-Content "$pdfProofDirectory/receipt.json" -Raw | ConvertFrom-Json
             $parsedPdfReceipt = Get-Content "$pdfProofDirectory/parsed-pdf-receipt.json" -Raw | ConvertFrom-Json
             if (!$pdfReceipt.completed -or !$pdfReceipt.databaseDropped -or !$pdfReceipt.httpServerStopped -or $pdfReceipt.mode -ne 'windows' -or $pdfReceipt.sourceRevision -ne $env:GITHUB_SHA -or $pdfReceipt.helperBinding -ne 'exact-git-revision' -or $pdfReceipt.journalCommands -ne 0 -or $pdfReceipt.externalAssetRequests -ne 0 -or $pdfReceipt.fullDashboard -ne $false -or !$parsedPdfReceipt.completed -or $parsedPdfReceipt.sourceRevision -ne $env:GITHUB_SHA -or $parsedPdfReceipt.fullDashboard -ne $false) { throw 'The contract PDF proof source, cleanup or bounded scope differs.' }
+            $customerDirectoryProofDirectory = "$env:RUNNER_TEMP/customer-directory-browser"
+            New-Item -ItemType Directory -Path $customerDirectoryProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/customer-directory-browser-http.php "$bundle/application" $port $customerDirectoryProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable customerDirectoryProofOutput
+            $customerDirectoryExit = $LASTEXITCODE
+            $customerDirectoryMarkers = [regex]::Matches(($customerDirectoryProofOutput -join "`n"), '(?m)^ORIGINAL_CUSTOMER_DIRECTORY_BROWSER_COMPLETE [^\r\n]+$')
+            if ($customerDirectoryExit -ne 0 -or $customerDirectoryMarkers.Count -ne 1) { throw 'Original customer directory Edge fixture did not complete exactly once.' }
+            $customerDirectoryReceipt = Get-Content "$customerDirectoryProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            foreach ($field in @('completed','verifiedImport','privateDatabasesDropped','httpStopped','browserStopped','sourceVerifiedAfter','helpersVerifiedAfter')) {
+              if ($customerDirectoryReceipt.$field -ne $true) { throw "Original customer directory receipt is incomplete: $field" }
+            }
+            if ($customerDirectoryReceipt.helperBinding -ne 'exact-git-revision' -or $customerDirectoryReceipt.sourceRevision -ne $env:GITHUB_SHA -or $customerDirectoryReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $customerDirectoryReceipt.importedSnapshotTables -ne 109 -or $customerDirectoryReceipt.schemaInventory -ne 106 -or $customerDirectoryReceipt.unchangedImportedTables -ne 106 -or $customerDirectoryReceipt.checks -ne 16 -or $customerDirectoryReceipt.fullDashboard -ne $false) { throw 'Original customer directory receipt source, schema or bounded coverage differs.' }
+            $customerDirectoryProof = $customerDirectoryReceipt.browserProof
+            if ($customerDirectoryReceipt.browserExitCode -ne 0 -or $customerDirectoryProof.browser -ne 'Windows Edge' -or $customerDirectoryProof.browserPlatform -ne 'win32' -or $customerDirectoryProof.sourceCommit -ne $env:GITHUB_SHA -or $customerDirectoryProof.fixtureRevision -ne $env:GITHUB_SHA -or $customerDirectoryProof.newPageErrors -ne 0 -or $customerDirectoryProof.createPostCount -ne 1) { throw 'Original customer directory browser proof differs from this exact Windows fixture.' }
+            foreach ($scope in @($customerDirectoryReceipt,$customerDirectoryProof)) {
+              foreach ($field in @('domInjection','providersReplaced')) {
+                if ($scope.$field -isnot [bool] -or $scope.$field -ne $false) { throw "Original customer directory proof must preserve the original application: $field" }
+              }
+            }
+            foreach ($field in @('create','edit','explicitConsent','scopedWithdrawal','recordedWithdrawalReopenRejected','committedResponseLost','recoveredSameUuid')) {
+              if ($customerDirectoryProof.$field -ne $true) { throw "Original customer directory browser proof did not exercise: $field" }
+            }
             foreach ($fixture in @('run.php', 'legacy.php')) {
               & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
               $fixtureExit = $LASTEXITCODE
@@ -228,6 +249,14 @@ jobs:
         with:
           name: original-contract-pdf-windows
           path: ${{ runner.temp }}/contract-pdf-windows
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original customer directory Edge receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-customer-directory-browser-windows
+          path: ${{ runner.temp }}/customer-directory-browser
           if-no-files-found: error
           retention-days: 14
       - name: Retain the original Review Edge receipt
