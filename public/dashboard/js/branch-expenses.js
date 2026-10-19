@@ -150,8 +150,11 @@
                 row.appendChild(cell);
             });
             var status = el('td'), statusActions = el('div', undefined, 'ex-status-actions'), tag = el('span', t('status_' + item.status), 'ex-tag'); tag.dataset.status = item.status; statusActions.appendChild(tag);
-            if (boot.permissions.can_approve && item.status === 'pending' && item.payment_method === 'cash') {
-                var approve = actionButton('approve', function () { review(item, 'approve'); }); approve.className = 'ex-approve ex-status-approve'; approve.dataset.expenseApprove = item.id; statusActions.appendChild(approve);
+            if (boot.permissions.can_approve && item.status === 'pending') {
+                if (item.payment_method === 'cash') {
+                    var approve = actionButton('approve', function () { review(item, 'approve'); }); approve.className = 'ex-approve ex-status-approve'; approve.dataset.expenseApprove = item.id; statusActions.appendChild(approve);
+                }
+                var reject = actionButton('reject', function () { review(item, 'reject'); }); reject.className = 'ex-reject ex-status-reject'; reject.dataset.expenseReject = item.id; statusActions.appendChild(reject);
             }
             status.appendChild(statusActions); row.appendChild(status);
             var fileCell = el('td'); if (item.attachment_url) { var link = el('a', '↧'); link.href = url(item.attachment_url); link.dataset.spaOff = ''; link.title = item.attachment_name; fileCell.appendChild(link); } else fileCell.textContent = '—'; row.appendChild(fileCell);

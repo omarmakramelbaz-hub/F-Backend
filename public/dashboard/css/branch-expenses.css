@@ -8,6 +8,8 @@ body.dashboard-theme .content-wrapper.branch-expenses-wrapper{background:#f6f7fa
 .ex-status-actions{display:flex;align-items:center;gap:6px}
 .ex-status-approve{padding:6px 9px;font-size:10px;min-height:30px}
 .ex-status-approve:hover{background:#12653e;border-color:#12653e}
+.ex-status-actions .ex-status-reject{display:inline-flex;align-items:center;justify-content:center;border:1px solid #bc3535;border-radius:6px;background:#bc3535;color:#fff;padding:6px 9px;font-size:10px;min-height:30px;white-space:nowrap}
+.ex-status-actions .ex-status-reject:hover{background:#952929;border-color:#952929}
 .ex-review-error{margin:5px 0 0;color:#b04444;font-size:10px;line-height:1.6;max-width:240px;white-space:normal}
 .ex-cash-source{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:8px;background:#eff8f2;border-radius:6px;color:#256a43;font-size:11px}
 @media(min-width:1024px) and (min-height:650px){
