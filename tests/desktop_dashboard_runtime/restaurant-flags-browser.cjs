@@ -2,6 +2,7 @@
 // Real original restaurant checkboxes, number input and their original form submission paths.
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE);
+const verifyDashboardSoundControl=require('./browser-sound.cjs');
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
 (async()=>{
   assert.equal(process.platform,'win32','Mandatory restaurant flag browser acceptance uses actual Windows Edge.');
@@ -16,9 +17,7 @@ const input=JSON.parse(fs.readFileSync(0,'utf8'));
     await page.goto(input.origin+'/admin/login');
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'),page.locator('.dashboard-login-submit').click()]);
-    const overlay=page.locator('.swal-overlay--show-modal');await overlay.waitFor({state:'visible'});
-    assert.equal(await overlay.locator('.swal-title').textContent(),'تفعيل الصوت');
-    await overlay.getByRole('button',{name:'تم',exact:true}).click();await overlay.waitFor({state:'hidden'});
+    await verifyDashboardSoundControl(page);
     // The query is an original read filter. The checkbox forms have no page field.
     assert.equal((await page.goto(input.origin+'/admin/resturants?resturant_id=100')).status(),200);
     const initialPageErrors=[...errors],operations=[],retries=[],formControlDiagnostics=[];

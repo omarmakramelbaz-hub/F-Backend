@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.DESKTOP_TEST_BROWSER_MODULE);
+const verifyDashboardSoundControl=require('./browser-sound.cjs');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 let stage = 'launch';
 const watchdog = setTimeout(() => {
@@ -79,14 +80,10 @@ const watchdog = setTimeout(() => {
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
-    const soundPrompt=page.locator('.swal-overlay--show-modal');
-    await soundPrompt.waitFor({state:'visible'});
-    assert.equal(await soundPrompt.locator('.swal-title').textContent(),'تفعيل الصوت');
-    await soundPrompt.getByRole('button',{name:'تم',exact:true}).click();
-    await soundPrompt.waitFor({state:'hidden'});
-    await page.waitForFunction(()=>localStorage.getItem('notificationSoundAlertShown')==='true');
-    process.stdout.write('PASS original notification sound prompt acknowledges through its real button before dashboard form interactions\n');
-    assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.summernote), 'function', 'The original editor must load after jQuery and Bootstrap.');
+    stage='current dashboard order sound control';
+    await verifyDashboardSoundControl(page);
+    assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.sortable), 'function', 'The current dashboard must load its local jQuery UI widgets.');
+    assert.equal(await page.evaluate(() => typeof window.CKEDITOR?.replace), 'function', 'The current dashboard editor must load from its local asset mirror.');
     process.stdout.write('PASS real browser signs in to the original imported dashboard with external requests blocked\n');
     let previous;
     for (const module of ['areas', 'question_answers', 'features', 'contracts', 'categorys', 'products', 'roles']) {

@@ -31,7 +31,7 @@ class DesktopDashboardSchema
         'users','user_address','user_tokens','wallets','wishlists',
         'zayed_price_release_20260923',
     ];
-    public const EMPTY=['branch_stock_minimum_alerts','branch_shift_print_jobs','failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
+    public const EMPTY=['branch_stock_minimum_alerts','branch_shift_print_jobs','pos_branch_print_jobs','failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
         'desktop_pos_devices','desktop_pos_operations','desktop_pos_orders','desktop_pos_snapshots',
         'go_service_outbox','menu_price_release_20260923','store_delivery_release_20260923','zayed_price_release_20260923','migrations'];
 }

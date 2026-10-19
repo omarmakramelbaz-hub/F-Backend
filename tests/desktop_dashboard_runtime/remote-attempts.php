@@ -32,6 +32,7 @@ try{
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
     [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&!empty($serverCsrf[1]),'server outcome forms refresh CSRF after the original login rotates its session');
+    require __DIR__.'/stock-settings-remote.php';
     require __DIR__.'/category-order-remote.php';
     require __DIR__.'/menu-availability-remote.php';
     require __DIR__.'/wishlist-deletion-remote.php';

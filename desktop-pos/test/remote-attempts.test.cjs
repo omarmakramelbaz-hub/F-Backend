@@ -145,9 +145,29 @@ test('reviewed cash, phone and expense writes reserve while calculations and pri
 test('reviewed employee, inventory and shared expense-category POST paths reserve without accepting read reports or unreviewed writes',()=>{
   const f=fixture();
   for(const path of ['/admin/employees/save','/admin/employees/attendance','/admin/employees/void-entry','/admin/employees/close','/admin/employees/pay',
-    '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-expenses/12/review','/admin/branch-expenses/categories'])
+    '/admin/branch-stock/receive','/admin/branch-stock/recipes','/admin/branch-stock/minimum','/admin/branch-stock/basic-recipes','/admin/branch-expenses/12/review','/admin/branch-expenses/categories'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),true);
   for(const path of ['/admin/employees/statement','/admin/employees/entries','/admin/branch-expenses/categories/save'])
     assert.equal(f.attempts.supported({url:credential.serverOrigin+path,method:'POST'}),false);
   assert.equal(f.attempts.supported({url:credential.serverOrigin+'/admin/employees/attendance',method:'GET'}),false);
+});
+test('current stock settings reserve exact POST paths and recover committed lost replies with the same attempt',async()=>{
+  for(const path of ['/admin/branch-stock/minimum','/admin/branch-stock/basic-recipes']){
+    const f=fixture(),id=crypto.randomUUID(),url=credential.serverOrigin+path;
+    for(const method of ['GET','HEAD','PUT','PATCH','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
+    for(const suffix of ['/','/12','/save'])assert.equal(f.attempts.supported({url:url+suffix,method:'POST'}),false);
+    const proof=await f.attempts.begin(id,{url,method:'POST'});
+    assert.equal(proof['X-Fasakhansta-Remote-Attempt'],id);
+    assert.equal(proof['X-Fasakhansta-Remote-Capability'],'b'.repeat(64));
+    assert.equal(f.records.get('remote-attempts/'+id).path,path);
+    assert.deepEqual((await f.state.read()).pending,[id]);
+    f.decisions.set(id,'committed');f.attempts.failed(id);
+    await new RemoteAttempts(f.options).recover();
+    assert.deepEqual((await f.state.read()).pending,[]);
+    assert.equal((await f.state.read()).dirty,true);
+    assert.deepEqual(f.calls.map(value=>[value.action,value.id,value.method,value.path]),[['reserve',id,'POST',path],['settle',id,'POST',path]]);
+    const foreign=fixture();
+    await assert.rejects(foreign.attempts.begin(crypto.randomUUID(),{url:'https://foreign.test'+path,method:'POST'}));
+    assert.deepEqual(foreign.calls,[]);
+  }
 });

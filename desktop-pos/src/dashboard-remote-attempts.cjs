@@ -32,7 +32,7 @@ class DashboardRemoteAttempts {
       || /^\/admin\/phone-orders\/(?:dispatch-company|finish-batch)$/.test(path)
       || /^\/admin\/(?:customers|delivery-companies)\/save$/.test(path)
       || /^\/admin\/employees\/(?:save|attendance|attendance-rules|entry|wallet|daily-notes|void-entry|close|pay)$/.test(path)
-      || /^\/admin\/branch-stock\/(?:receive|recipes)$/.test(path)
+      || /^\/admin\/branch-stock\/(?:receive|recipes|minimum|basic-recipes)$/.test(path)
       || /^\/admin\/branch-expenses\/[1-9][0-9]{0,18}\/review$/.test(path)
       || path==='/admin/branch-expenses/categories'
       || path==='/admin/branch-expenses/save'

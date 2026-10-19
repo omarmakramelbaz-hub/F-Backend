@@ -56,7 +56,6 @@ class DesktopDashboardData
             'commissions'=>['order_id','orders','id'],'payments'=>['order_id','orders','id'],'shippings'=>['order_id','orders','id'],
             'go_order_payments'=>['order_id','orders','id'],
             'go_order_payment_receipts'=>['payment_id','go_order_payments','id'],'go_store_payment_receipts'=>['order_id','go_store_orders','id'],
-            'pos_branch_print_jobs'=>['ticket_id','pos_service_tickets','id'],
         ];
         foreach($children as $table=>[$column,$parent,$id])if(isset($queries[$table],$queries[$parent])&&!$all){
             abort_unless(Schema::hasColumn($table,$column),409,'علاقة بيانات الفرع تحتاج مراجعة.');

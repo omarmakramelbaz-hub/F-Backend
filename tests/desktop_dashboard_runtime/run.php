@@ -35,6 +35,7 @@ Schema::create('orders',function(Blueprint $t){$t->id();$t->unsignedBigInteger('
 foreach([
     '2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos',
     '2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets',
+    '2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs',
     '2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses',
     '2026_10_04_060000_lock_pos_service_bills.php'=>'LockPosServiceBills',
     '2026_10_04_080000_create_branch_operations.php'=>'CreateBranchOperations',
@@ -71,6 +72,7 @@ foreach($pdo->query('SHOW TABLES FROM `'.$database.'`')->fetchAll(PDO::FETCH_COL
 $actor=User::withoutGlobalScopes()->findOrFail(1);$cashier=User::withoutGlobalScopes()->findOrFail(10);$journal=app(DesktopDashboardJournal::class);$device=(string)Str::uuid();
 require __DIR__.'/address-suggestions.php';
 require __DIR__.'/current-dashboard.php';
+require __DIR__.'/print-queue-scope.php';
 $receiveId=(string)Str::uuid();$receive=['branch'=>'f:100','idempotency_key'=>$receiveId,'ingredient_id'=>6,'unit'=>'kg','quantity'=>'2.000','supplier'=>'المورد'];
 $received=$journal->execute($device,$receiveId,1,'branch-stock.receive',['values'=>$receive],[],fn()=>app(BranchInventory::class)->receive($receive,$actor));
 check((int)DB::table('branch_inventory')->value('quantity_units')===2000000 && $journal->counts($device)['pending']===1,'original goods receipt and encrypted command commit together');
@@ -204,6 +206,12 @@ check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new
 $imported=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap);
 check($imported['schema_hash']===$cashierBootstrap['schema_hash'] && DB::table('resturants')->count()===1 && DB::table('users')->count()===1,'the account dataset imports into a separate real local MariaDB schema');
 check(Schema::hasTable('desktop_dashboard_commands') && DB::table('desktop_dashboard_commands')->count()===0,'an imported local database receives its own empty encrypted command journal');
+check(Schema::hasTable('pos_branch_print_jobs')&&DB::table('pos_branch_print_jobs')->count()===0,'an imported local database retains the empty kitchen print queue schema');
+DB::beginTransaction();
+try{
+    app(\App\Services\Dashboard\PosBranchPrinting::class)->enqueue('f:100',90001,90002);
+    check(DB::table('pos_branch_print_jobs')->where('branch','f:100')->where('kitchen_id',90002)->value('status')==='pending','the imported empty print queue accepts a fresh local kitchen job');
+}finally{DB::rollBack();}
 $verified=app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported);
 check($verified['verified']&&$verified['branches']===['f:100'],'a reopened staging database verifies its actual table counts, actor and snapshot binding');
 check($verified['source']===$cashierBootstrap['source'],'independent staging verification retains its bound source and framework identity');

@@ -2,6 +2,7 @@
 // Actual original parent-menu checkboxes, multipart submission and image HTTP responses.
 const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE);
+const verifyDashboardSoundControl=require('./browser-sound.cjs');
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 (async()=>{
@@ -18,8 +19,7 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       process.stdout.write('RESTAURANT_MENU_COPY_PAGE_ERROR '+JSON.stringify(detail)+'\n');});
     await page.goto(input.origin+'/admin/login');await page.locator('#dashboard-login-email').fill('owner@test.invalid');await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/resturants'),page.locator('.dashboard-login-submit').click()]);
-    const overlay=page.locator('.swal-overlay--show-modal');await overlay.waitFor({state:'visible'});assert.equal(await overlay.locator('.swal-title').textContent(),'تفعيل الصوت');
-    await overlay.getByRole('button',{name:'تم',exact:true}).click();await overlay.waitFor({state:'hidden'});
+    await verifyDashboardSoundControl(page);
     stage='original-show';assert.equal((await page.goto(input.origin+input.returnPath)).status(),200);await page.waitForLoadState('networkidle');const initialPageErrors=[...errors];
     const path='/admin/resturant/copy/items',fields=request=>new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();
     const originalForm=async()=>{
