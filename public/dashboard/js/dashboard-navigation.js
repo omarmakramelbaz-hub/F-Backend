@@ -283,7 +283,8 @@
         ['dining', 'طلبات الصالة', 'Dining orders', 'fa-chair', 'الصالة', 'Dining'],
         ['applies-orders', 'طلبات التطبيق', 'App orders', 'fa-mobile-alt', 'التطبيق', 'App'],
         ['branch-expenses', 'مصروفات الفروع', 'Branch expenses', 'fa-file-invoice-dollar', 'المصروفات', 'Expenses'],
-        ['branch-stock', 'إضافة بضاعة', 'Add stock', 'fa-boxes', 'بضاعة', 'Stock']
+        ['branch-stock', 'إضافة بضاعة', 'Add stock', 'fa-boxes', 'بضاعة', 'Stock'],
+        ['employees', 'الموظفون والرواتب', 'Employees & payroll', 'fa-user-clock', 'الموظفون', 'Staff']
     ];
     const links = Array.from(sidebar.querySelectorAll('[data-dashboard-navigation] a[href]'))
         .filter(link => !link.getAttribute('href').startsWith('#'));

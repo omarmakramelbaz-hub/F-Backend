@@ -1058,3 +1058,10 @@ html:has(.app-order-board-page) {
     .dashboard-theme .main-header .dashboard-quick-link { transition: none; }
 }
 /* dashboard-collapsed-shortcuts:end */
+
+/* dashboard-header-employee-shortcut:start */
+@media (min-width: 576px) and (max-width: 1399.98px) {
+    .dashboard-theme .main-header .dashboard-quick-label { display: none; }
+    .dashboard-theme .main-header .dashboard-quick-label-short { display: inline; }
+}
+/* dashboard-header-employee-shortcut:end */
