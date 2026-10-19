@@ -4,6 +4,7 @@ Usage: python verify-contract-pdf.py artifacts [expected-source-revision]
 The artifact directory must contain contract_100.pdf and the completed HTTP receipt.
 """
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,15 @@ import unicodedata
 import pypdf
 from pypdf import PdfReader
 from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject
+
+PINNED_WKHTMLTOPDF_SHA256 = "64d17682320bffd45b2208ed13b136d59139e82573745f14556cf25e95cbd808"
+ARABIC_PHRASES = ["عقد تجريبي", "نص محفوظ"]
+# Observed wkhtmltopdf0.12.6/Arial ToUnicode glyph aliases, not character aliases.
+# Unicode17 §9.2.4/Table9-10 specifies identical initial/medial yeh glyphs:
+# https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-9/
+# The UCD still decomposes FBFE/FBFF to FARSI YEH, unlike FEF3/FEF4:
+# https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt
+PDF_YEH_GLYPHS = {0xFBFE: 0xFEF3, 0xFBFF: 0xFEF4}
 
 
 def require(condition, message):
@@ -40,6 +50,12 @@ def arabic_present(text, phrase):
         " ".join(word[::-1] for word in reversed(words)),
     }
     return any(value in text for value in alternatives)
+
+
+def normalize_pdf_extraction(text):
+    # Apply only to PDF extraction whose exact Arabic HTML source was checked.
+    # Raw U+06CC and isolated/final U+FBFC/U+FBFD deliberately remain distinct.
+    return normalize(text.translate(PDF_YEH_GLYPHS))
 
 
 def reject_active_content(reader):
@@ -83,29 +99,37 @@ def main():
     require(receipt.get("databaseBeforeSha256") is not None and receipt.get("databaseBeforeSha256") == receipt.get("databaseAfterSha256"), "Database before/after row-hash proofs differ.")
     native = receipt.get("nativePdf", {})
     require(native.get("originalHttpDownload") is True, "A standalone renderer output cannot substitute for the original HTTP route.")
+    require(native.get("binarySha256") == PINNED_WKHTMLTOPDF_SHA256, "PDF extraction comparison requires the observed pinned native generator.")
     pdf_bytes = (artifact / "contract_100.pdf").read_bytes()
-    require(hashlib.sha256((artifact / "contract_100.html").read_bytes()).hexdigest() == receipt.get("renderedHtmlSha256"), "Retained original rendered HTML differs from its HTTP receipt.")
+    html_bytes = (artifact / "contract_100.html").read_bytes()
+    require(hashlib.sha256(html_bytes).hexdigest() == receipt.get("renderedHtmlSha256"), "Retained original rendered HTML differs from its HTTP receipt.")
+    source_html = html.unescape(html_bytes.decode("utf8"))
+    for phrase in ARABIC_PHRASES:
+        require(phrase in source_html, "Original HTML is missing the exact saved Arabic source text: " + phrase)
     require(hashlib.sha256(pdf_bytes).hexdigest() == native.get("sha256") and len(pdf_bytes) == native.get("bytes"), "PDF bytes differ from the native HTTP receipt.")
     require(1000 < len(pdf_bytes) < 524288 and pdf_bytes.startswith(b"%PDF-") and re.search(rb"%%EOF\s*$", pdf_bytes), "PDF signature, size or end marker is invalid.")
     reader = PdfReader(artifact / "contract_100.pdf", strict=True)
     require(not reader.is_encrypted, "The generated contract unexpectedly requires a password.")
     reject_active_content(reader)
     require(1 <= len(reader.pages) <= 3 and len(reader.pages) == native.get("pages"), "Parsed PDF page tree differs from native bounds.")
-    page_text = [normalize(page.extract_text() or "") for page in reader.pages]
+    raw_page_text = [page.extract_text() or "" for page in reader.pages]
+    page_text = [normalize_pdf_extraction(value) for value in raw_page_text]
     require(all(page_text), "Every native contract page must contain extractable text.")
     text = "\n".join(page_text)
     required = ["CONTRACT_PDF_OWNED_SENTINEL_30", "[contractDate]", "[contractDay]", "[vendorName]", "[vendorMobile]", "First line", "Second line", "<literal>"]
     for value in required:
         require(value in text, "Native PDF is missing saved literal text: " + value)
     require("FOREIGN_CONTRACT_SENTINEL_31" not in text and "unchanged" not in text, "Native PDF contains foreign-contract or local-file content.")
-    for phrase in ["عقد تجريبي", "نص محفوظ"]:
+    for phrase in ARABIC_PHRASES:
         require(arabic_present(text, phrase), "Native PDF is missing saved Arabic text: " + phrase)
     result = {
         "format": 1, "kind": "parsed-windows-contract-pdf", "completed": True,
         "sourceRevision": receipt["sourceRevision"], "httpReceiptSha256": hashlib.sha256(receipt_bytes).hexdigest(),
         "pdfSha256": native["sha256"], "parser": "pypdf", "parserVersion": pypdf.__version__,
         "pages": len(reader.pages), "pageTextSha256": [hashlib.sha256(value.encode()).hexdigest() for value in page_text],
-        "literalTokensVerified": required, "arabicPhrasesVerified": ["عقد تجريبي", "نص محفوظ"],
+        "rawPageTextSha256": [hashlib.sha256(value.encode()).hexdigest() for value in raw_page_text],
+        "presentationGlyphAliasesApplied": [{"from": "U+%04X" % old, "to": "U+%04X" % new, "count": sum(value.count(chr(old)) for value in raw_page_text)} for old, new in PDF_YEH_GLYPHS.items() if any(chr(old) in value for value in raw_page_text)],
+        "literalTokensVerified": required, "arabicPhrasesVerified": ARABIC_PHRASES,
         "fullDashboard": False,
     }
     (artifact / "parsed-pdf-receipt.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf8")

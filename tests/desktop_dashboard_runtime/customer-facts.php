@@ -19,7 +19,7 @@ use App\Services\Dashboard\{BranchCustomers,CustomerDirectory,DesktopDashboardBo
             'desktop_dashboard.device_id'=>$device,'desktop_dashboard.enabled'=>true]);DB::purge();
         return $loadActor?User::withoutGlobalScopes()->findOrFail(1):null;
     };
-    $pair=function(?string $phone=null,bool $realClock=false)use($pdo,$remoteDatabase,$switch): array{
+    $pair=function(?string $phone=null,bool $realClock=false,?callable $beforeExport=null)use($pdo,$remoteDatabase,$switch): array{
         $server='desktop_customer_facts_'.bin2hex(random_bytes(8));
         $local='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
         foreach([$server,$local] as $database){
@@ -36,6 +36,7 @@ use App\Services\Dashboard\{BranchCustomers,CustomerDirectory,DesktopDashboardBo
         if($phone!==null){
             $customer=app(CustomerDirectory::class)->capture(['phone'=>$phone,'name'=>'الاسم الأصلي'],'takeaway','f:100');
             app(CustomerDirectory::class)->consent((int)$customer->id,true,false,'fixture:customer-approved-before-export',1);
+            if($beforeExport)$beforeExport($customer,$actor);
         }
         $link=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$id,'name'=>'isolated customer facts fixture',
             'nonce'=>bin2hex(random_bytes(32))],$actor);
@@ -77,6 +78,71 @@ use App\Services\Dashboard\{BranchCustomers,CustomerDirectory,DesktopDashboardBo
     try{
         check(!DesktopDashboardRoutes::journaled('customers.directory-save')&&!DesktopDashboardRoutes::journaled('customers.consent'),
             'the existing-creator safety increment leaves new CRM profile and consent routes unprepared');
+        $consentFields=['service_consent','marketing_consent','service_consented_at','marketing_consented_at',
+            'service_consent_evidence','marketing_consent_evidence','service_consented_by','marketing_consented_by','opted_out_at'];
+        foreach(['scoped withdrawal'=>'01092000001','global STOP'=>'01092000002'] as $history=>$phone){
+            $withdrawal=null;
+            $p=$pair($phone,false,function($customer,$actor)use($history,&$withdrawal){
+                if($history==='global STOP'){
+                    app(CustomerDirectory::class)->consent((int)$customer->id,false,false,'whatsapp-inbound:opt-out');
+                    return;
+                }
+                app(CustomerDirectory::class)->consent((int)$customer->id,true,true,'fixture:previous-approval',1);
+                $withdrawal=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'directory_id'=>(int)$customer->id,
+                    'service_consent'=>false,'marketing_consent'=>true,'consent_scope'=>'service','consent_method'=>'withdrawal'];
+                app(BranchCustomers::class)->consent($withdrawal,$actor);
+            });
+            $values=$sale($phone,'الاسم الأصلي');$actor=User::withoutGlobalScopes()->findOrFail(1);$before=$fingerprint();$businessCalled=false;
+            denied(function()use($p,$values,$actor,&$businessCalled){return app(DesktopDashboardJournal::class)->execute($p['id'],$values['idempotency_key'],1,'takeaway.checkout',
+                ['values'=>$values],[],function()use(&$businessCalled,$values,$actor){
+                    $businessCalled=true;return app(TakeawayService::class)->checkout($values,$actor,[],true);
+                });},409,'a new original offline checkout cannot reopen consent after a prior '.$history);
+            check(!$businessCalled&&$fingerprint()===$before,
+                'the local '.$history.' reopening gate runs before the original checkout and leaves every ledger and command unchanged');
+
+            // Emulate a real pending command produced by published 86ed158: its Journal
+            // allowed this unchanged original business closure. The new local gate must
+            // not be bypassed in normal requests; only this old-client wire fixture uses
+            // the original service directly to retain its actual persisted result.
+            $values['idempotency_key']=(string)Str::uuid();
+            $legacy=DB::transaction(function()use($p,$values,$actor){
+                $payload=['parameters'=>[],'values'=>$values,'files'=>[],
+                    'facts'=>['customer_directory'=>app(DesktopDashboardCustomerFacts::class)->capture('takeaway.checkout',['values'=>$values])]];
+                $result=app(TakeawayService::class)->checkout($values,$actor,[],true);
+                $result=json_decode(DesktopDashboardBootstrap::json($result),true,512,JSON_THROW_ON_ERROR);
+                $references=app(\App\Services\Dashboard\DesktopDashboardReferences::class)->outputs('takeaway.checkout',$result,$values,1,$payload['facts']);
+                return ['command_id'=>$values['idempotency_key'],'actor_id'=>1,'route_name'=>'takeaway.checkout','payload'=>$payload,
+                    'local_result'=>$result,'local_references'=>$references,'dependencies'=>[],
+                    'occurred_at'=>now('UTC')->toIso8601String()];
+            });
+            check(($legacy['local_result']['success']??false)===true&&isset($legacy['local_references']['receipt'],$legacy['local_references']['crm_customer']),
+                'published-client emulation retains the original accepted checkout result and actual typed receipt/CRM outputs');
+            $switch($p['server'],false,$p['id']);$id=(int)DB::table('crm_customers')->where('phone',CustomerDirectory::normalizePhone($phone))->value('id');
+            $prior=(array)DB::table('crm_customers')->where('id',$id)->first($consentFields);
+            if($history==='global STOP')app(CustomerDirectory::class)->consent($id,false,false,'whatsapp-inbound:opt-out');
+            else{
+                $withdrawal['directory_id']=$id;$withdrawal['idempotency_key']=(string)Str::uuid();
+                app(BranchCustomers::class)->consent($withdrawal,User::withoutGlobalScopes()->findOrFail(1));
+            }
+            check((array)DB::table('crm_customers')->where('id',$id)->first($consentFields)===$prior
+                &&!$prior['service_consent']&&($history==='global STOP'?$prior['opted_out_at']!==null:$prior['marketing_consent']&&$prior['opted_out_at']===null),
+                'a same-second repeated '.$history.' leaves all nine captured consent fields identical');
+            $before=$fingerprint();
+            denied(fn()=>app(DesktopDashboardReconciliation::class)->ingest($p['device'],$legacy),409,
+                'a legacy pending checkout cannot reopen a withdrawn purpose even when every consent before-field still matches');
+            check($fingerprint()===$before&&(array)DB::table('crm_customers')->where('id',$id)->first($consentFields)===$prior,
+                'rejected legacy '.$history.' reopening preserves every consent field, cash balance, stock, purchase, receipt and journal row');
+        }
+
+        $phone='01092000003';$p=$pair($phone);$values=$sale($phone,'الاسم الأصلي');
+        $currentResult=$write($p,'takeaway.checkout',$values);$currentEnvelope=app(DesktopDashboardJournal::class)->pending($p['id'])[0];
+        check($currentResult['success']&&$currentEnvelope['payload']['facts']['customer_directory']['targets'][0]['customer']['service_consent'],
+            'an original checkout retains normal offline collection when its service consent is already current and true');
+        $switch($p['server'],false,$p['id']);$currentReceipt=app(DesktopDashboardReconciliation::class)->ingest($p['device'],$currentEnvelope);$before=$fingerprint();
+        check($currentReceipt['committed']&&$currentReceipt===app(DesktopDashboardReconciliation::class)->ingest($p['device'],$currentEnvelope)
+            &&$fingerprint()===$before,
+            'currently true consent still reconciles one original sale and returns its exact saved reply');
+
         foreach(['takeaway.checkout','customers.save'] as $route){
             $phone=$route==='takeaway.checkout'?'01090000001':'01090000002';$p=$pair($phone);
             \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-19T12:00:01Z'));

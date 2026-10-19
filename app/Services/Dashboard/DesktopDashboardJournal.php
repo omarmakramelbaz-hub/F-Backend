@@ -49,6 +49,7 @@ class DesktopDashboardJournal
             abort_if(config('desktop_dashboard.local')&&\Illuminate\Support\Facades\Schema::hasTable('desktop_dashboard_archived_commands')
                 &&DB::table('desktop_dashboard_archived_commands')->where('device_id',$device)->where('command_id',$command)->exists(),
                 409,'هذه العملية مؤكدة في سجل الجهاز السابق؛ حدّث الصفحة لعرض البيانات الحالية.');
+            $localConsent=config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route)&&!isset($payload['envelope'])?$payload:null;
             $prepared=$this->references->prepare($device,$route,$payload,$command);
             $payload=$prepared['payload'];$dependencies=array_values(array_unique(array_merge($dependencies,$prepared['dependencies'])));
             // References produced by this operation's earlier reply are not dependencies.
@@ -66,6 +67,7 @@ class DesktopDashboardJournal
             foreach ($dependencies as $dependency) {
                 abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$dependency)->exists(),409,'العملية السابقة لم تُحفظ؛ لا يمكن حفظ عملية تابعة لها.');
             }
+            if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
             $customerClock=config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route);
             $previousClock=\Carbon\Carbon::getTestNow();

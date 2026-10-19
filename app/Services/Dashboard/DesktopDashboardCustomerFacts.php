@@ -74,15 +74,36 @@ class DesktopDashboardCustomerFacts
         }
         abort_unless($facts['available']||$facts['targets']===[],409);return $facts;
     }
+    private function positivePurposes(string $route,array $payload): array
+    {
+        $v=$payload['values'];$purposes=[];
+        if(in_array($route,['takeaway.checkout','dining.save','dining.settle','phone-orders.save'],true)
+            ||($route==='phone-orders.action'&&($v['action']??null)==='send_kitchen'))
+            foreach(['service','marketing'] as $purpose)if(in_array($v[$purpose.'_consent']??null,[true,1,'1'],true))$purposes[]=$purpose;
+        return $purposes;
+    }
+    /** Timestamp/evidence equality cannot prove the order of identical withdrawals within one DB second. */
+    public function guardReopening(string $route,array $payload): void
+    {
+        $purposes=$this->positivePurposes($route,$payload);
+        if(!$purposes)return;
+        foreach($this->facts($payload)['targets'] as $target){
+            $row=$target['customer'];if($row===null)continue;
+            foreach($purposes as $purpose){
+                $recorded=false;
+                foreach(['_consented_at','_consent_evidence','_consented_by'] as $suffix)
+                    if($row[$purpose.$suffix]!==null&&$row[$purpose.$suffix]!=='')$recorded=true;
+                abort_if(!empty($row['opted_out_at'])||(!in_array($row[$purpose.'_consent'],[true,1,'1'],true)&&$recorded),409,
+                    'إعادة تفعيل موافقة رسائل أُوقفت تتطلب مراجعة من الداشبورد المتصل قبل تنفيذ هذه العملية.');
+            }
+        }
+    }
     public function guard(string $route,array $payload): void
     {
+        $this->guardReopening($route,$payload);
         $before=$this->facts($payload);$current=$this->capture($route,$payload);
         $project=function(array $facts)use($route,$payload){
-            $v=$payload['values'];$purposes=[];
-            if(in_array($route,['takeaway.checkout','dining.save','dining.settle','phone-orders.save'],true)
-                ||($route==='phone-orders.action'&&($v['action']??null)==='send_kitchen')){
-                foreach(['service','marketing'] as $purpose)if(in_array($v[$purpose.'_consent']??null,[true,1,'1'],true))$purposes[]=$purpose;
-            }
+            $purposes=$this->positivePurposes($route,$payload);
             // Capturing a profile or collecting a phone ticket does not renew consent.
             // A later STOP remains authoritative while that original collection commits.
             foreach($facts['targets'] as &$target)if($target['customer']!==null){

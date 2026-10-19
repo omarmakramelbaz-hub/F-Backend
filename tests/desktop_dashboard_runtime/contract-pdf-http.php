@@ -66,7 +66,7 @@ foreach (['app/Http/Controllers/Dashboard/ContractController.php','app/Models/Co
 $receipt['sourceRevision']=$revision;
 $receipt['sourceFilesVerified']=count($manifest['sourceHashes']);
 $receipt['sourceManifestSha256']=hash_file('sha256', $manifestPath);
-$helperPaths=['tests/desktop_dashboard_runtime/contract-pdf-http.php','tests/desktop_dashboard_runtime/verify-contract-pdf.py','tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt','desktop-pos/src/wkhtmltox-windows.json','tests/desktop_dashboard_runtime/full-schema.php','tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
+$helperPaths=['tests/desktop_dashboard_runtime/contract-pdf-http.php','tests/desktop_dashboard_runtime/verify-contract-pdf.py','tests/desktop_dashboard_runtime/contract-pdf-parser-test.py','tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt','desktop-pos/src/wkhtmltox-windows.json','tests/desktop_dashboard_runtime/full-schema.php','tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
 foreach ($helperPaths as $path) {
     $hash=hash_file('sha256', $source.'/'.$path);
     $receipt['fixtureHashes'][$path]=$hash;

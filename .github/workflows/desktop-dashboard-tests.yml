@@ -114,6 +114,8 @@ jobs:
             New-Item -ItemType Directory -Path $pdfProofDirectory -Force | Out-Null
             & php tests/desktop_dashboard_runtime/contract-pdf-http.php "$bundle/application" $port $pdfProofDirectory windows $env:GITHUB_SHA 2>&1 | Tee-Object -Variable pdfProofOutput
             if ($LASTEXITCODE -ne 0 -or !(($pdfProofOutput -join "`n") -match '(?m)^CONTRACT_PDF_HTTP_COMPLETE ')) { throw 'The original contract route did not complete its Windows PDF smoke.' }
+            & $env:DESKTOP_TEST_PDF_PYTHON tests/desktop_dashboard_runtime/contract-pdf-parser-test.py
+            if ($LASTEXITCODE -ne 0) { throw 'Strict Arabic PDF extraction comparison controls failed.' }
             & $env:DESKTOP_TEST_PDF_PYTHON tests/desktop_dashboard_runtime/verify-contract-pdf.py $pdfProofDirectory $env:GITHUB_SHA
             if ($LASTEXITCODE -ne 0) { throw 'The real Windows contract PDF could not be parsed with its saved literal and Arabic text.' }
             $pdfReceipt = Get-Content "$pdfProofDirectory/receipt.json" -Raw | ConvertFrom-Json

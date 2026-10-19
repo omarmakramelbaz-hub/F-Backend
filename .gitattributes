@@ -12,4 +12,5 @@ tests/desktop_dashboard_runtime/fixtures/*.json text eol=lf
 desktop-pos/licenses/wkhtmltox/** -text -whitespace
 desktop-pos/src/wkhtmltox-windows.json text eol=lf
 tests/desktop_dashboard_runtime/verify-contract-pdf.py text eol=lf
+tests/desktop_dashboard_runtime/contract-pdf-parser-test.py text eol=lf
 tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt text eol=lf
