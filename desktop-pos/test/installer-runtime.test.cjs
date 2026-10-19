@@ -3,6 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const packaging=require('../installer-runtime.cjs'),source=require('../src/dashboard-source.cjs');
+const nativePdf=require('../src/native-pdf.cjs');
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function fixture(t){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'dashboard-installer-'));
@@ -61,6 +62,27 @@ test('a dependency audit for another lock cannot authorize packaging',async t=>{
   const f=await fixture(t);await f.write('desktop-pos/dist/runtime-audit.json',JSON.stringify({...f.audit,lockSha256:'0'.repeat(64)}));
   await assert.rejects(packaging(f.context),/different lock/);
 });
+test('an application with Snappy configuration cannot ship without its pinned Windows PDF files',async t=>{
+  const f=await fixture(t);
+  await f.write('desktop-pos/runtime-bundle/application/config/snappy.php','<?php return [];');
+  await assert.rejects(packaging.verifyBundle(f.bundle),/missing its pinned Windows PDF component/);
+});
+test('the installer binds the actual official Windows PDF component and rejects a removed native file',
+  {skip:!process.env.DESKTOP_TEST_WKHTMLTOX},async t=>{
+    const f=await fixture(t),configuration='<?php return [];';
+    await f.write('config/snappy.php',configuration);
+    await f.write('desktop-pos/runtime-bundle/application/config/snappy.php',configuration);
+    f.manifest.sourceHashes['config/snappy.php']=sha(configuration);
+    f.manifest.sourceFingerprint=await source.fingerprint(path.join(f.bundle,'application'));
+    f.manifest.pdfRuntime=await nativePdf.packageInto(process.env.DESKTOP_TEST_WKHTMLTOX,f.bundle,path.resolve(__dirname,'../..'));
+    f.manifest.sourceRevision=f.commit();await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
+    await packaging(f.context);
+    const receipt=JSON.parse(await fs.readFile(path.join(f.project,'dist/runtime-package.json'),'utf8'));
+    assert.equal(receipt.pdfRuntime.archiveSha256,nativePdf.policy.archive.sha256);
+    assert.equal(receipt.files['wkhtmltox/bin/wkhtmltopdf.exe'],nativePdf.policy.files['bin/wkhtmltopdf.exe']);
+    await fs.rm(path.join(f.bundle,'wkhtmltox/bin/wkhtmltox.dll'));
+    await assert.rejects(packaging.verifyBundle(f.bundle),/pinned official files/);
+  });
 test('changing a preview version into a release cannot waive incomplete checks or known advisories',async t=>{
   const f=await fixture(t);await f.write('desktop-pos/package.json',JSON.stringify({version:'0.3.0'}));
   f.manifest.sourceRevision=f.commit();await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));

@@ -12,7 +12,7 @@ class ContractController extends Controller
     function __construct()
     {
         $this->middleware('permission:contract-list|contract-edit', ['only' => ['index','store']]);
-        $this->middleware('permission:contract-list', ['only' => ['show']]);
+        $this->middleware('permission:contract-list', ['only' => ['show','pdfviewContract']]);
         $this->middleware('permission:contract-edit', ['only' => ['create','store']]);
         $this->middleware('permission:contract-edit', ['only' => ['edit','update']]);
         $this->middleware('permission:contract-delete', ['only' => ['destroy','deleteAll']]);
@@ -92,21 +92,31 @@ class ContractController extends Controller
 
     public function pdfviewContract()
     {
-        $contract = Contract::where('id',request()->id)->first();
-        $old_word = ["[contractDate]","[contractDay]","[vendorName]"];
-        $new_word   = [$contract->contractDate,Carbon::parse($contract->contractDate)->translatedFormat('l') ,$contract->contractDateFrom,$contract->contractDateTo, $contract->lender?->name];  
+        // Contracts are saved templates, not populated vendor/date instances.
+        // Keep their placeholders literal and retain the model's AdminScope.
+        $id = filter_var(request()->query('id'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        abort_unless($id, 404);
+        $contract = Contract::query()->findOrFail($id);
+        $lines = preg_replace('/<\s*(?:br\b[^>]*|\/(?:p|div|li|h[1-6]|tr)\s*)>/i', "\n", (string) $contract->template);
+        $contractText = html_entity_decode(strip_tags($lines), ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-        $request = strip_tags(str_replace($old_word,$new_word, $contract->contract_form?->contract_form));
-        view()->share('request',$request);
-
-        if(request()->has('download')) {
-            // pass view file
-            $pdf = PDF::loadView('pdfview');
-            // dd($pdf);
-            // download pdf
-            return $pdf->download('contract_'.request()->id.'.pdf');
+        if (request()->has('download')) {
+            return PDF::loadView('admin.contracts.pdf', compact('contractText'))
+                ->setOptions([
+                    'encoding' => 'UTF-8',
+                    'disable-javascript' => true,
+                    'disable-local-file-access' => true,
+                    'disable-plugins' => true,
+                    'no-images' => true,
+                    'disable-external-links' => true,
+                    'disable-internal-links' => true,
+                    'load-error-handling' => 'abort',
+                    'load-media-error-handling' => 'abort',
+                ])
+                ->download('contract_'.$contract->id.'.pdf');
         }
-        return view('pdfview');
+
+        return view('admin.contracts.pdf', compact('contractText'));
     }
 
 }

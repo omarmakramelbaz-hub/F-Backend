@@ -1,0 +1,2 @@
+# Test-only PDF parser. Wheel digest verified from https://pypi.org/pypi/pypdf/6.10.0/json
+pypdf==6.10.0 --hash=sha256:90005e959e1596c6e6c84c8b0ad383285b3e17011751cedd17f2ce8fcdfc86de

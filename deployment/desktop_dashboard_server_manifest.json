@@ -9,8 +9,8 @@
   },
   "after_source": {
     "format": 1,
-    "files": 1285,
-    "sha256": "f36e8819baa54f9cff12f2b6322109d6b8d5082dacb66f0cc6de3f37031c8299",
+    "files": 1287,
+    "sha256": "4c333f3d803ec632fd2afcd5d6fe1f9d85131203c058e25f366b63d970755bc7",
     "framework": "8.83.29"
   },
   "sources": [
@@ -105,6 +105,12 @@
       "phase": 1
     },
     {
+      "path": "app/Services/Dashboard/DesktopDashboardCustomerFacts.php",
+      "before_blob": null,
+      "after_blob": "bea4f27a45fc1ebcc406cd20d381ceab63140ebb",
+      "phase": 1
+    },
+    {
       "path": "app/Services/Dashboard/DesktopDashboardData.php",
       "before_blob": null,
       "after_blob": "3cec68a9eb0be2e01243d66a555111e68812e019",
@@ -137,7 +143,7 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardJournal.php",
       "before_blob": null,
-      "after_blob": "2094a6e8961c274bada208be3bcaca3b84eae8c8",
+      "after_blob": "f2988991642654ee559db469f7f329d11390bed0",
       "phase": 1
     },
     {
@@ -185,13 +191,13 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardReconciliation.php",
       "before_blob": null,
-      "after_blob": "4fcef07a8a538b4fe9fa86eb9ad64bf33e88dfd1",
+      "after_blob": "d7af8747f33b012087461a1b8c2d99366055f769",
       "phase": 1
     },
     {
       "path": "app/Services/Dashboard/DesktopDashboardReferences.php",
       "before_blob": null,
-      "after_blob": "361c439cbce51269527b0cfa9382405b35fbbd4e",
+      "after_blob": "85633e0f40f0b603b6396664ede5e6b4d9496378",
       "phase": 1
     },
     {
@@ -789,6 +795,12 @@
       "phase": 2
     },
     {
+      "path": "config/snappy.php",
+      "before_blob": "5e6c7be295b0035704b6dd6c522f638ef6040cf4",
+      "after_blob": "c02171cdae34d52cfd3137e6195945f61536948a",
+      "phase": 2
+    },
+    {
       "path": "bootstrap/app.php",
       "before_blob": "7494037bd99a873c333c3d530e40ab0f2b544c3d",
       "after_blob": "037e17df03b0598d7bbd27ed333312e8e337fb1b",
@@ -810,6 +822,12 @@
       "path": "app/Services/Dashboard/BranchShiftClosing.php",
       "before_blob": "6eb5b4dc7b64ea87974a6b39089156b9186f940e",
       "after_blob": "7669fac79438f8ff2d4dce6f3ed820922a3c8bc7",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/CustomerDirectory.php",
+      "before_blob": "8ebcf9afaa20c21cf9b92a0711ee9c2ec92e0b97",
+      "after_blob": "b7393e6b933d49dfdcdf7a32eebe6ca08f9cdec6",
       "phase": 2
     },
     {
@@ -935,7 +953,7 @@
     {
       "path": "app/Http/Controllers/Dashboard/ContractController.php",
       "before_blob": "0270ca5711fed9a25ef0e6391c10c2abd87fbcc8",
-      "after_blob": "bf4257645d69bfc487b6c3769c1d0f162438ef29",
+      "after_blob": "cc0b0192ecdf918b46c664c4a18de640fefabb01",
       "phase": 2
     },
     {
@@ -1074,6 +1092,12 @@
       "path": "resources/views/admin/contracts/index.blade.php",
       "before_blob": "12acded6f9b0181899fb85e97cb48adbe1623ecd",
       "after_blob": "37b7452e57aa9f10f1feffdad5bb5a548066fb05",
+      "phase": 2
+    },
+    {
+      "path": "resources/views/admin/contracts/pdf.blade.php",
+      "before_blob": null,
+      "after_blob": "5bfc078005ed152d64cd1ae05f9509492ae79dd3",
       "phase": 2
     },
     {

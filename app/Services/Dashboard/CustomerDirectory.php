@@ -82,11 +82,12 @@ class CustomerDirectory
         $branch = substr($branch, 0, 30);
         return DB::transaction(function () use ($profile, $phone, $channel, $branch) {
             $when = now('UTC');
-            DB::table('crm_customers')->insertOrIgnore([
+            $inserted=DB::table('crm_customers')->insertOrIgnore([
                 'phone'=>$phone, 'phone_key'=>self::phoneKey($phone),
                 'first_seen_at'=>$when, 'last_seen_at'=>$when, 'created_at'=>$when, 'updated_at'=>$when,
             ]);
             $customer = DB::table('crm_customers')->where('phone', $phone)->lockForUpdate()->first();
+            DesktopDashboardCustomerFacts::captured($phone,(int)$inserted,$customer);
             $changes = ['last_seen_at'=>$when, 'updated_at'=>$when];
             foreach (['name'=>100, 'address'=>500, 'area'=>150, 'delivery_notes'=>500] as $field=>$limit) {
                 $value = $profile[$field] ?? ($field === 'name' ? ($profile['customer_name'] ?? null) : null);

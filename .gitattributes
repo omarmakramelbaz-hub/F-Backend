@@ -8,3 +8,7 @@ public/dashboard/vendor/desktop-external/** -text
 tests/desktop_dashboard_runtime/*.php text eol=lf
 tests/desktop_dashboard_runtime/*.cjs text eol=lf
 tests/desktop_dashboard_runtime/fixtures/*.json text eol=lf
+# Preserve upstream notices verbatim and source-bound PDF helper bytes on Windows.
+desktop-pos/licenses/wkhtmltox/** -text -whitespace
+tests/desktop_dashboard_runtime/verify-contract-pdf.py text eol=lf
+tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt text eol=lf

@@ -27,6 +27,41 @@ test('a missing or modified retained executable fails closed without deleting th
 test('a missing old archive cannot be silently replaced by a new source revision',async t=>{
   const f=await fixture(t);await assert.rejects(f.archive.select(await f.make('b'.repeat(40),'new'),{sourceRevision:'a'.repeat(40)}));assert.equal(f.records.size,0);
 });
+test('an authenticated old PDF runtime remains recoverable after the installed PDF policy changes',async t=>{
+  const f=await fixture(t),old='a'.repeat(40),bundle=await f.make(old,'old PDF source');
+  const manifest=JSON.parse(await fs.readFile(path.join(bundle,'manifest.json'),'utf8'));
+  manifest.pdfRuntime={format:1,name:'wkhtmltox',version:'prior-retained-version'};
+  await fs.mkdir(path.join(bundle,'application/config'),{recursive:true});
+  await fs.writeFile(path.join(bundle,'application/config/snappy.php'),'<?php /* prior PDF configuration */');
+  await fs.writeFile(path.join(bundle,'manifest.json'),JSON.stringify(manifest));
+  await fs.mkdir(path.join(bundle,'wkhtmltox/bin'),{recursive:true});
+  await fs.writeFile(path.join(bundle,'wkhtmltox/bin/wkhtmltopdf.exe'),'exact older native bytes');
+  const destination=path.join(f.archive.root,old);await fs.mkdir(f.archive.root,{recursive:true});
+  await fs.cp(bundle,destination,{recursive:true});
+  f.records.set('runtimes/'+old,{format:1,revision:old,files:await f.archive.inventory(destination)});
+  assert.equal(await f.archive.select(await f.make('b'.repeat(40),'new'),{sourceRevision:old}),destination);
+  await fs.writeFile(path.join(destination,'wkhtmltox/bin/wkhtmltopdf.exe'),'changed older bytes');
+  await assert.rejects(f.archive.select(await f.make('c'.repeat(40),'another'),{sourceRevision:old}),/غير مكتملة/);
+});
+test('a new Snappy bundle cannot omit its PDF declaration and acquire an authenticated receipt',async t=>{
+  const f=await fixture(t),bundle=await f.make('a'.repeat(40),'source'),configuration='<?php return [];';
+  await fs.mkdir(path.join(bundle,'application/config'),{recursive:true});
+  await fs.writeFile(path.join(bundle,'application/config/snappy.php'),configuration);
+  const manifest=JSON.parse(await fs.readFile(path.join(bundle,'manifest.json'),'utf8'));
+  manifest.sourceHashes['config/snappy.php']=crypto.createHash('sha256').update(configuration).digest('hex');
+  await fs.writeFile(path.join(bundle,'manifest.json'),JSON.stringify(manifest));
+  await assert.rejects(f.archive.retain(bundle),/غير مكتملة لتشغيل ملفات PDF/);
+  assert.equal(f.records.size,0);
+});
+test('an already authenticated legacy Snappy runtime without PDF metadata still reopens its data',async t=>{
+  const f=await fixture(t),old='a'.repeat(40),bundle=await f.make(old,'legacy source');
+  await fs.mkdir(path.join(bundle,'application/config'),{recursive:true});
+  await fs.writeFile(path.join(bundle,'application/config/snappy.php'),'<?php /* legacy Linux binary path */');
+  const destination=path.join(f.archive.root,old);await fs.mkdir(f.archive.root,{recursive:true});
+  await fs.cp(bundle,destination,{recursive:true});
+  f.records.set('runtimes/'+old,{format:1,revision:old,files:await f.archive.inventory(destination)});
+  assert.equal(await f.archive.select(await f.make('b'.repeat(40),'current'),{sourceRevision:old}),destination);
+});
 test('source corruption and symlinks cannot acquire an encrypted runtime receipt',async t=>{
   const f=await fixture(t),source=await f.make('a'.repeat(40),'original');await fs.writeFile(path.join(source,'application/source.php'),'changed');
   await assert.rejects(f.archive.retain(source));assert.equal(f.records.size,0);

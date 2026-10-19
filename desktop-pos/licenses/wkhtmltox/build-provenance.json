@@ -1,0 +1,59 @@
+{
+  "upstream": {
+    "release_url": "https://github.com/wkhtmltopdf/packaging/releases/tag/0.12.6-1",
+    "asset_url": "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox-0.12.6-1.mxe-cross-win64.7z",
+    "asset_api_url": "https://api.github.com/repos/wkhtmltopdf/packaging/releases/assets/21634849",
+    "asset_id": 21634849,
+    "asset_bytes": 14659532,
+    "asset_uploaded_at": "2020-06-11T00:25:47Z",
+    "asset_api_digest": null,
+    "publisher_publishes_checksums": false
+  },
+  "digest": {
+    "algorithm": "sha256",
+    "value": "6ce994c89d5f6018fa158e149a2de8fbbbeb14d8ff5cb656c89893bc556e0557",
+    "provenance": "computed from bytes downloaded directly over HTTPS from the official upstream asset URL; not a publisher-published checksum"
+  },
+  "source": {
+    "wkhtmltopdf": {
+      "repository": "https://github.com/wkhtmltopdf/wkhtmltopdf",
+      "tag": "0.12.6",
+      "commit": "6a57c1449797d6cb915921fb747f3ac36199241f",
+      "tag_object": "e7f753958b06866e0922bd187e4b7b91499e7598",
+      "tag_verification": "GitHub verified=true reason=valid"
+    },
+    "qt": {
+      "repository": "https://github.com/wkhtmltopdf/qt",
+      "commit": "7480f44f696fb7db1d473cf447a2c99a656789a9",
+      "origin": "wkhtmltopdf 0.12.6 qt submodule"
+    },
+    "packaging": {
+      "repository": "https://github.com/wkhtmltopdf/packaging",
+      "tag": "0.12.6-1",
+      "commit": "957fc1e04390dc185a54a5927d4b96cc2c34b6e6",
+      "tag_object": "7d62786991ae70557886b1b31fa772020a79a9f4",
+      "tag_verification": "GitHub verified=true reason=valid",
+      "build": "https://github.com/wkhtmltopdf/packaging/blob/957fc1e04390dc185a54a5927d4b96cc2c34b6e6/docker/Dockerfile.mxe"
+    },
+    "mxe": {
+      "repository": "https://github.com/mxe/mxe",
+      "commit": "ee88607e99c989fb62f0d5b8585c21d21585b823",
+      "target": "x86_64-w64-mingw32.static"
+    },
+    "external_dependency_versions": {
+      "zlib": "1.2.11",
+      "openssl": "1.1.1g",
+      "libpng": "1.6.37",
+      "jpeg": "9d"
+    }
+  },
+  "inspection": {
+    "archive_entries": 12,
+    "regular_files": 8,
+    "pe_machine": "0x8664 (AMD64)",
+    "embedded_pe_authenticode_certificate_bytes": 0,
+    "system_dll_imports_only": true,
+    "binary_executed": false
+  },
+  "source_distribution_note": "The GitHub-generated wkhtmltopdf source archive does not recursively contain its Qt submodule; the exact Qt commit and packaging/MXE build metadata are listed separately. These records and copied license texts do not assert that all distribution obligations have been fulfilled."
+}
