@@ -51,4 +51,20 @@ data.can_award_bonuses=true;assert.equal(moneyCell(employee,'bonus').children.fi
 console.log('PASS: branch bonus creation hidden, recorded bonus totals readable, owner creation and other branch entry kinds retained');
 '''
     subprocess.run(['node', '-e', script], check=True)
+    # The deployed auto-branch lookup moved $scope before $keys and $add.
+    # Keep its actual method as a regression fixture (Git blob 16648bce251ac6007647ffea6080b91c6c0e7566).
+    relative = 'app/Services/Dashboard/PosServicePhone.php'
+    phone_source = (ROOT / relative).read_text()
+    start = phone_source.index('    public function customers(array $values,$actor): array')
+    end = phone_source.index('    public static function normalizedColumn(', start)
+    fixture = (ROOT / 'tests/fixtures/launch-reset/phone_customers_all_branches.php.txt').read_text()
+    live_variant = phone_source[:start] + fixture + '\n\n' + phone_source[end:]
+    changed = patch_phone(live_variant)
+    assert patch_phone(changed) == changed, 'All-branch phone patch is not idempotent'
+    assert changed.index('$scope=$all?') < changed.index('$keys=array_unique($keys)')
+    assert changed.index('        };\n', changed.index('$add=function')) < changed.index('// Shared directory lookup precedes')
+    (stage / relative).write_text(changed)
+    subprocess.run([php, '-l', str(stage / relative)], check=True)
+    subprocess.run([php, str(ROOT / 'tests/launch_reset_permissions_customers_test.php'), vendor, str(stage), 'all-branches'], check=True)
+    print('PASS: deployed all-branch phone lookup variant, central global delivery search, and branch all-scope denial')
     print('PASS: source-preserving atomic patches, exact backups, idempotence and JavaScript syntax')

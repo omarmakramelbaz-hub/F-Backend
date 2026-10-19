@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time, owner-requested launch reset, plus owner-only bonuses and shared customer reads.
+# Owner launch reset, owner-only bonuses, admin employee profiles and shared customers.
 set -euo pipefail
 umask 077
 launch_revision=${1:?Full pinned revision required}
@@ -49,7 +49,7 @@ launch_cleanup() {
   exit "$launch_exit"
 }
 trap launch_cleanup EXIT
-for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py; do
+for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py; do
   launch_source="deployment/launch_reset/$launch_name"
   launch_blob=$(runuser -u fasakha -- git -C "$launch_root" rev-parse "$launch_revision:$launch_source")
   [[ "$launch_blob" =~ ^[0-9a-f]{40}$ ]]
@@ -58,6 +58,14 @@ for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer
   chmod 0644 "$launch_tmp/$launch_name"
 done
 runuser -u fasakha -- "$launch_php" -l "$launch_tmp/reset.php"
+# Validate every live source transform before taking the application offline.
+runuser -u fasakha -- python3 "$launch_tmp/bonus_owner_patch.py" \
+  --root "$launch_root" --php "$launch_php" --check
+runuser -u fasakha -- python3 "$launch_tmp/customer_global_patch.py" \
+  --root "$launch_root" --php "$launch_php" --check
+runuser -u fasakha -- python3 "$launch_tmp/employee_profile_patch.py" \
+  --root "$launch_root" --php "$launch_php" --check
+printf '%s\n' 'ALL_LIVE_SOURCE_PREFLIGHTS_PASSED'
 # The attendance worker honors this existing shared/exclusive installer lock.
 launch_absence_lock=/home/fasakha/employee-auto-absence-backups/install.lock
 if [[ -e "$launch_absence_lock" ]]; then
@@ -72,7 +80,9 @@ runuser -u fasakha -- python3 "$launch_tmp/bonus_owner_patch.py" \
   --root "$launch_root" --backup "$launch_backup/bonus-source" --php "$launch_php"
 runuser -u fasakha -- python3 "$launch_tmp/customer_global_patch.py" \
   --root "$launch_root" --backup "$launch_backup/customer-source" --php "$launch_php"
+runuser -u fasakha -- python3 "$launch_tmp/employee_profile_patch.py" \
+  --root "$launch_root" --backup "$launch_backup/employee-source" --php "$launch_php"
 launch_reset_started=1
 runuser -u fasakha -- "$launch_php" "$launch_tmp/reset.php" --apply "$launch_root" "$launch_backup" "$launch_run"
 runuser -u fasakha -- "$launch_php" "$launch_root/artisan" view:clear --no-interaction
-printf '%s\n' 'OWNER_BONUSES_ONLY_AND_GLOBAL_CUSTOMER_READS_INSTALLED'
+printf '%s\n' 'OWNER_BONUSES_ADMIN_EMPLOYEE_PROFILES_GLOBAL_CUSTOMERS_INSTALLED'

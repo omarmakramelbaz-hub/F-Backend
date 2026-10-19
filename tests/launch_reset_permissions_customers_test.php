@@ -89,6 +89,14 @@ namespace {
         expectLaunchFeature(count($phone->customers(['branch' => 'f:94', 'phone' => '+2010000000', 'prefix' => true], $actors[$id])['items']) === 4, 'Shared normalized prefix suggestions incomplete');
     }
     expectLaunchFeature(count(app(PosServicePhone::class)->customers(['branch' => 'gs:94', 'phone' => '01000000003'], $actors[5])['items']) === 0, 'Unrelated Go lookup received a global profile');
+    if (($argv[3] ?? '') === 'all-branches') {
+        foreach ([1, 2] as $id) {
+            $all = app(PosServicePhone::class)->customers(['branch' => 'all', 'phone' => '01000000003'], $actors[$id]);
+            expectLaunchFeature(count($all['items']) === 1 && $all['items'][0]['address'] === 'Imported address' && $all['items'][0]['branch'] === null && $all['items'][0]['customer_id'] === null, 'Central all-branch shared directory lookup failed or invented a branch');
+            expectLaunchFeature(count(app(PosServicePhone::class)->customers(['branch' => 'all', 'phone' => '+2010000000', 'prefix' => true], $actors[$id])['items']) === 4, 'Central all-branch normalized prefix suggestions incomplete');
+        }
+        foreach ([3, 4, 5] as $id) denyLaunchFeature(fn() => app(PosServicePhone::class)->customers(['branch' => 'all', 'phone' => '01000000003'], $actors[$id]), 403);
+    }
     expectLaunchFeature($before === json_encode(DB::table('crm_customers')->orderBy('id')->get()->all()), 'Reads changed profiles or consents');
     expectLaunchFeature(DB::table('crm_customer_sources')->where('customer_id', $import->id)->where('branch', 'f:94')->count() === 0, 'Lookup invented an order/source association');
     echo "PASS: owner-only bonus authorization/replay/fresh actor checks; full registry and exact/prefix delivery search for owner/admin/branch; existing write scope and consent preserved\n";

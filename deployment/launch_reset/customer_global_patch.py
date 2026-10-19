@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Share customer directory reads and phone suggestions without granting other branches' write access."""
-from bonus_owner_patch import install as install_files
+from bonus_owner_patch import install as install_files, preflight, failure_details
 import argparse
 from pathlib import Path
 import json
@@ -56,11 +56,23 @@ def patch_phone(source: str) -> str:
     start = source.index('    public function customers(array $values,$actor): array')
     end = source.index('    public static function normalizedColumn(', start)
     method = source[start:end]
-    anchor = "        $scope=$central&&$branch['kind']==='f'?"
+    # The all-branches delivery update moved $scope above normalization and the
+    # add closure. Insert at the saved-customer query so both versions have all
+    # lookup dependencies initialized while retaining their existing scopes.
+    anchor = "        if($this->access->has('branch_customers','phone_key')){"
     if method.count(anchor) != 1:
         raise ValueError('PHONE_LOOKUP_ANCHOR_CHANGED')
+    before = method[:method.index(anchor)]
+    keys_anchor = '        $keys=array_unique($keys);$items=[];$seen=[];'
+    add_anchor = '        $add=function(array $item)'
+    if before.count(keys_anchor) != 1 or before.count(add_anchor) != 1:
+        raise ValueError('PHONE_LOOKUP_DEPENDENCIES_CHANGED')
+    keys_position = before.index(keys_anchor)
+    add_position = before.index(add_anchor)
+    if keys_position >= add_position or '        };\n' not in before[add_position:]:
+        raise ValueError('PHONE_LOOKUP_DEPENDENCIES_CHANGED')
     block = """        // Shared directory lookup precedes branch-local historical suggestions.
-        if($branch['kind']==='f'&&in_array($actor->account_type,['admin','vendor','resturant_owner'],true)&&$this->access->has('crm_customers','phone_key')){
+        if(($branch['kind']==='f'||($branch['kind']==='all'&&$central))&&in_array($actor->account_type,['admin','vendor','resturant_owner'],true)&&$this->access->has('crm_customers','phone_key')){
             $directory=DB::table('crm_customers');$this->numberFilter($directory,'phone_key',$keys,$prefix);
             foreach($directory->orderByRaw('CASE WHEN phone_key = ? THEN 0 ELSE 1 END',[BranchCustomers::phoneKey($v['phone'])])->orderByDesc('updated_at')->orderByDesc('id')->limit(20)->get() as $row){
                 $add(['customer_id'=>null,'customer_revision'=>null,'directory_id'=>(int)$row->id,
@@ -93,15 +105,21 @@ def patch_customer_ui(source: str) -> str:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True, type=Path)
-    parser.add_argument('--backup', required=True, type=Path)
+    parser.add_argument('--backup', type=Path)
+    parser.add_argument('--check', action='store_true')
     parser.add_argument('--php', required=True)
     args = parser.parse_args()
+    if not args.check and args.backup is None:
+        parser.error("--backup is required unless --check is used")
     if str(args.root) != '/home/fasakha/public_html' or args.root.resolve() != args.root:
         raise SystemExit('UNEXPECTED_APPLICATION_ROOT')
     try:
         specs = [('app/Services/Dashboard/BranchCustomers.php', patch_customers),
                  ('app/Services/Dashboard/PosServicePhone.php', patch_phone),
                  ('public/dashboard/js/customer-crm.js', patch_customer_ui)]
-        print('GLOBAL_CUSTOMER_READ_PATCH=' + json.dumps(install_files(args.root, args.backup, args.php, specs)))
+        if args.check:
+            print('GLOBAL_CUSTOMER_READ_PREFLIGHT=' + json.dumps(preflight(args.root, args.php, specs)))
+        else:
+            print('GLOBAL_CUSTOMER_READ_PATCH=' + json.dumps(install_files(args.root, args.backup, args.php, specs)))
     except Exception as error:
-        raise SystemExit('CUSTOMER_PATCH_FAILED ' + type(error).__name__)
+        raise SystemExit('CUSTOMER_PATCH_FAILED ' + failure_details(error))

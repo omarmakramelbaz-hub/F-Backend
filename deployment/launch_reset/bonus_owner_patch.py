@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -58,26 +60,105 @@ def patch_javascript(source: str) -> str:
     return source.replace(anchor, anchor + "/* owner-only bonus creation */if(kind==='bonus'&&data.can_award_bonuses!==true)return;", 1)
 
 
-def install(root: Path, backup: Path, php: str, specs=None) -> dict:
+class SourcePatchError(RuntimeError):
+    """A source compatibility failure whose public details contain no source content."""
+    def __init__(self, relative, phase, error, source_sha256=None):
+        code = "SOURCE_OPERATION_FAILED"
+        if isinstance(error, UnicodeDecodeError):
+            code = "SOURCE_NOT_UTF8"
+        elif isinstance(error, ValueError):
+            message = str(error)
+            if re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", message):
+                code = message
+            elif message == "substring not found":
+                code = "ANCHOR_NOT_FOUND"
+            else:
+                code = "SOURCE_TRANSFORM_FAILED"
+        elif isinstance(error, subprocess.CalledProcessError):
+            code = "SOURCE_SYNTAX_CHECK_FAILED"
+        elif isinstance(error, OSError):
+            code = "SOURCE_IO_FAILED"
+        self.details = {"path": relative, "phase": phase, "code": code}
+        if source_sha256 is not None:
+            self.details["source_sha256"] = source_sha256
+        super().__init__(code)
+
+
+def failure_details(error):
+    if isinstance(error, SourcePatchError):
+        return json.dumps(error.details, sort_keys=True)
+    # Unknown exception messages may include source text or local values.
+    return json.dumps({"code": "SOURCE_PATCH_FAILED"}, sort_keys=True)
+
+
+def default_specs():
+    return [("app/Services/Dashboard/BranchPayroll.php", patch_payroll),
+            ("public/dashboard/js/branch-operations.js", patch_javascript)]
+
+
+def prepare_files(root: Path, specs=None):
     if specs is None:
-        specs = [("app/Services/Dashboard/BranchPayroll.php", patch_payroll),
-                 ("public/dashboard/js/branch-operations.js", patch_javascript)]
+        specs = default_specs()
     prepared = []
     for relative, transform in specs:
         path = root / relative
-        if path.is_symlink() or not path.is_file():
-            raise ValueError("UNSAFE_SOURCE_PATH")
-        old = path.read_bytes()
-        new = transform(old.decode("utf-8")).encode("utf-8")
-        prepared.append((relative, path, old, new, path.stat()))
+        old = None
+        phase = "read"
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("UNSAFE_SOURCE_PATH")
+            old = path.read_bytes()
+            phase = "transform"
+            new = transform(old.decode("utf-8")).encode("utf-8")
+            prepared.append((relative, path, old, new, path.stat()))
+        except Exception as error:
+            digest = hashlib.sha256(old).hexdigest() if old is not None else None
+            raise SourcePatchError(relative, phase, error, digest) from None
+    return prepared
+
+
+def report_files(prepared):
+    return {relative: {"before": hashlib.sha256(old).hexdigest(), "after": hashlib.sha256(new).hexdigest()}
+            for relative, path, old, new, stat in prepared}
+
+
+def check_prepared(prepared, php):
+    # Check copies outside the application; --check never creates backups or edits live files.
+    with tempfile.TemporaryDirectory(prefix="launch-source-check-") as folder:
+        node = shutil.which("node")
+        for index, (relative, path, old, new, stat) in enumerate(prepared):
+            suffix = Path(relative).suffix
+            if suffix != ".php" and not (suffix == ".js" and node):
+                continue
+            staged = Path(folder) / (str(index) + suffix)
+            try:
+                staged.write_bytes(new)
+                command = [php, "-l", str(staged)] if suffix == ".php" else [node, "--check", str(staged)]
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except Exception as error:
+                raise SourcePatchError(relative, "syntax", error, hashlib.sha256(old).hexdigest()) from None
+
+
+def preflight(root: Path, php: str, specs=None) -> dict:
+    prepared = prepare_files(root, specs)
+    check_prepared(prepared, php)
+    # Reject concurrent changes before declaring the source check successful.
+    for relative, path, old, new, stat in prepared:
+        if path.read_bytes() != old:
+            raise SourcePatchError(relative, "verify", ValueError("CONCURRENT_SOURCE_CHANGE"), hashlib.sha256(old).hexdigest())
+    return report_files(prepared)
+
+
+def install(root: Path, backup: Path, php: str, specs=None) -> dict:
+    prepared = prepare_files(root, specs)
+    check_prepared(prepared, php)
     backup.mkdir(mode=0o700, parents=True, exist_ok=False)
-    report = {}
+    report = report_files(prepared)
     for relative, path, old, new, stat in prepared:
         target = backup / relative
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         target.write_bytes(old)
         os.chmod(target, 0o600)
-        report[relative] = {"before": hashlib.sha256(old).hexdigest(), "after": hashlib.sha256(new).hexdigest()}
     (backup / "hashes.json").write_text(json.dumps(report, indent=2))
     os.chmod(backup / "hashes.json", 0o600)
     temporaries = []
@@ -120,12 +201,18 @@ def install(root: Path, backup: Path, php: str, specs=None) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--backup", required=True, type=Path)
+    parser.add_argument("--backup", type=Path)
+    parser.add_argument("--check", action="store_true")
     parser.add_argument("--php", required=True)
     options = parser.parse_args()
+    if not options.check and options.backup is None:
+        parser.error("--backup is required unless --check is used")
     if str(options.root) != "/home/fasakha/public_html" or options.root.resolve() != options.root:
         raise SystemExit("UNEXPECTED_APPLICATION_ROOT")
     try:
-        print("OWNER_ONLY_BONUS_PATCH=" + json.dumps(install(options.root, options.backup, options.php)))
+        if options.check:
+            print("OWNER_ONLY_BONUS_PREFLIGHT=" + json.dumps(preflight(options.root, options.php)))
+        else:
+            print("OWNER_ONLY_BONUS_PATCH=" + json.dumps(install(options.root, options.backup, options.php)))
     except Exception as error:
-        raise SystemExit("BONUS_PATCH_FAILED " + type(error).__name__)
+        raise SystemExit("BONUS_PATCH_FAILED " + failure_details(error))
