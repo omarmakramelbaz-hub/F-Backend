@@ -6,6 +6,20 @@ final class LaunchReset
 {
     public const FROM = '2026-10-01';
     public const THROUGH = '2026-10-19';
+    public const DELETABLE_TABLES = [
+        'crm_customer_feedback_replies', 'crm_whatsapp_deliveries', 'crm_purchases',
+        'desktop_pos_snapshots', 'desktop_pos_operations', 'desktop_pos_orders',
+        'branch_shift_print_jobs', 'branch_shift_sources', 'branch_shift_closings',
+        'pos_branch_print_jobs', 'pos_service_commands', 'pos_service_kitchen_tickets',
+        'phone_delivery_dispatches', 'phone_delivery_batch_items', 'phone_delivery_batches',
+        'web_storefront_orders', 'pos_service_tickets', 'takeaway_till_entries',
+        'takeaway_order_items', 'takeaway_orders', 'branch_expense_commands',
+        'expense_inventory_receipts', 'branch_expenses', 'branch_recipe_sales',
+        'branch_inventory_movements', 'branch_stock_movements', 'branch_employee_entries',
+        'branch_payrolls', 'branch_order_sequences', 'carts', 'payments', 'commissions',
+        'delegate_notifications', 'reviews', 'shippings', 'order_live_activities',
+        'order_board_clocks', 'notifications', 'orders', 'branch_operation_commands',
+    ];
     private PDO $pdo;
     private array $schema;
     public array $deletes = [];
@@ -42,6 +56,7 @@ final class LaunchReset
     }
     private function remove(string $table, array $ids): void
     {
+        if (!in_array($table, self::DELETABLE_TABLES, true)) throw new RuntimeException('UNREVIEWED_DELETE_TABLE');
         if ($this->has($table)) $this->deletes[$table] = array_values(array_unique($ids));
     }
     private function change(string $table, array $ids, array $values, bool $revision = false): void
@@ -293,6 +308,21 @@ function launchSchema(PDO $pdo): array
     return $schema;
 }
 
+/**
+ * Reviewed repair d5f84c7bf2b5d6163e5551eedd9dee99aa7a7899 added only
+ * payments.total_price. Accept that exact table variant, never other drift.
+ */
+function launchReviewedSchema(array $expected, array $actual): array
+{
+    if (isset($expected['payments'], $actual['payments'])
+        && !array_key_exists('total_price', $expected['payments']['columns'])) {
+        $candidate = $expected['payments'];
+        $candidate['columns']['total_price'] = 'decimal(15,2) unsigned nullable';
+        if ($actual['payments'] == $candidate) $expected['payments'] = $candidate;
+    }
+    return $expected;
+}
+
 function launchResetMain(array $args): int
 {
     $pdo = null; $locked = false; $committed = false; $before = []; $stage = 'arguments'; $directory = null;
@@ -316,13 +346,15 @@ function launchResetMain(array $args): int
         $pdo->exec("SET SESSION lock_wait_timeout=15");
         $stage = 'schema_review'; $schema = launchSchema($pdo);
         $expected = json_decode(file_get_contents(__DIR__.'/inspected_schema.json'), true, 512, JSON_THROW_ON_ERROR);
+        $expected = launchReviewedSchema($expected, $schema);
         foreach ($expected as $table => $meta) {
             if (!isset($schema[$table]) || $schema[$table] != $meta) throw new RuntimeException('INSPECTED_SCHEMA_CHANGED_'.$table);
         }
         foreach ($schema as $table => $meta) {
             if (isset($expected[$table])) continue;
             $columns = array_keys($meta['columns']);
-            if (array_intersect(['branch', 'order_id', 'paid_order_id', 'ticket_id', 'purchase_id', 'expense_id', 'closing_id', 'batch_id', 'stock_id'], $columns)) throw new RuntimeException('UNREVIEWED_RELATED_TABLE_'.$table);
+            $deletedReferences = array_filter($meta['references'], fn($reference) => in_array($reference['table'], LaunchReset::DELETABLE_TABLES, true));
+            if ($deletedReferences || array_intersect(['branch', 'order_id', 'paid_order_id', 'ticket_id', 'purchase_id', 'expense_id', 'closing_id', 'batch_id', 'stock_id'], $columns)) throw new RuntimeException('UNREVIEWED_RELATED_TABLE_'.$table);
         }
         if ($pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn() !== '0') throw new RuntimeException('TRIGGERS_REQUIRE_REVIEW');
         $database = $pdo->query('SELECT DATABASE()')->fetchColumn(); $connectionId = $pdo->query('SELECT CONNECTION_ID()')->fetchColumn();

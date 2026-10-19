@@ -69,7 +69,7 @@ trap launch_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py worker_control.py quiesce_workers.py queue_manager.py systemd_queue.py; do
+for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py worker_control.py quiesce_workers.py queue_manager.py systemd_queue.py check_schema.php; do
   launch_source="deployment/launch_reset/$launch_name"
   launch_blob=$(runuser -u fasakha -- git -C "$launch_root" rev-parse "$launch_revision:$launch_source")
   [[ "$launch_blob" =~ ^[0-9a-f]{40}$ ]]
@@ -78,6 +78,9 @@ for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer
   chmod 0644 "$launch_tmp/$launch_name"
 done
 runuser -u fasakha -- "$launch_php" -l "$launch_tmp/reset.php"
+runuser -u fasakha -- "$launch_php" -l "$launch_tmp/check_schema.php"
+# Confirm the complete reviewed schema while the site and its workers stay live.
+runuser -u fasakha -- "$launch_php" "$launch_tmp/check_schema.php" --strict "$launch_root"
 # Validate every live source transform before taking the application offline.
 runuser -u fasakha -- python3 "$launch_tmp/bonus_owner_patch.py" \
   --root "$launch_root" --php "$launch_php" --check

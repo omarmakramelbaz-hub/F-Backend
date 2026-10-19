@@ -98,6 +98,9 @@ class SourcePreflightTests(unittest.TestCase):
             self.assertIn('"$launch_tmp/' + name + '"', before_maintenance)
         self.assertEqual(before_maintenance.count('--check'), 4)
         self.assertIn('"$launch_tmp/worker_control.py"', before_maintenance)
+        schema_check = '"$launch_tmp/check_schema.php" --strict "$launch_root"'
+        self.assertIn(schema_check, before_maintenance)
+        self.assertLess(before_maintenance.index(schema_check), before_maintenance.rindex('"$launch_tmp/worker_control.py"'))
         self.assertIn('"$launch_tmp/bonus_owner_patch.py" \\\n  --root "$launch_root" --php "$launch_php" --check', before_maintenance)
         self.assertIn('"$launch_tmp/customer_global_patch.py" \\\n  --root "$launch_root" --php "$launch_php" --check', before_maintenance)
 

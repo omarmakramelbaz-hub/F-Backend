@@ -7,11 +7,13 @@ if (!str_starts_with($socket, '/tmp/launch-reset-mariadb/') && $socket !== 'tcp:
 $baseDsn = $socket === 'tcp:33089' ? 'mysql:host=127.0.0.1;port=33089' : 'mysql:unix_socket='.$socket;
 $name = 'launch_reset_fixture_'.getmypid();
 $admin = new PDO($baseDsn, 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_STRINGIFY_FETCHES => true]);
+if (!str_starts_with((string) $admin->query('SELECT @@datadir')->fetchColumn(), '/tmp/launch-reset-mariadb/')) throw new RuntimeException('ISOLATED_TEST_DATADIR_REQUIRED');
 $admin->exec('CREATE DATABASE '.LaunchReset::name($name).' CHARACTER SET utf8mb4');
 $admin->exec('CREATE DATABASE '.LaunchReset::name($name.'_recovery').' CHARACTER SET utf8mb4');
 $pdo = new PDO($baseDsn.';dbname='.$name, 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_STRINGIFY_FETCHES => true]);
 $pdo->exec("SET sql_mode='STRICT_TRANS_TABLES,NO_AUTO_VALUE_ON_ZERO'");
 $source = json_decode(file_get_contents(__DIR__.'/../deployment/launch_reset/inspected_schema.json'), true, 512, JSON_THROW_ON_ERROR);
+$source['payments']['columns']['total_price'] = 'decimal(15,2) unsigned nullable';
 $source['users'] = ['engine' => 'InnoDB', 'columns' => ['id' => 'bigint unsigned auto_increment', 'account_type' => 'varchar(32)', 'owner_resturant_id' => 'bigint unsigned nullable', 'balance' => 'decimal(12,2)'], 'references' => [], 'unique_indexes' => ['PRIMARY' => ['id']]];
 $source['jobs'] = ['engine' => 'InnoDB', 'columns' => ['id' => 'bigint unsigned auto_increment', 'payload' => 'longtext'], 'references' => [], 'unique_indexes' => ['PRIMARY' => ['id']]];
 foreach ($source as $meta) foreach ($meta['references'] as $ref) if (!isset($source[$ref['table']])) $source[$ref['table']] = ['engine' => 'InnoDB', 'columns' => ['id' => 'bigint unsigned auto_increment'], 'references' => [], 'unique_indexes' => ['PRIMARY' => ['id']]];
@@ -50,6 +52,8 @@ putLaunchRow($pdo, $source, 'orders', ['id' => 10, 'user_id' => 2, 'resturant_id
 putLaunchRow($pdo, $source, 'orders', ['id' => 11, 'user_id' => 2, 'resturant_id' => 94, 'type' => 'wallet', 'status' => 'completed']);
 putLaunchRow($pdo, $source, 'orders', ['id' => 12, 'user_id' => 2, 'resturant_id' => null, 'type' => 'current', 'status' => 'pending']);
 foreach (['carts', 'payments', 'commissions', 'delegate_notifications', 'reviews', 'shippings', 'order_live_activities'] as $table) putLaunchRow($pdo, $source, $table, ['id' => 10, 'order_id' => 10, 'user_id' => 2, 'delegate_id' => 3]);
+putLaunchRow($pdo, $source, 'payments', ['id' => 11, 'order_id' => 11, 'user_id' => 2, 'total_price' => '125.50']);
+putLaunchRow($pdo, $source, 'payments', ['id' => 12, 'order_id' => 12, 'user_id' => 2, 'total_price' => '200.75']);
 putLaunchRow($pdo, $source, 'wallets', ['id' => 10, 'order_id' => 10, 'from_user' => 2, 'to_user' => 3, 'amount' => '125.5']);
 putLaunchRow($pdo, $source, 'wallets', ['id' => 11, 'order_id' => 11, 'from_user' => 2, 'to_user' => 3, 'amount' => '99.25']);
 foreach ([10 => 'f:94', 11 => 'gs:94'] as $id => $branch) {
@@ -85,6 +89,14 @@ foreach (['takeaway_orders', 'pos_service_tickets', 'pos_service_commands', 'pos
 }
 
 $schema = launchSchema($pdo);
+$baseline = $schema; unset($baseline['payments']['columns']['total_price']);
+if (launchReviewedSchema($baseline, $schema) != $schema) throw new RuntimeException('Reviewed payment schema not recognized from MariaDB metadata');
+$readOnly = new PDO($baseDsn.';dbname='.$name, 'root', '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_STRINGIFY_FETCHES => true]);
+$readOnly->exec('SET SESSION TRANSACTION READ ONLY');
+if (launchSchema($readOnly) != $schema) throw new RuntimeException('Read-only schema inspection changed metadata');
+try { $readOnly->exec('UPDATE users SET balance=balance WHERE id=2'); throw new RuntimeException('Read-only connection allowed writes'); }
+catch (PDOException $expectedReadOnly) { if ($expectedReadOnly->getCode() !== '25006') throw $expectedReadOnly; }
+$readOnly = null;
 $reset = new LaunchReset($pdo, $schema);
 $pdo->exec('SET autocommit=0');
 $lockSql = 'LOCK TABLES '.implode(',', array_map(fn($table) => LaunchReset::name($table).' WRITE', array_keys($schema)));
@@ -115,6 +127,8 @@ $committed = new LaunchReset($pdo, $schema); $committed->plan('mariadb-commit');
 $pdo->exec('COMMIT'); $pdo->exec('UNLOCK TABLES'); $pdo->exec('SET autocommit=1');
 if ($pdo->query("SELECT COUNT(*) FROM branch_employee_days WHERE status IN ('present','morning','evening','part_time')")->fetchColumn() !== '399') throw new RuntimeException('Attendance was not durable');
 if ($pdo->query('SELECT COUNT(*) FROM orders WHERE id IN (11,12)')->fetchColumn() !== '2') throw new RuntimeException('Other order families were removed');
+if ($pdo->query('SELECT total_price FROM payments WHERE id=11')->fetchColumn() !== '125.50'
+    || $pdo->query('SELECT total_price FROM payments WHERE id=12')->fetchColumn() !== '200.75') throw new RuntimeException('Preserved wallet/other order payment amount changed');
 $recovery = null; $pdo = null;
 $admin->exec('DROP DATABASE '.LaunchReset::name($name.'_recovery')); $admin->exec('DROP DATABASE '.LaunchReset::name($name));
-echo "PASS MariaDB: real FK ordering, locked InnoDB rollback/commit, 399 attendance days, wallet/other-branch preservation, whole-table fingerprints and executable verified SQL backup\n";
+echo "PASS MariaDB: reviewed payment metadata, read-only inspection, real FK ordering, locked rollback/commit, 399 attendance days, preserved wallet/other-order payment amounts, whole-table fingerprints and verified SQL backup restoration\n";
