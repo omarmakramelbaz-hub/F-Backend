@@ -9,6 +9,8 @@ on:
       - 'app/Services/Dashboard/CategoryOrdering.php'
       - 'app/Repositories/ResturantProductRepository.php'
       - 'app/Http/Controllers/Dashboard/CategoryController.php'
+      - 'app/Http/Controllers/Dashboard/ContractController.php'
+      - 'config/snappy.php'
       - 'app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php'
       - 'app/Http/Requests/Api/Vendor/CopyMenuRequest.php'
       - 'routes/admin.php'
@@ -23,6 +25,7 @@ on:
       - 'resources/views/admin/**'
       - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
+      - '.github/scripts/desktop-wkhtmltox.cjs'
 
 permissions:
   contents: read
@@ -56,6 +59,21 @@ jobs:
           npm install --prefix "$env:RUNNER_TEMP/browser-tests" --ignore-scripts --no-audit --no-fund playwright@1.62.1
           if ($LASTEXITCODE -ne 0) { throw 'Browser test dependencies failed.' }
           "DESKTOP_TEST_BROWSER_MODULE=$env:RUNNER_TEMP/browser-tests/node_modules/playwright" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prepare the pinned official Windows PDF runtime and test-only parser
+        shell: pwsh
+        run: |
+          $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          $env:DESKTOP_7ZIP = if ($sevenZip) { $sevenZip.Source } else { Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
+          if (!(Test-Path $env:DESKTOP_7ZIP)) { throw 'The Windows archive extractor is unavailable.' }
+          node .github/scripts/desktop-wkhtmltox.cjs "$env:RUNNER_TEMP/wkhtmltox-official"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned official PDF payload verification failed.' }
+          "DESKTOP_TEST_WKHTMLTOX=$env:RUNNER_TEMP/wkhtmltox-official/wkhtmltox" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $parser = "$env:RUNNER_TEMP/contract-pdf-parser"
+          python -m venv $parser
+          if ($LASTEXITCODE -ne 0) { throw 'Private PDF parser environment creation failed.' }
+          & "$parser/Scripts/python.exe" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned test-only PDF parser verification failed.' }
+          "DESKTOP_TEST_PDF_PYTHON=$parser/Scripts/python.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Run the original Laravel dashboard with private disposable MariaDB
         shell: pwsh
         run: |
@@ -67,10 +85,11 @@ jobs:
           $bin = Split-Path $server
           $maria = Split-Path $bin
           $phpRoot = Split-Path (Get-Command php).Source
-          $bundle = "$env:RUNNER_TEMP/dashboard-bundle"
+          # Exercise the actual native PDF command path with spaces.
+          $bundle = "$env:RUNNER_TEMP/dashboard PDF bundle"
           $env:DESKTOP_TEST_SNAPSHOT_FILE = "$env:RUNNER_TEMP/dashboard-synthetic-snapshot.json"
           "DESKTOP_TEST_SNAPSHOT_FILE=$env:DESKTOP_TEST_SNAPSHOT_FILE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA
+          node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA "$env:DESKTOP_TEST_WKHTMLTOX"
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
           & php tests/request_autoload_compatibility.php "$bundle/application" 2>&1 | Tee-Object -Variable requestAutoloadOutput
           if ($LASTEXITCODE -ne 0 -or !(($requestAutoloadOutput -join "`n") -match '(?m)^REQUEST_AUTOLOAD_COMPATIBILITY_COMPLETE 7$')) { throw 'Original request autoload compatibility checks did not complete.' }
@@ -91,6 +110,38 @@ jobs:
               Start-Sleep -Milliseconds 250
             }
             if (!$ready) { throw 'Disposable database readiness timed out.' }
+            $pdfProofDirectory = "$env:RUNNER_TEMP/contract-pdf-windows"
+            New-Item -ItemType Directory -Path $pdfProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/contract-pdf-http.php "$bundle/application" $port $pdfProofDirectory windows $env:GITHUB_SHA 2>&1 | Tee-Object -Variable pdfProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($pdfProofOutput -join "`n") -match '(?m)^CONTRACT_PDF_HTTP_COMPLETE ')) { throw 'The original contract route did not complete its Windows PDF smoke.' }
+            & $env:DESKTOP_TEST_PDF_PYTHON tests/desktop_dashboard_runtime/contract-pdf-parser-test.py
+            if ($LASTEXITCODE -ne 0) { throw 'Strict Arabic PDF extraction comparison controls failed.' }
+            & $env:DESKTOP_TEST_PDF_PYTHON tests/desktop_dashboard_runtime/verify-contract-pdf.py $pdfProofDirectory $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { throw 'The real Windows contract PDF could not be parsed with its saved literal and Arabic text.' }
+            $pdfReceipt = Get-Content "$pdfProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            $parsedPdfReceipt = Get-Content "$pdfProofDirectory/parsed-pdf-receipt.json" -Raw | ConvertFrom-Json
+            if (!$pdfReceipt.completed -or !$pdfReceipt.databaseDropped -or !$pdfReceipt.httpServerStopped -or $pdfReceipt.mode -ne 'windows' -or $pdfReceipt.sourceRevision -ne $env:GITHUB_SHA -or $pdfReceipt.helperBinding -ne 'exact-git-revision' -or $pdfReceipt.journalCommands -ne 0 -or $pdfReceipt.externalAssetRequests -ne 0 -or $pdfReceipt.fullDashboard -ne $false -or !$parsedPdfReceipt.completed -or $parsedPdfReceipt.sourceRevision -ne $env:GITHUB_SHA -or $parsedPdfReceipt.fullDashboard -ne $false) { throw 'The contract PDF proof source, cleanup or bounded scope differs.' }
+            $customerDirectoryProofDirectory = "$env:RUNNER_TEMP/customer-directory-browser"
+            New-Item -ItemType Directory -Path $customerDirectoryProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/customer-directory-browser-http.php "$bundle/application" $port $customerDirectoryProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable customerDirectoryProofOutput
+            $customerDirectoryExit = $LASTEXITCODE
+            $customerDirectoryMarkers = [regex]::Matches(($customerDirectoryProofOutput -join "`n"), '(?m)^ORIGINAL_CUSTOMER_DIRECTORY_BROWSER_COMPLETE [^\r\n]+$')
+            if ($customerDirectoryExit -ne 0 -or $customerDirectoryMarkers.Count -ne 1) { throw 'Original customer directory Edge fixture did not complete exactly once.' }
+            $customerDirectoryReceipt = Get-Content "$customerDirectoryProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            foreach ($field in @('completed','verifiedImport','privateDatabasesDropped','httpStopped','browserStopped','sourceVerifiedAfter','helpersVerifiedAfter')) {
+              if ($customerDirectoryReceipt.$field -ne $true) { throw "Original customer directory receipt is incomplete: $field" }
+            }
+            if ($customerDirectoryReceipt.helperBinding -ne 'exact-git-revision' -or $customerDirectoryReceipt.sourceRevision -ne $env:GITHUB_SHA -or $customerDirectoryReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $customerDirectoryReceipt.importedSnapshotTables -ne 109 -or $customerDirectoryReceipt.schemaInventory -ne 106 -or $customerDirectoryReceipt.unchangedImportedTables -ne 106 -or $customerDirectoryReceipt.checks -ne 16 -or $customerDirectoryReceipt.fullDashboard -ne $false) { throw 'Original customer directory receipt source, schema or bounded coverage differs.' }
+            $customerDirectoryProof = $customerDirectoryReceipt.browserProof
+            if ($customerDirectoryReceipt.browserExitCode -ne 0 -or $customerDirectoryProof.browser -ne 'Windows Edge' -or $customerDirectoryProof.browserPlatform -ne 'win32' -or $customerDirectoryProof.sourceCommit -ne $env:GITHUB_SHA -or $customerDirectoryProof.fixtureRevision -ne $env:GITHUB_SHA -or $customerDirectoryProof.newPageErrors -ne 0 -or $customerDirectoryProof.createPostCount -ne 1) { throw 'Original customer directory browser proof differs from this exact Windows fixture.' }
+            foreach ($scope in @($customerDirectoryReceipt,$customerDirectoryProof)) {
+              foreach ($field in @('domInjection','providersReplaced')) {
+                if ($scope.$field -isnot [bool] -or $scope.$field -ne $false) { throw "Original customer directory proof must preserve the original application: $field" }
+              }
+            }
+            foreach ($field in @('create','edit','explicitConsent','scopedWithdrawal','recordedWithdrawalReopenRejected','committedResponseLost','recoveredSameUuid')) {
+              if ($customerDirectoryProof.$field -ne $true) { throw "Original customer directory browser proof did not exercise: $field" }
+            }
             foreach ($fixture in @('run.php', 'legacy.php')) {
               & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
               $fixtureExit = $LASTEXITCODE
@@ -129,6 +180,8 @@ jobs:
             & php tests/desktop_dashboard_runtime/review-deletion-browser-http.php "$bundle/application" $port $reviewProofDirectory 2>&1 | Tee-Object -Variable reviewProofOutput
             if ($LASTEXITCODE -ne 0 -or !(($reviewProofOutput -join "`n") -match '(?m)^ORIGINAL_REVIEW_BROWSER_COMPLETE ')) { throw 'Original Review Edge fixture did not complete.' }
             $reviewReceipt = Get-Content "$reviewProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            $soundFixtureSha256 = (Get-FileHash tests/desktop_dashboard_runtime/browser-sound.cjs -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($reviewReceipt.soundFixtureSha256 -ne $soundFixtureSha256 -or !$reviewReceipt.soundFixtureVerifiedAfter) { throw 'Review browser sound helper differs from this exact fixture source.' }
             if (!$reviewReceipt.completed -or !$reviewReceipt.verifiedImport -or !$reviewReceipt.privateDatabasesDropped -or !$reviewReceipt.httpStopped -or !$reviewReceipt.browserStopped -or $reviewReceipt.sourceRevision -ne $env:GITHUB_SHA -or $reviewReceipt.importedSnapshotTables -ne 106 -or $reviewReceipt.checks -ne 7 -or $reviewReceipt.browserExitCode -ne 0 -or $reviewReceipt.browserProof.browser -ne 'Windows Edge' -or $reviewReceipt.browserProof.newPageErrors -ne 0 -or !$reviewReceipt.browserProof.committedResponseLost -or !$reviewReceipt.browserProof.originalFormRetrySameUuid) { throw 'Original Review Edge receipt does not match this complete source-bound fixture.' }
             $wishlistProofDirectory = "$env:RUNNER_TEMP/wishlist-delete-browser"
             New-Item -ItemType Directory -Path $wishlistProofDirectory -Force | Out-Null
@@ -184,9 +237,28 @@ jobs:
             $menuRetry = $menuProof.retry
             if (!$menuRetry.committedResponseLost -or $menuRetry.changedSameUuidStatus -ne 409 -or $menuRetry.originalSelectionSameUuidStatus -ne 302 -or !$menuRetry.originalFormRetained -or !$menuRetry.originalCheckboxes -or $menuRetry.resourceType -ne 'fetch' -or $menuRetry.isNavigationRequest -ne $false -or $menuRetry.command -ne $menuProof.operations[0].command -or $menuProof.operations[0].command -eq $menuProof.operations[1].command) { throw 'Original menu-copy lost-response retry must retain the actual ordered form and UUID through lost302, changed409 and exact302.' }
             if ($menuReceipt.originalBusinessTablesBefore.tables -ne 106 -or $menuReceipt.originalBusinessTablesAfter.tables -ne 106 -or $menuReceipt.originalBusinessTablesBefore.sha256 -ne $menuReceipt.originalBusinessTablesAfter.sha256 -or $menuReceipt.vendorBefore.sha256 -ne $menuReceipt.vendorAfter.sha256 -or $menuReceipt.vendorBefore.files -ne $menuReceipt.vendorAfter.files -or $menuReceipt.installedGraphBefore.sha256 -ne $menuReceipt.installedGraphAfter.sha256 -or $menuReceipt.installedGraphBefore.packages -ne $menuReceipt.installedGraphAfter.packages) { throw 'Original menu-copy immutable business or dependency inventories differ.' }
+            foreach ($receipt in @($wishlistReceipt,$flagsReceipt,$crudReceipt,$menuReceipt)) {
+              if ($receipt.fixtureSourceBindings.'browser-sound.cjs' -ne $soundFixtureSha256) { throw 'A browser sound helper differs from its frozen fixture source.' }
+            }
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Retain the real Windows contract PDF and source-bound receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-contract-pdf-windows
+          path: ${{ runner.temp }}/contract-pdf-windows
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original customer directory Edge receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-customer-directory-browser-windows
+          path: ${{ runner.temp }}/customer-directory-browser
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain the original Review Edge receipt
         uses: actions/upload-artifact@v4
         with:
@@ -235,18 +307,18 @@ jobs:
         shell: pwsh
         timeout-minutes: 25
         run: |
-          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard-bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE
+          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard PDF bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE
           if ($LASTEXITCODE -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
-        run: node --test test/*.test.cjs
+        run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs
       - name: Assemble and audit the installer runtime
         shell: pwsh
         run: |
           $installerPhpRoot = Split-Path (Get-Command php).Source
           $installerMariaExecutable = (Get-ChildItem "$env:RUNNER_TEMP/mariadb/*/bin/mariadbd.exe")[0].FullName
           $installerMariaRoot = Split-Path (Split-Path $installerMariaExecutable)
-          node desktop-pos/build-runtime.cjs . desktop-pos/runtime-bundle desktop-pos/runtime $installerPhpRoot $installerMariaRoot $env:GITHUB_SHA
+          node desktop-pos/build-runtime.cjs . desktop-pos/runtime-bundle desktop-pos/runtime $installerPhpRoot $installerMariaRoot $env:GITHUB_SHA "$env:DESKTOP_TEST_WKHTMLTOX"
           if ($LASTEXITCODE -ne 0) { throw 'Installer source packaging failed.' }
           New-Item -ItemType Directory -Path desktop-pos/dist -Force | Out-Null
           Copy-Item $env:DESKTOP_TEST_SNAPSHOT_FILE desktop-pos/dist/dashboard-synthetic-snapshot.json

@@ -17,6 +17,8 @@ class OrderBoardService
     private $columns = [];
     private $related = [];
     private $storeActions;
+    private $itemsEditor;
+    private $printingPolicy;
 
     public function canAccess($actor): bool
     {
@@ -102,6 +104,20 @@ class OrderBoardService
             'count'=>array_sum($counts)];
     }
 
+    /** Complete, actor-scoped new-order keys; UI filters and pagination never silence alerts. */
+    public function pendingAlertKeys($actor): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $keys = [];
+        foreach (['legacy', 'store', 'service', 'partner_service'] as $source) {
+            $query = $this->query($source, $actor, []);
+            if (!$query) continue;
+            $this->forGroup($query, $source, 'new');
+            foreach ($query->orderBy('id')->pluck('id') as $id) $keys[] = $source.':'.$id;
+        }
+        return $keys;
+    }
+
     /** Authorize a transition without hydrating receipt lines, payments or customer display data. */
     public function actionState(string $source, int $id, $actor, GoStoreBoardActions $stores): array
     {
@@ -139,7 +155,51 @@ class OrderBoardService
         $row = $query->where('id', $id)->first();
         abort_unless($row, 404);
         $this->loadRelated($source, collect([$row]));
-        return $this->normalize($source, $row, $actor);
+        return $this->invoiceQuantities($source, $row, $this->normalize($source, $row, $actor));
+    }
+
+    /** Display actual kilograms without changing saved native portion quantities or their prices. */
+    private function invoiceQuantities(string $source, object $row, array $card): array
+    {
+        if ($source === 'legacy') {
+            $saved = $this->related['carts'][$row->id] ?? [];
+            $stocks = app(BranchStock::class)->balances('f:'.(int) ($row->resturant_id ?? 0),
+                array_map(fn ($line) => (int) $line->resturant_product_id, $saved));
+            $byId = [];
+            foreach ($saved as $line) $byId[(int) $line->id] = $line;
+            foreach ($card['items'] as &$item) {
+                $line = $byId[$item['line_id']] ?? null;
+                if (!$line || ($stocks[(int) $line->resturant_product_id]['unit'] ?? '') !== 'kg') continue;
+                $feature = $this->related['product_features'][$line->product_feature ?? null]->name ?? '';
+                $factor = ['half'=>0.5, 'quarter'=>0.25][$feature] ?? 1;
+                $item['display_quantity'] = number_format((float) $item['quantity'] * $factor, 3, '.', '');
+                $item['quantity_unit'] = 'كجم';
+            }
+            unset($item);
+        } elseif ($source === 'store') {
+            $snapshot = json_decode($row->snapshot ?? '{}', true) ?: [];
+            $saved = array_values($snapshot['items'] ?? []);
+            foreach ($card['items'] as &$item) {
+                $unit = mb_strtolower(trim((string) ($saved[$item['line_id']]['unit'] ?? '')));
+                if (!in_array($unit, ['kg', 'kilogram', 'كيلو', 'كجم', 'كغ'], true)) continue;
+                $item['display_quantity'] = number_format((float) $item['quantity'], 3, '.', '');
+                $item['quantity_unit'] = 'كجم';
+            }
+            unset($item);
+        }
+        return $card;
+    }
+
+    /** Shared row scope for item editing; the caller owns the transaction when locking. */
+    public function scopedRow(string $source, int $id, $actor, bool $lock = false): object
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $query = $this->query($source, $actor, []);
+        abort_unless($query, 404);
+        if ($lock) $query->lockForUpdate();
+        $row = $query->where('id', $id)->first();
+        abort_unless($row, 404);
+        return $row;
     }
 
     public function scopedLegacy(int $id, $actor, bool $lock = false): Order
@@ -300,6 +360,14 @@ class OrderBoardService
             foreach ($carts as $cart) $this->related['carts'][$cart->order_id][] = $cart;
             $this->cacheRows('resturant_products', 'id', $carts->pluck('resturant_product_id')->filter()->all());
             $this->cacheRows('product_features', 'id', $carts->pluck('product_feature')->filter()->all());
+            $productIds = $carts->map(function ($cart) {
+                return $this->related['resturant_products'][$cart->resturant_product_id ?? null]->product_id ?? null;
+            })->filter()->unique()->all();
+            if ($productIds && $this->has('products', 'id') && $this->has('products', 'has_clean')) {
+                foreach (DB::table('products')->whereIn('id', $productIds)->get(['id', 'has_clean']) as $definition) {
+                    $this->related['products'][$definition->id] = $definition;
+                }
+            }
         }
         if ($this->has('shippings', 'order_id')) {
             foreach (DB::table('shippings')->whereIn('order_id', $ids)->get() as $shipping) $this->related['shippings'][$shipping->order_id] = $shipping;
@@ -310,6 +378,30 @@ class OrderBoardService
     {
         if (!$ids || !$this->has($table, $key)) return;
         foreach (DB::table($table)->whereIn($key, array_unique($ids))->get() as $row) $this->related[$table][$row->$key] = $row;
+    }
+
+    private function legacyOptionLabel(object $line, ?object $product): string
+    {
+        // Persisted selections describe the order even if today's menu no longer offers them.
+        $label = trim((string) ($line->option_label ?? ''));
+        $feature = $this->related['product_features'][$line->product_feature ?? null] ?? null;
+        if ($label === '' && $feature && $product && !empty($product->product_id)
+            && (int) ($feature->product_id ?? 0) === (int) $product->product_id && trim((string) ($feature->name ?? '')) !== '') {
+            $name = trim((string) $feature->name);
+            $translated = __('main.'.$name);
+            $label = $translated === 'main.'.$name ? $name : trim($translated);
+        }
+        $clean = trim((string) ($line->product_clean ?? ''));
+        $cleanLabel = ['extra_clear'=>'مخلي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'فاكيوم',
+            'extra_combo'=>'كومبو', 'extra_large'=>'كبير', 'extra_medium'=>'وسط'][$clean] ?? '';
+        if ($clean === '') {
+            $definition = $this->related['products'][$product->product_id ?? null] ?? null;
+            // The customer app represents the whole/base preparation as a null clean choice.
+            // Ordinary products have no preparation choice and should receive no invented label.
+            if ((int) ($definition->has_clean ?? $product->has_clean ?? 0) === 1) $cleanLabel = 'كامل';
+        }
+        if ($cleanLabel !== '' && !str_contains($label, $cleanLabel)) $label .= ($label !== '' ? ' / ' : '').$cleanLabel;
+        return $label;
     }
 
     private function normalize(string $source, object $row, $actor): array
@@ -342,11 +434,10 @@ class OrderBoardService
             $subtotal = 0;
             foreach ($this->related['carts'][$row->id] ?? [] as $line) {
                 $product = $this->related['resturant_products'][$line->resturant_product_id ?? null] ?? null;
-                $feature = $this->related['product_features'][$line->product_feature ?? null] ?? null;
-                $lineTotal = !empty($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
+                $lineTotal = isset($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
                 $subtotal += $lineTotal;
-                $card['items'][] = ['name'=>$product->product_name ?? $product->name_ar ?? $line->name ?? 'صنف',
-                    'quantity'=>$line->qty ?? 1, 'option_label'=>$feature ? __('main.'.$feature->name) : '',
+                $card['items'][] = ['line_id'=>(int) $line->id, 'name'=>$product->product_name ?? $product->name_ar ?? $line->name ?? 'صنف',
+                    'quantity'=>$line->qty ?? 1, 'option_label'=>$this->legacyOptionLabel($line, $product),
                     'line_total'=>number_format($lineTotal, 2, '.', '')];
             }
             if (($row->type ?? '') === 'shipping') {
@@ -381,8 +472,8 @@ class OrderBoardService
             $card['phone'] = $snapshot['customer_mobile'] ?? $card['phone'];
             $card['address'] = $this->address((object) ($snapshot['address'] ?? []));
             if (($row->fulfillment ?? '') === 'pickup') $card['address'] = 'استلام من المتجر';
-            $card['items'] = array_map(function ($line) { return ['name'=>$line['name'] ?? 'صنف', 'quantity'=>$line['quantity'] ?? 1,
-                'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['line_total'] ?? null]; }, $snapshot['items'] ?? []);
+            $card['items'] = array_map(function ($line, $key) { return ['line_id'=>$key, 'name'=>$line['name'] ?? 'صنف', 'quantity'=>$line['quantity'] ?? 1,
+                'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['line_total'] ?? null]; }, array_values($snapshot['items'] ?? []), array_keys(array_values($snapshot['items'] ?? [])));
             $card['notes'] = $snapshot['notes'] ?? '';
             $card['total'] = isset($row->total_cents) ? Money::decimal((int) $row->total_cents) : ($snapshot['total'] ?? null);
             $card['payment_label'] = $this->payment($row->payment_method ?? '');
@@ -408,6 +499,13 @@ class OrderBoardService
                 elseif ($status === 'accepted') $card['actions'] = ['complete'];
             }
         }
+        if ($this->printingPolicy === null) $this->printingPolicy = app(OrderBoardPrinting::class);
+        $card['can_print'] = $this->printingPolicy->allowed($source, $row, $actor);
+        if (!$card['can_print']) $card['urls']['print'] = null;
+        if ($this->itemsEditor === null) $this->itemsEditor = app(OrderBoardItems::class);
+        if ($this->itemsEditor->available($source, $row, $actor)) {
+            $card['urls']['items'] = route('order-board.items', [$source, $row->id]);
+        }
         return $card;
     }
 
@@ -416,10 +514,11 @@ class OrderBoardService
         if (!$hasRestaurant || ($row->type ?? '') !== 'current') return [];
         $status = $row->status ?? '';
         if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') !== 'yes') return ['accept','reject'];
-        if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') return ['prepare','dispatch'];
+        $cancel = app(LegacyOrderCancellation::class)->available($row) ? ['cancel'] : [];
+        if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') return array_merge(['prepare','dispatch'], $cancel);
         if ($status === 'accepted') {
             if (($row->delegate_from_out ?? '') === 'in_resturant') return ['complete'];
-            if (empty($row->delegate_id)) return ['prepare','dispatch'];
+            return array_merge(empty($row->delegate_id) ? ['prepare','dispatch'] : [], $cancel);
         }
         return $status === 'shipped' ? ['complete'] : [];
     }

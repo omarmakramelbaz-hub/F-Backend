@@ -17,17 +17,19 @@
     const paths = node => Array.from(node.querySelectorAll('a[href]')).filter(link => !link.getAttribute('href').startsWith('#')).map(link => {
         try { return new URL(link.href, location.href).pathname; } catch (error) { return ''; }
     });
-    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|meta|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|meta|meta\/comments|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
     // Move only links rendered by the server's existing access checks.
-    function placeShortcut(route, afterRoute) {
+    function placeShortcut(route, anchorRoute, position = 'after') {
         const find = value => rootNodes.find(node => paths(node).some(path => path.replace(/\/$/, '') === '/admin/' + value));
         const shortcut = find(route);
-        const anchor = find(afterRoute);
-        if (shortcut && anchor) anchor.after(shortcut);
+        const anchor = find(anchorRoute);
+        if (shortcut && anchor) {
+            if (position === 'before') anchor.before(shortcut);
+            else anchor.after(shortcut);
+        }
     }
-    placeShortcut('whatsapp', 'dashboard');
-    placeShortcut('meta', 'whatsapp');
-    placeShortcut('desktop-pos', 'go-stores');
+    placeShortcut('meta', 'dashboard');
+    placeShortcut('desktop-pos', 'print-settings', 'before');
     function section(node) {
         const routes = paths(node).join(' ');
         if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';
@@ -203,23 +205,32 @@
     }
     function fitNavigation() {
         removeScrollbar();
+        const area = sidebar.querySelector('.sidebar');
+        const previousScroll = area ? area.scrollTop : 0;
+        if (area) area.scrollTop = 0;
+        sidebar.removeAttribute('data-navigation-scroll');
+        sidebar.classList.remove('dashboard-sidebar-compact');
         if (navigation.children.length > 14) groupNavigation();
         let navBox = navigation.getBoundingClientRect();
-        if (navBox.height && navBox.bottom > innerHeight - 12 && navigation.dataset.grouped !== 'true') groupNavigation();
+        // The flex area ends above the brand footer; reserve that space at every size.
+        const areaBottom = () => Math.min(innerHeight, (area || sidebar).getBoundingClientRect().bottom) - 8;
+        if (navBox.height && navBox.bottom > areaBottom() && navigation.dataset.grouped !== 'true') groupNavigation();
         const count = navigation.children.length;
         if (count && sidebar.getBoundingClientRect().width) {
-            const viewportBottom = Math.min(innerHeight, sidebar.getBoundingClientRect().bottom);
-            sidebar.classList.remove('dashboard-sidebar-compact');
             navBox = navigation.getBoundingClientRect();
-            if ((viewportBottom - navBox.top - 10) / count < 34) {
+            if ((areaBottom() - navBox.top) / count < 34) {
                 sidebar.classList.add('dashboard-sidebar-compact');
                 navBox = navigation.getBoundingClientRect();
             }
-            const available = Math.max(0, viewportBottom - navBox.top - 10);
-            const rowHeight = Math.min(40, Math.floor(available / count));
+            const available = Math.max(0, areaBottom() - navBox.top);
+            const minimum = innerWidth < 992 ? 40 : 28;
+            const rowHeight = Math.max(minimum, Math.min(42, Math.floor(available / count)));
+            // Very short windows keep every link reachable without shrinking the text.
+            if (rowHeight * count > available) sidebar.setAttribute('data-navigation-scroll', 'true');
             sidebar.style.setProperty('--dashboard-nav-row-height', rowHeight + 'px');
-            sidebar.style.setProperty('--dashboard-nav-font-size', rowHeight < 28 ? '12px' : '13px');
+            sidebar.style.setProperty('--dashboard-nav-font-size', rowHeight < 32 ? '12px' : '13px');
         }
+        if (area && sidebar.hasAttribute('data-navigation-scroll')) area.scrollTop = previousScroll;
         prepareLinks();
         document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
             toggle.setAttribute('aria-controls', sidebar.id);
@@ -246,3 +257,154 @@
         fitNavigation();
     }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }());
+
+// BEGIN Meta comments sidebar ordering v2
+(() => {
+    const key = '__fasakhanstaMetaCommentsNavigationV2';
+    if (window[key] && typeof window[key].schedule === 'function') {
+        window[key].schedule();
+        return;
+    }
+    const observed = new WeakSet();
+    let queued = false;
+    const placeComments = () => {
+        const origin = new URL(window.location.href).origin;
+        const isComments = /^\/admin\/meta\/comments(?:\/|$)/.test(window.location.pathname);
+        document.querySelectorAll('.main-sidebar').forEach(sidebar => {
+            if (!observed.has(sidebar)) {
+                new MutationObserver(schedule).observe(sidebar, {
+                    childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'href']
+                });
+                observed.add(sidebar);
+            }
+            const links = Array.from(sidebar.querySelectorAll('.nav-sidebar a[href]'))
+                .filter(link => link.closest('.main-sidebar') === sidebar);
+            const at = path => links.filter(link => {
+                try {
+                    const url = new URL(link.href, window.location.href);
+                    return url.origin === origin && url.pathname.replace(/\/+$/, '') === path;
+                } catch (_) { return false; }
+            });
+            const comments = at('/admin/meta/comments');
+            const inbox = at('/admin/meta');
+            if (comments.length !== 1 || inbox.length !== 1) return;
+            const item = comments[0].closest('li');
+            const after = inbox[0].closest('li');
+            if (!item || !after || item === after || item.contains(after)
+                || !item.closest('.nav-sidebar') || !after.closest('.nav-sidebar')) return;
+            if (item.parentElement !== after.parentElement || after.nextElementSibling !== item)
+                after.insertAdjacentElement('afterend', item);
+            if (isComments) {
+                if (inbox[0].classList.contains('active')) inbox[0].classList.remove('active');
+                if (!comments[0].classList.contains('active')) comments[0].classList.add('active');
+            }
+        });
+    };
+    const schedule = () => {
+        if (queued) return;
+        queued = true;
+        window.requestAnimationFrame(() => { queued = false; placeComments(); });
+    };
+    window[key] = { schedule };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule, { once: true });
+    else schedule();
+    document.addEventListener('dashboard:page-mounted', schedule);
+    window.addEventListener('popstate', schedule);
+})();
+// END Meta comments sidebar ordering v2
+
+/* dashboard-collapsed-shortcuts:start */
+(function () {
+    'use strict';
+    const header = document.querySelector('.main-header');
+    const sidebar = document.getElementById('dashboard-sidebar');
+    if (!header || !sidebar || header.querySelector('[data-dashboard-quick-links]')) return;
+
+    // Reuse the actual sound button so its mute state and click handler survive.
+    const language = header.querySelector('select[onchange*="changeLanguage"]');
+    const sound = header.querySelector('#toggle-sound');
+    const languageItem = language && language.closest('li');
+    if (sound && languageItem) {
+        const soundItem = document.createElement('li');
+        soundItem.className = 'nav-item dashboard-header-sound';
+        languageItem.after(soundItem);
+        soundItem.append(sound);
+    }
+
+    const arabic = document.documentElement.dir === 'rtl';
+    const entries = [
+        ['takeaway', 'طلبات التيك أواي', 'Takeaway orders', 'fa-shopping-bag', 'تيك أواي', 'Takeaway'],
+        ['phone-orders', 'طلبات الدليفري', 'Delivery orders', 'fa-phone-alt', 'الدليفري', 'Delivery'],
+        ['dining', 'طلبات الصالة', 'Dining orders', 'fa-chair', 'الصالة', 'Dining'],
+        ['applies-orders', 'طلبات التطبيق', 'App orders', 'fa-mobile-alt', 'التطبيق', 'App'],
+        ['branch-expenses', 'مصروفات الفروع', 'Branch expenses', 'fa-file-invoice-dollar', 'المصروفات', 'Expenses'],
+        ['branch-stock', 'إضافة بضاعة', 'Add stock', 'fa-boxes', 'بضاعة', 'Stock'],
+        ['employees', 'الموظفون والرواتب', 'Employees & payroll', 'fa-user-clock', 'الموظفون', 'Staff']
+    ];
+    const links = Array.from(sidebar.querySelectorAll('[data-dashboard-navigation] a[href]'))
+        .filter(link => !link.getAttribute('href').startsWith('#'));
+    const bar = document.createElement('div');
+    bar.className = 'dashboard-quick-links';
+    bar.setAttribute('data-dashboard-quick-links', '');
+    bar.setAttribute('role', 'navigation');
+    bar.setAttribute('aria-label', arabic ? 'اختصارات التشغيل' : 'Operations shortcuts');
+    bar.hidden = true;
+    const shortcuts = [];
+    entries.forEach(([route, ar, en, icon, shortAr, shortEn]) => {
+        // A shortcut exists only when the server rendered this route for this account.
+        const source = links.find(link => {
+            try { return new URL(link.href).pathname.replace(/\/$/, '') === '/admin/' + route; }
+            catch (error) { return false; }
+        });
+        if (!source) return;
+        const link = document.createElement('a');
+        link.className = 'dashboard-quick-link';
+        link.href = source.href;
+        link.setAttribute('data-dashboard-shortcut', route);
+        link.title = arabic ? ar : en;
+        link.setAttribute('aria-label', link.title);
+        const symbol = document.createElement('i');
+        symbol.className = 'fas ' + icon;
+        symbol.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.className = 'dashboard-quick-label';
+        label.textContent = arabic ? ar : en;
+        const shortLabel = document.createElement('span');
+        shortLabel.className = 'dashboard-quick-label-short';
+        shortLabel.textContent = arabic ? shortAr : shortEn;
+        link.append(symbol, label, shortLabel);
+        bar.append(link);
+        shortcuts.push({ link, source });
+    });
+    const controls = header.querySelector('[data-widget="pushmenu"]')?.closest('ul');
+    if (controls) controls.after(bar);
+    else header.append(bar);
+
+    function syncShortcuts() {
+        const collapsed = innerWidth < 992
+            ? !document.body.classList.contains('sidebar-open')
+            : document.body.classList.contains('sidebar-collapse');
+        bar.hidden = !collapsed || !shortcuts.length;
+        let activeLink = null;
+        shortcuts.forEach(({ link, source }) => {
+            const path = new URL(source.href).pathname.replace(/\/$/, '');
+            const active = location.pathname === path || location.pathname.startsWith(path + '/');
+            link.classList.toggle('active', active);
+            if (active) { link.setAttribute('aria-current', 'page'); activeLink = link; }
+            else link.removeAttribute('aria-current');
+        });
+        if (activeLink && !bar.hidden) {
+            // Reveal the active shortcut inside this strip without scrolling the POS page.
+            const box = activeLink.getBoundingClientRect();
+            const viewport = bar.getBoundingClientRect();
+            if (box.left < viewport.left) bar.scrollLeft += box.left - viewport.left - 4;
+            else if (box.right > viewport.right) bar.scrollLeft += box.right - viewport.right + 4;
+        }
+    }
+    syncShortcuts();
+    document.addEventListener('dashboard:page-loaded', syncShortcuts);
+    window.addEventListener('resize', syncShortcuts);
+    if (document.fonts?.ready) document.fonts.ready.then(syncShortcuts);
+    new MutationObserver(syncShortcuts).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}());
+/* dashboard-collapsed-shortcuts:end */

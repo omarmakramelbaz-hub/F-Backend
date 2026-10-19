@@ -2,13 +2,22 @@
     'use strict';
     if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
     if (window.DashboardWhatsAppOrders) { window.DashboardWhatsAppOrders.mount(); return; }
-    var active = null;
+    var active = new Map();
+    var sources = [
+        {host: 'whatsapp-inbox', bootstrap: 'whatsapp-orders-bootstrap', events: 'whatsapp', inbox: 'DashboardWhatsAppInbox'},
+        {host: 'meta-social-inbox', bootstrap: 'meta-social-orders-bootstrap', events: 'meta', inbox: 'DashboardMetaInbox'}
+    ];
 
     function mount() {
-        var host = document.getElementById('whatsapp-inbox');
-        var bootstrap = document.getElementById('whatsapp-orders-bootstrap');
-        if (!host || !bootstrap || (active && active.host === host)) return;
-        destroy();
+        sources.forEach(function (source) {
+            var host = document.getElementById(source.host), bootstrap = document.getElementById(source.bootstrap);
+            var previous = active.get(source.host);
+            if (previous && previous.host === host && previous.bootstrap === bootstrap) return;
+            if (previous) { previous.destroy(); active.delete(source.host); }
+            if (host && bootstrap) mountSource(source, host, bootstrap);
+        });
+    }
+    function mountSource(source, host, bootstrap) {
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
         var panel = host.querySelector('[data-wa-orders]');
@@ -262,7 +271,8 @@
             invalidate();
             if (error && [401, 403, 419].indexOf(error.status) !== -1) {
                 denied = true; clear('denied');
-                if (window.DashboardWhatsAppInbox) window.DashboardWhatsAppInbox.destroy();
+                var inbox = window[source.inbox];
+                if (inbox && typeof inbox.destroy === 'function') inbox.destroy();
                 note(labels.denied, true); panel.hidden = false;
             } else if (error && error.status === 409) {
                 note(labels.changed, true); loadState(true);
@@ -538,28 +548,29 @@
         panel.addEventListener('click', click); form.addEventListener('input', edited); form.addEventListener('change', edited);
         if (drawer) drawer.addEventListener('toggle', drawerToggled);
         form.addEventListener('submit', submit); picker.addEventListener('change', changedPicker);
-        document.addEventListener('whatsapp:conversation-selected', choose);
-        document.addEventListener('whatsapp:conversation-updated', updated);
-        document.addEventListener('whatsapp:private-reset', reset);
-        var session = {host: host, destroy: function () {
+        document.addEventListener(source.events + ':conversation-selected', choose);
+        document.addEventListener(source.events + ':conversation-updated', updated);
+        document.addEventListener(source.events + ':private-reset', reset);
+        var session = {host: host, bootstrap: bootstrap, destroy: function () {
             if (closed) return; clear(); closed = true;
             panel.removeEventListener('click', click); form.removeEventListener('input', edited); form.removeEventListener('change', edited);
             if (drawer) drawer.removeEventListener('toggle', drawerToggled);
             form.removeEventListener('submit', submit); picker.removeEventListener('change', changedPicker);
-            document.removeEventListener('whatsapp:conversation-selected', choose);
-            document.removeEventListener('whatsapp:conversation-updated', updated);
-            document.removeEventListener('whatsapp:private-reset', reset);
+            document.removeEventListener(source.events + ':conversation-selected', choose);
+            document.removeEventListener(source.events + ':conversation-updated', updated);
+            document.removeEventListener(source.events + ':private-reset', reset);
             config.csrf = ''; meta = null; controls();
         }};
-        active = session;
+        active.set(source.host, session);
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
-            if (active === session) destroy(); else session.destroy();
+            session.destroy();
+            if (active.get(source.host) === session) active.delete(source.host);
         });
-        var selected = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selection === 'function'
-            ? window.DashboardWhatsAppInbox.selection() : 0;
+        var inbox = window[source.inbox];
+        var selected = inbox && typeof inbox.selection === 'function' ? inbox.selection() : 0;
         if (selected) choose({detail: {conversation: selected}});
     }
-    function destroy() { if (active) active.destroy(); active = null; }
+    function destroy() { active.forEach(function (session) { session.destroy(); }); active.clear(); }
     window.DashboardWhatsAppOrders = {mount: mount, destroy: destroy};
     document.addEventListener('dashboard:before-unload', destroy);
     document.addEventListener('dashboard:page-mounted', mount);

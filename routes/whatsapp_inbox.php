@@ -4,6 +4,9 @@ use App\Http\Controllers\Dashboard\WhatsAppInboxController;
 use App\Http\Controllers\Dashboard\WhatsAppInboxMessageController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/admin/meta/whatsapp', [WhatsAppInboxController::class, 'index'])
+    ->middleware(['lang', 'IsAdmin'])->name('meta-inbox.whatsapp');
+
 Route::group(['prefix' => 'admin/whatsapp', 'middleware' => ['lang', 'IsAdmin']], function () {
     Route::get('/', [WhatsAppInboxController::class, 'index'])->name('whatsapp-inbox.index');
     Route::get('/conversations', [WhatsAppInboxController::class, 'conversations'])->name('whatsapp-inbox.conversations');

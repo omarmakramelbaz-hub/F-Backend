@@ -7,12 +7,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
-/** Immutable branch shift snapshots. Closing resets the recorded drawer for the next shift. */
+/** Immutable reconciliation reports. Closing preserves the drawer and carries its expected cash. */
 class BranchShiftClosing
 {
     private TakeawayAccess $access;
     public function __construct(TakeawayAccess $access){$this->access=$access;}
-    public function branches($actor): array {return array_values(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'));}
+    public function canClose($actor): bool
+    {
+        try {$actor=$this->access->actor($actor);return $actor->account_type==='admin'&&empty($actor->owner_resturant_id);}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){return false;}
+    }
+    private function manager($actor) {abort_unless($this->canClose($actor),403,'تقفيل الوردية متاح للأونر والأدمن فقط.');return $this->access->actor($actor);}
+    public function branches($actor): array {if(!$this->canClose($actor))return [];return array_values(array_filter($this->access->branches($actor),fn($b)=>$b['kind']==='f'));}
     private function branch(string $value,$actor,bool $lock=false): array
     {
         abort_unless(Schema::hasTable('branch_shift_sources')&&Schema::hasTable('branch_expense_commands')&&$this->access->ready(),503,'صفحة تقفيل الوردية تحتاج تحديث قاعدة البيانات.');
@@ -30,14 +36,34 @@ class BranchShiftClosing
     private function latest(string $branch){return DB::table('branch_shift_closings')->where('branch',$branch)->orderByDesc('sequence')->first();}
     private function unclaimed($q,string $branch,string $source,string $column)
     {
-        return $q->whereNotExists(function($s)use($branch,$source,$column){$s->selectRaw('1')->from('branch_shift_sources')->where('branch',$branch)->where('source',$source)->whereColumn('source_id',$column);});
+        return $q->whereNotExists(function($s)use($branch,$source,$column){
+            $s->selectRaw('1')->from('branch_shift_sources')->where('source',$source)->whereColumn('source_id',$column);
+            // An app order keeps one financial identity when its store is fulfilled
+            // by Shubra. Saved claims at an old store must never be collected twice.
+            if(!in_array($source,['app','app_cash'],true))$s->where('branch',$branch);
+        });
     }
     public function data(array $values,$actor): array
     {
+        $actor=$this->manager($actor);
+        if(($values['branch']??null)==='all')return $this->allData($actor);
         $v=Validator::make($values,['branch'=>'required|string|max:40'])->validate();$branch=$this->branch($v['branch'],$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
         $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','pending_expenses','unsettled_app_cash']));
         $history=DB::table('branch_shift_closings')->where('branch',$branch['value'])->orderByDesc('sequence')->limit(30)->get()->map(fn($r)=>$this->stub($r))->all();
         return ['success'=>true,'previous_closing_id'=>$last?(int)$last->id:0,'review_token'=>$this->token($built),'report'=>$visible,'history'=>$history];
+    }
+    private function allData($actor): array
+    {
+        $actor=$this->access->actor($actor);abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        $branches=$this->branches($actor);abort_unless($branches,403);$reports=[];$history=[];$pending=0;$unsettled=0;
+        foreach($branches as $branch){
+            $data=$this->data(['branch'=>$branch['value']],$actor);$reports[]=$data['report'];
+            $pending+=(int)$data['report']['pending_expenses'];$unsettled+=(int)$data['report']['unsettled_app_cash'];
+            foreach($data['history'] as $entry)$history[]=$entry+['branch_name'=>$branch['name']];
+        }
+        usort($history,fn($a,$b)=>$b['id']<=>$a['id']);
+        // Aggregate previews deliberately omit review tokens and all monetary totals.
+        return ['success'=>true,'all_branches'=>true,'report'=>['branch'=>['value'=>'all','name'=>'جميع الفروع'],'started_at'=>'—','pending_expenses'=>$pending,'unsettled_app_cash'=>$unsettled],'branch_reports'=>$reports,'history'=>array_slice($history,0,30)];
     }
     private function cents($amount): int
     {
@@ -83,10 +109,10 @@ class BranchShiftClosing
         $value=$branch['value'];$now=now('UTC');$activated=$last?$last->activated_at:OperatingDay::start()->utc()->toDateTimeString();$started=$last?$last->closed_at:$activated;
         $till=DB::table('takeaway_tills')->where('branch',$value)->first();$balance=(int)($till->balance_cents??0);
         $lastSnapshot=$last?json_decode($last->snapshot,true):[];
-        // Historical closes keep their saved receipt; their captured till is the
-        // boundary. New closes record an explicit reset and a zero next anchor.
+        // Preserve old reset boundaries, but carry expected cash for report-only closes.
+        // Raw POS cash is the movement anchor; app cash and delivery adjustments carry separately.
         $anchor=$last?(int)($lastSnapshot['till_reset']['after_cents']??$last->till_balance_cents):0;
-        $opening=$last?0:$balance-(int)DB::table('takeaway_till_entries')->where('branch',$value)->where('created_at','>=',$activated)->sum('amount_cents');
+        $opening=$last?(isset($lastSnapshot['till_reset'])?(int)$lastSnapshot['till_reset']['after_cents']:(int)$last->expected_cents):$balance-(int)DB::table('takeaway_till_entries')->where('branch',$value)->where('created_at','>=',$activated)->sum('amount_cents');
         $movement=$last?$balance-$anchor:$balance-$opening;
         $channels=array_fill_keys(['dine','takeaway','phone','app'],['count'=>0,'gross_cents'=>0,'delivery_cents'=>0]);$sources=[];$cashDelivery=0;$appCash=0;$cashSales=0;$nonCash=0;$appOutside=0;$appPending=0;
         $receipts=$this->unclaimed(DB::table('takeaway_orders')->where('branch',$value)->where('created_at','>=',$activated),$value,'pos','takeaway_orders.id')->orderBy('id')->get();
@@ -96,8 +122,9 @@ class BranchShiftClosing
         }
         // App orders use their own settlement stream. Vendor-collected cash is distinct
         // from delegate/electronic receipts; a later cash handover can be recognized once.
-        $appRows=DB::table('orders')->where('resturant_id',$branch['id'])->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
-        $claimed=DB::table('branch_shift_sources')->where('branch',$value)->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
+        $appSources=FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$branch['id']);
+        $appRows=DB::table('orders')->whereIn('resturant_id',$appSources)->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
+        $claimed=DB::table('branch_shift_sources')->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
         foreach($appRows as $row){$saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);$vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';if($saleClaimed&&(!$vendorCash||$cashClaimed))continue;[$total,$delivery]=$this->appAmount($row);
             if(!$saleClaimed){$channels['app']['count']++;$channels['app']['gross_cents']+=$total;$channels['app']['delivery_cents']+=$delivery;$sources[]=['source'=>'app','source_id'=>$row->id];if(!$vendorCash)$appOutside+=$total-$delivery;}
             if($vendorCash&&!$cashClaimed){$appCash+=$total-$delivery;$sources[]=['source'=>'app_cash','source_id'=>$row->id];}
@@ -113,27 +140,27 @@ class BranchShiftClosing
     }
     public function close(array $values,$actor): array
     {
+        $actor=$this->manager($actor);
         $v=Validator::make($values,['branch'=>'required|string|max:40','idempotency_key'=>'required|uuid','previous_closing_id'=>'required|integer|min:0','review_token'=>'required|string|size:64','counted_cash'=>'required|string|max:14','notes'=>'nullable|string|max:1000'])->validate();$counted=$this->cents($v['counted_cash']);abort_unless($counted>=0&&$counted<=100000000000,422,'أدخل الكاش الفعلي بقيمة صحيحة.');$v['counted_cash']=Money::decimal($counted);$v['notes']=trim($v['notes']??'');$hash=PosServiceTicket::fingerprint($v);$actor=$this->access->actor($actor);abort_unless($this->access->permissions($actor)['can_checkout'],403);
         return DB::transaction(function()use($v,$hash,$counted,$actor){$branch=$this->branch($v['branch'],$actor,true);$old=DB::table('branch_shift_closings')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first();if($old){abort_unless(hash_equals($old->request_hash,$hash),409,'رقم الإغلاق مستخدم لبيانات مختلفة.');return ['success'=>true,'replayed'=>true,'closing'=>$this->stub($old)];}
             $last=$this->latest($v['branch']);abort_unless((int)($last->id??0)===(int)$v['previous_closing_id'],409,'تم إغلاق وردية من جهاز آخر. حدّث الصفحة وراجع الفترة الجديدة.');
             DB::table('takeaway_tills')->insertOrIgnore(['branch'=>$v['branch'],'balance_cents'=>0,'tax_bps'=>0,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             $till=DB::table('takeaway_tills')->where('branch',$v['branch'])->lockForUpdate()->first();
             $built=$this->build($branch,$last);abort_unless(hash_equals($this->token($built),$v['review_token']),409,'تغيرت تحصيلات أو مصروفات الوردية أثناء العدّ. تم تحديث البيانات؛ أعد عدّ النقدية قبل الإغلاق.');$snapshot=$built['snapshot'];$snapshot+=['counted_cash'=>Money::decimal($counted),'variance'=>Money::decimal($counted-$built['expected']),'variance_label'=>$counted===$built['expected']?'مطابق':($counted>$built['expected']?'زيادة':'عجز'),'cashier'=>['id'=>(int)$actor->id,'name'=>(string)$actor->name],'notes'=>$v['notes']];
-            $snapshot['next_shift_opening_cash']='0.00';$snapshot['till_reset']=['before_cents'=>$built['till_balance'],'after_cents'=>0];
+            $snapshot['next_shift_opening_cash']=Money::decimal($built['expected']);$snapshot['drawer_preserved']=true;
             $id=DB::table('branch_shift_closings')->insertGetId(['branch'=>$v['branch'],'sequence'=>(int)($last->sequence??0)+1,'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'activated_at'=>$built['activated_at'],'started_at'=>$built['started_at'],'closed_at'=>$built['closed_at'],'counted_cents'=>$counted,'expected_cents'=>$built['expected'],'variance_cents'=>$counted-$built['expected'],'till_balance_cents'=>$built['till_balance'],'snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),'notes'=>$v['notes'],'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             foreach(array_chunk($built['sources'],500) as $chunk)DB::table('branch_shift_sources')->insert(array_map(fn($s)=>$s+['closing_id'=>$id,'branch'=>$v['branch']],$chunk));
-            DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>0,'revision'=>(int)$till->revision+1,'updated_at'=>now('UTC')]);
-            DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>(string)\Illuminate\Support\Str::uuid(),'request_hash'=>PosServiceTicket::fingerprint(['shift_close',$id]),'kind'=>'shift_close','amount_cents'=>-$built['till_balance'],'balance_cents'=>0,'business_date'=>OperatingDay::date(),'note'=>'تصفير الدرج بعد إغلاق الوردية SHIFT-'.str_pad((string)$id,6,'0',STR_PAD_LEFT),'metadata'=>json_encode(['closing_id'=>$id]),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            app(BranchShiftPrinting::class)->enqueue($id,(int)$actor->id,$v['idempotency_key']);
             return ['success'=>true,'replayed'=>false,'closing'=>$this->stub(DB::table('branch_shift_closings')->where('id',$id)->first())];
         },3);
     }
     public function recover(array $values,$actor): array
     {
-        $v=Validator::make($values,['branch'=>'required|string|max:40','idempotency_key'=>'required|uuid'])->validate();$this->branch($v['branch'],$actor);$row=DB::table('branch_shift_closings')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first();return ['success'=>true,'found'=>(bool)$row,'closing'=>$row?$this->stub($row):null];
+        $actor=$this->manager($actor);$v=Validator::make($values,['branch'=>'required|string|max:40','idempotency_key'=>'required|uuid'])->validate();$this->branch($v['branch'],$actor);$row=DB::table('branch_shift_closings')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first();return ['success'=>true,'found'=>(bool)$row,'closing'=>$row?$this->stub($row):null];
     }
     public function receipt(int $id,$actor): array
     {
-        $row=DB::table('branch_shift_closings')->where('id',$id)->first();abort_unless($row,404);$this->branch($row->branch,$actor);return json_decode($row->snapshot,true)+$this->stub($row);
+        $actor=$this->manager($actor);$row=DB::table('branch_shift_closings')->where('id',$id)->first();abort_unless($row,404);$this->branch($row->branch,$actor);return json_decode($row->snapshot,true)+$this->stub($row);
     }
     private function stub(object $row): array {return ['id'=>(int)$row->id,'number'=>'SHIFT-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT),'sequence'=>(int)$row->sequence,'branch'=>$row->branch,'started_at'=>$this->time($row->started_at),'closed_at'=>$this->time($row->closed_at),'print_url'=>route('branch-shifts.print',['id'=>$row->id])];}
     private function time($time): string {return Carbon::parse($time,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i:s');}

@@ -168,6 +168,12 @@ class DashboardOrderBoardTest extends TestCase
             $t->text('payload');
         });
 
+        Schema::create('branch_operation_commands', function (Blueprint $t) {
+            $t->id(); $t->string('branch',30); $t->unsignedBigInteger('actor_id'); $t->uuid('request_key');
+            $t->string('request_hash',64); $t->string('kind',40); $t->longText('result'); $t->timestamps();
+            $t->unique(['branch','actor_id','request_key'],'branch_operation_request_unique');
+        });
+
         foreach ([
             [1, 'Administrative account', 'admin', 'fasakhansta', null, 0],
             [10, 'First restaurant branch', 'vendor', 'fasakhansta', 100, 500],

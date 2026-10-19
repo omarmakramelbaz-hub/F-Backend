@@ -3,6 +3,7 @@ namespace App\Services\Dashboard;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 
 class BranchCustomers
 {
@@ -30,7 +31,9 @@ class BranchCustomers
             $data=array_intersect_key($v,array_flip(['branch','name','phone','phone_key','address','area','delivery_notes','latitude','longitude']));
             $data+=['latitude'=>null,'longitude'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
             if($row){$id=$row->id;DB::table('branch_customers')->where('id',$id)->update($data);}else $id=DB::table('branch_customers')->insertGetId($data+['created_at'=>now('UTC')]);
-            return ['customer'=>(array)DB::table('branch_customers')->where('id',$id)->first()];
+            $saved=DB::table('branch_customers')->where('id',$id)->first();
+            app(CustomerDirectory::class)->capture((array)$saved,'delivery',$v['branch']);
+            return ['customer'=>(array)$saved];
         });
     }
     public function appQuery($actor,array $branches)
@@ -53,7 +56,107 @@ class BranchCustomers
             return ['address'=>implode('، ',array_unique($parts)),'area'=>$r->area_name??'','delivery_notes'=>$r->badge??'','latitude'=>isset($r->lat)?(float)$r->lat:(isset($r->latitude)?(float)$r->latitude:null),'longitude'=>isset($r->lng)?(float)$r->lng:(isset($r->longitude)?(float)$r->longitude:null)];
         })->all();
     }
+    /** One row per canonical phone; source badges remain limited to the permitted branches. */
     public function listing(array $values,$actor): array
+    {
+        $actor=$this->ops->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
+        if(!Schema::hasTable('crm_customers')||!Schema::hasTable('crm_customer_sources')){if(!in_array($values['source']??'all',['all','saved','app','history'],true))$values['source']='all';return $this->legacyListing($values,$actor);}
+        $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','source'=>'nullable|in:all,takeaway,dine,app,delivery,saved,history','page'=>'nullable|integer|min:1'])->validate();
+        $branches=$this->ops->branches($v['branch'],$actor);$scope=array_column($branches,'value');$central=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);if($central)$scope[]='';if($v['branch']==='all')$scope[]='';$source=$v['source']??'all';
+        if(in_array($source,['saved','history'],true))$source='delivery';
+        // Shared customer directory reads for every authenticated branch.
+        $shared=($actor->account_type==='admin'&&empty($actor->owner_resturant_id))||(in_array($actor->account_type,['admin','vendor','resturant_owner'],true)&&count(array_filter($branches,fn($b)=>$b['kind']==='f'))>0);
+        if($shared){
+            $sources=DB::table('crm_customer_sources');
+            if($source!=='all')$sources->where('channel',$source);
+            $q=DB::table('crm_customers');
+            if($source!=='all')$q->whereIn('id',(clone $sources)->select('customer_id'));
+        }else{
+        $sources=DB::table('crm_customer_sources')->whereIn('branch',$scope);
+        if($source!=='all')$sources->where('channel',$source);
+        $q=DB::table('crm_customers')->where(function($q)use($sources,$v,$source){$q->whereIn('id',(clone $sources)->select('customer_id'));if($v['branch']==='all'&&$source==='all')$q->orWhereNotExists(function($unassigned){$unassigned->selectRaw('1')->from('crm_customer_sources')->whereColumn('crm_customer_sources.customer_id','crm_customers.id');});});
+        }
+        $search=trim($v['search']??'');
+        if($search!=='')$q->where(function($q)use($search){$q->where('name','like','%'.$search.'%');$phone=self::phoneKey($search);if($phone!=='')$q->orWhere('phone_key','like','%'.$phone.'%');});
+        $count=(clone $q)->count();$last=max(1,(int)ceil($count/30));$page=min((int)($v['page']??1),$last);
+        $items=$q->orderByRaw("CASE WHEN name IS NULL OR name = '' THEN 1 ELSE 0 END")->orderBy('name')->orderBy('id')->offset(($page-1)*30)->limit(30)->get();
+        $associations=DB::table('crm_customer_sources')->when(!$shared,fn($q)=>$q->whereIn('branch',$scope))->whereIn('customer_id',$items->pluck('id')->all())->orderBy('branch')->orderBy('channel')->get()->groupBy('customer_id');
+        $result=$items->map(function($row)use($associations,$scope,$central){$item=(array)$row;$links=$associations->get($row->id,collect());$item['id']=(int)$row->id;$item['source']='crm';$allowed=$links->filter(fn($link)=>in_array($link->branch,$scope,true));$item['branch']=$allowed->first(fn($link)=>$link->branch!=='')->branch??'';$item['channels']=$links->pluck('channel')->unique()->values()->all();$item['branches']=$links->pluck('branch')->unique()->values()->all();$item['service_consent']=(bool)$row->service_consent;$item['marketing_consent']=(bool)$row->marketing_consent;$item['can_edit_profile']=$allowed->isNotEmpty()||($central&&$links->isEmpty());return $item;})->all();
+        return ['success'=>true,'items'=>$result,'branches'=>$branches,'registry'=>true,'summary'=>['customers'=>$count,'service_opted_in'=>(clone $q)->where('service_consent',true)->whereNull('opted_out_at')->count(),'marketing_opted_in'=>(clone $q)->where('marketing_consent',true)->whereNull('opted_out_at')->count()],'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count]];
+    }
+    public function directorySave(array $values,$actor): array
+    {
+        $v=Validator::make($values,$this->ops->rules()+['directory_id'=>'nullable|integer|min:1','expected_updated_at'=>'nullable|string|max:40','channel'=>'required|in:takeaway,dine,app,delivery'.(!empty($values['directory_id'])?',whatsapp':''),'name'=>'nullable|string|max:100','phone'=>'required|string|max:30','address'=>'nullable|string|max:500','area'=>'nullable|string|max:150','delivery_notes'=>'nullable|string|max:500','latitude'=>'nullable|numeric|between:-90,90','longitude'=>'nullable|numeric|between:-180,180'])->validate();
+        abort_unless(CustomerDirectory::normalizePhone($v['phone']),422,'رقم الهاتف غير صالح.');
+        abort_if(isset($v['latitude'])!==isset($v['longitude']),422,'أدخل إحداثيات الموقع كاملة.');
+        return $this->ops->write('customer.directory.save',$v,$actor,function($branch,$actor)use($v){
+            $this->directoryReady();
+            $row=null;
+            if(!empty($v['directory_id'])){
+                $row=$this->scopedCustomer((int)$v['directory_id'],$v['branch'],$actor);
+                abort_unless(CustomerDirectory::normalizePhone($v['phone'])===$row->phone,422,'رقم العميل مرتبط بسجل مشترياته. لإضافة رقم آخر أضف عميلًا جديدًا.');
+                if(isset($v['expected_updated_at']))abort_unless((string)$row->updated_at===$v['expected_updated_at'],409,'بيانات العميل تغيرت. حدّث القائمة قبل الحفظ.');
+            }
+            $customer=$row??app(CustomerDirectory::class)->capture($v,$v['channel'],$v['branch']);
+            abort_unless($customer,503,'تعذر تسجيل بيانات العميل.');
+            if($row){
+                $profile=[];foreach(['name','address','area','delivery_notes','latitude','longitude'] as $key)if(array_key_exists($key,$v))$profile[$key]=is_string($v[$key])?(trim($v[$key])?:null):$v[$key];
+                if($profile)DB::table('crm_customers')->where('id',$row->id)->update($profile+['updated_at'=>now('UTC')]);
+                // Saved delivery profiles keep their IDs and optimistic-lock revisions.
+                $saved=array_intersect_key($profile,array_flip(['name','address','area','delivery_notes','latitude','longitude']));
+                foreach(['name','address','area','delivery_notes'] as $key)if(array_key_exists($key,$saved))$saved[$key]=$saved[$key]??'';
+                if($saved)DB::table('branch_customers')->where('branch',$v['branch'])->where('phone_key',$row->phone_key)->update($saved+['revision'=>DB::raw('revision + 1'),'updated_at'=>now('UTC')]);
+            }
+            return ['customer'=>(array)DB::table('crm_customers')->where('id',$customer->id)->first()];
+        });
+    }
+    public function consent(array $values,$actor): array
+    {
+        $v=Validator::make($values,$this->ops->rules()+['directory_id'=>'required|integer|min:1','service_consent'=>'required|boolean','marketing_consent'=>'required|boolean','evidence'=>'nullable|string|max:500','consent_method'=>'nullable|in:verbal,withdrawal','consent_scope'=>'nullable|in:all,service,marketing'])->validate();
+        $v['service_consent']=(bool)$v['service_consent'];$v['marketing_consent']=(bool)$v['marketing_consent'];$v['evidence']=trim($v['evidence']??'');
+        return $this->ops->write('customer.consent',$v,$actor,function($branch,$actor)use($v){
+            $this->directoryReady();$row=$this->scopedCustomer((int)$v['directory_id'],$v['branch'],$actor);
+            $scope=$v['consent_scope']??'all';$targets=['service'=>$scope!=='marketing','marketing'=>$scope!=='service'];
+            $newService=$targets['service']&&$v['service_consent']&&(!$row->service_consent||$row->opted_out_at);$newMarketing=$targets['marketing']&&$v['marketing_consent']&&(!$row->marketing_consent||$row->opted_out_at);
+            $method=$v['consent_method']??null;
+            $approved=[];$revoked=[];
+            foreach(['service'=>'متابعة الطلب والخدمة','marketing'=>'العروض الترويجية'] as $purpose=>$label)if($targets[$purpose]){
+                if($v[$purpose.'_consent'])$approved[]=$label;else $revoked[]=$label;
+            }
+            abort_if($method==='withdrawal'&&$approved,422,'إلغاء الرسائل لا يسجل موافقة جديدة.');
+            // This method is an explicit staff attestation after asking the customer; profiles never imply consent.
+            if($method==='verbal'||$method==='withdrawal'){
+                $evidence=[];
+                if($approved)$evidence[]='أقر الموظف بأن العميل وافق شفهيًا على رسائل واتساب: '.implode('، ',$approved).'.';
+                if($revoked)$evidence[]='سجل الموظف إيقاف رسائل واتساب: '.implode('، ',$revoked).'.';
+                $evidence=implode(' ',$evidence);
+            }else{
+                abort_if(($newService||$newMarketing)&&$v['evidence']==='',422,'سجل موافقة العميل على رسائل واتساب.');
+                $evidence=$v['evidence']!==''?$v['evidence']:'تحديث موافقات واتساب من قائمة العملاء دون تسجيل موافقة جديدة.';
+            }
+            $recordedAt=now('UTC')->toIso8601String();
+            // Never resubmit the other purpose's stale UI value. In particular a scoped
+            // withdrawal cannot turn an older opt-in back on after an incoming STOP.
+            $service=!$targets['service']||($v['service_consent']===(bool)$row->service_consent&&!$row->opted_out_at)?null:$v['service_consent'];
+            $marketing=!$targets['marketing']||($v['marketing_consent']===(bool)$row->marketing_consent&&!$row->opted_out_at)?null:$v['marketing_consent'];
+            $customer=app(CustomerDirectory::class)->consent((int)$row->id,$service,$marketing,$evidence,(int)$actor->id);
+            abort_unless($customer,503,'تعذر تسجيل موافقة العميل.');
+            // The immutable branch operation receipt also retains who changed consent and the evidence supplied.
+            return ['customer_id'=>(int)$row->id,'consent'=>['service_consent'=>(bool)$customer->service_consent,'marketing_consent'=>(bool)$customer->marketing_consent,'opted_out_at'=>$customer->opted_out_at],'consent_evidence'=>$evidence,'consent_method'=>$method??'legacy','consent_scope'=>$scope,'recorded_by'=>(int)$actor->id,'recorded_at'=>$recordedAt];
+        });
+    }
+    private function directoryReady(): void {abort_unless(Schema::hasTable('crm_customers')&&Schema::hasTable('crm_customer_sources'),503,'قائمة العملاء الموحدة تحتاج تحديث قاعدة البيانات.');}
+    private function scopedCustomer(int $id,string $branch,$actor): object
+    {
+        $row=DB::table('crm_customers')->where('id',$id)->lockForUpdate()->first();
+        $central=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);
+        $visible=DB::table('crm_customer_sources')->where('customer_id',$id)->whereIn('branch',$central?[$branch,'']:[$branch])->exists();
+        if($central&&!$visible)$visible=!DB::table('crm_customer_sources')->where('customer_id',$id)->exists();
+        abort_unless($row&&$visible,404,'العميل غير موجود في الفرع المحدد.');
+        return $row;
+    }
+    private function legacyListing(array $values,$actor): array
     {
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','source'=>'nullable|in:all,saved,app,history','page'=>'nullable|integer|min:1'])->validate();
         $branches=$this->ops->branches($v['branch'],$actor);$scope=array_column($branches,'value');$source=$v['source']??'all';$search=trim($v['search']??'');$queries=[];

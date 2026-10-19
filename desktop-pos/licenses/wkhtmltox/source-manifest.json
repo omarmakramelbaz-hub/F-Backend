@@ -1,0 +1,165 @@
+[
+  {
+    "filename": "wkhtmltopdf-LICENSE-LGPLv3.txt",
+    "source_url": "https://github.com/wkhtmltopdf/wkhtmltopdf/blob/0.12.6/LICENSE",
+    "git_blob_sha": "65c5ca88a67c30becee01c5a8816d964b03862f9",
+    "bytes": 7651,
+    "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+  },
+  {
+    "filename": "wkhtmltopdf-submodule-gitmodules.txt",
+    "source_url": "https://github.com/wkhtmltopdf/wkhtmltopdf/blob/0.12.6/.gitmodules",
+    "git_blob_sha": "3a4da9118f4d8f5953a95464f65f3c56db9753a8",
+    "bytes": 72,
+    "sha256": "f0033d81e9f23cb16b3a309163fb8adb967a8792a8abe7b83e2c3b2be87eab30"
+  },
+  {
+    "filename": "packaging-Dockerfile.mxe.txt",
+    "source_url": "https://github.com/wkhtmltopdf/packaging/blob/0.12.6-1/docker/Dockerfile.mxe",
+    "git_blob_sha": "a6dd0bfe77be9b78852b99ca07a81a52fdb00692",
+    "bytes": 972,
+    "sha256": "4dca8eed2a544e8d2f39037d6f19b6a70ac71ff3fd57319dd580c53ef08f1b97"
+  },
+  {
+    "filename": "qt-LICENSE.LGPL.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/LICENSE.LGPL",
+    "git_blob_sha": "73cee1126ee7750dc8b7feb8af2f69fcc8cf744e",
+    "bytes": 26840,
+    "sha256": "6cd0b9b4d25b97ffa7f6ca3f1dc4380854cdbd839ea855900d48255a0949840a"
+  },
+  {
+    "filename": "qt-LICENSE.LGPLv21.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/LICENSE.LGPLv21",
+    "git_blob_sha": "6e1846112578dbd91bb78dcaf7a19ccdce899df5",
+    "bytes": 26832,
+    "sha256": "a3db6c7f3027aa27489c25a2fa259185cdee945780c32e01c60cbfabf4743b6c"
+  },
+  {
+    "filename": "qt-LICENSE.LGPLv3.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/LICENSE.LGPLv3",
+    "git_blob_sha": "8fbb74390cd1ca20b5a990be9b84198848f3d84b",
+    "bytes": 8049,
+    "sha256": "75d800e60c8d58c2e7f0338e8552ea6123a9ce7e5dd8e1cdf2095e013b737488"
+  },
+  {
+    "filename": "webkit-WebCore-LICENSE-APPLE.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/src/3rdparty/webkit/Source/WebCore/LICENSE-APPLE",
+    "git_blob_sha": "f29b41c3b2a316522d0e3493a28e96a851697b2e",
+    "bytes": 1313,
+    "sha256": "0b5d3a7cc325942567373b0ecd757d07c132e0ebd7c97bfc63f7e1a76094edb4"
+  },
+  {
+    "filename": "webkit-WebCore-LICENSE-LGPL-2.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/src/3rdparty/webkit/Source/WebCore/LICENSE-LGPL-2",
+    "git_blob_sha": "0e1187b9cd2c3e4e6da3226f3b2242e1ffcbe4d4",
+    "bytes": 25378,
+    "sha256": "7555fa34bc131a75ca56d65c40cc1ea8f9515d23e353d4c15d58573a042f7805"
+  },
+  {
+    "filename": "webkit-WebCore-LICENSE-LGPL-2.1.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/src/3rdparty/webkit/Source/WebCore/LICENSE-LGPL-2.1",
+    "git_blob_sha": "b2787a69a0384827fa8cbb145208760fb9179686",
+    "bytes": 26536,
+    "sha256": "f2b3bd09663381deb99721109d22b47af1213bb43007a8b56a06c6375c8050ce"
+  },
+  {
+    "filename": "webkit-JavaScriptCore-COPYING.LIB.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/src/3rdparty/webkit/Source/JavaScriptCore/COPYING.LIB",
+    "git_blob_sha": "87c4a33dd850415a33a816146eaf09a07912c4d6",
+    "bytes": 25584,
+    "sha256": "5094ecb9c9dcd0eadc34f3c11511d9b5535063032bc150164ecd1a5d5a445547"
+  },
+  {
+    "filename": "qt-harfbuzz-COPYING.txt",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/src/3rdparty/harfbuzz/COPYING",
+    "git_blob_sha": "820a9e6808c2de42cc4bd3187e5cabb9840a661d",
+    "bytes": 1241,
+    "sha256": "ed7c20569a8f7daa06d2032b21bf240c5b6d8a0acb572d775bc6e78e61811191"
+  },
+  {
+    "filename": "qt-thirdparty-notices.qdoc",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/doc/src/legal/3rdparty.qdoc",
+    "git_blob_sha": "6aa9e36ce83a789278d03c68d2ae690d5f62de60",
+    "bytes": 40263,
+    "sha256": "a6106ea7cf3ed3507a9bdb85122bed97d02cb7673a17603042842fe33aad2ca5"
+  },
+  {
+    "filename": "qt-other-licenses.qdoc",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/doc/src/legal/licenses.qdoc",
+    "git_blob_sha": "a26a7c4296d525b28c286db028e0bfd06c498a7c",
+    "bytes": 47638,
+    "sha256": "d12cfe532a3c72ebd9d02e3b2b05fdb86945b17425685642ea05f425e1c0dafe"
+  },
+  {
+    "filename": "qt-gpl-description.qdoc",
+    "source_url": "https://github.com/wkhtmltopdf/qt/blob/7480f44f696fb7db1d473cf447a2c99a656789a9/doc/src/legal/gpl.qdoc",
+    "git_blob_sha": "e2c132e7e61ea6e13ba0877706ad6845c0904339",
+    "bytes": 2669,
+    "sha256": "d799ef240f8a843c5128ded4b9011c64a8085bcc901cbca649f0500b589d5a15"
+  },
+  {
+    "filename": "openssl-1.1.1g-LICENSE.txt",
+    "source_url": "https://github.com/openssl/openssl/blob/OpenSSL_1_1_1g/LICENSE",
+    "git_blob_sha": "9601ab43575f9719ca6d2731580ec31ca5dfb0e7",
+    "bytes": 6121,
+    "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c"
+  },
+  {
+    "filename": "zlib-1.2.11-README.txt",
+    "source_url": "https://github.com/madler/zlib/blob/v1.2.11/README",
+    "git_blob_sha": "51106de4753292ad59de03de9e634e6814eeb7a2",
+    "bytes": 5187,
+    "sha256": "7960b6b1cc63e619abb77acaea5427159605afee8c8b362664f4effc7d7f7d15"
+  },
+  {
+    "filename": "libpng-1.6.37-LICENSE.txt",
+    "source_url": "https://github.com/pnggroup/libpng/blob/v1.6.37/LICENSE",
+    "git_blob_sha": "e0c5b531cf548d608e911c43c577cd4ba9a1526e",
+    "bytes": 5345,
+    "sha256": "bf5e22b9dce8464064ae17a48ea1133c3369ac9e1d80ef9e320e5219aa14ea9b"
+  },
+  {
+    "filename": "mxe-zlib-build.txt",
+    "source_url": "https://github.com/mxe/mxe/blob/ee88607e99c989fb62f0d5b8585c21d21585b823/src/zlib.mk",
+    "git_blob_sha": "022c5dcb4fd7c1754af1fcc100bb3514cfacf378",
+    "bytes": 1248,
+    "sha256": "fb1e518027ba7bc2b2944f596c0efeb020b319e5344f50cbd81569fdabe18f18"
+  },
+  {
+    "filename": "mxe-openssl-build.txt",
+    "source_url": "https://github.com/mxe/mxe/blob/ee88607e99c989fb62f0d5b8585c21d21585b823/src/openssl.mk",
+    "git_blob_sha": "e4b7a9d4bb12f25595f64c1a1b679e5b8aa80797",
+    "bytes": 1703,
+    "sha256": "e9b4db954ecf211e39dd46dc1c79708e03ecce2e78e23e33f232669418c5893a"
+  },
+  {
+    "filename": "mxe-libpng-build.txt",
+    "source_url": "https://github.com/mxe/mxe/blob/ee88607e99c989fb62f0d5b8585c21d21585b823/src/libpng.mk",
+    "git_blob_sha": "96d590bb31990e9993f91744a7159f42e21130f7",
+    "bytes": 1320,
+    "sha256": "c51f3b458a6b6be7af673a96f7276f17b7f882102fb37345d91f23f1d4db5b65"
+  },
+  {
+    "filename": "mxe-jpeg-build.txt",
+    "source_url": "https://github.com/mxe/mxe/blob/ee88607e99c989fb62f0d5b8585c21d21585b823/src/jpeg.mk",
+    "git_blob_sha": "ae0c1183830fbd4c72f7143bd29026e52b01a8ec",
+    "bytes": 953,
+    "sha256": "e6a0afe7ade7d0eeab4476c385f5975df14078e025ae936a4b4e7dacbe1de175"
+  },
+  {
+    "filename": "GPL-3.0.txt",
+    "bytes": 35149,
+    "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "source_url": "https://www.gnu.org/licenses/gpl-3.0.txt"
+  },
+  {
+    "filename": "jpeg-9d-README-LICENSE.txt",
+    "bytes": 18584,
+    "sha256": "3dc4e4a145c907a96bd6a0e40be3f722fecf061951909143cdff5365cba9c78c",
+    "source_url": "https://mxe-pkg.s3.amazonaws.com/jpegsrc.v9d.tar.gz_99cb50e48a4556bc571dadd27931955ff458aae32f68c4d9c39d624693f69c32",
+    "source_member": "jpeg-9d/README",
+    "source_archive_sha256": "99cb50e48a4556bc571dadd27931955ff458aae32f68c4d9c39d624693f69c32",
+    "source_digest_provenance": "MXE pinned build recipe ee88607e99c989fb62f0d5b8585c21d21585b823/src/jpeg.mk; official MXE fallback mirror configured in the same commit Makefile",
+    "current_ijg_9d_readme_identical": true
+  }
+]

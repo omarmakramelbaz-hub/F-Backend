@@ -36,6 +36,8 @@ class DashboardTakeawayTest extends TestCase
         }
         DB::purge($this->testConnection); Schema::clearResolvedInstance('db.schema');
         if ($this->testConnection === 'mysql') $this->dropFixtures();
+        $settings=[];foreach((new \ReflectionClass(\App\Models\GeneralSettings::class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property)$settings[$property->getName()]=(string)$property->getType()==='bool'?false:'';
+        $settings['site_name']='فسخانستا';$settings['service_fees']='0';$this->app->instance(\App\Models\GeneralSettings::class,new \App\Models\GeneralSettings($settings));
         Carbon::setTestNow(Carbon::parse('2026-10-03 14:00:00', 'Africa/Cairo'));
         Schema::create('users', function (Blueprint $t) {
             $t->id(); foreach (['name','account_type','app_scope','status'] as $field) $t->string($field);
@@ -147,7 +149,7 @@ class DashboardTakeawayTest extends TestCase
     private function key(int $id = 1): string { return sprintf('00000000-0000-4000-8000-%012d', $id); }
     private function cart(string $branch = 'f:100', int $product = 1, string $quantity = '1.000', string $mode = 'piece'): array
     {
-        return ['branch'=>$branch,'items'=>[['product_id'=>$product,'quantity'=>$quantity,'quantity_mode'=>$mode]],'discount'=>'0.00'];
+        return ['customer_phone'=>'01012345678','service_consent'=>true,'branch'=>$branch,'items'=>[['product_id'=>$product,'quantity'=>$quantity,'quantity_mode'=>$mode]],'discount'=>'0.00'];
     }
     private function payment(array $cart, int $id = 1, string $method = 'cash', int $actor = 10): array
     {
@@ -311,12 +313,15 @@ class DashboardTakeawayTest extends TestCase
     {
         $payload=$this->payment($this->cart(),40);$saved=$this->service()->checkout($payload,$this->actor());$id=$saved['receipt']['id'];
         $payload['payment_method']='card';$payload['payment_confirmed']=true;
+        // Legacy receipts predate the current contact and follow-up fields.
+        unset($payload['customer_phone'],$payload['service_consent']);
         $canonical=$this->service()->canonicalCart($payload);
         $hash=hash('sha256',json_encode([$canonical,$payload['quote_hash'],'card',0,trim($payload['payment_reference']??''),trim($payload['notes']??'')],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
         DB::table('takeaway_orders')->where('id',$id)->update(['payment_method'=>'card','cash_received_cents'=>0,'change_cents'=>0,'request_hash'=>$hash]);
         $before=DB::table('takeaway_tills')->value('balance_cents');
         $replayed=$this->service()->checkout($payload,$this->actor());$this->assertTrue($replayed['replayed']);$this->assertSame('card',$replayed['receipt']['payment_method']);
         $this->assertSame($before,DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(1,DB::table('takeaway_orders')->count());
+        $payload['customer_phone']='01012345678';$payload['service_consent']=true;
         $payload['idempotency_key']=$this->key(41);$this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
     }
 
@@ -485,11 +490,14 @@ class DashboardTakeawayTest extends TestCase
         $payload = $this->payment($this->cart()); $payload['notes']='<script>alert(1)</script>';
         $sale = $this->service()->checkout($payload,$this->actor());
         $this->actingAs($this->actor(),'admin');
-        $embedded = $this->get($sale['receipt_url'].'?dashboard_print=1')->assertOk();
+        $this->assertNull($sale['receipt_url']);$this->assertNotEmpty($sale['first_print_url']);
+        $embedded = $this->get($sale['first_print_url'].'&dashboard_print=1')->assertOk();
         $embedded->assertSee('data-dashboard-receipt="takeaway"',false)->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;',false);
         $embedded->assertDontSee("window.addEventListener('load'",false)->assertDontSee('<script>alert(1)</script>',false);
-        $this->get($sale['receipt_url'])->assertOk()->assertSee("window.addEventListener('load'",false);
-        $this->actingAs($this->actor(11),'admin')->get($sale['receipt_url'],['Accept'=>'application/json'])->assertNotFound();
+        $this->get($sale['first_print_url'])->assertForbidden();
+        $print=route('takeaway.print',['id'=>$sale['receipt']['id']]);
+        $this->actingAs($this->actor(1),'admin')->get($print)->assertOk()->assertSee("window.addEventListener('load'",false);
+        $this->actingAs($this->actor(11),'admin')->get($print,['Accept'=>'application/json'])->assertNotFound();
     }
 }
 

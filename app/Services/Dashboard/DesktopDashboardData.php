@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\{DB,Schema};
 /** Explicit initial read scopes. Foreign-key closure adds required parents, never child ledgers. */
 class DesktopDashboardData
 {
-    public const PUBLIC_TABLES=['areas','categories','products','product_features','features','stock_ingredients','branch_expense_categories','branch_expense_category_settings','permissions','roles','role_has_permissions'];
+    public const PUBLIC_TABLES=['areas','categories','products','product_features','features','stock_ingredients','branch_expense_categories','branch_expense_category_settings','branch_basic_recipes','permissions','roles','role_has_permissions'];
     private const REFERENCE_TABLES=['users','resturants','pending_vendors','products','product_features','categories','areas','coupon_wheels','user_address'];
     private const GO_ELIGIBILITY_FIELDS=['id','profession_key','type','status','source_app'];
     public function allAdministration(User $actor): bool
@@ -33,6 +33,19 @@ class DesktopDashboardData
         foreach(DesktopDashboardBootstrap::BRANCH_TABLES as $table)if(isset($queries[$table])){
             abort_unless(Schema::hasColumn($table,'branch'),409,'مخطط بيانات الفرع يحتاج مراجعة.');$queries[$table]=DB::table($table)->whereIn('branch',$branches);
         }
+        // Historical categories are shared; new categories belong only to their origin branch.
+        if(isset($queries['branch_expense_categories'])&&Schema::hasColumn('branch_expense_categories','origin_branch'))
+            $queries['branch_expense_categories']=DB::table('branch_expense_categories')->where(function($q)use($branches){
+                $q->whereNull('origin_branch')->orWhereIn('origin_branch',$branches);
+            });
+        // CRM identities are shared globally, but a device receives only customers linked
+        // to its enrolled branches. Never import the entire directory for an admin.
+        if(isset($queries['crm_customers'],$queries['crm_customer_sources'],$queries['crm_purchases'])){
+            $queries['crm_customers']=DB::table('crm_customers')->where(function($q)use($queries){
+                $q->whereIn('id',(clone $queries['crm_customer_sources'])->select('customer_id'))
+                    ->orWhereIn('id',(clone $queries['crm_purchases'])->select('customer_id'));
+            });
+        }
         foreach(['resturants'=>'id','resturant_products'=>'resturant_id','resturant_areas'=>'resturant_id','orders'=>'resturant_id','advertisings'=>'resturant_id','reviews'=>'resturant_id','wishlists'=>'resturant_id','coupon_wheel_resturants'=>'resturant_id'] as $table=>$column)
             if(isset($queries[$table])&&!$all)$queries[$table]=DB::table($table)->whereIn($column,$restaurantIds);
         foreach(['go_stores'=>'user_id','go_store_products'=>'user_id','go_store_orders'=>'store_id'] as $table=>$column)
@@ -43,7 +56,6 @@ class DesktopDashboardData
             'commissions'=>['order_id','orders','id'],'payments'=>['order_id','orders','id'],'shippings'=>['order_id','orders','id'],
             'go_order_payments'=>['order_id','orders','id'],
             'go_order_payment_receipts'=>['payment_id','go_order_payments','id'],'go_store_payment_receipts'=>['order_id','go_store_orders','id'],
-            'pos_branch_print_jobs'=>['ticket_id','pos_service_tickets','id'],
         ];
         foreach($children as $table=>[$column,$parent,$id])if(isset($queries[$table],$queries[$parent])&&!$all){
             abort_unless(Schema::hasColumn($table,$column),409,'علاقة بيانات الفرع تحتاج مراجعة.');

@@ -16,6 +16,13 @@ class DesktopDashboardJournal
                 return app(\App\Services\Dashboard\DesktopDashboardRemoteAttempts::class)->handle($request,$next);
             return $next($request);
         }
+        $route=$request->route()?->getName();
+        if(in_array($route,['customers.messaging-status','customers.messaging-configure','customers.feedback-template-prepare',
+            'customers.marketing-template-prepare','customers.campaign-queue'],true)){
+            app(\App\Services\Dashboard\WhatsAppInboxAccess::class)->actor(auth('admin')->user());
+            return response('',404)->withHeaders(['Cache-Control'=>'private, no-store, max-age=0',
+                'Pragma'=>'no-cache','X-Content-Type-Options'=>'nosniff']);
+        }
         $metaAdmin=$request->is('admin/meta','admin/meta/*');
         if ($metaAdmin||$request->is('api/meta/messaging/*')) {
             if($metaAdmin)app(MetaInboxAccess::class)->actor(auth('admin')->user());
@@ -24,7 +31,6 @@ class DesktopDashboardJournal
             return response('',404)->withHeaders(['Cache-Control'=>'private, no-store, max-age=0',
                 'Pragma'=>'no-cache','X-Content-Type-Options'=>'nosniff']);
         }
-        $route=$request->route()?->getName();
         if (!DesktopDashboardRoutes::journaled($route)) {
             $action=strtolower((string)$request->route()?->getActionName());
             $login=$route==='admin.login';
@@ -45,6 +51,29 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardCustomerDirectory::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardCustomerDirectory::class);
+                $payload=$adapter->payload($route,$request,$actor,$scope);
+                $actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $guard=auth('admin');$previous=$guard->getUser();
+                try{
+                    $guard->setUser($actor);
+                    $result=app(Journal::class)->execute($device,$payload['values']['idempotency_key'],(int)$actor->id,$route,$payload,[],
+                        fn()=>$adapter->capture($route,$payload,function()use($request,$next){
+                            $response=$next($request);
+                            if($response->getStatusCode()>=400)throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
+                            $result=json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR);
+                            if(!is_array($result))throw new \LogicException('Expected the original CRM JSON response.');
+                            return $result;
+                        }));
+                    return response()->json($result)->header('Cache-Control','private, no-store');
+                }finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+            });
+        }
         if(\App\Services\Dashboard\DesktopDashboardRestaurantProductCrud::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantMenuCopy::handles($route)){
             return app(\App\Services\Dashboard\DesktopDashboardProductImages::class)->guard(fn()=>app(\App\Services\Dashboard\DesktopDashboardProductEffects::class)->guard(fn()=>DB::transaction(function()use($request,$next,$actor,$route){
                 $device=(string)config('desktop_dashboard.device_id');

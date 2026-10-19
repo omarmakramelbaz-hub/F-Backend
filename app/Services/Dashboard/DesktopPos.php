@@ -70,7 +70,7 @@ class DesktopPos
                 if ($page >= $listing['pagination']['last_page']) break;
             }
             $id=(string)Str::uuid(); $payload=['id'=>$id,'branch'=>$branch,'actor'=>['id'=>(int)$actor->id,'name'=>$actor->name],
-                'generated_at'=>now('UTC')->toIso8601String(),'tax_bps'=>\App\Services\GoServices\Money::rate($summary['register']['tax_rate']),
+                'generated_at'=>now('UTC')->toIso8601String(),'customer_phone_required'=>true,'tax_bps'=>\App\Services\GoServices\Money::rate($summary['register']['tax_rate']),
                 'service_bps'=>app(PosServiceTable::class)->ready()?app(PosServiceTable::class)->policy($device->branch)['service_bps']:0,
                 'can_discount'=>$summary['permissions']['can_manage'],'products'=>$products,'categories'=>$listing['categories']];
             DB::table('desktop_pos_snapshots')->insert(['id'=>$id,'device_id'=>$device->id,'payload'=>json_encode($payload,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
@@ -101,7 +101,12 @@ class DesktopPos
             if ($cart['discount_cents']>0) abort_unless($this->access->permissions($actor)['can_manage'],403);
             $quote=app(DesktopPosQuote::class)->build($snapshot,$cart,$data['channel'],(int)$data['delivery_cents']);
             abort_unless($quote['total_cents']===(int)$data['total_cents'],409,'إجمالي الفاتورة لا يطابق المينيو المحفوظ.');
-            if ($data['channel']==='phone') abort_unless(trim($data['customer_name']??'')!=='' && preg_match('/^[+0-9 ()-]{6,30}$/D',$data['customer_phone']??'') && trim($data['address']??'')!=='',422,'أكمل اسم العميل ورقمه وعنوانه.');
+            $legacyContactMissing = $v['kind']==='sale' && !CustomerDirectory::normalizePhone((string)($data['customer_phone']??'')) && self::legacyContactAllowed($snapshot,$when);
+            $legacyContact = $legacyContactMissing ? ($data['customer_phone']??'') : null;
+            if ($legacyContactMissing) $data['customer_phone']='';
+            elseif ($v['kind']==='sale') $data['customer_phone']=CustomerDirectory::requirePhone($data['customer_phone']??null);
+            else $data['customer_phone']=CustomerDirectory::normalizePhone((string)($data['customer_phone']??''))??($data['customer_phone']??'');
+            if ($data['channel']==='phone') abort_unless(trim($data['customer_name']??'')!=='' && trim($data['address']??'')!=='',422,'أكمل اسم العميل وعنوانه.');
             if ($data['channel']==='dine') abort_unless(trim($data['table_name']??'')!=='' && trim($data['customer_name']??'')!=='',422,'أدخل الطاولة واسم العميل.');
             $row=DB::table('desktop_pos_orders')->where('device_id',$device->id)->where('local_id',$v['order_id'])->lockForUpdate()->first();
             abort_unless($v['revision']===($row?(int)$row->revision+1:1),409,'ترتيب عمليات الفاتورة غير صحيح.');
@@ -111,8 +116,12 @@ class DesktopPos
                 abort_unless($row->snapshot_id===$v['snapshot_id'],409,'نسخة المينيو الخاصة بالفاتورة ثابتة.');
                 $before=json_decode($row->data,true);
                 abort_unless($before['channel']===$data['channel'],409);
-                // A bill locks its contents; cash_received is the only settlement field allowed to change.
-                if ($status==='bill') { unset($before['cash_received']); $after=$data; unset($after['cash_received']); abort_unless(PosServiceTicket::fingerprint($before)===PosServiceTicket::fingerprint($after),409,'تمت طباعة الحساب؛ محتويات الفاتورة ثابتة.'); }
+                // Settlement may complete contact details; a printed bill still locks every economic field.
+                if ($status==='bill') {
+                    $after=$data;
+                    foreach (array_merge(['cash_received'],$v['kind']==='sale'?['customer_name','customer_phone','address']:[]) as $field) { unset($before[$field],$after[$field]); }
+                    abort_unless(PosServiceTicket::fingerprint($before)===PosServiceTicket::fingerprint($after),409,'تمت طباعة الحساب؛ محتويات الفاتورة ثابتة.');
+                }
             }
             $receipt=null;
             if ($v['kind']==='cancel') { abort_unless($status==='draft' && trim($data['cancel_reason']??'')!=='',409,'لا يمكن إلغاء فاتورة أرسلت للمطبخ أو صدر حسابها.'); $status='cancelled'; }
@@ -120,14 +129,15 @@ class DesktopPos
             elseif ($v['kind']==='kitchen') { abort_unless(in_array($status,['draft','kitchen'],true),409); $status='kitchen'; }
             elseif ($v['kind']==='save') { abort_unless($status!=='bill',409); }
             elseif ($v['kind']==='sale') {
-                $context=['channel'=>$data['channel'],'trusted_offline'=>true,'offline_operation'=>$v['id'],'saved_quote'=>$quote,
-                    'business_date'=>OperatingDay::date($when),'branch_snapshot'=>$snapshot['branch'],
+                $context=['channel'=>$data['channel'],'trusted_offline'=>true,'legacy_customer_phone_missing'=>$legacyContactMissing,'offline_operation'=>$v['id'],'saved_quote'=>$quote,
+                    'business_date'=>OperatingDay::date($when),'paid_at'=>$when,'branch_snapshot'=>$snapshot['branch'],
                     'snapshot'=>array_intersect_key($data,array_flip(['customer_name','customer_phone','address','table_name','notes']))+
-                        ['desktop_device'=>$device->id,'local_order'=>$v['order_id'],'occurred_at'=>$when->toIso8601String(),'synced_at'=>now('UTC')->toIso8601String()]];
+                        ['desktop_device'=>$device->id,'local_order'=>$v['order_id'],'occurred_at'=>$when->toIso8601String(),'synced_at'=>now('UTC')->toIso8601String()]+($legacyContactMissing?['legacy_original_customer_phone'=>$legacyContact]:[])];
                 $payment=app(TakeawayService::class)->checkout(['branch'=>$device->branch,'idempotency_key'=>$v['id'],'quote_hash'=>$quote['quote_hash'],
                     'payment_method'=>'cash','cash_received'=>$data['cash_received']??'0','payment_confirmed'=>true]+$data,$actor,$context);
                 $receipt=$payment['receipt']; $status='paid';
             }
+            app(CustomerDirectory::class)->capture($data,$data['channel']==='phone'?'delivery':$data['channel'],$device->branch);
             $changes=['status'=>$status,'revision'=>$v['revision'],'data'=>json_encode($data,JSON_UNESCAPED_UNICODE),'updated_at'=>now('UTC')];
             if ($receipt) $changes['paid_order_id']=$receipt['id'];
             if ($row) DB::table('desktop_pos_orders')->where('id',$row->id)->update($changes);
@@ -139,4 +149,11 @@ class DesktopPos
         },3);
     }
     private function seen(object $device): void { DB::table('desktop_pos_devices')->where('id',$device->id)->update(['last_seen_at'=>now('UTC'),'updated_at'=>now('UTC')]); }
+    /** Only server-stored old snapshots and genuinely pre-installation sale times qualify. */
+    public static function legacyContactAllowed(array $snapshot, Carbon $occurredAt): bool
+    {
+        if (!empty($snapshot['customer_phone_required']) || !Schema::hasTable('crm_customer_sync_states')) return false;
+        $cutover = DB::table('crm_customer_sync_states')->where('source','phone_requirement_cutover')->value('activated_at');
+        return $cutover && $occurredAt->lt(Carbon::parse($cutover,'UTC'));
+    }
 }

@@ -116,10 +116,11 @@ async function main() {
     const loginSession = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session');
     await fs.writeFile(loginSession, 'synthetic preserved session');
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
+    const captureTablesPhp = "$tables=\\Illuminate\\Support\\Facades\\DB::transaction(function(){$rows=[];foreach(['branch_customers','crm_customers','crm_customer_sources','branch_operation_commands'] as $table)$rows[$table]=\\Illuminate\\Support\\Facades\\DB::table($table)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all();return $rows;});";
     const command = await php(bootstrap + "$values=['branch'=>'f:100','idempotency_key'=>$input['id'],'name'=>'عميل مزامنة','phone'=>'01012345678','address'=>'المنصورة'];"
       + "$actor=\\App\\Models\\User::withoutGlobalScopes()->findOrFail($input['actor']);$journal=app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class);"
       + "$result=$journal->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$values],[],fn()=>app(\\App\\Services\\Dashboard\\BranchCustomers::class)->save($values,$actor));"
-      + "echo json_encode(['result'=>$result,'rows'=>\\Illuminate\\Support\\Facades\\DB::table('branch_customers')->get()->map(fn($row)=>(array)$row)->all()]);",
+      + captureTablesPhp + "echo json_encode(['result'=>$result,'values'=>$values,'tables'=>$tables]);",
       { id: crypto.randomUUID(), device: snapshot.device_id, actor: snapshot.actor_id });
     const pending = await runtime.control({ action: 'pending' }); assert.equal(pending.counts.pending, 1);
     let downloads = 0;
@@ -131,8 +132,19 @@ async function main() {
     await runtime.control({ action: 'acknowledge', command_id: pending.commands[0].command_id,
       receipt: { device_id: snapshot.device_id, command_id: pending.commands[0].command_id, committed: true, result: command.result } });
     // The synthetic server fixture now reflects the confirmed customer, as a coherent bootstrap must.
-    snapshot.snapshot_id = crypto.randomUUID(); snapshot.tables.branch_customers.rows = command.rows;
-    snapshot.tables.branch_customers.sha256 = crypto.createHash('sha256').update(JSON.stringify(command.rows)).digest('hex');
+    snapshot.snapshot_id = crypto.randomUUID();
+    assert.deepEqual(Object.keys(command.tables).sort(), ['branch_customers','branch_operation_commands','crm_customer_sources','crm_customers']);
+    const capturedCrm = command.tables.crm_customers.find(row => row.phone === '+201012345678');
+    assert.ok(capturedCrm);
+    assert.equal(capturedCrm.phone_key, '01012345678');
+    assert.equal(Number(capturedCrm.service_consent), 0); assert.equal(Number(capturedCrm.marketing_consent), 0);
+    assert.ok(command.tables.crm_customer_sources.some(row => Number(row.customer_id) === Number(capturedCrm.id)
+      && row.branch === 'f:100' && row.channel === 'delivery'));
+    for (const [table, rows] of Object.entries(command.tables)) {
+      assert.ok(snapshot.tables[table], 'Confirmed snapshot requires ' + table);
+      snapshot.tables[table].rows = rows;
+      snapshot.tables[table].sha256 = crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+    }
     const retainedPointer = await runtime.metadata.read('prepared');
     const retainedFiles = await fs.readdir(path.join(runtime.profile, 'generations'));
     await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata, allowPreview: true,
@@ -144,6 +156,8 @@ async function main() {
     assert.equal(imageRequests, 2);
     let next = await coordinator().run(); assert.notEqual(next.database, initial.database);
     assert.equal(imageRequests, 4);
+    const refreshedTables = await php(bootstrap + captureTablesPhp + "echo json_encode($tables);");
+    assert.deepEqual(refreshedTables, command.tables);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app', pdfPath)), pdfBytes);
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'framework/sessions/supervisor-fixture-session'), 'utf8'), 'synthetic preserved session');
@@ -151,8 +165,8 @@ async function main() {
       {}, { ...runtime.environment, DB_DATABASE: initial.database });
     assert.deepEqual(archived, { commands: 1, state: 'held' });
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
-    const replay = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Archived work ran again.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
-      { device: snapshot.device_id, id: pending.commands[0].command_id, actor: snapshot.actor_id });
+    const replay = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$input['values']],[],fn()=>throw new RuntimeException('Archived work ran again.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
+      { device: snapshot.device_id, id: pending.commands[0].command_id, actor: snapshot.actor_id, values: command.values });
     assert.equal(replay.status, 409);
     // Synthetic server-session response; fences, processes, DBs and restart recovery are real.
     let local = true; const destinations = [];
@@ -165,8 +179,9 @@ async function main() {
     snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
     assert.equal(local, false); assert.ok(await runtime.metadata.read('return'));
     await assert.rejects(mode.local({ method: 'POST' }));
-    const heldWrite = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Inactive local write ran.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
-      { device: snapshot.device_id, id: crypto.randomUUID(), actor: snapshot.actor_id });
+    const heldId = crypto.randomUUID(), heldValues = {...command.values, idempotency_key:heldId};
+    const heldWrite = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$input['values']],[],fn()=>throw new RuntimeException('Inactive local write ran.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
+      { device: snapshot.device_id, id: heldId, actor: snapshot.actor_id, values: heldValues });
     assert.equal(heldWrite.status, 409);
     await remoteState.begin('native-http-operation');
     await assert.rejects(mode.local({ method: 'GET' }));
@@ -260,7 +275,7 @@ async function main() {
     assert.equal(runtime.manifest.sourceRevision,next.sourceRevision);assert.equal((await runtime.connection()).database,next.database);
     assert.deepEqual(await php("echo json_encode(['upload'=>ini_get('upload_max_filesize'),'post'=>ini_get('post_max_size'),'memory'=>ini_get('memory_limit')]);"),
       {upload:'5M',post:'12M',memory:'256M'});
-    const upgradedReplay=await php(bootstrap+"try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',[],[],fn()=>throw new RuntimeException('Old work ran after code upgrade.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",{device:snapshot.device_id,id:pending.commands[0].command_id,actor:snapshot.actor_id});
+    const upgradedReplay=await php(bootstrap+"try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$input['values']],[],fn()=>throw new RuntimeException('Old work ran after code upgrade.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",{device:snapshot.device_id,id:pending.commands[0].command_id,actor:snapshot.actor_id,values:command.values});
     assert.equal(upgradedReplay.status,409);assert.equal(failures.length,0);
     console.log('PASS real Windows code/schema upgrade retains the matching installed application with unchanged database binaries, recovers a rejected pointer and lost reply, preserves the previous schema and journal, and restarts from its retained new runtime');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');

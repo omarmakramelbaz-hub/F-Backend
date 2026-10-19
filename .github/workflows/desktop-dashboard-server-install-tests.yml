@@ -56,7 +56,9 @@ jobs:
           assert 'deployment/desktop_dashboard_server_manifest_attachments.json' not in dict(pins)
           scope_path = root / 'deployment/desktop_dashboard_publication_metadata_scope.json'
           scope = json.loads(scope_path.read_text())
-          manifest_pin = blob((root / 'deployment/desktop_dashboard_server_manifest.json').read_bytes())
+          # Metadata repair remains pinned to its historical measured cohort.
+          manifest_pin = blob((root / 'deployment/desktop_dashboard_server_manifest-20261019-1323.json').read_bytes())
+          assert manifest_pin != blob((root / 'deployment/desktop_dashboard_server_manifest.json').read_bytes())
           assert scope['version'] == 2 and 'release' not in scope
           assert scope['manifest_blob'] == manifest_pin and len(scope['rows']) == 38
           repair = (root / 'deployment/repair_desktop_dashboard_publication_metadata.py').read_text()
@@ -67,7 +69,9 @@ jobs:
           assert len(diagnosis_pins) == 4
           for name, pin in diagnosis_pins:
               directory = 'tests/fixtures' if name == 'desktop-actual-server-baseline.json' else 'deployment'
-              assert blob((root / directory / name).read_bytes()) == pin, name
-          assert blob((root / 'deployment/meta_messaging_route_check.php').read_bytes()) == '8ff84a738a777f2c9a0f4ee90ff50be008f762e7'
+              archived = {'desktop-actual-server-baseline.json': 'desktop-actual-server-baseline-20261019-1323.json',
+                          'desktop_dashboard_server_manifest.json': 'desktop_dashboard_server_manifest-20261019-1323.json'}
+              assert blob((root / directory / archived.get(name, name)).read_bytes()) == pin, name
+          assert blob((root / 'deployment/meta_messaging_route_check.php').read_bytes()) == 'cac1fbec511eb246fdef5b2ec87410638e45e08e'
           print('VERIFIED_REPAIR_AND_READ_ONLY_DIAGNOSIS_PINS', scope['version'], len(scope['rows']))
           PY

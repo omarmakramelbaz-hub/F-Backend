@@ -30,7 +30,7 @@ class CartResource extends JsonResource
 
             'order_id'              => $this->order_id,
             'price'                 => (double) $this->price,
-            'qty'                   => (int)$this->qty,
+            'qty'                   => (float)$this->qty,
             'product_feature'       => $this->product_feature,
             'product_feature_name'  => \App\Models\ProductFeature::where('id',$this->product_feature)->first()?->name,
             'product_clean'         => $this->product_clean,

@@ -2,6 +2,7 @@
 // Real original restaurant product modals, multipart uploads and confirmed delete controls.
 const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE);
+const verifyDashboardSoundControl=require('./browser-sound.cjs');
 const input=JSON.parse(fs.readFileSync(0,'utf8'));
 const addonNames=['extra_combo','extra_large','extra_medium','extra_clean','extra_clear','extra_vacuim'];
 const imageA={name:'رنجة محلية.png',mimeType:'image/png',buffer:Buffer.from(input.imageA,'base64')};
@@ -24,9 +25,8 @@ const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     await page.goto(input.origin+'/admin/login');
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'),page.locator('.dashboard-login-submit').click()]);
-    const overlay=page.locator('.swal-overlay--show-modal');await overlay.waitFor({state:'visible'});
-    assert.equal(await overlay.locator('.swal-title').textContent(),'تفعيل الصوت');
-    await overlay.getByRole('button',{name:'تم',exact:true}).click();await overlay.waitFor({state:'hidden'});
+    await verifyDashboardSoundControl(page);
+    const overlay=page.locator('.swal-overlay--show-modal');
     actionStage='original-show';assert.equal((await page.goto(input.origin+input.returnPath)).status(),200);
     await page.waitForLoadState('networkidle');const initialPageErrors=[...errors];
     const fields=request=>new Response(request.postDataBuffer(),{headers:{'Content-Type':request.headers()['content-type']}}).formData();

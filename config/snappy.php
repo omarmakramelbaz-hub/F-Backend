@@ -35,15 +35,19 @@ return [
     
     'pdf' => [
         'enabled' => true,
-        'binary'  =>base_path('vendor/h4cc/wkhtmltopdf-amd64/bin/wkhtmltopdf-amd64'),
-        'timeout' => false,
+        'binary'  => PHP_OS_FAMILY === 'Windows'
+            ? base_path('../wkhtmltox/bin/wkhtmltopdf.exe')
+            : base_path('vendor/h4cc/wkhtmltopdf-amd64/bin/wkhtmltopdf-amd64'),
+        'timeout' => PHP_OS_FAMILY === 'Windows' ? 30 : false,
         'options' => [],
         'env'     => [],
     ],
     
     'image' => [
         'enabled' => true,
-        'binary'  => env('WKHTML_IMG_BINARY', '/usr/local/bin/wkhtmltoimage'),
+        'binary'  => PHP_OS_FAMILY === 'Windows'
+            ? base_path('../wkhtmltox/bin/wkhtmltoimage.exe')
+            : env('WKHTML_IMG_BINARY', '/usr/local/bin/wkhtmltoimage'),
         'timeout' => false,
         'options' => [],
         'env'     => [],

@@ -44,14 +44,23 @@ final class MetaMessagingProtocol
                     $raw = $event['message'];
                     $sender = $event['sender']['id'] ?? null; $recipient = $event['recipient']['id'] ?? null;
                     $mid = $raw['mid'] ?? null; $stamp = $event['timestamp'] ?? null;
-                    if (!is_array($raw) || !self::id($sender) || !self::id($recipient) || !is_string($mid)
-                        || $mid === '' || strlen($mid) > 512 || preg_match('/[\x00-\x1f\x7f]/', $mid)
+                    // Meta can send a business-facing administrative notice with only admin_text.
+                    // It has no native message ID and must not become customer/reply/order evidence.
+                    $administrative = is_array($raw) && count($raw) === 1 && array_key_exists('admin_text', $raw);
+                    if (!is_array($raw) || !self::id($sender) || !self::id($recipient)
+                        || (!$administrative && (!is_string($mid) || $mid === '' || strlen($mid) > 512 || preg_match('/[\x00-\x1f\x7f]/', $mid)))
                         || !(is_int($stamp) || (is_string($stamp) && ctype_digit($stamp)))) throw new InvalidArgumentException('MESSAGE');
                     $outbound = $sender === $id;
                     if (($outbound ? $sender : $recipient) !== $id || $sender === $recipient
                         || (($raw['is_echo'] ?? false) === true && !$outbound)) throw new InvalidArgumentException('ROUTING');
                     $seconds = (int) floor((float) $stamp / 1000);
                     if ($seconds < 946684800 || $seconds > time() + 86400) throw new InvalidArgumentException('TIME');
+                    if ($administrative) {
+                        $notice = $raw['admin_text'];
+                        if (!is_string($notice) || trim($notice) === '' || !mb_check_encoding($notice, 'UTF-8')
+                            || strlen($notice) > 100000 || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $notice)) throw new InvalidArgumentException('MESSAGE');
+                        $ignored++; continue;
+                    }
                     $text = $raw['text'] ?? null;
                     if ($text !== null && (!is_string($text) || !mb_check_encoding($text, 'UTF-8') || strlen($text) > 100000)) throw new InvalidArgumentException('TEXT');
                     $type = $text !== null ? 'text' : 'other';

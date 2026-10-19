@@ -12,9 +12,20 @@ class MetaMediaService
 {
     public const MAX_BYTES = 20971520;
     public const HIDES_TABLE = 'meta_message_hides';
+    public const INSTAGRAM_MEDIA_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     private $transport;
 
     public function __construct(?callable $transport = null) { $this->transport = $transport; }
+
+    /** Browser negotiation is needed only at Instagram's signed attachment endpoint. */
+    public static function userAgentForUrl(string $url): ?string
+    {
+        $parts = parse_url($url);
+        return is_array($parts) && ($parts['scheme'] ?? null) === 'https'
+            && strtolower((string) ($parts['host'] ?? '')) === 'lookaside.fbsbx.com'
+            && in_array($parts['path'] ?? null, ['/ig_messaging_cdn', '/ig_messaging_cdn/'], true)
+            ? self::INSTAGRAM_MEDIA_USER_AGENT : null;
+    }
 
     public function hiddenIds($actor, array $ids): array
     {
@@ -27,6 +38,8 @@ class MetaMediaService
     public function descriptors(object $thread, object $message, ?array $dto): array
     {
         if (!$this->validMessage($thread, $message, $dto)) return [];
+        // An accepted text receipt has no native attachment envelope.
+        if (($message->source ?? null) === 'dashboard_api') return [];
         $attachments = $dto['content']['message']['meta']['attachments'] ?? [];
         if (!is_array($attachments) || !array_is_list($attachments) || count($attachments) > 30) return [];
         $items = [];
@@ -81,6 +94,10 @@ class MetaMediaService
         $claimed = $this->canonicalMime(strtolower(trim(explode(';', (string) ($response['content_type'] ?? ''), 2)[0])));
         $detected = (new \finfo(FILEINFO_MIME_TYPE))->buffer($response['body']);
         $mime = is_string($detected) ? $this->canonicalMime($detected) : null;
+        if (($source['type'] ?? '') === 'audio') {
+            if ($mime === 'video/mp4') $mime = 'audio/mp4';
+            if ($claimed === 'video/mp4') $claimed = 'audio/mp4';
+        }
         abort_unless(is_string($mime) && $this->allowedMime($source['type'] ?? '', $mime)
             && $this->compatibleMime($source['type'] ?? '', $claimed, $mime), 415);
         return ['body' => $response['body'], 'mime' => $mime,
@@ -89,6 +106,16 @@ class MetaMediaService
 
     private function validMessage(object $thread, object $message, ?array $dto): bool
     {
+        if (($message->source ?? null) === 'dashboard_api') {
+            try {
+                if ($dto === null || ($message->direction ?? null) !== 'outbound' || ($message->type ?? null) !== 'text'
+                    || !is_string($message->content ?? null) || $dto !== $this->decrypt($message->content)) return false;
+                $receipt = app(MetaReplyService::class)->unwrapAcceptedEvidence($thread, $message);
+                // Keep the authenticated receipt capsule intact. Forwarding uses its text;
+                // neither media actions nor hide may manufacture a native Meta message.
+                return is_string($dto['text'] ?? null) && $dto['text'] === ($receipt['text'] ?? null);
+            } catch (\Throwable $error) { return false; }
+        }
         if ($dto === null || ($dto['channel'] ?? null) !== $thread->waba_id
             || ($dto['account_id'] ?? null) !== $thread->phone_number_id
             || (!is_int($message->id) && !ctype_digit((string) $message->id))
@@ -149,7 +176,7 @@ class MetaMediaService
         abort_unless($ips !== [], 502);
         $body = ''; $bytes = 0; $curl = curl_init($url);
         $resolved = strpos($ips[0], ':') === false ? $ips[0] : '[' . $ips[0] . ']';
-        curl_setopt_array($curl, [CURLOPT_HTTPGET => true, CURLOPT_FOLLOWLOCATION => false,
+        $options = [CURLOPT_HTTPGET => true, CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_MAXREDIRS => 0, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 20, CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_PROXY => '', CURLOPT_RESOLVE => [$host . ':443:' . $resolved],
@@ -162,7 +189,10 @@ class MetaMediaService
                 $bytes += strlen($chunk);
                 if ($bytes > self::MAX_BYTES) return 0;
                 $body .= $chunk; return strlen($chunk);
-            }]);
+            }];
+        $userAgent = self::userAgentForUrl($url);
+        if ($userAgent !== null) $options[CURLOPT_USERAGENT] = $userAgent;
+        curl_setopt_array($curl, $options);
         try {
             $ok = curl_exec($curl);
             $response = ['status' => $ok === false ? 0 : (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE),
@@ -175,7 +205,7 @@ class MetaMediaService
     {
         $types = [
             'image' => ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
-            'audio' => ['audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm', 'video/webm'],
+            'audio' => ['audio/aac', 'audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm', 'video/webm'],
             'video' => ['video/mp4', 'video/webm', 'video/quicktime'],
             'document' => ['application/pdf', 'text/plain', 'application/zip', 'application/x-zip', 'application/x-zip-compressed',
                 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
@@ -188,7 +218,7 @@ class MetaMediaService
 
     private function canonicalMime(string $mime): string
     {
-        return ['image/jpg' => 'image/jpeg', 'image/pjpeg' => 'image/jpeg', 'audio/x-m4a' => 'audio/mp4',
+        return ['audio/x-hx-aac-adts' => 'audio/aac', 'audio/x-amr' => 'audio/amr', 'image/jpg' => 'image/jpeg', 'image/pjpeg' => 'image/jpeg', 'audio/x-m4a' => 'audio/mp4',
             'audio/m4a' => 'audio/mp4', 'audio/x-wav' => 'audio/wav', 'audio/wave' => 'audio/wav',
             'application/ogg' => 'audio/ogg', 'application/x-zip' => 'application/zip',
             'application/x-zip-compressed' => 'application/zip'][$mime] ?? $mime;

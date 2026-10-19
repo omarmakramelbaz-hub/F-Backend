@@ -291,9 +291,10 @@ class CartController extends Controller
             // $user->otp_first_no= '1234';
             $user->save();
             $user_mobile = '20' . auth('api')->user()->mobile;
-            $username = 'fe082b557b6f5466588dc3f2a025207b784eeba854d78c78cb2f3d9562f88bfd';
-            $password = '2d5f17adaadabd5f2e025001f055a1cf155aa32f15fae09e6d19a83e05e23f84';
-            $senderId = '8b42c51d209b1e952e5e692135c282978f540200fe8c870332c0e594e89a0534';
+            $username = (string) config('services.sms_misr.username');
+            $password = (string) config('services.sms_misr.password');
+            $senderId = (string) config('services.sms_misr.sender');
+            if (!$username || !$password || !$senderId || config('desktop_dashboard.local')) return $this->errorResponse(__('api.error in sent '));
             $link =
                 \Http::post("https://smsmisr.com/api/SMS/?environment=1&username=$username&password=$password&language=2&sender=$senderId&mobile=$user_mobile&message=فسخانينجا.. من فضلك أدخل كود التحقق المرسل ($user->otp_first_no)");
             // return $link->status();
@@ -531,7 +532,7 @@ class CartController extends Controller
                     return (float) $cart->updated_total;
                 }
 
-                return (float) $cart->price * (int) $cart->qty;
+                return (float) $cart->price * (float) $cart->qty;
             });
 
             $serviceFees = ($updatedTotal * $serviceFeeRate) / 100;

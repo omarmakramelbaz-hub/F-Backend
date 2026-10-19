@@ -8,7 +8,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     if(!preg_match('/^[a-f0-9]{40}$/D',$argv[4]??''))throw new RuntimeException('A frozen fixture source SHA is required.');
     if(!is_dir($artifact)&&!mkdir($artifact,0700,true))throw new RuntimeException('Wishlist artifact directory unavailable.');
     $fixtureBindings=[];$repository=dirname($fixture,2);
-    foreach(['wishlist-deletion-browser-http.php','wishlist-deletion-browser.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'] as $file){
+    foreach(['wishlist-deletion-browser-http.php','wishlist-deletion-browser.cjs','browser-sound.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'] as $file){
         $git=proc_open(['git','-C',$repository,'cat-file','blob',$argv[4].':tests/desktop_dashboard_runtime/'.$file],[['pipe','r'],['pipe','w'],['pipe','w']],$gitPipes);
         fclose($gitPipes[0]);$bytes=stream_get_contents($gitPipes[1]);fclose($gitPipes[1]);$error=stream_get_contents($gitPipes[2]);fclose($gitPipes[2]);
         if(proc_close($git)!==0||hash('sha256',$bytes)!==hash_file('sha256',$fixture.'/'.$file))throw new RuntimeException('Frozen Wishlist fixture source differs: '.$file);

@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'sms_misr' => [
+        'username' => env('SMS_MISR_USERNAME'),
+        'password' => env('SMS_MISR_PASSWORD'),
+        'sender' => env('SMS_MISR_SENDER'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

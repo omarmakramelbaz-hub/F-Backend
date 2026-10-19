@@ -20,6 +20,21 @@ class WhatsAppInboxController extends Controller
     private const THREAD_LIMIT = 25;
     private const MESSAGE_LIMIT = 50;
 
+    public function bootstrap(WhatsAppInboxAccess $access): array
+    {
+        $access->actor(auth('admin')->user());
+        return [
+            'available' => $access->available(),
+            'conversations_url' => route('whatsapp-inbox.conversations'),
+            'messages_base_url' => url('/admin/whatsapp/conversations'),
+            'actions_base_url' => url('/admin/whatsapp/conversations'),
+            'media_base_url' => url('/admin/whatsapp/conversations'),
+            'reply_history_base_url' => url('/admin/whatsapp/conversations'),
+            'message_updates_base_url' => url('/admin/whatsapp/conversations'),
+            'labels' => $this->labels(),
+        ];
+    }
+
     public function index(WhatsAppInboxAccess $access)
     {
         try {
@@ -170,9 +185,9 @@ class WhatsAppInboxController extends Controller
                         $item['actions']['forward'] = $native['kind'] === 'text'
                             ? is_string($native['text']) && trim($native['text']) !== '' && mb_strlen($native['text']) <= 4096
                             : $media !== null && ($native['text'] === null || mb_strlen($native['text']) <= 1024);
-                        if ($media !== null && $media['kind'] === 'image') $item['media'] = [
+                        if ($media !== null && in_array($media['kind'], ['image', 'audio'], true)) $item['media'] = [
                             'url' => url('/admin/whatsapp/conversations/' . $conversation . '/messages/' . $row->id . '/media'),
-                            'type' => 'image', 'mime_type' => $media['mime']];
+                            'type' => $media['kind'], 'mime_type' => $media['mime']];
                         if ($index && $row->direction === 'outbound' && $index->kind === 'document' && $row->type === 'document') {
                             $accepted = $messageService->resolveReply($actor, $conversation, (int) $index->reply_id);
                             $attachment = $messageService->media($accepted);
@@ -399,7 +414,7 @@ class WhatsAppInboxController extends Controller
     private function labels(): array
     {
         if (app()->getLocale() !== 'ar') return [
-            'title' => 'WhatsApp inbox', 'subtitle' => 'Fasakhansta · +20 12 85545554',
+            'title' => 'Meta messages · WhatsApp', 'subtitle' => 'Fasakhansta · +20 12 85545554',
             'read_only' => 'Review received customer messages and outgoing business messages.',
             'no_send' => 'Reply through WhatsApp Business. This page displays received copies.',
             'central_scope' => 'Central inbox', 'refresh' => 'Refresh', 'loading' => 'Loading…',
@@ -421,7 +436,7 @@ class WhatsAppInboxController extends Controller
                 'order' => 'WhatsApp order message', 'system' => 'System message', 'other' => 'Message'],
         ];
         return [
-            'title' => 'رسائل واتساب', 'subtitle' => 'فسخانستا · 01285545554',
+            'title' => 'رسائل ميتا · واتساب', 'subtitle' => 'فسخانستا · 01285545554',
             'read_only' => 'متابعة رسائل العملاء والرسائل الصادرة من حساب النشاط.',
             'no_send' => 'الرد من واتساب بيزنس. هذه الصفحة تعرض نسخ الرسائل المستلمة.',
             'central_scope' => 'صندوق الإدارة', 'refresh' => 'تحديث', 'loading' => 'جارٍ التحميل…',

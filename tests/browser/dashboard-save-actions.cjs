@@ -19,18 +19,7 @@ function productPage(edit){
  html=html.replace(/@lang\('main\.([^']+)'\)/g,(_,k)=>k==='save'?'حفظ':k);
  assert(!/@if|@foreach|{{|@include|@csrf|@method/.test(html));return html;
 }
-function expensePage(approve){
- let html=read('resources/views/admin/expenses/index.blade.php').split("@section('content')")[1].split('@endsection')[0];
- html=html.replace(/@foreach\(\['today'=>[\s\S]*?@endforeach/,['today','month','average','top_category','count'].map(k=>`<article><strong data-expense-metric="${k}"></strong><small ${k==='top_category'?'data-expense-top-amount':''}></small></article>`).join(''));
- html=html.replace(/@foreach\(\$boot\['branches'\] as \$branch\)[\s\S]*?@endforeach/g,'<option value="f:100">فرع المحلة</option>');
- html=html.replace(/@foreach\(\$boot\['initial'\]\['(?:active_)?categories'\] as \$category=>\$categoryName\)[\s\S]*?@endforeach/g,'<option value="purchases">مشتريات</option>');
- html=html.replace(/@foreach\(\['pending',[\s\S]*?@endforeach/g,['pending','approved','rejected','voided'].map(s=>`<option value="${s}">${s}</option>`).join(''));
- html=html.replace(/@foreach\(\['number',[\s\S]*?@endforeach/g,'<th>المصروف</th>');
- html=html.replace(/@if\(\$boot\['allow_all'\]\)[\s\S]*?@endif/g,'').replace(/@if\(\$boot\['permissions'\]\['can_manage_categories'\]\)[\s\S]*?@endif/g,'');
- html=html.replace(/@if\(\$boot\['permissions'\]\['can_approve'\]\)([\s\S]*?)@endif/g,(_,body)=>approve?body:'').replace(/@if\(count\(\$boot\['branches'\]\)===1\) disabled @endif/g,'disabled');
- html=html.replace(/{{\s*__\('expenses\.([^']+)'\)\s*}}/g,(_,k)=>expenseLabels[k]).replace(/{{\s*\$boot\['today'\]\s*}}/g,'2026-10-07').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['from'\]\s*}}/g,'2026-10-01').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['to'\]\s*}}/g,'2026-10-07');
- assert(!/@if|@foreach|{{/.test(html));return html;
-}
+function expensePage(approve){return require('./expense-blade-fixture.cjs')({allow_all:false,selected_branch:'f:100',today:'2026-10-07',branches,initial:{categories:{purchases:'مشتريات'},active_categories:{purchases:'مشتريات'},filters:{from:'2026-10-01',to:'2026-10-07'}},permissions:{can_manage_categories:false,can_approve:approve}});}
 function shell(content,scripts=''){
  return `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><meta name="csrf-token" content="fixture-token"><script src="/dashboard/js/dashboard-spa.js" defer></script></head><body data-dashboard-actor="1"><header class="main-header"></header><div data-dashboard-page>${content}</div><div data-dashboard-page-scripts>${scripts}</div></body></html>`;
 }

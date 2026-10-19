@@ -1,0 +1,28 @@
+.meta-message-hub [hidden] { display:none !important; }
+.meta-message-hub .meta-inbox-channels [aria-pressed="true"] { background:#f58220; border-color:#f58220; color:#fff; font-weight:700; }
+.meta-message-hub > .wa-inbox-workspace { height:max(400px,calc(100dvh - 250px)); }
+.meta-hub-chat-area { min-width:0; min-height:0; height:100%; overflow:hidden; }
+.meta-hub-empty { display:flex; height:100%; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:var(--wa-muted); }
+.meta-hub-empty > i { font-size:42px; opacity:.45; }
+.meta-hub-pane { height:100%; min-width:0; min-height:0; }
+.meta-hub-pane > .wa-inbox { display:flex; flex-direction:column; height:100%; width:100%; max-width:none; margin:0; padding:0; }
+.meta-hub-pane .wa-inbox-heading,.meta-hub-pane .wa-inbox-threads,.meta-hub-pane .meta-inbox-channels,.meta-hub-pane .wa-inbox-chat-footer { display:none; }
+.meta-hub-pane .wa-inbox-alert:not([hidden]) { margin:0; padding:6px 12px; border-radius:0; }
+.meta-hub-pane .wa-inbox-workspace { display:flex; flex:1 1 auto; min-height:0; height:auto; width:100%; border:0; border-radius:0; box-shadow:none; }
+.meta-hub-pane .wa-inbox-chat { display:flex; flex:1 1 auto; height:100%; width:100%; min-height:0; }
+.meta-hub-pane .wa-inbox-message-scroll { flex:1 1 auto; min-height:0; height:auto; }
+.meta-hub-pane .wa-inbox-order-drawer { flex:0 0 auto; margin:0; border:0; border-top:1px solid var(--wa-line); border-radius:0; }
+.meta-hub-pane .wa-inbox-order-drawer[open] { max-height:48%; overflow:auto; }
+.meta-hub-pane .wa-inbox-order-drawer summary { padding:8px 14px; font-size:12px; }
+.meta-hub-pane .wa-inbox-chat-heading { min-height:62px; }
+.meta-hub-pane .wa-inbox-chat-heading [data-wa-back] { display:none; }
+@media(max-width:720px) {
+    .meta-message-hub > .wa-inbox-workspace { display:block; height:max(400px,calc(100dvh - 260px)); min-height:0; }
+    .meta-message-hub:not(.has-selection) .meta-hub-chat-area { display:none; }
+    .meta-message-hub.has-selection > .wa-inbox-workspace > .wa-inbox-threads { display:none; }
+    .meta-message-hub.has-selection .meta-hub-chat-area { display:block; }
+    .meta-message-hub .meta-hub-pane .wa-inbox-chat { display:flex; }
+    .meta-hub-pane .wa-inbox-chat-heading [data-wa-back] { display:inline-flex; }
+    .meta-message-hub .meta-inbox-channels { gap:6px; }
+    .meta-message-hub .meta-inbox-channels button { flex:1 1 auto; padding:7px 10px; font-size:12px; }
+}

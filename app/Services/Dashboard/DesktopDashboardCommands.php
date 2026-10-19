@@ -9,6 +9,7 @@ class DesktopDashboardCommands
     public function execute(string $route,array $payload,$actor): array
     {
         abort_unless(DesktopDashboardRoutes::journaled($route),422,'نوع العملية لم يُجهّز للمزامنة بعد.');
+        if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->execute($route,$payload,$actor);
@@ -41,14 +42,16 @@ class DesktopDashboardCommands
         }
         abort_unless(empty($payload['files'])||$route==='branch-expenses.save',422,'مرفقات هذا القسم لم تُجهّز للمزامنة بعد.');
         if(str_starts_with($route,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
+        if($route==='takeaway.checkout')return app(TakeawayService::class)->checkout($v,$actor,[],true);
         $simple=[
-            'takeaway.checkout'=>[TakeawayService::class,'checkout'],
             'customers.save'=>[BranchCustomers::class,'save'],'delivery-companies.save'=>[DeliveryCompanies::class,'save'],
             'employees.save'=>[BranchPayroll::class,'employeeSave'],'employees.attendance'=>[BranchPayroll::class,'attendance'],
             'employees.attendance-rules'=>[BranchPayroll::class,'saveAttendanceRules'],
             'employees.entry'=>[BranchPayroll::class,'entry'],'employees.wallet'=>[BranchPayroll::class,'wallet'],
             'employees.daily-notes'=>[BranchPayroll::class,'dailyNotes'],'employees.void-entry'=>[BranchPayroll::class,'voidEntry'],
             'employees.pay'=>[BranchPayroll::class,'pay'],
+            'branch-stock.minimum-save'=>[BranchStockMinimums::class,'save'],
+            'branch-stock.basic-apply'=>[BranchBasicRecipes::class,'apply'],
             'branch-stock.recipe-save'=>[BranchInventory::class,'saveRecipe'],'branch-expenses.categorySave'=>[ExpenseCategories::class,'save'],
             'phone-orders.dispatch-company'=>[PhoneDeliveryBoard::class,'dispatch'],'phone-orders.finish-batch'=>[PhoneDeliveryBoard::class,'finish'],
         ];

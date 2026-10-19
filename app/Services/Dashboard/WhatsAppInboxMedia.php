@@ -9,6 +9,8 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 class WhatsAppInboxMedia
 {
     public const MAX_BYTES = 5242880;
+    public const MAX_AUDIO_BYTES = 16777216;
+    public const AUDIO_TYPES = ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg'];
     public const MAX_ATTACHMENT_BYTES = 8388608;
     public const ATTACHMENT_TYPES = ['image/jpeg', 'image/png', 'application/pdf', 'text/plain'];
     private $transport;
@@ -129,12 +131,12 @@ class WhatsAppInboxMedia
     public function image($actor, int $conversation, int $message): array
     {
         $resolved = $this->messages->resolve($actor, $conversation, $message);
-        return $this->download($actor, $resolved);
+        return $this->download($actor, $resolved, false, true);
     }
 
     public function replyImage($actor, int $conversation, int $reply): array
     {
-        return $this->download($actor, $this->messages->resolveReply($actor, $conversation, $reply));
+        return $this->download($actor, $this->messages->resolveReply($actor, $conversation, $reply), false, true);
     }
 
     public function replyAttachment($actor, int $conversation, int $reply): array
@@ -142,12 +144,13 @@ class WhatsAppInboxMedia
         return $this->download($actor, $this->messages->resolveReply($actor, $conversation, $reply), true);
     }
 
-    private function download($actor, array $resolved, bool $document = false): array
+    private function download($actor, array $resolved, bool $document = false, bool $allowAudio = false): array
     {
         $media = $this->messages->media($resolved);
-        if ($media === null || $media['kind'] !== ($document ? 'document' : 'image')
-            || !in_array($media['mime'], self::ATTACHMENT_TYPES, true)) throw new HttpException(404);
-        $limit = $document ? self::MAX_ATTACHMENT_BYTES : self::MAX_BYTES;
+        $audio = $allowAudio && $media !== null && $media['kind'] === 'audio' && in_array($media['mime'], self::AUDIO_TYPES, true);
+        if (!$audio && ($media === null || $media['kind'] !== ($document ? 'document' : 'image')
+            || !in_array($media['mime'], self::ATTACHMENT_TYPES, true))) throw new HttpException(404);
+        $limit = $audio ? self::MAX_AUDIO_BYTES : ($document ? self::MAX_ATTACHMENT_BYTES : self::MAX_BYTES);
         $config = $this->configuration ?? (array) config('whatsapp_replies', []);
         $token = $config['access_token'] ?? null;
         if (($config['enabled'] ?? false) !== true || !is_string($token) || strlen($token) < 16 || strlen($token) > 4096
@@ -167,7 +170,7 @@ class WhatsAppInboxMedia
         try { $meta = json_decode($metadata['body'], true, 16, JSON_THROW_ON_ERROR); } catch (\Throwable $error) { $meta = []; }
         $digest = $this->messages->digest($meta['sha256'] ?? null);
         if ($metadata['status'] !== 200 || !is_array($meta) || isset($meta['error']) || ($meta['id'] ?? null) !== $media['id']
-            || ($meta['mime_type'] ?? null) !== $media['mime'] || !is_int($meta['file_size'] ?? null)
+            || strtolower(trim(explode(';', (string) ($meta['mime_type'] ?? ''), 2)[0])) !== $media['mime'] || !is_int($meta['file_size'] ?? null)
             || $meta['file_size'] < 1 || $meta['file_size'] > $limit || $digest === null
             || (isset($media['size']) && $media['size'] !== $meta['file_size'])
             || ($media['sha256'] !== null && !hash_equals($media['sha256'], $digest))
@@ -191,6 +194,12 @@ class WhatsAppInboxMedia
 
     private function validAttachmentBytes(string $bytes, string $mime, ?string $digest): bool
     {
+        if (in_array($mime, self::AUDIO_TYPES, true)) {
+            if ($bytes === '' || strlen($bytes) > self::MAX_AUDIO_BYTES || ($digest !== null && !hash_equals($digest, hash('sha256', $bytes)))) return false;
+            $detected = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+            $aliases = ['audio/x-m4a' => 'audio/mp4', 'video/mp4' => 'audio/mp4', 'application/ogg' => 'audio/ogg', 'audio/x-hx-aac-adts' => 'audio/aac', 'audio/x-amr' => 'audio/amr'];
+            return ($aliases[$detected] ?? $detected) === $mime;
+        }
         if (in_array($mime, ['image/jpeg', 'image/png'], true)) return $this->validImage($bytes, $mime, $digest);
         return ($digest === null || hash_equals($digest, hash('sha256', $bytes))) && $this->attachmentMime($bytes) === $mime;
     }

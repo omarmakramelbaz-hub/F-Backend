@@ -51,6 +51,11 @@ Route::prefix('desktop-pos')->withoutMiddleware('throttle:api')->group(function 
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
 
+    // Wallet callbacks verify payment through authenticated gateway inquiry.
+    Route::post('/wallet-topup/paymob/notify', [\App\Http\Controllers\Payment\WalletTopupController::class, 'notify'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('wallet-topups.notify');
+    Route::get('/wallet-topup/paymob/return', [\App\Http\Controllers\Payment\WalletTopupController::class, 'returnFromGateway'])->name('wallet-topups.return');
+
+
 
 // Social Auth Routes
 Route::group(['prefix' => 'auth/social', 'namespace' => 'Api\V1\Auth'], function () {
@@ -298,3 +303,5 @@ Route::post('/pusher/auth', function (Request $request) {
 require __DIR__.'/whatsapp.php';
 
 require __DIR__.'/meta_messaging.php';
+
+require __DIR__.'/customer_crm_api.php';

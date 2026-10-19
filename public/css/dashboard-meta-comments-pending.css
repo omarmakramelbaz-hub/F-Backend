@@ -1,0 +1,6 @@
+/* A count changes on a verified reply, never merely by opening a post. */
+#meta-comments .mc-post-meta { justify-content:flex-start; }
+#meta-comments .mc-post-meta > .mc-date { margin-inline-start:auto; }
+#meta-comments .mc-unanswered-badge { display:inline-flex; align-items:center; justify-content:center; min-width:25px; min-height:25px; padding:3px 7px; border-radius:999px; background:#cf2435; color:#fff; font-size:12px; font-weight:800; line-height:1.4; box-shadow:0 1px 4px #a90f2333; }
+#meta-comments .mc-unanswered-badge.is-checking { background:#e8edf3; color:#5c6878; box-shadow:none; }
+.dark-mode #meta-comments .mc-unanswered-badge.is-checking,[data-theme="dark"] #meta-comments .mc-unanswered-badge.is-checking { background:#35465d; color:#dce7f5; }

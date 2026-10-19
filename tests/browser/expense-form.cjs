@@ -2,26 +2,12 @@ const {chromium}=require('playwright');
 const fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
 const read=p=>fs.readFileSync(path.join(__dirname,'../..',p),'utf8');
 const labels=Object.fromEntries([...read('resources/lang/ar/expenses.php').matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
-function template(manage,approve){
- let html=read('resources/views/admin/expenses/index.blade.php').split("@section('content')")[1].split('@endsection')[0];
- html=html.replace(/@foreach\(\['today'=>[\s\S]*?@endforeach/,['today','month','average','top_category','count'].map(key=>`<article class="ex-metric"><span class="ex-metric-icon"><i></i></span><div><h2>${labels[key]}</h2><strong data-expense-metric="${key}">—</strong><small ${key==='top_category'?'data-expense-top-amount':''}>${labels.currency}</small></div></article>`).join(''));
- html=html.replace(/@foreach\(\$boot\['branches'\] as \$branch\)[\s\S]*?@endforeach/g,'<option value="f:100">فرع المحلة</option>');
- html=html.replace(/@foreach\(\$boot\['initial'\]\['(?:active_)?categories'\] as \$category=>\$categoryName\)[\s\S]*?@endforeach/g,'<option value="purchases">مشتريات</option>');
- html=html.replace(/@foreach\(\['pending',[\s\S]*?@endforeach/g,['pending','approved','rejected','voided'].map(s=>`<option value="${s}">${labels['status_'+s]}</option>`).join(''));
- html=html.replace(/@foreach\(\['number',[\s\S]*?@endforeach/g,['number','date','branch','category','description','amount','payment_method','actor','status','attachments','actions'].map(k=>`<th>${labels[k]}</th>`).join(''));
- html=html.replace(/@if\(\$boot\['allow_all'\]\)[\s\S]*?@endif/g,'');
- html=html.replace(/@if\(\$boot\['permissions'\]\['can_manage_categories'\]\)([\s\S]*?)@endif/g,(_,body)=>manage?body:'');
- html=html.replace(/@if\(\$boot\['permissions'\]\['can_approve'\]\)([\s\S]*?)@endif/g,(_,body)=>approve?body:'');
- html=html.replace(/@if\(count\(\$boot\['branches'\]\)===1\) disabled @endif/g,'disabled');
- html=html.replace(/{{\s*__\('expenses\.([^']+)'\)\s*}}/g,(_,k)=>labels[k]);
- html=html.replace(/{{\s*\$boot\['today'\]\s*}}/g,'2026-10-07').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['from'\]\s*}}/g,'2026-10-01').replace(/{{\s*\$boot\['initial'\]\['filters'\]\['to'\]\s*}}/g,'2026-10-07');
- assert(!/@if|@foreach|{{/.test(html));return html;
-}
+function template(manage,approve){return require('./expense-blade-fixture.cjs')({allow_all:false,selected_branch:'f:100',today:'2026-10-07',branches,initial:data(),permissions:{can_manage_categories:manage,can_approve:approve}});}
 const branches=[{value:'f:100',name:'فرع المحلة'}];
 function data(){return {success:true,items:[],categories:{purchases:'مشتريات'},active_categories:{purchases:'مشتريات'},category_items:[],actors:[],filters:{branch:'f:100',from:'2026-10-01',to:'2026-10-07'},pagination:{page:1,last_page:1,total:0},summary:{today:'0.00',month:'0.00',average:'0.00',count:0,top_category:null,top_amount:'0.00',period:'0.00',pending:0,cash_balance:'1000.00'}};}
 const shell='<style>body{margin:0;font-family:Arial,sans-serif}.app-head{height:58px;background:#0b1928}.app-foot{height:51px;background:#0b1928}.content-wrapper{margin-inline-end:250px}aside.app-side{position:fixed;inset-inline-end:0;width:250px;top:58px;bottom:0;background:#0b1928}@media(max-width:999px){aside.app-side{display:none}.content-wrapper{margin-inline-end:0}}</style>';
 (async()=>{
- const browser=await chromium.launch({headless:true});fs.mkdirSync('test-results/phone-delivery',{recursive:true});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.DESKTOP_TEST_CHROMIUM||undefined});fs.mkdirSync('test-results/phone-delivery',{recursive:true});
  try{for(const [width,height,role] of [[1366,768,'branch'],[1024,650,'admin'],[1920,1080,'owner'],[390,844,'branch']]){
   const page=await browser.newPage({viewport:{width,height}}),errors=[],posted=[],approve=role!=='branch';page.on('pageerror',e=>errors.push(e.message));
   const boot={actor_id:1,today:'2026-10-07',initial:data(),branches,permissions:{can_create:true,can_approve:approve,can_manage_categories:approve},urls:{data:'/data',save:'/save',recover:'/recover',export:'/export',report:'/report',categories:'/categories'}};

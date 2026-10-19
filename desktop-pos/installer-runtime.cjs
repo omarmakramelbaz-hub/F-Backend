@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process');
 const RuntimeArchive = require('./src/runtime-archive.cjs');
 const sourceCode = require('./src/dashboard-source.cjs');
 const sourcePolicy = require('./runtime-source-policy.cjs');
+const nativePdf = require('./src/native-pdf.cjs');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const required = ['application/artisan','application/desktop/router.php','application/desktop/verify.php',
   'application/vendor/autoload.php','application/composer.json','application/composer.lock','php/php.ini','php/ssl/cacert.pem'];
@@ -13,6 +14,8 @@ async function verifyBundle(bundle) {
   const archive = new RuntimeArchive(bundle,null), manifest = await archive.manifest(bundle), files = await archive.inventory(bundle);
   for (const name of [...required,...executables,...extensions.map(name=>'php/ext/php_'+name+'.dll')])
     if (!files[name]) throw Error('The installed dashboard runtime is missing '+name);
+  if (manifest.pdfRuntime) await nativePdf.verify(bundle,manifest.pdfRuntime,files);
+  else if (files['application/config/snappy.php']) throw Error('The installed dashboard runtime is missing its pinned Windows PDF component.');
   for (const name of executables) {
     const bytes = await fs.readFile(path.join(bundle,name)), offset = bytes.length>=64 ? bytes.readUInt32LE(60) : -1;
     if (bytes.toString('ascii',0,2)!=='MZ'||offset<64||offset+26>bytes.length
@@ -59,7 +62,8 @@ async function beforePack(context) {
       throw Error('The complete original dashboard release has not passed its release checks.');
   }
   const receipt={format:1,version:packageInfo.version,channel:preview?'preview':'release',fullDashboard:!preview,
-    sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,lockSha256:verified.lockSha256,advisoryCount,files:verified.files};
+    sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,lockSha256:verified.lockSha256,advisoryCount,
+    pdfRuntime:verified.manifest.pdfRuntime||null,files:verified.files};
   await fs.mkdir(path.join(project,'dist'),{recursive:true});
   await fs.writeFile(path.join(project,'dist/runtime-package.json'),JSON.stringify(receipt,null,2)+'\n');
   if(!/^[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[1-9][0-9]*)?$/.test(packageInfo.version)) throw Error('Invalid installer version.');

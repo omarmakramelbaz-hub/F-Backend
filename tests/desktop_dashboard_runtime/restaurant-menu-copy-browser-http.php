@@ -7,7 +7,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     $fixture=__DIR__;$artifact=$argv[3];$script=$fixture.'/restaurant-menu-copy-browser.cjs';$application=realpath($argv[1]);
     if(!preg_match('/^[a-f0-9]{40}$/D',$argv[4]??''))throw new RuntimeException('A frozen restaurant menu copy fixture SHA is required.');
     if(!is_dir($artifact)&&!mkdir($artifact,0700,true))throw new RuntimeException('Restaurant menu copy artifact directory unavailable.');
-    $fixtureFiles=['restaurant-menu-copy-browser-http.php','restaurant-menu-copy-browser.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
+    $fixtureFiles=['restaurant-menu-copy-browser-http.php','restaurant-menu-copy-browser.cjs','browser-sound.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
     $repository=dirname($fixture,2);$fixtureBindings=[];
     $verifyFixtures=function()use($fixtureFiles,$repository,$fixture,$argv,&$fixtureBindings){
         foreach($fixtureFiles as $file){

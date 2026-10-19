@@ -7,7 +7,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     $fixture=__DIR__;$artifact=$argv[3];$script=$fixture.'/restaurant-flags-browser.cjs';$application=realpath($argv[1]);
     if(!preg_match('/^[a-f0-9]{40}$/D',$argv[4]??''))throw new RuntimeException('A frozen restaurant flag fixture SHA is required.');
     if(!is_dir($artifact)&&!mkdir($artifact,0700,true))throw new RuntimeException('Restaurant flag artifact directory unavailable.');
-    $fixtureFiles=['restaurant-flags-browser-http.php','restaurant-flags-browser.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
+    $fixtureFiles=['restaurant-flags-browser-http.php','restaurant-flags-browser.cjs','browser-sound.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
     $repository=dirname($fixture,2);$fixtureBindings=[];
     $verifyFixtures=function()use($fixtureFiles,$repository,$fixture,$argv,&$fixtureBindings){
         foreach($fixtureFiles as $file){

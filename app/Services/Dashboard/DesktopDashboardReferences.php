@@ -27,8 +27,9 @@ class DesktopDashboardReferences
         'branch-shifts.close'=>['shift'=>'closing.id'],
         'phone-orders.finish-batch'=>['delivery_batch'=>'batch.id'],
     ];
-    public function outputs(string $route,array $result,array $values=[],int $actor=0): array
+    public function outputs(string $route,array $result,array $values=[],int $actor=0,array $facts=[]): array
     {
+        if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->outputs($route,$result);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->outputs($result);
         if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->outputs($result);
         if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->outputs($result);
@@ -58,11 +59,11 @@ class DesktopDashboardReferences
             $id=DB::table('branch_expense_commands')->where('branch',$values['branch'])->where('actor_id',$actor)->where('request_key',$values['idempotency_key'])->value('id');
             if($id)$outputs['expense_command']=(int)$id;
         }
-        return $outputs;
+        return $outputs+(DesktopDashboardCustomerFacts::handles($route)?app(DesktopDashboardCustomerFacts::class)->outputs(['values'=>$values,'facts'=>$facts]):[]);
     }
     public function capture(string $device,string $command,string $route,array $result,array $payload,int $actor): array
     {
-        $outputs=DesktopDashboardMenuAvailability::handles($route)?(isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):[]):$this->outputs($route,$result,$payload['values']??[],$actor);
+        $outputs=DesktopDashboardMenuAvailability::handles($route)?(isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):[]):$this->outputs($route,$result,$payload['values']??[],$actor,$payload['facts']??[]);
         foreach($outputs as $entity=>$id)DB::table('desktop_dashboard_entities')->insertOrIgnore([
             'device_id'=>$device,'entity'=>$entity,'local_id'=>$id,'command_id'=>$command,'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
         ]);
@@ -75,11 +76,14 @@ class DesktopDashboardReferences
             if(!is_numeric($id)||(int)$id<1)return $id;
             $row=DB::table('desktop_dashboard_entities')->where('device_id',$device)
                 ->where(fn($q)=>$q->where('entity',$entity)->orWhere('entity','like',$entity.'.%'))
+                ->where('command_id','!=',$currentCommand)
                 ->where('local_id',(int)$id)->first();
             if(!$row||$row->command_id===$currentCommand)return $id;
             $dependencies[$row->command_id]=true;
             return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
         };
+        if(DesktopDashboardCustomerFacts::handles($route))$payload=app(DesktopDashboardCustomerFacts::class)->inputs($payload,$reference);
+        if(DesktopDashboardCustomerDirectory::handles($route))return ['payload'=>app(DesktopDashboardCustomerDirectory::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantFlags::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantFlags::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProducts::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProducts::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantProductCrud::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProductCrud::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
@@ -97,6 +101,7 @@ class DesktopDashboardReferences
                 $source=DB::table('branch_employee_entries')->where('id',$value)->value('source_key');
                 if($source&&str_starts_with($source,'attendance.'))$entity='employee_entry_'.substr($source,strlen('attendance.'));
             }
+            if($field==='stock_item_id'&&$route==='branch-stock.minimum-save'&&($payload['values']['stock_type']??null)==='product')$entity='menu_restaurant_product';
             if($field==='id'&&$route==='dining.table-save')$entity='table';
             if($field==='batch_id'&&$route==='phone-orders.finish-batch')$entity='delivery_batch';
             if($entity && !is_array($value))$payload['values'][$field]=$reference($entity,$value);
@@ -127,6 +132,13 @@ class DesktopDashboardReferences
     {
         $walk=function($value)use(&$walk,$device){
             if(!is_array($value))return $value;
+            if(array_key_exists('$desktop_crm_evidence',$value)){
+                $evidence=$value['$desktop_crm_evidence'];$prefix=$evidence['prefix']??null;
+                abort_unless(count($value)===1&&is_array($evidence)&&count($evidence)===2
+                    &&in_array($prefix,['pos-checkout:','pos-ticket:phone:','pos-ticket:dine:'],true)
+                    &&($evidence['reference']['$desktop_ref']['entity']??null)===($prefix==='pos-checkout:'?'receipt':'ticket'),422,'مرجع دليل موافقة العميل غير صالح.');
+                $id=$walk($evidence['reference']);abort_unless(is_int($id)&&$id>0,422);return $prefix.$id;
+            }
             if(array_key_exists('$desktop_category_key',$value)){
                 abort_unless(count($value)===1&&is_array($value['$desktop_category_key'])
                     &&($value['$desktop_category_key']['$desktop_ref']['entity']??null)==='expense_category',422,'مرجع تصنيف المصروف غير صالح.');

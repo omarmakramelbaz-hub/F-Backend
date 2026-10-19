@@ -79,6 +79,9 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
+        User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
+        \App\Models\UserAddress::observe(\App\Observers\CustomerDirectoryAddressObserver::class);
+        Order::observe(\App\Observers\CustomerDirectoryOrderObserver::class);
         Order::observe(OrderCompetitionObserver::class);
         Order::observe(OrderMetaConversionObserver::class);
         Order::observe(OrderBoardClockObserver::class);

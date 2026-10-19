@@ -81,7 +81,8 @@ class HomeController extends Controller
     }
 
     public function loginPage(GeneralSettings $settings){
-        return view('admin.login', compact('settings'));
+        return response()->view('admin.login', compact('settings'))
+            ->header('Cache-Control', 'private, no-store, max-age=0');
     }
 
     public function signin(Request $request){
@@ -89,6 +90,7 @@ class HomeController extends Controller
         $request->validate([
             'email' => 'required',
             'password' => 'required',
+            'remember' => 'nullable|boolean',
         ]);
    
    
@@ -116,7 +118,8 @@ class HomeController extends Controller
     // Check if user exists and account type is valid
     if ($user && in_array($user->account_type, ['admin', 'vendor','resturant_owner'])) {
         // dd($user->mobile,$password,Hash::check($password, $user->password));
-        if (Auth::guard('admin')->attempt(['mobile' => $user->mobile ,'password'=> $password, 'account_type' => $user->account_type])) {
+        if (Auth::guard('admin')->attempt(['mobile' => $user->mobile ,'password'=> $password, 'account_type' => $user->account_type], $request->boolean('remember'))) {
+            $request->session()->regenerate();
             session()->forget('id_user');
 
             // dd(auth('admin')->user()->id);
@@ -136,7 +139,8 @@ class HomeController extends Controller
         }
     }
         
-        return redirect()->back()->with('error',trans('main.invalid data'));
+        return redirect()->back()->withInput($request->only('email', 'remember'))
+            ->with('error',trans('main.invalid data'));
     }
 
     public function adminLogout()

@@ -11,14 +11,17 @@
     var products = new Map(), cart = [], category = '', catalogPage = 1, pagination = {};
     var policy = {}, permissions = {}, quote = null, quoteGeneration = 0, catalogGeneration = 0;
     var catalogController, quoteController, searchTimer, quoteTimer;
-    var quantityMode = 'piece', quantityInput = '1', replaceQuantity = true;
+    var quantityMode = 'weight', quantityInput = '1', replaceQuantity = true;
     var paymentMethod = 'cash', loaded = false, disposed = false, selling = false, uncertain = false, sold = false, quarantined = false;
     var saleKey = uuid(), frozenPayload = null, lastReceipt = null, lastQuotedTotal = null, register = null, modalFocus, modalController, modalGeneration = 0, registerLocked = false;
-    var listeners = [], navigationGuardRegistered = false;
+    var listeners = [], navigationGuardRegistered = false, printingSales = new Map();
     var message = root.querySelector('[data-pos-message]');
     var modal = root.querySelector('[data-pos-modal]');
     var finish = root.querySelector('[data-pos-finish]');
     var cashInput = root.querySelector('[data-pos-cash-received]');
+    var customerPhone = root.querySelector('[data-pos-customer-phone]'), customerName = root.querySelector('[data-pos-customer-name]');
+    var customerConsent = root.querySelector('[data-pos-customer-consent]'), serviceConsent = false, marketingConsent = false;
+    var consentEnterAffirmed = false, enterKeyDown = false, composing = false;
     var discountInput = root.querySelector('[data-pos-discount]');
     var confirmedInput = root.querySelector('[data-pos-payment-confirmed]');
     var activeInvoice = 0;
@@ -30,14 +33,14 @@
     function newInvoice(selectedBranch) {
         var selected = (boot.branches || []).find(function (item) { return String(item.value || item.id) === selectedBranch; });
         return { branch: selectedBranch, branchName: selected && selected.name || selectedBranch, quarantined: false, cart: [], quote: null, saleKey: uuid(), frozenPayload: null, uncertain: false, sold: false, lastReceipt: null, lastQuotedTotal: null,
-            discount: '0.00', discountReason: '', notes: '', cash: '', reference: '', confirmed: false, paymentMethod: 'cash',
-            quantityMode: 'piece', quantityInput: '1', replaceQuantity: true, category: '', search: '', catalogPage: 1,
+            customerPhone: '', customerName: '', serviceConsent: false, marketingConsent: false, discount: '0.00', discountReason: '', notes: '', cash: '', reference: '', confirmed: false, paymentMethod: 'cash',
+            quantityMode: 'weight', quantityInput: '1', replaceQuantity: true, category: '', search: '', catalogPage: 1,
             policy: {}, permissions: boot.permissions || {}, products: [], categories: [], pagination: {}, register: null, today: null };
     }
     function captureInvoice() {
         return { branch: branch, branchName: branchSelect.selectedOptions[0] && branchSelect.selectedOptions[0].textContent || invoices[activeInvoice].branchName, quarantined: quarantined,
             cart: cart, quote: quote, saleKey: saleKey, frozenPayload: frozenPayload, uncertain: uncertain, sold: sold, lastReceipt: lastReceipt, lastQuotedTotal: lastQuotedTotal,
-            discount: discountInput.value, discountReason: root.querySelector('[data-pos-discount-reason]').value, notes: root.querySelector('[data-pos-notes]').value,
+            customerPhone: customerPhone.value, customerName: customerName.value, serviceConsent: serviceConsent, marketingConsent: marketingConsent, discount: discountInput.value, discountReason: root.querySelector('[data-pos-discount-reason]').value, notes: root.querySelector('[data-pos-notes]').value,
             cash: cashInput.value, reference: root.querySelector('[data-pos-payment-reference]').value, confirmed: confirmedInput.checked, paymentMethod: paymentMethod,
             quantityMode: quantityMode, quantityInput: quantityInput, replaceQuantity: replaceQuantity, category: category,
             search: root.querySelector('[data-pos-search]').value, catalogPage: catalogPage, policy: policy, permissions: permissions,
@@ -78,8 +81,9 @@
                     || ['cash', 'card', 'mobile_wallet', 'other'].indexOf(value.paymentMethod) < 0
                     || ['discount', 'discountReason', 'notes', 'cash', 'reference', 'category', 'search'].some(function (key) { return typeof value[key] !== 'string'; })) throw new Error('Invalid draft fields');
                 if (value.uncertain || value.frozenPayload) throw new Error('Invalid pending sale');
-                if (!fresh && !value.uncertain) return newInvoice(value.branch);
-                return Object.assign(newInvoice(value.branch), value, { quarantined: false, paymentMethod: 'cash', confirmed: false, reference: '', products: [], categories: [], register: null, today: null });
+                if (boot.can_view_all_branches && (value.sold || !invoiceIsDirty(value))) return newInvoice(String(boot.selected_branch || ''));
+                if (!fresh && !value.sold && !invoiceIsDirty(value)) return newInvoice(value.branch);
+                return Object.assign(newInvoice(value.branch), value, { quarantined: false, paymentMethod: 'cash', confirmed: false, serviceConsent: false, marketingConsent: false, reference: '', products: [], categories: [], register: null, today: null });
                 } catch (_) { return newInvoice(String(boot.selected_branch || '')); }
             });
             invoices = restored; activeInvoice = Number.isInteger(savedState.active) && savedState.active >= 0 && savedState.active < 5 ? savedState.active : 0; return true;
@@ -107,8 +111,9 @@
         invoice.cart = validStoredCart(value.cart) && value.cart.length ? value.cart : payload.items.map(function (item) {
             var snapshot = invoice.quote && invoice.quote.items.find(function (line) { return Number(line.product_id) === Number(item.product_id) && String(line.option_id || '') === String(item.option_id || '') && line.quantity_mode === item.quantity_mode; }) || {};
             return { product: { id: item.product_id, name: snapshot.name || label('item') + ' #' + item.product_id, unit_price: snapshot.unit_price, available: false },
-                option: item.option_id ? { id: item.option_id, label: snapshot.option_label || '', price: snapshot.unit_price } : null, mode: item.quantity_mode, quantity: item.quantity };
+                option: item.option_id || snapshot.option_label ? { id: item.option_id || '', label: snapshot.option_label || '', price: snapshot.unit_price } : null, mode: item.quantity_mode, quantity: item.quantity };
         });
+        invoice.customerPhone = String(payload.customer_phone || ''); invoice.customerName = String(payload.customer_name || ''); invoice.serviceConsent = !!payload.service_consent; invoice.marketingConsent = !!payload.marketing_consent;
         invoice.paymentMethod = payload.payment_method; invoice.confirmed = !!payload.payment_confirmed;
         invoice.discount = String(payload.discount || '0.00'); invoice.discountReason = String(payload.discount_reason || ''); invoice.notes = String(payload.notes || '');
         invoice.cash = String(payload.cash_received || ''); invoice.reference = String(payload.payment_reference || '');
@@ -132,7 +137,7 @@
     function switchInvoice(index, restoring) {
         if (!Number.isInteger(index) || index < 0 || index >= invoices.length || index === activeInvoice && !restoring) return;
         if (selling || registerLocked) { notify(label('sale_locked'), false, uncertain); return; }
-        if (!restoring) storeInvoice(); catalogGeneration++; quoteGeneration++; modalGeneration++;
+        if (!restoring) storeInvoice(); consentEnterAffirmed = false; catalogGeneration++; quoteGeneration++; modalGeneration++;
         if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort();
         clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true;
         activeInvoice = index; var invoice = invoices[index];
@@ -144,6 +149,7 @@
         uncertain = invoice.uncertain; sold = invoice.sold; lastReceipt = invoice.lastReceipt; lastQuotedTotal = invoice.lastQuotedTotal || invoice.quote && invoice.quote.total || null; selling = false;
         paymentMethod = invoice.paymentMethod; quantityMode = invoice.quantityMode; quantityInput = invoice.quantityInput; replaceQuantity = invoice.replaceQuantity;
         category = invoice.category; catalogPage = invoice.catalogPage; policy = invoice.policy; permissions = invoice.permissions; register = invoice.register; pagination = invoice.pagination; loaded = false;
+        customerPhone.value = invoice.customerPhone || ''; customerName.value = invoice.customerName || ''; serviceConsent = !!invoice.serviceConsent; marketingConsent = !!invoice.marketingConsent; showConsent();
         discountInput.value = invoice.discount; root.querySelector('[data-pos-discount-reason]').value = invoice.discountReason;
         root.querySelector('[data-pos-notes]').value = invoice.notes; cashInput.value = invoice.cash; root.querySelector('[data-pos-payment-reference]').value = invoice.reference;
         confirmedInput.checked = invoice.confirmed; root.querySelector('[data-pos-search]').value = invoice.search;
@@ -158,10 +164,83 @@
         else if (!branch) { root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = label('choose_branch_first'); }
         if (restoring && uncertain && !quarantined) { selling = true; lock(); recoverSale().then(function (recovered) { if (!recovered && !disposed) notify(label('uncertain_sale'), false, true); }).finally(function () { if (!disposed) { selling = false; lock(); } }); }
     }
-    function invoiceIsDirty(invoice) { return invoice.cart.length > 0 || !!invoice.notes.trim() || !!invoice.cash.trim() || !!invoice.reference.trim() || minor(invoice.discount) > 0n; }
+    function invoiceIsDirty(invoice) { return invoice.cart.length > 0 || !!(invoice.customerPhone || '').trim() || !!(invoice.customerName || '').trim() || !!invoice.notes.trim() || !!invoice.cash.trim() || !!invoice.reference.trim() || minor(invoice.discount) > 0n; }
     function hasOpenInvoices() { storeInvoice(); return invoices.some(function (invoice) { return !invoice.sold && invoiceIsDirty(invoice); }); }
     function hasUncertainInvoices() { storeInvoice(); return invoices.some(function (invoice) { return invoice.uncertain; }); }
 
+    function normalizedCustomerPhone(value) {
+        var phone = String(value || '').trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[۰-۹]/g, function (d) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); });
+        if (!phone || /[^+0-9\s().\-]/u.test(phone)) return null;
+        phone = phone.replace(/[\s().\-]+/g, ''); if (phone.indexOf('00') === 0) phone = '+' + phone.slice(2);
+        if (/^01[0125][0-9]{8}$/.test(phone)) phone = '+20' + phone.slice(1);
+        else if (/^1[0125][0-9]{8}$/.test(phone)) phone = '+20' + phone;
+        else if (/^0[2-9][0-9]{7,8}$/.test(phone)) phone = '+20' + phone.slice(1);
+        else if (/^[1-9][0-9]{7,14}$/.test(phone)) phone = '+' + phone;
+        if (!/^\+[1-9][0-9]{7,14}$/.test(phone) || phone.indexOf('+20') === 0 && !/^\+20(?:1[0125][0-9]{8}|[2-9][0-9]{7,8})$/.test(phone)) return null;
+        return phone;
+    }
+    function showConsent() {
+        customerConsent.checked = serviceConsent;
+        customerConsent.indeterminate = false;
+    }
+    function checkoutEnter(event) {
+        if (event.key !== 'Enter') return false;
+        var target = event.target;
+        var nameField = target === customerName, phoneField = target === customerPhone, consentField = target === customerConsent, cashField = target === cashInput, finishField = target === finish, newField = target === root.querySelector('[data-pos-new]');
+        var editable = target.matches('input,textarea,select,[contenteditable]');
+        var productButton = !!target.closest('[data-pos-product],[data-pos-options]');
+        var keypad = !!target.closest('.tp-weight');
+        var catalogSurface = !!target.closest('.tp-catalog') && !target.closest('button,a,input,textarea,select,[contenteditable]');
+        var start = target === document.body || target === root || productButton || !editable && (keypad || catalogSurface);
+        var nextInvoice = sold && (newField || start);
+        if (!nameField && !phoneField && !consentField && !cashField && !finishField && !newField && !start) return false;
+        if (!cart.length && !keypad && !productButton && !cashField && !finishField && !newField) return false;
+
+        var held = event.repeat || enterKeyDown;
+        if (composing || event.isComposing || event.keyCode === 229) {
+            // Let a text input commit its IME candidate without advancing checkout.
+            if (!editable || consentField) event.preventDefault();
+            return true;
+        }
+        // An enabled retry button may resume its frozen sale while the rest of the invoice stays locked.
+        var enterLocked = nextInvoice ? selling || uncertain || registerLocked || printingSales.has(saleKey)
+            : finishField ? finish.disabled || finish.hidden || registerLocked || selling || sold || quarantined : isLocked();
+        if (held || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || enterLocked || !permissions.can_checkout) {
+            event.preventDefault(); return true;
+        }
+        enterKeyDown = true;
+        if (!cart.length && productButton) return false;
+        event.preventDefault();
+        if (nextInvoice) { root.querySelector('[data-pos-new]').click(); if (!sold) root.querySelector('[data-pos-key="7"]').focus(); return true; }
+        if (!cart.length && keypad) { key('confirm'); return true; }
+        if (cashField) {
+            if (!cart.length || !loaded || !quote || minor(quote.total) === null || finish.disabled || finish.hidden) {
+                notify(label('quote_required'), false, true); cashInput.focus(); return true;
+            }
+            var received = minor(cashInput.value), total = minor(quote.total);
+            if (received === null) { notify(label('invalid_money')); cashInput.focus(); return true; }
+            if (received < total) { notify(label('cash_insufficient')); cashInput.focus(); return true; }
+            if (['invalid_money', 'cash_insufficient', 'quote_required'].some(function (key) { return message.querySelector('span').textContent === label(key); })) notify('');
+            finish.focus(); return true;
+        }
+        if (finishField) { if (!finish.disabled && !finish.hidden) checkout(); return true; }
+        if (nameField) { consentEnterAffirmed = false; customerPhone.focus(); return true; }
+        if (phoneField) {
+            consentEnterAffirmed = false;
+            if (!normalizedCustomerPhone(customerPhone.value)) { notify(label('customer_phone_required')); customerPhone.focus(); return true; }
+            if (message.querySelector('span').textContent === label('customer_phone_required')) notify('');
+            customerConsent.focus(); return true;
+        }
+        if (consentField) {
+            if (customerConsent.disabled) return true;
+            customerConsent.checked = true;
+            customerConsent.dispatchEvent(new Event('change', { bubbles: true }));
+            consentEnterAffirmed = false;
+            if (!finish.disabled && !finish.hidden) finish.focus();
+            return true;
+        }
+        consentEnterAffirmed = false; customerName.focus(); return true;
+    }
     function label(key) { return labels[key] || key; }
     function node(tag, className, text) {
         var element = document.createElement(tag);
@@ -237,9 +316,10 @@
     }
     function isLocked() { return selling || uncertain || sold || registerLocked || quarantined; }
     function lock() {
+        if (isLocked()) consentEnterAffirmed = false;
         root.classList.toggle('is-checkout-locked', isLocked()); root.classList.toggle('is-sold', sold);
-        root.querySelectorAll('[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-unit],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category]').forEach(function (control) {
-            control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options]') && !permissions.can_checkout;
+        root.querySelectorAll('[data-pos-customer-phone],[data-pos-customer-name],[data-pos-customer-consent],[data-pos-branch],[data-pos-search],[data-pos-notes],[data-pos-payment-reference],[data-pos-discount],[data-pos-discount-reason],[data-pos-cash-received],[data-pos-payment-confirmed],[data-pos-clear],[data-pos-key],[data-pos-weight-reset],[data-pos-payment],[data-pos-product],[data-pos-options],[data-pos-remove],[data-pos-category],[data-pos-line-quantity]').forEach(function (control) {
+            control.disabled = isLocked() || control.hasAttribute('data-unavailable') || control.matches('[data-pos-product],[data-pos-options],[data-pos-line-quantity]') && !permissions.can_checkout;
         });
         if (branchSelect.selectize) { if (isLocked()) branchSelect.selectize.disable(); else branchSelect.selectize.enable(); }
         finish.disabled = quarantined || registerLocked || selling || sold || !cart.length || !permissions.can_checkout || !uncertain && !quote;
@@ -256,22 +336,24 @@
             var count = root.querySelector('[data-pos-day-count]'); count.hidden = false; count.textContent = today.count;
         }
     }
-    function unitText(mode) { return label(mode === 'weight' ? 'kg' : 'piece'); }
+    function unitText(mode, product) {
+        return label(product && ['piece', 'weight'].indexOf(product.quantity_mode) < 0 ? 'automatic_unit' : mode === 'weight' ? 'kg' : 'piece');
+    }
     function showQuantity() {
         root.querySelector('[data-pos-quantity] bdi').textContent = quantityInput;
-        root.querySelector('[data-pos-quantity-title]').textContent = label(quantityMode === 'weight' ? 'current_weight' : 'current_quantity');
-        root.querySelector('[data-pos-quantity-unit]').textContent = unitText(quantityMode);
-        root.querySelector('[data-pos-confirm-label]').textContent = label(quantityMode === 'weight' ? 'confirm_weight' : 'confirm_quantity');
-        root.querySelectorAll('[data-pos-unit]').forEach(function (button) { button.setAttribute('aria-pressed', String(button.dataset.posUnit === quantityMode)); });
-        root.querySelector('[data-pos-key="."]').disabled = quantityMode === 'piece' || isLocked();
+        root.querySelector('[data-pos-quantity-title]').textContent = label('quantity_auto_title');
+        root.querySelector('[data-pos-quantity-unit]').textContent = label('automatic_unit');
+        root.querySelector('[data-pos-confirm-label]').textContent = label('confirm_amount');
+        root.querySelector('[data-pos-key="."]').disabled = isLocked();
         storeInvoice();
     }
     function key(value) {
         if (isLocked()) return;
-        if (value === 'confirm') { if (!quantity(quantityInput, quantityMode)) notify(label('invalid_quantity')); else { replaceQuantity = true; notify(label('confirmed'), true); } return; }
-        if (value === 'clear') quantityInput = quantityMode === 'piece' ? '1' : '0';
+        // The next product decides its own unit; the previous product must not block decimal entry.
+        if (value === 'confirm') { if (!quantity(quantityInput, 'weight')) notify(label('invalid_quantity')); else { replaceQuantity = true; storeInvoice(); notify(label('confirmed'), true); } return; }
+        if (value === 'clear') quantityInput = '0';
         else if (value === 'backspace') quantityInput = quantityInput.slice(0, -1) || '0';
-        else if (value === '.') { if (quantityMode !== 'weight') return; if (replaceQuantity) quantityInput = '0'; if (quantityInput.indexOf('.') === -1) quantityInput += '.'; }
+        else if (value === '.') { if (replaceQuantity) quantityInput = '0'; if (quantityInput.indexOf('.') === -1) quantityInput += '.'; }
         else {
             if (replaceQuantity || quantityInput === '0') quantityInput = value;
             else if (quantityInput.length < 10 && (quantityInput.indexOf('.') === -1 || quantityInput.split('.')[1].length < 3)) quantityInput += value;
@@ -292,9 +374,10 @@
             var snapshot = quote && quote.items && quote.items.find(function (item) { return Number(item.product_id) === Number(line.product.id) && String(item.option_id || '') === optionKey && item.quantity_mode === line.mode; }) || {};
             var row = node('tr'); var productCell = node('td'); var copy = node('div', 'tp-line-product');
             if (line.product.image_url) { var image = node('img'); image.src = line.product.image_url; image.alt = ''; image.addEventListener('error', function () { image.remove(); }, { once: true }); copy.appendChild(image); }
-            var title = node('span'); title.appendChild(node('span', 'tp-line-name', snapshot.name || line.product.name));
-            if (line.option) title.appendChild(node('small', 'tp-line-option', line.option.label)); copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
-            var amount = node('td'); amount.appendChild(node('bdi', 'tp-line-quantity', line.quantity)); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode))); row.appendChild(amount);
+            var title = node('span'), fullName = snapshot.name || line.product.name, nameNode = node('span', 'tp-line-name', fullName); nameNode.title = fullName; title.appendChild(nameNode);
+            var optionText = lineOptionLabel(line, snapshot);
+            if (optionText) { var optionNode = node('small', 'tp-line-option', optionText); optionNode.title = optionText; title.appendChild(optionNode); } copy.appendChild(title); productCell.appendChild(copy); row.appendChild(productCell);
+            var amount = node('td'); var count = node('input', 'tp-line-quantity-input'); count.type = 'text'; count.inputMode = line.mode === 'piece' ? 'numeric' : 'decimal'; count.maxLength = 10; count.value = line.quantity; count.dataset.posLineQuantity = String(index); count.setAttribute('aria-label', label('quantity') + ' ' + fullName); count.disabled = isLocked() || !permissions.can_checkout; amount.appendChild(count); amount.appendChild(node('small', 'tp-line-unit', unitText(line.mode, line.product))); row.appendChild(amount);
             var price = snapshot.unit_price || line.option && line.option.price || line.product.unit_price || line.product.price;
             var priceCell = node('td'); priceCell.appendChild(node('bdi', '', money(price))); row.appendChild(priceCell);
             var cents = minor(price), scaled = decimalInput(line.quantity, 3);
@@ -304,6 +387,16 @@
         });
         root.querySelector('[data-pos-empty-invoice]').hidden = cart.length > 0;
         renderInvoiceTabs();
+    }
+    function commitLineQuantity(input) {
+        if (!input || !root.contains(input) || !input.hasAttribute('data-pos-line-quantity')) return true;
+        var line = cart[Number(input.dataset.posLineQuantity)]; if (!line) return false;
+        if (isLocked() || !permissions.can_checkout) { input.value = line.quantity; return false; }
+        var amount = quantity(input.value, line.mode);
+        if (!amount) { input.value = line.quantity; notify(label('invalid_quantity')); return false; }
+        input.value = amount.value;
+        if (amount.value !== line.quantity) { line.quantity = amount.value; invalidateQuote(); renderLines(); }
+        return true;
     }
     function totals(value) {
         root.querySelectorAll('[data-pos-total]').forEach(function (element) { element.textContent = value && value[element.dataset.posTotal] !== undefined ? money(value[element.dataset.posTotal]) : '—'; });
@@ -316,7 +409,7 @@
         root.querySelector('[data-pos-change]').textContent = paymentMethod === 'cash' && received !== null && total !== null && received >= total ? label('change') + ': ' + money(decimal(received - total, 2)) : '';
     }
     function invalidateQuote() {
-        clearTimeout(quoteTimer); quoteGeneration++; if (quoteController) quoteController.abort(); quote = null; totals(null);
+        consentEnterAffirmed = false; clearTimeout(quoteTimer); quoteGeneration++; if (quoteController) quoteController.abort(); quote = null; totals(null);
         if (cart.length && loaded && !isLocked()) quoteTimer = setTimeout(requestQuote, 180);
     }
     async function requestQuote() {
@@ -334,16 +427,17 @@
     }
     function addProduct(product, option) {
         if (!product || isLocked() || !permissions.can_checkout || !product.available) return;
-        var mode = product.quantity_mode === 'piece' || product.quantity_mode === 'weight' ? product.quantity_mode : quantityMode;
-        var input = mode === quantityMode ? quantityInput : mode === 'piece' ? '1' : '1.000';
-        var amount = quantity(input, mode); if (!amount) { notify(label('invalid_quantity')); return; }
+        // Stock metadata is authoritative. Older untracked catalog items have no unit metadata:
+        // retain decimal amounts with weight mode and display a generic unit, without guessing from names.
+        var mode = product.quantity_mode === 'piece' ? 'piece' : 'weight';
+        var amount = quantity(quantityInput, mode); if (!amount) { notify(label('invalid_quantity')); return; }
         var optionKey = option && option.id !== undefined ? String(option.id) : '';
         var existing = cart.find(function (line) { return line.product.id === product.id && line.mode === mode && String(line.option && line.option.id || '') === optionKey; });
         if (existing) {
             var sum = decimalInput(existing.quantity, 3) + amount.scaled;
             var checked = quantity(decimal(sum, 3), mode); if (!checked) { notify(label('invalid_quantity')); return; } existing.quantity = checked.value;
         } else { if (cart.length >= 100) { notify(label('cart_limit')); return; } cart.push({ product: product, option: option || null, mode: mode, quantity: amount.value }); }
-        replaceQuantity = true; renderLines(); invalidateQuote(); notify(label('item_added') + ' · ' + product.name, true);
+        quantityMode = mode; replaceQuantity = true; showQuantity(); renderLines(); invalidateQuote(); notify(label('item_added') + ' · ' + product.name, true);
     }
     function productNode(product) {
         var card = node('article', 'tp-product-card');
@@ -354,12 +448,11 @@
         else { var placeholder = node('span', 'tp-product-image tp-product-no-image'); placeholder.appendChild(node('i', 'fas fa-fish')); button.appendChild(placeholder); }
         var copy = node('span', 'tp-product-copy'); copy.appendChild(node('strong', 'tp-product-name', product.name));
         var price = node('span', 'tp-product-price'); price.appendChild(node('bdi', '', money(product.unit_price || product.price))); price.appendChild(document.createTextNode(' ' + label('currency'))); copy.appendChild(price);
-        var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('flexible_unit'));
+        var unit = node('span', 'tp-product-unit', !product.available ? label('unavailable') : product.unit || label('automatic_unit'));
         if(product.stock){unit.textContent=(product.stock.label || 'الرصيد: '+product.stock.quantity+' '+product.stock.unit_label);unit.style.color=product.stock.negative||product.stock.quantity==='0'?'#b42318':product.stock.tracked===false?'#64748b':'#158346';}
         unit.classList.toggle('is-unavailable', !product.available); unit.classList.toggle('is-weight', product.quantity_mode === 'weight' || product.unit === 'kg'); copy.appendChild(unit);
-        if (product.options && product.options.length) copy.appendChild(node('small', 'tp-product-base', label('base_option')));
+        if (productChoices(product).length > 1) button.setAttribute('aria-haspopup', 'dialog');
         button.appendChild(copy); card.appendChild(button);
-        if (product.options && product.options.length) { var options = node('button', 'tp-product-options', label('product_options')); options.type = 'button'; options.dataset.posOptions = product.id; options.setAttribute('aria-label', label('product_options') + ' · ' + product.name); options.disabled = button.disabled; if (!product.available) options.dataset.unavailable = '1'; card.appendChild(options); }
         return card;
     }
     function renderPayments(methods) {
@@ -397,13 +490,15 @@
             pagination = result.pagination || {}; catalogPage = Number(pagination.page || 1); root.querySelector('[data-pos-pagination]').hidden = !pagination.last_page || pagination.last_page < 2; root.querySelector('[data-pos-page-label]').textContent = catalogPage + ' / ' + (pagination.last_page || 1); root.querySelector('[data-pos-page="previous"]').disabled = catalogPage <= 1; root.querySelector('[data-pos-page="next"]').disabled = catalogPage >= Number(pagination.last_page || 1);
             root.querySelector('[data-pos-catalog-message]').hidden = items.length > 0; root.querySelector('[data-pos-catalog-message]').textContent = label('no_products');
             invoices[activeInvoice].today = result.today || null; updateRegister(result.register, result.today); renderPayments(result.payment_methods || policy.payment_methods); totals(quote); lock(); if (!permissions.can_checkout) notify(label('access_required'));
+            if (cart.length) renderLines();
             if (cart.length && !quote) invalidateQuote();
         } catch (error) { if (disposed || generation !== catalogGeneration || error.name === 'AbortError') return; list.replaceChildren(); products.clear(); root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = error.message || label('load_error'); notify(error.message || label('load_error'), false, true); }
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
     function resetDraft() {
-        cart = []; quote = null; frozenPayload = null; uncertain = false; sold = false; saleKey = uuid(); lastReceipt = null; lastQuotedTotal = null; quoteGeneration++; if (quoteController) quoteController.abort(); clearTimeout(quoteTimer);
-        paymentMethod = 'cash'; quantityMode = 'piece'; quantityInput = '1'; replaceQuantity = true;
+        consentEnterAffirmed = false; cart = []; quote = null; frozenPayload = null; uncertain = false; sold = false; saleKey = uuid(); lastReceipt = null; lastQuotedTotal = null; quoteGeneration++; if (quoteController) quoteController.abort(); clearTimeout(quoteTimer);
+        paymentMethod = 'cash'; quantityMode = 'weight'; quantityInput = '1'; replaceQuantity = true;
+        customerPhone.value = ''; customerName.value = ''; serviceConsent = false; marketingConsent = false; showConsent();
         root.querySelector('[data-pos-notes]').value = ''; root.querySelector('[data-pos-payment-reference]').value = ''; discountInput.value = '0.00'; root.querySelector('[data-pos-discount-reason]').value = ''; root.querySelector('[data-pos-discount-reason-wrap]').hidden = true; cashInput.value = ''; confirmedInput.checked = false; root.querySelector('[data-pos-saved]').hidden = true; applyPayment(); renderLines(); totals(null); lock(); showQuantity();
     }
     function changeBranch() {
@@ -417,31 +512,44 @@
     async function printReceipt(url) {
         if (!url) return;
         var printingInvoice = activeInvoice, printingKey = saleKey;
+        printingSales.set(printingKey, (printingSales.get(printingKey) || 0) + 1);
         try { if (!window.DashboardPrint) throw new Error(label('print_error')); await window.DashboardPrint.print(endpoint(url)); }
-        catch (error) { if (printingInvoice === activeInvoice && printingKey === saleKey) notify(label('print_error'), false, false); }
+        catch (error) { if (printingInvoice === activeInvoice && printingKey === saleKey) notify(label(canReprint(lastReceipt) ? 'print_error' : 'initial_print_error'), false, false); }
+        finally {
+            var remainingPrints = (printingSales.get(printingKey) || 1) - 1;
+            if (remainingPrints) printingSales.set(printingKey, remainingPrints); else printingSales.delete(printingKey);
+            if (!remainingPrints && !disposed && printingInvoice === activeInvoice && printingKey === saleKey && sold && modal.hidden) root.querySelector('[data-pos-new]').focus();
+        }
+    }
+    function canReprint(receipt) {
+        return !!receipt && receipt.can_reprint !== false && permissions.can_reprint !== false
+            && (!boot.permissions || boot.permissions.can_reprint !== false);
     }
     function renderSaved() {
         var savedRow = root.querySelector('[data-pos-saved]'); savedRow.hidden = !sold;
         if (!sold || !lastReceipt) return;
         savedRow.querySelector('span').textContent = label('sale_saved') + (lastReceipt.number ? ' #' + lastReceipt.number : '') + ' · ' + label(lastReceipt.payment_method === 'mobile_wallet' ? 'wallet' : lastReceipt.payment_method) + (lastReceipt.payment_method === 'cash' ? ' · ' + label('change') + ': ' + money(lastReceipt.change) : '');
         root.querySelector('[data-pos-details]').hidden = !lastReceipt.details_url;
-        var link = root.querySelector('[data-pos-reprint]'); link.hidden = !lastReceipt.receipt_url; if (lastReceipt.receipt_url) link.href = endpoint(lastReceipt.receipt_url);
+        var link = root.querySelector('[data-pos-reprint]'); link.hidden = !canReprint(lastReceipt) || !lastReceipt.receipt_url;
+        if (!link.hidden) link.href = endpoint(lastReceipt.receipt_url); else link.removeAttribute('href');
     }
     function saved(result) {
         var receipt = result.receipt;
-        var candidate = result.receipt_url || receipt && receipt.receipt_url;
+        var candidate = result.first_print_url || result.receipt_url || receipt && receipt.receipt_url;
         var printable = candidate && new URL(endpoint(candidate));
         var receiptPath = printable && printable.pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
         if (!receipt || !Number.isSafeInteger(Number(receipt.id)) || Number(receipt.id) <= 0 || receipt.idempotency_key !== saleKey
             || !receipt.branch || receipt.branch.value !== branch || !Array.isArray(receipt.items) || !receipt.items.length
-            || receipt.status !== 'completed' || minor(receipt.total) === null || !receiptPath || Number(receiptPath[1]) !== Number(receipt.id)
+            || receipt.status !== 'completed' || minor(receipt.total) === null || candidate && (!receiptPath || Number(receiptPath[1]) !== Number(receipt.id))
             || frozenPayload && receipt.payment_method !== frozenPayload.payment_method
             || quote && minor(receipt.total) !== minor(quote.total)) throw new Error(label('uncertain_sale'));
-        var pendingPayload = frozenPayload, url = result.receipt_url || receipt.receipt_url;
+        var pendingPayload = frozenPayload, url = candidate;
         try {
             if (!result.register) register = null;
             selling = false; uncertain = false; sold = true; lastReceipt = receipt;
-            if (url) lastReceipt.receipt_url = url;
+            // The first-print capability is temporary and must never become a reprint link.
+            if (!canReprint(lastReceipt)) lastReceipt.receipt_url = null;
+            else if (result.receipt_url) lastReceipt.receipt_url = result.receipt_url;
             updateRegister(result.register, result.today); renderSaved(); notify(label('sale_saved'), true); lock();
             frozenPayload = null; storeInvoice();
         } catch (_) {
@@ -460,20 +568,23 @@
             var response = await fetch(endpoint(urls.daily, { branch: branch, idempotency_key: saleKey }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: recoveryController.signal }); var result = await read(response, 'daily_error');
             if (disposed || recoveryInvoice !== activeInvoice || recoveryKey !== saleKey) return false;
             var receipt = result.receipt || (result.items || result.receipts || []).find(function (item) { return item.idempotency_key === saleKey; });
-            if (!receipt) return false; saved({ receipt: receipt, receipt_url: receipt.receipt_url, register: result.register, today: result.today }); return true;
+            if (!receipt) return false; saved({ receipt: receipt, receipt_url: receipt.receipt_url, first_print_url: result.first_print_url, register: result.register, today: result.today }); return true;
         } catch (_) { return false; } finally { clearTimeout(recoveryTimeout); }
     }
     async function checkout() {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked || selling || sold || !cart.length || !permissions.can_checkout) return;
+        if (!uncertain && !commitLineQuantity(document.activeElement)) return;
         var previouslyUncertain = uncertain;
         if (!uncertain) {
             if (!quote) { notify(label('quote_required'), false, true); return; }
+            var phone = normalizedCustomerPhone(customerPhone.value); if (!phone) { notify(label('customer_phone_required')); customerPhone.focus(); return; }
+            if (!serviceConsent || !customerConsent.checked) { notify(label('consent_required')); customerConsent.focus(); return; }
             if (paymentMethod === 'cash') { var received = minor(cashInput.value), total = minor(quote.total); if (received === null) { notify(label('invalid_money')); cashInput.focus(); return; } if (received < total) { notify(label('cash_insufficient')); cashInput.focus(); return; } }
             else if (!confirmedInput.checked) { notify(label('confirm_payment')); confirmedInput.focus(); return; }
             frozenPayload = Object.assign(draft(), { quote_hash: quote.quote_hash, idempotency_key: saleKey, payment_method: paymentMethod,
                 cash_received: paymentMethod === 'cash' ? decimal(minor(cashInput.value), 2) : null, payment_confirmed: paymentMethod === 'cash' ? false : true,
-                payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
+                customer_phone: phone, customer_name: customerName.value.trim(), service_consent: true, marketing_consent: false, payment_reference: root.querySelector('[data-pos-payment-reference]').value.trim(), notes: root.querySelector('[data-pos-notes]').value.trim() });
         }
         selling = true; lock(); notify(label('saving'));
         if (uncertain && await recoverSale()) return;
@@ -481,7 +592,7 @@
         var timeout, writeController = new AbortController(); timeout = setTimeout(function () { writeController.abort(); }, 25000);
         try {
             var response = await post(urls.checkout, frozenPayload, writeController.signal); var result = await read(response, 'sale_error'); if (disposed) return;
-            if (!result.receipt || !result.receipt_url) { uncertain = true; throw new Error(label('uncertain_sale')); }
+            if (!result.receipt) { uncertain = true; throw new Error(label('uncertain_sale')); }
             saved(result);
         } catch (error) {
             if (disposed) return;
@@ -490,37 +601,60 @@
         } finally { clearTimeout(timeout); selling = false; lock(); }
     }
     function openModal(title) {
-        modalGeneration++; if (modalController) modalController.abort();
+        consentEnterAffirmed = false; modalGeneration++; if (modalController) modalController.abort();
         if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title; var content = root.querySelector('[data-pos-modal-content]'); content.replaceChildren(node('p', 'tp-empty', label('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
     function closeModal(confirmedWrite) { if (registerLocked && confirmedWrite !== true) { notify(label('sale_locked')); return; } modalGeneration++; modal.hidden = true; if (modalController) modalController.abort(); if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
+    function productChoices(product) {
+        // Fasakhansta exposes full-unit preparation prices separately from portion features.
+        if (Array.isArray(product.preparation_options)) return product.preparation_options;
+        return [{ id: '', label: label('choose_base'), price: product.unit_price || product.price }].concat(product.options || []);
+    }
+    function lineOptionLabel(line, snapshot) {
+        if (snapshot.option_label) return snapshot.option_label;
+        if (line.option && line.option.label) return line.option.label;
+        if (line.option && line.option.id) return '';
+        var product = products.get(String(line.product.id)) || line.product, choices = product.preparation_options;
+        // Existing base drafts keep their identity; only a configured preparation
+        // product can supply a missing whole label in the current invoice view.
+        var whole = Array.isArray(choices) && choices.length > 1 && choices.find(function (option) { return option.id === ''; });
+        return whole ? whole.label : '';
+    }
     function chooseProduct(product) {
-        if (!product || isLocked()) return;
-        if (!product.options || !product.options.length) { addProduct(product); return; }
-        var content = openModal(label('choose_option') + ' · ' + product.name); content.replaceChildren(); var list = node('div', 'tp-option-list');
-        [{ id: '', label: label('choose_base'), price: product.unit_price || product.price }].concat(product.options).forEach(function (option) {
-            var button = node('button'); button.type = 'button'; button.appendChild(node('span', '', option.label)); button.appendChild(node('bdi', '', money(option.price))); button.addEventListener('click', function () { closeModal(); addProduct(product, option.id === '' ? null : option); }); list.appendChild(button);
-        }); content.appendChild(list);
+        if (!product || isLocked() || !product.available || !permissions.can_checkout) return;
+        var choices = productChoices(product);
+        if (choices.length <= 1) { addProduct(product); return; }
+        var content = openModal(label('choose_option') + ' · ' + product.name), generation = modalGeneration, selected = false;
+        content.replaceChildren(); var list = node('div', 'tp-option-list');
+        choices.forEach(function (option) {
+            var button = node('button'); button.type = 'button';
+            button.appendChild(node('span', '', option.label));
+            button.appendChild(node('bdi', '', money(option.price) + ' ' + label('currency')));
+            button.addEventListener('click', function () {
+                if (selected || modal.hidden || generation !== modalGeneration || isLocked()) return;
+                selected = true; closeModal(); addProduct(product, option.id || Array.isArray(product.preparation_options) ? option : null);
+            }); list.appendChild(button);
+        }); content.appendChild(list); list.firstElementChild.focus();
     }
     function receiptTable(items, content) {
-        var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
-        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(endpoint(item.details_url)); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
+        var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'branch', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
+        items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', item.branch && item.branch.name || '—')); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (canReprint(item) && item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(endpoint(item.details_url)); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
     }
     async function daily(page) {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked) { notify(label('sale_locked')); return; }
-        if (!branch) { notify(label('choose_branch_first')); return; } var content = openModal(label('daily_invoices')), generation = modalGeneration; modalController = new AbortController();
-        try { var response = await fetch(endpoint(urls.daily, { branch: branch, page: page || 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'daily_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); var items = result.items || result.receipts || []; if (!items.length) content.appendChild(node('p', 'tp-empty', label('daily_empty'))); else receiptTable(items, content); var pages = result.pagination || {}; if (pages.last_page > 1) { var controls = node('nav', 'tp-pagination'); ['previous', 'next'].forEach(function (direction) { var button = node('button', '', label(direction)); button.type = 'button'; button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page; button.addEventListener('click', function () { daily(pages.page + (direction === 'next' ? 1 : -1)); }); controls.appendChild(button); }); content.appendChild(controls); } updateRegister(result.register, result.today); }
+        if (!branch && !boot.can_view_all_branches) { notify(label('choose_branch_first')); return; } var content = openModal(label('daily_invoices')), generation = modalGeneration; modalController = new AbortController();
+        try { var response = await fetch(endpoint(urls.daily, { branch: branch || 'all', page: page || 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'daily_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); var items = result.items || result.receipts || []; if (!items.length) content.appendChild(node('p', 'tp-empty', label('daily_empty'))); else receiptTable(items, content); var pages = result.pagination || {}; if (pages.last_page > 1) { var controls = node('nav', 'tp-pagination'); ['previous', 'next'].forEach(function (direction) { var button = node('button', '', label(direction)); button.type = 'button'; button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page; button.addEventListener('click', function () { daily(pages.page + (direction === 'next' ? 1 : -1)); }); controls.appendChild(button); }); content.appendChild(controls); } updateRegister(result.register, result.today); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('daily_error'))); }
     }
-    async function till() {
+    function till() {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked) { notify(label('sale_locked')); return; }
-        if (!branch) { notify(label('choose_branch_first')); return; } var content = openModal(label('cash_register')), generation = modalGeneration; modalController = new AbortController();
-        try { var response = await fetch(endpoint(urls.register || urls.tills, { branch: branch }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'register_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); updateRegister(result.register || result, result.today); var summary = node('div', 'tp-modal-summary'); summary.appendChild(node('span', '', label('register_balance'))); summary.appendChild(node('strong', '', register&&register.balance!==undefined?money(register.balance)+' '+label('currency'):'يظهر في ورقة تقفيل الوردية فقط'));  content.appendChild(summary);
-            var rows = result.entries || result.movements || result.items || []; if (rows.length) { var table = node('table'), body = node('tbody'); rows.forEach(function (entry) { var row = node('tr'); row.appendChild(node('td', '', entry.created_label || entry.created_at)); row.appendChild(node('td', '', entry.note || entry.reason || label({ cash_sale: 'cash_sales', expense: 'entry_expense', expense_refund: 'entry_expense_refund', cash_in: 'cash_in', cash_out: 'cash_out', tax_setting: 'till_settings' }[entry.kind] || 'cash_movements'))); row.appendChild(node('td', '', money(entry.amount))); body.appendChild(row); }); table.appendChild(body); content.appendChild(table); } else content.appendChild(node('p', 'tp-empty', label('register_readonly')));
-            if ((result.permissions || permissions).can_manage && !selling && !uncertain && !registerLocked) registerForms(content);
-        } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('register_error'))); }
+        if (!branch) { notify(label('choose_branch_first')); return; }
+        var content = openModal(label('cash_register'));
+        var notice = node('p', 'tp-modal-summary');
+        notice.appendChild(node('strong', '', label('register_print_only')));
+        content.replaceChildren(notice);
     }
     function inputLabel(name, input) { var wrapper = node('label'); wrapper.appendChild(node('span', '', label(name))); wrapper.appendChild(input); return wrapper; }
     function registerForms(content) {
@@ -582,10 +716,9 @@
         if (button.hasAttribute('data-pos-retry')) { if (uncertain) return checkout(); if (branch) return quote === null && cart.length && loaded ? requestQuote() : loadCatalog(catalogPage); }
         if (isLocked()) return;
         if (button.dataset.posKey !== undefined) return key(button.dataset.posKey);
-        if (button.dataset.posUnit) { quantityMode = button.dataset.posUnit; quantityInput = quantityMode === 'piece' ? '1' : '0'; replaceQuantity = true; showQuantity(); return; }
-        if (button.hasAttribute('data-pos-weight-reset')) { quantityInput = quantityMode === 'piece' ? '1' : '0'; replaceQuantity = true; showQuantity(); return; }
+        if (button.hasAttribute('data-pos-weight-reset')) { quantityInput = '0'; replaceQuantity = true; showQuantity(); return; }
         if (button.dataset.posPayment) return setPayment(button.dataset.posPayment);
-        if (button.dataset.posProduct) return addProduct(products.get(button.dataset.posProduct));
+        if (button.dataset.posProduct) return chooseProduct(products.get(button.dataset.posProduct));
         if (button.dataset.posOptions) return chooseProduct(products.get(button.dataset.posOptions));
         if (button.dataset.posRemove !== undefined) { cart.splice(Number(button.dataset.posRemove), 1); renderLines(); invalidateQuote(); return; }
         if (button.hasAttribute('data-pos-clear')) { if (!cart.length || window.confirm(label('confirm_clear'))) { resetDraft(); notify(''); } return; }
@@ -593,28 +726,56 @@
         if (button.dataset.posPage) return loadCatalog(catalogPage + (button.dataset.posPage === 'next' ? 1 : -1));
     });
     listen(branchSelect, 'change', changeBranch);
-    listen(root, 'input', function (event) { if (event.target.matches('input,textarea,select')) renderInvoiceTabs(); });
-    listen(root, 'change', function (event) { if (event.target.matches('input,textarea,select')) renderInvoiceTabs(); });
+    listen(root, 'input', function (event) {
+        if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
+        // Approval belongs to the phone the cashier asked; editing it needs a new affirmative choice.
+        if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
+        if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
+    });
+    listen(root, 'change', function (event) {
+        if (event.target.hasAttribute('data-pos-line-quantity')) { commitLineQuantity(event.target); return; }
+        if (event.target === customerName || event.target === customerPhone || event.target === customerConsent) consentEnterAffirmed = false;
+        if (event.target === customerPhone && !isLocked()) { serviceConsent = marketingConsent = false; showConsent(); }
+        if (event.target === customerConsent) {
+            if (isLocked()) { showConsent(); return; }
+            // Service follow-up is required; this control never grants promotional approval.
+            serviceConsent = customerConsent.checked; marketingConsent = false; showConsent();
+            if (serviceConsent && message.querySelector('span').textContent === label('consent_required')) notify('');
+        }
+        if (event.target.matches('input,textarea,select')) renderInvoiceTabs();
+    });
+    listen(customerConsent, 'blur', function () { consentEnterAffirmed = false; });
     if (window.jQuery) window.jQuery(branchSelect).on('change.takeawayPos', changeBranch);
     listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
     listen(root.querySelector('[data-pos-details]'), 'click', function () { if (lastReceipt && lastReceipt.details_url) window.DashboardInvoiceDetails.open(endpoint(lastReceipt.details_url)); });
-    listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); printReceipt(event.currentTarget.href); });
+    listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); if (canReprint(lastReceipt) && lastReceipt.receipt_url) printReceipt(event.currentTarget.href); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
     listen(document, 'keydown', function (event) {
         if (disposed) return; if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; }
         if (!modal.hidden) { if (event.key === 'Tab') { var controls = modal.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled)'); if (controls.length) { var first = controls[0], last = controls[controls.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } } return; }
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.repeat && !composing && !event.isComposing && event.keyCode !== 229
+            && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+            && !event.target.closest('input,textarea,select,[contenteditable],[role="textbox"]')
+            && (event.target === document.body || event.target === document.documentElement || event.target === root || !!event.target.closest('.tp-catalog,.tp-weight'))) {
+            event.preventDefault(); if (!isLocked() && permissions.can_checkout) key('clear'); return;
+        }
+        if (event.key === 'Enter' && event.target.hasAttribute('data-pos-line-quantity')) { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) commitLineQuantity(event.target); return; }
         if (event.key === 'F9') { event.preventDefault(); checkout(); return; }
+        if (checkoutEnter(event)) return;
         if (event.target.matches('input,textarea,select,[contenteditable]')) return;
         if (/^[0-9.]$/.test(event.key)) { event.preventDefault(); key(event.key); }
         else if (event.key === 'Backspace') { event.preventDefault(); key('backspace'); }
-        else if (event.key === 'Enter' && root.querySelector('.tp-weight').contains(event.target)) { event.preventDefault(); key('confirm'); }
     });
+    listen(document, 'keyup', function (event) { if (event.key === 'Enter') enterKeyDown = false; });
+    listen(document, 'compositionstart', function () { composing = true; consentEnterAffirmed = false; });
+    listen(document, 'compositionend', function () { composing = false; });
+    listen(window, 'blur', function () { enterKeyDown = false; consentEnterAffirmed = false; composing = false; });
     listen(window, 'beforeunload', function (event) { if (registerLocked || selling || hasUncertainInvoices() || hasOpenInvoices()) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; clearTimeout(searchTimer); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
-    var restored = restoreInvoices(); storageReady = true;
+    var restored = restoreInvoices(); storageReady = true; showConsent();
     if (restored) switchInvoice(activeInvoice, true);
     else { renderLines(); renderPayments(); showQuantity(); lock(); if (branch) loadCatalog(1); }
 }());

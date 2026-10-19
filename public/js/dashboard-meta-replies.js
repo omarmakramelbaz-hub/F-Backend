@@ -4,19 +4,29 @@
     if (window.DashboardMetaReplies) { window.DashboardMetaReplies.mount(); return; }
     var active = null;
     function mount() {
-        var host = document.getElementById('whatsapp-inbox'), bootstrap = document.getElementById('whatsapp-replies-bootstrap');
+        var host = document.getElementById('meta-social-inbox') || document.getElementById('whatsapp-inbox');
+        var bootstrap = document.getElementById('meta-social-replies-bootstrap') || document.getElementById('whatsapp-replies-bootstrap');
         if (!host || !bootstrap || active && active.host === host) return;
         destroy();
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
         if (!config.meta_chat) return;
-        if (window.DashboardWhatsAppReplies && window.DashboardWhatsAppReplies !== window.DashboardMetaReplies) window.DashboardWhatsAppReplies.destroy();
+        if (!config.hub_chat && window.DashboardWhatsAppReplies && window.DashboardWhatsAppReplies !== window.DashboardMetaReplies) window.DashboardWhatsAppReplies.destroy();
+        var eventPrefix = config.event_prefix === 'meta' ? 'meta' : 'whatsapp';
+        var namespace = '';
+        try {
+            var replyRoute = new URL(config.conversations_base_url, window.location.href);
+            if (replyRoute.origin === new URL(window.location.href).origin && !replyRoute.username && !replyRoute.password && !replyRoute.search && !replyRoute.hash
+                && replyRoute.pathname.replace(/\/+$/, '') === '/admin/meta/conversations') namespace = replyRoute.origin + replyRoute.pathname.replace(/\/+$/, '');
+        } catch (error) {}
         var panel = host.querySelector('[data-wa-replies]'); if (!panel) return;
         var textLimit = Number(config.text_limit) || 4096;
         var labels = config.labels || {}, status = panel.querySelector('[data-wa-reply-status]');
         var form = panel.querySelector('[data-wa-reply-form]'), text = panel.querySelector('[data-wa-reply-text]');
         var send = panel.querySelector('[data-wa-reply-send]'), refresh = panel.querySelector('[data-wa-reply-refresh]');
-        var count = panel.querySelector('[data-wa-reply-count]');
+        var count = panel.querySelector('[data-wa-reply-count]'), sendLabel = panel.querySelector('[data-wa-reply-send-label]');
+        var emoji = panel.querySelector('[data-wa-reply-emoji]'), emojiPicker = panel.querySelector('[data-wa-reply-emoji-picker]');
+        var emojis = ['😀', '😊', '❤️', '👍', '🙏', '🎉', '✅', '🙂', '😂', '👋', '👌', '💬'];
         var record = panel.querySelector('[data-wa-voice-record]'), stop = panel.querySelector('[data-wa-voice-stop]');
         var cancel = panel.querySelector('[data-wa-voice-cancel]'), voiceSend = panel.querySelector('[data-wa-voice-send]');
         var preview = panel.querySelector('[data-wa-voice-preview]'), voiceTime = panel.querySelector('[data-wa-voice-time]');
@@ -27,27 +37,29 @@
         var attachmentSend = panel.querySelector('[data-meta-attachment-send]');
         var forwardPanel = panel.querySelector('[data-meta-forward-draft]'), forwardPreview = panel.querySelector('[data-meta-forward-preview]');
         var forwardSend = panel.querySelector('[data-meta-forward-send]'), forwardCancel = panel.querySelector('[data-meta-forward-cancel]');
-        var attachmentFile = null, attachmentUrl = null, forwardDraft = null;
-        var controllers = new Map(), conversation = 0, generation = 0, closed = false, denied = false;
+        var attachmentFile = null, attachmentUrl = null, attachmentDialog = null, forwardDraft = null;
+        var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, inboxChannel = '', inboxNamespace = '', closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
+        var composing = false, enterHeld = false;
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
         function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
         function clear(reason) {
             generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
-            clearVoice(); clearAttachment(); clearForward(); openingMicrophone = false;
-            text.value = ''; count.textContent = '0 / ' + textLimit; panel.hidden = true;
+            inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
+            clearVoice(); clearAttachment(); clearForward(); closeEmoji(); openingMicrophone = false; composing = false; enterHeld = false;
+            text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
         }
         function controls() {
             var available = !closed && !denied && conversation && navigator.onLine !== false && !document.hidden;
             var recording = Boolean(voiceRun) || openingMicrophone;
-            var busyDraft = Boolean(attachmentFile || forwardDraft);
+            var busyDraft = Boolean(attachmentFile || forwardDraft), readyVoice = Boolean(voiceBlob && state && state.voice_ready);
             if (attachmentPick) {
                 attachmentPick.disabled = !available || sending || checking || uncertain || recording || Boolean(voiceBlob || forwardDraft) || !state || !state.can_reply || !state.attachment_ready;
                 attachmentInput.disabled = attachmentPick.disabled;
-                attachmentSend.disabled = !available || sending || checking || uncertain || !attachmentFile || !state || !state.can_reply || !state.attachment_ready;
+                attachmentSend.disabled = !available || sending || checking || uncertain || !attachmentAllowed() || !state || !state.available || !state.can_reply;
                 attachmentRemove.disabled = sending || uncertain;
                 attachmentSend.hidden = !attachmentFile; attachmentRemove.hidden = !attachmentFile;
             }
@@ -56,16 +68,25 @@
                 forwardSend.disabled = !available || sending || checking || uncertain || !forwardDraft || !state || !state.can_reply;
                 forwardCancel.disabled = sending || uncertain;
             }
-            text.disabled = !available || sending || recording || busyDraft || !state || !state.available;
-            text.readOnly = uncertain || Boolean(state && !state.can_reply);
-            send.disabled = !available || sending || recording || busyDraft || checking || uncertain || !state || !state.available || !state.can_reply
-                || !text.value.trim() || Array.from(text.value).length > textLimit;
+            text.disabled = !available || sending || recording || !state || !state.available;
+            text.readOnly = uncertain || Boolean(voiceBlob) || busyDraft || Boolean(state && !state.can_reply);
+            send.disabled = !available || sending || recording || checking || uncertain || !state || !state.available || !state.can_reply
+                || (voiceBlob ? !readyVoice : attachmentFile ? !attachmentAllowed() : forwardDraft ? forwardSend.disabled
+                    : !text.value.trim() || Array.from(text.value).length > textLimit);
+            var sendText = voiceBlob ? labels.send_voice : attachmentFile ? labels.attachment_send : forwardDraft ? labels.forward_send : labels.send;
+            if (sendLabel) sendLabel.textContent = sendText || labels.send || '';
+            send.setAttribute('title', sendText || labels.send || ''); send.setAttribute('aria-label', sendText || labels.send || '');
+            if (emoji) emoji.disabled = text.disabled || text.readOnly || checking;
             refresh.disabled = !available || checking || sending || recording;
             if (record) {
-                record.disabled = !available || sending || checking || uncertain || recording || Boolean(voiceBlob) || busyDraft
-                    || !state || !state.can_reply || !state.voice_ready;
+                record.disabled = !voiceRun && (!available || sending || checking || uncertain || openingMicrophone || Boolean(voiceBlob) || busyDraft
+                    || !state || !state.available || !state.can_reply || !state.voice_ready);
+                record.setAttribute('aria-pressed', String(Boolean(voiceRun)));
+                record.setAttribute('data-recording', String(Boolean(voiceRun)));
+                record.setAttribute('aria-label', voiceRun ? labels.stop || 'Stop recording' : labels.record || 'Record voice message');
+                record.setAttribute('title', voiceRun ? labels.stop || 'Stop recording' : labels.record || 'Record voice message');
                 stop.hidden = !voiceRun; cancel.hidden = !recording && !voiceBlob;
-                voiceSend.hidden = !voiceBlob; voiceSend.disabled = !voiceBlob || sending || checking || uncertain || !state || !state.can_reply;
+                voiceSend.hidden = !voiceBlob; voiceSend.disabled = !available || !readyVoice || sending || checking || uncertain || !state || !state.available || !state.can_reply;
                 if (voiceNote) {
                     var unsupported = available && state && (!state.voice_ready || !voiceMime());
                     voiceNote.textContent = unsupported ? labels.voice_unavailable : ''; voiceNote.hidden = !unsupported;
@@ -105,7 +126,8 @@
             if (closed || current !== generation || error && error.name === 'AbortError') return;
             if (error && [401, 403, 419].indexOf(error.status) !== -1) {
                 denied = true; clear('denied');
-                if (window.DashboardWhatsAppInbox) window.DashboardWhatsAppInbox.destroy();
+                var privateInbox = config.hub_chat ? window.DashboardMetaInbox : window.DashboardWhatsAppInbox;
+                if (privateInbox) privateInbox.destroy();
                 note(labels.denied, true); panel.hidden = false;
             } else if (wasSending && (!error || error.status !== 422 && !error.safeFailure)) {
                 uncertain = true; note(labels.unknown, true); controls();
@@ -146,6 +168,53 @@
             });
             audit.hidden = !replies.length;
         }
+        function acceptedReceipt(reply) {
+            if (!reply || typeof reply !== 'object' || !Number.isSafeInteger(reply.reply_id) || reply.reply_id < 1
+                || ['text', 'audio', 'image', 'video', 'file'].indexOf(reply.kind) === -1
+                || reply.state !== undefined && reply.state !== 'ACCEPTED'
+                || reply.hidden !== undefined && typeof reply.hidden !== 'boolean'
+                || reply.projected_message_id != null && (!Number.isSafeInteger(reply.projected_message_id) || reply.projected_message_id < 1)
+                || reply.projection_key != null && (typeof reply.projection_key !== 'string' || !/^[a-f0-9]{64}$/.test(reply.projection_key))
+                || !receiptTimestamp(reply.created_at) || reply.accepted_at != null && !receiptTimestamp(reply.accepted_at)) return null;
+            var body = reply.text;
+            if (body != null && (typeof body !== 'string' || Array.from(body).length > textLimit || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body))
+                || reply.hidden !== true && reply.kind === 'text' && (typeof body !== 'string' || !body.trim())) return null;
+            var media = null;
+            if (reply.media != null) {
+                if (typeof reply.media !== 'object' || reply.media.type !== reply.kind || reply.kind === 'text'
+                    || reply.media.name != null && (typeof reply.media.name !== 'string' || Array.from(reply.media.name).length > 120 || /[\u0000-\u001f\u007f/\\]/.test(reply.media.name))) return null;
+                media = {type: reply.media.type, name: reply.media.name == null ? null : reply.media.name};
+            }
+            return {reply_id: reply.reply_id, state: 'ACCEPTED', kind: reply.kind, text: body == null ? null : body,
+                created_at: reply.created_at, accepted_at: reply.accepted_at == null ? null : reply.accepted_at,
+                projected_message_id: reply.projected_message_id == null ? null : reply.projected_message_id,
+                projection_key: reply.projection_key == null ? null : reply.projection_key, hidden: reply.hidden === true, media: media};
+        }
+        function receiptTimestamp(value) {
+            return typeof value === 'string' && value.length <= 64 && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(value)
+                && Number.isFinite(new Date(value).getTime());
+        }
+        function receiptScope(selected, current) {
+            if (closed || denied || current !== generation || selected !== conversation || !Number.isSafeInteger(inboxGeneration)
+                || ['messenger', 'instagram'].indexOf(inboxChannel) === -1 || !namespace || inboxNamespace !== namespace
+                || !document.dispatchEvent || typeof CustomEvent === 'undefined') return null;
+            return {conversation: selected, generation: inboxGeneration, channel: inboxChannel, namespace: inboxNamespace};
+        }
+        function publishAcceptedReplies(data, selected, current) {
+            var scope = receiptScope(selected, current); if (!scope) return;
+            scope.replies = (Array.isArray(data.recent_replies) ? data.recent_replies.slice(0, 20) : []).filter(function (reply) {
+                return reply && reply.state === 'ACCEPTED';
+            }).map(acceptedReceipt).filter(Boolean);
+            scope.snapshot = true;
+            document.dispatchEvent(new CustomEvent('meta:accepted-replies', {detail: scope}));
+        }
+        function publishAcceptedSend(data, selected, current) {
+            var scope = receiptScope(selected, current); if (!scope || !data || data.state !== 'ACCEPTED'
+                || !Number.isSafeInteger(data.reply_id) || data.reply_id < 1) return;
+            var receipt = acceptedReceipt(data.accepted_reply);
+            if (receipt && receipt.reply_id === data.reply_id) scope.reply = receipt;
+            document.dispatchEvent(new CustomEvent('meta:reply-accepted', {detail: scope}));
+        }
         function loadState(preserve) {
             if (!conversation || closed || denied || checking) return Promise.resolve();
             var selected = conversation, current = generation;
@@ -156,11 +225,12 @@
                 if (closed || current !== generation || selected !== conversation) return;
                 state = data;
                 renderAudit(data);
+                publishAcceptedReplies(data, selected, current);
                 if (attempt && ['ACCEPTED', 'FAILED'].indexOf(data.request_state) !== -1) {
                     var accepted = data.request_state === 'ACCEPTED', resolvedKind = attempt.kind, wasText = resolvedKind === 'text'; uncertain = false; attempt = null;
                     if (accepted && resolvedKind === 'attachment') clearAttachment();
                     if (accepted && resolvedKind === 'forward') clearForward();
-                    if (accepted && wasText) { text.value = ''; count.textContent = '0 / ' + textLimit; }
+                    if (accepted && wasText) { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     note(accepted ? labels.accepted : labels.failed, !accepted);
                 } else if (uncertain || ['SEND_UNCERTAIN', 'UNKNOWN_PENDING'].indexOf(data.reason) !== -1 || data.request_state === 'UNKNOWN') {
                     uncertain = true; note(labels.unknown, true);
@@ -172,7 +242,11 @@
         function choose(event) {
             var id = Number(event && event.detail && event.detail.conversation);
             if (!Number.isSafeInteger(id) || id < 1 || closed || denied || document.hidden || navigator.onLine === false) return;
-            clear(); conversation = id; panel.hidden = false; note(labels.loading); loadState();
+            clear(); conversation = id;
+            inboxGeneration = event && event.detail && Number.isSafeInteger(event.detail.generation) ? event.detail.generation : null;
+            inboxChannel = event && event.detail && typeof event.detail.channel === 'string' ? event.detail.channel : '';
+            inboxNamespace = event && event.detail && typeof event.detail.namespace === 'string' ? event.detail.namespace : '';
+            panel.hidden = false; note(labels.loading); loadState();
         }
         function uuid() {
             if (!window.crypto) return null;
@@ -186,6 +260,10 @@
         function submit(event) {
             event.preventDefault(); controls();
             if (send.disabled || sending || uncertain || !state) return;
+            closeEmoji();
+            if (voiceBlob) { sendRecording(); return; }
+            if (attachmentFile) { sendAttachment(); return; }
+            if (forwardDraft) { sendForward(); return; }
             var id = uuid(), inbound = Number(state.latest_inbound_id);
             if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
             var selected = conversation, current = generation;
@@ -197,11 +275,12 @@
             request(config.conversations_base_url + '/' + selected + '/' + path, 'send', body).then(function (data) {
                 if (closed || current !== generation || selected !== conversation) return;
                 if (data.state === 'ACCEPTED') {
-                    if (kind === 'text') { text.value = ''; count.textContent = '0 / ' + textLimit; }
+                    publishAcceptedSend(data, selected, current);
+                    if (kind === 'text') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     if (kind === 'attachment') clearAttachment();
                     if (kind === 'forward') clearForward();
                     attempt = null; uncertain = false; note(labels.accepted);
-                    if (window.DashboardMetaInbox) document.dispatchEvent(new CustomEvent('whatsapp:conversation-updated', {detail: {conversation: selected}}));
+                    if (window.DashboardMetaInbox) document.dispatchEvent(new CustomEvent(eventPrefix + ':conversation-updated', {detail: {conversation: selected}}));
                 } else if (data.state === 'FAILED') {
                     attempt = null; uncertain = false; note(labels.failed, true);
                 } else { uncertain = true; note(labels.unknown, true); }
@@ -277,7 +356,7 @@
                         clearVoice(); note(labels.voice_unavailable, true); controls(); return;
                     }
                     voiceUrl = URL.createObjectURL(voiceBlob); preview.src = voiceUrl; preview.hidden = false;
-                    voiceTime.hidden = true; note(labels.voice_ready); controls();
+                    voiceTime.hidden = true; note(labels.voice_ready); controls(); focusText();
                 };
                 try { recorder.start(1000); }
                 catch (error) { clearVoice(); note(labels.voice_unavailable, true); controls(); return; }
@@ -296,6 +375,7 @@
             if (!voiceRun || voiceRun.recorder.state === 'inactive') return;
             try { voiceRun.recorder.stop(); } catch (error) { clearVoice(); note(labels.voice_unavailable, true); controls(); }
         }
+        function recordClick() { if (!record.disabled) { if (voiceRun) stopRecording(); else startRecording(); } }
         function cancelRecording() { openingMicrophone = false; clearVoice(); note(state ? reason(state) : ''); controls(); }
         function sendRecording() {
             controls();
@@ -309,7 +389,7 @@
             clearVoice(); sendRequest(selected, current, 'voice', body, 'voice');
         }
         function clearAttachment() {
-            attachmentFile = null;
+            attachmentFile = null; attachmentDialog = null;
             if (attachmentUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(attachmentUrl);
             attachmentUrl = null;
             if (attachmentInput) attachmentInput.value = '';
@@ -318,9 +398,23 @@
                 attachmentPreview.textContent = ''; attachmentPreview.hidden = true;
             }
         }
-        function pickAttachment() { if (attachmentPick && !attachmentPick.disabled) attachmentInput.click(); }
+        function attachmentAllowed() {
+            if (!attachmentFile || !state || !state.attachment_ready || !Array.isArray(state.attachment_mime_types)) return false;
+            var type = String(attachmentFile.type || '').toLowerCase();
+            var max = /^(image|audio)\//.test(type) ? 8 * 1024 * 1024 : 20 * 1024 * 1024;
+            return state.attachment_mime_types.indexOf(type) !== -1 && attachmentFile.size > 0 && attachmentFile.size <= max;
+        }
+        function pickAttachment() {
+            if (attachmentPick && !attachmentPick.disabled) {
+                attachmentDialog = {generation: generation, conversation: conversation}; attachmentInput.value = ''; attachmentInput.click();
+            }
+        }
         function chooseAttachment() {
-            if (!attachmentInput || attachmentInput.disabled || sending || uncertain) return;
+            var dialog = attachmentDialog; attachmentDialog = null;
+            if (!attachmentInput || attachmentInput.disabled || sending || uncertain || !dialog
+                || dialog.generation !== generation || dialog.conversation !== conversation) {
+                if (attachmentInput) attachmentInput.value = ''; return;
+            }
             var file = attachmentInput.files && attachmentInput.files[0]; clearAttachment();
             if (!file || !state) return;
             var offered = Array.isArray(state.attachment_mime_types) ? state.attachment_mime_types : [];
@@ -336,7 +430,7 @@
                 else { media.controls = true; media.preload = 'metadata'; }
                 attachmentPreview.appendChild(media);
             }
-            attachmentPreview.hidden = false; note(labels.attachment_review); controls();
+            attachmentPreview.hidden = false; closeEmoji(); note(labels.attachment_review); controls(); focusText();
         }
         function removeAttachment() { if (!sending && !uncertain) { clearAttachment(); note(state ? reason(state) : ''); controls(); } }
         function sendAttachment() {
@@ -369,7 +463,40 @@
             if (forwardDraft.kind === 'media') body.source_media_index = forwardDraft.index;
             sendRequest(selected, current, 'forward', body, 'forward');
         }
-        function input() { count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
+        function focusText() { if (!closed && !text.disabled && !document.hidden && typeof text.focus === 'function') text.focus(); }
+        function sizeText() {
+            if (!text.style || typeof text.scrollHeight !== 'number') return;
+            text.style.height = 'auto'; text.style.height = Math.min(120, Math.max(42, text.scrollHeight + 2)) + 'px';
+        }
+        function closeEmoji() { if (emojiPicker) emojiPicker.hidden = true; if (emoji) emoji.setAttribute('aria-expanded', 'false'); }
+        function emojiToggle() {
+            if (!emoji || !emojiPicker || emoji.disabled) return;
+            emojiPicker.hidden = !emojiPicker.hidden; emoji.setAttribute('aria-expanded', String(!emojiPicker.hidden));
+        }
+        function emojiSelect(event) {
+            var button = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-wa-emoji]') : null;
+            if (!button || !emojiPicker || typeof emojiPicker.contains !== 'function' || !emojiPicker.contains(button) || text.disabled || text.readOnly) return;
+            var value = button.getAttribute('data-wa-emoji'); if (emojis.indexOf(value) === -1) return;
+            var from = Number.isInteger(text.selectionStart) ? text.selectionStart : text.value.length;
+            var to = Number.isInteger(text.selectionEnd) ? text.selectionEnd : from;
+            from = Math.max(0, Math.min(text.value.length, from)); to = Math.max(from, Math.min(text.value.length, to));
+            var draft = text.value.slice(0, from) + value + text.value.slice(to); if (Array.from(draft).length > textLimit) return;
+            text.value = draft; if (typeof text.setSelectionRange === 'function') text.setSelectionRange(from + value.length, from + value.length);
+            input(); closeEmoji(); focusText();
+        }
+        function composingStart() { composing = true; }
+        function composingEnd() { composing = false; input(); }
+        function keyboard(event) {
+            if (event.key === 'Escape') { if (emojiPicker && !emojiPicker.hidden) { event.preventDefault(); closeEmoji(); focusText(); } return; }
+            if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
+                || composing || event.isComposing || event.keyCode === 229) return;
+            if (event.target !== text && event.target !== send && event.target !== voiceSend && event.target !== form) return;
+            event.preventDefault(); if (event.repeat || enterHeld) return; enterHeld = true;
+            if (voiceRun || openingMicrophone || closed || denied) return;
+            submit({preventDefault: function () {}});
+        }
+        function keyReleased(event) { if (event.key === 'Enter') enterHeld = false; }
+        function input() { sizeText(); count.textContent = Array.from(text.value).length + ' / ' + textLimit; controls(); }
         function refreshClick() { if (!refresh.disabled) loadState(false); }
         function reset(event) {
             var reason = event && event.detail && event.detail.reason;
@@ -380,38 +507,47 @@
             if (conversation && Number(event.detail && event.detail.conversation) === conversation && !sending) loadState(uncertain);
         }
         form.addEventListener('submit', submit); text.addEventListener('input', input); refresh.addEventListener('click', refreshClick);
+        panel.addEventListener('keydown', keyboard); document.addEventListener('keyup', keyReleased);
+        text.addEventListener('compositionstart', composingStart); text.addEventListener('compositionend', composingEnd);
+        if (emoji) emoji.addEventListener('click', emojiToggle);
+        if (emojiPicker) emojiPicker.addEventListener('click', emojiSelect);
         if (record) {
-            record.addEventListener('click', startRecording); stop.addEventListener('click', stopRecording);
+            record.addEventListener('click', recordClick); stop.addEventListener('click', stopRecording);
             cancel.addEventListener('click', cancelRecording); voiceSend.addEventListener('click', sendRecording);
         }
         if (attachmentPick) { attachmentPick.addEventListener('click', pickAttachment); attachmentInput.addEventListener('change', chooseAttachment); attachmentRemove.addEventListener('click', removeAttachment); attachmentSend.addEventListener('click', sendAttachment); }
         if (forwardPanel) { forwardSend.addEventListener('click', sendForward); forwardCancel.addEventListener('click', cancelForward); }
         document.addEventListener('meta:forward-draft', draftForward);
-        document.addEventListener('whatsapp:conversation-selected', choose);
-        document.addEventListener('whatsapp:conversation-updated', updated);
-        document.addEventListener('whatsapp:private-reset', reset);
+        document.addEventListener(eventPrefix + ':conversation-selected', choose);
+        document.addEventListener(eventPrefix + ':conversation-updated', updated);
+        document.addEventListener(eventPrefix + ':private-reset', reset);
         var session = {host: host, destroy: function () {
             if (closed) return; clear(); closed = true;
             form.removeEventListener('submit', submit); text.removeEventListener('input', input); refresh.removeEventListener('click', refreshClick);
+            panel.removeEventListener('keydown', keyboard); document.removeEventListener('keyup', keyReleased);
+            text.removeEventListener('compositionstart', composingStart); text.removeEventListener('compositionend', composingEnd);
+            if (emoji) emoji.removeEventListener('click', emojiToggle);
+            if (emojiPicker) emojiPicker.removeEventListener('click', emojiSelect);
             if (record) {
-                record.removeEventListener('click', startRecording); stop.removeEventListener('click', stopRecording);
+                record.removeEventListener('click', recordClick); stop.removeEventListener('click', stopRecording);
                 cancel.removeEventListener('click', cancelRecording); voiceSend.removeEventListener('click', sendRecording);
             }
             if (attachmentPick) { attachmentPick.removeEventListener('click', pickAttachment); attachmentInput.removeEventListener('change', chooseAttachment); attachmentRemove.removeEventListener('click', removeAttachment); attachmentSend.removeEventListener('click', sendAttachment); }
             if (forwardPanel) { forwardSend.removeEventListener('click', sendForward); forwardCancel.removeEventListener('click', cancelForward); }
             document.removeEventListener('meta:forward-draft', draftForward);
-            document.removeEventListener('whatsapp:conversation-selected', choose);
-            document.removeEventListener('whatsapp:conversation-updated', updated);
-            document.removeEventListener('whatsapp:private-reset', reset);
+            document.removeEventListener(eventPrefix + ':conversation-selected', choose);
+            document.removeEventListener(eventPrefix + ':conversation-updated', updated);
+            document.removeEventListener(eventPrefix + ':private-reset', reset);
             config.csrf = ''; controls();
         }};
         active = session;
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
             if (active === session) destroy(); else session.destroy();
         });
-        var selected = window.DashboardWhatsAppInbox && typeof window.DashboardWhatsAppInbox.selection === 'function'
-            ? window.DashboardWhatsAppInbox.selection() : 0;
-        if (selected) choose({detail: {conversation: selected}});
+        var inbox = config.hub_chat ? window.DashboardMetaInbox : window.DashboardWhatsAppInbox;
+        var selection = inbox && typeof inbox.selectionState === 'function' ? inbox.selectionState() : null;
+        var selected = inbox && typeof inbox.selection === 'function' ? inbox.selection() : 0;
+        if (selected) choose({detail: selection && selection.conversation === selected ? selection : {conversation: selected}});
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardMetaReplies = {mount: mount, destroy: destroy};

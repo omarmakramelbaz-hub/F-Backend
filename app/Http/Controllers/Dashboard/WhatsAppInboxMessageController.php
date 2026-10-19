@@ -56,7 +56,7 @@ class WhatsAppInboxMessageController extends Controller
     private function image(callable $operation)
     {
         try { $image = $operation(); return response($image['bytes'], 200)->withHeaders($this->headers() + [
-            'Content-Type' => $image['mime'], 'Content-Disposition' => 'inline; filename="whatsapp-image"',
+            'Content-Type' => $image['mime'], 'Content-Disposition' => 'inline; filename="whatsapp-media"', 'Content-Length' => (string) strlen($image['bytes']),
             'Content-Security-Policy' => "default-src 'none'; sandbox"]); }
         catch (HttpException $error) { return response('', $error->getStatusCode())->withHeaders($this->headers()); }
         catch (\Throwable $error) { return response('', 503)->withHeaders($this->headers()); }

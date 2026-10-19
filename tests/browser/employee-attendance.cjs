@@ -6,9 +6,9 @@ const {chromium}=require(process.env.DESKTOP_TEST_BROWSER_MODULE||'playwright');
 const source=path.resolve(__dirname,'../..');
 const posts=[];
 const rule={starts_at:'10:00',ends_at:'18:00',late_half_hour:'10.00',early_half_hour:'5.00',absence:'300.00',revision:1};
-const data={success:true,can_manage_attendance:true,can_add_bonus:true,attendance_rules:{'f:100':{morning:rule,evening:{...rule,starts_at:'20:00',ends_at:'04:00'}}},
+const data={success:true,can_manage_attendance:true,can_manage_employees:true,can_award_bonuses:true,attendance_rules:{'f:100':{morning:rule,evening:{...rule,starts_at:'20:00',ends_at:'04:00'}}},
   branches:[{value:'f:100',name:'فرع المنصورة'}],options:{job_title:['كاشير'],shift:['صباحي']},filters:{branch:'f:100',day:'2026-10-08',month:'2026-10'},pagination:{page:1,last_page:1,total:1},
-  summary:{employees:1,present:0,absent:0,leave:0,deduction:'0.00',bonus:'0.00',advance:'0.00'},
+  summary:{net:'800.00',employees:1,present:0,absent:0,leave:0,deduction:'0.00',bonus:'0.00',advance:'0.00'},
   items:[{id:1,branch:'f:100',name:'موظف الاختبار',job_title:'كاشير',shift:'صباحي',revision:1,active:true,attendance:null,day_closed:false,
     daily:{deduction:{count:0,amount:'0.00'},bonus:{count:0,amount:'0.00'},advance:{count:0,amount:'0.00'}},statement:{net:'800.00',earned_salary:'800.00',salary:'3100.00',status:'draft',month:'2026-10',eligible_days:8,month_days:31,accrued_from:'2026-10-01',accrued_through:'2026-10-08'}}]};
 const urls=Object.fromEntries(['data','save','attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','recover','orders'].map(k=>[k,'http://attendance.test/'+k]));
@@ -17,7 +17,7 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
  const browser=await chromium.launch({headless:true,args:['--no-sandbox'],executablePath:process.env.ATTENDANCE_BROWSER_EXECUTABLE||undefined});
  const page=await browser.newPage({viewport:{width:1440,height:950}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let rejectAttendance=false,uncertainAttendance=false,recovered=null;
- function updateTotals(amount){data.items[0].daily.deduction={count:amount==='0.00'?0:1,amount};data.summary.deduction=amount;data.items[0].statement.net=(800-Number(amount)).toFixed(2);}
+ function updateTotals(amount){data.items[0].daily.deduction={count:amount==='0.00'?0:1,amount};data.summary.deduction=amount;data.items[0].statement.net=(800-Number(amount)).toFixed(2);data.summary.net=data.items[0].statement.net;}
  await page.route('http://attendance.test/**',async route=>{
   const request=route.request(),endpoint=new URL(request.url()).pathname.slice(1);
   if(endpoint==='')return route.fulfill({contentType:'text/html',body:html()});
@@ -128,10 +128,10 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.locator('[data-op-net]').first().click();await page.waitForFunction(()=>document.querySelector('.op-statement'));
   assert.ok((await page.locator('.op-statement').textContent()).includes('800.00'));assert.ok((await page.locator('.op-statement').textContent()).includes('8 / 31 يوم'));assert.ok((await page.locator('.op-statement').textContent()).includes('من 2026-10-01 حتى 2026-10-08'));
   await page.locator('[data-op-close]').click();
-  data.can_add_bonus=false;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),0);
+  data.can_award_bonuses=false;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),0);
   assert.equal(await page.locator('[data-op-total=bonus]').count(),6,'existing rewards stay visible to branch and admin accounts');
   assert.equal(await page.locator('[data-op-entry=advance]').count(),6);assert.equal(await page.locator('[data-op-entry=deduction]').count(),6);
-  data.can_add_bonus=true;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),6);
+  data.can_award_bonuses=true;await refresh();assert.equal(await page.locator('[data-op-entry=bonus]').count(),6);
   assert.deepEqual(errors,[]);console.log('Browser checks passed: real AdminLTE/Select2 dropdown clicks and native controls, Cairo clock requests, automatic totals, fixed attendance/departure choices, rejected saves, safe retry, closed months, owner configuration, mobile recording, accrued salary days/dates and six visible employee rows at three desktop sizes.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

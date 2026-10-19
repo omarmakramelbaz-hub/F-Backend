@@ -25,6 +25,8 @@ class DashboardPosServiceTest extends TestCase
         if($this->connection==='sqlite')config(['database.connections.sqlite.database'=>':memory:']);
         elseif(config('database.connections.mysql.database')!=='takeaway_test')throw new \RuntimeException('POS MySQL tests require dedicated takeaway_test database.');
         DB::purge($this->connection);Schema::clearResolvedInstance('db.schema');if($this->connection==='mysql')$this->dropFixtures();
+        $settings=[];foreach((new \ReflectionClass(\App\Models\GeneralSettings::class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property)$settings[$property->getName()]=(string)$property->getType()==='bool'?false:'';
+        $settings['site_name']='فسخانستا';$settings['service_fees']='0';$this->app->instance(\App\Models\GeneralSettings::class,new \App\Models\GeneralSettings($settings));
         Carbon::setTestNow(Carbon::parse('2026-10-03 16:00:00','Africa/Cairo'));
         Schema::create('users',function(Blueprint $t){$t->id();foreach(['name','account_type','app_scope','status'] as $f)$t->string($f);$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->unsignedBigInteger('pending_vendor_id')->nullable();$t->decimal('balance',14,2)->default(500);$t->timestamps();});
         Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->decimal('lat',10,7)->default(30);$t->decimal('lng',10,7)->default(31);$t->decimal('km_price',10,2)->default(20);$t->timestamps();});
@@ -55,17 +57,17 @@ class DashboardPosServiceTest extends TestCase
     private function tickets(): PosServiceTicket{return app(PosServiceTicket::class);}
     private function key(int $n): string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
     private function table(string $branch='f:100',int $key=1): array{return app(PosServiceTable::class)->configure(['branch'=>$branch,'name'=>'Table '.$key,'capacity'=>4,'active'=>true,'idempotency_key'=>$this->key($key)],$this->actor(12))['table'];}
-    private function cart(string $branch='f:100',int $product=1): array{return ['branch'=>$branch,'items'=>[['product_id'=>$product,'quantity'=>'1.000','quantity_mode'=>'piece']],'discount'=>'0.00','discount_reason'=>''];}
+    private function cart(string $branch='f:100',int $product=1): array{return ['customer_phone'=>'01012345678','service_consent'=>true,'branch'=>$branch,'items'=>[['product_id'=>$product,'quantity'=>'1.000','quantity_mode'=>'piece']],'discount'=>'0.00','discount_reason'=>''];}
     private function savePayload(string $channel='dine',int $key=2): array
     {
         $cart=$this->cart();$v=$cart+['idempotency_key'=>$this->key($key),'notes'=>'Note'];
         if($channel==='dine')$v+=['table_id'=>$this->table()['id'],'waiter_name'=>'Waiter','guest_count'=>2];
         else $v+=['customer_name'=>'Customer','customer_phone'=>'010 1234 5678','address'=>'Street 1','area'=>'Area','delivery_notes'=>'Door 2','delivery_fee'=>'20.00'];
-        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6371),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
+        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6378.137),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];return $v;
     }
     private function saved(string $channel='dine'): array{return $this->tickets()->save($channel,$this->savePayload($channel),$this->actor())['ticket'];}
-    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true];}
+    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['customer_phone'=>'01012345678','service_consent'=>true,'branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true];}
     private function denied(callable $call,int $status=409): void{try{$call();$this->fail('Expected '.$status);}catch(HttpException $e){$this->assertSame($status,$e->getStatusCode());}}
     private function invalid(callable $call): void{try{$call();$this->fail('Expected invalid payload');}catch(ValidationException $e){$this->assertNotEmpty($e->errors());}}
 
@@ -238,7 +240,7 @@ class DashboardPosServiceTest extends TestCase
         $this->actingAs($this->actor(),'admin');$sent=$this->tickets()->action('dine',$ticket['id'],['branch'=>'f:100','expected_revision'=>$sent['ticket']['revision'],'idempotency_key'=>$this->key(4),'action'=>'request_bill'],$this->actor())+['kitchen_print_url'=>$sent['kitchen_print_url']];$this->get($ticket['bill_print_url'].'?dashboard_print=1')->assertOk()->assertSee('data-dashboard-receipt=',false)->assertSee('Waiter');
         $this->get($sent['kitchen_print_url'].'?dashboard_print=1')->assertOk()->assertSee('data-dashboard-receipt=',false)->assertSee('Fish');
         $v=$this->settlePayload($sent['ticket'],10,'cash');
-        $paid=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->get($paid['receipt_url'].'?dashboard_print=1')->assertOk()->assertSee('Waiter')->assertSee('Table 1');
+        $paid=$this->tickets()->settle('dine',$ticket['id'],$v,$this->actor());$this->assertNull($paid['receipt_url']);$this->get($paid['first_print_url'].'&dashboard_print=1')->assertOk()->assertSee('Waiter')->assertSee('Table 1');
         $this->actingAs($this->actor(11),'admin')->get($sent['kitchen_print_url'],['Accept'=>'application/json'])->assertNotFound();
         $this->actingAs($this->actor(20),'admin')->getJson(route('dining.tickets',['branch'=>'f:100']))->assertForbidden();
     }
@@ -268,7 +270,7 @@ class DashboardPosServiceTest extends TestCase
     }
     public function test_paid_ticket_print_uses_paid_receipt_and_phone_print_contains_customer_delivery_snapshot(): void
     {
-        $ticket=$this->saved('phone');$paid=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket),$this->actor());$this->actingAs($this->actor(),'admin');
+        $ticket=$this->saved('phone');$paid=$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($ticket),$this->actor());$this->actingAs($this->actor(1),'admin');
         $html=$this->get($ticket['bill_print_url'].'?dashboard_print=1')->assertOk();$html->assertSee('data-dashboard-receipt="takeaway"',false)->assertSee('Street 1')->assertSee('Door 2');
         $this->assertSame($paid['receipt']['receipt_url'],$paid['receipt_url']);
     }
@@ -438,8 +440,8 @@ class DashboardPosServiceTest extends TestCase
     private function employeePayload(int $key=800): array {return ['branch'=>'f:100','idempotency_key'=>$this->key($key),'name'=>'أحمد','phone'=>'01012345678','job_title'=>'كاشير','shift'=>'صباحي','hired_on'=>'2026-09-01','active'=>true,'salary'=>'3000.00','effective_month'=>'2026-09'];}
     public function test_daily_employee_money_cells_and_details_match_date_kind_filters_and_voids(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$a=$s->employeeSave($this->employeePayload(900),$this->actor())['employee'];
-        $b=$s->employeeSave(array_replace($this->employeePayload(901),['name'=>'محمود','job_title'=>'شيف','shift'=>'مسائي']),$this->actor())['employee'];
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$a=$s->employeeSave($this->employeePayload(900),$this->actor(1))['employee'];
+        $b=$s->employeeSave(array_replace($this->employeePayload(901),['name'=>'محمود','job_title'=>'شيف','shift'=>'مسائي']),$this->actor(1))['employee'];
         $base=['branch'=>'f:100','employee_id'=>$a['id'],'day'=>'2026-09-12'];
         foreach([['deduction','50.00'],['deduction','100.00'],['bonus','200.00'],['advance','500.00']] as $i=>$row)$s->entry($base+['kind'=>$row[0],'amount'=>$row[1],'reason'=>'تأخير','notes'=>'ملاحظة مسجلة','idempotency_key'=>$this->key(902+$i)],$this->actor($row[0]==='bonus'?1:10));
         $void=$s->entry($base+['kind'=>'deduction','amount'=>'800.00','reason'=>'خطأ','idempotency_key'=>$this->key(906)],$this->actor())['entry'];
@@ -459,7 +461,7 @@ class DashboardPosServiceTest extends TestCase
     }
     public function test_daily_entry_details_remain_branch_scoped_for_branch_and_central_accounts(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(920),$this->actor())['employee'];$v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-12','kind'=>'advance'];
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(920),$this->actor(1))['employee'];$v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-12','kind'=>'advance'];
         $s->entry($v+['amount'=>'75.50','reason'=>'سبب قديم محفوظ','idempotency_key'=>$this->key(921)],$this->actor());
         $this->denied(fn()=>$s->entries($v,$this->actor(11)),404);$this->denied(fn()=>$s->entries(array_replace($v,['branch'=>'f:101']),$this->actor(1)),404);
         $this->assertSame('75.50',$s->entries($v,$this->actor(1))['total']);$this->assertSame('سبب قديم محفوظ',$s->entries($v,$this->actor())['items'][0]['reason']);
@@ -545,10 +547,10 @@ class DashboardPosServiceTest extends TestCase
     }
     public function test_payroll_periods_reconcile_proration_entries_closure_and_recorded_payment_exactly_once(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(),$this->actor())['employee'];$id=$employee['id'];
-        $this->assertTrue($s->employeeSave($this->employeePayload(),$this->actor())['replayed']);
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(),$this->actor(1))['employee'];$id=$employee['id'];
+        $this->assertTrue($s->employeeSave($this->employeePayload(),$this->actor(1))['replayed']);
         $attendance=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','status'=>'unauthorized_absence','action'=>'set_status','idempotency_key'=>$this->key(830)];$s->attendance($attendance,$this->actor());$this->assertTrue($s->attendance($attendance,$this->actor())['replayed']);
-        foreach([['bonus','500.00'],['deduction','100.00'],['advance','700.00']] as $n=>$entry){$v=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','kind'=>$entry[0],'amount'=>$entry[1],'reason'=>'Approved','idempotency_key'=>$this->key(831+$n)];$entryActor=$this->actor($entry[0]==='bonus'?1:10);$s->entry($v,$entryActor);$this->assertTrue($s->entry($v,$entryActor)['replayed']);}
+        foreach([['bonus','500.00'],['deduction','100.00'],['advance','700.00']] as $n=>$entry){$v=['branch'=>'f:100','employee_id'=>$id,'day'=>'2026-09-12','kind'=>$entry[0],'amount'=>$entry[1],'reason'=>'Approved','idempotency_key'=>$this->key(831+$n)];$s->entry($v,$this->actor($entry[0]==='bonus'?1:10));$this->assertTrue($s->entry($v,$this->actor($entry[0]==='bonus'?1:10))['replayed']);}
         $q=['branch'=>'f:100','employee_id'=>$id,'month'=>'2026-09'];$statement=$s->statement($q,$this->actor())['statement'];$this->assertSame('2700.00',$statement['net']);$this->assertSame('3000.00',$statement['earned_salary']);$this->assertCount(1,$statement['attendance']);
         $close=$q+['idempotency_key'=>$this->key(840),'preview_hash'=>$statement['preview_hash']];$closed=$s->close($close,$this->actor())['statement'];$this->assertSame('closed',$closed['status']);$this->assertTrue($s->close($close,$this->actor())['replayed']);
         $this->denied(fn()=>$s->attendance(array_replace($attendance,['idempotency_key'=>$this->key(841),'expected_revision'=>1]),$this->actor()),409);
@@ -556,12 +558,12 @@ class DashboardPosServiceTest extends TestCase
         $pay=['branch'=>'f:100','payroll_id'=>$closed['payroll_id'],'expected_revision'=>1,'payment_method'=>'cash','payment_confirmed'=>true,'idempotency_key'=>$this->key(843)];$paid=$s->pay($pay,$this->actor())['statement'];$this->assertSame('paid',$paid['status']);$this->assertTrue($s->pay($pay,$this->actor())['replayed']);
         $this->denied(fn()=>$s->pay(array_replace($pay,['idempotency_key'=>$this->key(844)]),$this->actor()),409);$this->assertSame(0,DB::table('takeaway_till_entries')->count());$this->assertSame(1,DB::table('branch_payrolls')->count());
         $this->denied(fn()=>$s->statement($q,$this->actor(11)),404);
-        $this->denied(fn()=>$s->employeeSave(array_replace($this->employeePayload(845),['employee_id'=>$id,'expected_revision'=>1,'salary'=>'6000.00']),$this->actor()),409);
+        $this->denied(fn()=>$s->employeeSave(array_replace($this->employeePayload(845),['employee_id'=>$id,'expected_revision'=>1,'salary'=>'6000.00']),$this->actor(1)),409);
         $this->assertSame('2700.00',$s->statement($q,$this->actor())['statement']['net']);
     }
     public function test_payroll_stale_preview_void_history_hire_proration_and_negative_balance_are_safe(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave(array_replace($this->employeePayload(),['hired_on'=>'2026-09-16','left_on'=>'']),$this->actor())['employee'];$q=['branch'=>'f:100','employee_id'=>$e['id'],'month'=>'2026-09'];$initial=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$initial['earned_salary']);
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave(array_replace($this->employeePayload(),['hired_on'=>'2026-09-16','left_on'=>'']),$this->actor(1))['employee'];$q=['branch'=>'f:100','employee_id'=>$e['id'],'month'=>'2026-09'];$initial=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$initial['earned_salary']);
         $v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-20','kind'=>'advance','amount'=>'1800.00','reason'=>'Advance','idempotency_key'=>$this->key(860)];$entry=$s->entry($v,$this->actor());
         $this->denied(fn()=>$s->close($q+['idempotency_key'=>$this->key(861),'preview_hash'=>$initial['preview_hash']],$this->actor()),409);$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('-300.00',$preview['net']);
         $id=DB::table('branch_employee_entries')->value('id');$s->voidEntry(['branch'=>'f:100','entry_id'=>$id,'expected_revision'=>1,'reason'=>'Correction','idempotency_key'=>$this->key(862)],$this->actor(1));$preview=$s->statement($q,$this->actor())['statement'];$this->assertSame('1500.00',$preview['net']);$this->assertNotEmpty($preview['entries'][0]['voided_at']);
@@ -597,19 +599,23 @@ class DashboardPosServiceTest extends TestCase
         $cache->put($slot.':next',microtime(true)+10,10);$this->assertSame($r,$maps->suggestions($v,$this->actor()));$http::assertSentCount(1);
         $this->denied(fn()=>$maps->suggestions(['branch'=>'f:100','query'=>'عنوان آخر'],$this->actor()),429);$http::assertSentCount(1);
     }
-    public function test_road_fee_is_authoritative_cached_and_cannot_fall_back_to_a_straight_line(): void
+    public function test_app_distance_fee_is_authoritative_while_road_geometry_is_cached_and_checked(): void
     {
         config(['services.maps.phone_open_enabled'=>true]);$http=\Illuminate\Support\Facades\Http::class;
         $http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'Ok','routes'=>[['distance'=>1575,'geometry'=>['type'=>'LineString','coordinates'=>[[31,30],[31.001,30.005],[31,30.009]]]]]])]);
-        $v=$this->savePayload('phone');$service=app(\App\Services\Dashboard\PhoneDelivery::class);$q=$service->quote($v,$this->actor())['delivery'];$this->assertSame('31.50',$q['delivery_fee']);$this->assertSame(1575,$q['distance_meters']);$this->assertSame('road_osrm',$q['method']);$this->assertCount(3,$q['route_path']);$http::assertSentCount(1);
-        $v['delivery_quote_hash']=$q['delivery_quote_hash'];$v['delivery_fee']='0.01';$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];$this->assertSame('31.50',$ticket['delivery_fee']);$this->assertSame(1575,$ticket['delivery_location']['distance_meters']);$http::assertSentCount(1);
+        $v=$this->savePayload('phone');$service=app(\App\Services\Dashboard\PhoneDelivery::class);$q=$service->quote($v,$this->actor())['delivery'];
+        $this->assertSame('20.00',$q['delivery_fee']);$this->assertSame(1000,$q['distance_meters']);$this->assertSame('app_direct',$q['method']);
+        $this->assertSame(1575,$q['road_distance_meters']);$this->assertSame('road_osrm',$q['route_method']);$this->assertCount(3,$q['route_path']);$http::assertSentCount(1);
+        $v['delivery_quote_hash']=$q['delivery_quote_hash'];$v['delivery_fee']='0.01';$ticket=$this->tickets()->save('phone',$v,$this->actor())['ticket'];
+        $this->assertSame('20.00',$ticket['delivery_fee']);$this->assertSame(1000,$ticket['delivery_location']['distance_meters']);
+        $this->assertSame(1575,$ticket['delivery_location']['road_distance_meters']);$this->assertSame('road_osrm',$ticket['delivery_location']['route_method']);$http::assertSentCount(1);
         $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response(['code'=>'NoRoute','routes'=>[]])]);$changed=array_replace($v,['latitude'=>30.02]);$this->denied(fn()=>$service->quote($changed,$this->actor()),422);
         $http::swap(new \Illuminate\Http\Client\Factory);$http::fake(['routing.openstreetmap.de/*'=>$http::response([],503)]);$this->denied(fn()=>$service->quote(array_replace($v,['latitude'=>30.03]),$this->actor()),503);
     }
 
     public function test_only_primary_owner_can_void_employee_money_even_if_other_accounts_manage_the_branch(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(950),$this->actor())['employee'];
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$employee=$s->employeeSave($this->employeePayload(950),$this->actor(1))['employee'];
         $entry=$s->entry(['branch'=>'f:100','employee_id'=>$employee['id'],'day'=>'2026-09-12','kind'=>'advance','amount'=>'150.00','reason'=>'سلفة','idempotency_key'=>$this->key(951)],$this->actor())['entry'];
         $v=['branch'=>'f:100','entry_id'=>$entry['id'],'expected_revision'=>1,'reason'=>'تصحيح الأونر','idempotency_key'=>$this->key(952)];$q=['branch'=>'f:100','employee_id'=>$employee['id'],'month'=>'2026-09'];
         foreach([10,4,12] as $id){$this->assertFalse($s->statement($q,$this->actor($id))['statement']['can_void_entries']);$this->denied(fn()=>$s->voidEntry($v,$this->actor($id)),403);}
@@ -688,7 +694,7 @@ class DashboardPosServiceTest extends TestCase
     public function test_batch_rolls_back_every_collection_when_later_checkout_fails(): void
     {
         $a=$this->dispatchPhone();$b=$this->dispatchPhone(1010,$a['courier_company_id']);$v=$this->batchPayload([$a,$b]);$original=app(TakeawayService::class);$calls=0;
-        $mock=\Mockery::mock(TakeawayService::class)->makePartial();$mock->shouldReceive('checkout')->andReturnUsing(function(...$args)use($original,&$calls){$calls++;if($calls===2)abort(409,'Stock changed');return $original->checkout(...$args);});$mock->shouldReceive('receipt')->andReturnUsing(fn(...$args)=>$original->receipt(...$args));$this->app->instance(TakeawayService::class,$mock);
+        $mock=\Mockery::mock(TakeawayService::class,[app(\App\Services\Dashboard\TakeawayAccess::class),app(\App\Services\Dashboard\TakeawayCatalog::class)])->makePartial();$mock->shouldReceive('checkout')->andReturnUsing(function(...$args)use($original,&$calls){$calls++;if($calls===2)abort(409,'Stock changed');return $original->checkout(...$args);});$mock->shouldReceive('receipt')->andReturnUsing(fn(...$args)=>$original->receipt(...$args));$this->app->instance(TakeawayService::class,$mock);
         $board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class);$this->denied(fn()=>$board->finish($v,$this->actor()));
         $this->assertSame(2,$calls);$this->assertSame(0,DB::table('takeaway_orders')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());$this->assertSame(0,DB::table('phone_delivery_batches')->count());$this->assertSame(2,DB::table('pos_service_tickets')->where('payment_status','unpaid')->count());
         $this->app->instance(TakeawayService::class,$original);$result=app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->finish($v,$this->actor());$this->assertCount(2,$result['batch']['items']);
@@ -727,7 +733,7 @@ class DashboardPosServiceTest extends TestCase
     }
     public function test_employee_wallet_and_auto_notes_are_revisioned_scoped_and_do_not_mark_attendance_or_transfer_money(): void
     {
-        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(),$this->actor())['employee'];
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(),$this->actor(1))['employee'];
         $v=['branch'=>'f:100','employee_id'=>$e['id'],'expected_revision'=>1,'wallet_phone'=>'+20 10 1234 5678','idempotency_key'=>$this->key(1200)];
         $r=$s->wallet($v,$this->actor());$this->assertSame('01012345678',$r['employee']['wallet_phone']);$this->assertTrue($s->wallet($v,$this->actor())['replayed']);
         $this->denied(fn()=>$s->wallet($v,$this->actor(11)),404);$this->denied(fn()=>$s->wallet(array_replace($v,['wallet_phone'=>'123']),$this->actor()),422);

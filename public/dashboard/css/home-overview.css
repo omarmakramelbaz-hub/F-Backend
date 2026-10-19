@@ -89,7 +89,7 @@
 #branch-home .bh-expense-total{display:flex;flex-direction:column;gap:5px;padding:24px 26px;background:#fff7ee}
 #branch-home .bh-expense-total strong{font-size:32px;color:#b85d06;font-variant-numeric:tabular-nums}
 #branch-home .bh-expense-total small{color:#7b664f}
-#branch-home .bh-negative{color:#b42318}
+#branch-home .bh-negative,#branch-home .bh-low-stock{color:#b42318}
 #branch-home [hidden]{display:none!important}
 @media(max-width:767px){#branch-home .bh-panels{grid-template-columns:1fr}#branch-home .ho-scroll{max-height:440px}#branch-home .ho-heading{flex-wrap:wrap}#branch-home h2{font-size:16px}}
 

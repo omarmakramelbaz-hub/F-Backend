@@ -13,12 +13,28 @@ function providerMarkup(source, local) {
   return source.replace(/@unless\(config\('desktop_dashboard\.local'\)\)([\s\S]*?)@endunless/g,
     (_, body) => { const parts = body.split(/@else\b/); return local ? (parts[1] || '') : parts[0]; }).replace(/<!--[\s\S]*?-->/g, '');
 }
+function renderJsonDirectives(script) {
+  let start;
+  while((start=script.indexOf('@json('))!==-1){
+    let depth=1,quote=null,escaped=false,end=start+6;
+    for(;end<script.length;end++){
+      const c=script[end];
+      if(quote){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c===quote)quote=null;}
+      else if(c==='\''||c==='"')quote=c;
+      else if(c==='(')depth++;
+      else if(c===')'&&--depth===0)break;
+    }
+    assert.equal(depth,0,'Actual Blade JSON directive must be balanced');
+    script=script.slice(0,start)+'"rendered-value"'+script.slice(end+1);
+  }
+  return script;
+}
 async function layoutProviders(local) {
   const calls = {initialize: 0, serviceWorker: 0, permission: 0, tokens: 0, saved: 0, pusher: 0, channels: 0, bound: [], audio: 0, removedWorkers: []};
   const header = providerMarkup(read('resources/views/admin/layouts/header.blade.php'), local);
   const footer = providerMarkup(read('resources/views/admin/layouts/footer.blade.php'), local);
   const document = {body: {dataset: {dashboardLocal: local ? '1' : '0'}},
-    addEventListener() {}, getElementById: () => ({addEventListener() {}})};
+    addEventListener() {}, dispatchEvent() {}, querySelector:()=>null, currentScript: {dataset:{}}, getElementById: () => null};
   const jquery = () => ({ready: callback => callback(), on() {}});
   const firebase = {initializeApp() { calls.initialize++; }, messaging: () => ({
     useServiceWorker() {}, getToken: async () => { calls.tokens++; return 'provider-token'; }
@@ -33,16 +49,21 @@ async function layoutProviders(local) {
     worker('unrelated', 'http://127.0.0.1:9234/dashboard-worker.js'),
     worker('foreign-fcm', 'https://dashboard.test/firebase-messaging-sw.js'),
     worker('similar-name', 'http://127.0.0.1:9234/other/firebase-messaging-sw.js'), {}];
-  const context = vm.createContext({document, window: {location: {href: 'http://127.0.0.1:9234/admin/dashboard'}}, firebase, Pusher, $: jquery, URL,
+  const audioClass = class {constructor() { calls.audio++; } pause() {} play() { return Promise.resolve(); }};
+  const window = {location: {href: 'http://127.0.0.1:9234/admin/dashboard'}, addEventListener() {}, Audio: audioClass, Pusher};
+  const context = vm.createContext({document, window, firebase, Pusher, $: jquery, URL,
     Notification: {permission: 'granted', requestPermission: async () => { calls.permission++; return 'granted'; }},
     navigator: {serviceWorker: {register: async () => { calls.serviceWorker++; return {}; }, getRegistrations: async () => registrations, addEventListener() {}}},
     axios: {post: async () => { calls.saved++; return {}; }},
     Audio: class {constructor() { calls.audio++; } pause() {} play() { return Promise.resolve(); }},
+    setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
+    CustomEvent: class {}, localStorage: {getItem:()=>null,setItem(){}}, sessionStorage: {getItem:()=>null,setItem(){}},
     console: {log() {}, warn() {}, error() {}}});
+  vm.runInContext(read('public/dashboard/js/dashboard-order-alerts.js'),context);
   for (const source of [header, footer]) {
     for (const [, script] of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) {
-      if (script.includes('const firebaseConfig') || script.includes('const messaging = firebase.messaging()') || script.includes('const pusher =') || script.includes('serviceWorker.getRegistrations')) {
-        vm.runInContext(script, context);
+      if (script.includes('const firebaseConfig') || script.includes('const messaging = firebase.messaging()') || script.includes('window.DashboardOrderPusher = pusher') || script.includes('serviceWorker.getRegistrations')) {
+        vm.runInContext(renderJsonDirectives(script), context);
       }
     }
   }

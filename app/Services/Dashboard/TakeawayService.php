@@ -33,7 +33,7 @@ class TakeawayService
         return $this->price($cart, $branch, $permissions, (int) $till->tax_bps, $lock, $context);
     }
 
-    public function checkout(array $values, $actor, array $context = []): array
+    public function checkout(array $values, $actor, array $context = [], bool $requireServiceConsent = false): array
     {
         $cart = $this->cart($values);
         $payment = Validator::make($values, [
@@ -44,6 +44,8 @@ class TakeawayService
             'tenders'=>'nullable|array|min:2|max:3', 'tenders.*.method'=>'required|in:cash,card,mobile_wallet',
             'tenders.*.amount'=>'required|string|max:14', 'tenders.*.payment_confirmed'=>'nullable|boolean',
             'tenders.*.reference'=>'nullable|string|max:150',
+            'customer_phone'=>'nullable|string|max:30', 'customer_name'=>'nullable|string|max:100',
+            'service_consent'=>'nullable|boolean', 'marketing_consent'=>'nullable|boolean',
         ])->validate();
         $payment['payment_method'] = $payment['payment_method'] === 'wallet' ? 'mobile_wallet' : $payment['payment_method'];
         $mixed = $payment['payment_method'] === 'mixed';
@@ -71,20 +73,41 @@ class TakeawayService
         $requestHash = $this->hash([$cart, $payment['quote_hash'], $payment['payment_method'], $payment['cash_received_cents'],
             $payment['payment_reference'], $payment['notes']]);
         if ($context) $requestHash=$this->hash([$requestHash,$context,$tenders]);
+        $customer = array_merge($context['snapshot'] ?? [], array_intersect_key($payment, array_flip(['customer_phone','customer_name','service_consent','marketing_consent'])));
+        foreach (['service_consent','marketing_consent'] as $purpose) if (array_key_exists($purpose, $customer)) $customer[$purpose] = in_array($customer[$purpose], [true, 1, '1'], true);
+        $customerChannel = ['phone'=>'delivery'][$context['channel'] ?? ''] ?? ($context['channel'] ?? 'takeaway');
+        if (!empty($customer['customer_phone'])) {
+            $customer['customer_phone'] = CustomerDirectory::requirePhone($customer['customer_phone']);
+            $requestHash = $this->hash([$requestHash, $customer]);
+        }
         $this->requireReady();
         if ($context) abort_unless($this->access->has('takeaway_orders','channel'),503,'قنوات نقطة البيع لم تُجهز بعد.');
-        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor, $context, $tenders) {
+        return DB::transaction(function () use ($cart, $payment, $requestHash, $actor, $context, $tenders, $customer, $customerChannel, $requireServiceConsent) {
             $actor = $this->access->actor($actor);
             $branch = $this->access->branch($cart['branch'], $actor, true);
             $permissions = $this->access->permissions($actor);
             abort_unless($permissions['can_checkout'], 403);
-            $till = $this->till($branch['value'], true);
             $existing = DB::table('takeaway_orders')->where('branch', $branch['value'])->where('actor_id', $actor->id)
                 ->where('request_key', $payment['idempotency_key'])->first();
             if ($existing) {
                 abort_unless(hash_equals($existing->request_hash, $requestHash), 409, 'تم استخدام رقم العملية لفاتورة مختلفة.');
                 return $this->checkoutResult($existing, $actor, true);
             }
+            // Exact legacy retries are read-only; every new dashboard collection needs its current checkbox.
+            if ($requireServiceConsent && !in_array($payment['service_consent'] ?? null, [true, 1, '1'], true)) {
+                throw ValidationException::withMessages(['service_consent'=>'يجب تأكيد موافقة العميل على متابعة الخدمة قبل إنهاء الفاتورة.']);
+            }
+            $till = $this->till($branch['value'], true);
+            // A request may have committed while this transaction waited for the register lock.
+            // Use a current read rather than its earlier repeatable-read snapshot.
+            $existing = DB::table('takeaway_orders')->where('branch', $branch['value'])->where('actor_id', $actor->id)
+                ->where('request_key', $payment['idempotency_key'])->lockForUpdate()->first();
+            if ($existing) {
+                abort_unless(hash_equals($existing->request_hash, $requestHash), 409, 'تم استخدام رقم العملية لفاتورة مختلفة.');
+                return $this->checkoutResult($existing, $actor, true);
+            }
+            $legacyOfflineContact = !empty($context['trusted_offline']) && !empty($context['legacy_customer_phone_missing']);
+            if (in_array($customerChannel, ['takeaway','dine'], true) && !$legacyOfflineContact) $customer['customer_phone'] = CustomerDirectory::requirePhone($customer['customer_phone'] ?? null);
             // Old receipts remain replayable; new POS collections accept cash only.
             abort_unless($payment['payment_method']==='cash'&&empty($payment['tenders']),422,'الدفع متاح كاش فقط.');
             // A movement/setting key cannot be reused to create a sale.
@@ -122,8 +145,9 @@ class TakeawayService
             if ($this->access->has('takeaway_orders','channel')) $orderValues += [
                 'channel'=>$context['channel']??'takeaway','ticket_id'=>$context['ticket_id']??null,
                 'service_bps'=>$quote['service_bps'],'service_cents'=>$quote['service_cents'],'delivery_cents'=>$quote['delivery_cents'],
-                'context_snapshot'=>json_encode($context['snapshot']??[],JSON_UNESCAPED_UNICODE), 'tenders_snapshot'=>json_encode(array_values($tenders),JSON_UNESCAPED_UNICODE),
+                'context_snapshot'=>json_encode($customer,JSON_UNESCAPED_UNICODE), 'tenders_snapshot'=>json_encode(array_values($tenders),JSON_UNESCAPED_UNICODE),
             ];
+            $orderValues += app(BranchOrderSequence::class)->forSale($branch['value'],$context['channel']??'takeaway',isset($context['ticket_id'])?(int)$context['ticket_id']:null);
             $id=DB::table('takeaway_orders')->insertGetId($orderValues);
             foreach ($quote['items'] as $line) DB::table('takeaway_order_items')->insert([
                 'order_id'=>$id, 'product_id'=>$line['product_id'], 'name'=>$line['name'],
@@ -140,8 +164,16 @@ class TakeawayService
                 'request_key'=>$payment['idempotency_key'], 'request_hash'=>$requestHash, 'kind'=>'sale',
                 'amount_cents'=>$delta, 'balance_cents'=>$newBalance, 'business_date'=>$businessDate, 'note'=>['dine'=>'فاتورة صالة','phone'=>'فاتورة دليفري بالتليفون'][$context['channel']??'']??'فاتورة تيك أواي',
                 'metadata'=>json_encode(['payment_method'=>$payment['payment_method'], 'total_cents'=>$total,
-                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,'channel'=>$context['channel']??'takeaway','tenders'=>array_values($tenders)]), 'created_at'=>$when, 'updated_at'=>$when,
+                    'cash_received_cents'=>$payment['cash_received_cents'], 'change_cents'=>$change,'channel'=>$context['channel']??'takeaway','tenders'=>array_values($tenders),
+                    'receipt_print'=>app(PosReceiptPrinting::class)->newSaleMetadata((object) ($orderValues + ['id'=>$id]), $actor)]), 'created_at'=>$when, 'updated_at'=>$when,
             ]);
+            $directory = app(CustomerDirectory::class);
+            $paidAt = !empty($context['trusted_offline']) && !empty($context['paid_at']) ? $context['paid_at'] : $when;
+            $purchase = $directory->purchase($customer, $customerChannel, $branch['value'], 'takeaway_orders', (string)$id, $paidAt);
+            if ($purchase && (!empty($customer['service_consent']) || !empty($customer['marketing_consent']))) {
+                $directory->consent((int)$purchase->customer_id, !empty($customer['service_consent']) ? true : null,
+                    !empty($customer['marketing_consent']) ? true : null, 'pos-checkout:'.$id, (int)$actor->id);
+            }
             return $this->checkoutResult(DB::table('takeaway_orders')->where('id', $id)->first(), $actor, false);
         }, 3);
     }
@@ -152,15 +184,32 @@ class TakeawayService
         $row = DB::table('takeaway_orders')->where('id', $id)->first();
         abort_unless($row, 404);
         $this->access->branch($row->branch, $actor);
-        return $this->presentReceipt($row);
+        return $this->presentReceipt($row, $actor);
+    }
+
+    public function printReceipt(int $id, $actor, ?string $grant = null): array
+    {
+        $this->requireReady();
+        return $this->presentReceipt(app(PosReceiptPrinting::class)->consume($id, $actor, $grant), $actor);
+    }
+
+    /** Service-ticket settlement/recovery may recover the same unused initial grant. */
+    public function firstReceiptPrintUrl(int $id, $actor): ?string
+    {
+        $this->requireReady();
+        $row = DB::table('takeaway_orders')->where('id', $id)->first();
+        abort_unless($row, 404);
+        return app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
     }
 
     public function receipts(array $values, $actor): array
     {
         $this->requireReady();
-        $branch = $this->access->branch($values['branch'], $actor);
+        $selection = $this->readBranches($values['branch'] ?? '', $actor);
+        $branch = $selection['branch'];
+        abort_unless(empty($values['idempotency_key']) || $branch['value'] !== '', 422, 'اختر الفرع لتأكيد نتيجة عملية البيع.');
         $date = $values['date'] ?? $this->businessDate();
-        $query = DB::table('takeaway_orders')->where('branch', $branch['value']);
+        $query = DB::table('takeaway_orders')->whereIn('branch', $selection['values']);
         if (!empty($values['idempotency_key'])) {
             // Recovery of an uncertain POST returns only this cashier's exact key.
             $query->where('actor_id', $this->access->actor($actor)->id)->where('request_key', $values['idempotency_key']);
@@ -168,9 +217,14 @@ class TakeawayService
         $total = (clone $query)->count(); $perPage = (int) ($values['per_page'] ?? 20);
         $last = max(1, (int) ceil($total / $perPage)); $page = min($last, (int) ($values['page'] ?? 1));
         $items = [];
-        foreach ($query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get() as $row) $items[] = $this->presentReceipt($row);
-        return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($branch['value'], $date), 'items'=>$items,
+        $firstPrintUrl = null;
+        foreach ($query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get() as $row) {
+            $items[] = $this->presentReceipt($row, $actor);
+            if (!empty($values['idempotency_key'])) $firstPrintUrl = app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
+        }
+        return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($selection['values'], $date), 'items'=>$items,
             'receipt'=>!empty($values['idempotency_key']) ? ($items[0] ?? null) : null,
+            'replayed'=>!empty($values['idempotency_key']) && count($items) > 0, 'first_print_url'=>$firstPrintUrl,
             'pagination'=>['page'=>$page, 'last_page'=>$last, 'per_page'=>$perPage, 'total'=>$total]];
     }
 
@@ -187,7 +241,7 @@ class TakeawayService
                 return ['id'=>(int) $entry->id, 'kind'=>$entry->kind, 'amount'=>Money::decimal((int) $entry->amount_cents),
                     'note'=>$entry->note, 'actor_id'=>(int) $entry->actor_id,
                     'order_id'=>$entry->order_id ? (int) $entry->order_id : null, 'created_at'=>$this->iso($entry->created_at),
-                    'metadata'=>json_decode($entry->metadata ?? 'null', true)];
+                    'metadata'=>PosReceiptPrinting::publicMetadata($entry->metadata ?? null)];
             })->all()];
     }
 
@@ -241,12 +295,13 @@ class TakeawayService
 
     public function summary(string $value, $actor): array
     {
-        $branch = $this->access->branch($value, $actor);
+        $selection = $this->readBranches($value, $actor);
+        $branch = $selection['branch'];
         if (!$this->access->ready()) return ['ready'=>false, 'register'=>['revision'=>1,'tax_rate'=>'0.00'], 'today'=>['date'=>$this->businessDate(),'count'=>0,'total'=>'0.00']];
         $permissions = $this->access->permissions($actor);
-        $till = $this->presentTill($this->till($branch['value']), $actor);
-        return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($branch['value'], $this->businessDate()), 'permissions'=>$permissions,
-            'policy'=>['tax_rate'=>$till['tax_rate'], 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
+        $till = $branch['value'] !== '' ? $this->presentTill($this->till($branch['value']), $actor) : null;
+        return ['ready'=>true, 'register'=>$till, 'today'=>$this->daily($selection['values'], $this->businessDate()), 'permissions'=>$permissions,
+            'policy'=>['tax_rate'=>$till['tax_rate'] ?? '0.00', 'service_rate'=>'0.00', 'can_discount'=>$permissions['can_manage'],
                 'payment_methods'=>['cash'], 'currency'=>'EGP']];
     }
 
@@ -359,20 +414,21 @@ class TakeawayService
 
     private function checkoutResult(object $order, $actor, bool $replayed): array
     {
-        $receipt = $this->presentReceipt($order);
+        $receipt = $this->presentReceipt($order, $actor);
         return ['success'=>true, 'replayed'=>$replayed, 'receipt'=>$receipt, 'receipt_url'=>$receipt['receipt_url'],
+            'first_print_url'=>app(PosReceiptPrinting::class)->firstPrintUrl($order, $actor),
             'stock_balances'=>app(BranchStock::class)->saleBalances($order->branch,array_column($receipt['items'],'product_id')),
             'register'=>$this->presentTill($this->till($order->branch), $actor), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 
-    private function presentReceipt(object $row): array
+    private function presentReceipt(object $row, $actor): array
     {
         $items = DB::table('takeaway_order_items')->where('order_id', $row->id)->orderBy('id')->get()->map(fn ($line) => [
             'product_id'=>(int) $line->product_id, 'name'=>$line->name, 'option_id'=>$line->option_id, 'option_label'=>$line->option_label,
             'unit'=>$line->unit ?? '', 'quantity_mode'=>$line->quantity_mode, 'quantity'=>$this->catalog->quantity((int) $line->quantity_millis),
             'unit_price'=>Money::decimal((int) $line->unit_price_cents), 'total'=>Money::decimal((int) $line->total_cents),
         ])->all();
-        $receipt = ['id'=>(int) $row->id, 'number'=>'TA-'.strtoupper(str_replace(':', '-', $row->branch)).'-'.str_pad((string) $row->id, 7, '0', STR_PAD_LEFT),
+        $receipt = ['id'=>(int) $row->id, 'number'=>BranchOrderSequence::display($row,$row->branch,$row->channel??'takeaway','TA-'.strtoupper(str_replace(':', '-', $row->branch)).'-'.str_pad((string) $row->id, 7, '0', STR_PAD_LEFT)),
             'idempotency_key'=>$row->request_key, 'branch'=>json_decode($row->branch_snapshot, true), 'cashier'=>json_decode($row->cashier_snapshot, true),
             'business_date'=>$row->business_date, 'created_at'=>$this->iso($row->created_at), 'items'=>$items,
             'payment_method'=>$row->payment_method, 'payment_confirmed'=>(bool) $row->payment_confirmed,
@@ -382,14 +438,28 @@ class TakeawayService
             'delivery'=>Money::decimal((int)($row->delivery_cents??0)), 'channel'=>$row->channel??'takeaway','ticket_id'=>isset($row->ticket_id)?(int)$row->ticket_id:null,
             'context'=>json_decode($row->context_snapshot??'[]',true)?:[],
             'payment_breakdown'=>array_map(fn($t)=>['method'=>$t['method'],'amount'=>Money::decimal((int)$t['amount_cents']),'confirmed'=>(bool)$t['confirmed'],'reference'=>$t['reference']??''],json_decode($row->tenders_snapshot??'[]',true)?:[]),
-            'status'=>'completed', 'details_url'=>route('takeaway.details', ['id'=>$row->id]), 'receipt_url'=>route('takeaway.print', ['id'=>$row->id])];
+            'status'=>'completed', 'details_url'=>route('takeaway.details', ['id'=>$row->id]),
+            'can_reprint'=>$this->access->canReprintReceipts($actor),
+            'receipt_url'=>$this->access->canReprintReceipts($actor) ? route('takeaway.print', ['id'=>$row->id]) : null];
         foreach (['subtotal','discount','tax','total','cash_received','change'] as $name) $receipt[$name] = Money::decimal((int) $row->{$name.'_cents'});
         return $receipt;
     }
 
-    private function daily(string $branch, string $date): array
+    /** Aggregate reads are available only to central dashboard administrators. */
+    private function readBranches(string $value, $actor): array
     {
-        $base = DB::table('takeaway_orders')->where('branch', $branch)->where('business_date', $date);
+        if ($value !== '' && $value !== 'all') {
+            $branch = $this->access->branch($value, $actor);
+            return ['branch'=>$branch, 'values'=>[$branch['value']]];
+        }
+        $actor = $this->access->actor($actor);
+        abort_unless($actor->account_type === 'admin' && empty($actor->owner_resturant_id), 403);
+        return ['branch'=>['value'=>'', 'name'=>__('takeaway.all_branches')], 'values'=>array_column($this->access->branches($actor), 'value')];
+    }
+
+    private function daily($branch, string $date): array
+    {
+        $base = DB::table('takeaway_orders')->whereIn('branch', (array) $branch)->where('business_date', $date);
         $result = ['date'=>$date, 'count'=>(clone $base)->count(), 'total'=>Money::decimal((int) (clone $base)->sum('total_cents'))];
         foreach (array_merge(self::METHODS,['mixed']) as $method) $result[$method] = Money::decimal((int) (clone $base)->where('payment_method', $method)->sum('total_cents'));
         if ($this->access->has('takeaway_orders','tenders_snapshot')) {

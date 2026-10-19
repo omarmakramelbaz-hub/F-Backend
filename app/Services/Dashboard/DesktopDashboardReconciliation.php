@@ -25,6 +25,18 @@ class DesktopDashboardReconciliation
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
+            if(DesktopDashboardCustomerDirectory::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
+                $adapter=app(DesktopDashboardCustomerDirectory::class);$adapter->validateReferences($v['payload']);
+                abort_unless($v['local_references']===$adapter->outputs($v['route_name'],$v['local_result']),409,'مراجع نتيجة العميل المحلي غير متطابقة.');
+                $crmPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($v['route_name'],$crmPayload,$actor,$locked);
+            }
+            if(DesktopDashboardCustomerFacts::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
+                app(DesktopDashboardCustomerFacts::class)->validateReferences($v['payload']);
+                $this->devices->branch($locked,(string)($v['payload']['values']['branch']??''),$actor);
+            }
             if(DesktopDashboardRestaurantFlags::handles($v['route_name'])||DesktopDashboardRestaurantProducts::handles($v['route_name'])||DesktopDashboardRestaurantProductCrud::handles($v['route_name'])||DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403,'حساب الجهاز تغيّر قبل تنفيذ العملية المحلية.');
                 $adapter=app(match(true){DesktopDashboardRestaurantFlags::handles($v['route_name'])=>DesktopDashboardRestaurantFlags::class,DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])=>DesktopDashboardRestaurantMenuCopy::class,DesktopDashboardRestaurantProductCrud::handles($v['route_name'])=>DesktopDashboardRestaurantProductCrud::class,default=>DesktopDashboardRestaurantProducts::class});$adapter->validateReferences($v['payload']);
@@ -55,12 +67,21 @@ class DesktopDashboardReconciliation
                 $actor=app(DesktopDashboardMenuAvailability::class)->authorize($menuPayload['parameters']??[],$actor)['actor'];
                 app(DesktopDashboardMenuAvailability::class)->enrolledBranch($locked,$menuPayload['parameters']);
             }
-            $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor){
+            $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor,$locked){
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
+                if(DesktopDashboardCustomerFacts::handles($v['route_name'])){
+                    // Match the original service lock order before locking ticket/CRM facts.
+                    app(TakeawayAccess::class)->branch((string)($payload['values']['branch']??''),$actor,true);
+                    app(DesktopDashboardCustomerFacts::class)->guard($v['route_name'],$payload);
+                }
+                // New expense categories are branch scoped; legacy receipts without a
+                // branch remain eligible only for the original service's read-only retry.
+                if($v['route_name']==='branch-expenses.categorySave'&&!empty($payload['values']['branch']))
+                    $this->devices->branch($locked,(string)$payload['values']['branch'],$actor);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
-                elseif(!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
-                    $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);
+                elseif(!DesktopDashboardCustomerDirectory::handles($v['route_name'])&&!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                    $this->devices->branch(DesktopDashboardCustomerFacts::handles($v['route_name'])?$locked:$device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();
                 if($v['route_name']==='employees.attendance'){
@@ -72,7 +93,10 @@ class DesktopDashboardReconciliation
                 Carbon::setTestNow($when);
                 try{
                     $execute=function()use($v,$payload,$actor,$when){
-                    $result=$this->commands->execute($v['route_name'],$payload,$actor);
+                    $run=fn()=>$this->commands->execute($v['route_name'],$payload,$actor);
+                    $result=DesktopDashboardCustomerFacts::handles($v['route_name'])?app(DesktopDashboardCustomerFacts::class)->replay($payload,$run):$run();
+                    if(DesktopDashboardCustomerDirectory::handles($v['route_name']))
+                        app(DesktopDashboardCustomerDirectory::class)->verifyAfter($v['route_name'],$result,$v['local_result']);
                     if(DesktopDashboardRestaurantFlags::handles($v['route_name']))
                         app(DesktopDashboardRestaurantFlags::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardRestaurantProducts::handles($v['route_name']))
@@ -85,7 +109,7 @@ class DesktopDashboardReconciliation
                         $facts=function($row){return array_intersect_key($row,array_flip(['status','checked_in_at','checked_out_at','attendance_rule_snapshot']));};
                         abort_unless($this->journal->fingerprint($facts($result['attendance']??[]))===$this->journal->fingerprint($facts($v['local_result']['attendance']??[])),409,'مواعيد أو خصومات الحضور تغيرت على السيرفر؛ العملية المحلية محفوظة للمراجعة.');
                     }
-                    $server=DesktopDashboardMenuAvailability::handles($v['route_name'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):$this->references->outputs($v['route_name'],$result,$payload['values'],(int)$actor->id);
+                    $server=DesktopDashboardMenuAvailability::handles($v['route_name'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):$this->references->outputs($v['route_name'],$result,$payload['values'],(int)$actor->id,$payload['facts']??[]);
                     return [$result,$server];
                     };
                     [$result,$server]=match(true){

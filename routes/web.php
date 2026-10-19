@@ -110,7 +110,9 @@ Route::post('/pusher/auth', function (Request $request) {
 
     return response()->json(['error' => 'Unauthenticated'], 401);
 });
-Route::get('/',[HomeController::class,'home'])->name('home');
+Route::get('/',[\App\Http\Controllers\Site\StorefrontController::class,'index'])->name('home');
+require __DIR__.'/web_storefront.php';
+require __DIR__.'/web_storefront_seo.php';
 // Route::get('/',function(){
 //     return redirect('admin/dashboard');})->name('home');
 Route::get('/term-conditions',[HomeController::class,'terms'])->name('terms');
@@ -129,3 +131,7 @@ Route::get('/pay-false',[HomeController::class,'payFailed'])->name('payFailed');
 foreach (['meta_inbox', 'meta_orders', 'meta_reads', 'meta_replies'] as $metaRoutes) {
     require __DIR__.'/'.$metaRoutes.'.php';
 }
+
+require __DIR__.'/meta_comments.php';
+
+require __DIR__.'/meta_comment_ai.php';

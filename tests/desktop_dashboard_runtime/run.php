@@ -35,6 +35,7 @@ Schema::create('orders',function(Blueprint $t){$t->id();$t->unsignedBigInteger('
 foreach([
     '2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos',
     '2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets',
+    '2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs',
     '2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses',
     '2026_10_04_060000_lock_pos_service_bills.php'=>'LockPosServiceBills',
     '2026_10_04_080000_create_branch_operations.php'=>'CreateBranchOperations',
@@ -45,6 +46,13 @@ foreach([
     '2026_10_06_200000_manage_expense_categories.php'=>'ManageExpenseCategories',
     '2026_10_06_140000_add_employee_wallet_phone.php'=>'AddEmployeeWalletPhone',
     '2026_10_08_190000_add_employee_attendance_rules.php'=>'AddEmployeeAttendanceRules',
+    '2026_10_17_000001_create_crm_customer_directory.php'=>'CreateCrmCustomerDirectory',
+    '2026_10_18_160000_add_employee_part_time_schedule.php'=>'AddEmployeePartTimeSchedule',
+    '2026_10_18_180000_add_employee_pay_hours.php'=>'AddEmployeePayHours',
+    '2026_10_18_190000_create_branch_basic_recipes.php'=>'CreateBranchBasicRecipes',
+    '2026_10_18_200000_scope_expense_categories_by_branch.php'=>'ScopeExpenseCategoriesByBranch',
+    '2026_10_18_230000_create_branch_stock_minimum_alerts.php'=>'CreateBranchStockMinimumAlerts',
+    '2026_10_18_210000_create_shift_report_printing_and_numbers.php'=>'CreateShiftReportPrintingAndNumbers',
     '2026_10_08_130000_create_desktop_dashboard_journal.php'=>'CreateDesktopDashboardJournal',
 ] as $file=>$class){require $application.'/database/migrations/'.$file;(new $class)->up();}
 DB::table('users')->insert([['id'=>1,'name'=>'الأونر','account_type'=>'admin'],['id'=>10,'name'=>'كاشير','account_type'=>'vendor'],['id'=>11,'name'=>'فرع آخر','account_type'=>'vendor']]);
@@ -63,13 +71,15 @@ foreach($pdo->query('SHOW TABLES FROM `'.$database.'`')->fetchAll(PDO::FETCH_COL
 }
 $actor=User::withoutGlobalScopes()->findOrFail(1);$cashier=User::withoutGlobalScopes()->findOrFail(10);$journal=app(DesktopDashboardJournal::class);$device=(string)Str::uuid();
 require __DIR__.'/address-suggestions.php';
+require __DIR__.'/current-dashboard.php';
+require __DIR__.'/print-queue-scope.php';
 $receiveId=(string)Str::uuid();$receive=['branch'=>'f:100','idempotency_key'=>$receiveId,'ingredient_id'=>6,'unit'=>'kg','quantity'=>'2.000','supplier'=>'المورد'];
 $received=$journal->execute($device,$receiveId,1,'branch-stock.receive',['values'=>$receive],[],fn()=>app(BranchInventory::class)->receive($receive,$actor));
 check((int)DB::table('branch_inventory')->value('quantity_units')===2000000 && $journal->counts($device)['pending']===1,'original goods receipt and encrypted command commit together');
 $duplicate=$journal->execute($device,$receiveId,1,'branch-stock.receive',['values'=>$receive],[],function(){throw new RuntimeException('A replay must never execute a business operation again.');});
 check($duplicate===$received && DB::table('branch_inventory_movements')->count()===1,'retry returns the saved original receipt without another stock movement');
 $changed=$receive;$changed['quantity']='3.000';denied(fn()=>$journal->execute($device,$receiveId,1,'branch-stock.receive',['values'=>$changed],[],fn()=>[]),409,'an operation UUID cannot be reused with changed data');
-$saleId=(string)Str::uuid();$sale=['branch'=>'f:100','items'=>[['product_id'=>1,'option_id'=>'','quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash','cash_received'=>'100.00','idempotency_key'=>$saleId];
+$saleId=(string)Str::uuid();$sale=['customer_phone'=>'01012345678','service_consent'=>true,'branch'=>'f:100','items'=>[['product_id'=>1,'option_id'=>'','quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash','cash_received'=>'100.00','idempotency_key'=>$saleId];
 $sale['quote_hash']=app(TakeawayService::class)->quote($sale,$actor)['quote_hash'];
 $sold=$journal->execute($device,$saleId,1,'takeaway.checkout',['values'=>$sale],[$receiveId],fn()=>app(TakeawayService::class)->checkout($sale,$actor));
 check((int)DB::table('takeaway_tills')->value('balance_cents')===102850 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'original sale changes cash, stock and its outbox atomically');
@@ -99,11 +109,11 @@ check((int)DB::table('branch_employee_entries')->value('amount_cents')===5000,'t
 $closingId=(string)Str::uuid();$review=app(BranchShiftClosing::class)->data(['branch'=>'f:100'],$actor);
 $closing=['branch'=>'f:100','idempotency_key'=>$closingId,'previous_closing_id'=>$review['previous_closing_id'],'review_token'=>$review['review_token'],'counted_cash'=>'1008.50','notes'=>'تقفيل محلي'];
 $closed=$journal->execute($device,$closingId,1,'branch-shifts.close',['values'=>$closing,'facts'=>['shift'=>app(BranchShiftClosing::class)->desktopReview($closing,$actor)]],[$saleId,$expenseId,$advanceId],fn()=>app(BranchShiftClosing::class)->close($closing,$actor));
-check((int)DB::table('takeaway_tills')->value('balance_cents')===0 && DB::table('branch_shift_closings')->count()===1,'the original shift closes locally and resets the drawer exactly once');
+check((int)DB::table('takeaway_tills')->value('balance_cents')===100850 && DB::table('branch_shift_closings')->count()===1,'the original shift closes locally and preserves the drawer and enqueues one report');
 $snapshot=app(BranchShiftClosing::class)->receipt($closed['closing']['id'],$actor);
 check($snapshot['expected_cash']==='1008.50' && $snapshot['channels']['takeaway']['count']===1 && $snapshot['expenses_total']==='20.00','the saved shift snapshot reconciles its original local sales and expenses');
 $closeRetry=$journal->execute($device,$closingId,1,'branch-shifts.close',['values'=>$closing,'facts'=>$journal->savedFacts($device,$closingId,1,'branch-shifts.close')],[$saleId,$expenseId,$advanceId],function(){throw new RuntimeException('A saved closing must not run again.');});
-check($closeRetry===$closed&&DB::table('branch_shift_closings')->count()===1,'a lost local shift reply reuses its saved review instead of reviewing the reset drawer');
+check($closeRetry===$closed&&DB::table('branch_shift_closings')->count()===1,'a lost local shift reply reuses its saved review instead of reviewing the next shift');
 $payrollId=(string)Str::uuid();$period=app(BranchPayroll::class)->statement(['branch'=>'f:100','employee_id'=>$saved['employee']['id'],'month'=>'2026-10'],$actor)['statement'];
 $payroll=['branch'=>'f:100','employee_id'=>$saved['employee']['id'],'month'=>'2026-10','preview_hash'=>$period['preview_hash'],'idempotency_key'=>$payrollId];
 $stalePayroll=$payroll;$stalePayroll['preview_hash']=str_repeat('0',64);
@@ -149,11 +159,17 @@ DB::table('branch_employee_salaries')->insert(['branch'=>'f:101','employee_id'=>
 $otherPeriod=app(BranchPayroll::class)->statement(['branch'=>'f:101','employee_id'=>1,'month'=>'2026-10'],$serverActor)['statement'];
 app(BranchPayroll::class)->close(['branch'=>'f:101','employee_id'=>1,'month'=>'2026-10','preview_hash'=>$otherPeriod['preview_hash'],'idempotency_key'=>(string)Str::uuid()],$serverActor);
 DB::table('resturant_products')->insert(['id'=>2,'resturant_id'=>101,'product_id'=>2,'category_id'=>1,'product_name'=>'صنف فرع آخر','product_price'=>'100.00','status'=>'show','price'=>'{}']);
-$otherSale=['branch'=>'f:101','items'=>[['product_id'=>2,'option_id'=>'','quantity_mode'=>'piece','quantity'=>'1']],'discount'=>'0.00','payment_method'=>'cash','cash_received'=>'100.00','idempotency_key'=>(string)Str::uuid()];
+$otherSale=['customer_phone'=>'01087654321','service_consent'=>true,'branch'=>'f:101','items'=>[['product_id'=>2,'option_id'=>'','quantity_mode'=>'piece','quantity'=>'1']],'discount'=>'0.00','payment_method'=>'cash','cash_received'=>'100.00','idempotency_key'=>(string)Str::uuid()];
 $otherSale['quote_hash']=app(TakeawayService::class)->quote($otherSale,$serverActor)['quote_hash'];app(TakeawayService::class)->checkout($otherSale,$serverActor);
 app(BranchExpenses::class)->save(['branch'=>'f:101','idempotency_key'=>(string)Str::uuid(),'occurred_on'=>'2026-10-08','category'=>'purchases','description'=>'مصروف فرع آخر','amount'=>'10.00','payment_method'=>'cash','approve'=>true],$serverActor);
 $enrollment=app(DesktopDashboardDevices::class)->enroll(['device_id'=>$device,'name'=>'اختبار المزامنة','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(1));
 $remoteDevice=app(DesktopDashboardDevices::class)->device($enrollment['token']);$reconciliation=app(DesktopDashboardReconciliation::class);
+$enrolledBranches=$remoteDevice->branches;DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['branches'=>json_encode(['f:100'])]);
+$restrictedCategoryDevice=app(DesktopDashboardDevices::class)->device($enrollment['token']);$outsideCategory=(string)Str::uuid();
+denied(fn()=>$reconciliation->ingest($remoteDevice,['command_id'=>$outsideCategory,'actor_id'=>1,'route_name'=>'branch-expenses.categorySave',
+    'payload'=>['values'=>['branch'=>'f:101','idempotency_key'=>$outsideCategory,'name'=>'تصنيف خارج الجهاز'],'parameters'=>[],'files'=>[]],
+    'local_result'=>['success'=>true],'local_references'=>[],'dependencies'=>[],'occurred_at'=>now('UTC')->toIso8601String()]),403,'a stale owner device object cannot replay a category outside its current locked enrollment');
+DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['branches'=>$enrolledBranches]);
 $bootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export($remoteDevice);
 check($bootstrap['device_id']===$device && $bootstrap['actor_id']===1 && !$bootstrap['coverage']['full_dashboard'],'initial data is bound to the enrolled account and reports incomplete coverage');
 $branchEnrollment=app(DesktopDashboardDevices::class)->enroll(['device_id'=>(string)Str::uuid(),'name'=>'جهاز الكاشير','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(10));
@@ -190,6 +206,12 @@ check(DB::select('SHOW TABLES')===[],'failed integrity validation leaves the new
 $imported=app(\App\Services\Dashboard\DesktopDashboardImport::class)->import($cashierBootstrap);
 check($imported['schema_hash']===$cashierBootstrap['schema_hash'] && DB::table('resturants')->count()===1 && DB::table('users')->count()===1,'the account dataset imports into a separate real local MariaDB schema');
 check(Schema::hasTable('desktop_dashboard_commands') && DB::table('desktop_dashboard_commands')->count()===0,'an imported local database receives its own empty encrypted command journal');
+check(Schema::hasTable('pos_branch_print_jobs')&&DB::table('pos_branch_print_jobs')->count()===0,'an imported local database retains the empty kitchen print queue schema');
+DB::beginTransaction();
+try{
+    app(\App\Services\Dashboard\PosBranchPrinting::class)->enqueue('f:100',90001,90002);
+    check(DB::table('pos_branch_print_jobs')->where('branch','f:100')->where('kitchen_id',90002)->value('status')==='pending','the imported empty print queue accepts a fresh local kitchen job');
+}finally{DB::rollBack();}
 $verified=app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($imported);
 check($verified['verified']&&$verified['branches']===['f:100'],'a reopened staging database verifies its actual table counts, actor and snapshot binding');
 check($verified['source']===$cashierBootstrap['source'],'independent staging verification retains its bound source and framework identity');
@@ -317,7 +339,7 @@ check((int)$remoteEmployee!== (int)$saved['employee']['id'] && (int)DB::table('b
 check((int)DB::table('branch_employee_entries')->where('branch','f:100')->value('employee_id')===(int)$remoteEmployee,'a dependent payroll entry uses the server employee ID');
 $serverPayroll=DB::table('branch_payrolls')->where('branch','f:100')->first();
 check((int)$serverPayroll->id!==(int)$closedPayroll['statement']['payroll_id']&&(int)$serverPayroll->employee_id===(int)$remoteEmployee&&$serverPayroll->status==='paid'&&(int)$serverPayroll->net_cents===124032,'the mapped original payroll closes and pays once despite employee, entry, attendance and payroll ID collisions');
-check((int)DB::table('takeaway_tills')->value('balance_cents')===0 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'server cash and inventory match the local original operations after shift reconciliation');
+check((int)DB::table('takeaway_tills')->value('balance_cents')===100850 && (int)DB::table('branch_inventory')->value('quantity_units')===1750000,'server cash and inventory match the local original operations after shift reconciliation');
 check(DB::table('branch_shift_closings')->count()===1 && DB::table('branch_shift_sources')->count()===2 && (int)DB::table('branch_shift_sources')->where('source','pos')->value('source_id')===2 && (int)DB::table('branch_shift_sources')->where('source','expense')->value('source_id')===2,'one synced closing maps and claims its single sale and expense sources despite ID collisions');
 $altered=$envelopes[0];$altered['payload']['values']['quantity']='9.000';denied(fn()=>$reconciliation->ingest($remoteDevice,$altered),409,'the server rejects altered content with an already committed operation UUID');
 DB::table('desktop_dashboard_devices')->where('id',$device)->update(['enabled'=>false]);denied(fn()=>$reconciliation->ingest($remoteDevice,$envelopes[0]),401,'revoked device authorization is checked before replaying its saved result');
@@ -354,5 +376,7 @@ require __DIR__.'/expense-attachments.php';
 require __DIR__.'/outbox-attachments.php';
 require __DIR__.'/whatsapp-local-unprepared.php';
 require __DIR__.'/meta-local-unprepared.php';
+require __DIR__.'/customer-facts.php';
+require __DIR__.'/customer-directory.php';
 echo $count.' checks passed using the original Laravel application and real MariaDB'.PHP_EOL;
 $fixtureCompleted=true;

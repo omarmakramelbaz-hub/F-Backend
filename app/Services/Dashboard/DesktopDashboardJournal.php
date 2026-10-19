@@ -21,6 +21,7 @@ class DesktopDashboardJournal
         $local=function($value)use(&$local){
             if(!is_array($value))return $value;
             if(isset($value['$desktop_ref']))return (int)$value['$desktop_ref']['local_id'];
+            if(isset($value['$desktop_crm_evidence']))return $value['$desktop_crm_evidence']['prefix'].$local($value['$desktop_crm_evidence']['reference']);
             return array_map($local,$value);
         };
         return $local($payload['facts']??[]);
@@ -36,9 +37,19 @@ class DesktopDashboardJournal
             // All business writes acquire this row before resolving IDs or taking business locks.
             // A refresh uses the same lock, so it cannot race an already accepted operation.
             app(DesktopDashboardRefresh::class)->writable($device,$actor);
+            if(config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route)&&!isset($payload['envelope'])){
+                $scope=app(DesktopDashboardRefresh::class)->lock($device);
+                if($scope){$current=app(DesktopDashboardDevices::class)->actor($scope);
+                    abort_unless((int)$current->id===$actor,403);
+                    app(DesktopDashboardDevices::class)->branch($scope,(string)($payload['values']['branch']??''),$current);
+                    app(TakeawayAccess::class)->branch((string)($payload['values']['branch']??''),$current,true);}
+                $saved=$this->savedFacts($device,$command,$actor,$route);
+                $payload['facts']['customer_directory']=$saved['customer_directory']??app(DesktopDashboardCustomerFacts::class)->capture($route,$payload);
+            }
             abort_if(config('desktop_dashboard.local')&&\Illuminate\Support\Facades\Schema::hasTable('desktop_dashboard_archived_commands')
                 &&DB::table('desktop_dashboard_archived_commands')->where('device_id',$device)->where('command_id',$command)->exists(),
                 409,'هذه العملية مؤكدة في سجل الجهاز السابق؛ حدّث الصفحة لعرض البيانات الحالية.');
+            $localConsent=config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route)&&!isset($payload['envelope'])?$payload:null;
             $prepared=$this->references->prepare($device,$route,$payload,$command);
             $payload=$prepared['payload'];$dependencies=array_values(array_unique(array_merge($dependencies,$prepared['dependencies'])));
             // References produced by this operation's earlier reply are not dependencies.
@@ -48,6 +59,7 @@ class DesktopDashboardJournal
             if ($old) {
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');
                 $result=$this->saved($old->local_result_cipher)['result'];
+                if(DesktopDashboardCustomerDirectory::handles($route))app(DesktopDashboardCustomerDirectory::class)->authorizeSaved($route,$result,$payload,$device,$actor);
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantMenuCopy::handles($route))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($result);
@@ -56,8 +68,12 @@ class DesktopDashboardJournal
             foreach ($dependencies as $dependency) {
                 abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$dependency)->exists(),409,'العملية السابقة لم تُحفظ؛ لا يمكن حفظ عملية تابعة لها.');
             }
+            if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
-            $result = $work();
+            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route));
+            $previousClock=\Carbon\Carbon::getTestNow();
+            if($customerClock)\Carbon\Carbon::setTestNow($started);
+            try{$result=$work();}finally{if($customerClock)\Carbon\Carbon::setTestNow($previousClock);}
             if (!is_array($result)) throw new \LogicException('A journaled business operation must return its persisted result.');
             // Collections and date objects must have the same JSON representation on first reply and replay.
             $result=json_decode($this->json($result),true,512,JSON_THROW_ON_ERROR);
@@ -67,6 +83,7 @@ class DesktopDashboardJournal
             $references=$this->references->capture($device,$command,$route,$result,$payload,$actor);
             $now = now('UTC');
             $occurred=$now;
+            if($customerClock)$occurred=$started;
             // A menu-copy can be a genuine no-op with historical product timestamps.
             // Its occurrence is the accepted batch start, independently of copied/updated rows.
             if(config('desktop_dashboard.local')&&DesktopDashboardRestaurantMenuCopy::handles($route))$occurred=$started;

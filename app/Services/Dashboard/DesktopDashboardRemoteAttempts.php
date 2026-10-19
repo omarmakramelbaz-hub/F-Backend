@@ -17,7 +17,9 @@ class DesktopDashboardRemoteAttempts
         'dining.save'=>'can_checkout','dining.action'=>'can_checkout','dining.settle'=>'can_checkout','dining.table-save'=>'can_manage_tables','dining.settings'=>'can_manage',
         'phone-orders.save'=>'can_checkout','phone-orders.action'=>'can_checkout','phone-orders.settle'=>'can_checkout',
         'phone-orders.dispatch-company'=>'can_checkout','phone-orders.finish-batch'=>'can_checkout',
-        'customers.save'=>'can_checkout','delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
+        'customers.save'=>'can_checkout','customers.directory-save'=>'can_checkout','customers.consent'=>'can_checkout',
+        'delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
+        'branch-stock.minimum-save'=>'can_manage_inventory','branch-stock.basic-apply'=>'can_manage_inventory',
         'branch-stock.receive'=>'can_checkout','branch-stock.recipe-save'=>'can_manage_inventory',
         'branch-expenses.review'=>'can_approve_expense',
         'branch-expenses.save'=>'can_checkout',
@@ -138,6 +140,8 @@ class DesktopDashboardRemoteAttempts
                 abort_unless(preg_match('/^[a-f0-9]{64}$/D',$row->request_hash??'')&&is_string($row->response_cipher),503);
                 $saved=json_decode(Crypt::decryptString($row->response_cipher),true,512,JSON_THROW_ON_ERROR);
                 abort_unless(is_array($saved)&&isset($saved['status'],$saved['operation'])&&$saved['status']>=200&&$saved['status']<400,503);
+                if($row->method==='POST'&&in_array($row->path,['/admin/customers/directory-save','/admin/customers/consent'],true))
+                    $this->customerReply($row->path==='/admin/customers/directory-save'?'customers.directory-save':'customers.consent',$saved,$this->devices->actor($fresh),$fresh);
                 if(isset($saved['restaurant_product_crud_payload'],$saved['restaurant_product_crud_result'])){
                     $adapter=app(DesktopDashboardRestaurantProductCrud::class);
                     abort_unless(DesktopDashboardRestaurantProductCrud::handles($saved['restaurant_product_crud_route']??null),503);
@@ -251,7 +255,8 @@ class DesktopDashboardRemoteAttempts
                 app(DesktopDashboardMenuAvailability::class)->enrolledBranch($device,$parameters);
             }
             else{
-                // Expense categories are the original shared vocabulary and have no branch input.
+                if($name==='branch-expenses.categorySave'&&$request->filled('branch'))$this->devices->branch($device,(string)$request->input('branch'),$actor);
+                // Legacy branchless category receipts and own notifications retain their read-only retry scope.
                 if(!in_array(self::CORE[$name],['can_manage_expense_categories','can_read_own_notifications'],true))$this->devices->branch($device,(string)$request->input('branch'),$actor);
                 if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
                 $permissions=app(TakeawayAccess::class)->permissions($actor);
@@ -296,14 +301,17 @@ class DesktopDashboardRemoteAttempts
             if($row->status==='committed'){
                 abort_unless(hash_equals($row->request_hash,$fingerprint),409,'محتوى الطلب يختلف عن العملية المحفوظة.');
                 $saved=json_decode(Crypt::decryptString($row->response_cipher),true,512,JSON_THROW_ON_ERROR);
-                abort_unless(($saved['operation']??null)===$operation,409);return $this->response($saved,$files);
+                abort_unless(($saved['operation']??null)===$operation,409);
+                $this->customerReply($name,$saved,$actor,$device);return $this->response($saved,$files);
             }
             abort_unless($row->status==='ready',409);
             $previous=DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
             if($previous){
                 abort_unless($previous->status==='committed'&&hash_equals($previous->request_hash,$fingerprint),409,'محتوى العملية يختلف عن طلبها المحفوظ.');
+                $saved=json_decode(Crypt::decryptString($previous->response_cipher),true,512,JSON_THROW_ON_ERROR);
+                $this->customerReply($name,$saved,$actor,$device);
                 DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'committed','request_hash'=>$fingerprint,'response_cipher'=>$previous->response_cipher,'updated_at'=>now('UTC')]);
-                return $this->response(json_decode(Crypt::decryptString($previous->response_cipher),true,512,JSON_THROW_ON_ERROR),$files);
+                return $this->response($saved,$files);
             }
             $request->request->remove('_desktop_command');$request->query->remove('_desktop_command');
             if($productCrud){$request->request->remove('_method');$request->query->remove('_method');}
@@ -323,6 +331,10 @@ class DesktopDashboardRemoteAttempts
             elseif($productCrud)app(DesktopDashboardProductImages::class)->verifyResult($flagResult,$files);
             elseif($files)app(DesktopDashboardExpenseAttachments::class)->verifyResult(json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR),$files);
             $saved=['operation'=>$operation,'status'=>$response->getStatusCode(),'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$response->headers->get('Location')];
+            if(DesktopDashboardCustomerDirectory::handles($name)){
+                $result=json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR);abort_unless(is_array($result),503);
+                $saved['customer_directory_binding']=app(DesktopDashboardCustomerDirectory::class)->remoteBinding($name,$values,$operation,$result,$actor,$device);
+            }
             if($review){$saved['review_facts']=$reviewPayload['facts'];$saved['review_success']=session('success');}
             if($wishlist){$saved['wishlist_facts']=$wishlistPayload['facts'];$saved['wishlist_success']=session('success');}
             if($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){$prefix=$menuCopy?'restaurant_menu_copy':($productCrud?'restaurant_product_crud':($restaurantProducts?'restaurant_product':'restaurant_flag'));$saved[$prefix.'_facts']=$flagPayload['facts'];$saved[$prefix.'_after']=$flagResult['after'];$saved[$prefix.'_success']=$flagResult['success'];}
@@ -333,6 +345,14 @@ class DesktopDashboardRemoteAttempts
             return $response;
         });};
         return ($productCrud||$menuCopy)?app(DesktopDashboardProductImages::class)->guard(fn()=>app(DesktopDashboardProductEffects::class)->guard($work)):$work();
+    }
+    private function customerReply(string $route,array $saved,\App\Models\User $actor,object $device): void
+    {
+        if(!DesktopDashboardCustomerDirectory::handles($route))return;
+        $binding=$saved['customer_directory_binding']??null;
+        abort_unless(is_array($binding)&&($binding['operation']??null)===($saved['operation']??null),503,
+            'هوية نتيجة العميل المحفوظة غير مكتملة؛ الطلب يحتاج مراجعة.');
+        app(DesktopDashboardCustomerDirectory::class)->authorizeRemoteBinding($route,$binding,$actor,$device);
     }
     private function response(array $saved,array $files=[])
     {

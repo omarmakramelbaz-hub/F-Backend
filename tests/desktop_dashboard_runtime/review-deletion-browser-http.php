@@ -12,13 +12,14 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     foreach($manifest['sourceHashes'] as $file=>$hash)if(hash_file('sha256',realpath($argv[1]).'/'.$file)!==$hash)throw new RuntimeException('Review runtime source differs: '.$file);
     $receipt=['format'=>1,'kind'=>'original-review-delete-browser','sourceRevision'=>$commit,'sourceFilesVerified'=>count($manifest['sourceHashes']),
         'sourceFingerprint'=>$manifest['sourceFingerprint'],'schemaInventory'=>106,'fixtureSha256'=>hash_file('sha256',__FILE__),
-        'browserFixtureSha256'=>hash_file('sha256',$reviewBrowserScript),'fullDashboard'=>false,'providersReplaced'=>false,'completed'=>false];
+        'browserFixtureSha256'=>hash_file('sha256',$reviewBrowserScript),'soundFixtureSha256'=>hash_file('sha256',$fixture.'/browser-sound.cjs'),'fullDashboard'=>false,'providersReplaced'=>false,'completed'=>false];
     $legacy=file_get_contents($fixture.'/legacy.php');$boundary=strpos($legacy,'$actor=User::withoutGlobalScopes()->findOrFail(10);');
     if(!$boundary)throw new RuntimeException('Original106 schema/seed boundary missing.');
     eval(str_replace('__DIR__',var_export($fixture,true),substr($legacy,5,$boundary-5)));
     $httpStopped=false;$browserStopped=false;
-    register_shutdown_function(function()use(&$receipt,&$fixtureCompleted,&$httpStopped,&$browserStopped,$artifact,$pdo,$database,$stage){
-        $receipt['completed']=$fixtureCompleted;$receipt['checks']=$GLOBALS['count']??0;$receipt['httpStopped']=$httpStopped;$receipt['browserStopped']=$browserStopped;
+    register_shutdown_function(function()use(&$receipt,&$fixtureCompleted,&$httpStopped,&$browserStopped,$artifact,$pdo,$database,$stage,$fixture){
+        $receipt['soundFixtureVerifiedAfter']=hash_file('sha256',$fixture.'/browser-sound.cjs')===$receipt['soundFixtureSha256'];
+        $receipt['completed']=$fixtureCompleted&&$receipt['soundFixtureVerifiedAfter'];$receipt['checks']=$GLOBALS['count']??0;$receipt['httpStopped']=$httpStopped;$receipt['browserStopped']=$browserStopped;
         $receipt['privateDatabasesDropped']=(int)$pdo->query('SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('.$pdo->quote($database).','.$pdo->quote($stage).')')->fetchColumn()===0;
         file_put_contents($artifact.'/receipt.json',json_encode($receipt,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE).PHP_EOL);
     });

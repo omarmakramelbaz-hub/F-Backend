@@ -1,0 +1,25 @@
+Windows PDF engine: wkhtmltox 0.12.6-1, official portable x64 build
+
+This application invokes the separate upstream wkhtmltopdf command-line program.
+The complete eight-file upstream portable payload is retained without modification,
+including its library and public headers. Its upstream download is recorded in
+provenance.json beside this directory; no native binary is checked into this Git
+repository. The archive and every extracted file are pinned by SHA256.
+
+Upstream does not publish an archive checksum or binary signature for this asset.
+Our recorded digest was computed from the official release bytes downloaded over
+HTTPS. The packaging and wkhtmltopdf source tags are signed upstream; that does
+not mean the downloadable Windows executables are Authenticode signed.
+
+The copied license texts are unmodified upstream material. Their source URLs,
+Git blob IDs (where available) and hashes appear in source-manifest.json.
+Build versions and exact source revisions appear in build-provenance.json.
+For the complete corresponding-source/build material, use all four source
+repositories recorded in provenance.json, including the separate Qt submodule,
+and the pinned packaging Dockerfile/MXE recipes included here. GitHub's generated
+wkhtmltopdf source ZIP alone does not contain its Qt submodule.
+
+wkhtmltopdf is licensed under LGPLv3; Qt/WebKit and other bundled libraries have
+their own included licenses. These notices and source references are retained for
+review. They are not a claim that binary redistribution or release obligations
+have been completed. The full-dashboard release gate remains unchanged.

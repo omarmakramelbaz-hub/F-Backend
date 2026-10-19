@@ -225,13 +225,17 @@ class ScopeEvidenceTests(unittest.TestCase):
 
     def test_scope_binds_exact_manifest_without_embedding_future_release(self):
         self.assertEqual(SCOPE['version'],2);self.assertNotIn('release',SCOPE)
-        raw=(ROOT/'deployment/desktop_dashboard_server_manifest.json').read_bytes()
+        raw=(ROOT/'deployment/desktop_dashboard_server_manifest-20261019-1323.json').read_bytes()
         self.assertEqual(common.blob(raw),subject.MANIFEST_BLOB)
         self.assertEqual(SCOPE['manifest_blob'],subject.MANIFEST_BLOB)
 
+    def test_old_metadata_scope_cannot_authorize_the_current_production_capture(self):
+        raw=(ROOT/'deployment/desktop_dashboard_server_manifest.json').read_bytes()
+        self.assertNotEqual(common.blob(raw),subject.MANIFEST_BLOB)
+
     def test_all38_rows_are_exact_manifest_before_blobs_with_four_owner_and34_mode_changes(self):
         raw=(ROOT/'deployment/desktop_dashboard_publication_metadata_scope.json').read_bytes();self.assertEqual(common.blob(raw),subject.SCOPE_BLOB)
-        manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest.json').read_text());by_path={row['path']:row for row in manifest['sources']}
+        manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest-20261019-1323.json').read_text());by_path={row['path']:row for row in manifest['sources']}
         self.assertEqual(len(SCOPE['rows']),38);owners=modes=0
         for row in SCOPE['rows']:
             self.assertEqual(row['blob'],by_path[row['path']]['before_blob']);self.assertEqual(by_path[row['path']]['phase'],2)

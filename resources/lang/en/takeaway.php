@@ -1,5 +1,19 @@
 <?php
 return [
+    'all_branches' => 'All branches',
+    'quantity_short'=>'Qty.',
+    'receipt_thanks'=>'Thank you for your visit',
+    'receipt_welcome'=>'We look forward to serving you again',
+    'cash_paid'=>'Amount paid',
+    'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to complete the invoice).',
+    'consent_required'=>'Confirm the customer’s follow-up consent before completing the invoice.',
+    'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
+    'quantity_auto_title'=>'Weight / quantity',
+    'quantity_auto_hint'=>'Enter kilograms or a piece count, then choose the product; its unit is selected automatically.',
+    'confirm_amount'=>'Confirm amount', 'automatic_unit'=>'Product unit',
+    'customer_name'=>'Customer name (optional)', 'customer_phone'=>'Customer phone', 'customer_phone_required'=>'Enter a valid customer phone before completing the sale.',
+    'service_consent'=>'The customer agreed to a WhatsApp feedback message after purchase.',
+    'marketing_consent'=>'The customer agreed to WhatsApp promotional offers (optional).',
  'entry_expense'=>'Branch expense','entry_expense_refund'=>'Expense reversal',
     'title' => 'Takeaway orders', 'subtitle' => 'Direct sales from the branch menu', 'branch' => 'Branch',
     'select_branch' => 'Choose a branch', 'cashier' => 'Cashier', 'daily_invoices' => 'Today’s invoices',
@@ -52,6 +66,7 @@ return [
     'settings_saved' => 'Register settings saved.',
     'register_readonly' => 'Balance and activity for this branch.',
     'payment_note' => 'Cash only. Enter the amount received to calculate change.',
+    'initial_print_error' => 'The sale was saved but its initial print failed. Contact management to check the printer and reprint.',
     'print_error' => 'The sale was saved but could not print. Print the saved invoice again.',
     'quote_required' => 'Review the invoice once calculation completes.',
     'choose_base' => 'No extras',
@@ -75,5 +90,6 @@ return [
     'access_required' => 'This account is read-only. Order creation permission or a branch account is required.',
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
+    'register_print_only' => 'The cash register balance appears only in the printout after the shift is closed.',
 ];
 

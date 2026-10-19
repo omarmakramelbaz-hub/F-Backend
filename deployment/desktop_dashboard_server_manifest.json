@@ -3,14 +3,14 @@
   "expected_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
   "before_source": {
     "format": 1,
-    "files": 1027,
-    "sha256": "13ee9a3f712646d9d1b2e1c850142929e1c137d68fc7d451fc7ea83cfd63eca2",
+    "files": 1157,
+    "sha256": "2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f",
     "framework": "8.83.29"
   },
   "after_source": {
     "format": 1,
-    "files": 1155,
-    "sha256": "cf22993ff8846a41e374a62e166513c723f8d86c50f316a68e40dc388f25c5a3",
+    "files": 1288,
+    "sha256": "882cbc73d443092ac69633cb1fc2b6a98104021a49b3fb8cee0031cf563d74ca",
     "framework": "8.83.29"
   },
   "sources": [
@@ -65,7 +65,7 @@
     {
       "path": "app/Http/Middleware/DesktopDashboardJournal.php",
       "before_blob": null,
-      "after_blob": "a0c9c2abb8f0b62a59adab1ef7d487661ecbec91",
+      "after_blob": "ff00979d559393e109b8081c3df3029355997d31",
       "phase": 1
     },
     {
@@ -95,19 +95,31 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardBootstrap.php",
       "before_blob": null,
-      "after_blob": "d80ef62ef61ae5ef664ea813035c332251ba6843",
+      "after_blob": "15e9c603d9e76df895a1ee9d897d43153e766a18",
       "phase": 1
     },
     {
       "path": "app/Services/Dashboard/DesktopDashboardCommands.php",
       "before_blob": null,
-      "after_blob": "c21534397399b5c9be4a767e86fd382149e87afd",
+      "after_blob": "143a84abd9bf590bcfdf9bd29202844726569c6c",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardCustomerDirectory.php",
+      "before_blob": null,
+      "after_blob": "29d3f6638731ae295aaf28328693bd20fd3bc01c",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardCustomerFacts.php",
+      "before_blob": null,
+      "after_blob": "fc2e0bbe2360c5dfac714258828bfde50a16bdcd",
       "phase": 1
     },
     {
       "path": "app/Services/Dashboard/DesktopDashboardData.php",
       "before_blob": null,
-      "after_blob": "e0d63691649c59398fe56a50d362c353b3a0d3ba",
+      "after_blob": "3cec68a9eb0be2e01243d66a555111e68812e019",
       "phase": 1
     },
     {
@@ -137,7 +149,7 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardJournal.php",
       "before_blob": null,
-      "after_blob": "2094a6e8961c274bada208be3bcaca3b84eae8c8",
+      "after_blob": "525d61598ea2ab49db6b3e3c76f514486d141879",
       "phase": 1
     },
     {
@@ -185,13 +197,13 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardReconciliation.php",
       "before_blob": null,
-      "after_blob": "308fe1985a4f52e1414cee48ab550606cd4afe71",
+      "after_blob": "3304895f77a730c64efa3df32cac6b1d0c33345a",
       "phase": 1
     },
     {
       "path": "app/Services/Dashboard/DesktopDashboardReferences.php",
       "before_blob": null,
-      "after_blob": "752433e12cb4407b37f5d88e32a17a7702c77b1f",
+      "after_blob": "c2f3ab2a1d68757a2c9f53540a5c8f03f665fe8b",
       "phase": 1
     },
     {
@@ -203,7 +215,7 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardRemoteAttempts.php",
       "before_blob": null,
-      "after_blob": "7d85e6ceb2427b9f62db282af2b349ceb08609ba",
+      "after_blob": "a20acd04ac558db07df3a8394d1dddcaf7671b5d",
       "phase": 1
     },
     {
@@ -245,13 +257,13 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardRoutes.php",
       "before_blob": null,
-      "after_blob": "0bfe29cf8c07c6cf9707ccfe4445c971efb4b9d0",
+      "after_blob": "b50060fcad6c9f0e2d296f87f49e660b25d49b50",
       "phase": 1
     },
     {
       "path": "app/Services/Dashboard/DesktopDashboardSchema.php",
       "before_blob": null,
-      "after_blob": "9a019a8066462ace051792956b6bcd662176c265",
+      "after_blob": "c6c89005357d428abeb9106a5566db54e212b0d5",
       "phase": 1
     },
     {
@@ -783,6 +795,18 @@
       "phase": 2
     },
     {
+      "path": "config/services.php",
+      "before_blob": "8e8163e64facb3c324186903609ae8679b7b8a0b",
+      "after_blob": "2835858b86c48451b67fc4a92c1d4d299a542404",
+      "phase": 2
+    },
+    {
+      "path": "config/snappy.php",
+      "before_blob": "5e6c7be295b0035704b6dd6c522f638ef6040cf4",
+      "after_blob": "c02171cdae34d52cfd3137e6195945f61536948a",
+      "phase": 2
+    },
+    {
       "path": "bootstrap/app.php",
       "before_blob": "7494037bd99a873c333c3d530e40ab0f2b544c3d",
       "after_blob": "037e17df03b0598d7bbd27ed333312e8e337fb1b",
@@ -790,20 +814,26 @@
     },
     {
       "path": "app/Services/Dashboard/BranchExpenses.php",
-      "before_blob": "d29f769e4efcf5f1be1570fbad887ba90b8b23ca",
-      "after_blob": "52d6b2a352c4064674d215d68e6bcb6dd0ea844d",
+      "before_blob": "789c63bf08ab512a71d7a0a0b28e79b2a10e4e16",
+      "after_blob": "d765ff5bacd3f737cc8196200c17e699222100f9",
       "phase": 2
     },
     {
       "path": "app/Services/Dashboard/BranchPayroll.php",
-      "before_blob": "6f2ca6457d3ec00d2ed0af04d0216cf1eb15faf0",
-      "after_blob": "1451c88983c3ba33bce98f20cc925affaf3fb261",
+      "before_blob": "de4137c1b35ecb9a515b44ee7fb5fcd63a9a8b64",
+      "after_blob": "816c1713f43fa22793ce2725b388e1dc091b7ce1",
       "phase": 2
     },
     {
       "path": "app/Services/Dashboard/BranchShiftClosing.php",
-      "before_blob": "2cfe768ca07308a49b758987981a686b1008b3b7",
-      "after_blob": "16152675a530faf5fdd7db830c2e6757ef335bc5",
+      "before_blob": "6eb5b4dc7b64ea87974a6b39089156b9186f940e",
+      "after_blob": "7669fac79438f8ff2d4dce6f3ed820922a3c8bc7",
+      "phase": 2
+    },
+    {
+      "path": "app/Services/Dashboard/CustomerDirectory.php",
+      "before_blob": "8ebcf9afaa20c21cf9b92a0711ee9c2ec92e0b97",
+      "after_blob": "b7393e6b933d49dfdcdf7a32eebe6ca08f9cdec6",
       "phase": 2
     },
     {
@@ -814,8 +844,8 @@
     },
     {
       "path": "app/Services/Dashboard/PhoneMapProvider.php",
-      "before_blob": "bb360aa46868b432a8a1cf5dff48cdc50b62c860",
-      "after_blob": "30ca29a651a1b70b2ee5f8682cd8d41a72c00b05",
+      "before_blob": "394fe8a1d19443de4920b243d1cc945f6a244a38",
+      "after_blob": "254eb9621cb906765bf07b90964281160f5451ff",
       "phase": 2
     },
     {
@@ -844,20 +874,20 @@
     },
     {
       "path": "public/dashboard/css/branch-operations.css",
-      "before_blob": "4490ceb83a57cb6480dc7f1427fef49fbea7da15",
-      "after_blob": "dc6c2d5e41839cd47af2f4292fbda9991325f93f",
+      "before_blob": "1e1f201071fecbc9c464bc095e0e3155852a9422",
+      "after_blob": "30fc86c263e34129db4905dc7d1f5e8b2e536094",
       "phase": 2
     },
     {
       "path": "public/dashboard/css/phone-orders.css",
-      "before_blob": "0bd7329c568b5d038acc7bc46dfc36a94e02c2eb",
-      "after_blob": "73ccb146880447833ae2b1a4ef900e66714e2f24",
+      "before_blob": "8da9635eb715b79dcc95cca3e3637beb65378194",
+      "after_blob": "3223bb010e066518e435ed3c78a760eb95a243c1",
       "phase": 2
     },
     {
       "path": "public/dashboard/js/branch-operations.js",
-      "before_blob": "038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c",
-      "after_blob": "a116c94e68f00d08bebf4390dc2c6d14bd063ac1",
+      "before_blob": "2b0a6e352749df7f2e6dbde8336888b91a2b12fa",
+      "after_blob": "40c99f029b25b9178931bc01b7b2ec71c1ff914f",
       "phase": 2
     },
     {
@@ -892,8 +922,14 @@
     },
     {
       "path": "public/dashboard/js/phone-orders.js",
-      "before_blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
-      "after_blob": "894bcfad23de57c3a4cc4ca373b6a6c6105038bb",
+      "before_blob": "ddaf9425e2385e9cbfa18688321a04c50de72ca4",
+      "after_blob": "5923ef6feccda16bd1d759e9d9d307a96f8c6480",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/CartController.php",
+      "before_blob": "1a872609a4e5414ee0b1f62d0971c6ffc9ffc05f",
+      "after_blob": "8321d980c1bfd9f174c6cda54d1a060338cc8259",
       "phase": 2
     },
     {
@@ -906,6 +942,12 @@
       "path": "app/Http/Controllers/Dashboard/AreaController.php",
       "before_blob": "3020ddfae89ee4f5c69ab64fbc2b4f883152d2c4",
       "after_blob": "d832798455bbdcc8abc136d5c5a0be9d03d9b79c",
+      "phase": 2
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchOperationsController.php",
+      "before_blob": "606bbd00ba187144054cf8c6bfea449b6b10a572",
+      "after_blob": "b8894d28790868492b8a33a0bde00a45e387b256",
       "phase": 2
     },
     {
@@ -923,7 +965,7 @@
     {
       "path": "app/Http/Controllers/Dashboard/ContractController.php",
       "before_blob": "0270ca5711fed9a25ef0e6391c10c2abd87fbcc8",
-      "after_blob": "bf4257645d69bfc487b6c3769c1d0f162438ef29",
+      "after_blob": "cc0b0192ecdf918b46c664c4a18de640fefabb01",
       "phase": 2
     },
     {
@@ -934,8 +976,8 @@
     },
     {
       "path": "app/Http/Controllers/Dashboard/HomeController.php",
-      "before_blob": "cd08730d675f82eeda767cfa02b4c7d5c9403b96",
-      "after_blob": "70ac437a6228b0d227410bcb5c3babb7270563f2",
+      "before_blob": "74d4780bf48aa309078316f1bd6052b5cee00b98",
+      "after_blob": "6415f741f8497ac4b441d420f8f81b6a28df46a4",
       "phase": 2
     },
     {
@@ -957,6 +999,12 @@
       "phase": 2
     },
     {
+      "path": "app/Console/Kernel.php",
+      "before_blob": "e0813e16b32fc760cf6f3cc868905c73a279f751",
+      "after_blob": "95630c5d2ac87bc1a28ba84114504304a9b80923",
+      "phase": 2
+    },
+    {
       "path": "app/Exceptions/Handler.php",
       "before_blob": "abb3f87f51a45220afe8a40f68600ad1a1dfa437",
       "after_blob": "1d47b49d1f4927bbff0aa813a4e9cdd0a5d8af21",
@@ -964,14 +1012,14 @@
     },
     {
       "path": "app/Http/Kernel.php",
-      "before_blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
-      "after_blob": "fbda39a3bbbad5c828a9c844eced2ddef2010799",
+      "before_blob": "5bb7c6edd4a4367b4fd72d95a8f80c25a71975b7",
+      "after_blob": "8d1fb3a6ba332c599841c5ac9cd83761cdd498c2",
       "phase": 2
     },
     {
       "path": "app/Providers/RouteServiceProvider.php",
-      "before_blob": "601bc01df754b568c9e6e7a6bb95b866011cca42",
-      "after_blob": "df3ad6881183e593f6810ebf6308fd9b4d2d2f5e",
+      "before_blob": "1ae558e0d1db98f218b4e657a592ade9a3894880",
+      "after_blob": "3740259f584f3ad79a4690a9effbd3f31a87e81d",
       "phase": 2
     },
     {
@@ -994,8 +1042,8 @@
     },
     {
       "path": "routes/api.php",
-      "before_blob": "7ac6d63fb29701cc6369199854caca0e13ede66b",
-      "after_blob": "ca18b58825b51bb55906a03a708f0f5791448291",
+      "before_blob": "dcbf4cb5f12a283433cbf77b9eb7955bf766d41c",
+      "after_blob": "dc43a0da1c8f236facfa953b98466f85058e9c0d",
       "phase": 2
     },
     {
@@ -1059,6 +1107,12 @@
       "phase": 2
     },
     {
+      "path": "resources/views/admin/contracts/pdf.blade.php",
+      "before_blob": null,
+      "after_blob": "5bfc078005ed152d64cd1ae05f9509492ae79dd3",
+      "phase": 2
+    },
+    {
       "path": "resources/views/admin/coupon_wheels/index.blade.php",
       "before_blob": "9e49d8e6f6f2b2d0b0219c834b890041b8536451",
       "after_blob": "96e6ab8195720c2a461b4dcb0b6bcd1006cf85d0",
@@ -1072,8 +1126,8 @@
     },
     {
       "path": "resources/views/admin/layouts/footer.blade.php",
-      "before_blob": "886f076b7d57dc4d71fd24e63c27bd9fcf34f11e",
-      "after_blob": "7b3996ffc13dea503743be40fbf3d72c4671045b",
+      "before_blob": "8756869647715fe972138a19b2e026c09dba3bfa",
+      "after_blob": "1f82df5fe534184ef6caecd0f0b4e5e642b381b2",
       "phase": 2
     },
     {
@@ -1090,8 +1144,8 @@
     },
     {
       "path": "resources/views/admin/login.blade.php",
-      "before_blob": "67373dd4b418a0e8752934bb790e94888c3fd21a",
-      "after_blob": "8217997e7a7b306b51f6b7679c1d1c6e0c705d17",
+      "before_blob": "c0bc7a6b44e91a907957833f9b6f75f942720356",
+      "after_blob": "ab75b1fcadf348c723c317a4a6dbda82dfb4353b",
       "phase": 2
     },
     {
@@ -1114,8 +1168,8 @@
     },
     {
       "path": "resources/views/admin/phone_orders/index.blade.php",
-      "before_blob": "2902da5d8aaab940640646d496a8a6f8670cf6de",
-      "after_blob": "db0cc3ba5af9c87ee71f4dbf409a5228775bbf60",
+      "before_blob": "8dcb9f33e6b4afbad5fcfc27d8c9071d7c4d2778",
+      "after_blob": "3c763c397bb7ae930fc63534995a152ffeac3b5c",
       "phase": 2
     },
     {
@@ -1205,8 +1259,52 @@
   ],
   "protected": [
     {
+      "path": "public/css/dashboard-meta-ai-controls.css",
+      "blob": "0928502f344567b20599cf0216352a1e7b76da97"
+    },
+    {
+      "path": "public/css/dashboard-meta-comment-ai.css",
+      "blob": "5d72796437513511b610442f942933fb00445719"
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-expanded.css",
+      "blob": "42cc07b4d05563953f373e531623f892b2c63998"
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-original.css",
+      "blob": "407e599ca0b9483cc8106404806e5b90244ff0b0"
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-pending.css",
+      "blob": "ada23357ea36f9a481c30e37dfab67f707dbd404"
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-timeline.css",
+      "blob": "e32ed96770e93d563500758395dfba6fde595a61"
+    },
+    {
+      "path": "public/css/dashboard-meta-comments.css",
+      "blob": "7c38d21dbe30bc0c386dd431e1fdfc321994c818"
+    },
+    {
+      "path": "public/css/dashboard-meta-connection.css",
+      "blob": "660f7145725b073e60f5b60059c7dd5141e5bd5d"
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-expanded.css",
+      "blob": "89f3d9b91126dface3ca087aa9e1fc319f56883f"
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-viewport.css",
+      "blob": "1d3c4c9360619c6e3d7ab6a23d4188de36e96732"
+    },
+    {
       "path": "public/css/dashboard-meta-inbox.css",
-      "blob": "ab4beecd1580769d917e3ddfe3b4139123d9dbbe"
+      "blob": "79e8e815e024199316d2f5bf86be56bf21ededfd"
+    },
+    {
+      "path": "public/css/dashboard-meta-message-hub.css",
+      "blob": "631727d91df60dc2a65ded92b1b6cdda87de0afe"
     },
     {
       "path": "public/css/dashboard-whatsapp-inbox.css",
@@ -1222,27 +1320,43 @@
     },
     {
       "path": "public/dashboard/branding/dashboard-brand.css",
-      "blob": "b338e6d1fdb566b175a6ec875e5c6a2720377279"
+      "blob": "b8e5b389536cfe30ff42ea9a08ba1d26f2da3b86"
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls.js",
+      "blob": "c941a55a442d5994c941fcbaa35ee4a5b549709c"
+    },
+    {
+      "path": "public/js/dashboard-meta-comment-ai.js",
+      "blob": "1c8b2cff7542e91c55faf694143698f44392800a"
+    },
+    {
+      "path": "public/js/dashboard-meta-comments.js",
+      "blob": "f6de1fa10451d2f78ee99048f6e94e0d21364798"
     },
     {
       "path": "public/js/dashboard-meta-inbox.js",
-      "blob": "6c6d56d2942554960ddf692641432179103fa70f"
+      "blob": "15853304f93533ffac4670f1e92c57b999dab7c1"
+    },
+    {
+      "path": "public/js/dashboard-meta-message-hub.js",
+      "blob": "b84ea253a1919ba1d73f6e8d1fc70c5ec03b6e01"
     },
     {
       "path": "public/js/dashboard-meta-replies.js",
-      "blob": "ec89061d647a11548dd7930cd7d573cfdf68783b"
+      "blob": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a"
     },
     {
       "path": "public/js/dashboard-whatsapp-inbox.js",
-      "blob": "2f6de4626ec6108763f9cb024868233c7266dc36"
+      "blob": "964bc531f7119451a570cd9ee3e2a0996f2fd1af"
     },
     {
       "path": "public/js/dashboard-whatsapp-orders.js",
-      "blob": "ad7f78fc490774280c31e01125bc262a92a2cb3d"
+      "blob": "ecd33b427e2af3cf444ea116920fe7f1ec51dc8d"
     },
     {
       "path": "public/js/dashboard-whatsapp-replies.js",
-      "blob": "392569e73e951405a5de6ce676922e63377a6b0b"
+      "blob": "65d49087c9b98d621e8d3a11151751c18416881a"
     }
   ],
   "migrations": [

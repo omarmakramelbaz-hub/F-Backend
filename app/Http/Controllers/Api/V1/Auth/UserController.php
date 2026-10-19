@@ -205,37 +205,34 @@ public function resend_code(Request $request){
         // return $this->errorResponse('لا يوجد صاحب لهذا الرقم ');
 
     }
-   public function forget_pass(Request $request)
+    public function forget_pass(Request $request)
     {
-        $user_country_code=$request['country_code'];
-        $user_email=$request['email'];
-        $user_mobile=$request['mobile'];
-        $user=User::where('mobile',$user_mobile)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
-        if($user)
-        {
-            $code= random_int(1000, 9999);
-            $user->update([
-                'email_code' => $code,
-            ]);
-        // $bearer = '3f33b7b5c6a2f0f46b20fd3de61cd85a';
-        // $taqnyt = new TaqnyatSms($bearer);
-        // $body = 'من فضلك ادخل رمز التحقق المرسل لك من موقع dezin  ' . $user->mobile_code . '  ( مؤسسة الذكاء المعماري )';
-        // $recipients = [$user->mobile];
-        // $sender = 'SmartArchit';
-        // $smsId = '45568';
+        $user = User::where('mobile', $request->input('mobile'))
+            ->where('email', $request->input('email'))
+            ->where('account_type', 'user')
+            ->where('app_scope', $this->appScope())
+            ->first();
 
-        // $message =$taqnyt->sendMsg($body, $recipients, $sender, $smsId);
-
-             $mail=Mail::send('emails.forget_password', ['email' => $request->email,'code' => $code,'name'=>$user->name], function($message) use ($request) {
-                $message->to($request->email);
-                $message->subject('Forget Password Verfiy Code');
-            });
-          //  dd($mail);
-            return $this->successResponse($user->email_code,'راجع الكود المرسل على بريدك الإلكتروني');
-
+        if (!$user) {
+            return $this->errorResponse('لا يوجد صاحب لهذا البريد الإلكتروني ');
         }
-        return $this->errorResponse('لا يوجد صاحب لهذا البريد الإلكتروني ');
 
+        $code = random_int(1000, 9999);
+        $user->update([
+            'email_code' => $code,
+            'forget_password' => 0,
+        ]);
+
+        Mail::send('emails.forget_password', [
+            'email' => $request->input('email'),
+            'code' => $code,
+            'name' => $user->name,
+        ], function ($message) use ($request) {
+            $message->to($request->input('email'));
+            $message->subject('Forget Password Verfiy Code');
+        });
+
+        return $this->successResponse(null, 'راجع الكود المرسل على بريدك الإلكتروني');
     }
     
      public function checkOtpFirstOrder(Request $request){
@@ -265,46 +262,72 @@ public function resend_code(Request $request){
         }
         return $this->errorResponse('لا يوجد صاحب لهذا الرقم ');
     }
-    public function check_code_forget_pass(Request $request){
-        $user_code=$request['code'];
-        $user_country_code=$request['country_code'];
-        $user_email=$request['email'];
-        $user=User::where('email_code', $user_code)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
-        if($user){
+    public function check_code_forget_pass(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'code' => 'required|digits:4',
+        ]);
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first());
+        }
+        $email = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $user = User::where('email_code', $request->input('code'))
+                ->where('email', $request->input('email'))->where('account_type', 'user')
+                ->where('app_scope', $this->appScope())->lockForUpdate()->first();
+            if (!$user) {
+                return null;
+            }
             $user->update([
                 'forget_password' => 1,
                 'email_code' => null,
             ]);
-            
-         return $this->successResponse($user->email,trans('api.code successed'));
-
+            return $user->email;
+        });
+        if ($email !== null) {
+            return $this->successResponse($email, trans('api.code successed'));
         }
         return $this->errorResponse(trans('api.retry code'));
     }
     
     public function reset_password(Request $request)
     {
-    $validator = Validator::make($request->all(), [
-        'new_password' => 'required|min:6|required_with:confirm_password|same:confirm_password',
-        'confirm_password' => 'required|min:6',
-    ]);
-    
-      if($validator->fails()){
-        return $this->errorResponse($validator->errors()->first());
-    }
-            $user_mobile=$request['mobile'];
-        $user_country_code=$request['country_code'];
-        $user_email=$request['email'];
-        $user=User::where('forget_password',1)->where('mobile', $user_mobile)->where('email', $user_email)->where('account_type','user')->where('app_scope', $this->appScope())->first();
-        if($user)
-        {
-            $user->update(['password' => $request->get('new_password'),
-            ]);
-        return $this->successResponse($user->email,trans('api.reset password done'));
+        $validator = Validator::make($request->all(), [
+            'new_password' => 'required|min:6|required_with:confirm_password|same:confirm_password',
+            'confirm_password' => 'required|min:6',
+        ]);
 
+        if ($validator->fails()) {
+            return $this->errorResponse($validator->errors()->first());
         }
-        return $this->errorResponse(trans('api.error in password'));
 
+        $email = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $user = User::where('forget_password', 1)
+                ->where('mobile', $request->input('mobile'))
+                ->where('email', $request->input('email'))
+                ->where('account_type', 'user')
+                ->where('app_scope', $this->appScope())
+                ->lockForUpdate()
+                ->first();
+
+            if (!$user) {
+                return null;
+            }
+
+            $user->update([
+                'password' => $request->get('new_password'),
+                'forget_password' => 0,
+                'email_code' => null,
+            ]);
+
+            return $user->email;
+        });
+
+        if ($email === null) {
+            return $this->errorResponse(trans('api.error in password'));
+        }
+
+        return $this->successResponse($email, trans('api.reset password done'));
     }
 
     public function changePassword(Request $request){

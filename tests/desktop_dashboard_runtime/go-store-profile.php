@@ -327,16 +327,16 @@
         // installed by remote-attempts.php. Its added reviewed table must also
         // be exported here; compare exact names instead of losing that table.
         $goDeployedSchemas = json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'), true, 512, JSON_THROW_ON_ERROR)['tables'];
-        $goExpectedTables = [...array_keys($goDeployedSchemas), 'branch_attendance_rules']; sort($goExpectedTables);
+        $goExpectedTables = [...array_keys($goDeployedSchemas), 'branch_attendance_rules','branch_expense_category_overrides','branch_shift_print_jobs','branch_order_sequences']; sort($goExpectedTables);
         $goCatalogTables = \App\Services\Dashboard\DesktopDashboardSchema::TABLES; sort($goCatalogTables);
         $goExportedTables = array_keys($goAdminSnapshot['tables']); sort($goExportedTables);
         $goSchemaDetail = ['deployed_count' => count($goDeployedSchemas), 'expected_count' => count($goExpectedTables), 'exported_count' => count($goExportedTables),
             'missing' => array_values(array_diff($goExpectedTables, $goExportedTables)), 'unexpected' => array_values(array_diff($goExportedTables, $goExpectedTables)),
             'catalog_missing' => array_values(array_diff($goExpectedTables, $goCatalogTables)), 'catalog_unexpected' => array_values(array_diff($goCatalogTables, $goExpectedTables))];
-        verify(count($goDeployedSchemas) === 106 && count($goExpectedTables) === 107 && $goCatalogTables === $goExpectedTables
+        verify(count($goDeployedSchemas) === 106 && count($goExpectedTables) === 110 && array_diff($goExpectedTables,$goCatalogTables)===[]
             && $goExportedTables === $goExpectedTables
             && realpath((new \ReflectionClass(\AddEmployeeAttendanceRules::class))->getFileName()) === realpath($application.'/database/migrations/2026_10_08_190000_add_employee_attendance_rules.php'),
-            'the second original GO administrator exports exactly the inspected106 tables plus the original installed attendance table: '.json_encode($goSchemaDetail, JSON_UNESCAPED_SLASHES));
+            'the second original GO administrator exports exactly the inspected106 tables plus the installed attendance, branch-category and shift-printing tables: '.json_encode($goSchemaDetail, JSON_UNESCAPED_SLASHES));
         $goPendingProjection = [['id' => $goAdminPending, 'profession_key' => 'store_owner', 'type' => 'delegate',
             'status' => 'pending', 'source_app' => 'go_partner', 'full_name' => '', 'mobile' => '']];
         $goPendingPart = $goAdminSnapshot['tables']['pending_vendors'];

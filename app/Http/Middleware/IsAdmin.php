@@ -17,6 +17,7 @@ class IsAdmin
     public function handle($request, Closure $next, $guard = null) {
         if (Auth::guard('admin')->check()) {
             session()->put('guard', 'admin');
+            session()->put('id_user', Auth::guard('admin')->id());
             return $next($request);
         }else{
             return redirect(url('admin/login'));

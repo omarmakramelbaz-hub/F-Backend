@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const nativePdf = require('./native-pdf.cjs');
 const revision = value => /^[a-f0-9]{40}$/.test(value || '');
 
 /** Retain the exact application and native binaries required by an existing local journal. */
@@ -52,6 +53,8 @@ class RuntimeArchive {
     if (JSON.stringify(names) !== JSON.stringify(expected) || names.some(name => actual[name] !== receipt.files[name])) throw Error('نسخة التشغيل المحفوظة غير مكتملة؛ احتفظ ببيانات الجهاز لاسترجاعها.');
     const manifest = await this.manifest(directory);
     if (manifest.sourceRevision !== receipt.revision) throw Error('نسخة التشغيل لا تطابق سجل الجهاز.');
+    // The authenticated receipt already binds every retained native byte, including
+    // its original PDF policy. A future engine update must not invalidate old journals.
     return directory;
   }
   async retain(bundle) {
@@ -60,6 +63,8 @@ class RuntimeArchive {
     const previous = await this.metadata.read(key);
     if (previous) return this.verify(destination, previous);
     const files = await this.inventory(bundle);
+    if (manifest.pdfRuntime) await nativePdf.verify(bundle,manifest.pdfRuntime,files);
+    else if (files['application/config/snappy.php']) throw Error('حزمة البرنامج غير مكتملة لتشغيل ملفات PDF؛ بيانات الجهاز محفوظة.');
     for (const [name, hash] of Object.entries(manifest.sourceHashes)) {
       if (files['application/' + name] !== hash) throw Error('مصدر الداشبورد لا يطابق حزمة التشغيل.');
     }
