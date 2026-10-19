@@ -15,10 +15,12 @@ import time
 root, php, application = map(Path, sys.argv[1:4])
 root, php, application = root.resolve(), php.resolve(), application.resolve()
 data = Path(tempfile.mkdtemp(prefix="fasakhansta-mariadb-test-"))
+(data / "tmp").mkdir(mode=0o700)
 env = os.environ.copy()
 env["LD_LIBRARY_PATH"] = str(root / "usr/lib/x86_64-linux-gnu")
 args = [str(root / "usr/sbin/mariadbd"), "--no-defaults", "--user=root",
         "--basedir=" + str(root / "usr"), "--datadir=" + str(data),
+        "--tmpdir=" + str(data / "tmp"),
         "--lc-messages-dir=" + str(root / "usr/share/mysql"),
         "--innodb-use-native-aio=0", "--skip-grant-tables"]
 sql = "CREATE DATABASE mysql;\nUSE mysql;\n"

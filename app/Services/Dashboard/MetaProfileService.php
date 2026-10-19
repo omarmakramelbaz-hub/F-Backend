@@ -13,15 +13,19 @@ class MetaProfileService
 
     public function __construct(?callable $transport = null) { $this->transport = $transport; }
 
-    public function refresh(int $limit = 10): array
+    public function refresh(int $limit = 10, ?int $conversation = null): array
     {
         if ($limit < 1 || $limit > 10) throw new \InvalidArgumentException('LIMIT');
         $metrics = ['scanned' => 0, 'attempted' => 0, 'updated' => 0, 'failed' => 0, 'skipped' => 0, 'errors' => 0];
         if (!app(MetaInboxAccess::class)->available()) return $metrics + ['unavailable' => 1];
         $deadline = microtime(true) + 20;
         // Rotate skipped rows through a bounded scan without changing message chronology.
-        $rows = MetaInboxAccess::scope(DB::table('meta_inbox_conversations'))
-            ->orderBy('updated_at')->orderBy('id')->limit(200)->get(['id']);
+        $query = MetaInboxAccess::scope(DB::table('meta_inbox_conversations'));
+        if ($conversation !== null) {
+            if ($conversation < 1) throw new \InvalidArgumentException('CONVERSATION');
+            $query->where('id', $conversation);
+        }
+        $rows = $query->orderBy('updated_at')->orderBy('id')->limit(200)->get(['id']);
         foreach ($rows as $row) {
             if ($metrics['attempted'] >= $limit || microtime(true) >= $deadline) return $metrics;
             $metrics['scanned']++;

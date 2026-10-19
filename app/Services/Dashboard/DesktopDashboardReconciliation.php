@@ -55,9 +55,13 @@ class DesktopDashboardReconciliation
                 $actor=app(DesktopDashboardMenuAvailability::class)->authorize($menuPayload['parameters']??[],$actor)['actor'];
                 app(DesktopDashboardMenuAvailability::class)->enrolledBranch($locked,$menuPayload['parameters']);
             }
-            $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor){
+            $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor,$locked){
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
+                // New expense categories are branch scoped; legacy receipts without a
+                // branch remain eligible only for the original service's read-only retry.
+                if($v['route_name']==='branch-expenses.categorySave'&&!empty($payload['values']['branch']))
+                    $this->devices->branch($locked,(string)$payload['values']['branch'],$actor);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
                 elseif(!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
                     $this->devices->branch($device,(string)($payload['values']['branch']??''),$actor);

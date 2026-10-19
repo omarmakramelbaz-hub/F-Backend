@@ -13,6 +13,7 @@
     function fmt(value){return value===null||value===undefined?'—':numbers.format(value);}
     function decimal(value){return new Intl.NumberFormat(boot.locale==='ar'?'ar-EG-u-nu-latn':'en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value/100);}
     function money(value){return decimal(value)+' '+text.currency;}
+    function stockMinimumNote(node,low){if(low===true){node.title=text.stock_minimum_note;node.appendChild(el('span',' · '+text.stock_minimum_note,'sr-only'));}}
     function safeLink(address){var u=new URL(address,location.href);return u.origin===location.origin?u.href:'#';}
     function routeLink(anchor,branch){var u=new URL(anchor.href,location.href);if(branch)u.searchParams.set('branch',branch);else u.searchParams.delete('branch');anchor.href=u.href;}
     function badge(value,tone){return el('span',value,'ho-badge ho-'+tone);}
@@ -54,7 +55,7 @@
     function renderStock(){
         if(data.owner_platform){renderOwnerStock();return;}
         var search=$('stock-search').value.trim().toLocaleLowerCase(),n=$('stock');n.replaceChildren();var items=data.inventory.items.filter(function(i){return i.name.toLocaleLowerCase().includes(search);});
-        items.forEach(function(i){var row=el('tr'),name=el('td',i.name),qty=el('td',undefined,i.negative_branches?'ho-stock-warning':'');qty.appendChild(el('strong',i.tracked_branches?fmt(Number(i.quantity))+' '+text[i.unit==='kg'?'kg':'unit']:text.untracked));if(i.negative_branches)qty.appendChild(el('small',text.stock_negative_note));else if(i.tracked_branches&&i.tracked_branches<data.selected_branches)qty.appendChild(el('small',text.partial));row.append(name,qty,el('td',fmt(i.tracked_branches)+' / '+fmt(data.selected_branches)));n.appendChild(row);});
+        items.forEach(function(i){var row=el('tr'),name=el('td',i.name),qty=el('td',undefined,i.negative_branches||i.is_low===true?'ho-stock-warning':'');qty.appendChild(el('strong',i.tracked_branches?fmt(Number(i.quantity))+' '+text[i.unit==='kg'?'kg':'unit']:text.untracked));stockMinimumNote(qty,i.is_low);if(i.negative_branches)qty.appendChild(el('small',text.stock_negative_note));else if(i.tracked_branches&&i.tracked_branches<data.selected_branches)qty.appendChild(el('small',text.partial));row.append(name,qty,el('td',fmt(i.tracked_branches)+' / '+fmt(data.selected_branches)));n.appendChild(row);});
         if(!items.length){var tr=el('tr'),td=el('td',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty');td.colSpan=3;tr.appendChild(td);n.appendChild(tr);}$('stock-count').textContent=fmt(data.inventory.tracked)+' / '+fmt(data.inventory.items.length);routeLink($('stock-link'),data.filters.branch);
     }
     function renderAlerts(){
@@ -115,13 +116,15 @@
 
     function renderOwnerStock(){
         var select=$('stock-branch'),selected=select.value,n=$('stock');select.replaceChildren();
+        var all=el('option',text.all_branches);all.value='';select.appendChild(all);
         data.branch_cards.forEach(function(branch){var option=el('option',branch.name);option.value=branch.value;select.appendChild(option);});
         if(data.branch_cards.some(function(b){return b.value===selected;}))select.value=selected;
         if(window.jQuery&&select.classList.contains('select2-hidden-accessible'))window.jQuery(select).trigger('change.select2');
         n.replaceChildren();
-        if(select.value&&data.modules.inventory)data.inventory.items.forEach(function(item){
-            var balance=item.balances[select.value],row=el('article',undefined,'ho-owner-row'),name=el('span',item.name,'ho-row-name');name.title=item.name;row.dataset.hoIngredient=item.id;
-            var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,balance&&balance.quantity_units<0?'ho-stock-warning':'');row.append(name,qty);n.appendChild(row);
+        if(data.modules.inventory)data.inventory.items.forEach(function(item){
+            var balance=select.value?item.balances[select.value]:(item.tracked_branches?item:null),row=el('article',undefined,'ho-owner-row'),name=el('span',item.name,'ho-row-name');name.title=item.name;row.dataset.hoIngredient=item.id;
+            var warning=balance&&(balance.is_low===true||(select.value?balance.quantity_units<0:item.negative_branches>0));
+            var qty=el('strong',balance?fmt(Number(balance.quantity))+' '+text[item.unit==='kg'?'kg':'unit']:text.untracked,warning?'ho-stock-warning':'');stockMinimumNote(qty,balance&&balance.is_low);row.append(name,qty);n.appendChild(row);
         });
         if(!n.children.length)n.appendChild(el('p',data.modules.inventory?text.no_stock:text.unavailable_inventory,'ho-empty'));
         routeLink($('stock-link'),select.value||data.filters.branch);

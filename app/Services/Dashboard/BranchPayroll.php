@@ -26,6 +26,7 @@ class BranchPayroll
     }
     public function wallet(array $values,$actor): array
     {
+        // Branch wallet phone entry keeps the shared branch-scoped writer.
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','wallet_phone'=>'nullable|string|max:30'])->validate();
         $number=$this->walletNumber($v['wallet_phone']??'');
         return $this->ops->write('employee.wallet',$v,$actor,function($branch,$actor)use($v,$number){
@@ -47,16 +48,48 @@ class BranchPayroll
             return ['attendance'=>(array)DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first()];
         });
     }
+    // Central owner/admin employee profiles; branch daily work stays available.
+    public function canManageEmployees($actor): bool
+    {
+        $fresh=$this->ops->access->actor($actor);
+        return $fresh->account_type==='admin'&&empty($fresh->owner_resturant_id);
+    }
     public function employeeSave(array $values,$actor): array
     {
-        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','wallet_phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m'])->validate();
+        abort_unless($this->canManageEmployees($actor),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');
+        $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'nullable|integer|min:1','name'=>'required|string|max:100','phone'=>'nullable|string|max:30','wallet_phone'=>'nullable|string|max:30','job_title'=>'required|string|max:100','shift'=>'nullable|string|max:100','hired_on'=>'required|date_format:Y-m-d','left_on'=>'nullable|date_format:Y-m-d|after_or_equal:hired_on','notes'=>'nullable|string|max:1000','active'=>'required|boolean','salary'=>'required|string|max:14','effective_month'=>'required|date_format:Y-m',
+            'schedule_type'=>'sometimes|required|in:branch,part_time',
+            'attendance_start'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
+            'attendance_end'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
+            'attendance_shift'=>'required_if:schedule_type,part_time|nullable|in:morning,evening'])->validate();
+        $scheduleKeys=['schedule_type','attendance_start','attendance_end','attendance_shift'];
+        if(array_intersect_key($v,array_flip($scheduleKeys))){
+            abort_unless(isset($v['schedule_type']),422,'اختر نوع الدوام عند تعديل مواعيد الموظف.');
+            abort_unless(Schema::hasColumns('branch_employees',$scheduleKeys),503,'يجب تثبيت تحديث الدوام الجزئي أولًا.');
+            abort_unless(Schema::hasTable('branch_employee_pay_hours'),503,'يجب تثبيت تحديث احتساب ساعات العمل أولًا.');
+            if($v['schedule_type']==='part_time'){
+                abort_if($v['attendance_start']===$v['attendance_end'],422,'وقت الانصراف يجب أن يختلف عن وقت الحضور.');
+                if(empty(trim($v['shift']??'')))$v['shift']='دوام جزئي';
+            }else foreach(['attendance_start','attendance_end','attendance_shift'] as $key)$v[$key]=null;
+        }
         if(array_key_exists('wallet_phone',$v))$v['wallet_phone']=$this->walletNumber($v['wallet_phone']);
         $v['left_on']=!empty($v['left_on'])?$v['left_on']:null;
         $amount=$this->ops->money($v['salary']);foreach(['name','phone','job_title','shift','notes'] as $key)$v[$key]=trim($v[$key]??'');abort_if($v['name']===''||$v['job_title']==='',422,'أدخل اسم الموظف ووظيفته.');
         return $this->ops->write('employee.save',$v,$actor,function($branch,$actor)use($v,$amount){
+            abort_unless($this->canManageEmployees($actor),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');
             $row=!empty($v['employee_id'])?$this->employee($v['employee_id'],$v['branch'],true):null;if($row)$this->ops->revision($row,$v);
-            $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active','schedule_type','attendance_start','attendance_end','attendance_shift']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
             if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else $id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);
+            if(Schema::hasTable('branch_employee_pay_hours')&&(!$row||array_key_exists('schedule_type',$v))){
+                $minutes=EmployeePayHours::scheduledMinutes((object)array_merge((array)($row??(object)[]),$data));
+                $priorHours=DB::table('branch_employee_pay_hours')->where('employee_id',$id)->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
+                $priorMinutes=$priorHours&&$priorHours->scheduled_minutes!==null?(int)$priorHours->scheduled_minutes:null;
+                if(!$row||$priorMinutes!==$minutes){
+                    abort_if(DB::table('branch_payrolls')->where('employee_id',$id)->where('month','>=',$v['effective_month'])->exists(),409,'لا يمكن تغيير ساعات شهر مُقفل أو شهر قبله. اختر شهر سريان لاحقًا.');
+                    $hoursRevision=(int)DB::table('branch_employee_pay_hours')->where('employee_id',$id)->max('revision')+1;
+                    DB::table('branch_employee_pay_hours')->updateOrInsert(['employee_id'=>$id,'effective_month'=>$v['effective_month']],['branch'=>$v['branch'],'scheduled_minutes'=>$minutes,'revision'=>$hoursRevision,'actor_id'=>$actor->id,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+                }
+            }
             $previous=DB::table('branch_employee_salaries')->where('employee_id',$id)->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
             if(!$previous||(int)$previous->amount_cents!==$amount){
                 abort_if(DB::table('branch_payrolls')->where('employee_id',$id)->where('month','>=',$v['effective_month'])->exists(),409,'لا يمكن تغيير راتب شهر مُقفل أو شهر قبله. اختر تاريخ سريان لاحقًا.');
@@ -76,6 +109,7 @@ class BranchPayroll
     }
     public function saveAttendanceRules(array $values,$actor): array
     {
+        if(($values['setting']??null)==='work_hours')return $this->saveWorkHours($values,$actor);
         abort_unless($this->canManageAttendance($actor),403,'إعداد مواعيد الحضور والخصومات متاح للأونر فقط.');$this->attendanceReady();
         $rules=$this->ops->rules()+['absence'=>'required|string|max:14'];
         foreach(['morning','evening'] as $shift){
@@ -101,6 +135,21 @@ class BranchPayroll
             return ['revision'=>$revision];
         });
     }
+    public function saveWorkHours(array $values,$actor): array
+    {
+        abort_unless($this->canManageAttendance($actor),403,'إعداد ساعات العمل اليومية متاح للأونر فقط.');
+        abort_unless(Schema::hasTable('branch_work_hours')&&Schema::hasTable('branch_employee_pay_hours'),503,'يجب تثبيت تحديث احتساب ساعات العمل أولًا.');
+        $v=Validator::make($values,$this->ops->rules()+['setting'=>'required|in:work_hours','effective_month'=>'required|date_format:Y-m','work_hours'=>'required|string|max:8'])->validate();
+        $minutes=EmployeePayHours::parseWorkHours($v['work_hours']);
+        return $this->ops->write('employee.work_hours',$v,$actor,function($branch,$actor)use($v,$minutes){
+            $old=DB::table('branch_work_hours')->where('branch',$v['branch'])->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
+            if($old)$this->ops->revision($old,$v);else abort_if(!empty($v['expected_revision']),409,'إعداد ساعات العمل تغير؛ راجعه مجددًا.');
+            abort_if(DB::table('branch_payrolls')->where('branch',$v['branch'])->where('month','>=',$v['effective_month'])->exists(),409,'لا يمكن تغيير ساعات شهر به رواتب مُقفلة أو شهر قبله. اختر شهر سريان لاحقًا.');
+            $revision=(int)DB::table('branch_work_hours')->where('branch',$v['branch'])->max('revision')+1;
+            DB::table('branch_work_hours')->updateOrInsert(['branch'=>$v['branch'],'effective_month'=>$v['effective_month']],['full_time_minutes'=>$minutes,'revision'=>$revision,'actor_id'=>$actor->id,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            return ['work_hours'=>EmployeePayHours::branch($v['branch'],$v['effective_month'])];
+        });
+    }
     private function synchronizeDeductions(object $employee,string $day,array $wanted,$actor): void
     {
         foreach(['late','early','absence','leave'] as $kind){
@@ -122,13 +171,13 @@ class BranchPayroll
     {
         $this->attendanceReady();
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d',
-            'status'=>'required|in:morning,evening,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
+            'status'=>'required|in:morning,evening,part_time,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
             'check_in'=>'prohibited','check_out'=>'prohibited','checked_in_at'=>'prohibited','checked_out_at'=>'prohibited','notes'=>'nullable|string|max:1000'])->validate();
         abort_if($v['day']>OperatingDay::date(),422,'لا يمكن تسجيل الحضور ليوم مستقبلي.');
         return $this->ops->write('employee.attendance',$v,$actor,function($branch,$actor)use($v){
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first();if($old)$this->ops->revision($old,$v);
-            $status=$v['status'];$present=in_array($status,['morning','evening'],true);$clock=now('Africa/Cairo');
+            $status=$v['status'];$present=in_array($status,['morning','evening','part_time'],true);$clock=now('Africa/Cairo');
             if($old&&$old->status!=='unrecorded'){
                 abort_unless($old->status===$status,409,'تم تثبيت حالة الحضور لهذا اليوم؛ لا يمكن تغييرها بعد التسجيل.');
                 // A retry returns the original punch/status without changing its time, ledger or notes.
@@ -138,15 +187,18 @@ class BranchPayroll
             }
             $snapshot=$old&&$old->status===$status?json_decode($old->attendance_rule_snapshot??'',true):null;
             if(!$snapshot){
-                $shift=$present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning');
+                $partTime=($employee->schedule_type??'branch')==='part_time';
+                if($present)abort_unless(($status==='part_time')===$partTime,422,$partTime?'اختر حضور دوام جزئي لهذا الموظف.':'هذا الموظف يتبع مواعيد الفرع؛ اختر حضور صباحًا أو مساءً.');
+                if($partTime)abort_unless($employee->attendance_start&&$employee->attendance_end&&in_array($employee->attendance_shift,['morning','evening'],true),422,'أكمل مواعيد الدوام الجزئي في بيانات الموظف.');
+                $shift=$partTime?$employee->attendance_shift:($present?$status:(in_array($employee->shift,['evening','مسائي','مساء'],true)?'evening':'morning'));
                 $rule=DB::table('branch_attendance_rules')->where('branch',$v['branch'])->where('shift',$shift)->first();
                 abort_unless($rule||$status==='preapproved_leave',422,'يجب أن يحدد الأونر مواعيد وخصومات هذا الفرع أولًا.');
-                $snapshot=$rule?EmployeeAttendanceRules::snapshot($rule,$v['day']):[];
+                $snapshot=$rule?EmployeeAttendanceRules::forEmployee($rule,$employee,$v['day']):[];
             }
             $in=null;$out=null;
             if($present){
                 abort_unless(in_array($v['action'],['check_in','check_out'],true),422,'اختر تسجيل الحضور أو الانصراف.');
-                $wasPresent=$old&&in_array($old->status,['morning','evening'],true);
+                $wasPresent=$old&&in_array($old->status,['morning','evening','part_time'],true);
                 $in=$wasPresent?$old->checked_in_at:null;$out=$wasPresent?$old->checked_out_at:null;
                 if($v['action']==='check_in'){
                     abort_unless($v['day']===OperatingDay::date($clock),422,'تسجيل الحضور يتم ليوم التشغيل الحالي من 6 صباحًا إلى 6 صباحًا بتوقيت مصر.');
@@ -180,10 +232,13 @@ class BranchPayroll
     private function employmentDay(object $employee,string $day): void {abort_if($day<$employee->hired_on||($employee->left_on&&$day>$employee->left_on),422,'التاريخ خارج فترة عمل الموظف.');}
     public function entry(array $values,$actor): array
     {
+        // Owner-only bonus creation, including idempotent retries.
+        if(($values['kind']??null)==='bonus')abort_unless($this->canVoidEntries($actor),403,'إضافة المكافآت متاحة للأونر فقط.');
         $v=Validator::make($values,$this->ops->rules()+['employee_id'=>'required|integer|min:1','day'=>'required|date_format:Y-m-d|before_or_equal:today','kind'=>'required|in:bonus,deduction,advance','amount'=>'required|string|max:14','reason'=>'required|string|max:500','notes'=>'nullable|string|max:1000'])->validate();$amount=$this->ops->money($v['amount'],false);abort_if(trim($v['reason'])==='',422,'اكتب سبب الحركة.');
         abort_if($v['day']>OperatingDay::date(),422,'لا يمكن التسجيل ليوم تشغيل مستقبلي.');
         abort_unless($v['kind']!=='bonus'||$this->canAddBonus($actor),403,'إضافة المكافآت متاحة للأونر فقط.');
         return $this->ops->write('employee.entry',$v,$actor,function($branch,$actor)use($v,$amount){
+            if($v['kind']==='bonus')abort_unless($this->canVoidEntries($actor),403,'إضافة المكافآت متاحة للأونر فقط.');
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $id=DB::table('branch_employee_entries')->insertGetId(['branch'=>$v['branch'],'employee_id'=>$employee->id,'day'=>$v['day'],'kind'=>$v['kind'],'amount_cents'=>$amount,'reason'=>trim($v['reason']),'notes'=>trim($v['notes']??''),'actor_id'=>$actor->id,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             return ['entry'=>(array)DB::table('branch_employee_entries')->where('id',$id)->first()];
@@ -229,8 +284,12 @@ class BranchPayroll
         $entries=DB::table('branch_employee_entries')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$ledgerTo])->orderBy('day')->orderBy('id')->get();$totals=['bonus'=>0,'deduction'=>0,'advance'=>0];
         foreach($entries as $entry)if(!$entry->voided_at)$totals[$entry->kind]+=(int)$entry->amount_cents;
         $attendance=DB::table('branch_employee_days')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$ledgerTo])->orderBy('day')->get()->map(fn($r)=>(array)$r)->all();
-        $net=$earned+$totals['bonus']-$totals['deduction']-$totals['advance'];
+        $leaveDays=[];foreach($entries as $entry)if(!$entry->voided_at&&$entry->kind==='deduction'&&$entry->source_key==='attendance.leave'&&$entry->day>=$from&&$entry->day<=$to)$leaveDays[$entry->day]=true;
+        $workHours=EmployeePayHours::branch($employee->branch,$month);
+        $hours=EmployeePayHours::calculate($base,$worked,$days,$workHours['full_time_minutes'],EmployeePayHours::employee($employee,$month),count($leaveDays));
+        $net=$earned+$totals['bonus']-$totals['deduction']-$totals['advance']-$hours['hours_deduction_cents'];
         $data=['employee'=>(array)$employee,'month'=>$month,'salary'=>Money::decimal($base),'salary_configured'=>(bool)$salary,'eligible_days'=>$worked,'month_days'=>$days,'earned_salary'=>Money::decimal($earned),'bonus'=>Money::decimal($totals['bonus']),'deduction'=>Money::decimal($totals['deduction']),'advance'=>Money::decimal($totals['advance']),'net'=>Money::decimal($net),'net_cents'=>$net,'attendance'=>$attendance,'entries'=>$entries->map(function($r){$a=(array)$r;$a['amount']=Money::decimal((int)$r->amount_cents);return $a;})->all()];
+        $data+=$hours;
         $data+=['as_of'=>$ledgerTo,'accrued_from'=>$worked?$from:null,'accrued_through'=>$worked?$to:null];
         $data['preview_hash']=PosServiceTicket::fingerprint($data);return $data+['status'=>'draft','revision'=>0,'payroll_id'=>null];
     }
@@ -248,7 +307,7 @@ class BranchPayroll
         $attendance=array_map(function($row){unset($row['id'],$row['employee_id'],$row['actor_id'],$row['created_at'],$row['updated_at']);return $row;},$statement['attendance']);
         $entries=array_map(function($row){unset($row['employee_id'],$row['actor_id'],$row['created_at'],$row['updated_at']);return $row;},$statement['entries']);
         return ['employee_id'=>(int)$statement['employee']['id'],'employee'=>$employee,
-            'period'=>array_intersect_key($statement,array_flip(['month','salary','salary_configured','eligible_days','month_days','earned_salary','bonus','deduction','advance','net','net_cents'])),
+            'period'=>array_intersect_key($statement,array_flip(['month','salary','salary_configured','eligible_days','month_days','earned_salary','bonus','deduction','advance','net','net_cents','full_time_minutes','scheduled_minutes','effective_monthly_salary','hours_deduction','hours_deduction_cents'])),
             'attendance'=>$attendance,'entries'=>$entries];
     }
     /** Match mapped facts before issuing the original server's preview fingerprint. */
@@ -288,19 +347,31 @@ class BranchPayroll
     }
     public function listing(array $values,$actor,bool $export=false): array
     {
+        $actor=$this->ops->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
         $v=Validator::make($values,['branch'=>'required|string|max:30','day'=>'nullable|date_format:Y-m-d','month'=>'nullable|date_format:Y-m','search'=>'nullable|string|max:100','job_title'=>'nullable|string|max:100','shift'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$v['day']=$v['day']??OperatingDay::date();$v['month']=$v['month']??substr($v['day'],0,7);
         $branches=$this->ops->branches($v['branch'],$actor);$q=DB::table('branch_employees')->whereIn('branch',array_column($branches,'value'));
         $options=[];foreach(['job_title','shift'] as $key)$options[$key]=(clone $q)->whereNotNull($key)->where($key,'<>','')->distinct()->orderBy($key)->pluck($key)->all();
         if(!empty($v['search']))$q->where('name','like','%'.trim($v['search']).'%');foreach(['job_title','shift'] as $key)if(!empty($v[$key]))$q->where($key,$v[$key]);
         $count=(clone $q)->count();abort_if($export&&$count>1000,422,'اختر فرعًا أو وظيفة لتصدير حتى ألف موظف.');$last=max(1,(int)ceil($count/30));$page=min($last,(int)($v['page']??1));
         $employees=(clone $q)->orderByDesc('active')->orderBy('name')->offset($export?0:($page-1)*30)->limit($export?1000:30)->get();
+        // Filtered monthly net totals use the same period calculation as every displayed row.
+        $netTotalCents=0;$netPageStatements=[];$netPageIds=array_fill_keys($employees->pluck('id')->all(),true);
+        (clone $q)->chunkById(100,function($netEmployees)use(&$netTotalCents,&$netPageStatements,$netPageIds,$v){
+            foreach($netEmployees as $netEmployee){
+                $netStatement=$this->period($netEmployee,$v['month']);
+                $netTotalCents+=(int)$netStatement['net_cents'];
+                if(isset($netPageIds[$netEmployee->id]))$netPageStatements[$netEmployee->id]=$netStatement;
+            }
+        });
         $ids=$employees->pluck('id');$days=DB::table('branch_employee_days')->whereIn('employee_id',$ids)->where('day',$v['day'])->get()->keyBy('employee_id');
         $daily=DB::table('branch_employee_entries')->whereIn('employee_id',$ids)->where('day',$v['day'])->whereNull('voided_at')->selectRaw('employee_id,kind,COUNT(*) AS count,SUM(amount_cents) AS amount')->groupBy('employee_id','kind')->get()->groupBy('employee_id');
         $closed=DB::table('branch_payrolls')->whereIn('employee_id',$ids)->where('month',substr($v['day'],0,7))->pluck('employee_id')->all();
-        $items=[];foreach($employees as $employee){$statement=$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
+        $items=[];foreach($employees as $employee){$statement=$netPageStatements[$employee->id]??$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
         $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
         $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
         $attendanceRules=[];if(Schema::hasTable('branch_attendance_rules'))foreach(DB::table('branch_attendance_rules')->whereIn('branch',array_column($branches,'value'))->get() as $rule)$attendanceRules[$rule->branch][$rule->shift]=$this->ruleData($rule);
-        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'attendance_rules'=>$attendanceRules,'can_manage_attendance'=>$this->canManageAttendance($actor),'can_add_bonus'=>$this->canAddBonus($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0))]];
+        $workHours=[];foreach($branches as $branch)$workHours[$branch['value']]=EmployeePayHours::branch($branch['value'],$v['month']);
+        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'work_hours'=>$workHours,'attendance_rules'=>$attendanceRules,'can_add_bonus'=>$this->canAddBonus($actor),'can_award_bonuses'=>$this->canVoidEntries($actor),'can_manage_employees'=>$this->canManageEmployees($actor),'can_manage_attendance'=>$this->canManageAttendance($actor),'items'=>$items,'branches'=>$branches,'options'=>$options,'filters'=>$v,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count],'summary'=>['employees'=>$count,'present'=>(int)($today['present']??0)+(int)($today['morning']??0)+(int)($today['evening']??0)+(int)($today['part_time']??0),'absent'=>(int)($today['absent']??0)+(int)($today['unauthorized_absence']??0),'leave'=>(int)($today['paid_leave']??0)+(int)($today['unpaid_leave']??0)+(int)($today['preapproved_leave']??0),'deduction'=>Money::decimal((int)($entrySums['deduction']??0)),'bonus'=>Money::decimal((int)($entrySums['bonus']??0)),'advance'=>Money::decimal((int)($entrySums['advance']??0)),'net'=>Money::decimal($netTotalCents)]];
     }
 }

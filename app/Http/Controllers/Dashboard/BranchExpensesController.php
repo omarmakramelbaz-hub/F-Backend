@@ -11,9 +11,9 @@ class BranchExpensesController extends Controller
     public function __construct(){ $this->middleware(function($request,$next){abort_unless(app(TakeawayAccess::class)->canAccess(auth('admin')->user()),403);return $next($request);}); }
     public function index(Request $request,BranchExpenses $expenses,TakeawayAccess $access)
     {
-        $actor=auth('admin')->user();$branches=$access->branches($actor);$selected=$request->input('branch',$branches[0]['value']);
+        $actor=$access->actor(auth('admin')->user());$branches=$access->branches($actor);abort_unless(count($branches),403);$allowAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$selected=$request->input('branch',$allowAll?'all':$branches[0]['value']);
         $data=$expenses->listing($request->all()+['branch'=>$selected],$actor);
-        $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>[]];
+        $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$allowAll,'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>[]];
         foreach(['data','save','recover','export','report','categorySave'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
         foreach(['show','review'] as $name)$boot['urls'][$name]=str_replace('991770','__EXPENSE__',route('branch-expenses.'.$name,['id'=>991770]));
         return view('admin.expenses.index',compact('boot'));

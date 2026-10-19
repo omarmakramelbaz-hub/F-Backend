@@ -70,6 +70,12 @@ class MetaInboxConsumer
         // Serialize replay checks after claiming the peer, including concurrent deliveries.
         $old=DB::table('meta_inbox_messages')->where('message_key',$key)->lockForUpdate()->first();
         if ($old) {
+            if($old->source==='dashboard_api'){
+                if((int)$old->conversation_id!==(int)$thread->id
+                    ||!(new MetaReplyService())->matchesAcceptedNativeEcho($thread,$old,$m,true))throw new MetaInvalidEvent();
+                // Keep explicit receipt provenance and its original completion time; the raw echo remains captured.
+                return false;
+            }
             $saved=json_decode(Crypt::decryptString($old->content),true,64,JSON_THROW_ON_ERROR);
             foreach (['channel','account_id','message_id','peer_identity','direction','type','text','sent_at'] as $field)
                 if (($saved[$field]??null)!==$m[$field]) throw new MetaInvalidEvent();

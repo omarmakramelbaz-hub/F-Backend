@@ -18,6 +18,7 @@ class DesktopDashboardRemoteAttempts
         'phone-orders.save'=>'can_checkout','phone-orders.action'=>'can_checkout','phone-orders.settle'=>'can_checkout',
         'phone-orders.dispatch-company'=>'can_checkout','phone-orders.finish-batch'=>'can_checkout',
         'customers.save'=>'can_checkout','delivery-companies.save'=>'can_checkout','branch-shifts.close'=>'can_checkout',
+        'branch-stock.minimum-save'=>'can_manage_inventory','branch-stock.basic-apply'=>'can_manage_inventory',
         'branch-stock.receive'=>'can_checkout','branch-stock.recipe-save'=>'can_manage_inventory',
         'branch-expenses.review'=>'can_approve_expense',
         'branch-expenses.save'=>'can_checkout',
@@ -251,7 +252,8 @@ class DesktopDashboardRemoteAttempts
                 app(DesktopDashboardMenuAvailability::class)->enrolledBranch($device,$parameters);
             }
             else{
-                // Expense categories are the original shared vocabulary and have no branch input.
+                if($name==='branch-expenses.categorySave'&&$request->filled('branch'))$this->devices->branch($device,(string)$request->input('branch'),$actor);
+                // Legacy branchless category receipts and own notifications retain their read-only retry scope.
                 if(!in_array(self::CORE[$name],['can_manage_expense_categories','can_read_own_notifications'],true))$this->devices->branch($device,(string)$request->input('branch'),$actor);
                 if(str_starts_with($name,'employees.'))abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);
                 $permissions=app(TakeawayAccess::class)->permissions($actor);

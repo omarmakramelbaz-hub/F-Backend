@@ -42,7 +42,16 @@ class Order extends Model
         // });
         static::creating(function ($model) {
             if (empty($model->order_no) && !empty($model->resturant_id)) {
-                $model->order_no = self::generateUniqueOrderNumber($model->resturant_id);
+                $numberBranch = 'f:'.$model->resturant_id;
+                if (class_exists(\App\Services\Dashboard\FasakhanstaStoreFulfillment::class)) {
+                    $numberBranch = \App\Services\Dashboard\FasakhanstaStoreFulfillment::branch($numberBranch);
+                }
+                $numbers = app(\App\Services\Dashboard\BranchOrderSequence::class)->next($numberBranch, 'app');
+                if ($numbers) {
+                    $model->shift_sequence = $numbers['shift_sequence'];
+                    $model->shift_order_number = $numbers['shift_order_number'];
+                    $model->order_no = \App\Services\Dashboard\BranchOrderSequence::display($model, $numberBranch, 'app', '');
+                } else $model->order_no = self::generateUniqueOrderNumber($model->resturant_id);
             }
         });
 
@@ -239,7 +248,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         }else{
         $total=0;
         foreach($this->carts as $cart){
-            $cart_total=$cart->updated_total?$cart->updated_total:$cart->price*$cart->qty;
+            $cart_total=$cart->updated_total!==null?$cart->updated_total:$cart->price*$cart->qty;
             $total=$total+($cart_total);
         }}
         // dd($this->carts->count());
@@ -313,7 +322,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         return round($app_percentage,2);
     }
     public function getGrandTotalAttribute(){
-        if($this->updated_total!=null){
+        if($this->updated_total!==null){
             $total=$this->updated_total;
         }else{
             $total=$this->total;

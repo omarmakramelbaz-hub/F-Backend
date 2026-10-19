@@ -32,6 +32,9 @@ class OrderProviderDelivery
     /** Arrays are captured before a notification instance is reused for another recipient. */
     public function push(object $notification, $tokens, array $body, ?int $orderId = null): void
     {
+        if ($orderId && ($body['data']['account_type'] ?? null) === 'user' && isset($body['data']['order_status'])) {
+            app(OrderLiveActivityService::class)->scheduleOrder($orderId);
+        }
         if (empty($tokens)) return;
         $sender = clone $notification;
         $this->defer(function () use ($sender, $tokens, $body) {
@@ -49,6 +52,9 @@ class OrderProviderDelivery
 
     public function event(object $event, ?int $orderId = null): void
     {
+        if ($event instanceof \App\Events\OrderStatusUpdated) {
+            app(OrderLiveActivityService::class)->scheduleOrder((int) $event->order->id);
+        }
         $snapshot = clone $event;
         foreach (get_object_vars($snapshot) as $property => $value) {
             if ($value instanceof Model) $snapshot->{$property} = clone $value;

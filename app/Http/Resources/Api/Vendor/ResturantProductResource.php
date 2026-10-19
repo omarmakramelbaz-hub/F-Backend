@@ -39,10 +39,25 @@ class ResturantProductResource extends JsonResource
             'product_image'             => $this->getFirstMediaUrl('product_image','thumb'),
             'created_at'                => $this->created_at,
             
-            'latest_order_id'=>$cart?->order_id,
-            'latest_order_qty'=>$cart?->qty,
+            'latest_order_id'=>$cart?->order_id === null ? null : (int) $cart->order_id,
+            // Installed customer apps parse this optional hint as int?, while MySQL
+            // now returns DECIMAL quantities as strings (including whole "1.000").
+            // Fractional weights belong in the additive numeric field, never rounded.
+            'latest_order_qty'=>$this->legacyLatestQuantity($cart?->qty),
+            'latest_order_quantity'=>$cart?->qty === null ? null : (float) $cart->qty,
             'latest_order_product_clean'=>$cart?->product_clean,
-            'latest_order_product_feature'=>$cart?->product_feature,
+            'latest_order_product_feature'=>$cart?->product_feature === null ? null : (int) $cart->product_feature,
         ];
+    }
+
+    private function legacyLatestQuantity($quantity): ?int
+    {
+        if ($quantity === null || !preg_match('/^\+?(\d+)(?:\.0+)?$/D', (string) $quantity, $parts)) {
+            return null;
+        }
+        $whole = ltrim($parts[1], '0');
+        $value = filter_var($whole === '' ? '0' : $whole, FILTER_VALIDATE_INT,
+            ['options'=>['min_range'=>0]]);
+        return $value === false ? null : $value;
     }
 }

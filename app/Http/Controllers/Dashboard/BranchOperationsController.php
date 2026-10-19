@@ -1,27 +1,65 @@
 <?php
 namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
-use App\Services\Dashboard\{BranchOperations,BranchCustomers,BranchPayroll,DeliveryCompanies,TakeawayAccess};
+use App\Services\Dashboard\{BranchOperations,BranchCustomers,BranchPayroll,DeliveryCompanies,TakeawayAccess,WhatsAppInboxAccess,CustomerMessagingService};
 use Illuminate\Http\Request;
 
 class BranchOperationsController extends Controller
 {
-    public function __construct(){ $this->middleware(function($request,$next){abort_unless(app(TakeawayAccess::class)->canAccess(auth('admin')->user()),403);return $next($request);}); }
+    public function __construct(){ $this->middleware(function($request,$next){abort_unless(app(TakeawayAccess::class)->canAccess(auth('admin')->user()),403);/* Central employee profile routes, including stored remote replies. *//* Branch wallet phone entry retains branch-scoped write authorization. */if(in_array($request->route()?->getName(),['employees.save'],true))abort_unless(app(BranchPayroll::class)->canManageEmployees(auth('admin')->user()),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');return $next($request);}); }
     private function module(Request $r): string {return explode('.',$r->route()->getName())[0];}
     private function service(Request $r){return app(['customers'=>BranchCustomers::class,'delivery-companies'=>DeliveryCompanies::class,'employees'=>BranchPayroll::class][$this->module($r)]);}
     private function actor(Request $r){$actor=auth('admin')->user();if($this->module($r)==='employees')abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);return $actor;}
     public function index(Request $r,TakeawayAccess $access)
     {
-        $actor=$this->actor($r);$branches=$access->branches($actor);abort_unless(count($branches),403);$module=$this->module($r);$selected=$r->input('branch',$branches[0]['value']);
+        $actor=$access->actor($this->actor($r));$branches=$access->branches($actor);abort_unless(count($branches),403);$module=$this->module($r);$allowAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$selected=$r->input('branch',$allowAll?'all':$branches[0]['value']);
         $initial=$this->service($r)->listing($r->all()+['branch'=>$selected],$actor);$urls=[];
         foreach(['data','save'] as $name)$urls[$name]=route($module.'.'.$name);
+        if($module==='customers')foreach(['directory-save','consent','messaging-status','messaging-configure','feedback-template-prepare','marketing-template-prepare','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
         if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export'] as $name)$urls[$name]=route($module.'.'.$name);
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
-        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$actor->account_type==='admin'&&empty($actor->owner_resturant_id),'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
-        return view('admin.branch_operations.index',compact('boot'));
+        $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$allowAll,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
+        if($module==='customers')$boot['can_message']=app(WhatsAppInboxAccess::class)->canAccess($actor);
+        $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
+        return view($view,compact('boot'));
     }
     public function data(Request $r){return response()->json($this->service($r)->listing($r->all(),$this->actor($r)));}
     public function save(Request $r){$s=$this->service($r);return response()->json($this->module($r)==='employees'?$s->employeeSave($r->all(),$this->actor($r)):$s->save($r->all(),$this->actor($r)));}
+    public function directorySave(Request $r,BranchCustomers $s){return response()->json($s->directorySave($r->all(),$this->actor($r)));}
+    public function customerConsent(Request $r,BranchCustomers $s){return response()->json($s->consent($r->all(),$this->actor($r)));}
+    public function messagingStatus(Request $r,CustomerMessagingService $s)
+    {
+        app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        return response()->json(['success'=>true,'messaging'=>$s->status()]);
+    }
+    public function configureMessaging(Request $r,CustomerMessagingService $s,BranchOperations $ops)
+    {
+        $actor=app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        $v=$r->validate($ops->rules()+['enabled'=>'required|boolean','feedback_enabled'=>'required|boolean','feedback_template_name'=>'nullable|string|max:512','feedback_language'=>'nullable|string|max:30']);
+        $ops->access->branch($v['branch'],$actor);
+        return response()->json($s->configure($actor,$v));
+    }
+    public function prepareFeedbackTemplate(Request $r,CustomerMessagingService $s,BranchOperations $ops)
+    {
+        $actor=app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        $v=$r->validate($ops->rules());
+        $ops->access->branch($v['branch'],$actor);
+        return response()->json($s->prepareFeedbackTemplate($actor));
+    }
+    public function prepareMarketingTemplate(Request $r,CustomerMessagingService $s,BranchOperations $ops)
+    {
+        $actor=app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        $v=$r->validate($ops->rules()+['body'=>'required|string|max:1024']);
+        $ops->access->branch($v['branch'],$actor);
+        return response()->json($s->prepareMarketingTemplate($actor,$v));
+    }
+    public function queueCampaign(Request $r,CustomerMessagingService $s,BranchOperations $ops)
+    {
+        $actor=app(WhatsAppInboxAccess::class)->actor($this->actor($r));
+        $v=$r->validate($ops->rules()+['client_request_id'=>'required|uuid','template_name'=>'required|string|max:512','language'=>'required|string|max:30','parameters'=>'nullable|array|max:10','parameters.*'=>'string|max:1000']);
+        $ops->access->branch($v['branch'],$actor);
+        return response()->json($s->queueCampaign($actor,$v));
+    }
     public function attendance(Request $r,BranchPayroll $s){return response()->json($s->attendance($r->all(),$this->actor($r)));}
     public function attendanceRules(Request $r,BranchPayroll $s){return response()->json($s->saveAttendanceRules($r->all(),$this->actor($r)));}
     public function entry(Request $r,BranchPayroll $s){return response()->json($s->entry($r->all(),$this->actor($r)));}
@@ -36,6 +74,6 @@ class BranchOperationsController extends Controller
     public function export(Request $r,BranchPayroll $s)
     {
         $data=$s->listing($r->all(),$this->actor($r),true);
-        return response()->streamDownload(function()use($data){$out=fopen('php://output','w');fwrite($out,"\xEF\xBB\xBF");fputcsv($out,['الفرع','الاسم','الوظيفة','الشهر','الراتب','المستحق من الراتب','عدد أيام الاستحقاق','محسوب حتى','المكافآت','الخصومات','السلف','الصافي','فودافون كاش','الحالة']);foreach($data['items'] as $e){$s=$e['statement'];$row=[$e['branch'],$e['name'],$e['job_title'],$s['month'],$s['salary'],$s['earned_salary'],$s['eligible_days'],$s['accrued_through']??'',$s['bonus'],$s['deduction'],$s['advance'],$s['net'],$e['wallet_phone']??'',$s['status']];fputcsv($out,array_map(fn($x)=>preg_match('/^[\s]*[=+@\-]/u',(string)$x)?"'".$x:$x,$row));}fclose($out);},'employee-payroll-'.$data['filters']['month'].'.csv',['Content-Type'=>'text/csv; charset=UTF-8','X-Content-Type-Options'=>'nosniff']);
+        return response()->streamDownload(function()use($data){$out=fopen('php://output','w');fwrite($out,"\xEF\xBB\xBF");fputcsv($out,['الفرع','الاسم','الوظيفة','الشهر','الراتب الأساسي','ساعات الدوام الكامل','ساعات الموظف','الراتب بعد احتساب الساعات','المستحق من الراتب','عدد أيام الاستحقاق','محسوب حتى','المكافآت','الخصومات','خصم نقص الساعات','السلف','الصافي','فودافون كاش','الحالة']);foreach($data['items'] as $e){$s=$e['statement'];$row=[$e['branch'],$e['name'],$e['job_title'],$s['month'],$s['salary'],($s['full_time_minutes']??600)/60,($s['scheduled_minutes']??600)/60,$s['effective_monthly_salary']??$s['salary'],$s['earned_salary'],$s['eligible_days'],$s['accrued_through']??'',$s['bonus'],$s['deduction'],$s['hours_deduction']??'0.00',$s['advance'],$s['net'],$e['wallet_phone']??'',$s['status']];fputcsv($out,array_map(fn($x)=>preg_match('/^[\s]*[=+@\-]/u',(string)$x)?"'".$x:$x,$row));}fclose($out);},'employee-payroll-'.$data['filters']['month'].'.csv',['Content-Type'=>'text/csv; charset=UTF-8','X-Content-Type-Options'=>'nosniff']);
     }
 }

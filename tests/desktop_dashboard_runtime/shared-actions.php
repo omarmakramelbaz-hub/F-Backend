@@ -4,6 +4,11 @@ use Illuminate\Support\Str;
 use App\Models\User;
 use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliation,DesktopDashboardReferences,OperatingDay};
 
+// This module's current branch isolation is an additive upgrade over the historical 106-table fixture.
+require_once $application.'/database/migrations/2026_10_18_200000_scope_expense_categories_by_branch.php';
+foreach([$database,$ownerStage] as $categoryDatabase){
+    config(['database.connections.mysql.database'=>$categoryDatabase]);DB::purge();(new \ScopeExpenseCategoriesByBranch)->up();
+}
 config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
 $ownNote=(string)Str::uuid();$foreignNote=(string)Str::uuid();$laterNote=(string)Str::uuid();
 $seedNotes=function()use($ownNote,$foreignNote,$laterNote){
@@ -25,11 +30,11 @@ try{
     verify($status===200&&json_decode($retry,true)===$firstRead,'a lost original notification reply retains its exact count');$sharedCommands[]=$read['idempotency_key'];
     $invalid=$read;$invalid['idempotency_key']=(string)Str::uuid();$invalid['ids']='invalid';$before=DB::table('desktop_dashboard_commands')->count();
     verify($http('/admin/dashboard-inbox/notifications/read',$invalid,['Accept: application/json'])[0]===422&&DB::table('desktop_dashboard_commands')->count()===$before,'invalid original notification IDs cannot commit a local journal entry');
-    $category=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'name'=>'تصنيف محلي مستقل'];
+    $category=['branch'=>'f:100','_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'name'=>'تصنيف محلي مستقل'];
     [$status,$body]=$http('/admin/branch-expenses/categories',$category,['Accept: application/json']);$createdCategory=json_decode($body,true);
-    verify($status===200&&preg_match('/^custom_([1-9][0-9]*)$/D',$createdCategory['category']['key']??'',$categoryMatch),'the original shared expense category creates without a fictitious branch');$sharedCommands[]=$category['idempotency_key'];
+    verify($status===200&&preg_match('/^custom_([1-9][0-9]*)$/D',$createdCategory['category']['key']??'',$categoryMatch),'the current expense category creates only in the selected branch');$sharedCommands[]=$category['idempotency_key'];
     $localCategory=(int)$categoryMatch[1];
-    $update=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'update','key'=>'custom_'.$localCategory,'name'=>'تصنيف محلي معدّل','expected_revision'=>0];
+    $update=['branch'=>'f:100','_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'update','key'=>'custom_'.$localCategory,'name'=>'تصنيف محلي معدّل','expected_revision'=>1];
     verify($http('/admin/branch-expenses/categories',$update,['Accept: application/json'])[0]===200,'the original category update retains a typed dependency on its creation');$sharedCommands[]=$update['idempotency_key'];
     $expense=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'branch'=>'f:100','occurred_on'=>OperatingDay::date(),'category'=>'custom_'.$localCategory,
         'description'=>'مصروف مرتبط بتصنيف محلي','amount'=>'2.00','payment_method'=>'cash','approve'=>'0'];
@@ -38,7 +43,7 @@ try{
     verify($multipart($expense,['X-Fasakhansta-Desktop: '.$browserToken],$expensePdfBytes)[1]===$sharedExpenseBody
         &&DB::table('branch_expenses')->where('description',$expense['description'])->count()===1,
         'a lost custom-classification expense upload returns its exact original receipt without duplicating its row');
-    $delete=['_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'delete','key'=>'custom_'.$localCategory,'expected_revision'=>1];
+    $delete=['branch'=>'f:100','_token'=>$sharedCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'delete','key'=>'custom_'.$localCategory,'expected_revision'=>2];
     [$status,$deletedBody]=$http('/admin/branch-expenses/categories',$delete,['Accept: application/json']);
     verify($status===200&&!json_decode($deletedBody,true)['category']['active'],'the original category deletion keeps the historical expense classification');$sharedCommands[]=$delete['idempotency_key'];
     verify($http('/admin/branch-expenses/categories',$delete,['Accept: application/json'])[1]===$deletedBody,'a lost original category deletion reply preserves the exact original state');
@@ -63,10 +68,11 @@ foreach($sharedCommands as $id){
     }
     if($id===$update['idempotency_key']){
         $mapped=(int)substr($payload['values']['key'],7);verify($mapped!==$localCategory,'the shared category key maps around an unrelated server integer collision');
-        DB::table('branch_expense_category_settings')->updateOrInsert(['category_key'=>'custom_'.$mapped],['name'=>'تصنيف تغير على السيرفر','active'=>1,'revision'=>1,'updated_at'=>now('UTC')]);
+        $originalCategoryOverride=(array)DB::table('branch_expense_category_overrides')->where('branch','f:100')->where('category_key','custom_'.$mapped)->first();
+        DB::table('branch_expense_category_overrides')->updateOrInsert(['branch'=>'f:100','category_key'=>'custom_'.$mapped],['name'=>'تصنيف تغير على السيرفر','active'=>1,'revision'=>2,'updated_at'=>now('UTC')]);
         try{app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$command);throw new RuntimeException('Changed expense category was overwritten.');}
-        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===409&&DB::table('branch_expense_category_settings')->where('category_key','custom_'.$mapped)->value('name')==='تصنيف تغير على السيرفر','a changed server category rejects its pending offline edit while retaining both states');}
-        DB::table('branch_expense_category_settings')->where('category_key','custom_'.$mapped)->delete();
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===409&&DB::table('branch_expense_category_overrides')->where('branch','f:100')->where('category_key','custom_'.$mapped)->value('name')==='تصنيف تغير على السيرفر','a changed server category rejects its pending offline edit while retaining both states');}
+        DB::table('branch_expense_category_overrides')->where('branch','f:100')->where('category_key','custom_'.$mapped)->update($originalCategoryOverride);
     }
     $receipt=app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$command);
     verify($receipt===app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$command),'the original actor/shared action reconciles exactly once: '.$row->route_name);
@@ -79,7 +85,7 @@ $sharedExpensePath=DB::table('branch_expenses')->where('description',$expense['d
 verify(is_string($sharedExpensePath)&&\Illuminate\Support\Facades\Storage::disk('local')->get($sharedExpensePath)===$expensePdfBytes
     &&!\Illuminate\Support\Facades\Storage::disk('public')->exists($sharedExpensePath),
     'custom classification mapping and repeated reconciliation preserve the original private PDF without a public copy');
-verify(!DB::table('branch_expense_category_settings')->where('category_key','custom_'.$mapped)->value('active'),'mapped original category deletion retains the historical category while removing its active choice');
+verify(!DB::table('branch_expense_category_overrides')->where('branch','f:100')->where('category_key','custom_'.$mapped)->value('active'),'mapped original category deletion retains the historical category while removing its active choice');
 verify(DB::table('notifications')->where('id',$ownNote)->value('read_at')!==null&&DB::table('notifications')->where('id',$foreignNote)->value('read_at')===null
     &&DB::table('notifications')->where('id',$laterNote)->value('read_at')===null,'reconciled notification reads retain account scope and unseen IDs');
 $branchNote=(string)Str::uuid();DB::table('notifications')->insert(['id'=>$branchNote,'type'=>'FixtureNotification','notifiable_type'=>User::class,'notifiable_id'=>10,

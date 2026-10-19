@@ -31,7 +31,7 @@
     @if(!empty($items))
         <ul class="ob-items" aria-label="{{ __('order_board.items') }}">
             @foreach(array_slice($items, 0, 2) as $item)
-                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}">{{ $item['name'] }}@if(!empty($item['option_label']))<small class="ob-item-option"> · {{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
+                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}"><span class="ob-item-title">{{ $item['name'] }}</span>@if(!empty($item['option_label']))<small class="ob-item-option">{{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
             @endforeach
         </ul>
         @if($remainingItems > 0)
@@ -53,6 +53,9 @@
         <span class="ob-total-amount"><span>{{ __('order_board.total') }}</span>@if($total !== null)<strong><bdi>{{ $total }}</bdi> <small>{{ __('order_board.currency') }}</small></strong>@else<span class="ob-price-pending">{{ __('order_board.price_pending') }}</span>@endif</span>
     </div>
     <div class="ob-order-tools">
+        @if(!empty($card['urls']['items']))
+            <button type="button" class="ob-edit-items" data-edit-items="{{ $card['urls']['items'] }}"><i class="fas fa-pencil-alt" aria-hidden="true"></i>{{ __('order_board.edit_items') }}</button>
+        @endif
         @if(!empty($card['urls']['details']))
             <a href="{{ $card['urls']['details'] }}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('order_board.details') }}</a>
         @endif

@@ -7,8 +7,10 @@ use Illuminate\Support\Str;
 /** A consistent, explicitly scoped initial dataset. Unknown modules stay unprepared. */
 class DesktopDashboardBootstrap
 {
-    public const GLOBAL_TABLES=['categories','stock_ingredients','permissions','roles','role_has_permissions','branch_expense_category_settings'];
+    public const GLOBAL_TABLES=['categories','stock_ingredients','permissions','roles','role_has_permissions','branch_expense_category_settings','branch_basic_recipes'];
     public const BRANCH_TABLES=[
+        'branch_work_hours','branch_employee_pay_hours','branch_expense_category_overrides','branch_order_sequences',
+        'branch_stock_minimums','expense_inventory_receipts','crm_customer_sources','crm_purchases',
         'takeaway_tills','takeaway_orders','takeaway_till_entries','takeaway_commands',
         'pos_service_settings','pos_service_tables','pos_service_tickets','pos_service_commands','pos_service_kitchen_tickets',
         'branch_stock','branch_stock_movements','branch_inventory','branch_inventory_movements','branch_stock_recipes','branch_recipe_sales',

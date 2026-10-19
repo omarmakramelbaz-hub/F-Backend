@@ -33,6 +33,10 @@
       "blob": "c5e5dfea46a7d50d4e0367ef9928e1b1216ebfac",
       "sha256": "090a1b3dae07c5c0c40d0630d4a50001803a62212d9bbc99d816b132746e4df5"
     },
+    "app/Console/Commands/CheckCustomerCrm.php": {
+      "blob": "e4ecf4b950e8c39ec1fc94473f2be957450f275b",
+      "sha256": "cc4331ba94979980ba052166719cb8560d95a937a21e5054ffb0d14448ee8b45"
+    },
     "app/Console/Commands/ConfigureMetaMessages.php": {
       "blob": "f959dfaf73b81edeeb77db5577a0e92afb18b22c",
       "sha256": "9437737c92a131fb43097b94f6255638d8a3520f8c6c53cb72fe28bb1cf84705"
@@ -49,9 +53,17 @@
       "blob": "372d3cfa8af357a345891e86e1ec8a88cdf37b77",
       "sha256": "e05bea21f8ad1845b929bf11106b06218e55cc04df15f6027856764f7ace4207"
     },
+    "app/Console/Commands/DispatchBranchStockMinimumAlerts.php": {
+      "blob": "0f68c66169299a6f3ccef5b6258a9234773b3634",
+      "sha256": "b31a8f8499ebc47eaaf07c776c28c1993fcf2efacf42f56b96e69a960d2a40cf"
+    },
     "app/Console/Commands/DispatchDashboardPush.php": {
       "blob": "7c96b646a2a0dd453718b0c726a2bdca1fb73200",
       "sha256": "16a6cc0d2d65a267e835021fa6a64392316e79bd57e6e343683b495960dbe394"
+    },
+    "app/Console/Commands/FreezeBranchBasicRecipes.php": {
+      "blob": "6a07a2b3c8e3c48b50121f59f03f97111ee6440c",
+      "sha256": "06171dae79209d588ecad67f595d4969469a551102463252951e61c9408f6b2e"
     },
     "app/Console/Commands/GoServiceDispatch.php": {
       "blob": "697100ee0b354214a0a0ac3c22dfb25c20039604",
@@ -60,6 +72,18 @@
     "app/Console/Commands/OpenCloseResturantCommand.php": {
       "blob": "eb373e00e54452ca5cc886f84cf3b006cc7f7a57",
       "sha256": "a00bf816a1cf9edc59a47f50e2c19710c27d7f5bbda8849142ec6979c8f0a655"
+    },
+    "app/Console/Commands/ProcessCustomerWhatsApp.php": {
+      "blob": "ae744c9d6c82cbd5358a76a90f118bac61ffe49d",
+      "sha256": "21e02d26c590e7642fa824cc125e6b6818c5d4727f97dde3dc9ae377dc2f9f42"
+    },
+    "app/Console/Commands/ProcessMetaAiMessages.php": {
+      "blob": "9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7",
+      "sha256": "6c5b797daac6980918e227ea1140c7109cbbc26b1517d0b25d993f833069b95f"
+    },
+    "app/Console/Commands/ProcessMetaCommentReplies.php": {
+      "blob": "a36a6f3950d5320f9cedd6473378c36515c2e25c",
+      "sha256": "046e3b6f4ac659f459f78dcb76f8ce04ba149a88763b2d735f42b4659f77530d"
     },
     "app/Console/Commands/ProcessMetaMessages.php": {
       "blob": "14b354fe2167b5679cb9976da1ceb51a21f6ea81",
@@ -73,6 +97,10 @@
       "blob": "d322ea9af2a39e7218bdc006b0313e1eca772f9b",
       "sha256": "85685237c2736113d683c9bea479bf569801a6381e5e650ffd016ffa19062bcd"
     },
+    "app/Console/Commands/RecordEmployeeAutomaticAbsence.php": {
+      "blob": "2b18db3e348b5423b9e07f45b5e2e3b5a33c2ef7",
+      "sha256": "ef9da0988cd80468b5146319acd496f222b04141e1a2794582b8b6dd2defc440"
+    },
     "app/Console/Commands/RefreshMetaProfiles.php": {
       "blob": "a3460199727e193ea60d6e4cfe4a8ff14b02a381",
       "sha256": "67a0c1baef7bc0d062bd36054fba2c6ceae065e9f235dfab71e04a1b9b11532c"
@@ -80,6 +108,10 @@
     "app/Console/Commands/ResetOrderNumbers.php": {
       "blob": "6301192a1016a059875bd97311f689f2c76e9644",
       "sha256": "9e7d768448a5a612f0d5fce84e7a9e39544d0cf690933858c719b1ec37f76250"
+    },
+    "app/Console/Commands/RetryOrderLiveActivities.php": {
+      "blob": "3de044e13de8916bd08d924a77ff42e4a076bb59",
+      "sha256": "dacd04d5e8de8ecc5cdde3512d7e5cb9d6e4a57a2f684287c1ac25f7b05eb7fd"
     },
     "app/Console/Commands/ScheduleOrder.php": {
       "blob": "48c4da5b381bf05f36af76489558a6457e831227",
@@ -129,9 +161,13 @@
       "blob": "ed1cdd50345f430daca2fdd30924985d7f637991",
       "sha256": "d84a895f033796914e127a9e23fa17dfc3973f3df7f1f67ff5fb2ab59e2d3f6f"
     },
+    "app/Console/Commands/SyncCrmCustomers.php": {
+      "blob": "978ccf171aaad7be003fe013a22187db91c219f8",
+      "sha256": "28b6dbe1ce997dfa8d419ed2ac4ceacc088070f56fc78c98897834c85799ea4f"
+    },
     "app/Console/Kernel.php": {
-      "blob": "3dd91f374a3b5f1ab4cda10572ecf7f209173091",
-      "sha256": "9977aa730a38ec3bd2d3e7b0bae976a1e458354359bff1de1400ced83335e981"
+      "blob": "e0813e16b32fc760cf6f3cc868905c73a279f751",
+      "sha256": "c39fc7a3530e833d3476835d4525de46ee9c58b7efca7534681056c559b69b08"
     },
     "app/Enums/CategoryTypeEnum.php": {
       "blob": "ae2a85b11a46d95f0d9fb3cdc2bb20b04880219b",
@@ -178,8 +214,8 @@
       "sha256": "749ca480858b128248b9e82a2c40c0d2bb78507988d9ee29c0b5185059b0eb61"
     },
     "app/Events/OrderStatusUpdated.php": {
-      "blob": "da5bbc156f2e74ff81db4dcb9510bbe0df9791b5",
-      "sha256": "0901f4378671d17084b1620df733492921ce3eaeba198fed8e844a9886def3c7"
+      "blob": "0dfbd967004415d32094beedbfddff6b14f729f8",
+      "sha256": "be7e1307386e6e1cc0e3211028d52a08e27805f76c50982956441b80260e2668"
     },
     "app/Events/OrderUpdated.php": {
       "blob": "daef068f2a27b2016a4bcf152c0077e782ae8538",
@@ -234,8 +270,8 @@
       "sha256": "7b744f81c404083cc3c35e1088014604470ae277e63decd9dc43c446acde74fc"
     },
     "app/Http/Controllers/Api/V1/Auth/AddressController.php": {
-      "blob": "6c869c3114e829e8565c94c2205bb387f70185a5",
-      "sha256": "b8dbf297b5de39dda53ea0e53f05cd1521b427fa50d8a5ea5bf5017c58b0b701"
+      "blob": "3a38f4031f90d649155c8fae4e5ed6ba5c7b2a2a",
+      "sha256": "e890f7385578cb8144be1df8d5503460368074c5c12d025a2177bcf8ebb057ca"
     },
     "app/Http/Controllers/Api/V1/Auth/AuthController.php": {
       "blob": "c2beea76783dda2cf320b80e0a3a748e20158cf4",
@@ -246,8 +282,8 @@
       "sha256": "6e927d04e1344a37e8770a2be1d05ad0e47ec7609bc734d083c690be4e18d44c"
     },
     "app/Http/Controllers/Api/V1/Auth/UserController.php": {
-      "blob": "cb5552e7e8852ee8f24b84ae5477335027df393f",
-      "sha256": "65c5960f3b610dabb3b04fe51988742515645a7a4efac2351f2f90779c66ccf5"
+      "blob": "c5581c0036f5eb94cad4353f9726da1fe6c16b0d",
+      "sha256": "820e6d7f75081d7c336d346c3279245a819b92582897551acc70ee23cf35c1f9"
     },
     "app/Http/Controllers/Api/V1/Delegate/DelegateOrderController.php": {
       "blob": "352d06f985d7729304f406a59c8fba321e2cd463",
@@ -294,16 +330,24 @@
       "sha256": "8a8dba002b2f8c93b37e54773037cb367dd9355f462c6ed4aa9b1ad6ae39e411"
     },
     "app/Http/Controllers/Api/V1/User/CartController.php": {
-      "blob": "837bfdf99896ee5fa629e59651bf235e062585b1",
-      "sha256": "ebc2edf27a18c14a00061036a046ff1067823de9dc48768430167ebe84758ece"
+      "blob": "1a872609a4e5414ee0b1f62d0971c6ffc9ffc05f",
+      "sha256": "ed6ecd703e029bd82fddd8acd705dffc6a70dc38dfa82735b5d73a65bcd2b1f8"
     },
     "app/Http/Controllers/Api/V1/User/ConversationController.php": {
       "blob": "3e899d952e4b4dc88f59741f265f0265159f4806",
       "sha256": "4cfe071a633a66b9335a660de69f15da7445b7c304851d7968bb3e82c6dc8638"
     },
+    "app/Http/Controllers/Api/V1/User/CustomerConsentController.php": {
+      "blob": "bebd65bf862e3ec872d8f19d2e660ad3b6c35e90",
+      "sha256": "1bddd530b33c25769f3d5758f27c50a55cf43bb7b062c7565bce5859b310e12e"
+    },
     "app/Http/Controllers/Api/V1/User/OrderCancellationController.php": {
       "blob": "d29b9e45807e46cbf20a14bcf6b4444698ba0354",
       "sha256": "a633f68b9309512d4cee7fb44d203ef4f748ee3a5e725288659ecb09d7cd796d"
+    },
+    "app/Http/Controllers/Api/V1/User/OrderLiveActivityController.php": {
+      "blob": "73a41cf3138853f173a6c0ca8ed1e74eb515a023",
+      "sha256": "86ea2333978d9abf329f86e4b9c1ec9a8faf0902b426b9c1af21a1eeb6ed267f"
     },
     "app/Http/Controllers/Api/V1/User/WalletController.php": {
       "blob": "e1a73a1ac3b6abcfe52bceab1edd5c045ca14d59",
@@ -326,8 +370,8 @@
       "sha256": "73008d363c180a83aa3119339555d8a08b0859b4357920d727e4c62e484e0613"
     },
     "app/Http/Controllers/CheckoutController.php": {
-      "blob": "12f020e65a6674efd27ba072c68f69d54ac2bee8",
-      "sha256": "1c1c395373ee6582a3ec1bed027da3ca6764bfa58e9421a0ae9eddf3f2a9c37c"
+      "blob": "00efa1050e81c210bd921f665afb1cdf5d89889d",
+      "sha256": "078651b261687498182f0ff996856c2bcb351cdd8a404644f2d85ac81f28cf4d"
     },
     "app/Http/Controllers/Controller.php": {
       "blob": "a0a2a8a34a6221e4dceb24a759ed14e911f74c57",
@@ -350,24 +394,32 @@
       "sha256": "d51817284e34ddf048daaf27ca4000eddbe79ef61bf00b6289123708ab464f36"
     },
     "app/Http/Controllers/Dashboard/BranchExpensesController.php": {
-      "blob": "9adb7ed9473763894b468ce7f249659188f3e6ce",
-      "sha256": "0b028b8646bb884ef0159be1b60c7f706c315a1760a230d6e7295b40619eaf02"
+      "blob": "ce209cf595f3ed6c646bf5567908a2e513e03dd0",
+      "sha256": "5791e2433c121a501aa220687b8af5e9cc280961a8f99299038bf72507cb6bd1"
     },
     "app/Http/Controllers/Dashboard/BranchOperationsController.php": {
-      "blob": "43c5a418138ce157eda755daa8c7a2cf58ee9de4",
-      "sha256": "4e006e2659ba88e63917572f4a24a67b187bfa03b6c02238614cb5d31d4a57e4"
+      "blob": "606bbd00ba187144054cf8c6bfea449b6b10a572",
+      "sha256": "8ae7bd1a42ff709a918d95315353d6b9ff00a06b40186d321a06908337a70319"
     },
     "app/Http/Controllers/Dashboard/BranchOrdersController.php": {
       "blob": "ea8d028a391aa1aa08485e38e6d7bdfd2690886a",
       "sha256": "d8466b4c72220f2f3d0675f89a75e66687713c5c2e5e5ea2e6f7600ff4bf8cdd"
     },
     "app/Http/Controllers/Dashboard/BranchShiftClosingController.php": {
-      "blob": "b30cf8115885a05dd6b373dbd840bc1c0ac69a97",
-      "sha256": "7d0a2d829828073c08a37385216826767ee779197050e866e5f8fe968dbdccf0"
+      "blob": "a034aaaf0d0e1b9bbd6f6881118d889dfcfc5a06",
+      "sha256": "a5be04e45f4a5164ebe1f197ca688468c4c514550fb3a07cc0c9b7ee484b01b0"
+    },
+    "app/Http/Controllers/Dashboard/BranchShiftPrintingController.php": {
+      "blob": "6dd24f12d89cc7ab5c0528e3f479f0825c7a7e89",
+      "sha256": "5555edd7d32233f556057deb3a0053eac4d73bf8c6fee660d8e7839cd4fb9459"
     },
     "app/Http/Controllers/Dashboard/BranchStockController.php": {
-      "blob": "74dc8c965f8d859b361912df43a42db4bda28a4f",
-      "sha256": "4befeb38ed6348d4a27f3a3ca8a369a5a4d75af017044ea97c2e926762a45557"
+      "blob": "ce14e146502d7480d43bfc606380ab3847bb09b3",
+      "sha256": "d0b08522a2fd20930b86f790825bdc21bc7e2edf08bce59bd723b8a81a415619"
+    },
+    "app/Http/Controllers/Dashboard/BranchStockMinimumController.php": {
+      "blob": "cc699bf5aa17cd27d5bd12b032a12f436348ac12",
+      "sha256": "52e0dc2db32e0283ac03097ab76a7089581b630889cf30554ded4fbdeeebfbd7"
     },
     "app/Http/Controllers/Dashboard/CategoryController.php": {
       "blob": "2c999baefdd4c78e08349b5df0ca5a4b3102133a",
@@ -394,12 +446,12 @@
       "sha256": "7f2bae9ccd0cb8d31e09f5d19e4a35df08d3cb7bdcd1a5eefe9f873ca25356a0"
     },
     "app/Http/Controllers/Dashboard/DesktopPosController.php": {
-      "blob": "84236c091e7162bfa4fd30b74b871b65dca5250e",
-      "sha256": "9383f983a624626effa45d88bf2e278bde5cf651a2d83e5fe27c458017ea17e9"
+      "blob": "425f69b30a60fb026325a4b0c1fe0d818e088c54",
+      "sha256": "5ff681a3a1c0ac041abd8bd0700e77641d4fa0bf12ec1d0f69b1167317a97729"
     },
     "app/Http/Controllers/Dashboard/DineInController.php": {
-      "blob": "75e595d50ce26b7fe12cde9e915154c844e713e6",
-      "sha256": "988bbc6ef4a5996ad187fde94e50b35a97d4e57be6b06d25967b616b2fa57f15"
+      "blob": "9e78573f30481e8894f196c7aada83122331ccb3",
+      "sha256": "aefe6978dd2153b4d6eb2137e3e67fe460aa95b44c189733a1bc6f9ef0c910d9"
     },
     "app/Http/Controllers/Dashboard/FcmNotificationsController.php": {
       "blob": "194bb0310c27018b5d40a94c088924fc76cb1895",
@@ -414,12 +466,28 @@
       "sha256": "c96d0c2636d2c3ff6fe4a18834fd1fff7e7e437ef651d89699361eb100721093"
     },
     "app/Http/Controllers/Dashboard/HomeController.php": {
-      "blob": "cd08730d675f82eeda767cfa02b4c7d5c9403b96",
-      "sha256": "73bff70fc9287bdeac40b57687ab3e271f329e7590075e06cc073b243742ea01"
+      "blob": "74d4780bf48aa309078316f1bd6052b5cee00b98",
+      "sha256": "1f901ffeefd15f37a4faa8dcddf8583ba12797d6c5b0e972447ed1ab521b8b12"
+    },
+    "app/Http/Controllers/Dashboard/MetaAiControlController.php": {
+      "blob": "5b21e15e8519f31994b4bc3145c118adb070d79e",
+      "sha256": "69635272a21da06adbd8c8ee13a2eb03d8e00e838190360344180949b2fed4b3"
+    },
+    "app/Http/Controllers/Dashboard/MetaCommentAiController.php": {
+      "blob": "53b4fa5dfc0082b8d376bf8b77ea837d13cec88e",
+      "sha256": "ba58bc6182ca22f802c3cb4c68d3f44a7011f9b96d79500a79791f24368f4832"
+    },
+    "app/Http/Controllers/Dashboard/MetaCommentsController.php": {
+      "blob": "f4a4165e61c1c539368bcf390cc698c71980c512",
+      "sha256": "0454f494cf9e1b84d5a4af89454c5aba95aa177027bcafc201eee46dc2b00367"
+    },
+    "app/Http/Controllers/Dashboard/MetaConnectionController.php": {
+      "blob": "b12c8fa35b4923657a587988cefeff00f6ac4a97",
+      "sha256": "21656ed0bcfdf37dbf3e11223c2c9bbfb63b6d3748730a42af6097d38b921904"
     },
     "app/Http/Controllers/Dashboard/MetaInboxController.php": {
-      "blob": "e3183d9bd1bbb6ded01cb51a9d8bd29bdb9fca91",
-      "sha256": "06ffa8fa672c99121586e23bb948b97e90b0e2d241f6010f9bba8fe9faed46be"
+      "blob": "2ea48e57353be531027fc3dfb503e5471f4b5fd7",
+      "sha256": "c18c5d3755820edad74c3f92fc156b749f4162879e20f89b1dd85c65e05e9527"
     },
     "app/Http/Controllers/Dashboard/MetaInboxReadController.php": {
       "blob": "aa45fef645c2a5efd735bfa91b59b382e6675b21",
@@ -434,32 +502,32 @@
       "sha256": "d22dcb38f5b4434b597785a768812682f2eb63a2d543e8ee4fcf5bcf7328cfbf"
     },
     "app/Http/Controllers/Dashboard/MetaReplyController.php": {
-      "blob": "7b600e4bd37924b85cf786e3beccb289be4cef19",
-      "sha256": "4e327ced74181bf854da56b7dd3f7d70d9e6cb824e59e36bba47fba647a958ee"
+      "blob": "e44f77d67aeb2b519ae66b182080ebb88afdb7a8",
+      "sha256": "f38e7ea98d0f2b538af55662f0c2f9a25c92ad99963398376cb3eedad55ce20c"
     },
     "app/Http/Controllers/Dashboard/OrderBoardController.php": {
-      "blob": "0b4ea3a318661833c5b5bfdba52775bf35240c40",
-      "sha256": "c83347bfd90a547b3380e52065a22b77a70e5536a2bd1b17e1bada2ce8a4a0d0"
+      "blob": "daa857d3e13bf4e9b344d40bc3f27e77c4a9eb31",
+      "sha256": "6e4fc17c91a3ba4e3515c8ae620a52dbf61f3a59fae0316e8ea9503ae69e4d4b"
     },
     "app/Http/Controllers/Dashboard/OrderBoardMenuController.php": {
       "blob": "93f26adf871a3d4098c3441a57255db11cef3233",
       "sha256": "7f8067bd72a8c49ce86a24b35f072051c915e82c3bd6b19c356d8f1abb7ac5b8"
     },
     "app/Http/Controllers/Dashboard/OrderController.php": {
-      "blob": "3a4f9f2cabeef9e40882fc67b878d35edb80524a",
-      "sha256": "bcdae457c1354eb32c76f566d0c4dfbeac269417b197efd3b21c48f65c60997c"
+      "blob": "c0088c531855f879276587c2d4b8ee493cac16bb",
+      "sha256": "a9f22936b5d7eacf38b01e38487857bc68abb1c8c3e778f9a9e129d124c73f29"
     },
     "app/Http/Controllers/Dashboard/PendingVendorController.php": {
       "blob": "f76f59291f038a1fc1b1e3981d9c02a3d42e292f",
       "sha256": "15556def70a6c7ad36480058056e6606b5db1715c93e136707afd31b2a302392"
     },
     "app/Http/Controllers/Dashboard/PhoneOrdersController.php": {
-      "blob": "478776e72edf67d9eaaf00abd49d97a2fa4720c8",
-      "sha256": "edbb877c84ff8ec42228933aca2a9bd3df5cb14011f568fec2f1505665a14bbf"
+      "blob": "a99cb9eb7d7cff1278dbe07ba82c6997a4fe61e7",
+      "sha256": "821d7a47acd4d37bc9add030bdd71c345086002633a22a274c01d6dedb278965"
     },
     "app/Http/Controllers/Dashboard/PosServiceController.php": {
-      "blob": "93a3467054dcc03b82c6be99aa5bd4613bcbd4eb",
-      "sha256": "f7cf8271455af01ba5107844c3f3d801cc39af637f310549292a6c884d382279"
+      "blob": "29d72038068f96d981d4931e7233476499394f4c",
+      "sha256": "3ce5d8a6d5cd817a76f40761600153b9c26f6214dae4f5d567c75d0aef23f29e"
     },
     "app/Http/Controllers/Dashboard/PrintSettingsController.php": {
       "blob": "84a6d318e55e30f2170f6df406e6cba6f1e7d415",
@@ -502,8 +570,8 @@
       "sha256": "aea3f4917d4291501ee6a301323ecda59bd57d2e65b6cb0a936530b2fdcb63a7"
     },
     "app/Http/Controllers/Dashboard/TakeawayController.php": {
-      "blob": "a256c9bf7dc6fc4a78d727ca018f678f69fff3c1",
-      "sha256": "947e95b81504399a9323ece34ee657868212f30b00e1909ee526dba1c35d0566"
+      "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042",
+      "sha256": "7b2e2e02ff600acfff49d6cd23512e18a9559dead96f990d5c021c0873c514be"
     },
     "app/Http/Controllers/Dashboard/UserController.php": {
       "blob": "6747d12086b78220527ad3c1f9d718c7d3cd7313",
@@ -514,12 +582,12 @@
       "sha256": "53a9ba0e3a79ae0a4ede75e567f02c85b108c9178a69c25be3012057de0b29c7"
     },
     "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": {
-      "blob": "7ce48a97f115eab4e1f2308c411d0dbc7f5d5f3a",
-      "sha256": "d93e3c28010ac2aabc3ade2fe0019df23bd903283e6e87c7d0a706b6a78fae4c"
+      "blob": "6f1da086e5b930f8248eb856a09f0c9572fb9545",
+      "sha256": "d8c314044b036e295322665ed4de84b5d5ecf952439092c5f50dda048ca43f2f"
     },
     "app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php": {
-      "blob": "48af05084619f78480f472e75d30376235e77144",
-      "sha256": "8224aca21bc21bd4d3d4c1c035c3580695b117463792cc0d92dcc7b4b5a98ea8"
+      "blob": "55bb1ac0cb35eed7e788735cc4793791d074745d",
+      "sha256": "2a3c448f3f65ff69fecd21364ba5d641e53c06c1872fcf42168b92283382a1e1"
     },
     "app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php": {
       "blob": "e893f79a2696aa033ed0cdcd71e4d735cf153b9b",
@@ -534,16 +602,28 @@
       "sha256": "2599f11b8a322e9ca90bbc552417fb27e6333c59a4ad9c258a2c7527efc01852"
     },
     "app/Http/Controllers/Payment/PaymobController.php": {
-      "blob": "ca52f03331eedd7903b0a16ad3a706e3b4e7cbdf",
-      "sha256": "b6c63574ad727cc3ed130aedbbe7d824424ec673d1a777094aefe6979d72204f"
+      "blob": "13e48a6675303c651ad72ee5d79c88b6e56d520c",
+      "sha256": "2755fa979f6701f6a63feeef5f2813553bb36c8386676c0ac64231d19e5e3e92"
+    },
+    "app/Http/Controllers/Payment/WalletTopupController.php": {
+      "blob": "eb2ce489b79fe5cc56486bbed18ea9b2b44ce168",
+      "sha256": "ccd3d0c73bdf847b5382653f0faae9ef6bcc4bdb39ebcdcaa39303a2907223b0"
     },
     "app/Http/Controllers/Site/HomeController.php": {
       "blob": "f9466bf9d5103a2a597c2069eef4b4b3f70b72b9",
       "sha256": "a36ebaaa9d3aef9d7f2c58a10b61f18ce7a2af21fd66a82d8f1cbb9ae810baf7"
     },
+    "app/Http/Controllers/Site/StorefrontController.php": {
+      "blob": "14eda1647fddc1c79a8dafec85f9bfeca3b0f290",
+      "sha256": "dabd8e67faf21b8792c5083e8f12524bc856dab2be71c038ddf61e08717c1feb"
+    },
+    "app/Http/Controllers/Site/StorefrontSeoController.php": {
+      "blob": "1e097c8255f2b810a02b9f3e24c284a322209283",
+      "sha256": "76d6c02643bed933461d4558087200034b3f00154ccf0a9bd2cc9e431006e606"
+    },
     "app/Http/Kernel.php": {
-      "blob": "5c99798b24e893d6084e42660bd8c76c06441f9e",
-      "sha256": "3b0b99ea54d09a32a7b874182f456e99f3bf37c8a8ebd96bd666f19460e1eac7"
+      "blob": "5bb7c6edd4a4367b4fd72d95a8f80c25a71975b7",
+      "sha256": "a8ee7d005f8b6e9239e669049d7820e116bab611a30ceb24e2d5ad0a4fa8feb0"
     },
     "app/Http/Middleware/AppScopeGuard.php": {
       "blob": "44cb6a8db394ae69d7099191df79a8b82e03f66c",
@@ -561,6 +641,10 @@
       "blob": "cbf0d3aac992bf1f88f34a4260d7fb4cce8ebe2d",
       "sha256": "cd54b5d1dfe761d6d5319adf4cd0fde21ff6610f1472d95e2d88aba3d4e49843"
     },
+    "app/Http/Middleware/DashboardSessionCookies.php": {
+      "blob": "3ac040aa54b49d3ac2908388989037898abfed76",
+      "sha256": "e17cbe0fa92aa97ff5e5f9631b9b56e6413b76ae5cad4bcab610efd2f57ff4a7"
+    },
     "app/Http/Middleware/EncryptCookies.php": {
       "blob": "033136ad128b7687558bc41b03cc92f39cf69149",
       "sha256": "c56acc91a253cc0a078e41e9a093585001c88bac441613582cacaceb063f7731"
@@ -574,16 +658,16 @@
       "sha256": "dda8c308845304d9c1b039a9a07e0978ccbd3c74a5848d774922995fc9d5f732"
     },
     "app/Http/Middleware/GuestAdmin.php": {
-      "blob": "9bdd6c43d35825ff502f01a8806090571df9f544",
-      "sha256": "a9814c7591f5bb1c058a58bf6e991464d1a7c7d429d511713daf1de6f33a6370"
+      "blob": "ee8a4b7928005980adc6145bd15021ae6e9216c5",
+      "sha256": "c2269ce57cf00c995323fa055c3688f7fc1ca0b601bfcf7b3da1f86838d8c524"
     },
     "app/Http/Middleware/GuestVendor.php": {
       "blob": "a0732cf0251df145fd92c1847074c1ca4ea2364b",
       "sha256": "a1a31f8e3e4a16d05894b6aa59dfc5b0950bf5657838376db95588389fd11ab0"
     },
     "app/Http/Middleware/IsAdmin.php": {
-      "blob": "0ad83237ba2fd8f4e52fd68c1cf0de39500d99aa",
-      "sha256": "2ca849ddddd1484adfc41e4c0b1377014f83f9b5138c11814e32b09d4cf1f434"
+      "blob": "5df3fdd4150cd4d960f863faeea14ffcce0949f1",
+      "sha256": "b2342fe7301e631c646585177cc10162d9f3d874fadc2cf70c831eb32fce045e"
     },
     "app/Http/Middleware/IsVendor.php": {
       "blob": "d527e5776944d3f54dadac66fd5bf6106912a9fe",
@@ -592,6 +676,10 @@
     "app/Http/Middleware/JWTAuthMiddleware.php": {
       "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "app/Http/Middleware/MetaOAuthCallbackPrivacy.php": {
+      "blob": "011d7d4f9388d55c1b4fa8bda3444cb76cf26b3a",
+      "sha256": "89b8377ffb4438bc436e7e754a6d5e81f00cbc4a8fe82dd1b2d96a9133fe2b04"
     },
     "app/Http/Middleware/PermissionMiddleware.php": {
       "blob": "9071412487574c6e085778a937e3ad4fa2fd1d1c",
@@ -934,8 +1022,8 @@
       "sha256": "ffbb43f525690e76e19e62d85ef69441ba831a3d4b32878a272a67fccffc8d18"
     },
     "app/Http/Resources/Api/User/CartResource.php": {
-      "blob": "1a2d6b39ac76d089af7ff424caf13569dd167020",
-      "sha256": "0906e97bd0c3a8a684b4aa358c60c2526f87c283f74bd773ba610143280ba285"
+      "blob": "186e73a53dcc37f236f3031d5ca55dadf5666bf9",
+      "sha256": "9d0d53d23a4b25e33a5399a9c2d0e3b4747564e3b40afe5bc952dd75d9da15cc"
     },
     "app/Http/Resources/Api/User/ConversationMessagesResource.php": {
       "blob": "7eb843c367ca370cb7e3bbda8cce631d9598e6f4",
@@ -982,8 +1070,8 @@
       "sha256": "6cc92f3979007f078f3895d9aa0ac10dafd59710697c33a56d77dbf023f917be"
     },
     "app/Http/Resources/Api/Vendor/ResturantProductResource.php": {
-      "blob": "f465875b9b0b790cfe5f26023dce8bb7fc2ff521",
-      "sha256": "728839547073793c9956dc3db9b1c61c249b3e06dab6f702772c5e0b729a4bfb"
+      "blob": "a47453c5803b0d01351004a59d73a56994fee804",
+      "sha256": "f052186e6058ac5722dfd5b7c377f12ecdedce0a1a540acd2a6416e0c2966439"
     },
     "app/Http/Resources/Api/Vendor/ResturantResource.php": {
       "blob": "7c228dc12f017dba1405c5ca44ee84bc82088495",
@@ -1006,8 +1094,8 @@
       "sha256": "d6ccc0120a29b2f0199addaff038931ab7751f591b73e030d7721e0229a8d235"
     },
     "app/Http/Traits/SendNotification.php": {
-      "blob": "ecfb15651e826c0d7de31b96357d0cb2a96b56d5",
-      "sha256": "75f55518826fb73f3455a9d661b0eb2868f0963f284fdd32a8b5727a00545054"
+      "blob": "abfdd1d7174b85ef01947c44acf99aba60fa121e",
+      "sha256": "4b3ea7dabb11d6f04d07ca8045a19dc1920e84de460f0be8124e2c5a320f4793"
     },
     "app/Http/Traits/UploadImageTrait.php": {
       "blob": "19ae51c7fdc4f5c8391ebf0f3d4d1d2d103bbeee",
@@ -1084,6 +1172,10 @@
     "app/Jobs/SendOrderCreatedAfterResponse.php": {
       "blob": "daa6513672bb66155d5f69c739a53dd3dca953a7",
       "sha256": "69a92c4a2bcd25c5aa5b2dd3a510a6e1a675cc56ed357d934bdc9d1ea5f086c1"
+    },
+    "app/Mail/BranchStockMinimumAlert.php": {
+      "blob": "9dd1c031d0fd8d5a7a41bb18c42a4e42a5ed6483",
+      "sha256": "6fc11b4ddfd57aab161cdf3c982becf8d9ef55fea43a69865a88ae0d4eeda5d2"
     },
     "app/Mail/PartnerVerificationCode.php": {
       "blob": "20593853087516508fd7402cb39133ca2eb2dc33",
@@ -1170,8 +1262,12 @@
       "sha256": "0dcdd9a2286edf203a380ef2a372d55910741472151866524b41f45185b61a4d"
     },
     "app/Models/Order.php": {
-      "blob": "92685c24f92f180ec735e48da4918602be1b9707",
-      "sha256": "3dd73b724b7c086f74c2e0961aee3694ac377f134f762aab72a62f2b725ac3b6"
+      "blob": "e3049996a1032045510b61e821854c15dd1f0ff8",
+      "sha256": "b08d34022907d41d9feeade04ee55a6a7237a927783bb8c061e63d1b4d2144e0"
+    },
+    "app/Models/OrderLiveActivity.php": {
+      "blob": "7fca6f76e849439248d213686327967e785bf28f",
+      "sha256": "68c3deb72c95a0617fc6af3685c3e0c82f2f4b825cf0762bc23ed1e9184b2853"
     },
     "app/Models/PartnerServiceRequest.php": {
       "blob": "3c908336a8907e86e338dba344caceb12b43d76f",
@@ -1254,8 +1350,8 @@
       "sha256": "7cb2e490f01b13fa506394efa833cb128dd86e1f9652f59e0f9dc837fb4709b6"
     },
     "app/Notifications/NotifyAcceptOrderNotification.php": {
-      "blob": "abf7ed64ceee6f8fcb55815963c500cf7187bf99",
-      "sha256": "597320e9f98c68aa97a0e804d7120ff360addb518279276c7adf9ae7c824d730"
+      "blob": "b4ed3a3977254ba290aa6054d5624d700bc85222",
+      "sha256": "560c2b35d91f5187c6c485b2b29477bb639eb121768f2d0e9a0c358fe1a709ab"
     },
     "app/Notifications/NotifyAdminNewDelegateAndVendorNotification.php": {
       "blob": "a857ac6695d7cda1f9fcd46a7a73522e2deb4fba",
@@ -1362,8 +1458,8 @@
       "sha256": "9f6f39f2c55ffcce32506c85afda8ab9e2f07ed433f2773f683950dc917b704f"
     },
     "app/Notifications/NotifyUserOrderStatusUpdatedNotification.php": {
-      "blob": "95a652393f01b970c9917b5394638478231d8e5c",
-      "sha256": "e701bb5d48c2e09c903767194267105fcc1c68f01786d11c677160d3b9d01d4f"
+      "blob": "c6faf973759131d90c9999997f3c31dd41040a2f",
+      "sha256": "a5122fa114710f5c9e70de68e18c9dfc172684c3c1d531f2080f0adcc910f8a3"
     },
     "app/Notifications/NotifyUserOrderTotalUpdatedNotification.php": {
       "blob": "bd82c2dde859777488823ee747eef5360815732a",
@@ -1377,13 +1473,25 @@
       "blob": "81f20cc7c04698e66d44b84753bff256985b58a7",
       "sha256": "873e7b778f8d286f50b469a0b08ecc3dc3dbfc3f7bd496763f659eecdac94734"
     },
+    "app/Observers/CustomerDirectoryAddressObserver.php": {
+      "blob": "f3a92ba0837a1c4781ce6fb12b45973fc0951f5c",
+      "sha256": "c26dd4ea5edfafb1364d1f9c5f4b984f810da24c7b64e156c8d1b03d5d4b9b14"
+    },
+    "app/Observers/CustomerDirectoryOrderObserver.php": {
+      "blob": "4d8f849a25044d7c1939bb9307bc47dc1392afa5",
+      "sha256": "bf82c1002a235f5088dda9f16645830c70496c4fb60e81e8917fd806b7512760"
+    },
+    "app/Observers/CustomerDirectoryUserObserver.php": {
+      "blob": "09398df0a7f91a3a1f47cf93c5caf2e1cf3205e0",
+      "sha256": "315aa546c799f22022c44377b13771868a1636f3e436783c1986e28199188059"
+    },
     "app/Observers/NotificationObserver.php": {
       "blob": "f64a60e9f87cf5bff0d398627d7f6eb4567dfe65",
       "sha256": "e9638c1c6e4003f8e7f4f6d87fb721e713a74f6da1cf215879951e48ce5b6074"
     },
     "app/Observers/OrderBoardClockObserver.php": {
-      "blob": "079ace176eb779328321b3f904830d7b81c9af37",
-      "sha256": "75b96d0c5a9ebd424cff3207ce12218a0f5fd569511451531acb8005266ebcc6"
+      "blob": "1a896b2573669047bdc9227f412dd52c4824dc10",
+      "sha256": "e0568bbae2a0805e833a3c029e96327a03c9153e4c59ad2a4b0007eba23a5aad"
     },
     "app/Observers/OrderCompetitionObserver.php": {
       "blob": "a28cae80b834aceab7cbdf8ebd1fe67234bda3d9",
@@ -1402,8 +1510,8 @@
       "sha256": "98f89bb0e368471a011d3ad57c5525ffd23acf1eee78376889295bb6fc0a85e2"
     },
     "app/Providers/AppServiceProvider.php": {
-      "blob": "599060dff3c43abe9a7e43f8d8bc6b61fabe158d",
-      "sha256": "dc3a7e6b90ee7d06c3031cebe418fcea640bee52248dd3ec9009f5883eda5685"
+      "blob": "e8149cb2c67616be14a50eaa37f690a27ad87811",
+      "sha256": "aaae31ee543f880882410bb9246eac210d2edc63c3f320c1d3e0bf8ea22ae285"
     },
     "app/Providers/AuthServiceProvider.php": {
       "blob": "2aa3ecd24ddcf3bc542c781194bd6eed09619452",
@@ -1422,8 +1530,8 @@
       "sha256": "83c38492eaa0a87cc421dbbf2f63bf8a765a160f515f81293d489ef15dfc1e26"
     },
     "app/Providers/RouteServiceProvider.php": {
-      "blob": "601bc01df754b568c9e6e7a6bb95b866011cca42",
-      "sha256": "b11f72528a1e6c972f91f85542b5a402550d055a21c4719d68302620c394524a"
+      "blob": "1ae558e0d1db98f218b4e657a592ade9a3894880",
+      "sha256": "f0ab1ee25c04d14380582dd914521c38de016648d06f1364dc45204d1ed977b3"
     },
     "app/Repositories/AboutRepository.php": {
       "blob": "ed078c6d4c9e7ce281a3beb206dff183a81cdb6b",
@@ -1489,37 +1597,77 @@
       "blob": "5b3bc9a20b6bdfaded8f400d1d2ed390cdca958b",
       "sha256": "4144d4d1e4c3d8a13734a6b7d2ab031a2769fa04d45c572fb64cab530c8d053a"
     },
+    "app/Services/Dashboard/AppCustomerConsent.php": {
+      "blob": "660fdc42ca446e9e23e5c37492398c420ded2181",
+      "sha256": "e8bf10c523d0da45fc440c194f0f41e9b3bee4bdefd53efe064ab34834138e58"
+    },
     "app/Services/Dashboard/BestEffortOrderMail.php": {
       "blob": "fa46fdc8519b70a168a86f8e820b5a0f8c36b2b3",
       "sha256": "26a3386a708835e7a56f00d8b22c6f6a79370e8f02bf80ceac57438901e18d81"
     },
+    "app/Services/Dashboard/BranchBasicRecipes.php": {
+      "blob": "10c1e4baf99a855acb27c3c84e751f625c567381",
+      "sha256": "4bb2e07ec55137ee11f253111055aa95985d9efc0fefc1b92b0e3f09248de188"
+    },
     "app/Services/Dashboard/BranchCustomers.php": {
-      "blob": "6889e9517410708fd4738d290d5551b32b467c5d",
-      "sha256": "1ac9a9491650f8027dd275be64ffece0e34c40e491e18af4c8a7f22d2b41e6a6"
+      "blob": "419402f489b35f5d79f2f91b5bb9e124d618fe57",
+      "sha256": "f78e2e418b4491ef2f9e19476f52fb00d25bde0740b538333104f729e43e11e9"
+    },
+    "app/Services/Dashboard/BranchDeliveryTariff.php": {
+      "blob": "232833a207b116d20d1f64b8c01cecc689f84ef9",
+      "sha256": "25ac19de20cca5ea4c1b12d680ce62a8914ab7b51703efc5ada5409a1d29b758"
     },
     "app/Services/Dashboard/BranchExpenses.php": {
-      "blob": "d29f769e4efcf5f1be1570fbad887ba90b8b23ca",
-      "sha256": "9dd921aa5ecad8e69860d60143fcd4d076f920400d9d6372c5e51094276736ba"
+      "blob": "789c63bf08ab512a71d7a0a0b28e79b2a10e4e16",
+      "sha256": "8d984f14917f8ac20b02e7295172bb36039fa9f2fc18199ea300049054b1b12e"
     },
     "app/Services/Dashboard/BranchInventory.php": {
-      "blob": "614fe4549e6665c881481f9790d6f47905dd7b75",
-      "sha256": "cca6879d0c63540eeade54f715f135462fbc55537a72b1a36d9886a86920ae15"
+      "blob": "6c24eed954dc12c1ef5e9691353b6aeba291c22f",
+      "sha256": "17aac16984cad2c03270626196c1889a34e2e39b1539261270b81e8dbad0603b"
     },
     "app/Services/Dashboard/BranchOperations.php": {
       "blob": "1d12d109a1aeb7a5c431b1519f5c055a5f9ab13d",
       "sha256": "140b64b68ace94fd112feef84f4e16131d08915f27c77876711600d7097beb2e"
     },
+    "app/Services/Dashboard/BranchOrderSequence.php": {
+      "blob": "5ffd468c6150c69e5495d54ce04b55293e6a6923",
+      "sha256": "0131d1a17b9d88a69c0dd0f85dd38c37be094d316a90391f44d748223c3cee56"
+    },
     "app/Services/Dashboard/BranchPayroll.php": {
-      "blob": "6f2ca6457d3ec00d2ed0af04d0216cf1eb15faf0",
-      "sha256": "f4adba4b4c84f04d01791ec5894b36b925755c24cf3b7414daa2f4901b2c17fc"
+      "blob": "de4137c1b35ecb9a515b44ee7fb5fcd63a9a8b64",
+      "sha256": "349e1d3d6e628d1fe7fa9b214edaa0c998193d8fc1fef1e388c050344e2dc5b8"
     },
     "app/Services/Dashboard/BranchShiftClosing.php": {
-      "blob": "2cfe768ca07308a49b758987981a686b1008b3b7",
-      "sha256": "9435950480ac663c8144fec109875bf61f841557114d345960f31494a6e8b52c"
+      "blob": "6eb5b4dc7b64ea87974a6b39089156b9186f940e",
+      "sha256": "21d13d560857700d2904a82af73af798b072f5d56c350c708d85f7723b714bfb"
+    },
+    "app/Services/Dashboard/BranchShiftPrinting.php": {
+      "blob": "14d70b8d928b8d63798f5d0bbe036bed55a9b5e2",
+      "sha256": "10eea8b07707ec2565549b81fecbbf0c18fe8ee247d848e5a571ff944d2d185e"
     },
     "app/Services/Dashboard/BranchStock.php": {
-      "blob": "c9ef94e282cffa52a9122d23caba93b429b8ded8",
-      "sha256": "eea29e6da193fda467246ce52d6d5798a033b2a8931927fa500e6a658703dd63"
+      "blob": "c256231f0f8b129e2bfce2741eea4edf89d5be08",
+      "sha256": "8dc0152e337a88588b371529fa188a44f0484bf733eda5b61445f23cf2914300"
+    },
+    "app/Services/Dashboard/BranchStockMinimums.php": {
+      "blob": "ebd34a6608111bcfc62351cedf1a70ee66f5324a",
+      "sha256": "5eb00f29a509be44d323248ebb225f943cce3e001171c635c5a234eac9f853ef"
+    },
+    "app/Services/Dashboard/CustomerDirectory.php": {
+      "blob": "8ebcf9afaa20c21cf9b92a0711ee9c2ec92e0b97",
+      "sha256": "e6b606c225251b12ea4ee6f09d2b72836b1096827cfedc873e94dafdfb2fe144"
+    },
+    "app/Services/Dashboard/CustomerDirectorySync.php": {
+      "blob": "5e7739e54d45602a89736851d666199b33716354",
+      "sha256": "cac47e9c9e4ccfb0bb3debad301316a51d53d0f6b9bb9c2f5aab212c7d3d0949"
+    },
+    "app/Services/Dashboard/CustomerMessageEvents.php": {
+      "blob": "97c32a3e433007cfab9421e2c8e67630cb2125d2",
+      "sha256": "3d0bf39252dd7e0da0ea9c0596ab79fcd45a526561474e7b432701ed42a09eb7"
+    },
+    "app/Services/Dashboard/CustomerMessagingService.php": {
+      "blob": "c903d7b098a3988dc1955a23f34ffba902c9878f",
+      "sha256": "36bbf9a94eb2e37e4a4f6df4dc4c2368b14a622302cb4fec6498e7d9c71812ce"
     },
     "app/Services/Dashboard/DashboardPushCampaigns.php": {
       "blob": "8a817c78ad4d90039386157ba195c1b92eb9252d",
@@ -1530,12 +1678,12 @@
       "sha256": "9a4d6500a1c046ed1a80ec1f32b03ffedd51b681d272e3bef75db3e4555ab4b9"
     },
     "app/Services/Dashboard/DeliveryCompanies.php": {
-      "blob": "ffb6b921b45cbd4c50f542ba9e0f9346c92983ad",
-      "sha256": "e32d65d4890e05ee2a6f06e5f3b041fb71dbf63a79a40425ca069deccbe184ec"
+      "blob": "26cf88d2c623dda102846c6a91d1af8b3c71b782",
+      "sha256": "e4b5ffe9fe61d79abb5bc18b0e6824699ee7dd702438ae5f6b57006b7b8d9672"
     },
     "app/Services/Dashboard/DesktopPos.php": {
-      "blob": "310863888ea8ac9f66287da2c4f2c62cc3694530",
-      "sha256": "f438fc1edf36c881d4ebdeec0de5d1d1e358c21634e8cae80ed1f5ba58a51056"
+      "blob": "011958c10e389fa4a392881ae8ee4fb44cf01c1a",
+      "sha256": "ce19114c1aa0e955d58bd317c510e00ea8e4342ae0435f3a275e35a088801ff6"
     },
     "app/Services/Dashboard/DesktopPosInstaller.php": {
       "blob": "3ba4e296c7b16828ec71aa8903ae3d0d40838c4c",
@@ -1546,40 +1694,108 @@
       "sha256": "c9300954ffb187875faf971d90d7d201b67f1ca497111a24fdad41b950878335"
     },
     "app/Services/Dashboard/EmployeeAttendanceDeductionCap.php": {
-      "blob": "2602aeb8874a2cfd799c602d384ece0906ecc198",
-      "sha256": "d5ea3b5ca355f7e703335674cf6d418458cb3b57a6e829451a2dabf662eacebd"
+      "blob": "1f84a2d87fdf9d163165179fd3e7d8d696650282",
+      "sha256": "cde7d3558126205e6ae44a0aabb3130e3d4e42b0d39d16996d6f7a7bc091ecb5"
     },
     "app/Services/Dashboard/EmployeeAttendanceRules.php": {
-      "blob": "c414538bd949c84c9f71d21541b69b6b918af0b1",
-      "sha256": "994d627beb817a952d950102111730425f1c64e18ea760dd32f9b2c29c2709a4"
+      "blob": "882140992b8d643c24727904f692efae065ba560",
+      "sha256": "29c8ceacaaa14c94a23a5ce53b0356133b87c69af7455414237afd4cba790866"
+    },
+    "app/Services/Dashboard/EmployeeAutomaticAbsence.php": {
+      "blob": "df643fb9f79123ceec1595b868f34c88f8d0d65a",
+      "sha256": "35eb2b5ee2f6bd77d0808be4584ace568e4bfaf559f90a5213ebd6005c8aeaaa"
+    },
+    "app/Services/Dashboard/EmployeePayHours.php": {
+      "blob": "0c4b2b2188ab2158e131d2c772f3f1d0d86ee2ae",
+      "sha256": "38c5634e49c0edbefa1b681223bc347afbad2f10ff32c1f958d7aa6d00b2280c"
     },
     "app/Services/Dashboard/ExpenseCategories.php": {
-      "blob": "e2b7415fc9e346927197bfbd4ec20763b197a599",
-      "sha256": "3aebd40bb8baa66f0ceaed46354efc8d690a26af059535659f8f3c2759e95450"
+      "blob": "5b27eaeb30c536948914b5510dd3ade1686b6237",
+      "sha256": "1bf213f622129c9a2402378b2cdfae7f2fb30cb9ce18da924740ca772f8515d9"
+    },
+    "app/Services/Dashboard/ExpenseStockPurchases.php": {
+      "blob": "651f5df0f5896b289239d9bb55b1a367ee5c6ab1",
+      "sha256": "9a9bd3dea189cbd9ed5a2e48c534a389c6f6651616463fd5fb6de88826be8d97"
     },
     "app/Services/Dashboard/FasakhanstaDeliveryOrigin.php": {
-      "blob": "1f0eb40a2b0e6590362beee71e8cbbbcb1d7535f",
-      "sha256": "893dc32b1cc8467398972cb2ededb71cb549a867ca53894057a5443028129763"
+      "blob": "836cadb027419892e4871bcfbe59edd53015dd82",
+      "sha256": "98d862d48f61bbb41d88ebb37d79ffd2eddb0b9da6e9f324dc7fbb03fc521c78"
+    },
+    "app/Services/Dashboard/FasakhanstaStoreFulfillment.php": {
+      "blob": "46dd257caf21b9c3fefaba1f31f3c2e0cd527ad8",
+      "sha256": "9a53ba72795579210fc9d4b3badeeb7aff22e0f8452b871050a6481f28213747"
+    },
+    "app/Services/Dashboard/FcmLiveActivityTransport.php": {
+      "blob": "09b6cb31c3fc2cc3721d327fa1b1bd00ea7ad96d",
+      "sha256": "c90858f0a316a7f2ac8e34e9a5a696161a021c90586607c3beab784b0c1a0f46"
     },
     "app/Services/Dashboard/GoStoreBoardActions.php": {
-      "blob": "52b19c0eedcb3577d1cf2f0fe13e45f9287053f1",
-      "sha256": "34887b138fd4cbe6018a9944c2b85bacaece57a832d96032ebce929ed89aabf6"
+      "blob": "65edc107b1e0fb3688d28fbc0e7662d439c16fee",
+      "sha256": "a780768fcec49d691641fb4d4105482dc1601b837f2f2327dd28f2a9aa60d79a"
     },
     "app/Services/Dashboard/HomeOverview.php": {
-      "blob": "f8398ec6d4a90a397a2e030bb2fe8f862881e7f8",
-      "sha256": "a28ccc625e4e16bbba381dff9e008615488746130d86c11d9c1e7473d7c6ec13"
+      "blob": "991789ea4f2cce3f34733ec440532ed85a594af1",
+      "sha256": "3bea092d3cfe630ccf64366f411c44dcaab2d2126ec5c4f97356deabf38feb76"
+    },
+    "app/Services/Dashboard/LegacyOrderCancellation.php": {
+      "blob": "9563e73e57357c5bb7a3ff57dfad31511a4f2eb3",
+      "sha256": "19b7dcff96afff0af396b32909c3f601f55ba7c254d0bf632a6b7f438f098482"
     },
     "app/Services/Dashboard/LegacyOrderCompletion.php": {
-      "blob": "0706d9250ec249412620f4c090bcff9eb09fe48b",
-      "sha256": "5976f9f8fe40f213ef95f10db8c3009c069bd5888dfc073b880e529f105996ba"
+      "blob": "d02410951ea37edd56047c3c23edce29ed966441",
+      "sha256": "5953d004e430c57214dd5da50e6862c05b44c4c3a42c9b98ab6027ced19be637"
+    },
+    "app/Services/Dashboard/MetaAiControl.php": {
+      "blob": "de44620835b22666417fc37752ab944d4419df36",
+      "sha256": "a7239f0731b30c931b70ee0ef30125f3688a7c4ccba4534b738a4745fa588289"
+    },
+    "app/Services/Dashboard/MetaBusinessAgent.php": {
+      "blob": "4b2ad29c21ea092af94ad3fa1bace90ad4dd4672",
+      "sha256": "153329fa5907ef43d0685baf9bae7ffc2d85378667c101b3c3a634ac6a83ec66"
+    },
+    "app/Services/Dashboard/MetaCommentAiControl.php": {
+      "blob": "d1cd90a84b427642fd52dc0d9611aaab6ba1ab1a",
+      "sha256": "7f4396b8603df5749732620376ace16f4a094a845ba50ebd8755730e347360c4"
+    },
+    "app/Services/Dashboard/MetaCommentAiDispatchLock.php": {
+      "blob": "636aefb39e215d97ea3e812dab56b99aaa3b3443",
+      "sha256": "9cb08488f7badab5e2d5b1fd09aed318d2a0b97b286abb6f11fef98690152d5b"
+    },
+    "app/Services/Dashboard/MetaCommentAiProvider.php": {
+      "blob": "c94b8691b9bf11b2b681105687a7d0fa2fd3c720",
+      "sha256": "466b858a4da789019571eb182a1b00f4f503678500a01b22106657112a964b85"
+    },
+    "app/Services/Dashboard/MetaCommentAiReplyPolicy.php": {
+      "blob": "bab36f65b33bfe47828dd6cc0e9dd9c1404330ea",
+      "sha256": "2040f2e0b7093fb08f2babf72fe3e433ce7b0cb16909e9a43c6d1369d579a599"
+    },
+    "app/Services/Dashboard/MetaCommentAiWorker.php": {
+      "blob": "6c01f3c0b637c0aa442a81e36a53f1e6053234e9",
+      "sha256": "2decfea285eb2a27eff9b24db76563eddc7d69f374cd691d8d7d9193223d3aba"
+    },
+    "app/Services/Dashboard/MetaCommentReplyGate.php": {
+      "blob": "30967f79079502bddb6f771958a6a475f3c34c6b",
+      "sha256": "59e7424633f930ea0904829fd714c5a0a3080c15d9ef4f44015c492989a84e01"
+    },
+    "app/Services/Dashboard/MetaCommentsFailure.php": {
+      "blob": "b43557d145f7ca19f74ff663d1deeba261ac486b",
+      "sha256": "d33a1b64428ef3fb1320633cec8be62225fd4c162d0c914fbd4682a8690a6fbd"
+    },
+    "app/Services/Dashboard/MetaCommentsReadCache.php": {
+      "blob": "54bf077ea52597c4a86055a23bf2cc1bb34673df",
+      "sha256": "46661963af22175d33634c1af06cb82f4f12532a8d005927d4be2b54c5650357"
+    },
+    "app/Services/Dashboard/MetaCommentsService.php": {
+      "blob": "eaa6670a8c7dc277bf6a06046eae2520461992a8",
+      "sha256": "f5a3021f075220c623d0ff9942aacf3fc5ded8a1a4e5c0477b69afe3f1fb6bf6"
     },
     "app/Services/Dashboard/MetaInboxAccess.php": {
-      "blob": "260b0a1cc93be44bf9e96f508b55420e5f639f64",
-      "sha256": "0859cde27e67d8481996f895f54d17a570ca0a00ca165e6bf9663a75af88ab44"
+      "blob": "7faaba6645308c1997bae8182fb4b26dbc5e3b9a",
+      "sha256": "5ff4f0a37adb3677f1cbda4da073b434f507b393c015d906da56aa7e978415bc"
     },
     "app/Services/Dashboard/MetaInboxConsumer.php": {
-      "blob": "f7dda06f617de711a3f6a363edda0185e3973794",
-      "sha256": "0dba4e36d09a4b38774fba7840da662967ceed547f3456d004c23b410515feee"
+      "blob": "3b7e9cb9abfabc85c0b78199d0bf9d2565424f42",
+      "sha256": "76a50fce9163914174fa96d1f6bc6d9a22e8e3a70c2aa41046630914406b791d"
     },
     "app/Services/Dashboard/MetaInboxReadState.php": {
       "blob": "547002923c39894442b9541a99bef81c5def7711",
@@ -1590,20 +1806,40 @@
       "sha256": "104df0eddcba0ba05e629c87f6887dd51ac2663999d0bf1870d3e399dfabcada"
     },
     "app/Services/Dashboard/MetaMediaService.php": {
-      "blob": "8f0f0390e5aabad792595f6901e12a6784e25cbc",
-      "sha256": "e4b3d7a269311849bc39e9ee17718250318a490a395fab956d825c47bb920276"
+      "blob": "8f722ced357fde463d492b7181c6d6d58f49e8b0",
+      "sha256": "b15740b84d0ffc7aca4fdbc7324ed5d0848fe7f61eff61a3ac2d3786c3202067"
+    },
+    "app/Services/Dashboard/MetaOAuthCredentials.php": {
+      "blob": "248e256abe3ad8456bcf23bcc00dcbcea62a8491",
+      "sha256": "e845537b61a64b0cbee2db885a9a0f5f02821dbd76a6bbf8eb9714427e8c1ef0"
+    },
+    "app/Services/Dashboard/MetaOAuthFailure.php": {
+      "blob": "25135135a9fcb8aed1a4eec998c153dc0f63c1f9",
+      "sha256": "8d864fb297efe84e824d999dd9f188c2c17219104202595cb87258ed13cd4883"
+    },
+    "app/Services/Dashboard/MetaOAuthService.php": {
+      "blob": "ac1369daf33749f04dcd5bf726fd3590b9c5b803",
+      "sha256": "5674c97056841c972b64508e9fa0313cf7a8556fe7fb2884b2c283800fd531dc"
+    },
+    "app/Services/Dashboard/MetaOrderFollowupService.php": {
+      "blob": "d14a3c6e84624ee5b2d20997b7f11159b9101720",
+      "sha256": "2d5aa99c40eb333e18f566079ee1eb9ef287cbcd061b6170b0fc7d0d4ee148a5"
+    },
+    "app/Services/Dashboard/MetaOrderNativeEvidence.php": {
+      "blob": "f11710e1439867ba63571a690526496684120ef5",
+      "sha256": "84e8592e6ad0c630f69f7658be2df7bafcb390dc9c8ba4f52b476c05d4c13bdc"
     },
     "app/Services/Dashboard/MetaOrderWorkflow.php": {
-      "blob": "e13362de65706f9ee5e5dab8acc24220bca5cdb0",
-      "sha256": "c992647efaa1457712719f24ce8d810ab66d191835b2f1aac03e2212e0db5af0"
+      "blob": "337cd9db9c3493be0af00a32cf7692e8dca9268d",
+      "sha256": "c7573e875e302c152f865129b729f1206e1657b4cfa136285b2886f1fe9196be"
     },
     "app/Services/Dashboard/MetaProfileService.php": {
-      "blob": "e0e309cc0ee61566165f9283f658f41b0862789a",
-      "sha256": "2d26d0064d114b7b55f78619d8b5ce4fab2e8ddf687af5c518e4e3e89ada828b"
+      "blob": "dad433a26db1219e08491553d6ef579e73b6f29a",
+      "sha256": "92a93766e61beb06ee9ef9d1e006d0e50b495e3eb562074fd6479458c09c3250"
     },
     "app/Services/Dashboard/MetaReplyService.php": {
-      "blob": "84c686bba5acc0dd3696015f09854aae3f8c4448",
-      "sha256": "5965a869e0799d105cb69e8747bd727ea333f8725ef322338b9d9249ee8c17f2"
+      "blob": "c4226df516aa5f8b59999a8979f9f2ab43cf0e28",
+      "sha256": "89ce7d680c90e75ebdf2ff7fec2ba836bf7f5aea359956e214487e99af9aac21"
     },
     "app/Services/Dashboard/MetaUploadMedia.php": {
       "blob": "dff1ee0d6d2670fc3b96abccd0a0dcdd9775ea2f",
@@ -1614,48 +1850,64 @@
       "sha256": "6b71aaf2eee9a19d0ce128c8c036f2fb7becb589561adbe07800909d3e744a5d"
     },
     "app/Services/Dashboard/OrderBoardClock.php": {
-      "blob": "b25aa26dcd4fe11b3310e02617ce82b8e9956b09",
-      "sha256": "87f2694fb28dd3a2a79ff0f93207b3fee86d5de875a0bd758e3bb1e5d3ab126f"
+      "blob": "4bc26e43fa34bd391b0baabdd1ddaec9de995bc1",
+      "sha256": "2fb165d971119ee38d07cac751274fba35e02a952c843ad8b78e519cc6b94d00"
+    },
+    "app/Services/Dashboard/OrderBoardItems.php": {
+      "blob": "1c0da1b621f253f1c3e7337101692f6ed31958ee",
+      "sha256": "51b144bf44d427a89e1ec659b7ee5a7690b2e577ef6ee80c0523b52e3dc6c399"
     },
     "app/Services/Dashboard/OrderBoardMenu.php": {
       "blob": "8f1b95828788dbdbc45156935c16e5f1ddd7ab76",
       "sha256": "003f6502fff077ca3aa0113576c1e2c6adfdcf6e6fd4dec30efed75b07acd431"
     },
+    "app/Services/Dashboard/OrderBoardPrinting.php": {
+      "blob": "68e409bc0d29642aa9d53a333fe0faf844cbf5e1",
+      "sha256": "3a9a07abbc8f89c6f60b8a9d804a1edbb4fb06537dce8874239f134795e83ae9"
+    },
     "app/Services/Dashboard/OrderBoardService.php": {
-      "blob": "bf8ab188e03b12e81151d44459b618ef99329e28",
-      "sha256": "f834b3035c6004bd60b30b5e200db741e6337ce319c120bb9259bbcdcf0e049b"
+      "blob": "d2c8c69de733b131aa27f36e02d6b4b0b990b6b2",
+      "sha256": "7c71d13981256de96873edced8143613cd1c00454e16552d132ae6ced424b3ef"
+    },
+    "app/Services/Dashboard/OrderLiveActivityService.php": {
+      "blob": "0761550e93517c52cc8250618e5cbfe869227a2d",
+      "sha256": "33d300aa222e197893c8e9f4299d0637dcb3a9b233b47836c2effb17ceb09976"
     },
     "app/Services/Dashboard/OrderProviderDelivery.php": {
-      "blob": "b16c42702c79e5eb6ccb01175a42312d52ad99b5",
-      "sha256": "ae92c02b3447e7fb7c3b55f92c19881057c6da15b85ddc5ede49d96dcf64e710"
+      "blob": "d0bf7db2de573b4eef3142a3eace2a12341acbb0",
+      "sha256": "393abfe3d491846ba8ff1a6a00b4f21636d91128e1585457d28b8950916a0c1f"
     },
     "app/Services/Dashboard/PhoneDelivery.php": {
-      "blob": "227027cfdcd68720b74220e3ecd0abb9e156a5d7",
-      "sha256": "b3e980e7c37b78463b4ba00ea548faf00f80aeb614b0f9a1deb1eddfb9b9c3a4"
+      "blob": "2b0185d064a94a1505ceaab5aede28e2c74178a1",
+      "sha256": "12d3bfbea8dfa5a70f5eae1b09cc85b126561e5de88208cdcbbae729606f0cd7"
     },
     "app/Services/Dashboard/PhoneDeliveryBoard.php": {
-      "blob": "07fbc51fecfe8faac20c079d560d66c724993766",
-      "sha256": "74eb8200e214ff38cb69d55bd37a19d436ca99f9f5b3f5ebc01df91219157559"
+      "blob": "d58c990ec17d9eb25e10a2dd0eb5d6d933e67236",
+      "sha256": "2c30ca051ab1ceca6bea7237c7e1d3f6363e762c5a81920f687d853ee898cab3"
     },
     "app/Services/Dashboard/PhoneMapProvider.php": {
-      "blob": "bb360aa46868b432a8a1cf5dff48cdc50b62c860",
-      "sha256": "5764569975709ab6df723589f4e2425afe687f833e1f8ed45bcbae106f4acc0a"
+      "blob": "394fe8a1d19443de4920b243d1cc945f6a244a38",
+      "sha256": "7b99dd9572d15f729c7c8ea623b211a2c038aaf7a9e5759595537db81ccec751"
     },
     "app/Services/Dashboard/PosBranchPrinting.php": {
-      "blob": "021a53ff471c594fcef75509327aace74bcbf86c",
-      "sha256": "575e7b5e96072e2c7fc2366f51fa69dbe6eb8a0fafb285a59f34d3e8fae6fc85"
+      "blob": "501d387e27e0bcbbaedcaa6bfeca2116f067facc",
+      "sha256": "6b7a7b39900c6d8fff2f666df08bcee29046f2c68a9582b0ea130f4757261777"
+    },
+    "app/Services/Dashboard/PosReceiptPrinting.php": {
+      "blob": "3732dede7a5bbca9a23db9f797560eaa210d99b4",
+      "sha256": "da5c3e41a86113c1ca3c3f4de609127c27782a91515e9994b0455ec0b1dd4f10"
     },
     "app/Services/Dashboard/PosServicePhone.php": {
-      "blob": "23e9226064ade62b28b0d4fde2ded631ca7b8d73",
-      "sha256": "d0c3e9b29534688e86af6c49072a17f310e1e37a5e45d55cf6a72d2a59fdf285"
+      "blob": "fae4beea36b610644c5cebc640f89b78ae79ac18",
+      "sha256": "fa3fbf7387577226e0287836bd7e5f6286b0999ba9768fa43e7dcba07102eecd"
     },
     "app/Services/Dashboard/PosServiceTable.php": {
-      "blob": "9511e7678f4ff7b5e2aa4658025f75c9658fedc2",
-      "sha256": "9728c08a34e7a178b341bc3eb9f4a527192eb35edb96aaa7f63a3421128deb53"
+      "blob": "a967946891a2d8626c7e15ecb9bc0421775b425d",
+      "sha256": "1d573fd67ed1bc6b07133043a5eac09c08b3e3ef584e7a818f76e1e2973e04a2"
     },
     "app/Services/Dashboard/PosServiceTicket.php": {
-      "blob": "ef4c7b6f4a1276c122634aafabb2d510926aaeef",
-      "sha256": "aa3bf27e10c544daf0ac7eebc9950c0aac6c03c123e3627b3b7240d50b94cfdf"
+      "blob": "e95cde8a1bd663d5ad131e8066870ae2b5c220e2",
+      "sha256": "875537c790a999b29057fcda1a00a2112843607f3bcd47727b658e26b87b2591"
     },
     "app/Services/Dashboard/SupportFirestore.php": {
       "blob": "0392b4544bbeb0e540024daf3761e9ee2eeda8d5",
@@ -1666,32 +1918,36 @@
       "sha256": "057a85765ea5e525a274e4d7793d1db69eab21fe52ff732ce03915949edfbdba"
     },
     "app/Services/Dashboard/TakeawayAccess.php": {
-      "blob": "6b27b7ac2faff6fdaf952494f90f2d8378a12484",
-      "sha256": "4239cd7f4acd0bb04104efac9950ae5b623d6665bd47dc8024b2958a4564f162"
+      "blob": "d063ee444c347c41620916b4513d0f03785141aa",
+      "sha256": "86f53e9e05d08d92280997852a2ed51386b64f39d77b7ed1f9240830c140f4e3"
     },
     "app/Services/Dashboard/TakeawayCatalog.php": {
-      "blob": "49943493fffb5405c87a3001f36c339caa2edf31",
-      "sha256": "5d2e4aa6e76871b639a2cfc993513dc1edc6671a70a3bccab08239eca35d182a"
+      "blob": "e96fce33037a06330f95d6a91553950cdf32d763",
+      "sha256": "62792d020d480544cc42560c3e89d1a241076436493feb0951338502c2e8ae89"
     },
     "app/Services/Dashboard/TakeawayService.php": {
-      "blob": "92c2fb071461787b2d8c7080518466588a7a2cee",
-      "sha256": "6dd103286f89d97b9e027fe1e9dc208238108124449a8c7a9629d9f3bd302d01"
+      "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998",
+      "sha256": "f4693afa90ae6d15fa144a8b4372e5fcbf37a584955f89319428939542998f48"
     },
     "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": {
       "blob": "4b571f7f4a5cef9257c414886dba515c06dae2a1",
       "sha256": "dcaca0e711faa409c9bfbc70857779089d4bdb2e8f6ee5b1cd417eeb8213263e"
+    },
+    "app/Services/Dashboard/WhatsAppCustomerDirectory.php": {
+      "blob": "8eef8e7220d7c7b3ac52393edbc10508ffce5cc1",
+      "sha256": "d8443c1e42eeb2f4ca9813312751ea949732004fed850e299d569f933a6e67c3"
     },
     "app/Services/Dashboard/WhatsAppInboxAccess.php": {
       "blob": "186789d42113e81818de8d82a2327e3ee9d8d0b5",
       "sha256": "f5d58a94821c35f8ddbb707a6beabec3f18b506d26939253c22054e2b49a2bf1"
     },
     "app/Services/Dashboard/WhatsAppInboxConsumer.php": {
-      "blob": "e54715313901be8baefb551566b7bb88f4afe45b",
-      "sha256": "660941e98338ac38cfea389d6a5bbf3389e5da443bcca0ba163715a2ef6b40d4"
+      "blob": "b169e92362531c1da565ef26bbc999a5a0fa73d8",
+      "sha256": "96eedacd016bfa0d121b3caf7dea5ac3764e7d36ad37a19dbf152a90f61eaeb9"
     },
     "app/Services/Dashboard/WhatsAppInboxMedia.php": {
-      "blob": "ae1f6aa4d833de80637ea56b19719c649183456d",
-      "sha256": "bdd768eab6eb2dc9de892b50f0ef631abfd7ef088a8387a0c149a798720313fa"
+      "blob": "5b67c6042893e42b2828e7c8a27b21f7ec76364d",
+      "sha256": "21152f83b1573eeb093dee1c280eb5bce700559c71ca49e1be609417831c58ce"
     },
     "app/Services/Dashboard/WhatsAppInboxMessage.php": {
       "blob": "bedd91db5266d83bdce84a04836e988518891728",
@@ -1705,17 +1961,37 @@
       "blob": "d26eb360f5b5576047edff14808c25950592ba30",
       "sha256": "f1aee0eb60ba866dbb9b074935017f148ea7057fd7ee0cab878538f65a237e5f"
     },
+    "app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php": {
+      "blob": "9e221ba052589c1ffe474958b636a77ff5817b7d",
+      "sha256": "ec19444a19cf7561ec4471e875caba5088dd5123b4a8c646b699e78e3eef2dc6"
+    },
+    "app/Services/Dashboard/WhatsAppNativeUnavailableReplay.php": {
+      "blob": "bc6febf49c85947684a38c16d00bd5b62fb56e60",
+      "sha256": "f86ab90703a34335b5a172a5f4dbbfacc37e8483f2e69faa759ceb5126b7ae46"
+    },
     "app/Services/Dashboard/WhatsAppOrderAiProvider.php": {
-      "blob": "65b9ce193991ae404e287ea62091ec48595bc530",
-      "sha256": "99e8b19c5f15936f81a0e92cbe7a2b52f437147896403dc20b7b5ecc53485261"
+      "blob": "25d29335acb16eff59666875b9d4bb9fff172e7e",
+      "sha256": "e9a61afeb3b22dcff7fb32074fcae2a61dd944f200068c9cf7c374c6113e310b"
+    },
+    "app/Services/Dashboard/WhatsAppOrderConversationEvidence.php": {
+      "blob": "478d620d36d801b5fc38bab8e8be2afcfdf5dd8c",
+      "sha256": "0f379a434d1e6f5c61666a98e84923181b89c71e4910fda2942c3093505e89f8"
+    },
+    "app/Services/Dashboard/WhatsAppOrderFollowupService.php": {
+      "blob": "e817b327ba1fdfd042288d20b5c4ba8bef00cc81",
+      "sha256": "4c6ff0a65f7527fbecd98a72ddcab9a2050ea6372175279e1afa73dfe683d39f"
+    },
+    "app/Services/Dashboard/WhatsAppOrderSourceSelection.php": {
+      "blob": "03db3211b80da905f07415fd16f1e7a62e0395b1",
+      "sha256": "40527c6e0b2cebfabec6990d6fb61929117bb3c7377b53c1756e764fe5547456"
     },
     "app/Services/Dashboard/WhatsAppOrderWorkflow.php": {
-      "blob": "b30f25cf6dfc4a84061a58316db583f892a439a4",
-      "sha256": "4d592dc74cb646da662a0eb6cce8438952fed86c1e0f2c9f7271022b9675c515"
+      "blob": "e7943ad4f50cdd620ce213cc17ecd0f749d25222",
+      "sha256": "383d92808190f2f9ba5e218b54720cda4911f9813fb8c0d7e02d608106635626"
     },
     "app/Services/Dashboard/WhatsAppReplyService.php": {
-      "blob": "1ef23df825287f8d3dedafcdb5d70ffeac7f1f29",
-      "sha256": "564ff9aee5ab78872a4d826ea52dc69d01f658929ac201f2bb089b54179c0313"
+      "blob": "f80378c7b61cc42c747bdceefd71b79c566de553",
+      "sha256": "2003f40c8824838c958e13bfbf77939efd8a9978ab48eb4d81ab8efe7d249c09"
     },
     "app/Services/Dashboard/WhatsAppVoiceMedia.php": {
       "blob": "5a6d67a69dbbef185a783680dfe46a1730318380",
@@ -1774,8 +2050,12 @@
       "sha256": "c0011186b37cb8f7adbedaf8b8c20b51db512a510c535a6815ab8b989c67b75f"
     },
     "app/Services/OrderBroadcastService.php": {
-      "blob": "f64bd746764ccba0f94e9e27d24657a4ff97e32f",
-      "sha256": "755b0285058ae0c54e6452097bfed4787c676de1bd93702397772908f1acc457"
+      "blob": "a965eada3dd60337d3e42af52a337b1771234db9",
+      "sha256": "4154cf2a0aeb5930f9bdca565163b89e53414d08ed852464e59512f9f5881670"
+    },
+    "app/Services/OrderTrackingState.php": {
+      "blob": "00cc59eae30fcb76739b77fd2e8889e482e25ee6",
+      "sha256": "e8cd09d0f94b66b3e113f10ac48814344c7f4b655de837f5c83e3f4b4447298c"
     },
     "app/Services/PartnerEmailVerification.php": {
       "blob": "e8c5c3bc47acc037149f86ee9ec841aac385c4ea",
@@ -1785,21 +2065,57 @@
       "blob": "42db7f76b2c632c539d703934a8c6320291928a7",
       "sha256": "0d3042d7c3b1c6f919d9aa7e87cc229835414d44dd18ea9092656b1ee1bc9d9d"
     },
+    "app/Services/Payments/PaymobTransactionInquiry.php": {
+      "blob": "96b775bc130e2cfbcaea1dde68ff7d83e32e6cad",
+      "sha256": "33338e42b28e8ab51445c8349dc0153fb0d731a129c411b235737062c5ec1bc5"
+    },
+    "app/Services/Payments/WalletTopupEffects.php": {
+      "blob": "9e568f198a0009aecff48aa0506c29c261fe359f",
+      "sha256": "768812288525e546db79a98fb3f916fc2afb9f5a881566e9d59e5c3840efd41c"
+    },
+    "app/Services/Payments/WalletTopupSettlement.php": {
+      "blob": "42eba113962867566a332b29ae81787a74fd011c",
+      "sha256": "1fab95b242863ceac751731172c7e5d18ddcaec517f4fcbef1c8ab86e1c65863"
+    },
+    "app/Services/Site/StorefrontSeo.php": {
+      "blob": "8c6234c652f6da52b1219cae34f87dd7dcea3cf1",
+      "sha256": "a6ca7bd5f2e4ca44dc792c733a60f7b7a3bc1699e08c4f3ec3b7f0fcd38929de"
+    },
+    "app/Services/Site/WebStorefront.php": {
+      "blob": "96322e7cb5dccad76f0867f587c64b3eb28b3e43",
+      "sha256": "a3ebe30e9c312bf657b0392ec20d0e71c7c6f0af36b365d0e2c8ed141147209f"
+    },
     "app/Services/WalletTransfer.php": {
       "blob": "adfa300779949ed035c07a8337852bc8ac7896a1",
       "sha256": "b4c696b0f98fb3d2df85d8456fccca54f0a9751d6194150ad643fae0972befd0"
     },
+    "app/Support/CustomerCrmRouteCheck.php": {
+      "blob": "b6a92f443b7209fe19ad894b22f2e10ff9ca723d",
+      "sha256": "9f3e28b0075f76608c55d3cc450fffb4e6eade9292f8cd0ea35e3f751f746a31"
+    },
+    "app/Support/MetaAiSchedule.php": {
+      "blob": "667ffd6530444ef00dc6a05f76a5700d217fff80",
+      "sha256": "c57e8baff4cd1feb4c82828bab7cf0c18516fd8bb1a9c14c391890b390549f09"
+    },
     "app/Support/MetaMessagingProtocol.php": {
-      "blob": "ba20320835a33826b4b6bcc84f19c62569180931",
-      "sha256": "a24e47de9d28913ff663ac0fdb4899e88849a2e4e97d793c6f951632b0e89848"
+      "blob": "d5c6cb4dfeaa1d6c8467025338d7d92d9ce5b0ed",
+      "sha256": "bf202d5e785289f8c51d8080d49aa33cb546cae42e9b16710857ae43ebdcac11"
+    },
+    "app/Support/WhatsAppCustomerOrderConfirmation.php": {
+      "blob": "27afc58ef43d1c6fffa90c9a7bb519e353b7e244",
+      "sha256": "e7dd4b8a93b627c40574d166fe72aba86302bd7280a63253a801ae11bc9dbe27"
     },
     "app/Support/WhatsAppInboxProtocol.php": {
-      "blob": "ecde67c6a87ca8068bb077892fdbea522d89f217",
-      "sha256": "f939f85ec9cf07a3026caa750f8c1b12771594c6bc3443457352bc67b66b664e"
+      "blob": "f2eec9099f9a27915cda50b7c8e267efb1f0b030",
+      "sha256": "a814360d2813869caed090b7028c8b853fc5a817b36829597ac40cb5275e1d71"
+    },
+    "app/Support/WhatsAppOrderDialogue.php": {
+      "blob": "994acc368929036b2ed82197ea4eb48aa5c65f39",
+      "sha256": "d6e4b1676af951e4a4ef0a2d8ca6cbede4ab32992e35da23b1fe72ebb9bad6e4"
     },
     "app/Support/WhatsAppOrderExtraction.php": {
-      "blob": "0411582129f36ceb1c0d634245f37a09b445efea",
-      "sha256": "4fb6dfbbf9d510f6c15b2d0a5f598850b86d4b3c4abd3b0888d896085f56d71c"
+      "blob": "a44f791013642aeca4b4f50dd96ec96b59eda012",
+      "sha256": "328380defa0695038c956191ab23d427039d97fb58763da2f4dedff7a5042435"
     },
     "app/Support/WhatsAppWebhookProtocol.php": {
       "blob": "1251a7623f6c9cc636033773fd1a218eb8207f83",
@@ -1840,6 +2156,10 @@
     "config/cors.php": {
       "blob": "a6f69be3e23f901b931c5fc15da7aa54f1c4fa41",
       "sha256": "24eb32cd9a35da4eacb52c1cdc2102897f6da81738c1db1b9683d3c28b64c9f5"
+    },
+    "config/crm_whatsapp.php": {
+      "blob": "a414809609fbc6b798240945728199282652f83a",
+      "sha256": "6e16a7abe9b439d49ccb4ae5364e6ac2066317056fc8815957c337d854cc0420"
     },
     "config/dashboard_payments.php": {
       "blob": "4c13193d2fe3b95e43565561acc74fe996966593",
@@ -1889,6 +2209,10 @@
       "blob": "928c8c06d2ce3228f18653d432d4dfb82f6180e8",
       "sha256": "0070f83d21b0818368339c0054e2a28cb4c50703785762b67471fa3d1f0b6003"
     },
+    "config/meta_comment_ai.php": {
+      "blob": "f8a39d4b46e980294c47ead2ae824cb24336599e",
+      "sha256": "5a6323a98a6ee7e622821296aa65e89e82716b77106774b7807730b808c729ac"
+    },
     "config/meta_messaging.php": {
       "blob": "3530fbdb5886e6ea88c29a2f2b2be1633485e3fd",
       "sha256": "e796490c880570b4f7a8c3bce087c9ecab8b6a8d5e3730fedf5049dfe3595899"
@@ -1932,6 +2256,14 @@
     "config/view.php": {
       "blob": "22b8a18d325814f221fb0481fa7ab320b612d601",
       "sha256": "31296429fea0b7bc8392bdf63c5a664524c84634cdcd8d54c51d73d762c4b2ef"
+    },
+    "config/wallet_topups.php": {
+      "blob": "09ae909d3308abb4dbd5b15261678b73348be6a9",
+      "sha256": "c19d22274175a32d75828c8fee38584c265499bf19e98ddc23737728256738d3"
+    },
+    "config/web_storefront.php": {
+      "blob": "007a19cef3c3d730f9b0eae9b5b3e1002f8b1b17",
+      "sha256": "caeb0fec1fcf1b2a1c2e5ae4bc15e3a4a68a6b279e81c5b2afbd68c5ce147f3f"
     },
     "config/whatsapp.php": {
       "blob": "1c8b5563a4d9bd5893178374967995711c52bcf6",
@@ -2313,6 +2645,74 @@
       "blob": "477cb142e41fe41255aa484a47df7d586d7c2a8e",
       "sha256": "3269aac021ab0580d9ddbbfe1b369e87128ee276989b5b352adb19530268de08"
     },
+    "database/migrations/2026_10_14_190000_preserve_app_order_item_weights.php": {
+      "blob": "79d5d5d5c0d2de4b47476333c6ddf592b0512c52",
+      "sha256": "212a5aa511a53f0d028aec3241dd0200211eb5b7b9b9268d8a51f9d95898f690"
+    },
+    "database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php": {
+      "blob": "b7dfa555c58c86986914a147666f9ba2983a2c38",
+      "sha256": "aadb9217fe7e2d4003be976bbfef427f54e9f5e5bf05a171070946d139f75431"
+    },
+    "database/migrations/2026_10_15_000001_create_meta_ai_controls.php": {
+      "blob": "3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae",
+      "sha256": "c3b74e38c513f04cab74648c2db97fa1aaf1e2602ea5776667110ea8b51bca11"
+    },
+    "database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php": {
+      "blob": "3bf661df37f1d4ed4529fe1d995e829bb4acfda0",
+      "sha256": "ad6e3a0912f90394a4dc9a7a5e1ce81d5151ad90f2a506f682bfbee3aab4ab00"
+    },
+    "database/migrations/2026_10_17_000001_create_crm_customer_directory.php": {
+      "blob": "1278ede4c436e2efe98e32aa4b0519f40288f1cc",
+      "sha256": "8fe62ecb9aaa93ccbec23d68a98c0460136be50479ca3e37a97d5c9ae6311ed8"
+    },
+    "database/migrations/2026_10_17_000002_create_crm_whatsapp_messaging.php": {
+      "blob": "5b33f7323aab503192de79ab56f6d00df21913a1",
+      "sha256": "b8ec10e3a1aef602355de81287f120379887f724f6802e70cb5e029c992cf500"
+    },
+    "database/migrations/2026_10_17_000003_create_crm_customer_sync_states.php": {
+      "blob": "93708ef8890d067cbed373206262f25446f70f10",
+      "sha256": "20aa8d925357c2f65cefaff9956d06a38582d1028bcb8f2ad992e1140b694df5"
+    },
+    "database/migrations/2026_10_17_000004_create_crm_whatsapp_status_receipts.php": {
+      "blob": "2294d0b1194ee2ab3ff76a9a72be41e61de304b3",
+      "sha256": "6f6850474e87c32b631f5ab48b79f5a1d539c03fa2cf72f7b4ae815cb90a1f7d"
+    },
+    "database/migrations/2026_10_17_160000_create_web_storefront_orders.php": {
+      "blob": "0cb0a8cc83332bf1c7065287797c6af82cfcb694",
+      "sha256": "65e1b47afc9ec23850af67af0e242385e1287f874d9d99e43ea28f4eaed92b66"
+    },
+    "database/migrations/2026_10_18_090000_link_expense_inventory_purchases.php": {
+      "blob": "b58000e94ef692cddd43a72a6f27f13911e159be",
+      "sha256": "aaac4a64c1c1d5ce0ba248269042051d84eddb0cbc7d0d60f5029c55eec43131"
+    },
+    "database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php": {
+      "blob": "2c0604c08ab8b64b515f3cf2b337a5898a7d3129",
+      "sha256": "16fb34dce37194233b3f5abfd0dd33276022628b6020b13afe28c702e28add88"
+    },
+    "database/migrations/2026_10_18_180000_add_employee_pay_hours.php": {
+      "blob": "15f5df1dee044ad020f42612fefd5d80aa1b5671",
+      "sha256": "4859433bbc36ac421db7526f76742e9dedc8d4bd513b735c102e3500ed08df29"
+    },
+    "database/migrations/2026_10_18_190000_create_branch_basic_recipes.php": {
+      "blob": "c52ebddc6bfe6212116a80d7281f430320c3744d",
+      "sha256": "7f435b603a35e5fb739393b7173d3eae425d8b3f64d6d694f08bc4770875bc99"
+    },
+    "database/migrations/2026_10_18_200000_create_order_live_activities_table.php": {
+      "blob": "d013fcc6e372038e79c504f29fb22b13867d265d",
+      "sha256": "9fa04758300d36c3a22e878c96290b0e0d360029c2151a66a92ec0f3f536c346"
+    },
+    "database/migrations/2026_10_18_200000_scope_expense_categories_by_branch.php": {
+      "blob": "f5ea5fd5d8affb7b23f55b421f321a6caa680757",
+      "sha256": "d2875a3bf3e594e45870572be277ecc44e1de35c4a01bb869e01b6bf8a1858bc"
+    },
+    "database/migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php": {
+      "blob": "20dc3db252f8f6b8e99b122d216147671e8bf47a",
+      "sha256": "784db3a4a448624bfacfd8efb5ea3aa28deb5f6e7ae77f0c780f7e651bba48f6"
+    },
+    "database/migrations/2026_10_18_230000_create_branch_stock_minimum_alerts.php": {
+      "blob": "a82f7516eb75d155dae896eb6016bead9e93d620",
+      "sha256": "53074477d5792f6809c4340a7b3b70ad6b1fdc82be79014dafdc57ffca499b51"
+    },
     "database/seeders/AdminSeeder.php": {
       "blob": "c932605c54b2fcd5ee95dab49270d69aad8fbd0c",
       "sha256": "6116c7a4bd994d19bdcc8d353d6d624443f117e79fa7c6acc0e95fe48666cdaf"
@@ -2330,24 +2730,28 @@
       "sha256": "a31aa62e2dfff35ee1fa223b08f0c3718eafa07f126c9ff17e33065119aa08a6"
     },
     "public/dashboard/css/branch-expenses.css": {
-      "blob": "9e942b690a6cc1ca82925c0e9bab8a2065adcf61",
-      "sha256": "bf17864f17da58893526f146eaddbb00da94185289d20649cc6e9719334454a5"
+      "blob": "63dba3dcf1ec126ca760bd16d5eda9e521a6ed56",
+      "sha256": "34cd73481b141f7b08047dc8d531b335a0fac037d74c1edddce7c52063e12373"
     },
     "public/dashboard/css/branch-operations.css": {
-      "blob": "4490ceb83a57cb6480dc7f1427fef49fbea7da15",
-      "sha256": "e0273265e934cf61817a76ef15d3bf9388cd11c2b607f4bb7c44350f0712d27e"
+      "blob": "1e1f201071fecbc9c464bc095e0e3155852a9422",
+      "sha256": "aa53e6934cf7072e15addf58d6ff78ebf7005e76a7a74f5cc18b2c55c545c6e8"
     },
     "public/dashboard/css/branch-orders.css": {
       "blob": "f05b962a6aad44a283613732fd04ffbbef4c1d0b",
       "sha256": "fe38c132bbf9c8d1e8a757421a896580ee4159240e99274a8e78d3170e38efb6"
     },
     "public/dashboard/css/branch-shifts.css": {
-      "blob": "03f191df5dd81778c330405e6a3fd023c8b4b18c",
-      "sha256": "b201284ccd8f800aca8eb87844b2290244b00364d8c5ff92b7addec05e17000c"
+      "blob": "db2ee064961959fed26fb3481dbbfadb86f8d4f6",
+      "sha256": "5c1d23e4becd7ac48baef94ab4d71592ebc0604f4a1c4795ddc0b2ae26a59ed4"
     },
     "public/dashboard/css/branch-stock.css": {
-      "blob": "cad76aff6fc92a292aed82c0a6916c40e1bf721e",
-      "sha256": "03b6496bc3dfdae8a8c1d93fc132f754c6e85491fd4207cc8199b1d739138127"
+      "blob": "59acd8b6d501446987d629b523f4b430b4ce2750",
+      "sha256": "241927f83b492070c6816eb73b1b66b9e55b8ae59187924b62883c46efe6e226"
+    },
+    "public/dashboard/css/customer-crm.css": {
+      "blob": "9eaa6aec98ae027b098869161de5bfa5f4563d39",
+      "sha256": "25953c7748c9e0f8054fabed50bb246341b1629b8e73d422592fd1dc5f430602"
     },
     "public/dashboard/css/dashboard-spa.css": {
       "blob": "af98d4a86c8d42db8bc0d02bad8c1bdc6f7511cf",
@@ -2358,56 +2762,68 @@
       "sha256": "f92bebe11a2df4d917c8c834500ff97a0de2332a7418b8f6e4d7e125c87a0d9c"
     },
     "public/dashboard/css/dining-pos.css": {
-      "blob": "b508ef3ab5d8069025f9eb2d275959704e9dd7eb",
-      "sha256": "640e3fdadf22b2e75df514738bedba8b0e4d508ed21116e8edb5889c3d0787fa"
+      "blob": "ec4f1e2ef65f71981824decba9b48d2ed6ed5d85",
+      "sha256": "0115df0156da94ea20138627c01d8eae6e1aa0c68ddd865aa544ef22515f3c7b"
     },
     "public/dashboard/css/home-overview.css": {
-      "blob": "30fd1689cdb139b4316eb3c8e862e6b4f8603eea",
-      "sha256": "87082f04172bd037f77b44c0827a662d36e610040ce03d5ab3bdee0e3008a95b"
+      "blob": "83faf300134399fad6b14141860f705113c48331",
+      "sha256": "14d8b7ec6a488e908236641e78da531dc8cce6ca9342176724db7debafe6f1b3"
+    },
+    "public/dashboard/css/order-board-items.css": {
+      "blob": "6c5b832c3c114ab9438cbc7b5c1ebc0537f29e51",
+      "sha256": "2e1e64b3426235b06dd2505ca1864f03c87eed2fa7335ddb6a3fa6283cb1b831"
     },
     "public/dashboard/css/order-board-menu.css": {
       "blob": "a3559ef1bfb57c7dbfa91621dc9d2a1ac7f37c0c",
       "sha256": "1ca4a8c2751aa3f2adadc8b0493ee60a5d13bfac0cadd06fca837384862935dd"
     },
     "public/dashboard/css/order-board.css": {
-      "blob": "24ad5a5bcf759beb4ba7d35c6b42c68c492a2bfa",
-      "sha256": "bf7b444fb8ad469956dd13406473dd69e23b34559db1c83ea76cb43f9ca3ce17"
+      "blob": "97b409f020f6ef547956205057f7795955416379",
+      "sha256": "75d033c79ebedb1692b5e0c0e4fcddb0bba25bd702a3af5496ae33b717a19868"
+    },
+    "public/dashboard/css/phone-delivery-refresh.css": {
+      "blob": "bd9f95fb6d8a28f382708ca6e6a9b36f12d62392",
+      "sha256": "5afad4eb6f835c45224b376f10a59368fa559345bbc2d178d21a3ec572208251"
     },
     "public/dashboard/css/phone-orders.css": {
-      "blob": "0bd7329c568b5d038acc7bc46dfc36a94e02c2eb",
-      "sha256": "5ae56f4d95990cc16eedb6e7e55baf8e8033a555625a33677c37fd3bbd616ae7"
+      "blob": "8da9635eb715b79dcc95cca3e3637beb65378194",
+      "sha256": "d8c53816849450076024cde55fca7792cab59f788cf634556058a11012c52638"
     },
     "public/dashboard/css/takeaway-pos.css": {
-      "blob": "bbc54dec347b9b06ca59b3b956db9cb7c3687f68",
-      "sha256": "bb78d491b9ce4594a1e3925aecc012913a22d90ef6b19f731765344a78b55ad0"
+      "blob": "41e44f3835ac7f707929db01e5830076b9c411e6",
+      "sha256": "f8dadd5c9b37ece538a4dedc995054774586888343119a908c42909a73ef1811"
     },
     "public/dashboard/js/branch-expenses.js": {
-      "blob": "53e74a07a0b6ba1d4871b7db48d226b1f0e198c5",
-      "sha256": "c7f7c3993c9c5767dc57c15ec34a047e891c5a3196553431667da4b27fc47e59"
+      "blob": "edb787383deeec804ca6c7deb5307f0f779a157f",
+      "sha256": "fe7eb9f3bac5cd8e7193b6ecb917fd167ccea0d8999bdd4741fa780148dbcc83"
     },
     "public/dashboard/js/branch-home.js": {
-      "blob": "db0775f63fe14354743a557f64eef62890179ee2",
-      "sha256": "e489c10c24bc370bf425ceff7d608eef0eeb6d7f063454743e5dc4dd46baf0a2"
+      "blob": "55e313cf7f086a6ddc0fd5b8667cee44136b8339",
+      "sha256": "ed46480864ea9627b303f02871b21266c3609b1b0b4503de531bf46cf11c3038"
     },
     "public/dashboard/js/branch-operations.js": {
-      "blob": "038a2d2d7b5c28cb59bc00bbfd0131501aa62d1c",
-      "sha256": "2c067cb4024d60e18ab2498e9b2a0f8f7547793b15162aa4e04c283a2c6d0ad0"
+      "blob": "2b0a6e352749df7f2e6dbde8336888b91a2b12fa",
+      "sha256": "19a2e8f3532ef10e051717717c6d0d78f198a8e9a00030e934375bcf5f153346"
     },
     "public/dashboard/js/branch-print-receiver.js": {
-      "blob": "ed5d4c5ae5bc2dbe7c751cf96e2a606bbb8b78a1",
-      "sha256": "a2e77a5c178d73077c379ee1901a900fe8ceb5c6199653fccb40b2a68767a0f2"
+      "blob": "c19d1faf2af338e90e4a6e2de3c1763b1235b6c0",
+      "sha256": "07bc1b25e962605f09af29475a4fa17e4f3f7b376b86053a07969052ee156290"
     },
     "public/dashboard/js/branch-recipes.js": {
-      "blob": "5a3a6b1c29a32d61eaa80761cd53ac97c3ea374b",
-      "sha256": "c3c2cc0a54b951e34f6f702ad08a0de8bb6cabd7e6a47c3eb588fee61b89c380"
+      "blob": "0d793abfc9e9a8d15f0c9b56251b6feb09254ac5",
+      "sha256": "4f1840dbabc22e99e4da2a18e5d4172bde9f3dc267e9a31ecc9dc4286a7ee12b"
     },
     "public/dashboard/js/branch-shifts.js": {
-      "blob": "8e7102b3655c19b41bf8357ae89328ebb66de6d4",
-      "sha256": "6adc39abed3a9df3e246fc646835081f8a50d17be828eb103a0092a8c55dfa97"
+      "blob": "d441027bd27724cf13be5ce4e0e0c06dabc3eb40",
+      "sha256": "4c3e7d91162b7a37437cdb14b868484b9710dd22cb16ba55e5da3f0a39e1e0bb"
     },
     "public/dashboard/js/branch-stock.js": {
-      "blob": "5ae84523b0312236503e4aced5adce02075d358a",
-      "sha256": "7c37302431c5d78fa633b4d3e262cb27716fdd6687a76c6a25b48b5ee54a22a1"
+      "blob": "9d7caa33bdb329c2be25556696c30ff359a9743f",
+      "sha256": "efdccae16f68519a507d84733fe12f6cbe39f4d0d318a7ce2b5b7d7f152f8b79"
+    },
+    "public/dashboard/js/customer-crm.js": {
+      "blob": "c73781eaf564e2a7d3e3d27fd0e82e04cf23aadf",
+      "sha256": "18fc1696fa54a7b26c16b577893b29e473af0c3210d8de4d7168df25c424837b"
     },
     "public/dashboard/js/dashboard-expense-badge.js": {
       "blob": "c4928ebcec2aaf8ba7ef00590c511eb14e975443",
@@ -2418,20 +2834,24 @@
       "sha256": "50d8d20ac4ab67beb3ce28b12cba76c6be6e236ce50958f3fbbc5e6c04b2ba16"
     },
     "public/dashboard/js/dashboard-invoice-details.js": {
-      "blob": "5f6dc309b81fdcd525337668f02d913c33a45222",
-      "sha256": "bc26c56832a173f2d019e469dd08913a20bfe57f73139f3dbe47ebe86bc38270"
+      "blob": "fad817e3eb8b997a9640787afc834fe8fe60a4cd",
+      "sha256": "87681ec2ff9895010a12fe38c25ed6dc3e12564600d3ee2b3d9c0c02c9b2c720"
     },
     "public/dashboard/js/dashboard-location-picker.js": {
       "blob": "e66fc338b8921fa13368673ba4b0c61d96bfdf7a",
       "sha256": "5c3f3b8a87f2bf3e14e390134d163962afe2b4aa39aee88b8bde8819d1037c3f"
     },
     "public/dashboard/js/dashboard-navigation.js": {
-      "blob": "2a85711ce081381bcef881a8b573b383cb006a78",
-      "sha256": "ae45e36dfb42935d1f01687b58dff1cacc4e9596d8e1b390cab667f8775ad8aa"
+      "blob": "611d6b79a243a4fdce16be1fca8a2343ffdd70c1",
+      "sha256": "b028882b3fddc575a98dfb234a7d0e15832c2022c1eb46c833c130925dbf02e3"
     },
     "public/dashboard/js/dashboard-operating-day.js": {
       "blob": "7711984dac0abc35ff2fe6165257edfb962ac059",
       "sha256": "47a5576586aa51fe08abd188b721c6f68d5f58a0adae98f22c3baeb1fa2bfcbb"
+    },
+    "public/dashboard/js/dashboard-order-alerts.js": {
+      "blob": "78cc60ff9eb7ce4f3ebbaf94f83e198619d3447d",
+      "sha256": "e054d15da3589e40e6dfb48a14b8ccbbbad329625801ca10361dca620c93ba62"
     },
     "public/dashboard/js/dashboard-print.js": {
       "blob": "7bfc11e6b89c45bcdd6f59116a5ee640e5734857",
@@ -2454,36 +2874,44 @@
       "sha256": "7e0c068bc8844ab2c8ef248581ce3b70276eb020074889d077ba21aee4dd4250"
     },
     "public/dashboard/js/dining-pos.js": {
-      "blob": "994b663a4fce710562b2648336cd700c19933683",
-      "sha256": "52285f8f6def273aff90aed1d65da7d14c59ff7e5a81b19a34b67b7a39966fdc"
+      "blob": "49f806a82558a7951e5dfeb344a3a41b5e36dd60",
+      "sha256": "a6cd60d392f32fde807b6dca42cfd0add95423f521997dd5ca67c5022c6fd46e"
     },
     "public/dashboard/js/home-overview.js": {
-      "blob": "359e945889afdec2e5dd98f326f12c09fed15cdc",
-      "sha256": "34546c325c8704b8d26ba6925244e4d89b65a8a2adc921cc62cd49a5ff9cf334"
+      "blob": "399769f863168f81f26265687b7e2b0175ab3e92",
+      "sha256": "0fc9f94ec4b1a499dacf4cc22ed2d2a195712481a0a09b3d03995bd88183c7ba"
+    },
+    "public/dashboard/js/order-board-detail.js": {
+      "blob": "18dfa8216355f4bdc94237d4f634908c8f2dda48",
+      "sha256": "b5fa214bba4b7e064ec66b74f16a955ef57d8865811a237ad85da0866e1e3059"
+    },
+    "public/dashboard/js/order-board-items.js": {
+      "blob": "2cbaad046e029a99499735b4383bdf6f804071ce",
+      "sha256": "7e9e1e2faa3686f705c549a8909ba29b4e94fd6cfc5311d459ac97cd0d805557"
     },
     "public/dashboard/js/order-board-menu.js": {
       "blob": "2d84fcb7fa51e85635d97ba73b974cd9526ab4b6",
       "sha256": "557a791feafed3743927aba87bfe528813f9328ce549e57add13db7bacbe3817"
     },
     "public/dashboard/js/order-board.js": {
-      "blob": "0779d06dd659aa062d4ba69f2af786b6b748c35c",
-      "sha256": "0d8aaed357f87457fff88647eb447b2e4b727e058949e8e53145c8a94738725b"
+      "blob": "d728d491750a89e2a266b867e4004ba66507bee5",
+      "sha256": "2036cb89301886458b5c9018a740e5d901ee3b05e891fa062121c32f50091069"
     },
     "public/dashboard/js/phone-address-search.js": {
       "blob": "4c55ec1f2ff0e4fae4105a96daf5fdc76f440c93",
       "sha256": "0f51dfce17221fcbd4b82cacaed7d1028bcbece010581a5226a1f61dc7c02dcf"
     },
     "public/dashboard/js/phone-orders.js": {
-      "blob": "66597844cc01d9371b1952f79b22fb1833bf2ac0",
-      "sha256": "def837c387a577959b00674edcff9cd5f1a53bc120d3acc68b4301d9a21cb79b"
+      "blob": "ddaf9425e2385e9cbfa18688321a04c50de72ca4",
+      "sha256": "85a86ad944a717ac9092992bffa0ce4f3574f7c6eac61a334d3dfef71abf8d46"
     },
     "public/dashboard/js/print-settings.js": {
       "blob": "5ff76d1b9099872940d75cc6a46a8640886e9691",
       "sha256": "ac51ab9eff9c2e2675d75a472059b49732d4074fb6c98533fcb84345157b8c31"
     },
     "public/dashboard/js/takeaway-pos.js": {
-      "blob": "b3f9abdd452e893fa59c6f179b495dd80a7e6e1d",
-      "sha256": "4e82cf95def32266c2467a5dfdc962ee888e64ef0385c7c0b5d953a9d36da076"
+      "blob": "470115c2e9bb473963ef7791f225c2c7ce9266a2",
+      "sha256": "d53405616df4490112731ef8be10e5869439dedb4fc0daf864d133c08c0f414b"
     },
     "resources/css/app.css": {
       "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -2518,20 +2946,20 @@
       "sha256": "483b90166f53a7e5c48348e16dc1e14948b60bb4404ab6a109f42f4f8f1c0d55"
     },
     "resources/lang/ar/dining.php": {
-      "blob": "ac5a4c7fe63001876fc23f270b2035ef03b9c7c0",
-      "sha256": "c6b68d88daa9b0b532c4d04ea8ea5d03ce2afc3a3a476c65b1a082c5b1875608"
+      "blob": "8730916e5e569ae4284e79ff5159bcab984a0ba8",
+      "sha256": "36ad4f6238bb6b3e225c541163ee3a768e988545b8a85b0bbcd01a0d0069f088"
     },
     "resources/lang/ar/expenses.php": {
-      "blob": "65ede86731d60c37bb7f19a3d2bfe6c7233dbeec",
-      "sha256": "1d0be6789422d8ae625380a3f9fde44bbb780fe9203c1005c7a96f2484d46415"
+      "blob": "186c94998f8813268b118ce91f4d1af593c936e3",
+      "sha256": "a95649a8db46469ed17790faabd42a6b0f1a4409584086686ed7fa5c17f13c1b"
     },
     "resources/lang/ar/go_fees.php": {
       "blob": "94a89d4079f812c428eb263880b2a6ca7acd9ee5",
       "sha256": "92d0f5f335fe427eca244739e9a289ad690771145b6badba8242bb6bdb0f411b"
     },
     "resources/lang/ar/home_overview.php": {
-      "blob": "3e2382d625344160670eccee7055dd5afcad22d6",
-      "sha256": "79df248321c61e3306ddfd6066d0832c335803bb24cbd6c0c67916aec8b48dd6"
+      "blob": "faf40ce2638a5a4f3cdd9066a0b02ce3b694ff1c",
+      "sha256": "0b9abb9ac16784193e8098ec3a27c4b4b423334f61c2c04b18738d0843cd8817"
     },
     "resources/lang/ar/main.php": {
       "blob": "d2a518397b27adf62892fc41cd0998af05de5349",
@@ -2542,32 +2970,32 @@
       "sha256": "af3c756487e98fa37878f5370fd5fce447e5eb4e16ac5bb8fb362c94ff76125e"
     },
     "resources/lang/ar/order_board.php": {
-      "blob": "d034e9e2ef170c31bb3c2bcbd3487ec31a76bd31",
-      "sha256": "5fc9ad6851954205c0e40714e7de15f29889f382db547ebc7137afcd8fa8c473"
+      "blob": "93e67aab5ae5beea8261b6007c8453496eb08a18",
+      "sha256": "d36d8ab3de02b4a1a6353b7f94b2314813ae6816cee505566cbcbda622b95a16"
     },
     "resources/lang/ar/permission.php": {
       "blob": "256afb085b9898572430250d52e0c11f4c7d87e5",
       "sha256": "e1946e2d30b4544c3acac5314a31e6563910a9acb27396919f278fcfd9b05459"
     },
     "resources/lang/ar/phone_orders.php": {
-      "blob": "dc7deb2cc2061576f126b64a361a0a1e58c6176a",
-      "sha256": "b2b683c8b6c897f4dad6440da9f742152aefaea130f1e9bd4537c935f0045ed4"
+      "blob": "3abb4bb512ed4a1baab04b261e397a9eafa5a075",
+      "sha256": "208aa786dd26ad69830d7ff07dff7f38571aad0c48612004180bc85c1a9c81a9"
     },
     "resources/lang/ar/pos_service.php": {
       "blob": "59b33ddc088fad282e131acd8868b7c9a4a89acd",
       "sha256": "0847ddbb6036803f1fb7ab5525dddef9c57e2cdc7361c74f327fff71bb442037"
     },
     "resources/lang/ar/printing.php": {
-      "blob": "27aa501a18e9edc4382d030e0293a1df2eaad0ee",
-      "sha256": "3e3811cce6e2ae49fdae3754167c1a5480dbfe2eaf955fa1b4ebf3a4fe14b474"
+      "blob": "9000c393981b9f9792785a7382dc86d848ace625",
+      "sha256": "a27cee46b6a14a9b6173419b0dddff11a8167e5b5b22b5d4cf63ba07831775d3"
     },
     "resources/lang/ar/site.php": {
       "blob": "459edb0abc06c7d932ab376b5c85599fda521aa4",
       "sha256": "ad03b29afc09c21bb02035b8709901005fddbc6010bc841e4667037bb8cfa8cb"
     },
     "resources/lang/ar/takeaway.php": {
-      "blob": "037db08c6102786757dceeaa159e06083e42b484",
-      "sha256": "df064b1867efed22e91928a593414c02446bfe7afc97deb6af4634e3ad0064a4"
+      "blob": "195add3279f771aafead5de1896cba245556f9db",
+      "sha256": "fbb2fcbc23c04ef1de7e714c123b116f48e9fb5a00404d57a54ae85fe86493d4"
     },
     "resources/lang/ar/validation.php": {
       "blob": "6dd4b49e77e5b07e894d249d9f56a8e0f3687b5b",
@@ -2602,28 +3030,28 @@
       "sha256": "e729b0481943e5ee13b27ba3b4b3808f38c4d5f295960adcc620deabacffb7bf"
     },
     "resources/lang/en/dining.php": {
-      "blob": "abffbf584bdbc60eb40beff321841f86b33294b7",
-      "sha256": "3ce752052d200bac8c683e0cafcf0d20f953bbc52d97d88148afc5c575b7f36f"
+      "blob": "6d5ca767b9882b96896347c25d0be71c3b2b74f3",
+      "sha256": "95d2982e3094991a0dc28821b194e8c842c814cada77c43344dd5543eaf1625b"
     },
     "resources/lang/en/expenses.php": {
-      "blob": "1685334cad09e0ac26d7ddcd9f2beef64ff7a991",
-      "sha256": "0a190c84e00142f6d8477e0e4a615ee40244a13a84aabdf9a135020fe28ba273"
+      "blob": "88b7001a61a962b96c2ea647f3a98a987f7426c3",
+      "sha256": "480c02493e9f981e2ad784dff9128b5773f670b5bbb20d61c677fc5d120afbfb"
     },
     "resources/lang/en/go_fees.php": {
       "blob": "789f82101cd14ef357fbb964dd5c5cbd338f3921",
       "sha256": "a6d68102115de86a7d633266376900eeb7251bfc4334017c6f2bd8fd8d31d6a7"
     },
     "resources/lang/en/home_overview.php": {
-      "blob": "9125654c6eb03a092c961acdcd7bd07178f2e8d7",
-      "sha256": "7ab5771642a049a8d725630fa63540a0356c6e1425eef903adfa0be0b79a522b"
+      "blob": "0a172fbc95df5dd974ef2c7fa630d3ed663976e5",
+      "sha256": "43ab356e9a9222449f76c9101bf24e1109d3698bc25bddd166770dbf5f9af007"
     },
     "resources/lang/en/main.php": {
       "blob": "0fdd12c62f1223ad3bfa6178d40468e8e9e21d1b",
       "sha256": "6800181eff4347c32fe6cbb77b8acb49ef513ad2d0ecc12c8adceaa0d99333bb"
     },
     "resources/lang/en/order_board.php": {
-      "blob": "fba942f26f2358173be1970845dca26bd1886dd7",
-      "sha256": "6d37e3645ecc9bd0dfca82521ac3784086fa3183e67a2b5bb4920ae1e68338f2"
+      "blob": "deac8a800e24146897a902ac6a4efe78b5dbdfb5",
+      "sha256": "6cf88da57608da855f99e8b9acd9f461ebbca2a947e1d6ea1393062bd8f1f941"
     },
     "resources/lang/en/pagination.php": {
       "blob": "d48141187786931ec2cf8645e384be7878c7dc53",
@@ -2638,24 +3066,24 @@
       "sha256": "1ddd65d239c40b013acc0f9033981dd5c690f5e733860ced58298f3762382a6e"
     },
     "resources/lang/en/phone_orders.php": {
-      "blob": "c6fc10c2be3b21512fc3282c3916db2c8b3ac74a",
-      "sha256": "da0fd092a9bd53f2b56d16b14854b0707454348d26415a34fb92e08ee64db0e6"
+      "blob": "f527c4ebcea2244a9a18e309bf0c3305e89b6b01",
+      "sha256": "2a0db16f1755913890a823a7010d296dc7f9a872f756e7d055f666b12e0c0dfd"
     },
     "resources/lang/en/pos_service.php": {
       "blob": "af1f31719b0e8e89046505657594a9d7f16a0027",
       "sha256": "cfa457f64dc8d3d591a5371041954ee5fc950fbc7279b29e7f466a38ffc7eac7"
     },
     "resources/lang/en/printing.php": {
-      "blob": "656b22c610b5b1ec119f06ecac6724e2e85288fc",
-      "sha256": "79db2d1fdad39dfb3d621804afdb5975f37fb84920890779698824e20f53d43b"
+      "blob": "e9b1d7a5fcfa598206b95635db749bed1fff140f",
+      "sha256": "db8b9419207a82db35af73e0bb0a24bd2de961f17c34093c3e6a5e014c6e48c7"
     },
     "resources/lang/en/site.php": {
       "blob": "12026f9dc37590dadbea6fcda3b8b9d48472d8bb",
       "sha256": "b55dec01a1e9953bd5a53514e75b968d00b8dbc74ae9c4031b867341bf8dd384"
     },
     "resources/lang/en/takeaway.php": {
-      "blob": "51764d9ddecdaee73de67d1299e2f1eaac49f122",
-      "sha256": "b0ae2b2222c0d5cebeff63578ef457e952fa2faa52a71881518d6411269ff0a4"
+      "blob": "d37b4f30ec3f4bdd1233874c150fd1879696d8b7",
+      "sha256": "521ce450bf853cf215c5c9dc1e2a09d83e90c42815afe282c283e94d0c425208"
     },
     "resources/lang/en/validation.php": {
       "blob": "19bc9ef643728bc7884b71f264f6a7e8e9c10b77",
@@ -3194,24 +3622,24 @@
       "sha256": "1299637f2c9156ce8fe88d9173891b7c15b20774f7ac4db6a61f7f03a40540e3"
     },
     "resources/views/admin/branch_operations/index.blade.php": {
-      "blob": "0a01e238caf8007149699483e27ee4929d07cb5a",
-      "sha256": "700a79d8a30ce42bad71db1460a03f282c1588429bc17b3a5b9525a3849637a3"
+      "blob": "77bf3905ca16ce839a6011815b05c3738d7a683c",
+      "sha256": "0f0930700aeb617fedbc137c834d5abd6dd3bb85f9e23e34a1f95ccb7d2f6032"
     },
     "resources/views/admin/branch_orders/index.blade.php": {
       "blob": "65d189005c1b0049e102bf72bba2598bce548638",
       "sha256": "e95ab6e2cc076f503217597d30f938c0f62b069e898a202e59cf4e3108ea88ab"
     },
     "resources/views/admin/branch_shifts/index.blade.php": {
-      "blob": "375638a80d4b4d7f2077fbb49ecf16a1aa81a0fe",
-      "sha256": "49de788cd236a3943988f3eea7bf408654f47cc1d0c64ef3504f0a24042552a6"
+      "blob": "e043d8ad4a40e4c1e24940cfc3385dc4a902f238",
+      "sha256": "658fb3e802aa0b2e5e0f5800ec1f043e931239db02edf7c47da3fa9c227fe4fb"
     },
     "resources/views/admin/branch_shifts/receipt.blade.php": {
-      "blob": "00d88dbf3be6f8ada8d656a2219e7f1373382f12",
-      "sha256": "a7dc5de0981dd881a0e66145e044d6ec18ea4760efef5931d4187d63126639a4"
+      "blob": "be7426c799fcf30d06896f08e91ab4cda8d41d20",
+      "sha256": "09cc23638da61ef16b5789e67a09f234508fd5737761916de92e7193bc1b505f"
     },
     "resources/views/admin/branch_stock/index.blade.php": {
-      "blob": "cc5f5e4d9fcd63bd68cd57d871e982607566f7c6",
-      "sha256": "a74fdc99801af3d69d7ae1ceccc36c2056aa290e4a622fb22879b9e46ae93c47"
+      "blob": "b15ae599e00e65e866253824089a35aaf6444a12",
+      "sha256": "afab458724b90dad99ace181aab419d8092a6ec9b7ca12c75d819990ea69b9ee"
     },
     "resources/views/admin/bulk_notifications.blade.php": {
       "blob": "b6b30ab01cb4a78958f102a918676640965954b5",
@@ -3297,21 +3725,25 @@
       "blob": "2e72dfddd853769e416225a62d79c71ac79343dc",
       "sha256": "b383c61ec258db60626726d23de01cc726f6ceb725cab11c722d174579285a74"
     },
+    "resources/views/admin/customer_crm/index.blade.php": {
+      "blob": "b423c3296217b1b6413ea7e6e96c84466b1cb9e7",
+      "sha256": "45c10498b45a087d64caece3d1eb4b358958dd5faf6f804e6eb66bf1c3a6b0ce"
+    },
     "resources/views/admin/desktop_pos/index.blade.php": {
-      "blob": "386308247a4b761ed40db20132cc0ec1c22d193d",
-      "sha256": "b913f84cde203e4d2ca879056d84d794c93a36d13406e8e56ee410718f25c4d2"
+      "blob": "95aef94f352c70dbc3cf71fc3aa032a1c2547b4c",
+      "sha256": "2eb9995bf1fdf82f5054995c35d578801ab0ce1f9b6868ab34cf1dacb97868bd"
     },
     "resources/views/admin/dining/index.blade.php": {
-      "blob": "4316d3da8c993409c44c14aa4c8bf009eea696eb",
-      "sha256": "cd010a14249d54ce150a65b17fc16f1ce7c1a3e389b5fd07ebafc439f1c3a049"
+      "blob": "620bb4abbe5856b95dea70a4cca1c02118dee2de",
+      "sha256": "0d327bf7a0e6ab0d5aaaefe269b8a838f72a599cc018f0bcc833324eb35cff12"
     },
     "resources/views/admin/env-setting.blade.php": {
       "blob": "6d22ddf518888594f500381aed9e83a1eab1b0ba",
       "sha256": "5041cd2be56dd1976c9491852b1591c19813a134ee7985025a8f28a0906e1b2f"
     },
     "resources/views/admin/expenses/index.blade.php": {
-      "blob": "2614bad26d454329b8eebd2f697ce748057ecff0",
-      "sha256": "1aaedf4241ea9385aaadbfd5dee9c545affecd8ae4f90f78eaa155e0027d3fc7"
+      "blob": "d0feb08e51b89669feda6562391ec95bce137126",
+      "sha256": "afb3a91f627af6871540a5675c495313928b2e263394f2c6662abedb5569e9e8"
     },
     "resources/views/admin/expenses/receipt.blade.php": {
       "blob": "8307a283d2df709506a0fa869ff07a6d6292bed8",
@@ -3390,16 +3822,16 @@
       "sha256": "787e3eccbed8ebabf6f02dc75d10d772414f4e0763008e128c4fe006b11b1263"
     },
     "resources/views/admin/layouts/footer.blade.php": {
-      "blob": "886f076b7d57dc4d71fd24e63c27bd9fcf34f11e",
-      "sha256": "9dbfdc66368033ede7f58bbebfd3264b2fac1de4923a9c9f716b55490ffb67c3"
+      "blob": "8756869647715fe972138a19b2e026c09dba3bfa",
+      "sha256": "4f7b20f8dfc4756490d52c81f4bec0377f8638584b22afa2ce06e126bbe0c28f"
     },
     "resources/views/admin/layouts/header.blade.php": {
       "blob": "3b753aa0d6855ad325effbc8d9475d50c109d5d6",
       "sha256": "9fb0b6e0a19521b80ba204b38846cd754dedaacb526e905f0468a2db9946f0f6"
     },
     "resources/views/admin/layouts/menu.blade.php": {
-      "blob": "ce7958880c9515eae87366eade7476386000fa29",
-      "sha256": "53f5daee12f1d95b81f0a776d01a1cd2a43ee1b8f297dd6da05c388c0597f199"
+      "blob": "28953576da6db9e15e4f8d6c41fd8dabc2d2636b",
+      "sha256": "efe942d39b6dac641e878763dbef92be81d2d414cf7795d3c7a88ad0a27bc394"
     },
     "resources/views/admin/layouts/navbar.blade.php": {
       "blob": "1cc09c1bd599f48b01e859c52815233aaebb70b4",
@@ -3410,8 +3842,8 @@
       "sha256": "b281b5c79aa7efcd7ca0b485b77b9813304d9fef78840026ab8aa9107e814702"
     },
     "resources/views/admin/login.blade.php": {
-      "blob": "67373dd4b418a0e8752934bb790e94888c3fd21a",
-      "sha256": "fb50c9d5598e5f55bed63f62d35a27e1164717b0550ab6d90a17a8ba9274ddc0"
+      "blob": "c0bc7a6b44e91a907957833f9b6f75f942720356",
+      "sha256": "72f30173104f014c56e287d971bc2d9186c791774da02ddbe702dc49f13ed4a0"
     },
     "resources/views/admin/maps/assets.blade.php": {
       "blob": "d1654a972b5dbba699a0db88af1f038777501c3c",
@@ -3421,21 +3853,41 @@
       "blob": "98da7fda63952e0b6d9b601b4e715bcd112fcc86",
       "sha256": "22a1e7803ed4ba4fabfcb2aeb131c0434c7cad8bb7229082751180d5f4acefc8"
     },
+    "resources/views/admin/meta/ai_controls.blade.php": {
+      "blob": "eef12f1a7d41505799b2348b39ad101418850623",
+      "sha256": "1fa093bffbde1246c3280298e69a400f020c4962c18ccb5b691d78481afe211c"
+    },
+    "resources/views/admin/meta/channels.blade.php": {
+      "blob": "c922fd431ca3df5b12f6aeef05c0885bc0da3049",
+      "sha256": "485e9b0f2abdd915ac52788a37b8373344016dba021d4d82fa2ffeb3d5cbeeb6"
+    },
+    "resources/views/admin/meta/comments.blade.php": {
+      "blob": "b10df9937986c330282cdf611589d7b1ab71d080",
+      "sha256": "d448f6ee95dca9b3d4f5a42a9ec0876ab0e7e3c07ef320dfacc3e76326039896"
+    },
+    "resources/views/admin/meta/connection.blade.php": {
+      "blob": "006dd737eee8a87871d279251d21c5044c777c5f",
+      "sha256": "945f150b208a88ddd6fc08cefcedb990e5ae9d5bb800df733dcd38bf6ac86f6a"
+    },
     "resources/views/admin/meta/index.blade.php": {
-      "blob": "79f6d85da843ec69a98c36728fc095c6eb22d645",
-      "sha256": "2dbfba75b6e2b2979af4a29570f2de5977af7e296e8819a813e4f62fa780ab88"
+      "blob": "3d1a2a7a2d5af960a9ecdf3fee4e8895ab468aa9",
+      "sha256": "074ca57c95b6a9950bb3854556cf13a30ab80847e9c847c87d50e329d1c283a5"
     },
     "resources/views/admin/meta/orders.blade.php": {
-      "blob": "2ea32304cab378634e9aa1b5f107d993370f5f67",
-      "sha256": "1663ea3506861803caf89a58fcb970eb3d9b2d51d4dbf93d135f5f54598ddfe9"
+      "blob": "91238d0263c9d4442634e5e965f603f992655090",
+      "sha256": "ad6b6f28a40f4b237922906d8b8a4fce5c84d09a2bd3a12999eb4537e5192528"
     },
     "resources/views/admin/meta/replies.blade.php": {
-      "blob": "9c27ce0a501ef3926dbd1c53503d607ff353ca5a",
-      "sha256": "7fef14b9c5348d7d8a78abc9d1b36a01c61ad418162ebf9fae210ff228d90417"
+      "blob": "9251a7defe180ad1477d71a67f1827026b860ef8",
+      "sha256": "07a4568060ca77543691528666b7ed31257be1db103a7b754074678c0c9f8a75"
     },
     "resources/views/admin/meta/sidebar.blade.php": {
-      "blob": "34917f3199bf2ebeaad2f326d078191b4c4cfd1a",
-      "sha256": "5f15611f7c4f7c4fa686a8c7b553b52baeb46e8fd71646ee9da683d18ee29693"
+      "blob": "62b1ffa41982517492f670efca027776d39b3324",
+      "sha256": "588c8c44a5c4dabf242a43298c830ce77719a1900e4ce851faa6e9b27a6c33b2"
+    },
+    "resources/views/admin/meta/social-pane.blade.php": {
+      "blob": "84dd676c46ce58ae690599106665600cfbac19ca",
+      "sha256": "e35126db7da6fd2bfb2c8a7ff0923271176ea890dacb11d84de37d9658f98ac3"
     },
     "resources/views/admin/notifications.blade.php": {
       "blob": "1925bda28220f2c2e8eadf57f51c1181ee7f3198",
@@ -3458,20 +3910,24 @@
       "sha256": "8ec091e9317d7956436fa823eb6f9701f5025fb65436dec9d48aa63860fe2fb6"
     },
     "resources/views/admin/orders/board.blade.php": {
-      "blob": "84809daf2b46fb96e4c742a2373d69423616ff36",
-      "sha256": "231890f7047d62f923e31ac59c8ad92765d3ba5c29544a4c08543e043cc4ee5b"
+      "blob": "2713b74841cd986924d0b475349f796df86f0068",
+      "sha256": "f87e6ca574de48057c0356d1a90629729b3edce51c36272aa5213969b1812e1a"
     },
     "resources/views/admin/orders/board_card.blade.php": {
-      "blob": "4eda8dd8bab1e77d60e97591352c86df1d257445",
-      "sha256": "53cfd7ef66008096c4edda003f1e00156f32893a6913d0329770e1fc065033be"
+      "blob": "b0070d6a31608360c88259203aa8085afe749cb9",
+      "sha256": "8e9b0ca79f4031399c10954310447cd1ff9ac8c813319f60e58302459eef8793"
     },
     "resources/views/admin/orders/board_columns.blade.php": {
       "blob": "b56b13bafe68c15799901799148c4e8fcf61ebd4",
       "sha256": "a17ff7981c22f8a23d0a6f24bd8c8f92c4abbb2f14a7c9dd29bb6cf654a684a8"
     },
     "resources/views/admin/orders/board_detail.blade.php": {
-      "blob": "39ddfc5ffbef26a4f1d8e3194e5a2ecfc0d04373",
-      "sha256": "cdd959d668300607195d1d36e8dc1c2cc1607f358fbc9b728787bfa3fdc80faf"
+      "blob": "ef6c357fcaff06fbc5d125e14be352138214a822",
+      "sha256": "07ae6692aac29cf3e3fb12daf4e045a0821766e55707ab7e75e9dd7e5b586bcc"
+    },
+    "resources/views/admin/orders/board_items.blade.php": {
+      "blob": "f1c4b296e914f245ef225cd479124c01b1e4731d",
+      "sha256": "64e4bd4a9510ede53987ad8f2c40aa3d7a2d58506483f11f95b89a3cabba5277"
     },
     "resources/views/admin/orders/board_menu.blade.php": {
       "blob": "b0bd80d4a84e72ebcca948b34864ed44244fd00f",
@@ -3513,13 +3969,17 @@
       "blob": "d5562b18b0fa3aa8e9ad108fb8edefafb079b6d7",
       "sha256": "6aa670b494b3ef3bfb1a742e3b1e41fe5dd370bbb289bc81b34c2dfcedf5c04c"
     },
+    "resources/views/admin/partials/go_erp_logo.blade.php": {
+      "blob": "ecc318d991576d162693ad1e1e8d5a9292e3658b",
+      "sha256": "81c6573cca99b0aa1df9a419de26b0551dd8498e51f928e027bae8ac71712955"
+    },
     "resources/views/admin/partials/search_home_part.blade.php": {
       "blob": "647e03d75a570f9e15b64be5dff058daacc096b8",
       "sha256": "7aa7d221a26869ab49844380cef0c05fc5913b32755f7c77ad0f7d1cda6afa7e"
     },
     "resources/views/admin/partials/search_part.blade.php": {
-      "blob": "483e94f722ca2ae8f118e21c973996d26a54d00d",
-      "sha256": "17e3172514bf3ae5e89903930241b4a854cb2eb8b45d59b3fb0dc9556d4bb11c"
+      "blob": "c112651ee840d9f2c9799a7264351eea5387252a",
+      "sha256": "35f52a84d720a5c264a2716843a82c3e94ac9bece67819ac6e78b92fa3c4948e"
     },
     "resources/views/admin/pending_vendors/add-vendor.blade.php": {
       "blob": "624fd7847b4d6882e5fc31cbbc9e6752dad1aebc",
@@ -3542,28 +4002,28 @@
       "sha256": "27110d2a71c387d0f5888bf3d09aebcfb6d21c6e628f96e3559a251cc24d9d7b"
     },
     "resources/views/admin/phone_orders/index.blade.php": {
-      "blob": "2902da5d8aaab940640646d496a8a6f8670cf6de",
-      "sha256": "ab5e4e534f700c2f96c29eb0be92f9f33d619d567199f85ee1496b9efe7e6364"
+      "blob": "8dcb9f33e6b4afbad5fcfc27d8c9071d7c4d2778",
+      "sha256": "abc75ce4c1cc051ac0261b863e3f62e78c31e502caf5b8bf89a071b6cc583be0"
     },
     "resources/views/admin/pos_service/context.blade.php": {
-      "blob": "5b724df7a30fb8af9883b4841c1807537c397dbc",
-      "sha256": "17ab6b34cf1aa4b7d52f825f45fb8d901e66142cf154b1b371835162abe0199f"
+      "blob": "10193ee7292ae5cd697835a220aa03c1d0f32ea3",
+      "sha256": "a14d457d353f19ff8e66b6ebc927419e59875bfda6422d55a6148c91dcf7c365"
     },
     "resources/views/admin/pos_service/kitchen.blade.php": {
       "blob": "feaa388b3a7f4a0b218386184263c17e445eba76",
       "sha256": "c37166e825ada526a6d386ae99ccaebf83b09a17319874dfd80b4e00ff293631"
     },
     "resources/views/admin/pos_service/receiver.blade.php": {
-      "blob": "01d9012c36a87768c58931fc694c9866ee4e2031",
-      "sha256": "37ab9a06209ace73c4de1f8663531fade1bba040aef950c52ad31da87d2f5eb8"
+      "blob": "ca52ef9c8cc20cc25be521cd99e34bf873f54af0",
+      "sha256": "deca072ac5725ad90eaeb0db2494bc4687cbe964ebdbad857726fa62a561b79f"
     },
     "resources/views/admin/pos_service/ticket.blade.php": {
       "blob": "5e818706d6d4ba889f6a8cef87e794349c64fee5",
       "sha256": "2cf2c1f47e25a23af7a1307afe033d323f0f07323ebc776a752793f9a6978928"
     },
     "resources/views/admin/print_settings/index.blade.php": {
-      "blob": "9ada181af3ad72c7e7c3e053df3aebad67891aa8",
-      "sha256": "04e393086f7264aa0d64d222044df89460d966eecb0c2dc9c99e47e69b5e45fa"
+      "blob": "60d167f7cbe6d94994851e0763225dd48b095b17",
+      "sha256": "c6f4ffccdabc59ab5aa0c13ac7bfa65d82a5be649361164154e727fe02ae12f3"
     },
     "resources/views/admin/print_settings/test.blade.php": {
       "blob": "aba4476d350e1727c33a9174dee220af505a53f8",
@@ -3642,8 +4102,8 @@
       "sha256": "5829f7b61de99db7ff0a2a0e2db9e7a90deccabbc3098f67008663cd6a333951"
     },
     "resources/views/admin/reports/resturants_report.blade.php": {
-      "blob": "d747b0467f7d5fad21277ace513e3f4aebe6a69d",
-      "sha256": "da65d3c2488c156b75f79238f8ffdb33ddcedd54e35f8406ea4dec3b4bd795b3"
+      "blob": "480a8f1249027d4d7a18790ff8a3a8f01ad00558",
+      "sha256": "8efb717e7a07dda57530264193274550c131604b43b1e8362a320f78ee38b47d"
     },
     "resources/views/admin/reports/vendors_report.blade.php": {
       "blob": "120b48f29fded385487b52c7b8d5719cddfc0bcf",
@@ -3726,12 +4186,12 @@
       "sha256": "0e46bf9b0130737d1ab1879f58d4715c557bdf968fef326f7fcc7bfa6cd65d95"
     },
     "resources/views/admin/takeaway/index.blade.php": {
-      "blob": "68c9a6159b8431d9e6aff914d4d89ff6617d94c8",
-      "sha256": "47edb2252042caf5c09a3f6e9ec08589941a415db9dad88c5654dc953f7af411"
+      "blob": "55896fb908ad8dbfc81c17270334f34f94165b2b",
+      "sha256": "0213fdd8b1e9d785871acf4ab19227e1e25020127bd80858d2e5bcd9dc7ab4d2"
     },
     "resources/views/admin/takeaway/receipt.blade.php": {
-      "blob": "35f8de1badac84b915281fd3f4d25fa1b3787576",
-      "sha256": "c3c1a1bd53ebae4b722af6f9d47f313e3973f31566883f44c70d980346557fe9"
+      "blob": "4c695c375100e8d067d0589bd46bf2f88d9fcdc2",
+      "sha256": "b072095554535a44dca9a997c77fde127d89caa6f78beb72bc414c4c78e0e428"
     },
     "resources/views/admin/users/create.blade.php": {
       "blob": "bc2a74aaced6092c800dee80c5483050cef31b49",
@@ -3762,8 +4222,8 @@
       "sha256": "b44c283b93423e53c796c711b9ae4c60ce7bba5b3cd9436b3e0b73b4d261320f"
     },
     "resources/views/admin/users/wallet.blade.php": {
-      "blob": "41e6656d0041b3a33a353e01f2352de35e1ecd1e",
-      "sha256": "f405a82f77e3785aec59c0a3a89f8bf7fe6d2e47678e4878518e7c0110b868ba"
+      "blob": "414abe2b697a9d740e8fc152593d24b4bebd0262",
+      "sha256": "cf48722253d37e070189c222d414c4ca271f6833d4ccf2710bb9e37656bf2db5"
     },
     "resources/views/admin/wallets/form.blade.php": {
       "blob": "2fe423ca223a2bacd97dc9c988c7e354fab64fd7",
@@ -3785,9 +4245,13 @@
       "blob": "411439f7a594a148c1e0ce77fa6d681cd5ad4b25",
       "sha256": "423bafa6aaaa5399647be89e559b4ee3588732862d533d99dd4652421f7e5b1e"
     },
+    "resources/views/admin/whatsapp/chat-pane.blade.php": {
+      "blob": "779f1f80586390f31fd295fecc411e3e6448fa3b",
+      "sha256": "48d5574599768f9b3a5606222c817af0dc38b5aa489f7254191137907dd45197"
+    },
     "resources/views/admin/whatsapp/index.blade.php": {
-      "blob": "70d14e0b154934adf636fc18eba3546f3efad34e",
-      "sha256": "3338482c4e0924fd3db2f908fcd8c5d0e8c76aafa39f96a930908d0028141c24"
+      "blob": "57478905af637dd43b251568276b7f6e2e12f4ca",
+      "sha256": "38cfab4aefb070ed0612607042523bc526072c09884f0986cf3cdaf75455122b"
     },
     "resources/views/admin/whatsapp/orders.blade.php": {
       "blob": "54a9db4693091c4bb0a6b6924e73791e249f2308",
@@ -3798,8 +4262,8 @@
       "sha256": "ae838712feda2e27f1f23a83d635d7a96a9a25f27601f0a38746bf26bc7d115a"
     },
     "resources/views/admin/whatsapp/sidebar.blade.php": {
-      "blob": "140d63fb48d45b128cc13f49fe16bf34d7d70e15",
-      "sha256": "e5e0fb5d8a77943a39b0e4253b3a6e876502de038a9f72544592f0efdb3228a9"
+      "blob": "4610de3333bab7e0e4e0e9855c7df9348b4cb597",
+      "sha256": "328a9933776a935c6c442ac8374bd3e0ba96ff2a351f6b855bd6580ba8d53241"
     },
     "resources/views/dailyDelegateReport.blade.php": {
       "blob": "6760736c99f9601efa5289818ddb0509d8be7115",
@@ -3812,6 +4276,10 @@
     "resources/views/emails/activate_account.blade.php": {
       "blob": "66f5bc3a8f017606e0d4b3413afe8b8bf3bbb35b",
       "sha256": "5e121a21831176631e08396e42adb7757ec707778da66f858b2b92f982edb858"
+    },
+    "resources/views/emails/branch_stock_minimum.blade.php": {
+      "blob": "1f014aaa284ff37a6d270d1688f1d00ce383a20d",
+      "sha256": "21ef82cac5ababb4ebc93f0831c0ad61b8217afcfba86ca1e498e4cb8a171770"
     },
     "resources/views/emails/forget_password.blade.php": {
       "blob": "101f3a7b8401d8d820714b6fc0ccf43a19222c84",
@@ -3902,8 +4370,8 @@
       "sha256": "303a0a718d8492513ccb12cbbd1502250746593c6fa4e2556f41a1546ee04838"
     },
     "resources/views/site/home.blade.php": {
-      "blob": "d920af9c1e315e884d4f26db874f2fad8630258e",
-      "sha256": "90c1a309f23cb7fe92c9994594649b5357b59ac2396d4f0b2dce548d4faada8b"
+      "blob": "534243c5eccd87c31c3e992959e69cf261ff3abb",
+      "sha256": "ea480281ee2acbf39f8d1fa3a41a0dae07888bb6e671dfe34a369c51d1b50b28"
     },
     "resources/views/site/includes/about-section.blade.php": {
       "blob": "98e5b6ca2cd01dac99d42f92cc4676b2f39926de",
@@ -3952,6 +4420,30 @@
     "resources/views/site/screens.blade.php": {
       "blob": "865547e26145558eaa129b06fe5cc9aa47edda78",
       "sha256": "0488d016310a8fec49a7530c2c955a9e202ecb0d899192501c9a9d86a636f745"
+    },
+    "resources/views/site/seo/cards.blade.php": {
+      "blob": "49bfa74e9af07dff7bb8e309195e6889bcc3bb70",
+      "sha256": "5227da92c39d235a2c3230d857ccaba8bd15dba69da1b83922b0eb015348db60"
+    },
+    "resources/views/site/seo/category.blade.php": {
+      "blob": "1feb92716150b8fd00b8db955d58dfbd472ac176",
+      "sha256": "350681f8d493d586db6876e5377ffc20cf4d6eaf622ee95b7a65af8a5338548f"
+    },
+    "resources/views/site/seo/head.blade.php": {
+      "blob": "f2cbb2941effe28d9ce1d5a717e889a2946ad380",
+      "sha256": "c53e45754348b7c44ab39d65064a9895f97157b9186f33e7d584f084d5c6d448"
+    },
+    "resources/views/site/seo/home-products.blade.php": {
+      "blob": "d8b3be53c7b0f946e78b29aec9b1cb02ed9e940b",
+      "sha256": "b79bf3ba36d104c398676b40396a65af3ff547c19446772b070f5642bb93f6b6"
+    },
+    "resources/views/site/seo/index.blade.php": {
+      "blob": "69b339ab441c1774edef7e90d40657aacccc31b1",
+      "sha256": "3964404e77348bbb03fc71fa0f9e68b31ac62eb510697e2492a59f7e8dbab31e"
+    },
+    "resources/views/site/seo/layout.blade.php": {
+      "blob": "43cc97ad0e6cae1f2249ba87739f7cb58df77e02",
+      "sha256": "d732c9d97ed033ffcf8fe324e49c9aa89a484b9530a2adb747ca506485dc22c8"
     },
     "resources/views/vendor/ckeditor/example.blade.php": {
       "blob": "663fefa5a70f6b01eff9175e99880615398400ec",
@@ -4014,8 +4506,8 @@
       "sha256": "613fe7f8fab40d7ef310aa5dbf769cb2a101c09997faa7f27bfa02dd9c75e8f2"
     },
     "routes/api.php": {
-      "blob": "7ac6d63fb29701cc6369199854caca0e13ede66b",
-      "sha256": "376afc9303f20cb6c8d86f6e719393bf828d42164f43f489661811caa89a5799"
+      "blob": "dcbf4cb5f12a283433cbf77b9eb7955bf766d41c",
+      "sha256": "09e70b8ee0a672d7fe85fc1b299d6dc95436ff1b13bcfc80b0feea3292761ff4"
     },
     "routes/api_cancel.php": {
       "blob": "f5b8355e4de596bd2556e6da601c203d6dcb7a7e",
@@ -4026,16 +4518,16 @@
       "sha256": "75a320e0433cbc8dab77a07296877783c449b87e010d7a5b63c1456d27ddf8dc"
     },
     "routes/branch_operations.php": {
-      "blob": "1028dd1d36e9d971eba2e16e79b4f5c127631e86",
-      "sha256": "bcdf23f7954b420d687c2e4e586d3209ebe53a78e07914cf550a945853a8b1f1"
+      "blob": "198a13496f3c8fef6b13a17b79d4bad73cb12e3f",
+      "sha256": "dad5a7ab10ae469daa554d4bdfdbeb4d82efc5294e4f834a2aa2ce9085def4c5"
     },
     "routes/branch_shifts.php": {
-      "blob": "d4f3e9144dd5b081fef9c1e8c8f4a30539d29341",
-      "sha256": "dc2f82ccfeeb24167e55eda628d3db54a2a4e80c6e97fbfd1c604c0a3c5045cb"
+      "blob": "4ca7273f647e85d0636b893793e240bac122d77d",
+      "sha256": "89df32b4462adff308ef46ecae78f8aeaffe0bca702d85b266d0fa59e4b705a0"
     },
     "routes/branch_stock.php": {
-      "blob": "fa03c08a59c8ef918222a50f639b4ed4a5dc40be",
-      "sha256": "a74eaa2655f4e9ddb60d9136c6b906647e3413a69bc6395161185754c5670108"
+      "blob": "a87a8587af7f3c3711f54444c89c93329390075d",
+      "sha256": "fdb7f60358875d8d39cfc60eeebd0cc1e2fe8b05f41e70de00574ea4d2b570b9"
     },
     "routes/channels.php": {
       "blob": "f413452b44065bc52c7e479e6b30d9963846bef0",
@@ -4045,6 +4537,10 @@
       "blob": "e05f4c9a1b27a35c20ac897b44dfb7a9238ff9b7",
       "sha256": "69ec50e361f429e7ffaf95011f9e3cab75481ad753405755580e8e89b1518b20"
     },
+    "routes/customer_crm_api.php": {
+      "blob": "ae68227ca84f7fc4c4de9376e6d51262b3e1e210",
+      "sha256": "85e287242243a5a553db9b5be9823255e07ea519e29b487fd4b493167c199e74"
+    },
     "routes/desktop_pos.php": {
       "blob": "d85b0aaf1cc5f39b97618341e9497533f281d8b8",
       "sha256": "027aa9832923d2c79d00ae5cdd81505b17e1395b67ac19449c9f6ab9b0b4e63e"
@@ -4053,9 +4549,21 @@
       "blob": "ea342092456f5eb9cf7dd037142ad8b515a899ed",
       "sha256": "7e01e46b0ae5fc2ec50b7196fafa731f6c058f815c304226b3c7e3c5511b2ef6"
     },
+    "routes/meta_ai_controls.php": {
+      "blob": "8a89374a33002b88f7ed593d6aab5817aa3cf2a4",
+      "sha256": "35f941570dc192c17158c3f7ffc7ceb5c129bb853fb79e297a1b20c94edd32bb"
+    },
+    "routes/meta_comment_ai.php": {
+      "blob": "cd7c48d4e091921b127568269e8139414aa38e48",
+      "sha256": "0a2315d0c144bbf3235ff832e0174f5e2c5129b02a1f80fede678f486ae7a097"
+    },
+    "routes/meta_comments.php": {
+      "blob": "66e6c162c630a3285de9b37b54c706fc1076f0f0",
+      "sha256": "bce598b177b1e36ba03f16ee714040189f94902b6b5c65fc28e4fc40efb2a330"
+    },
     "routes/meta_inbox.php": {
-      "blob": "646634ef68604636bf05e07fc619ae722d6a5f02",
-      "sha256": "2075256916e58c27adf4a2190ea14a6c9e35847e58c89a28793c894179d14746"
+      "blob": "2b5f992b8392be450a032d71d5a625a8aeed822e",
+      "sha256": "fcfc1e361d155d81f0c73f91a613d6e9a9c466984e87ca579e5a0678f58cfda1"
     },
     "routes/meta_messaging.php": {
       "blob": "169390308048ef05f4d08e2619874d2040d574d9",
@@ -4074,8 +4582,12 @@
       "sha256": "bbacfa547ef5bec5b0b1888f834c8bcabe9cae6cd6a56109beb37a7c77588411"
     },
     "routes/order_board.php": {
-      "blob": "cb6f4d2af6f71d69146ecf4dbcfd8e90aa77758b",
-      "sha256": "6154600a86fc29298c417bb3bb675c042041b888bac6c0eefa4d5fd15a9db0e9"
+      "blob": "d94ee16e92341998e51593f963170763bbf91e52",
+      "sha256": "812b7f03649a4c913a4a26d075d0eb95f9ce4bfd43ec2d66af4503e1dfe7af33"
+    },
+    "routes/order_live_activity.php": {
+      "blob": "c9564cd2efcc0a5503bf4295df08f3070387ecc0",
+      "sha256": "7a6a2f93751503e17871f638642243e4bf4e8ad264d55565b0593817c4af1e34"
     },
     "routes/pos_service.php": {
       "blob": "2f8a1b9bc3ca7859711490c6a4ba9167186ebdf7",
@@ -4086,16 +4598,24 @@
       "sha256": "f920e6bd0658afb7ef6066756c79a49ca7ccf83bf6410b0b5ee92fd483eedcee"
     },
     "routes/web.php": {
-      "blob": "2ae5ddb9639a70382bc5012f6fb9b83030216f35",
-      "sha256": "7153d9d5d9e6e6a187a97eafe669f2aa5ea675e9276b549de56c8f2bbb78e8ca"
+      "blob": "672cb9f6a339ac612daf7ef94deba95a9cbd0f21",
+      "sha256": "ace7d3630cef49930b216c4e45b9c437ac53c25dca9f535c583e05d54689aba2"
+    },
+    "routes/web_storefront.php": {
+      "blob": "e5eda97241c23b4ce67140a903bef252641812cc",
+      "sha256": "292769ab5d13323166cf04a7ced5dbe0d7b9475830cff43e6ee49559f74a546f"
+    },
+    "routes/web_storefront_seo.php": {
+      "blob": "961ca1c4dd89f8a79aa97f61ba817c3e78c4e9c2",
+      "sha256": "70ba9fb965d257f461c1f0c9e26b66c39a9b6f6c206ff301cea1c9f0904503ec"
     },
     "routes/whatsapp.php": {
       "blob": "c47508b3cf7fbcddf9a465cfac461b645143fb9c",
       "sha256": "d362e64738a8186a6263888a7fe627760ed556a9972967b311122afb3362835d"
     },
     "routes/whatsapp_inbox.php": {
-      "blob": "524a38faa203d578abdcc6185e48709036d91e82",
-      "sha256": "1577bb2fd667e7977f49f941cf4c929b7ff8b9d9a6fee510f9b4f0bbb762733f"
+      "blob": "08eaa489f53cb8b4db3012a0b33c1beafc6d0289",
+      "sha256": "1de1f92e64667ea4c29259beb9060ad904014d9e1a25c9466a17554402216819"
     },
     "routes/whatsapp_orders.php": {
       "blob": "b1932548cd0cd3af5d35bf2cc489df42f9faa8e9",
@@ -4111,69 +4631,326 @@
     }
   },
   "gui": {
-    "public/css/dashboard-meta-inbox.css": "ab4beecd1580769d917e3ddfe3b4139123d9dbbe",
+    "public/css/dashboard-meta-ai-controls.css": "0928502f344567b20599cf0216352a1e7b76da97",
+    "public/css/dashboard-meta-comment-ai.css": "5d72796437513511b610442f942933fb00445719",
+    "public/css/dashboard-meta-comments-expanded.css": "42cc07b4d05563953f373e531623f892b2c63998",
+    "public/css/dashboard-meta-comments-original.css": "407e599ca0b9483cc8106404806e5b90244ff0b0",
+    "public/css/dashboard-meta-comments-pending.css": "ada23357ea36f9a481c30e37dfab67f707dbd404",
+    "public/css/dashboard-meta-comments-timeline.css": "e32ed96770e93d563500758395dfba6fde595a61",
+    "public/css/dashboard-meta-comments.css": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+    "public/css/dashboard-meta-connection.css": "660f7145725b073e60f5b60059c7dd5141e5bd5d",
+    "public/css/dashboard-meta-inbox-expanded.css": "89f3d9b91126dface3ca087aa9e1fc319f56883f",
+    "public/css/dashboard-meta-inbox-viewport.css": "1d3c4c9360619c6e3d7ab6a23d4188de36e96732",
+    "public/css/dashboard-meta-inbox.css": "79e8e815e024199316d2f5bf86be56bf21ededfd",
+    "public/css/dashboard-meta-message-hub.css": "631727d91df60dc2a65ded92b1b6cdda87de0afe",
     "public/css/dashboard-whatsapp-inbox.css": "639ac2223b4abcd679329000551d9c735e43b5af",
     "public/css/dashboard-whatsapp-orders.css": "35d80672c039b1dcbd8fd52457ea8a7078e0421d",
     "public/css/dashboard-whatsapp-replies.css": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
-    "public/dashboard/branding/dashboard-brand.css": "b338e6d1fdb566b175a6ec875e5c6a2720377279",
-    "public/js/dashboard-meta-inbox.js": "6c6d56d2942554960ddf692641432179103fa70f",
-    "public/js/dashboard-meta-replies.js": "ec89061d647a11548dd7930cd7d573cfdf68783b",
-    "public/js/dashboard-whatsapp-inbox.js": "2f6de4626ec6108763f9cb024868233c7266dc36",
-    "public/js/dashboard-whatsapp-orders.js": "ad7f78fc490774280c31e01125bc262a92a2cb3d",
-    "public/js/dashboard-whatsapp-replies.js": "392569e73e951405a5de6ce676922e63377a6b0b"
+    "public/dashboard/branding/dashboard-brand.css": "b8e5b389536cfe30ff42ea9a08ba1d26f2da3b86",
+    "public/js/dashboard-meta-ai-controls.js": "c941a55a442d5994c941fcbaa35ee4a5b549709c",
+    "public/js/dashboard-meta-comment-ai.js": "1c8b2cff7542e91c55faf694143698f44392800a",
+    "public/js/dashboard-meta-comments.js": "f6de1fa10451d2f78ee99048f6e94e0d21364798",
+    "public/js/dashboard-meta-inbox.js": "15853304f93533ffac4670f1e92c57b999dab7c1",
+    "public/js/dashboard-meta-message-hub.js": "b84ea253a1919ba1d73f6e8d1fc70c5ec03b6e01",
+    "public/js/dashboard-meta-replies.js": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a",
+    "public/js/dashboard-whatsapp-inbox.js": "964bc531f7119451a570cd9ee3e2a0996f2fd1af",
+    "public/js/dashboard-whatsapp-orders.js": "ecd33b427e2af3cf444ea116920fe7f1ec51dc8d",
+    "public/js/dashboard-whatsapp-replies.js": "65d49087c9b98d621e8d3a11151751c18416881a"
   },
   "measured_source_differences": {
-    "app/Console/Commands/ProcessMetaMessages.php": "14b354fe2167b5679cb9976da1ceb51a21f6ea81",
-    "app/Console/Commands/RefreshMetaProfiles.php": "a3460199727e193ea60d6e4cfe4a8ff14b02a381",
-    "app/Http/Controllers/Dashboard/MetaInboxController.php": "e3183d9bd1bbb6ded01cb51a9d8bd29bdb9fca91",
-    "app/Http/Controllers/Dashboard/MetaMessageActionsController.php": "4865633b11675f44863564c05829a4bc75d5568c",
-    "app/Http/Controllers/Dashboard/MetaReplyController.php": "7b600e4bd37924b85cf786e3beccb289be4cef19",
-    "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": "7ce48a97f115eab4e1f2308c411d0dbc7f5d5f3a",
-    "app/Http/Controllers/Dashboard/WhatsAppReplyController.php": "7223022bcf5b9acd374ba501a5e17609d9ad05b8",
-    "app/Services/Dashboard/MetaMediaService.php": "8f0f0390e5aabad792595f6901e12a6784e25cbc",
-    "app/Services/Dashboard/MetaProfileService.php": "e0e309cc0ee61566165f9283f658f41b0862789a",
-    "app/Services/Dashboard/MetaReplyService.php": "84c686bba5acc0dd3696015f09854aae3f8c4448",
-    "app/Services/Dashboard/MetaUploadMedia.php": "dff1ee0d6d2670fc3b96abccd0a0dcdd9775ea2f",
-    "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": "4b571f7f4a5cef9257c414886dba515c06dae2a1",
-    "app/Services/Dashboard/WhatsAppInboxConsumer.php": "e54715313901be8baefb551566b7bb88f4afe45b",
-    "app/Services/Dashboard/WhatsAppInboxMedia.php": "ae1f6aa4d833de80637ea56b19719c649183456d",
-    "app/Services/Dashboard/WhatsAppInboxMessage.php": "bedd91db5266d83bdce84a04836e988518891728",
-    "app/Services/Dashboard/WhatsAppOrderAiProvider.php": "65b9ce193991ae404e287ea62091ec48595bc530",
-    "app/Services/Dashboard/WhatsAppOrderWorkflow.php": "b30f25cf6dfc4a84061a58316db583f892a439a4",
-    "app/Services/Dashboard/WhatsAppReplyService.php": "1ef23df825287f8d3dedafcdb5d70ffeac7f1f29",
-    "bootstrap/app.php": "7494037bd99a873c333c3d530e40ab0f2b544c3d",
-    "config/whatsapp_cart.php": "a40fd3c834734ebbf5f52410e1b0641657605750",
-    "database/migrations/2026_10_13_160000_create_meta_message_hides.php": "477cb142e41fe41255aa484a47df7d586d7c2a8e",
-    "public/dashboard/js/dashboard-navigation.js": "2a85711ce081381bcef881a8b573b383cb006a78",
-    "resources/views/admin/layouts/menu.blade.php": "ce7958880c9515eae87366eade7476386000fa29",
-    "resources/views/admin/meta/index.blade.php": "79f6d85da843ec69a98c36728fc095c6eb22d645",
-    "resources/views/admin/meta/replies.blade.php": "9c27ce0a501ef3926dbd1c53503d607ff353ca5a",
-    "resources/views/admin/whatsapp/index.blade.php": "70d14e0b154934adf636fc18eba3546f3efad34e",
-    "resources/views/admin/whatsapp/replies.blade.php": "6386debd6e20836cc1023cefc7868e214ce7f0f0",
-    "resources/views/admin/whatsapp/sidebar.blade.php": "140d63fb48d45b128cc13f49fe16bf34d7d70e15",
-    "routes/meta_inbox.php": "646634ef68604636bf05e07fc619ae722d6a5f02",
-    "routes/meta_messaging.php": "169390308048ef05f4d08e2619874d2040d574d9",
-    "routes/meta_replies.php": "bf46f2b1f94f32d9e4e0c96daa41279d9daf8df6",
-    "routes/whatsapp_replies.php": "61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8"
+    "app/Console/Commands/CheckCustomerCrm.php": "e4ecf4b950e8c39ec1fc94473f2be957450f275b",
+    "app/Console/Commands/DispatchBranchStockMinimumAlerts.php": "0f68c66169299a6f3ccef5b6258a9234773b3634",
+    "app/Console/Commands/FreezeBranchBasicRecipes.php": "6a07a2b3c8e3c48b50121f59f03f97111ee6440c",
+    "app/Console/Commands/ProcessCustomerWhatsApp.php": "ae744c9d6c82cbd5358a76a90f118bac61ffe49d",
+    "app/Console/Commands/ProcessMetaAiMessages.php": "9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7",
+    "app/Console/Commands/ProcessMetaCommentReplies.php": "a36a6f3950d5320f9cedd6473378c36515c2e25c",
+    "app/Console/Commands/RecordEmployeeAutomaticAbsence.php": "2b18db3e348b5423b9e07f45b5e2e3b5a33c2ef7",
+    "app/Console/Commands/RetryOrderLiveActivities.php": "3de044e13de8916bd08d924a77ff42e4a076bb59",
+    "app/Console/Commands/SyncCrmCustomers.php": "978ccf171aaad7be003fe013a22187db91c219f8",
+    "app/Console/Kernel.php": "e0813e16b32fc760cf6f3cc868905c73a279f751",
+    "app/Events/OrderStatusUpdated.php": "0dfbd967004415d32094beedbfddff6b14f729f8",
+    "app/Http/Controllers/Api/V1/Auth/AddressController.php": "3a38f4031f90d649155c8fae4e5ed6ba5c7b2a2a",
+    "app/Http/Controllers/Api/V1/Auth/UserController.php": "c5581c0036f5eb94cad4353f9726da1fe6c16b0d",
+    "app/Http/Controllers/Api/V1/User/CartController.php": "1a872609a4e5414ee0b1f62d0971c6ffc9ffc05f",
+    "app/Http/Controllers/Api/V1/User/CustomerConsentController.php": "bebd65bf862e3ec872d8f19d2e660ad3b6c35e90",
+    "app/Http/Controllers/Api/V1/User/OrderLiveActivityController.php": "73a41cf3138853f173a6c0ca8ed1e74eb515a023",
+    "app/Http/Controllers/CheckoutController.php": "00efa1050e81c210bd921f665afb1cdf5d89889d",
+    "app/Http/Controllers/Dashboard/BranchExpensesController.php": "ce209cf595f3ed6c646bf5567908a2e513e03dd0",
+    "app/Http/Controllers/Dashboard/BranchOperationsController.php": "606bbd00ba187144054cf8c6bfea449b6b10a572",
+    "app/Http/Controllers/Dashboard/BranchShiftClosingController.php": "a034aaaf0d0e1b9bbd6f6881118d889dfcfc5a06",
+    "app/Http/Controllers/Dashboard/BranchShiftPrintingController.php": "6dd24f12d89cc7ab5c0528e3f479f0825c7a7e89",
+    "app/Http/Controllers/Dashboard/BranchStockController.php": "ce14e146502d7480d43bfc606380ab3847bb09b3",
+    "app/Http/Controllers/Dashboard/BranchStockMinimumController.php": "cc699bf5aa17cd27d5bd12b032a12f436348ac12",
+    "app/Http/Controllers/Dashboard/DesktopPosController.php": "425f69b30a60fb026325a4b0c1fe0d818e088c54",
+    "app/Http/Controllers/Dashboard/DineInController.php": "9e78573f30481e8894f196c7aada83122331ccb3",
+    "app/Http/Controllers/Dashboard/HomeController.php": "74d4780bf48aa309078316f1bd6052b5cee00b98",
+    "app/Http/Controllers/Dashboard/MetaAiControlController.php": "5b21e15e8519f31994b4bc3145c118adb070d79e",
+    "app/Http/Controllers/Dashboard/MetaCommentAiController.php": "53b4fa5dfc0082b8d376bf8b77ea837d13cec88e",
+    "app/Http/Controllers/Dashboard/MetaCommentsController.php": "f4a4165e61c1c539368bcf390cc698c71980c512",
+    "app/Http/Controllers/Dashboard/MetaConnectionController.php": "b12c8fa35b4923657a587988cefeff00f6ac4a97",
+    "app/Http/Controllers/Dashboard/MetaInboxController.php": "2ea48e57353be531027fc3dfb503e5471f4b5fd7",
+    "app/Http/Controllers/Dashboard/MetaReplyController.php": "e44f77d67aeb2b519ae66b182080ebb88afdb7a8",
+    "app/Http/Controllers/Dashboard/OrderBoardController.php": "daa857d3e13bf4e9b344d40bc3f27e77c4a9eb31",
+    "app/Http/Controllers/Dashboard/OrderController.php": "c0088c531855f879276587c2d4b8ee493cac16bb",
+    "app/Http/Controllers/Dashboard/PhoneOrdersController.php": "a99cb9eb7d7cff1278dbe07ba82c6997a4fe61e7",
+    "app/Http/Controllers/Dashboard/PosServiceController.php": "29d72038068f96d981d4931e7233476499394f4c",
+    "app/Http/Controllers/Dashboard/TakeawayController.php": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042",
+    "app/Http/Controllers/Dashboard/WhatsAppInboxController.php": "6f1da086e5b930f8248eb856a09f0c9572fb9545",
+    "app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php": "55bb1ac0cb35eed7e788735cc4793791d074745d",
+    "app/Http/Controllers/Payment/PaymobController.php": "13e48a6675303c651ad72ee5d79c88b6e56d520c",
+    "app/Http/Controllers/Payment/WalletTopupController.php": "eb2ce489b79fe5cc56486bbed18ea9b2b44ce168",
+    "app/Http/Controllers/Site/StorefrontController.php": "14eda1647fddc1c79a8dafec85f9bfeca3b0f290",
+    "app/Http/Controllers/Site/StorefrontSeoController.php": "1e097c8255f2b810a02b9f3e24c284a322209283",
+    "app/Http/Kernel.php": "5bb7c6edd4a4367b4fd72d95a8f80c25a71975b7",
+    "app/Http/Middleware/DashboardSessionCookies.php": "3ac040aa54b49d3ac2908388989037898abfed76",
+    "app/Http/Middleware/GuestAdmin.php": "ee8a4b7928005980adc6145bd15021ae6e9216c5",
+    "app/Http/Middleware/IsAdmin.php": "5df3fdd4150cd4d960f863faeea14ffcce0949f1",
+    "app/Http/Middleware/MetaOAuthCallbackPrivacy.php": "011d7d4f9388d55c1b4fa8bda3444cb76cf26b3a",
+    "app/Http/Resources/Api/User/CartResource.php": "186e73a53dcc37f236f3031d5ca55dadf5666bf9",
+    "app/Http/Resources/Api/Vendor/ResturantProductResource.php": "a47453c5803b0d01351004a59d73a56994fee804",
+    "app/Http/Traits/SendNotification.php": "abfdd1d7174b85ef01947c44acf99aba60fa121e",
+    "app/Mail/BranchStockMinimumAlert.php": "9dd1c031d0fd8d5a7a41bb18c42a4e42a5ed6483",
+    "app/Models/Order.php": "e3049996a1032045510b61e821854c15dd1f0ff8",
+    "app/Models/OrderLiveActivity.php": "7fca6f76e849439248d213686327967e785bf28f",
+    "app/Notifications/NotifyAcceptOrderNotification.php": "b4ed3a3977254ba290aa6054d5624d700bc85222",
+    "app/Notifications/NotifyUserOrderStatusUpdatedNotification.php": "c6faf973759131d90c9999997f3c31dd41040a2f",
+    "app/Observers/CustomerDirectoryAddressObserver.php": "f3a92ba0837a1c4781ce6fb12b45973fc0951f5c",
+    "app/Observers/CustomerDirectoryOrderObserver.php": "4d8f849a25044d7c1939bb9307bc47dc1392afa5",
+    "app/Observers/CustomerDirectoryUserObserver.php": "09398df0a7f91a3a1f47cf93c5caf2e1cf3205e0",
+    "app/Observers/OrderBoardClockObserver.php": "1a896b2573669047bdc9227f412dd52c4824dc10",
+    "app/Providers/AppServiceProvider.php": "e8149cb2c67616be14a50eaa37f690a27ad87811",
+    "app/Providers/RouteServiceProvider.php": "1ae558e0d1db98f218b4e657a592ade9a3894880",
+    "app/Services/Dashboard/AppCustomerConsent.php": "660fdc42ca446e9e23e5c37492398c420ded2181",
+    "app/Services/Dashboard/BranchBasicRecipes.php": "10c1e4baf99a855acb27c3c84e751f625c567381",
+    "app/Services/Dashboard/BranchCustomers.php": "419402f489b35f5d79f2f91b5bb9e124d618fe57",
+    "app/Services/Dashboard/BranchDeliveryTariff.php": "232833a207b116d20d1f64b8c01cecc689f84ef9",
+    "app/Services/Dashboard/BranchExpenses.php": "789c63bf08ab512a71d7a0a0b28e79b2a10e4e16",
+    "app/Services/Dashboard/BranchInventory.php": "6c24eed954dc12c1ef5e9691353b6aeba291c22f",
+    "app/Services/Dashboard/BranchOrderSequence.php": "5ffd468c6150c69e5495d54ce04b55293e6a6923",
+    "app/Services/Dashboard/BranchPayroll.php": "de4137c1b35ecb9a515b44ee7fb5fcd63a9a8b64",
+    "app/Services/Dashboard/BranchShiftClosing.php": "6eb5b4dc7b64ea87974a6b39089156b9186f940e",
+    "app/Services/Dashboard/BranchShiftPrinting.php": "14d70b8d928b8d63798f5d0bbe036bed55a9b5e2",
+    "app/Services/Dashboard/BranchStock.php": "c256231f0f8b129e2bfce2741eea4edf89d5be08",
+    "app/Services/Dashboard/BranchStockMinimums.php": "ebd34a6608111bcfc62351cedf1a70ee66f5324a",
+    "app/Services/Dashboard/CustomerDirectory.php": "8ebcf9afaa20c21cf9b92a0711ee9c2ec92e0b97",
+    "app/Services/Dashboard/CustomerDirectorySync.php": "5e7739e54d45602a89736851d666199b33716354",
+    "app/Services/Dashboard/CustomerMessageEvents.php": "97c32a3e433007cfab9421e2c8e67630cb2125d2",
+    "app/Services/Dashboard/CustomerMessagingService.php": "c903d7b098a3988dc1955a23f34ffba902c9878f",
+    "app/Services/Dashboard/DeliveryCompanies.php": "26cf88d2c623dda102846c6a91d1af8b3c71b782",
+    "app/Services/Dashboard/DesktopPos.php": "011958c10e389fa4a392881ae8ee4fb44cf01c1a",
+    "app/Services/Dashboard/EmployeeAttendanceDeductionCap.php": "1f84a2d87fdf9d163165179fd3e7d8d696650282",
+    "app/Services/Dashboard/EmployeeAttendanceRules.php": "882140992b8d643c24727904f692efae065ba560",
+    "app/Services/Dashboard/EmployeeAutomaticAbsence.php": "df643fb9f79123ceec1595b868f34c88f8d0d65a",
+    "app/Services/Dashboard/EmployeePayHours.php": "0c4b2b2188ab2158e131d2c772f3f1d0d86ee2ae",
+    "app/Services/Dashboard/ExpenseCategories.php": "5b27eaeb30c536948914b5510dd3ade1686b6237",
+    "app/Services/Dashboard/ExpenseStockPurchases.php": "651f5df0f5896b289239d9bb55b1a367ee5c6ab1",
+    "app/Services/Dashboard/FasakhanstaDeliveryOrigin.php": "836cadb027419892e4871bcfbe59edd53015dd82",
+    "app/Services/Dashboard/FasakhanstaStoreFulfillment.php": "46dd257caf21b9c3fefaba1f31f3c2e0cd527ad8",
+    "app/Services/Dashboard/FcmLiveActivityTransport.php": "09b6cb31c3fc2cc3721d327fa1b1bd00ea7ad96d",
+    "app/Services/Dashboard/GoStoreBoardActions.php": "65edc107b1e0fb3688d28fbc0e7662d439c16fee",
+    "app/Services/Dashboard/HomeOverview.php": "991789ea4f2cce3f34733ec440532ed85a594af1",
+    "app/Services/Dashboard/LegacyOrderCancellation.php": "9563e73e57357c5bb7a3ff57dfad31511a4f2eb3",
+    "app/Services/Dashboard/LegacyOrderCompletion.php": "d02410951ea37edd56047c3c23edce29ed966441",
+    "app/Services/Dashboard/MetaAiControl.php": "de44620835b22666417fc37752ab944d4419df36",
+    "app/Services/Dashboard/MetaBusinessAgent.php": "4b2ad29c21ea092af94ad3fa1bace90ad4dd4672",
+    "app/Services/Dashboard/MetaCommentAiControl.php": "d1cd90a84b427642fd52dc0d9611aaab6ba1ab1a",
+    "app/Services/Dashboard/MetaCommentAiDispatchLock.php": "636aefb39e215d97ea3e812dab56b99aaa3b3443",
+    "app/Services/Dashboard/MetaCommentAiProvider.php": "c94b8691b9bf11b2b681105687a7d0fa2fd3c720",
+    "app/Services/Dashboard/MetaCommentAiReplyPolicy.php": "bab36f65b33bfe47828dd6cc0e9dd9c1404330ea",
+    "app/Services/Dashboard/MetaCommentAiWorker.php": "6c01f3c0b637c0aa442a81e36a53f1e6053234e9",
+    "app/Services/Dashboard/MetaCommentReplyGate.php": "30967f79079502bddb6f771958a6a475f3c34c6b",
+    "app/Services/Dashboard/MetaCommentsFailure.php": "b43557d145f7ca19f74ff663d1deeba261ac486b",
+    "app/Services/Dashboard/MetaCommentsReadCache.php": "54bf077ea52597c4a86055a23bf2cc1bb34673df",
+    "app/Services/Dashboard/MetaCommentsService.php": "eaa6670a8c7dc277bf6a06046eae2520461992a8",
+    "app/Services/Dashboard/MetaInboxAccess.php": "7faaba6645308c1997bae8182fb4b26dbc5e3b9a",
+    "app/Services/Dashboard/MetaInboxConsumer.php": "3b7e9cb9abfabc85c0b78199d0bf9d2565424f42",
+    "app/Services/Dashboard/MetaMediaService.php": "8f722ced357fde463d492b7181c6d6d58f49e8b0",
+    "app/Services/Dashboard/MetaOAuthCredentials.php": "248e256abe3ad8456bcf23bcc00dcbcea62a8491",
+    "app/Services/Dashboard/MetaOAuthFailure.php": "25135135a9fcb8aed1a4eec998c153dc0f63c1f9",
+    "app/Services/Dashboard/MetaOAuthService.php": "ac1369daf33749f04dcd5bf726fd3590b9c5b803",
+    "app/Services/Dashboard/MetaOrderFollowupService.php": "d14a3c6e84624ee5b2d20997b7f11159b9101720",
+    "app/Services/Dashboard/MetaOrderNativeEvidence.php": "f11710e1439867ba63571a690526496684120ef5",
+    "app/Services/Dashboard/MetaOrderWorkflow.php": "337cd9db9c3493be0af00a32cf7692e8dca9268d",
+    "app/Services/Dashboard/MetaProfileService.php": "dad433a26db1219e08491553d6ef579e73b6f29a",
+    "app/Services/Dashboard/MetaReplyService.php": "c4226df516aa5f8b59999a8979f9f2ab43cf0e28",
+    "app/Services/Dashboard/OrderBoardClock.php": "4bc26e43fa34bd391b0baabdd1ddaec9de995bc1",
+    "app/Services/Dashboard/OrderBoardItems.php": "1c0da1b621f253f1c3e7337101692f6ed31958ee",
+    "app/Services/Dashboard/OrderBoardPrinting.php": "68e409bc0d29642aa9d53a333fe0faf844cbf5e1",
+    "app/Services/Dashboard/OrderBoardService.php": "d2c8c69de733b131aa27f36e02d6b4b0b990b6b2",
+    "app/Services/Dashboard/OrderLiveActivityService.php": "0761550e93517c52cc8250618e5cbfe869227a2d",
+    "app/Services/Dashboard/OrderProviderDelivery.php": "d0bf7db2de573b4eef3142a3eace2a12341acbb0",
+    "app/Services/Dashboard/PhoneDelivery.php": "2b0185d064a94a1505ceaab5aede28e2c74178a1",
+    "app/Services/Dashboard/PhoneDeliveryBoard.php": "d58c990ec17d9eb25e10a2dd0eb5d6d933e67236",
+    "app/Services/Dashboard/PhoneMapProvider.php": "394fe8a1d19443de4920b243d1cc945f6a244a38",
+    "app/Services/Dashboard/PosBranchPrinting.php": "501d387e27e0bcbbaedcaa6bfeca2116f067facc",
+    "app/Services/Dashboard/PosReceiptPrinting.php": "3732dede7a5bbca9a23db9f797560eaa210d99b4",
+    "app/Services/Dashboard/PosServicePhone.php": "fae4beea36b610644c5cebc640f89b78ae79ac18",
+    "app/Services/Dashboard/PosServiceTable.php": "a967946891a2d8626c7e15ecb9bc0421775b425d",
+    "app/Services/Dashboard/PosServiceTicket.php": "e95cde8a1bd663d5ad131e8066870ae2b5c220e2",
+    "app/Services/Dashboard/TakeawayAccess.php": "d063ee444c347c41620916b4513d0f03785141aa",
+    "app/Services/Dashboard/TakeawayCatalog.php": "e96fce33037a06330f95d6a91553950cdf32d763",
+    "app/Services/Dashboard/TakeawayService.php": "b58729c6fc0fdd35fa23a4850de15e09019f6998",
+    "app/Services/Dashboard/WhatsAppCustomerDirectory.php": "8eef8e7220d7c7b3ac52393edbc10508ffce5cc1",
+    "app/Services/Dashboard/WhatsAppInboxConsumer.php": "b169e92362531c1da565ef26bbc999a5a0fa73d8",
+    "app/Services/Dashboard/WhatsAppInboxMedia.php": "5b67c6042893e42b2828e7c8a27b21f7ec76364d",
+    "app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php": "9e221ba052589c1ffe474958b636a77ff5817b7d",
+    "app/Services/Dashboard/WhatsAppNativeUnavailableReplay.php": "bc6febf49c85947684a38c16d00bd5b62fb56e60",
+    "app/Services/Dashboard/WhatsAppOrderAiProvider.php": "25d29335acb16eff59666875b9d4bb9fff172e7e",
+    "app/Services/Dashboard/WhatsAppOrderConversationEvidence.php": "478d620d36d801b5fc38bab8e8be2afcfdf5dd8c",
+    "app/Services/Dashboard/WhatsAppOrderFollowupService.php": "e817b327ba1fdfd042288d20b5c4ba8bef00cc81",
+    "app/Services/Dashboard/WhatsAppOrderSourceSelection.php": "03db3211b80da905f07415fd16f1e7a62e0395b1",
+    "app/Services/Dashboard/WhatsAppOrderWorkflow.php": "e7943ad4f50cdd620ce213cc17ecd0f749d25222",
+    "app/Services/Dashboard/WhatsAppReplyService.php": "f80378c7b61cc42c747bdceefd71b79c566de553",
+    "app/Services/OrderBroadcastService.php": "a965eada3dd60337d3e42af52a337b1771234db9",
+    "app/Services/OrderTrackingState.php": "00cc59eae30fcb76739b77fd2e8889e482e25ee6",
+    "app/Services/Payments/PaymobTransactionInquiry.php": "96b775bc130e2cfbcaea1dde68ff7d83e32e6cad",
+    "app/Services/Payments/WalletTopupEffects.php": "9e568f198a0009aecff48aa0506c29c261fe359f",
+    "app/Services/Payments/WalletTopupSettlement.php": "42eba113962867566a332b29ae81787a74fd011c",
+    "app/Services/Site/StorefrontSeo.php": "8c6234c652f6da52b1219cae34f87dd7dcea3cf1",
+    "app/Services/Site/WebStorefront.php": "96322e7cb5dccad76f0867f587c64b3eb28b3e43",
+    "app/Support/CustomerCrmRouteCheck.php": "b6a92f443b7209fe19ad894b22f2e10ff9ca723d",
+    "app/Support/MetaAiSchedule.php": "667ffd6530444ef00dc6a05f76a5700d217fff80",
+    "app/Support/MetaMessagingProtocol.php": "d5c6cb4dfeaa1d6c8467025338d7d92d9ce5b0ed",
+    "app/Support/WhatsAppCustomerOrderConfirmation.php": "27afc58ef43d1c6fffa90c9a7bb519e353b7e244",
+    "app/Support/WhatsAppInboxProtocol.php": "f2eec9099f9a27915cda50b7c8e267efb1f0b030",
+    "app/Support/WhatsAppOrderDialogue.php": "994acc368929036b2ed82197ea4eb48aa5c65f39",
+    "app/Support/WhatsAppOrderExtraction.php": "a44f791013642aeca4b4f50dd96ec96b59eda012",
+    "config/crm_whatsapp.php": "a414809609fbc6b798240945728199282652f83a",
+    "config/meta_comment_ai.php": "f8a39d4b46e980294c47ead2ae824cb24336599e",
+    "config/wallet_topups.php": "09ae909d3308abb4dbd5b15261678b73348be6a9",
+    "config/web_storefront.php": "007a19cef3c3d730f9b0eae9b5b3e1002f8b1b17",
+    "database/migrations/2026_10_14_190000_preserve_app_order_item_weights.php": "79d5d5d5c0d2de4b47476333c6ddf592b0512c52",
+    "database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php": "b7dfa555c58c86986914a147666f9ba2983a2c38",
+    "database/migrations/2026_10_15_000001_create_meta_ai_controls.php": "3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae",
+    "database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php": "3bf661df37f1d4ed4529fe1d995e829bb4acfda0",
+    "database/migrations/2026_10_17_000001_create_crm_customer_directory.php": "1278ede4c436e2efe98e32aa4b0519f40288f1cc",
+    "database/migrations/2026_10_17_000002_create_crm_whatsapp_messaging.php": "5b33f7323aab503192de79ab56f6d00df21913a1",
+    "database/migrations/2026_10_17_000003_create_crm_customer_sync_states.php": "93708ef8890d067cbed373206262f25446f70f10",
+    "database/migrations/2026_10_17_000004_create_crm_whatsapp_status_receipts.php": "2294d0b1194ee2ab3ff76a9a72be41e61de304b3",
+    "database/migrations/2026_10_17_160000_create_web_storefront_orders.php": "0cb0a8cc83332bf1c7065287797c6af82cfcb694",
+    "database/migrations/2026_10_18_090000_link_expense_inventory_purchases.php": "b58000e94ef692cddd43a72a6f27f13911e159be",
+    "database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php": "2c0604c08ab8b64b515f3cf2b337a5898a7d3129",
+    "database/migrations/2026_10_18_180000_add_employee_pay_hours.php": "15f5df1dee044ad020f42612fefd5d80aa1b5671",
+    "database/migrations/2026_10_18_190000_create_branch_basic_recipes.php": "c52ebddc6bfe6212116a80d7281f430320c3744d",
+    "database/migrations/2026_10_18_200000_create_order_live_activities_table.php": "d013fcc6e372038e79c504f29fb22b13867d265d",
+    "database/migrations/2026_10_18_200000_scope_expense_categories_by_branch.php": "f5ea5fd5d8affb7b23f55b421f321a6caa680757",
+    "database/migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php": "20dc3db252f8f6b8e99b122d216147671e8bf47a",
+    "database/migrations/2026_10_18_230000_create_branch_stock_minimum_alerts.php": "a82f7516eb75d155dae896eb6016bead9e93d620",
+    "public/dashboard/css/branch-expenses.css": "63dba3dcf1ec126ca760bd16d5eda9e521a6ed56",
+    "public/dashboard/css/branch-operations.css": "1e1f201071fecbc9c464bc095e0e3155852a9422",
+    "public/dashboard/css/branch-shifts.css": "db2ee064961959fed26fb3481dbbfadb86f8d4f6",
+    "public/dashboard/css/branch-stock.css": "59acd8b6d501446987d629b523f4b430b4ce2750",
+    "public/dashboard/css/customer-crm.css": "9eaa6aec98ae027b098869161de5bfa5f4563d39",
+    "public/dashboard/css/dining-pos.css": "ec4f1e2ef65f71981824decba9b48d2ed6ed5d85",
+    "public/dashboard/css/home-overview.css": "83faf300134399fad6b14141860f705113c48331",
+    "public/dashboard/css/order-board-items.css": "6c5b832c3c114ab9438cbc7b5c1ebc0537f29e51",
+    "public/dashboard/css/order-board.css": "97b409f020f6ef547956205057f7795955416379",
+    "public/dashboard/css/phone-delivery-refresh.css": "bd9f95fb6d8a28f382708ca6e6a9b36f12d62392",
+    "public/dashboard/css/phone-orders.css": "8da9635eb715b79dcc95cca3e3637beb65378194",
+    "public/dashboard/css/takeaway-pos.css": "41e44f3835ac7f707929db01e5830076b9c411e6",
+    "public/dashboard/js/branch-expenses.js": "edb787383deeec804ca6c7deb5307f0f779a157f",
+    "public/dashboard/js/branch-home.js": "55e313cf7f086a6ddc0fd5b8667cee44136b8339",
+    "public/dashboard/js/branch-operations.js": "2b0a6e352749df7f2e6dbde8336888b91a2b12fa",
+    "public/dashboard/js/branch-print-receiver.js": "c19d1faf2af338e90e4a6e2de3c1763b1235b6c0",
+    "public/dashboard/js/branch-recipes.js": "0d793abfc9e9a8d15f0c9b56251b6feb09254ac5",
+    "public/dashboard/js/branch-shifts.js": "d441027bd27724cf13be5ce4e0e0c06dabc3eb40",
+    "public/dashboard/js/branch-stock.js": "9d7caa33bdb329c2be25556696c30ff359a9743f",
+    "public/dashboard/js/customer-crm.js": "c73781eaf564e2a7d3e3d27fd0e82e04cf23aadf",
+    "public/dashboard/js/dashboard-invoice-details.js": "fad817e3eb8b997a9640787afc834fe8fe60a4cd",
+    "public/dashboard/js/dashboard-navigation.js": "611d6b79a243a4fdce16be1fca8a2343ffdd70c1",
+    "public/dashboard/js/dashboard-order-alerts.js": "78cc60ff9eb7ce4f3ebbaf94f83e198619d3447d",
+    "public/dashboard/js/dining-pos.js": "49f806a82558a7951e5dfeb344a3a41b5e36dd60",
+    "public/dashboard/js/home-overview.js": "399769f863168f81f26265687b7e2b0175ab3e92",
+    "public/dashboard/js/order-board-detail.js": "18dfa8216355f4bdc94237d4f634908c8f2dda48",
+    "public/dashboard/js/order-board-items.js": "2cbaad046e029a99499735b4383bdf6f804071ce",
+    "public/dashboard/js/order-board.js": "d728d491750a89e2a266b867e4004ba66507bee5",
+    "public/dashboard/js/phone-orders.js": "ddaf9425e2385e9cbfa18688321a04c50de72ca4",
+    "public/dashboard/js/takeaway-pos.js": "470115c2e9bb473963ef7791f225c2c7ce9266a2",
+    "resources/lang/ar/dining.php": "8730916e5e569ae4284e79ff5159bcab984a0ba8",
+    "resources/lang/ar/expenses.php": "186c94998f8813268b118ce91f4d1af593c936e3",
+    "resources/lang/ar/home_overview.php": "faf40ce2638a5a4f3cdd9066a0b02ce3b694ff1c",
+    "resources/lang/ar/order_board.php": "93e67aab5ae5beea8261b6007c8453496eb08a18",
+    "resources/lang/ar/phone_orders.php": "3abb4bb512ed4a1baab04b261e397a9eafa5a075",
+    "resources/lang/ar/printing.php": "9000c393981b9f9792785a7382dc86d848ace625",
+    "resources/lang/ar/takeaway.php": "195add3279f771aafead5de1896cba245556f9db",
+    "resources/lang/en/dining.php": "6d5ca767b9882b96896347c25d0be71c3b2b74f3",
+    "resources/lang/en/expenses.php": "88b7001a61a962b96c2ea647f3a98a987f7426c3",
+    "resources/lang/en/home_overview.php": "0a172fbc95df5dd974ef2c7fa630d3ed663976e5",
+    "resources/lang/en/order_board.php": "deac8a800e24146897a902ac6a4efe78b5dbdfb5",
+    "resources/lang/en/phone_orders.php": "f527c4ebcea2244a9a18e309bf0c3305e89b6b01",
+    "resources/lang/en/printing.php": "e9b1d7a5fcfa598206b95635db749bed1fff140f",
+    "resources/lang/en/takeaway.php": "d37b4f30ec3f4bdd1233874c150fd1879696d8b7",
+    "resources/views/admin/branch_operations/index.blade.php": "77bf3905ca16ce839a6011815b05c3738d7a683c",
+    "resources/views/admin/branch_shifts/index.blade.php": "e043d8ad4a40e4c1e24940cfc3385dc4a902f238",
+    "resources/views/admin/branch_shifts/receipt.blade.php": "be7426c799fcf30d06896f08e91ab4cda8d41d20",
+    "resources/views/admin/branch_stock/index.blade.php": "b15ae599e00e65e866253824089a35aaf6444a12",
+    "resources/views/admin/customer_crm/index.blade.php": "b423c3296217b1b6413ea7e6e96c84466b1cb9e7",
+    "resources/views/admin/desktop_pos/index.blade.php": "95aef94f352c70dbc3cf71fc3aa032a1c2547b4c",
+    "resources/views/admin/dining/index.blade.php": "620bb4abbe5856b95dea70a4cca1c02118dee2de",
+    "resources/views/admin/expenses/index.blade.php": "d0feb08e51b89669feda6562391ec95bce137126",
+    "resources/views/admin/layouts/footer.blade.php": "8756869647715fe972138a19b2e026c09dba3bfa",
+    "resources/views/admin/layouts/menu.blade.php": "28953576da6db9e15e4f8d6c41fd8dabc2d2636b",
+    "resources/views/admin/login.blade.php": "c0bc7a6b44e91a907957833f9b6f75f942720356",
+    "resources/views/admin/meta/ai_controls.blade.php": "eef12f1a7d41505799b2348b39ad101418850623",
+    "resources/views/admin/meta/channels.blade.php": "c922fd431ca3df5b12f6aeef05c0885bc0da3049",
+    "resources/views/admin/meta/comments.blade.php": "b10df9937986c330282cdf611589d7b1ab71d080",
+    "resources/views/admin/meta/connection.blade.php": "006dd737eee8a87871d279251d21c5044c777c5f",
+    "resources/views/admin/meta/index.blade.php": "3d1a2a7a2d5af960a9ecdf3fee4e8895ab468aa9",
+    "resources/views/admin/meta/orders.blade.php": "91238d0263c9d4442634e5e965f603f992655090",
+    "resources/views/admin/meta/replies.blade.php": "9251a7defe180ad1477d71a67f1827026b860ef8",
+    "resources/views/admin/meta/sidebar.blade.php": "62b1ffa41982517492f670efca027776d39b3324",
+    "resources/views/admin/meta/social-pane.blade.php": "84dd676c46ce58ae690599106665600cfbac19ca",
+    "resources/views/admin/orders/board.blade.php": "2713b74841cd986924d0b475349f796df86f0068",
+    "resources/views/admin/orders/board_card.blade.php": "b0070d6a31608360c88259203aa8085afe749cb9",
+    "resources/views/admin/orders/board_detail.blade.php": "ef6c357fcaff06fbc5d125e14be352138214a822",
+    "resources/views/admin/orders/board_items.blade.php": "f1c4b296e914f245ef225cd479124c01b1e4731d",
+    "resources/views/admin/partials/go_erp_logo.blade.php": "ecc318d991576d162693ad1e1e8d5a9292e3658b",
+    "resources/views/admin/partials/search_part.blade.php": "c112651ee840d9f2c9799a7264351eea5387252a",
+    "resources/views/admin/phone_orders/index.blade.php": "8dcb9f33e6b4afbad5fcfc27d8c9071d7c4d2778",
+    "resources/views/admin/pos_service/context.blade.php": "10193ee7292ae5cd697835a220aa03c1d0f32ea3",
+    "resources/views/admin/pos_service/receiver.blade.php": "ca52ef9c8cc20cc25be521cd99e34bf873f54af0",
+    "resources/views/admin/print_settings/index.blade.php": "60d167f7cbe6d94994851e0763225dd48b095b17",
+    "resources/views/admin/reports/resturants_report.blade.php": "480a8f1249027d4d7a18790ff8a3a8f01ad00558",
+    "resources/views/admin/takeaway/index.blade.php": "55896fb908ad8dbfc81c17270334f34f94165b2b",
+    "resources/views/admin/takeaway/receipt.blade.php": "4c695c375100e8d067d0589bd46bf2f88d9fcdc2",
+    "resources/views/admin/users/wallet.blade.php": "414abe2b697a9d740e8fc152593d24b4bebd0262",
+    "resources/views/admin/whatsapp/chat-pane.blade.php": "779f1f80586390f31fd295fecc411e3e6448fa3b",
+    "resources/views/admin/whatsapp/index.blade.php": "57478905af637dd43b251568276b7f6e2e12f4ca",
+    "resources/views/admin/whatsapp/sidebar.blade.php": "4610de3333bab7e0e4e0e9855c7df9348b4cb597",
+    "resources/views/emails/branch_stock_minimum.blade.php": "1f014aaa284ff37a6d270d1688f1d00ce383a20d",
+    "resources/views/site/home.blade.php": "534243c5eccd87c31c3e992959e69cf261ff3abb",
+    "resources/views/site/seo/cards.blade.php": "49bfa74e9af07dff7bb8e309195e6889bcc3bb70",
+    "resources/views/site/seo/category.blade.php": "1feb92716150b8fd00b8db955d58dfbd472ac176",
+    "resources/views/site/seo/head.blade.php": "f2cbb2941effe28d9ce1d5a717e889a2946ad380",
+    "resources/views/site/seo/home-products.blade.php": "d8b3be53c7b0f946e78b29aec9b1cb02ed9e940b",
+    "resources/views/site/seo/index.blade.php": "69b339ab441c1774edef7e90d40657aacccc31b1",
+    "resources/views/site/seo/layout.blade.php": "43cc97ad0e6cae1f2249ba87739f7cb58df77e02",
+    "routes/api.php": "dcbf4cb5f12a283433cbf77b9eb7955bf766d41c",
+    "routes/branch_operations.php": "198a13496f3c8fef6b13a17b79d4bad73cb12e3f",
+    "routes/branch_shifts.php": "4ca7273f647e85d0636b893793e240bac122d77d",
+    "routes/branch_stock.php": "a87a8587af7f3c3711f54444c89c93329390075d",
+    "routes/customer_crm_api.php": "ae68227ca84f7fc4c4de9376e6d51262b3e1e210",
+    "routes/meta_ai_controls.php": "8a89374a33002b88f7ed593d6aab5817aa3cf2a4",
+    "routes/meta_comment_ai.php": "cd7c48d4e091921b127568269e8139414aa38e48",
+    "routes/meta_comments.php": "66e6c162c630a3285de9b37b54c706fc1076f0f0",
+    "routes/meta_inbox.php": "2b5f992b8392be450a032d71d5a625a8aeed822e",
+    "routes/order_board.php": "d94ee16e92341998e51593f963170763bbf91e52",
+    "routes/order_live_activity.php": "c9564cd2efcc0a5503bf4295df08f3070387ecc0",
+    "routes/web.php": "672cb9f6a339ac612daf7ef94deba95a9cbd0f21",
+    "routes/web_storefront.php": "e5eda97241c23b4ce67140a903bef252641812cc",
+    "routes/web_storefront_seo.php": "961ca1c4dd89f8a79aa97f61ba817c3e78c4e9c2",
+    "routes/whatsapp_inbox.php": "08eaa489f53cb8b4db3012a0b33c1beafc6d0289"
   },
   "provenance": {
-    "new_gui_count": 3,
-    "new_source_difference_count": 22,
-    "prior_source": {
-      "files": 1020,
-      "format": 1,
-      "framework": "8.83.29",
-      "sha256": "dc731529de802c50bdb266fd52c6361d8e460587143a894b077539da811cc47e"
-    },
-    "reported_hardlinks": {
-      "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php": 2
-    }
+    "business_rows_exported": false,
+    "capture_sha256": "29c4aa7daaf0a0fe80f2b122f570b3fea863917dbda34cca5c8fb7e0a7798285",
+    "captured_at": "2026-10-19T17:31:56+00:00"
   },
   "source": {
-    "files": 1027,
+    "files": 1157,
     "format": 1,
     "framework": "8.83.29",
-    "sha256": "13ee9a3f712646d9d1b2e1c850142929e1c137d68fc7d451fc7ea83cfd63eca2"
+    "sha256": "2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f"
   },
   "version": 1
 }

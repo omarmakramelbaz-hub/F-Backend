@@ -37,12 +37,18 @@ class Kernel extends ConsoleKernel
 
     protected function schedule(Schedule $schedule)
     {
+        // The central server owns provider dispatch, attendance automation and releases.
+        if (config('desktop_dashboard.local')) return;
+        $schedule->command('crm:customers-sync')->everyMinute()->withoutOverlapping(5);
+        $schedule->command('crm:whatsapp-process')->everyMinute()->withoutOverlapping(5);
         $schedule->command('dashboard-push:dispatch')->everyMinute()->withoutOverlapping(2);
         $schedule->command('order-board:advance')->everyMinute()->withoutOverlapping(5);
+        $schedule->command('orders:retry-live-activities')->everyMinute()->withoutOverlapping(5);
         // Continue quotation waves and retry notices even while clients are closed.
         // The command checks schema/readiness before touching marketplace tables.
         $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
         $schedule->command('go-stores:prune-signup-uploads')->hourly()->withoutOverlapping();
+        $schedule->command('branch-stock:notify-minimum')->everyMinute()->withoutOverlapping(20);
 
         // One-time approved menu release through the existing application scheduler.
         // The migration receipt prevents overwriting later dashboard price edits.

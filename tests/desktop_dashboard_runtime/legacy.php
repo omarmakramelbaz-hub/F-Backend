@@ -222,11 +222,14 @@ try{
         config(['database.connections.mysql.database'=>$ownerStage,'desktop_dashboard.local'=>true]);DB::purge();
         app(\App\Services\Dashboard\DesktopDashboardJournal::class)->acknowledge($ownerDevice,$browserCommand['command_id'],$browserReceipt);
     }
+    [$status,$page]=$http('/admin/categorys');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$csrf);
+    verify($status===200&&!empty($csrf[1]),'catalog forms use the authenticated session CSRF token after login rotates it');
     $catalogBaseline=DB::table('desktop_dashboard_commands')->count();
     $categoryCommand=(string)\Illuminate\Support\Str::uuid();$category=['_token'=>$csrf[1],'_desktop_command'=>$categoryCommand,'added_by'=>1,'name_ar'=>'قسم من الجهاز','name_en'=>'Local category','status'=>'show'];
     [$status]=$http('/admin/categorys',$category);
     if($status!==302)fwrite(STDERR,file_get_contents($profile.'/logs/laravel.log'));
     $categoryId=(int)DB::table('categories')->where('name_ar',$category['name_ar'])->value('id');
+    if(!($status===302&&$categoryId>1))fwrite(STDERR,'CATEGORY_RESULT '.json_encode(['status'=>$status,'id'=>$categoryId,'commands'=>DB::table('desktop_dashboard_commands')->count(),'baseline'=>$catalogBaseline]).PHP_EOL);
     verify($status===302&&$categoryId>1&&DB::table('desktop_dashboard_commands')->count()===$catalogBaseline+1,'the original category controller and form redirect commit with their encrypted local command');
     verify($http('/admin/categorys',$category)[0]===302&&DB::table('categories')->where('name_ar',$category['name_ar'])->count()===1,'retrying a lost original form response does not create a second category');
     $productCommand=(string)\Illuminate\Support\Str::uuid();$product=['_token'=>$csrf[1],'_desktop_command'=>$productCommand,'added_by'=>1,'category_id'=>$categoryId,'name_ar'=>'صنف من الجهاز','status'=>'show','product_features'=>['kilo','half']];

@@ -1,5 +1,21 @@
 <?php
 return [
+    'all_branches' => 'All branches',
+    'cash_paid'=>'Amount paid',
+    'customer_consent_required'=>'The customer agreed to post-purchase WhatsApp follow-up (required to complete the invoice).',
+    'consent_required'=>'Confirm the customer’s follow-up consent before completing the invoice.',
+    'customer_consent'=>'The customer agreed to post-purchase feedback and WhatsApp offers (optional).',
+    'quantity_auto_title'=>'Weight / quantity',
+    'quantity_auto_hint'=>'Enter kilograms or a piece count, then choose the product; its unit is selected automatically.',
+    'confirm_amount'=>'Confirm amount',
+    'automatic_unit'=>'Product unit',
+    'request_bill_first'=>'Print the bill before collecting payment.',
+    'subtotal_short'=>'Items',
+    'tax_short'=>'Tax',
+    'service_short'=>'Service',
+    'customer_phone'=>'Customer phone', 'customer_phone_required'=>'Enter a valid customer phone before completing the sale.',
+    'service_consent'=>'The customer agreed to a WhatsApp feedback message after purchase.',
+    'marketing_consent'=>'The customer agreed to WhatsApp promotional offers (optional).',
     'title' => 'Dine-in orders',
     'subtitle' => 'Branch tables and dining invoices',
     'branch' => 'Branch',
@@ -170,5 +186,6 @@ return [
     'tables_empty' => 'No tables configured. Use Add table to register this branch’s tables.',
     'details' => 'Invoice details',
     'bill_locked' => 'Bill issued — collection only',
+    'register_print_only' => 'The cash register balance appears only in the printout after the shift is closed.',
 ];
 

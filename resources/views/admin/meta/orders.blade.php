@@ -1,6 +1,6 @@
 @php
 $waOrderLabels = app()->getLocale() === 'ar' ? [
-    'title'=>'مراجعة طلب واتساب', 'intro'=>'راجع بيانات العميل والأصناف والفرع، ثم احسب السعر والتوصيل قبل إرسال الطلب.',
+    'title'=>'مراجعة طلب المحادثة', 'intro'=>'راجع بيانات العميل والأصناف والفرع، ثم احسب السعر والتوصيل قبل إرسال الطلب.',
     'analyze'=>'تحليل المحادثة', 'reload'=>'تحديث المراجعة', 'loading'=>'جارٍ التحميل…',
     'unavailable'=>'مراجعة الطلبات غير متاحة الآن.', 'not_configured'=>'تحليل المحادثات يحتاج إعداد خدمة الذكاء الاصطناعي على السيرفر.',
     'denied'=>'تغيّرت صلاحية الحساب. أُغلقت بيانات الطلب.', 'offline'=>'مراجعة الطلب تحتاج اتصالًا بالإنترنت.',
@@ -72,8 +72,8 @@ $waOrderConfig = ['meta_url'=>route('meta-orders.meta'), 'catalog_url'=>route('m
     'conversations_base_url'=>url('/admin/meta/conversations'), 'drafts_base_url'=>url('/admin/meta/orders'),
     'csrf'=>csrf_token(), 'labels'=>$waOrderLabels];
 @endphp
-<section class="wa-orders" data-wa-orders hidden aria-labelledby="wa-order-review-title">
-    <header class="wa-orders-heading"><div><h2 id="wa-order-review-title">{{ $waOrderLabels['title'] }}</h2><p>{{ $waOrderLabels['intro'] }}</p></div><div class="wa-orders-actions"><button type="button" class="wa-inbox-button" data-wa-order-reload>{{ $waOrderLabels['reload'] }}</button><button type="button" class="wa-inbox-button wa-orders-primary" data-wa-order-analyze>{{ $waOrderLabels['analyze'] }}</button></div></header>
+<section class="wa-orders" data-wa-orders hidden aria-labelledby="meta-order-review-title">
+    <header class="wa-orders-heading"><div><h2 id="meta-order-review-title">{{ $waOrderLabels['title'] }}</h2><p>{{ $waOrderLabels['intro'] }}</p></div><div class="wa-orders-actions"><button type="button" class="wa-inbox-button" data-wa-order-reload>{{ $waOrderLabels['reload'] }}</button><button type="button" class="wa-inbox-button wa-orders-primary" data-wa-order-analyze>{{ $waOrderLabels['analyze'] }}</button></div></header>
     <p class="wa-orders-status" data-wa-order-status role="status" aria-live="polite"></p>
     <label class="wa-orders-draft-picker" data-wa-order-draft-label hidden>{{ $waOrderLabels['title'] }}<select data-wa-order-draft></select></label>
     <div class="wa-orders-proposed" data-wa-order-proposed hidden></div>
@@ -105,7 +105,7 @@ $waOrderConfig = ['meta_url'=>route('meta-orders.meta'), 'catalog_url'=>route('m
         <footer class="wa-orders-footer"><button type="button" class="wa-inbox-button" data-wa-order-calculate>{{ $waOrderLabels['quote'] }}</button><button type="button" class="wa-inbox-button wa-orders-primary" data-wa-order-dispatch disabled>{{ $waOrderLabels['dispatch'] }}</button></footer>
     </form>
 </section>
-<script type="application/json" id="whatsapp-orders-bootstrap">@json($waOrderConfig, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
+<script type="application/json" id="{{ !empty($metaMessageHub) ? 'meta-social-orders-bootstrap' : 'whatsapp-orders-bootstrap' }}">@json($waOrderConfig, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
 @push('custom-js')
 @include('admin.maps.assets')
 @endpush

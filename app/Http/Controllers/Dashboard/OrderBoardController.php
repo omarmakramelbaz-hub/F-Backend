@@ -8,7 +8,10 @@ use App\Models\PartnerServiceRequest;
 use App\Events\OrderFinishedUpdated;
 use App\Notifications\NotifyUserOrderStatusUpdatedNotification;
 use App\Services\Dashboard\GoStoreBoardActions;
+use App\Services\Dashboard\LegacyOrderCancellation;
 use App\Services\Dashboard\OrderBoardService;
+use App\Services\Dashboard\OrderBoardItems;
+use App\Services\Dashboard\OrderBoardPrinting;
 use App\Services\GoServices\Marketplace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,10 +35,12 @@ class OrderBoardController extends Controller
 
     public function feed(Request $request, OrderBoardService $service)
     {
+        $alertKeys = $service->pendingAlertKeys(auth('admin')->user());
+        if ($request->boolean('alerts_only')) return response()->json(['pending_alert_keys'=>$alertKeys]);
         $board = $service->data($request, auth('admin')->user());
         $html = view('admin.orders.board_columns', compact('board'))->render();
         return response()->json(['html'=>$html, 'view'=>$html, 'count'=>$board['count'],
-            'counts'=>$board['counts'], 'updated_at'=>$board['updated_at']]);
+            'counts'=>$board['counts'], 'updated_at'=>$board['updated_at'], 'pending_alert_keys'=>$alertKeys]);
     }
 
     public function details(string $source, int $id, OrderBoardService $service)
@@ -45,13 +50,35 @@ class OrderBoardController extends Controller
 
     public function print(string $source, int $id, OrderBoardService $service)
     {
-        return view('admin.orders.board_detail', ['card'=>$service->detail($source, $id, auth('admin')->user()), 'printing'=>true]);
+        app(OrderBoardPrinting::class)->issue($source, $id, auth('admin')->user(), $service);
+        return response()->view('admin.orders.board_detail', ['card'=>$service->detail($source, $id, auth('admin')->user()), 'printing'=>true])
+            ->header('Cache-Control', 'private, no-store, max-age=0')->header('Referrer-Policy', 'no-referrer');
+    }
+
+    public function items(string $source, int $id, OrderBoardItems $items)
+    {
+        return response()->json($items->read($source, $id, auth('admin')->user()));
+    }
+
+    public function saveItems(Request $request, string $source, int $id, OrderBoardItems $items, OrderBoardService $service)
+    {
+        $actor = auth('admin')->user();
+        $change = $items->save($source, $id, $request->all(), $actor);
+        $payload = ['success'=>true, 'message'=>'تم تعديل أصناف الطلب وإعادة حساب الإجمالي.'];
+        try {
+            $card = $service->detail($source, $id, $actor);
+            $payload['card'] = ['key'=>$card['key'], 'from_group'=>$change['from_group'], 'group'=>$card['group'],
+                'html'=>view('admin.orders.board_card', ['card'=>$card])->render()];
+        } catch (\Throwable $error) {
+            \Log::warning('Committed order items refresh unavailable', ['source'=>$source, 'order_id'=>$id, 'exception'=>get_class($error)]);
+        }
+        return response()->json($payload);
     }
 
     public function action(Request $request, string $source, int $id, OrderBoardService $service, GoStoreBoardActions $stores)
     {
         $values = $request->validate([
-            'action'=>'required|in:accept,reject,prepare,ready,dispatch,complete',
+            'action'=>'required|in:accept,reject,cancel,prepare,ready,dispatch,complete',
             'expected_status'=>'required|string|max:32', 'expected_accepted_notify'=>'nullable|string|max:10',
             'expected_revision'=>'nullable|integer|min:0', 'reason'=>'nullable|string|max:500',
         ]);
@@ -62,7 +89,8 @@ class OrderBoardController extends Controller
         if ($source === 'store') {
             abort_unless(array_key_exists('expected_revision', $values), 422, 'راجع حالة الطلب قبل تنفيذ الإجراء.');
             $owner = $service->isAdmin($actor) ? DB::table('go_store_orders')->where('id', $id)->value('store_id') : $actor->id;
-            $changed = $stores->transition($id, (int) $owner, $values['action'], (int) $values['expected_revision'], $values['reason'] ?? 'رفض الإدارة');
+            $changed = $stores->transition($id, (int) $owner, $values['action'], (int) $values['expected_revision'],
+                $values['reason'] ?? ($values['action'] === 'cancel' ? 'إلغاء بناءً على طلب العميل' : 'رفض الإدارة'));
             if ($changed) $stores->notifyCustomer($id);
         } else {
             $shippingRejected = null;
@@ -93,6 +121,8 @@ class OrderBoardController extends Controller
                     elseif ($values['action'] === 'reject') {
                         $request->merge(['status'=>'declined']);
                         $vendor->updateOrderStatus($request, $order);
+                    } elseif ($values['action'] === 'cancel') {
+                        app(LegacyOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء بناءً على طلب العميل');
                     } elseif ($values['action'] === 'complete') {
                         $request->merge(['status'=>'completed']);
                         $vendor->updateOrderStatus($request, $order);
@@ -135,7 +165,7 @@ class OrderBoardController extends Controller
             }
         }
         if ($request->expectsJson()) {
-            $payload = ['success'=>true, 'message'=>'تم تحديث الطلب.'];
+            $payload = ['success'=>true, 'message'=>$values['action'] === 'cancel' ? 'تم إلغاء الطلب.' : 'تم تحديث الطلب.'];
             try {
                 // Return the committed card so the board does not wait for a second,
                 // expensive four-column feed before showing the new phase.

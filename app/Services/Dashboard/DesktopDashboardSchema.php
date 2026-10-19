@@ -1,10 +1,13 @@
 <?php
 namespace App\Services\Dashboard;
 
-/** Explicitly reviewed schemas from the deployed read-only 2026-10-08 inspection. */
+/** Explicitly scoped schemas, including the verified 2026-10-19 production capture. */
 class DesktopDashboardSchema
 {
     public const TABLES=[
+        'branch_work_hours','branch_employee_pay_hours','branch_basic_recipes','branch_expense_category_overrides',
+        'branch_order_sequences','branch_stock_minimums','branch_stock_minimum_alerts','expense_inventory_receipts',
+        'crm_customers','crm_customer_sources','crm_purchases','branch_shift_print_jobs',
         'advertisings','areas','banners','branch_customers','branch_delivery_companies',
         'branch_attendance_rules','branch_employees','branch_employee_days','branch_employee_entries','branch_employee_salaries','branch_expenses',
         'branch_expense_categories','branch_expense_category_commands','branch_expense_category_settings','branch_expense_commands','branch_inventory',
@@ -28,7 +31,7 @@ class DesktopDashboardSchema
         'users','user_address','user_tokens','wallets','wishlists',
         'zayed_price_release_20260923',
     ];
-    public const EMPTY=['failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
+    public const EMPTY=['branch_stock_minimum_alerts','branch_shift_print_jobs','failed_jobs','jobs','password_resets','social_accounts','user_tokens','dashboard_push_devices',
         'desktop_pos_devices','desktop_pos_operations','desktop_pos_orders','desktop_pos_snapshots',
         'go_service_outbox','menu_price_release_20260923','store_delivery_release_20260923','zayed_price_release_20260923','migrations'];
 }

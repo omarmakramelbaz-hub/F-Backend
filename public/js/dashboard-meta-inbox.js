@@ -5,16 +5,18 @@
 
     var active = null;
     function mount() {
-        var panel = document.getElementById('whatsapp-inbox');
-        var bootstrap = document.getElementById('whatsapp-inbox-bootstrap');
+        var panel = document.getElementById('meta-social-inbox') || document.getElementById('whatsapp-inbox');
+        var bootstrap = document.getElementById('meta-social-inbox-bootstrap') || document.getElementById('whatsapp-inbox-bootstrap');
         if (!panel || !bootstrap || (active && active.panel === panel)) return;
         destroy();
         var config;
         try { config = JSON.parse(bootstrap.textContent); } catch (error) { return; }
         if (!config.meta_chat) return;
         var priorInbox = window.DashboardWhatsAppInbox;
-        if (priorInbox && priorInbox !== window.DashboardMetaInbox) priorInbox.destroy();
-        window.DashboardWhatsAppInbox = window.DashboardMetaInbox;
+        if (!config.hub_chat) {
+            if (priorInbox && priorInbox !== window.DashboardMetaInbox) priorInbox.destroy();
+            window.DashboardWhatsAppInbox = window.DashboardMetaInbox;
+        }
         var labels = config.labels || {};
         var rich = config.rich_labels || {};
         var overlay = panel.querySelector('[data-meta-overlay]');
@@ -36,18 +38,39 @@
         var refresh = panel.querySelector('[data-wa-refresh]');
         var back = panel.querySelector('[data-wa-back]');
         var unreadTotal = panel.querySelector('[data-wa-unread-total]');
-        var threadMap = new Map(), messageMap = new Map(), controllers = new Map();
+        var acceptedReplies = new Map();
+        var namespace = new URL(config.messages_base_url, window.location.href).origin + new URL(config.messages_base_url, window.location.href).pathname.replace(/\/+$/, '');
+        var threadMap = new Map(), messageMap = new Map(), controllers = new Map(), renderedMessages = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
-        var channel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
-        var closed = false, pollBusy = false, timer = null, retryDelay = 8000, denied = false;
+        var channel = ['messenger', 'instagram'].indexOf(config.hub_chat ? '' : config.initial_channel) !== -1 ? config.initial_channel : '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
+        var total = 0;
+        var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = 1000, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
+
+        panel.querySelectorAll('[data-meta-channel]').forEach(function (button) { button.setAttribute('aria-pressed', (button.dataset.metaChannel || '') === channel ? 'true' : 'false'); });
 
         function emit(name, detail) {
             if (document.dispatchEvent && typeof CustomEvent !== 'undefined') {
+                if (config.hub_chat && name.indexOf('whatsapp:') === 0) name = 'meta:' + name.slice(9);
                 document.dispatchEvent(new CustomEvent(name, {detail: detail || {}}));
             }
         }
 
+        function snapshot() {
+            var unread = {}; unreadMap.forEach(function (value, id) { unread[id] = value; });
+            return {source: 'meta', conversations: Array.from(threadMap.values()), total: total,
+                has_more: Boolean(nextCursor), filter:channel, unread: unread, available: Boolean(config.available && !denied && !closed)};
+        }
+        function publishThreads() { if (config.hub_chat) emit('meta-hub:threads', snapshot()); }
+        function resetConversation() {
+            if (closed) return;
+            closeOverlay(); generation++; chosen = 0; beforeId = null; lastId = 0; messageLoading = false;
+            ['messages','profile'].forEach(function(key) { if (controllers.has(key)) controllers.get(key).abort(); });
+            clearTimeout(readTimer); emit('whatsapp:private-reset', {reason:'selection'});
+            messageMap.clear(); acceptedReplies.clear(); stopMessageMedia(); messages.textContent = ''; older.hidden = true;
+            title.textContent = labels.choose_conversation; customer.textContent = ''; chatStatus.textContent = labels.choose_conversation;
+            panel.classList.remove('has-selection'); back.hidden = true; renderThreads();
+        }
         function node(tag, className, text) {
             var element = document.createElement(tag);
             if (className) element.className = className;
@@ -84,7 +107,49 @@
             if (typeof cart.text === 'string' && cart.text) section.appendChild(node('p', 'wa-inbox-message-text', cart.text));
             return section;
         }
+        function selectionDetail() {
+            return {conversation: chosen, generation: generation, channel: (threadMap.get(chosen) || {}).channel || '', namespace: namespace};
+        }
+        function currentReceipt(detail) {
+            var selected = selectionDetail();
+            return detail && !closed && !denied && !document.hidden && navigator.onLine !== false && chosen
+                && Number(detail.conversation) === chosen && detail.generation === generation
+                && detail.namespace === namespace && detail.channel === selected.channel;
+        }
+        function safeReceipt(reply) {
+            if (!reply || reply.state !== 'ACCEPTED' || !Number.isSafeInteger(reply.reply_id) || reply.reply_id < 1
+                || ['text','audio','image','video','file'].indexOf(reply.kind) === -1
+                || typeof reply.created_at !== 'string' || reply.created_at.length > 64 || isNaN(new Date(reply.created_at).getTime())
+                || reply.text !== null && reply.text !== undefined && (typeof reply.text !== 'string' || Array.from(reply.text).length > 20000)
+                || reply.projection_key !== null && reply.projection_key !== undefined && !/^[a-f0-9]{64}$/.test(reply.projection_key)
+                || reply.projected_message_id !== null && reply.projected_message_id !== undefined
+                    && (!Number.isSafeInteger(reply.projected_message_id) || reply.projected_message_id < 1)) return null;
+            return reply;
+        }
+        function receiptRows() {
+            var native = Array.from(messageMap.values());
+            return native.concat(Array.from(acceptedReplies.values()).filter(function(reply) {
+                return !reply.hidden && !native.some(function(message) {
+                    return reply.projected_message_id === message.id || reply.projection_key && reply.projection_key === message.projection_key;
+                });
+            }).map(function(reply) {
+                return {id:'reply:'+reply.reply_id, receipt:true, direction:'outbound', type:reply.kind === 'file' ? 'document' : reply.kind,
+                    text:reply.text || '', sent_at:reply.accepted_at || reply.created_at, unavailable:false, media:[]};
+            }));
+        }
+        function acceptedSnapshot(event) {
+            var detail = event.detail || {}; if (!currentReceipt(detail) || !Array.isArray(detail.replies)) return;
+            var next = new Map(); detail.replies.slice(0,40).forEach(function(reply) { reply = safeReceipt(reply); if (reply && !reply.hidden) next.set(reply.reply_id, reply); });
+            acceptedReplies = next; renderMessages(false,false);
+        }
+        function replyAccepted(event) {
+            var detail = event.detail || {}; if (!currentReceipt(detail)) return;
+            var reply = safeReceipt(detail.reply);
+            if (reply && !reply.hidden) { acceptedReplies.set(reply.reply_id,reply); renderMessages(false,true); }
+            clearTimeout(timer); poll();
+        }
         function stopMessageMedia() {
+            renderedMessages.clear();
             if (messages && messages.querySelectorAll) messages.querySelectorAll('audio,video').forEach(function (media) { media.pause(); media.removeAttribute('src'); media.load(); });
         }
         function closeOverlay() {
@@ -131,6 +196,7 @@
             return holder;
         }
         function messageActions(message) {
+            if (message.receipt) return null;
             if (message.hidden || message.unavailable) return null;
             var actions = node('details', 'meta-chat-actions'), summary = node('summary', '', '•••');
             summary.setAttribute('aria-label', rich.actions || 'Message actions'); actions.appendChild(summary);
@@ -191,14 +257,14 @@
                 denied = true; generation++; chosen = 0; closeOverlay();
                 clearTimeout(readTimer);
                 emit('whatsapp:private-reset', {reason: 'denied'});
-                threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+                threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
                 unreadMap.clear(); readSeen.clear(); readPending.clear();
                 if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
                 title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
                 older.hidden = true; more.hidden = true;
                 controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
                 listStatus.textContent = labels.denied; chatStatus.textContent = labels.denied;
-                notice(labels.denied, true); connection.textContent = labels.denied;
+                notice(labels.denied, true); connection.textContent = labels.denied; total = 0; publishThreads();
             } else {
                 var text = navigator.onLine === false ? labels.offline : labels.unavailable;
                 notice(text, true); connection.textContent = text;
@@ -263,6 +329,7 @@
             });
             threads.textContent = ''; threads.appendChild(fragment);
             listStatus.textContent = threadMap.size ? '' : labels.empty;
+            publishThreads();
         }
         function loadUnread() {
             if (!config.unread_url || !unreadTotal || closed || denied) return Promise.resolve();
@@ -319,21 +386,29 @@
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
-                renderThreads(); count.textContent = String(data.total || 0);
+                total = Number(data.total) || 0; count.textContent = String(total);
                 if (previous || !nextCursor || threadMap.size <= 25) nextCursor = data.next_cursor || null;
-                more.hidden = !nextCursor;
+                more.hidden = !nextCursor; renderThreads();
             }).finally(function () { if (epoch === threadEpoch) { threadLoading = false; if (!closed) more.disabled = false; } });
         }
         function renderMessages(prepend, toBottom) {
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
-            var fragment = document.createDocumentFragment();
-            Array.from(messageMap.values()).sort(function (a, b) {
+            var rendered = [], nextRendered = new Map();
+            receiptRows().sort(function (a, b) {
                 return String(a.sent_at || a.received_at || '').localeCompare(String(b.sent_at || b.received_at || '')) || a.id - b.id;
             }).forEach(function (message) {
+                var signature = JSON.stringify(message);
+                var cached = renderedMessages.get(message.id);
+                if (cached && cached.signature === signature) {
+                    var author = typeof cached.node.querySelector === 'function' ? cached.node.querySelector('[data-meta-author]') : null;
+                    if (author) author.textContent = message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen});
+                    rendered.push(cached.node); nextRendered.set(message.id, cached); return;
+                }
+                if (cached) cached.node.querySelectorAll('audio,video').forEach(function (media) { media.pause(); media.removeAttribute('src'); media.load(); });
                 var item = node('li', 'wa-inbox-message ' + (message.hidden ? 'is-hidden ' : '') + (message.direction === 'outbound' ? 'is-outbound' : 'is-inbound'));
                 item.dataset.waMessageId = String(message.id); item.dataset.waDirection = message.direction;
                 var bubble = node('article', 'wa-inbox-bubble');
-                bubble.appendChild(node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})));
+                var author = node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})); author.dataset.metaAuthor = 'true'; bubble.appendChild(author);
                 var actions = messageActions(message); if (actions) bubble.appendChild(actions);
                 if (message.type !== 'text') bubble.appendChild(node('span', 'wa-inbox-message-type', typeText(message.type)));
                 var cart = !message.unavailable && message.type === 'order' ? cartNode(message.cart) : null;
@@ -343,10 +418,23 @@
                     : (message.text || typeText(message.type))));
                 var timestamp = message.sent_at || message.received_at;
                 var time = node('time', '', dateText(timestamp, true)); if (timestamp) time.dateTime = timestamp;
-                bubble.appendChild(time); item.appendChild(bubble); fragment.appendChild(item);
+                bubble.appendChild(time);
+                if (message.receipt) bubble.appendChild(node('span','meta-receipt-status',document.documentElement.lang === 'ar' ? 'قبلت ميتا الإرسال' : 'Accepted by Meta'));
+                item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
             });
-            stopMessageMedia(); messages.textContent = ''; messages.appendChild(fragment);
-            chatStatus.textContent = messageMap.size ? '' : labels.no_messages;
+            if (typeof messages.insertBefore === 'function' && typeof messages.removeChild === 'function') {
+                var currentNode = messages.firstChild;
+                rendered.forEach(function (item) {
+                    if (currentNode === item) currentNode = currentNode.nextSibling;
+                    else messages.insertBefore(item, currentNode);
+                });
+                Array.from(messages.children).forEach(function (item) { if (rendered.indexOf(item) === -1) messages.removeChild(item); });
+            } else {
+                var fragment = document.createDocumentFragment(); rendered.forEach(function (item) { fragment.appendChild(item); });
+                messages.textContent = ''; messages.appendChild(fragment);
+            }
+            renderedMessages = nextRendered;
+            chatStatus.textContent = messageMap.size || acceptedReplies.size ? '' : labels.no_messages;
             if (prepend) scroll.scrollTop = oldTop + scroll.scrollHeight - oldHeight;
             else if (toBottom) scroll.scrollTop = scroll.scrollHeight;
             else scroll.scrollTop = oldTop;
@@ -385,17 +473,23 @@
         function choose(id) {
             if (closed || denied || !id) return;
             if (chosen === id) { panel.classList.add('has-selection'); back.hidden = false; return; }
-            closeOverlay(); generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear();
-            emit('whatsapp:conversation-selected', {conversation: id});
+            closeOverlay(); generation++; chosen = id; beforeId = null; lastId = 0; messageLoading = false; messageMap.clear(); acceptedReplies.clear();
+            emit('whatsapp:conversation-selected', selectionDetail());
             if (controllers.has('messages')) controllers.get('messages').abort();
             stopMessageMedia(); messages.textContent = ''; title.textContent = labels.loading; customer.textContent = '';
             chatStatus.textContent = labels.loading; older.hidden = true;
             panel.classList.add('has-selection'); back.hidden = false; renderThreads();
             loadMessages('initial').catch(unavailable);
+            var thread = threadMap.get(id), selection = id, current = generation;
+            if (thread && !thread.name) request(config.messages_base_url + '/' + id + '/profile', 'profile', {}).then(function (data) {
+                if (closed || denied || current !== generation || selection !== chosen || !data.name) return;
+                var known = threadMap.get(selection); if (!known) return;
+                known.name = data.name; threadMap.set(selection, known); title.textContent = displayName(known); renderThreads();
+            }).catch(function (error) { if (error && [401, 403, 419].indexOf(error.status) !== -1) unavailable(error); });
         }
         function success() {
             if (closed || denied) return;
-            retryDelay = 8000; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
+            retryDelay = 1000; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
             connection.textContent = labels.connected + ' · ' + new Date().toLocaleTimeString(document.documentElement.lang || 'ar',
                 {hour: '2-digit', minute: '2-digit'});
         }
@@ -404,10 +498,28 @@
             if (!closed && !denied && config.available && !document.hidden && navigator.onLine !== false) timer = setTimeout(poll, retryDelay);
         }
         function poll() {
-            if (closed || pollBusy || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
+            if (pollBusy) { pollAgain = true; return; }
+            if (closed || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
             pollBusy = true; refresh.disabled = true;
             Promise.all([loadThreads(false), loadMessages(chosen && lastId ? 'newer' : 'initial')]).then(loadUnread).then(success).catch(unavailable)
-                .finally(function () { pollBusy = false; if (!closed) refresh.disabled = false; schedule(); });
+                .finally(function () {
+                    pollBusy = false; if (!closed) refresh.disabled = false;
+                    if (pollAgain && !closed && !denied && !document.hidden && navigator.onLine !== false) { pollAgain = false; poll(); }
+                    else { pollAgain = false; schedule(); }
+                });
+        }
+        function setChannel(value) {
+            if (['','messenger','instagram'].indexOf(value) === -1) return;
+            if (closed || denied || value === channel) return;
+            closeOverlay(); channel = value; threadEpoch++; generation++; chosen = 0;
+                controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
+                clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
+                total = 0; threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+                nextCursor = null; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false;
+                title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
+                panel.classList.remove('has-selection'); back.hidden = true;
+                panel.querySelectorAll('[data-meta-channel]').forEach(function (item) { item.setAttribute('aria-pressed', (item.dataset.metaChannel || '') === channel ? 'true' : 'false'); });
+                loadThreads(false).then(loadUnread).then(success).catch(unavailable); return;
         }
         function click(event) {
             var close = event.target.closest('[data-meta-overlay-close]');
@@ -455,55 +567,54 @@
 
             var channelButton = event.target.closest('[data-meta-channel]');
             if (channelButton && panel.contains(channelButton)) {
-                closeOverlay(); channel = channelButton.dataset.metaChannel || ''; threadEpoch++; generation++; chosen = 0;
-                controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
-                clearTimeout(readTimer); readPending.clear(); emit('whatsapp:private-reset', {reason: 'channel'});
-                threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
-                nextCursor = null; beforeId = null; lastId = 0; threadLoading = false; messageLoading = false;
-                title.textContent = labels.choose_conversation; customer.textContent = ''; older.hidden = true; more.hidden = true;
-                panel.classList.remove('has-selection'); back.hidden = true;
-                panel.querySelectorAll('[data-meta-channel]').forEach(function (item) { item.setAttribute('aria-pressed', item === channelButton ? 'true' : 'false'); });
-                loadThreads(false).then(loadUnread).then(success).catch(unavailable); return;
+                setChannel(channelButton.dataset.metaChannel || ''); return;
             }
             var button = event.target.closest('[data-wa-thread]');
             if (button && panel.contains(button)) { choose(Number(button.dataset.waThread)); return; }
             if (event.target.closest('[data-wa-older]') && !older.disabled) loadMessages('older').catch(unavailable);
             if (event.target.closest('[data-wa-more-threads]') && !more.disabled) loadThreads(true).catch(unavailable);
             if (event.target.closest('[data-wa-refresh]')) { clearTimeout(timer); poll(); }
-            if (event.target.closest('[data-wa-back]')) { panel.classList.remove('has-selection'); back.hidden = true; }
+            if (event.target.closest('[data-wa-back]')) {
+                if (config.hub_chat) { resetConversation(); emit('meta-hub:conversation-reset', {source:'meta'}); }
+                else { panel.classList.remove('has-selection'); back.hidden = true; }
+            }
         }
         function keyboard(event) { if (event.key === 'Escape') closeOverlay(); }
         function visibility() {
             if (document.hidden) { closeOverlay(); clearTimeout(timer); emit('whatsapp:private-reset', {reason: 'hidden'}); }
-            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); acknowledgeVisible(); poll(); }
+            else { clearTimeout(timer); if (chosen && !denied) emit('whatsapp:conversation-selected', selectionDetail()); acknowledgeVisible(); poll(); }
         }
         function online() {
             clearTimeout(timer);
             if (navigator.onLine === false) { closeOverlay(); emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
-            else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen}); poll(); }
+            else { if (chosen && !denied) emit('whatsapp:conversation-selected', selectionDetail()); poll(); }
         }
         panel.addEventListener('click', click);
         document.addEventListener('keydown', keyboard);
+        document.addEventListener('meta:accepted-replies', acceptedSnapshot); document.addEventListener('meta:reply-accepted', replyAccepted);
         scroll.addEventListener('scroll', readScroll);
         document.addEventListener('visibilitychange', visibility);
         window.addEventListener('offline', online); window.addEventListener('online', online);
-        var session = {panel: panel, selection: function () { return chosen; }, destroy: function () {
+        var session = {panel: panel, selection: function () { return chosen; }, selectionState: selectionDetail, snapshot: snapshot,
+            openConversation: function(id) { id = Number(id); if (!Number.isSafeInteger(id) || id <= 0 || !threadMap.has(id) || closed || denied) return false; choose(id); return true; },
+            resetSelection: resetConversation, setChannel: setChannel, loadMore: function() { return loadThreads(true).catch(unavailable); }, destroy: function () {
             if (closed) return; closeOverlay(); closed = true; generation++; clearTimeout(timer);
             clearTimeout(readTimer);
             emit('whatsapp:private-reset', {reason: 'closed'});
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
-            panel.removeEventListener('click', click); document.removeEventListener('keydown', keyboard); document.removeEventListener('visibilitychange', visibility);
+            panel.removeEventListener('click', click); document.removeEventListener('keydown', keyboard);
+            document.removeEventListener('meta:accepted-replies', acceptedSnapshot); document.removeEventListener('meta:reply-accepted', replyAccepted); document.removeEventListener('visibilitychange', visibility);
             scroll.removeEventListener('scroll', readScroll);
             window.removeEventListener('offline', online); window.removeEventListener('online', online);
             // No chat cache in browser storage; remove private text when the page leaves the shell.
-            threadMap.clear(); messageMap.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
+            threadMap.clear(); messageMap.clear(); acceptedReplies.clear(); threads.textContent = ''; stopMessageMedia(); messages.textContent = '';
             unreadMap.clear(); readSeen.clear(); readPending.clear();
             if (unreadTotal) { unreadTotal.textContent = ''; unreadTotal.hidden = true; }
             if (window.DashboardWhatsAppInbox === window.DashboardMetaInbox) window.DashboardWhatsAppInbox = priorInbox;
             config.csrf = '';
-            title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = '';
+            title.textContent = labels.choose_conversation; customer.textContent = ''; count.textContent = ''; total = 0; publishThreads();
         }};
-        active = session;
+        active = session; publishThreads();
         if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
             if (active === session) destroy(); else session.destroy();
         });
@@ -513,7 +624,13 @@
     }
     function destroy() { if (active) active.destroy(); active = null; }
     window.DashboardMetaInbox = {mount: mount, destroy: destroy,
-        selection: function () { return active && active.selection ? active.selection() : 0; }};
+        selection: function () { return active && active.selection ? active.selection() : 0; },
+        selectionState: function() { return active ? active.selectionState() : {conversation:0,generation:0,channel:'',namespace:''}; },
+        openConversation: function(id) { return active ? active.openConversation(id) : false; },
+        resetSelection: function() { if (active) active.resetSelection(); },
+        setChannel: function(value) { if (active) active.setChannel(value); },
+        loadMore: function() { return active ? active.loadMore() : Promise.resolve(); },
+        snapshot: function() { return active ? active.snapshot() : {source:'meta',conversations:[],total:0,has_more:false,unread:{},available:false}; }};
     document.addEventListener('dashboard:before-unload', destroy);
     document.addEventListener('dashboard:page-mounted', mount);
     mount();

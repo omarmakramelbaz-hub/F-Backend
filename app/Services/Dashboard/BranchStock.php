@@ -24,7 +24,7 @@ class BranchStock
     {
         if(!$ids||!$this->installed()||!str_starts_with($branch,'f:'))return [];$result=[];
         foreach(DB::table('branch_stock')->where('branch',$branch)->whereIn('product_id',$ids)->get() as $r)$result[(int)$r->product_id]=$this->present($r);
-        return $result;
+        return app(BranchStockMinimums::class)->decorateStocks($branch,'product',$result);
     }
     public function quoteLines(string $branch,array $lines): array
     {
@@ -50,6 +50,7 @@ class BranchStock
     }
     public function listing(array $values,$actor): array
     {
+        if(($values['branch']??null)==='all')return $this->allListing($values,$actor);
         if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->listing($values,$actor);
         abort_unless($this->installed(),503,'صفحة إضافة البضاعة تحتاج تحديث قاعدة البيانات.');
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$b=$this->branch($v['branch'],$actor);
@@ -57,7 +58,30 @@ class BranchStock
         $total=(clone $q)->count();$last=max(1,(int)ceil($total/100));$page=min($last,(int)($v['page']??1));$rows=$q->orderBy('product_name')->orderBy('id')->offset(($page-1)*100)->limit(100)->get();
         $stocks=$this->balances($b['value'],$rows->pluck('id')->all());$items=[];foreach($rows as $r)$items[]=['id'=>(int)$r->id,'name'=>$r->product_name,'available'=>$r->status==='show','stock'=>$stocks[$r->id]??null];
         $history=DB::table('branch_stock_movements')->where('branch',$b['value'])->orderByDesc('id')->limit(30)->get();$actors=DB::table('users')->whereIn('id',$history->pluck('actor_id')->filter())->pluck('name','id');
-        return ['success'=>true,'branch'=>$b,'items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],'history'=>$history->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->product_name,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'balance'=>$this->quantity((int)$r->balance_units),'source_type'=>$r->source_type,'source_id'=>$r->source_id,'actor'=>$actors[$r->actor_id]??'النظام','supplier'=>$r->supplier,'notes'=>$r->notes,'created_at'=>\Carbon\Carbon::parse($r->created_at,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i')])->all()];
+        return app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'branch'=>$b,'items'=>$items,'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],'history'=>$history->map(fn($r)=>['id'=>(int)$r->id,'name'=>$r->product_name,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'balance'=>$this->quantity((int)$r->balance_units),'source_type'=>$r->source_type,'source_id'=>$r->source_id,'actor'=>$actors[$r->actor_id]??'النظام','supplier'=>$r->supplier,'notes'=>$r->notes,'created_at'=>\Carbon\Carbon::parse($r->created_at,'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i')])->all()];
+    }
+    /** Read each accessible branch separately so quantities and recipe warnings retain their branch. */
+    private function allListing(array $values,$actor): array
+    {
+        $v=Validator::make($values,['search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
+        $actor=$this->ops->access->actor($actor);abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        $branches=$this->branches($actor);abort_unless($branches,403);$items=[];$history=[];$legacy=[];$unmapped=[];$ingredients=[];$unconfigured=0;
+        foreach($branches as $branch){
+            $data=$this->listing(['branch'=>$branch['value'],'search'=>$v['search']??'','page'=>1],$actor);
+            $ingredients=$data['ingredients']??[];$unconfigured+=(int)($data['unconfigured_count']??0);
+            $label=['branch'=>$branch['value'],'branch_name'=>$branch['name']];
+            foreach($data['items'] as $item)$items[]=$item+$label;
+            // Legacy SKU listings are paginated; include later pages before applying the combined pagination.
+            for($page=2;$page<=($data['pagination']['last_page']??1);$page++){
+                $more=$this->listing(['branch'=>$branch['value'],'search'=>$v['search']??'','page'=>$page],$actor);
+                foreach($more['items'] as $item)$items[]=$item+$label;
+            }
+            foreach($data['history'] as $entry)$history[]=$entry+$label;
+            foreach($data['legacy']??[] as $entry)$legacy[]=$entry+$label;
+            foreach($data['unmapped_sales']??[] as $entry)$unmapped[]=$entry+$label;
+        }
+        usort($history,fn($a,$b)=>$b['id']<=>$a['id']);$total=count($items);$last=max(1,(int)ceil($total/100));$page=min($last,(int)($v['page']??1));
+        return app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'all_branches'=>true,'branch'=>['value'=>'all','name'=>'جميع الفروع'],'items'=>array_slice($items,($page-1)*100,100),'ingredients'=>$ingredients,'can_manage_recipes'=>false,'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,'legacy'=>$legacy,'history'=>array_slice($history,0,30),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
     }
     public function receive(array $values,$actor): array
     {
@@ -78,6 +102,7 @@ class BranchStock
         $old=DB::table('branch_stock_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',$source)->first();if($old)return (int)$old->id;
         $balance=(int)$r->quantity_units+$delta;abort_if(abs($balance)>1000000000000000,422,'رصيد البضاعة خارج الحد المسموح.');
         DB::table('branch_stock')->where('id',$r->id)->update(['quantity_units'=>$balance,'revision'=>(int)$r->revision+1,'updated_at'=>now('UTC')]);
+        if(class_exists(BranchStockMinimums::class))app(BranchStockMinimums::class)->observe($r->branch,'product',(int)$r->product_id,$balance,$r->unit);
         return DB::table('branch_stock_movements')->insertGetId(['stock_id'=>$r->id,'branch'=>$r->branch,'product_id'=>$r->product_id,'product_name'=>mb_substr($name,0,255),'unit'=>$r->unit,'quantity_units'=>$delta,'balance_units'=>$balance,'source_type'=>$type,'source_id'=>$source,'actor_id'=>$actor,'supplier'=>$supplier?:null,'notes'=>$notes?:null,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     public function posSale(array $branch,int $orderId,array $lines,int $actorId): void
@@ -90,17 +115,21 @@ class BranchStock
     {
         if(app(BranchInventory::class)->installed()){app(BranchInventory::class)->appSale($order);return;}
         if($order->type!=='current'||!$order->resturant_id||!$this->installed())return;
-        // Completion already owns the order lock; serialize with receipts/POS on its branch.
-        DB::table('resturants')->where('id',$order->resturant_id)->lockForUpdate()->first();
-        $tracked=DB::table('branch_stock')->where('branch','f:'.$order->resturant_id)->pluck('product_id');if($tracked->isEmpty())return;
-        $rows=DB::table('carts')->where('order_id',$order->id)->whereIn('resturant_product_id',$tracked)->orderBy('id')->lockForUpdate()->get();$lines=[];
+        // Completion owns the order lock; stores fulfill from the shared Shubra stock.
+        $origin='f:'.$order->resturant_id;$branch=FasakhanstaStoreFulfillment::branch($origin);
+        DB::table('resturants')->whereIn('id',array_unique([(int)$order->resturant_id,(int)substr($branch,2)]))->orderBy('id')->lockForUpdate()->get();
+        if(DB::table('branch_stock_movements')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
+        $rows=DB::table('carts')->where('order_id',$order->id)->orderBy('id')->lockForUpdate()->get();$lines=[];
         foreach($rows as $r){
-            $p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$r->resturant_product_id)->first();if(!$p)continue;
+            $p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$r->resturant_product_id)->first();if(!$p){abort_unless($branch===$origin,422,'صنف طلب الإستور لم يعد مرتبطًا بالمينيو؛ راجع ربطه بفرع شبرا.');continue;}
             $feature=!empty($r->product_feature)&&Schema::hasTable('product_features')?DB::table('product_features')->where('id',$r->product_feature)->where('product_id',$p->product_id??0)->value('name'):null;
             if(preg_match('/^0+(?:\.0+)?$/D',(string)$r->qty))continue;
-            $units=$this->units((string)$r->qty);$lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($units,1000),'option_label'=>$feature==='half'?'نصف':($feature==='quarter'?'ربع':'')];
+            $units=$this->units((string)$r->qty);$lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($units,1000),'feature_id'=>(int)($r->product_feature??0),'option_label'=>$feature==='half'?'نصف':($feature==='quarter'?'ربع':'')];
         }
-        $this->consume('f:'.$order->resturant_id,'app',(string)$order->id,$lines,null);
+        abort_unless($branch===$origin||$lines,422,'أصناف طلب الإستور غير متاحة للخصم من فرع شبرا.');
+        $lines=FasakhanstaStoreFulfillment::inventoryLines($origin,$lines);
+        if($branch!==$origin){$tracked=$this->directBalances($branch,array_column($lines,'product_id'));foreach($lines as $line)abort_unless(isset($tracked[$line['product_id']]),422,'يلزم ربط رصيد صنف الإستور ببضاعة فرع شبرا: '.$line['name']);}
+        $this->consume($branch,'app',(string)$order->id,$lines,null);
     }
     public function consumeDirect(string $branch,string $type,string $source,array $lines,?int $actor): void
     {

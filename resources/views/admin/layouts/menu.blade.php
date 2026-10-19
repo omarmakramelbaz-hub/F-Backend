@@ -2,10 +2,10 @@
 <aside id="dashboard-sidebar" class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
-        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
+    <div class="brand-link dashboard-brand">
+        @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-brand-logo go-erp-platform-logo'])
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
-    </a>
+    </div>
     <hr>
     <!-- Sidebar -->
     <div class="sidebar">
@@ -50,9 +50,6 @@
                 @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
                 @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
-                    @if(config('desktop_pos.enabled'))
-                    <li class="nav-item"><a href="{{ route('desktop-pos.index') }}" class="nav-link {{ request()->is('admin/desktop-pos*')?'active':'' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
-                    @endif
                     <li class="nav-item">
                         <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-shopping-bag"></i>
@@ -94,12 +91,14 @@
                     @foreach(['delivery-companies'=>'شركات الدليفري','customers'=>'قائمة العملاء'] as $module=>$title)
                     <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='customers'?'fa-address-book':'fa-shipping-fast' }}"></i><p>{{ $title }}</p></a></li>
                     @endforeach
+                    @if(config('desktop_pos.enabled'))
+                    <li class="nav-item"><a href="{{ route('desktop-pos.index') }}" class="nav-link {{ request()->is('admin/desktop-pos*')?'active':'' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
+                    @endif
                     <li class="nav-item"><a href="{{ route('print-settings.index') }}" class="nav-link {{ request()->is('admin/print-settings*') ? 'active' : '' }}"><i class="nav-icon fas fa-print"></i><p>{{ __('printing.title') }}</p></a></li>
                 @endif
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
                 <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
                 @endif
-                @include('admin.whatsapp.sidebar')
                 @include('admin.meta.sidebar')
 <!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))

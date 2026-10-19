@@ -8,6 +8,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use App\Models\Order;
 use App\Http\Traits\FcmFirebase;
+use App\Services\OrderTrackingState;
 
 class NotifyAcceptOrderNotification extends Notification
 {
@@ -20,6 +21,7 @@ class NotifyAcceptOrderNotification extends Notification
      * @return void
      */
     private $msg;
+    private array $body_data = [];
     public function __construct(Order $msg)
     {
         $this->msg=$msg;
@@ -45,13 +47,14 @@ class NotifyAcceptOrderNotification extends Notification
     {  
         $tokens = [];
         $types  = [];
+        $state = OrderTrackingState::forOrder($this->msg);
         
         $this->body_data =[
                 'title'     =>  'لديك إشعار خاص بالطلبات ',
                 'logo'     => $this->msg->resturant?->getFirstMediaUrl('logo','thumb'),
-                'text'      =>  'تم الموافقة على الطلب رقم   '. $this->msg->order_no,
+                'text'      =>  'تم الموافقة على الطلب رقم   '. $state['order_no'],
                 'created_at' => $this->msg->updated_at,
-                'data'       =>  [
+                'data'       =>  $state + [
                     'notification_type' => 1,
                     'order_id'          => (int) $this->msg->id,
                     'order_no'          => $this->msg->order_no,
@@ -72,10 +75,8 @@ class NotifyAcceptOrderNotification extends Notification
         // }
 
 
-        if($notifiable->my_tokens){
-            $tokens= $notifiable->my_tokens ; 
-            app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $tokens, $this->body_data, (int) $this->msg->id);
-        }
+        $tokens = $notifiable->my_tokens ?: [];
+        app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $tokens, $this->body_data, (int) $this->msg->id);
         
       return $this->body_data;   
 

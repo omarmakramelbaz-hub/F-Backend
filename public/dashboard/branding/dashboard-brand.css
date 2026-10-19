@@ -672,3 +672,396 @@ html:has(.app-order-board-page) {
 @media (prefers-reduced-motion: reduce) {
     .dashboard-theme .info-box, .dashboard-theme .btn, .dashboard-theme .main-sidebar .nav-link { transition: none; }
 }
+
+/* go-erp-platform-logos:start */
+/* Native inline vectors only; no raster asset or background rectangle. */
+.go-erp-platform-logo[data-go-erp-vector] { display: block; background: none; }
+.dashboard-login-logo.go-erp-platform-logo {
+    height: 380px;
+}
+@media (max-width: 800px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 235px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 205px; }
+}
+.main-sidebar .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    height: 88px;
+    max-width: 100%;
+    flex: 0 1 208px;
+    object-fit: contain;
+}
+.main-sidebar .go-erp-platform-logo + .dashboard-brand-copy {
+    display: none !important;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo {
+    height: 72px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:hover .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    flex-basis: 208px;
+}
+/* go-erp-platform-logos:end */
+
+/* go-erp-logo-stamp:start */
+/* Shared native GO Solar System branding for login and dashboard. */
+.go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; filter: none; }
+.dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; }
+.dashboard-login-identity { display: flex; flex-direction: column; justify-content: center; min-height: 440px; }
+.dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(360px, 100%); height: auto; max-height: 380px; }
+.dashboard-login-brand-title.go-erp-tagline {
+    max-width: 380px;
+    margin: 14px auto 0;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.8;
+    letter-spacing: .045em;
+    color: #ffffff;
+    text-wrap: balance;
+}
+.dashboard-login-identity .dashboard-login-brand-subtitle { display: none; }
+@media (max-width: 800px) {
+    .dashboard-login-identity { min-height: 0; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(260px, 100%); max-height: 275px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(230px, 100%); max-height: 245px; }
+}
+/* The native logo bursts once on mount, then remains fully visible. */
+.go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
+.go-erp-logo-rest { opacity: 1; }
+.go-erp-logo-compact { display: none; }
+.go-erp-logo-fragments { opacity: 0; }
+.go-erp-login-flow { display: none; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-rest {
+        animation: go-erp-logo-rest 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragments {
+        animation: go-erp-logo-fragments 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragment {
+        transform-box: view-box;
+        transform-origin: 530px 311px;
+        animation: go-erp-fragment-flight 1.45s cubic-bezier(.2, .7, .2, 1) 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-dynamic] .go-erp-login-flow {
+        display: block;
+        animation: go-erp-flow-reveal .7s ease 1.45s 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor,
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter {
+        transform-box: view-box;
+        transform-origin: 0 0;
+        animation-duration: var(--orbit-period);
+        animation-timing-function: linear;
+        animation-delay: 1.45s;
+        animation-iteration-count: infinite;
+        animation-fill-mode: both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor { animation-name: go-erp-solar-orbit; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter { animation-name: go-erp-solar-counter; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-corona { animation: go-erp-solar-corona 8s ease-in-out 1.45s infinite; }
+    @keyframes go-erp-flow-reveal {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes go-erp-solar-orbit {
+        from { transform: rotate(var(--orbit-start)); }
+        to { transform: rotate(var(--orbit-end)); }
+    }
+    @keyframes go-erp-solar-counter {
+        from { transform: rotate(var(--counter-start)); }
+        to { transform: rotate(var(--counter-end)); }
+    }
+    @keyframes go-erp-solar-corona {
+        0%, 100% { opacity: .7; }
+        50% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-rest {
+        0%, 4% { opacity: 1; }
+        5%, 87.9% { opacity: 0; }
+        88%, 100% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-fragments {
+        0%, 4% { opacity: 0; }
+        5%, 87.9% { opacity: 1; }
+        88%, 100% { opacity: 0; }
+    }
+    @keyframes go-erp-fragment-flight {
+        0%, 4%, 86%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+        30%, 40% { transform: translate(var(--go-x), var(--go-y)) rotate(var(--go-r)) scale(.94); }
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-login-flow { display: block; opacity: 1; }
+}
+/* Keep the internal GO mark centered in a compact sidebar brand slot. */
+.dashboard-theme .main-sidebar .dashboard-brand { min-height: 92px; padding-block: 4px; }
+.dashboard-theme .main-sidebar .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { height: 84px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand { min-height: 76px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { width: 208px; height: 68px; flex: 0 1 208px; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-stage { display: none; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-compact { display: inline; }
+/* go-erp-logo-stamp:end */
+
+/* dashboard-sidebar-footer:start */
+/* Shared by every account: navigation above a compact, fixed brand footer. */
+.dashboard-theme #dashboard-sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    padding-top: 8px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #101f30 0%, #0b1724 60%, #0a1522 100%) !important;
+}
+.dashboard-theme #dashboard-sidebar > hr { display: none; }
+.dashboard-theme #dashboard-sidebar > .sidebar {
+    order: 1;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+    margin: 0;
+    padding: 0 10px 8px !important;
+    overflow: hidden !important;
+}
+.dashboard-theme #dashboard-sidebar .user-panel {
+    flex: 0 0 auto;
+    align-items: center;
+    min-height: 36px;
+    width: 100%;
+    margin: 0 0 8px !important;
+    padding: 6px 10px;
+    border: 1px solid #ffffff0d;
+    border-radius: 10px;
+    background: #ffffff04;
+}
+.dashboard-theme #dashboard-sidebar .user-panel > div,
+.dashboard-theme #dashboard-sidebar .user-panel > div > div { min-width: 0; width: 100%; }
+.dashboard-theme #dashboard-sidebar .welcome {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 22px !important;
+    font-size: 11px;
+    font-weight: 400;
+    color: #c3cedb !important;
+}
+.dashboard-theme #dashboard-sidebar .sidebar > hr { display: none; }
+.dashboard-theme #dashboard-sidebar .sidebar > nav {
+    flex: 0 0 auto;
+    width: 100%;
+    margin-top: 0 !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item { margin: 0 0 2px; }
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: calc(var(--dashboard-nav-row-height, 42px) - 2px);
+    margin: 0;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 10px !important;
+    color: #cbd5e1 !important;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link p {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    gap: 6px;
+    font-size: var(--dashboard-nav-font-size, 13px);
+    font-weight: 400;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link .nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    margin: 0;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    color: #9caec2;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link .left {
+    position: static;
+    margin-inline-start: auto;
+    font-size: 11px;
+    color: #91a3b7;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link:hover,
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item.menu-open > .nav-link {
+    background: #ffffff09 !important;
+    border-color: #ffffff12;
+    color: #fff !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active {
+    background: linear-gradient(100deg, #ed6b00, #ff8a14) !important;
+    border-color: #ff9b3c;
+    box-shadow: 0 3px 12px #fd72011a;
+    color: #fff !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active p { font-weight: 700; }
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active .nav-icon,
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active .left { color: #fff; }
+.dashboard-theme #dashboard-sidebar a:focus-visible {
+    outline: 2px solid #ffb46c;
+    outline-offset: -2px;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand {
+    order: 2;
+    flex: 0 0 auto;
+    width: calc(100% - 24px) !important;
+    box-sizing: border-box;
+    min-height: 80px;
+    height: 80px;
+    margin: 6px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 8px 10px;
+    border: 1px solid #ffffff12;
+    border-radius: 14px;
+    background: #ffffff03;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-logo.go-erp-platform-logo {
+    flex: 0 1 184px;
+    width: 184px;
+    height: 64px;
+    max-width: 100%;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-logo:not(.go-erp-platform-logo) {
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-copy strong { font-size: 18px; }
+.dashboard-theme #dashboard-sidebar.dashboard-sidebar-compact > .dashboard-brand { min-height: 64px; height: 64px; padding-block: 5px; }
+.dashboard-theme #dashboard-sidebar.dashboard-sidebar-compact > .dashboard-brand .dashboard-brand-logo.go-erp-platform-logo { height: 52px; }
+.dashboard-theme #dashboard-sidebar[data-navigation-scroll="true"] > .sidebar {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #405268 transparent;
+}
+@media (max-width: 991.98px) {
+    .dashboard-theme #dashboard-sidebar { display: none; }
+    .dashboard-theme.sidebar-open #dashboard-sidebar { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link { transition: none; }
+}
+/* dashboard-sidebar-footer:end */
+
+/* dashboard-collapsed-shortcuts:start */
+.dashboard-theme .main-header > .navbar-nav { flex: 0 0 auto; }
+.dashboard-theme .main-header .dashboard-header-sound { display: flex; align-items: center; }
+.dashboard-theme .main-header .dashboard-header-sound #toggle-sound {
+    position: static !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    margin: 0 5px;
+    padding: 0;
+    border: 1px solid #ff9b3c;
+    border-radius: 10px;
+    background: #fd7201;
+    color: #fff;
+    font-size: 15px;
+    box-shadow: none;
+}
+.dashboard-theme .main-header .dashboard-header-sound #toggle-sound:hover { background: #e86400; }
+.dashboard-theme .main-header .dashboard-header-sound #toggle-sound:focus-visible { outline: 2px solid #ffb46c; outline-offset: 2px; }
+.dashboard-theme .main-header .dashboard-quick-links {
+    display: flex;
+    align-items: center;
+    justify-content: safe center;
+    flex: 1 1 auto;
+    gap: 6px;
+    min-width: 0;
+    margin: 0 14px;
+    padding: 3px 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+}
+.dashboard-theme .main-header .dashboard-quick-links::-webkit-scrollbar { display: none; }
+.dashboard-theme .main-header .dashboard-quick-links[hidden] { display: none !important; }
+.dashboard-theme .main-header .dashboard-quick-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    gap: 7px;
+    min-height: 34px;
+    padding: 6px 11px;
+    border: 1px solid #2a3b50;
+    border-radius: 8px;
+    background: #ffffff05;
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+.dashboard-theme .main-header .dashboard-quick-link > i { width: 15px; text-align: center; color: #9caec2; }
+.dashboard-theme .main-header .dashboard-quick-label-short { display: none; }
+.dashboard-theme .main-header .dashboard-quick-link:hover { border-color: #57708a; background: #1c2d41; color: #fff; }
+.dashboard-theme .main-header .dashboard-quick-link.active {
+    border-color: #ff9b3c;
+    background: linear-gradient(100deg, #ed6b00, #ff8a14);
+    color: #fff;
+    box-shadow: 0 2px 8px #fd72011a;
+}
+.dashboard-theme .main-header .dashboard-quick-link.active > i { color: #fff; }
+.dashboard-theme .main-header .dashboard-quick-link:focus-visible { outline: 2px solid #ffb46c; outline-offset: -2px; }
+@media (max-width: 1399.98px) {
+    .dashboard-theme .main-header .dashboard-quick-links { gap: 5px; margin-inline: 8px; }
+    .dashboard-theme .main-header .dashboard-quick-link { gap: 5px; padding-inline: 8px; font-size: 10px; }
+}
+@media (max-width: 575.98px) {
+    .dashboard-theme .main-header .dashboard-quick-links { margin-inline: 5px; }
+    .dashboard-theme .main-header .dashboard-quick-link { min-height: 36px; padding-inline: 9px; }
+    .dashboard-theme .main-header .dashboard-quick-label { display: none; }
+    .dashboard-theme .main-header .dashboard-quick-label-short { display: inline; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-theme .main-header .dashboard-quick-link { transition: none; }
+}
+/* dashboard-collapsed-shortcuts:end */
+
+/* dashboard-header-employee-shortcut:start */
+@media (min-width: 576px) and (max-width: 1399.98px) {
+    .dashboard-theme .main-header .dashboard-quick-label { display: none; }
+    .dashboard-theme .main-header .dashboard-quick-label-short { display: inline; }
+}
+/* dashboard-header-employee-shortcut:end */

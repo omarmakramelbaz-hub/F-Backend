@@ -6,6 +6,17 @@ use Carbon\Carbon;
 /** Money stays in integer cents; penalties apply to completed thirty-minute intervals. */
 class EmployeeAttendanceRules
 {
+    public static function forEmployee(object $rule,object $employee,string $day): array
+    {
+        if(($employee->schedule_type??'branch')!=='part_time')return self::snapshot($rule,$day);
+        $custom=clone $rule;
+        $custom->starts_at=$employee->attendance_start;
+        $custom->ends_at=$employee->attendance_end;
+        $custom->shift='part_time';
+        return self::snapshot($custom,$day)+['schedule_type'=>'part_time','rule_shift'=>$rule->shift,
+            'employee_revision'=>(int)$employee->revision];
+    }
+
     public static function snapshot(object $rule,string $day): array
     {
         $start=OperatingDay::at($day,$rule->starts_at);
@@ -22,7 +33,7 @@ class EmployeeAttendanceRules
     {
         if($status==='preapproved_leave')return ['leave'=>['amount'=>intdiv($salary+intdiv($monthDays,2),$monthDays),'reason'=>'إجازة','notes'=>'قيمة يوم من الراتب ÷ عدد أيام الشهر ('.$monthDays.').']];
         if($status==='unauthorized_absence')return ['absence'=>['amount'=>$snapshot['absence_cents'],'reason'=>'غياب بدون إذن','notes'=>'طبقًا لإعدادات الأونر للفرع.']];
-        if(!in_array($status,['morning','evening'],true))return [];
+        if(!in_array($status,['morning','evening','part_time'],true))return [];
         $result=[];
         foreach(['late'=>[$in,$snapshot['scheduled_start'],$snapshot['late_half_hour_cents'],'خصم تأخر عن العمل'],
                  'early'=>[$out,$snapshot['scheduled_end'],$snapshot['early_half_hour_cents'],'خصم انصراف مبكر']] as $kind=>$v){

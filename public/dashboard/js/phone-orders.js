@@ -12,11 +12,12 @@
     var boardPages = {preparing:1,courier:1,finished:1}, selectedOrders = new Map(), boardCompanies = [], boardData = null;
     var step = 'number', receiverTimer, lastIncoming = null, customerTimer, suggestionIndex = -1;
     var loaded = false, disposed = false, dirty = false, writing = false, uncertain = false, frozen = null, requestKey = uuid(), modalFocus;
-    var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, customerGeneration = 0, modalGeneration = 0;
-    var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, mode = 'piece', listeners = [], modal = root.querySelector('[data-phone-modal]');
+    var catalogGeneration = 0, quoteGeneration = 0, orderGeneration = 0, orderPending = 0, customerGeneration = 0, modalGeneration = 0;
+    var controllers = {}, searchTimer, quoteTimer, editGeneration = 0, listeners = [], modal = root.querySelector('[data-phone-modal]');
     var saveButton = root.querySelector('[data-phone-save]'), message = root.querySelector('[data-phone-message]');
+    var quantityInput = root.querySelector('[data-phone-quantity]'), customerConsent = root.querySelector('[data-phone-customer-consent]'), replaceQuantity = true;
     var manualDeliveryFee=false, customerRef=null, deliveryLocation=null, locationPicker=null, deliverySettings=null, deliveryOriginBranch='', deliveryOriginContext=null, locationGeneration=0, locating=false, lastGeocoded='', savedAddressPending='', contextGeneration=0, locationPreviewTimer, addressSearch;
-    var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]');
+    var latInput=root.querySelector('[data-phone-lat]'),lngInput=root.querySelector('[data-phone-lng]'),companySelect=root.querySelector('[data-phone-company]'),confirmLocationButton=root.querySelector('[data-phone-confirm-location]');
     var fields = {};
     root.querySelectorAll('[data-phone-field]').forEach(function (input) { fields[input.dataset.phoneField] = input; });
 
@@ -48,7 +49,7 @@
         try{var results=await Promise.all([get(urls.delivery_settings,{branch:selected,delivery_origin_branch:origin||undefined},controller.signal).then(function(r){return read(r,'load_error');}),get(urls.companies,{branch:selected,active:1},controller.signal).then(function(r){return read(r,'load_error');})]);if(disposed||selected!==branch||origin!==deliveryOriginBranch||generation!==contextGeneration)return;
             var settings=results[0].settings;if(!settings||!settings.branch||settings.branch.value!==selected||!validDeliveryOrigin(settings,origin))throw new Error(text('load_error'));deliverySettings=settings;if(origin)deliveryOriginContext=settings;selectedCompany=companySelect.value;companySelect.replaceChildren(element('option','','توصيل الفرع'));companySelect.options[0].value='';results[1].items.forEach(function(c){var o=element('option','',c.name);o.value=String(c.id);companySelect.appendChild(o);});if(selectedCompany&&!Array.from(companySelect.options).some(function(option){return option.value===selectedCompany;})){var preservedOption=element('option','',companyName);preservedOption.value=selectedCompany;companySelect.appendChild(preservedOption);}companySelect.value=selectedCompany;
             var originLabel=deliveryOriginLabel(deliverySettings);root.querySelector('[data-phone-selected-branch]').textContent=branchLabel();
-            if(!deliverySettings.ready)root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'يجب ضبط دبوس '+(origin?'الأستور':'الفرع')+' وسعر الكيلومتر في إعدادات المطعم.';else root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'سعر الكيلومتر: '+deliverySettings.km_price+' جنيه. '+(boot.open_phone_maps?'الخدمة من مسافة الطريق.':'الخدمة من المسافة المباشرة بين الدبوسين.')+'';
+            if(!deliverySettings.ready)root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+'يجب ضبط دبوس '+(origin?'الأستور':'الفرع')+' وسعر الكيلومتر في إعدادات المطعم.';else root.querySelector('[data-phone-location-status]').textContent=(originLabel?originLabel+' — ':'')+(deliverySettings.pricing_rates?text('branch_tariff_hint'):'سعر الكيلومتر: '+deliverySettings.km_price+' جنيه. '+(boot.open_phone_maps?'الخدمة من مسافة الطريق.':'الخدمة من المسافة المباشرة بين الدبوسين.'));
             if(locationPicker){locationPicker.destroy();locationPicker=null;}if(step==='details')ensureLocation();
         }catch(e){if(!disposed&&selected===branch&&origin===deliveryOriginBranch&&generation===contextGeneration&&e.name!=='AbortError')notify(e.message||'تعذر تحميل إعدادات التوصيل.');}
     }
@@ -62,6 +63,11 @@
         else if(!DashboardLocationPicker.valid(latInput.value,lngInput.value))locateAddress();
     }
     function locateAddress(){if(!addressSearch)return;addressSearch.search();}
+    function deliveryPriceText(data) {
+        if(data.method!=='app_direct')return (data.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+data.distance_km+' كم × '+data.km_price+' جنيه = '+data.delivery_fee+' جنيه';
+        var rule=data.pricing_rule==='app_branch_tier'?text('branch_tariff_fixed'):data.pricing_rule==='app_zero_rate'?text('branch_tariff_free'):text('branch_tariff_per_km')+' '+data.km_price;
+        return text('app_delivery_distance')+': '+data.distance_km+' '+text('kg_distance')+' · '+rule+' = '+data.delivery_fee+' '+text('currency')+(data.road_distance_km?' · '+text('route_display_distance')+': '+data.road_distance_km+' '+text('kg_distance'):'');
+    }
     function savedAddressPin(item){return item&&typeof item.id==='string'&&item.id.length>0&&typeof item.label==='string'&&item.label.trim()&&typeof item.latitude==='number'&&typeof item.longitude==='number'&&DashboardLocationPicker.valid(item.latitude,item.longitude)&&(item.latitude!==0||item.longitude!==0);}
     addressSearch=PhoneAddressSearch.create({cache:false,attribution:desktopLocal?'':'Google Maps',messages:desktopLocal?{choices:'اختر عنوانًا محفوظًا ثم راجع إحداثياته وأكدها.',empty:'لا يوجد عنوان محفوظ مطابق بإحداثيات صالحة. أدخل إحداثيات العميل ثم أكد الموقع.',selectedPrefix:'العنوان المحفوظ: ',selectedSuffix:' — راجع الإحداثيات ثم أكد الموقع.'}:null,input:fields.address,box:root.querySelector('[data-phone-address-options]'),status:root.querySelector('[data-phone-address-status]'),locked:locked,query:function(){return fields.address.value.trim();},search:async function(query,signal){
         if(desktopLocal){if(!branch)throw Error('اختر الفرع للبحث في عناوينه المحفوظة.');var selected=branch,result=await read(await post(urls.address_suggestions,{branch:selected,query:query},signal),'load_error');if(disposed||selected!==branch||signal.aborted)return [];if(result.provider!=='saved'||!Array.isArray(result.items))throw Error('تعذر تحميل العناوين المحفوظة. أدخل الإحداثيات وأكد الموقع.');return result.items.filter(savedAddressPin).slice(0,6).map(function(item){return {id:item.id,label:item.label,latitude:item.latitude,longitude:item.longitude};});}
@@ -69,27 +75,39 @@
     },resolve:function(item){if(desktopLocal){if(!savedAddressPin(item))throw Error('العنوان المحفوظ لا يحتوي إحداثيات صالحة. أدخل الإحداثيات وأكد الموقع.');return {label:item.label,area:'',latitude:item.latitude,longitude:item.longitude};}return locationPicker.resolve(item);},select:function(point){
         fields.address.value=point.label;fields.area.value=point.area||'';invalidateLocation();latInput.value=point.latitude;lngInput.value=point.longitude;if(locationPicker)locationPicker.set(point.latitude,point.longitude);previewLocation();
     }});
-    async function confirmLocation(preview){if(locked()||!branch)return;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch,origin=deliveryOriginBranch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
-        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=(r.delivery.method==='road_osrm'?'مسافة الطريق: ':'المسافة المباشرة: ')+r.delivery.distance_km+' كم × '+r.delivery.km_price+' جنيه = '+r.delivery.delivery_fee+' جنيه'+(preview?(desktopLocal?' — راجع إحداثيات العميل ثم أكد الموقع.':' — راجع دبوس العميل ثم أكده.'):(desktopLocal?' — تم تأكيد الموقع.':' — تم تأكيد الدبوس.'));if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);}
-        catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
+    async function confirmLocation(preview){if(locked()||!branch)return false;clearTimeout(locationPreviewTimer);if(!DashboardLocationPicker.valid(latInput.value,lngInput.value)){if(!preview)notify('حدد دبوس العميل أو أدخل إحداثيات صحيحة.');return false;}if(locationPicker){locationPicker.invalidate();locationPicker.set(latInput.value,lngInput.value);}deliveryLocation=null;var generation=++locationGeneration,selected=branch,origin=deliveryOriginBranch;locating=!preview;lock();var aborter=begin('location'),timeout=setTimeout(function(){aborter.abort();},15000);
+        try{var r=await read(await post(urls.delivery_quote,{branch:branch,delivery_origin_branch:origin||undefined,latitude:latInput.value,longitude:lngInput.value,location_confirmed:true},aborter.signal),'quote_error');if(disposed||generation!==locationGeneration||selected!==branch||origin!==deliveryOriginBranch)return false;if(!r.delivery||r.delivery.branch!==selected||!validDeliveryOrigin(r.delivery,origin))throw new Error(text('quote_error'));deliveryLocation=preview?null:r.delivery;if(!manualDeliveryFee)fields.delivery_fee.value=r.delivery.delivery_fee;if(locationPicker&&r.delivery.route_path)locationPicker.route(r.delivery.route_path);root.querySelector('[data-phone-distance]').textContent=deliveryPriceText(r.delivery)+(preview?(desktopLocal?' — راجع إحداثيات العميل ثم أكد الموقع.':' — راجع دبوس العميل ثم أكده.'):(desktopLocal?' — تم تأكيد الموقع.':' — تم تأكيد الدبوس.'));if(!preview)notify('تم تأكيد موقع العميل وحساب الخدمة.',true);return !preview;}
+        catch(e){if(!disposed&&generation===locationGeneration&&e.name!=='AbortError')notify(e.message||'تعذر حساب الخدمة.');return false;}finally{clearTimeout(timeout);if(generation===locationGeneration){locating=false;lock();if(deliveryLocation)changed(true);}}
+    }
+    async function confirmLocationAndNext() {
+        if (locked() || !canWrite() || step !== 'details') return;
+        if (!branch) { notify(text('select_branch')); branchSelect.focus(); return; }
+        var confirmation = confirmLocation(false), generation = locationGeneration;
+        var confirmed = await confirmation;
+        if (disposed || generation !== locationGeneration || step !== 'details' || view !== 'compose' || !modal.hidden) return;
+        if (confirmed) nextDetails();
+        else if (!locked()) confirmLocationButton.focus();
     }
     async function pollReceiver() {
         if (disposed) return;
         var printer = window.DashboardBranchPrinter;
         root.querySelector('[data-phone-printer-status]').textContent = printer ? printer.status : text('callcenter_print');
-        if (view === 'orders' && !locked()) loadOrders(undefined, true);
+        if (!locked()) loadOrders(undefined, true);
         receiverTimer = setTimeout(pollReceiver, 4000);
     }
     function boardScope(){return branch || (boot.can_view_all_branches?'all':'');}
-    function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&view==='orders'&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}
+    function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}
     function flow(next, focus) {
+        var phoneLabel = root.querySelector('[data-phone-phone-field]'), phoneSlot = root.querySelector(next === 'number' ? '[data-phone-number-slot]' : '[data-phone-customer-phone-slot]');
+        if (phoneLabel && phoneSlot && phoneLabel.parentNode !== phoneSlot) phoneSlot.appendChild(phoneLabel);
         root.querySelector(next === 'number' ? '[data-phone-number-matches]' : '[data-phone-detail-matches]').appendChild(root.querySelector('[data-phone-lookup-result]'));
-        step = next; root.querySelectorAll('[data-phone-progress]').forEach(function(item,index){var active=['number','details','products'].indexOf(next);item.classList.toggle('is-current',index===active);item.classList.toggle('is-complete',index<active);if(index===active)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');}); ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
+        step = next; root.querySelector('[data-phone-orders]').hidden = next === 'products'; root.querySelectorAll('[data-phone-progress]').forEach(function(item,index){var active=['number','details','products'].indexOf(next);item.classList.toggle('is-current',index===active);item.classList.toggle('is-complete',index<active);if(index===active)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');}); ['number','details','products'].forEach(function (value) { root.classList.toggle('ph-step-' + value, value === next); });
         root.querySelector('[data-phone-step-label]').textContent = text(view==='orders'?'saved_orders':'step_' + next);
         root.querySelector('[data-phone-selected-branch]').textContent = branchLabel();
         root.querySelector('[data-phone-customer-summary]').textContent = fields.customer_name.value + ' · ' + fields.customer_phone.value + ' · ' + fields.address.value;
+        lock();
         if (focus !== false && view === 'compose') (next === 'number' ? fields.customer_phone : next === 'details' ? fields.customer_name : root.querySelector('[data-phone-search]')).focus();
-        lock();if(next==='details')ensureLocation();
+        if(next==='details')ensureLocation();
     }
     function inputPhoneDigits() { return fields.customer_phone.value.replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[^0-9]/g, ''); }
     function nextNumber() {
@@ -171,6 +189,14 @@
     function post(url, payload, signal) { return fetch(endpoint(url), { method: 'POST', credentials: 'same-origin', signal: signal, headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) }); }
     function locked() { return writing || uncertain || locating; }
     function canWrite() { return !!(permissions.can_checkout || permissions.can_operate); }
+    function editableTicket(ticket) { return ticket.payment_status === 'unpaid' && !ticket.bill_locked && !['cancelled', 'finished', 'paid', 'awaiting_bill'].includes(ticket.status); }
+    function closedEditing() { return !!editing && !editableTicket(editing); }
+    function clearClosedEditing(ticket) {
+        if (!editing || !ticket || Number(editing.id) !== Number(ticket.id) || editing.branch.value !== ticket.branch.value || editableTicket(ticket)) return false;
+        editGeneration++; abort('edit'); modalGeneration++; abort('modal'); modal.hidden = true;
+        root.querySelector('[data-phone-modal-content]').replaceChildren(); resetDraft();
+        notify(text(ticket.bill_locked ? 'bill_locked' : 'forbidden')); return true;
+    }
     function lock() {
         root.classList.toggle('is-locked', locked());
         root.querySelectorAll('input,textarea,select,button').forEach(function (control) {
@@ -181,12 +207,12 @@
         branchSelect.disabled = locked() || !!boot.receiver_branch;
         root.querySelectorAll('[data-phone-product]').forEach(function (button) { button.disabled = button.disabled || step !== 'products' || !canWrite(); });
         root.querySelectorAll('[data-phone-remove]').forEach(function (control) { control.disabled = control.disabled || !!editing && !!editing.kitchen_sent && cart.length <= 1; });
-        saveButton.disabled = step !== 'products' || locked() || !loaded || !cart.length || !quote || !canWrite() || editing && !dirty;
+        saveButton.disabled = step !== 'products' || locked() || closedEditing() || !loaded || !cart.length || !quote || !canWrite() || !customerConsent || !customerConsent.checked || editing && !dirty;
         saveButton.querySelector('span').textContent = text(writing ? 'saving' : editing ? 'save_changes' : 'save_order');
         root.querySelector('[data-phone-page="previous"]').disabled = locked() || catalogPage <= 1;
         root.querySelector('[data-phone-page="next"]').disabled = locked() || catalogPage >= Number(pagination.last_page || 1);
         root.querySelector('[data-phone-batch-finish]').disabled = locked() || !canWrite() || !selectedOrders.size;
-        if (!canWrite()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-mode],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
+        if (!canWrite() || closedEditing()) root.querySelectorAll('[data-phone-field],[data-phone-product],[data-phone-remove],[data-phone-key],[data-phone-customer-consent],[data-phone-quantity],[data-phone-lookup],[data-phone-line-quantity],[data-phone-line-option]').forEach(function (control) { control.disabled = true; });
     }
     function totals(value) {
         ['subtotal', 'discount', 'tax', 'service', 'total', 'delivery_fee'].forEach(function (key) { var amount = value && value[key]; if (key === 'delivery_fee' && amount === undefined && value) amount = value.delivery; root.querySelector('[data-phone-total="' + key + '"]').textContent = value ? money(amount || '0.00') : '—'; });
@@ -204,14 +230,28 @@
         var currentSignature = signature(current.items, current.discount, current.discount_reason, current.delivery_fee), previousSignature = signature(previous.items, previous.discount, previous.discount_reason, editing.delivery_fee || editing.delivery || '0.00');
         return currentSignature !== null && previousSignature !== null && currentSignature === previousSignature;
     }
-    function changed(affectsQuote) { if (locked()) return; dirty = true; requestKey = uuid(); if (affectsQuote) invalidateQuote(); else lock(); }
+    function changed(affectsQuote) { if (locked() || closedEditing()) return; dirty = true; requestKey = uuid(); if (affectsQuote) invalidateQuote(); else lock(); }
+    function commitLineQuantity(input) {
+        var line = cart[Number(input.dataset.phoneLineQuantity)];
+        if (!line) return false;
+        if (locked() || !canWrite() || closedEditing()) { input.value = line.quantity; return false; }
+        var amount = quantity(input.value, line.mode);
+        if (!amount) { input.value = line.quantity; notify(text('invalid_quantity')); input.focus(); input.select(); return false; }
+        input.value = amount.value;
+        if (amount.value !== line.quantity) { line.quantity = amount.value; changed(true); }
+        return true;
+    }
+    function commitPendingLineQuantity() {
+        var input = document.activeElement;
+        return !input || !root.contains(input) || !input.hasAttribute('data-phone-line-quantity') || commitLineQuantity(input);
+    }
     function invalidateQuote() {
         quoteGeneration++; abort('quote'); clearTimeout(quoteTimer); quote = sameFinancialDraft() ? editing : null; totals(quote); renderLines(); lock();
         if (!quote && cart.length && branch && loaded) quoteTimer = setTimeout(calculate, 180);
     }
     async function calculate() {
         if(!deliveryLocation)return;
-        if (disposed || locked() || !cart.length || !branch || !loaded) return;
+        if (disposed || locked() || closedEditing() || !cart.length || !branch || !loaded) return;
         if (sameFinancialDraft()) { quote = editing; totals(quote); renderLines(); lock(); notify(''); return; }
         var generation = ++quoteGeneration, controller = begin('quote'), draft = payload();
         try {
@@ -224,25 +264,83 @@
         var body = root.querySelector('[data-phone-lines]'); body.replaceChildren(); root.querySelector('[data-phone-empty]').hidden = !!cart.length;
         cart.forEach(function (line, index) {
             var confirmed = quoteLine(line), lineName = confirmed && confirmed.name || line.product.name; var row = element('tr'), itemCell = element('td'); itemCell.appendChild(element('strong', 'ph-line-name', lineName));
-            var choices = [{ id: '', label: text('base'), price: line.product.unit_price || line.product.price }].concat(line.product.options || []);
+            var choices = productChoices(line.product).slice();
+            if (line.option && !choices.some(function (option) { return String(option.id || '') === String(line.option.id || ''); })) choices.push(line.option);
             if (choices.length > 1) {
                 var select = element('select', 'ph-line-option'); select.dataset.phoneLineOption = String(index); select.setAttribute('aria-label', text('options') + ' · ' + lineName);
                 choices.forEach(function (option) { var selected = String(option.id || '') === String(line.option && line.option.id || ''); var optionPrice = selected && confirmed ? confirmed.unit_price : option.price; var optionLabel = selected && confirmed && confirmed.option_label ? confirmed.option_label : option.label; var entry = element('option', '', optionLabel + ' · ' + money(optionPrice)); entry.value = String(option.id || ''); entry.selected = selected; select.appendChild(entry); }); itemCell.appendChild(select);
-            } else if (line.option) itemCell.appendChild(element('small', 'ph-line-price', line.option.label));
+            } else if (confirmed && confirmed.option_label || line.option && line.option.label) itemCell.appendChild(element('small', 'ph-line-option-label', confirmed && confirmed.option_label || line.option.label));
             var price = line.option ? line.option.price : line.product.unit_price || line.product.price; if (confirmed) price = confirmed.unit_price;
             itemCell.appendChild(element('bdi', 'ph-line-price', money(price))); row.appendChild(itemCell);
-            var countCell = element('td'), count = element('div', 'ph-line-quantity'), input = element('input'); input.value = line.quantity; input.inputMode = 'decimal'; input.maxLength = 10; input.dataset.phoneLineQuantity = String(index); input.setAttribute('aria-label', text('quantity') + ' · ' + lineName); count.appendChild(input); count.appendChild(element('small', 'ph-line-unit', text(line.mode === 'weight' ? 'kg' : 'piece'))); countCell.appendChild(count); row.appendChild(countCell);
+            var countCell = element('td'), count = element('div', 'ph-line-quantity'), input = element('input'); input.value = line.quantity; input.inputMode = line.mode === 'piece' ? 'numeric' : 'decimal'; input.maxLength = 10; input.dataset.phoneLineQuantity = String(index); input.setAttribute('aria-label', text('quantity') + ' · ' + lineName); count.appendChild(input); count.appendChild(element('small', 'ph-line-unit', text(['piece', 'weight'].includes(line.product.quantity_mode) ? line.mode === 'weight' ? 'kg' : 'piece' : 'automatic_unit'))); countCell.appendChild(count); row.appendChild(countCell);
             var priceMinor = scaled(price, 2), countMillis = scaled(line.quantity, 3); var amount = confirmed && confirmed.total || (priceMinor !== null && countMillis !== null ? decimal((priceMinor * countMillis + 500n) / 1000n, 2) : null); var amountCell = element('td'); amountCell.appendChild(element('bdi', 'ph-line-total', money(amount))); row.appendChild(amountCell);
             var removeCell = element('td'), remove = element('button'); remove.type = 'button'; remove.dataset.phoneRemove = String(index); remove.setAttribute('aria-label', text('remove') + ' · ' + lineName); remove.appendChild(element('i', 'fas fa-times')); removeCell.appendChild(remove); row.appendChild(removeCell); body.appendChild(row);
         });
     }
-    function addProduct(product) {
-        if (!product || !product.available || step !== 'products' || locked() || !canWrite()) return;
-        var itemMode = ['piece','weight'].includes(product.quantity_mode) ? product.quantity_mode : mode;
-        var amount = quantity(itemMode === mode ? root.querySelector('[data-phone-quantity]').value : itemMode === 'piece' ? '1' : '1.000', itemMode); if (!amount) { notify(text('invalid_quantity')); return; }
-        var existing = cart.find(function (line) { return String(line.product.id) === String(product.id) && line.mode === itemMode && !line.option; });
+    function automaticQuantity(product) {
+        var known = product && ['piece', 'weight'].includes(product.quantity_mode), unit = root.querySelector('[data-phone-quantity-unit]');
+        quantityInput.inputMode = known && product.quantity_mode === 'piece' ? 'numeric' : 'decimal';
+        if (unit) unit.textContent = text(known ? product.quantity_mode === 'weight' ? 'kg' : 'piece' : 'automatic_unit');
+        // Updating the unit never replaces the quantity the cashier entered.
+        return known ? product.quantity_mode : 'weight';
+    }
+    function focusConsent() {
+        if (!cart.length || locked() || !canWrite() || !customerConsent || customerConsent.disabled) return false;
+        customerConsent.focus(); return true;
+    }
+    function quantityKey(key) {
+        if (locked() || !canWrite() || closedEditing() || step !== 'products') return;
+        if (key === 'confirm') {
+            if (!quantity(quantityInput.value, 'weight')) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+            replaceQuantity = true;
+            if (!focusConsent()) quantityInput.focus();
+            return;
+        }
+        var value = quantityInput.value, start = quantityInput.selectionStart, end = quantityInput.selectionEnd;
+        if (start === null || end === null) start = end = value.length;
+        if (key === 'clear') { value = '0'; start = 1; replaceQuantity = true; }
+        else if (key === 'backspace') { if (start === end && start > 0) start--; value = value.slice(0, start) + value.slice(end); if (!value) { value = '0'; start = 1; } replaceQuantity = false; }
+        else if (/^[0-9.]$/.test(key)) {
+            if (replaceQuantity || value === '0') { start = 0; end = value.length; }
+            if (key === '.' && start === 0 && end === value.length) key = '0.';
+            var next = value.slice(0, start) + key + value.slice(end);
+            if (next.length > quantityInput.maxLength || (next.match(/\./g) || []).length > 1 || next.includes('.') && next.split('.')[1].length > 3) return;
+            value = next; start += key.length; replaceQuantity = false;
+        } else return;
+        quantityInput.value = value; quantityInput.focus(); quantityInput.setSelectionRange(start, start);
+    }
+    function productChoices(product) {
+        if (product.options_known === false) return [];
+        if (Array.isArray(product.preparation_options)) return product.preparation_options;
+        return [{ id: '', label: text('base'), price: product.unit_price || product.price }].concat(product.options || []);
+    }
+    function pendingProductQuantity() { var value=quantityInput.value; return !value.trim() || scaled(value,3)===0n ? '1' : value; }
+    function chooseProduct(product) {
+        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing() || !modal.hidden) return;
+        if (!quantity(pendingProductQuantity(), automaticQuantity(product))) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+        var choices = productChoices(product);
+        if (choices.length <= 1) { addProduct(product); return; }
+        var content = openModal(text('options') + ' · ' + product.name), generation = modalGeneration, selected = false, selectedBranch = branch;
+        content.replaceChildren(); var list = element('div', 'ph-option-list');
+        choices.forEach(function (option) {
+            var control = element('button'); control.type = 'button';
+            control.appendChild(element('span', '', option.label));
+            control.appendChild(element('bdi', '', money(option.price) + ' ' + text('currency')));
+            control.addEventListener('click', function () {
+                if (selected || modal.hidden || generation !== modalGeneration || selectedBranch !== branch || locked() || !canWrite() || closedEditing()) return;
+                selected = true; closeModal(); addProduct(product, option.id || Array.isArray(product.preparation_options) ? option : null);
+            }); list.appendChild(control);
+        }); content.appendChild(list); list.firstElementChild.focus();
+    }
+    function addProduct(product, option) {
+        if (!product || !product.available || step !== 'products' || locked() || !canWrite() || closedEditing()) return;
+        var itemMode = automaticQuantity(product);
+        var amount = quantity(pendingProductQuantity(), itemMode); if (!amount) { notify(text('invalid_quantity')); quantityInput.focus(); return; }
+        var pending = { product: product, option: option || null, quantity: amount.value, mode: itemMode };
+        var existing = cart.find(function (line) { return lineKey(line) === lineKey(pending); });
         if (existing) { var sum = quantity(decimal(scaled(existing.quantity, 3) + amount.amount, 3), itemMode); if (!sum) { notify(text('invalid_quantity')); return; } existing.quantity = sum.value; }
-        else cart.push({ product: product, option: null, quantity: amount.value, mode: itemMode });
+        else cart.push(pending);
+        quantityInput.value = '1'; quantityInput.setSelectionRange(0, 1); replaceQuantity = true;
         changed(true); notify('');
     }
     function productNode(product) {
@@ -257,11 +355,11 @@
         try {
             var response = await get(urls.catalog, { branch: branch, search: root.querySelector('[data-phone-search]').value.trim(), category_id: category, page: page || 1 }, controller.signal), result = await read(response, 'load_error'); if (disposed || generation !== catalogGeneration) return;
             var items = result.items || result.products; if (!Array.isArray(items) || result.ready === false) throw new Error(text('load_error'));
-            policy = result.policy || {}; permissions = result.permissions || boot.permissions || {}; loaded = true; products.clear(); list.replaceChildren(); items.forEach(function (product) { products.set(String(product.id), product); list.appendChild(productNode(product)); });
+            var couldWrite=canWrite();policy = result.policy || {}; permissions = result.permissions || boot.permissions || {}; loaded = true; products.clear(); list.replaceChildren(); items.forEach(function (product) { products.set(String(product.id), product); list.appendChild(productNode(product)); });
             var categories = root.querySelector('[data-phone-categories]'); categories.replaceChildren(); (result.categories || []).forEach(function (value) { var button = element('button', '', value.name || value.label); button.type = 'button'; button.dataset.phoneCategory = String(value.id); var selected = category === String(value.id); button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); categories.appendChild(button); });
             pagination = result.pagination || {}; catalogPage = Number(pagination.page || 1); root.querySelector('[data-phone-pagination]').hidden = !(pagination.last_page > 1); root.querySelector('[data-phone-page-label]').textContent = catalogPage + ' / ' + (pagination.last_page || 1);
             root.querySelector('[data-phone-discount-wrap]').hidden = !policy.can_discount; if (!policy.can_discount) { fields.discount.value = '0.00'; fields.discount_reason.value = ''; }
-            hint.hidden = !!items.length; hint.textContent = text('no_products'); lock(); if (cart.length && !quote) invalidateQuote();
+            hint.hidden = !!items.length; hint.textContent = text('no_products'); if(boardData&&couldWrite!==canWrite())renderBoard(); lock(); if (cart.length && !quote) invalidateQuote();
         } catch (error) { if (disposed || generation !== catalogGeneration || error.name === 'AbortError') return; products.clear(); list.replaceChildren(); hint.hidden = false; hint.textContent = error.message || text('load_error'); notify(error.message || text('load_error'), false, true); }
         finally { if (generation === catalogGeneration) list.setAttribute('aria-busy', 'false'); }
     }
@@ -272,34 +370,51 @@
         clearTimeout(locationPreviewTimer);abort('location');customerRef=null;deliveryLocation=null;lastGeocoded='';savedAddressPending='';locationGeneration++;if(locationPicker){locationPicker.destroy();locationPicker=null;}latInput.value='';lngInput.value='';companySelect.value='';root.querySelector('[data-phone-distance]').textContent='';
         cart = []; editing = null; quote = null; dirty = false; requestKey = uuid(); quoteGeneration++; abort('quote'); clearTimeout(quoteTimer);
         Object.keys(fields).forEach(function (key) { fields[key].value = key === 'discount' || key === 'delivery_fee' ? '0.00' : ''; });
+        if (customerConsent) customerConsent.checked = false;
+        quantityInput.value = '1'; replaceQuantity = true; automaticQuantity(null);
         root.querySelector('[data-phone-edit-number]').textContent = ''; root.querySelector('[data-phone-discount-reason-wrap]').hidden = true; root.querySelector('[data-phone-lookup-result]').hidden = true; renderLines(); totals(null); flow('number', false);
         root.querySelector('.ph-invoice-scroll').scrollTop = 0;if(branch&&reloadContext!==false)loadDeliveryContext();
     }
     function switchView(target) {
         if (locked()) { notify(text('locked'), false, true); return; }
-        view = target; root.classList.toggle('ph-view-orders',target==='orders');root.querySelector('[data-phone-step-label]').textContent = text(target === 'orders' ? 'saved_orders' : 'step_' + step); root.querySelector('[data-phone-compose]').hidden = target !== 'compose'; root.querySelector('[data-phone-orders]').hidden = target !== 'orders'; root.querySelectorAll('[data-phone-view]').forEach(function (button) { var selected = button.dataset.phoneView === target; button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected)); }); branchSelect.options[0].textContent=text(target==='orders'&&boot.can_view_all_branches?'all_branches':'select_branch');root.querySelector('[data-phone-selected-branch]').textContent=branchLabel();if (target === 'orders' && boardScope()) loadOrders(); else if (target === 'compose' && branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
+        // Legacy links can focus the queue without hiding or clearing the draft.
+        view = 'compose';
+        if (target === 'orders') { root.querySelector('[data-phone-orders]').focus({preventScroll:true}); return; }
+        if (branch) { if (!loaded) loadCatalog(catalogPage); else if (cart.length && !quote) calculate(); }
+        flow(step);
     }
     function changeBranch(confirmed) {
         var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || confirmed!==true && cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
         var customerPoint={latitude:latInput.value,longitude:lngInput.value},pendingAddress=savedAddressPending;var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason','delivery_fee'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
         branch = selected; selectedOrders.clear(); boardPages={preparing:1,courier:1,finished:1}; boardData=null; updateBatchTotal(); boot.company_filter=0; deliverySettings=null;catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = !branch&&boot.can_view_all_branches?boot.permissions||{}:{}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(false); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; });latInput.value=customerPoint.latitude;lngInput.value=customerPoint.longitude;savedAddressPending=pendingAddress; dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
-        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(view==='orders'&&boardScope())loadOrders();
+        var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(boardScope())loadOrders();
     }
     async function lookupCustomer(prefix) {
-        if (!branch || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
+        var scope = boardScope();
+        if (!scope || locked() || !canWrite() || !fields.customer_phone.value.trim()) return;
         var generation = ++customerGeneration, controller = begin('customer'), phone = fields.customer_phone.value.trim(), requestedBranch = branch;
         var resultBox = root.querySelector('[data-phone-lookup-result]'); resultBox.hidden = false; resultBox.textContent = text('loading');
         try {
-            var response = await get(urls.customers, { branch: branch, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
+            var response = await get(urls.customers, { branch: scope, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
             var matches = result.matches || result.customers || result.items || []; resultBox.replaceChildren(); if (!matches.length) { resultBox.textContent = text('lookup_empty'); return; }
             suggestionIndex = -1; resultBox.appendChild(element('p', '', text('lookup_found'))); matches.forEach(function (customer, index) {
+                var customerBranch = scope === 'all' && customer.branch ? (boot.branches || []).find(function (option) { return option.value === customer.branch && Array.from(branchSelect.options).some(function (option) { return option.value === customer.branch; }); }) : null;
                 var button = element('button'); button.type = 'button'; button.dataset.phoneSuggestion = String(index);
                 button.appendChild(element('bdi', '', customer.phone)); button.appendChild(element('strong', '', customer.name)); button.appendChild(element('small', '', customer.address || text('address_placeholder')));
-                button.addEventListener('click', function () { if (locked() || requestedBranch !== branch || phone !== fields.customer_phone.value.trim()) return;
+                if (customerBranch) button.appendChild(element('small', '', customerBranch.name));
+                if (scope === 'all' && customer.branch && !customerBranch) { button.dataset.noAccess = ''; button.disabled = true; }
+                button.addEventListener('click', function () { if (disposed || locked() || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || scope === 'all' && customer.branch && !customerBranch) return;
+                    if (customerBranch) {
+                        branchSelect.value = customerBranch.value;
+                        if (branchSelect.selectize) branchSelect.selectize.setValue(customerBranch.value, true);
+                        changeBranch(true);
+                        if (branch !== customerBranch.value) return;
+                    }
                     clearTimeout(customerTimer); customerGeneration++; abort('customer'); fields.customer_phone.value = customer.phone || phone;
+                    if (customerConsent) customerConsent.checked = false;
                     fields.customer_name.value = customer.name || ''; fields.address.value = customer.address || ''; fields.area.value = customer.area || ''; fields.delivery_notes.value = customer.delivery_notes || '';
-                    customerRef=customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
+                    customerRef=branch&&customer.customer_id?{id:customer.customer_id,revision:customer.customer_revision}:null;setCustomerLocation(customer);resultBox.hidden = true; changed(false); flow('details');
                 }); resultBox.appendChild(button);
             });if(!prefix&&matches.length===1)resultBox.querySelector('[data-phone-suggestion]').click();
         } catch (error) { if (disposed || generation !== customerGeneration || error.name === 'AbortError') return; resultBox.textContent = error.message || text('lookup_error'); }
@@ -324,7 +439,7 @@
         container.appendChild(button('view_order',function(){detailsModal(ticket.id);},'is-orange'));
         if(!canWrite()||stage==='finished')return;
         if(stage==='preparing'){
-            if(!ticket.bill_locked){container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));container.appendChild(button('kitchen_order',function(){action(ticket,'send_kitchen',true);},'is-primary'));}
+            if(!ticket.bill_locked)container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));
             container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);},'is-orange'));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
@@ -363,6 +478,45 @@
             dispatchControl(ticket,content);lock();var choice=content.querySelector('[data-phone-board-company]');if(choice)choice.focus();
         }catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
+    var preparationTimer;
+    function preparationCreatedAt(value) {
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-]\d{2}:[0-5]\d)$/.test(value)) return null;
+        var timestamp = Date.parse(value), day = Date.parse(value.slice(0, 10) + 'T00:00:00Z');
+        if (!Number.isFinite(timestamp) || !Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== value.slice(0, 10)) return null;
+        return timestamp;
+    }
+    function updatePreparationTimer(timer, now) {
+        var elapsed = Math.max(0, Math.floor((now - Number(timer.dataset.phonePreparingCreatedAt)) / 1000));
+        var hours = Math.floor(elapsed / 3600), minutes = Math.floor(elapsed / 60) % 60, seconds = elapsed % 60;
+        var value = (hours ? String(hours).padStart(2, '0') + ':' : '') + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        timer.querySelector('.ph-preparation-timer-value').textContent = value;
+        timer.classList.toggle('is-overdue', elapsed > 900);
+    }
+    function updatePreparationTimers() {
+        if (disposed) return;
+        var now = Date.now();
+        root.querySelectorAll('[data-phone-preparing-created-at]').forEach(function (timer) { updatePreparationTimer(timer, now); });
+    }
+    function preparationBadge(ticket, column) {
+        var createdAt = preparationCreatedAt(ticket.created_at);
+        if (createdAt === null) return null;
+        var label = text(column === 'courier' ? 'order_elapsed' : 'preparation_elapsed');
+        var timer = element('span', 'ph-preparation-timer'), icon = element('i', 'far fa-clock');
+        timer.dataset.phonePreparingCreatedAt = String(createdAt); timer.setAttribute('role', 'timer'); timer.setAttribute('aria-label', label); icon.setAttribute('aria-hidden', 'true');
+        timer.appendChild(icon); timer.appendChild(element('span', 'ph-preparation-timer-label', label)); timer.appendChild(element('bdi', 'ph-preparation-timer-value'));
+        updatePreparationTimer(timer, Date.now());
+        return timer;
+    }
+    function completedBadge(ticket) {
+        if (preparationCreatedAt(ticket.completed_at) === null) return null;
+        var label = text(ticket.status === 'cancelled' ? 'cancelled_time' : 'completed_time');
+        var stamp = element('span', 'ph-ticket-finished-at'), icon = element('i', 'far fa-clock');
+        icon.setAttribute('aria-hidden', 'true');
+        var time = element('time', 'ph-ticket-finished-value', dateLabel(ticket.completed_at));
+        time.setAttribute('datetime', ticket.completed_at);
+        stamp.appendChild(icon); stamp.appendChild(element('span', 'ph-ticket-finished-label', label)); stamp.appendChild(time);
+        return stamp;
+    }
     function card(ticket, column) {
         var article = element('article', 'ph-ticket ph-ticket-compact');
         article.dataset.phoneTicket = String(ticket.id);
@@ -381,10 +535,14 @@
         var location = element('span', 'ph-ticket-address', address || ''); location.title = address || ''; metadata.appendChild(location);
         metadata.title = [address, ticket.courier_company && ticket.courier_company.name, ticket.created_label || dateLabel(ticket.created_at)].filter(Boolean).join(' · ');
         article.appendChild(metadata);
+        if (ticket.payment_status === 'unpaid' && (column === 'preparing' && ['new', 'preparing'].includes(ticket.status) || column === 'courier' && ['out_for_delivery', 'finished'].includes(ticket.status))) {
+            var timer = preparationBadge(ticket, column); if (timer) article.appendChild(timer);
+        }
         var actions = element('div', 'ph-ticket-quick-actions');
         ticketActions(ticket, actions);
         actions.querySelectorAll('button').forEach(function(control){control.title=control.textContent+' '+number;});
         article.appendChild(actions);
+        if (column === 'finished' && (ticket.payment_status === 'paid' || ticket.status === 'cancelled')) { var completed = completedBadge(ticket); if (completed) article.appendChild(completed); }
         if (column === 'courier' && canWrite()) {
             var choice = element('label', 'ph-board-select'), check = element('input'); check.type = 'checkbox';
             check.dataset.phoneBatchSelect = String(ticket.id); check.checked = selectedOrders.has(ticket.id);
@@ -405,45 +563,88 @@
         root.querySelector('[data-phone-batch-total]').textContent=selectedOrders.size?selectedOrders.size+' '+text('selected_orders')+' · '+money(decimal(total,2))+' '+text('currency'):text('select_orders');lock();
     }
     function renderBoard(){
-        var list=root.querySelector('[data-phone-order-list]');list.replaceChildren();
+        var list=root.querySelector('[data-phone-order-list]'), scroll={};
+        list.querySelectorAll('[data-phone-column]').forEach(function(column){var cards=column.querySelector('.ph-board-cards');scroll[column.dataset.phoneColumn]=cards.scrollTop;});
+        list.replaceChildren();
         ['preparing','courier','finished'].forEach(function(stage){
             var data=boardData.columns[stage],section=element('section','ph-board-column ph-board-'+stage);section.dataset.phoneColumn=stage;
             var heading=element('h3','',text('board_'+stage));heading.appendChild(element('bdi','',data.pagination.total));section.appendChild(heading);
             var cards=element('div','ph-board-cards');data.items.forEach(function(ticket){cards.appendChild(card(ticket,stage));});if(!data.items.length)cards.appendChild(element('p','ph-empty',text('empty_orders')));section.appendChild(cards);
             if(data.pagination.last_page>1){var nav=element('nav','ph-pagination');['previous','next'].forEach(function(direction){var control=button(direction,function(){if(locked())return;if(stage==='courier'){selectedOrders.clear();updateBatchTotal();}boardPages[stage]+=direction==='next'?1:-1;loadOrders();});if(direction==='previous'&&data.pagination.page<=1||direction==='next'&&data.pagination.page>=data.pagination.last_page)control.dataset.unavailable='';nav.appendChild(control);if(direction==='previous')nav.appendChild(element('span','',data.pagination.page+' / '+data.pagination.last_page));});section.appendChild(nav);}
-            list.appendChild(section);
+            list.appendChild(section);cards.scrollTop=scroll[stage]||0;
         });updateBatchTotal();
     }
     async function loadOrders(unused, quiet) {
-        if (!boardScope() || disposed || locked() || quiet && (!modal.hidden || document.activeElement && document.activeElement.matches('[data-phone-board-company]'))) return;
-        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'); list.setAttribute('aria-busy', 'true');
+        var board=root.querySelector('[data-phone-orders]');
+        function boardControlFocused(){return document.activeElement!==board&&board.contains(document.activeElement);}
+        if (!boardScope() || disposed || locked() || quiet && (!modal.hidden || boardControlFocused() || orderPending && orderPending===orderGeneration)) return;
+        var generation = ++orderGeneration, controller = begin('orders'), list = root.querySelector('[data-phone-order-list]'), timeout=setTimeout(function(){controller.abort();},12000);
+        orderPending=generation;list.setAttribute('aria-busy', 'true');
         try {
             var result=await read(await get(urls.board,{branch:boardScope(),preparing_page:boardPages.preparing,courier_page:boardPages.courier,finished_page:boardPages.finished,delivery_company_id:boot.company_filter||null},controller.signal),'list_error');
-            if(disposed||generation!==orderGeneration)return;
+            if(disposed||generation!==orderGeneration||quiet&&(!modal.hidden||boardControlFocused()))return;
             if(result.branch!==boardScope()||!result.columns||!Array.isArray(result.companies))throw Error(text('list_error'));
             ['preparing','courier','finished'].forEach(function(stage){var column=result.columns[stage];if(!column||!Array.isArray(column.items)||!column.pagination||column.items.some(function(t){return !validTicket(t,undefined,true);}))throw Error(text('list_error'));boardPages[stage]=column.pagination.page;});
+            if (editing) ['preparing', 'courier', 'finished'].some(function (stage) { return result.columns[stage].items.some(clearClosedEditing); });
             var current=new Map(result.columns.courier.items.map(function(t){return[t.id,t];}));var removed=false;
             selectedOrders.forEach(function(t,id){var next=current.get(id);if(!next||next.revision!==t.revision){selectedOrders.delete(id);removed=true;}});
             if(removed)notify(text('selection_changed'));
-            boardData=result;boardCompanies=result.companies;renderBoard();
+            var unchanged=boardData&&JSON.stringify(boardData)===JSON.stringify(result);
+            boardData=result;boardCompanies=result.companies;if(!unchanged)renderBoard();
         } catch (error) { if (disposed || generation !== orderGeneration || error.name === 'AbortError') return; notify(error.message || text('list_error'),false,true); if(!boardData)list.replaceChildren(element('p','ph-empty',text('list_error'))); }
-        finally { if (generation === orderGeneration) list.setAttribute('aria-busy', 'false'); }
+        finally { clearTimeout(timeout);if(orderPending===generation){orderPending=0;list.setAttribute('aria-busy', 'false');} }
+    }
+    function validCash(cash, total) {
+        var received = scaled(cash.value, 2);
+        if (received === null || received > 100000000n) { notify(text('invalid_money')); cash.focus(); return null; }
+        if (received < total) { notify(text('cash_insufficient')); cash.focus(); return null; }
+        return received;
+    }
+    function plainEnter(event) {
+        return event.key === 'Enter' && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+    }
+    function quantityShortcutContext(target) {
+        if (target === document.body || target === document.documentElement) return true;
+        if (!target || !root.contains(target) || target.isContentEditable || target.closest('input,textarea,select,[contenteditable],[role="textbox"]')) return false;
+        return !!target.closest('.ph-catalog,[data-phone-key],[data-phone-product]');
+    }
+    function cashKeyboard(form, cash, confirmed, submit, total) {
+        form.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter') return;
+            if (event.repeat) { event.preventDefault(); return; }
+            if (!plainEnter(event)) { event.preventDefault(); return; }
+            if (locked() || form.closest('[data-phone-modal]').hidden) { event.preventDefault(); return; }
+            if (event.target === cash) {
+                event.preventDefault();
+                if (validCash(cash, total) !== null) { confirmed.focus(); notify(text('confirm_payment')); }
+                return;
+            }
+            if (event.target === confirmed) {
+                event.preventDefault();
+                if (validCash(cash, total) === null) return;
+                confirmed.checked = true;
+                form.requestSubmit(submit);
+                return;
+            }
+            if (event.target !== submit && !event.target.matches('button')) { event.preventDefault(); cash.focus(); }
+        });
+        cash.addEventListener('input', function () { confirmed.checked = false; });
     }
     function finishBatch(){
         if(locked()||!canWrite()||!selectedOrders.size)return;
         var tickets=Array.from(selectedOrders.values()),content=openModal(text('finish_orders')),total=0n,form=element('form','ph-settle-form'),table=element('table','ph-detail-table'),body=element('tbody');
-        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id));row.appendChild(element('td','',money(t.total)));body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
+        tickets.forEach(function(t){total+=scaled(t.total,2);var row=element('tr');row.appendChild(element('td','','#'+t.id+' · '+(t.customer_name||'')+' · '+(t.customer_phone||'')));row.appendChild(element('td','',money(t.total)));body.appendChild(row);});table.appendChild(body);form.appendChild(element('p','',tickets[0].courier_company.name));form.appendChild(table);form.appendChild(element('strong','ph-settle-total',money(decimal(total,2))+' '+text('currency')));
         function field(label,node){var wrap=element('label','ph-field');wrap.appendChild(element('span','',text(label)));wrap.appendChild(node);form.appendChild(wrap);return wrap;}
         var courier=element('input');courier.maxLength=100;courier.dataset.phoneBatchCourier='';field('courier_name',courier);
         var method=element('select');['cash'].forEach(function(k){var option=element('option','',text(k));option.value=k;method.appendChild(option);});field('payment_method',method);
-        var cash=element('input');cash.inputMode='decimal';cash.maxLength=14;cash.value=decimal(total,2);var cashLabel=field('cash_received',cash);
+        var cash=element('input');cash.inputMode='decimal';cash.maxLength=14;cash.value=decimal(total,2);cash.dataset.phoneBatchCash='';var cashLabel=field('cash_paid',cash);cashLabel.classList.add('ph-cash-paid');
         var reference=element('input');reference.maxLength=150;var referenceLabel=field('payment_reference',reference);referenceLabel.hidden=true;
         var confirm=element('label','ph-settle-confirm'),check=element('input');check.type='checkbox';check.dataset.phoneBatchConfirmed='';confirm.appendChild(check);confirm.appendChild(element('span','',text('payment_confirmed')));form.appendChild(confirm);
         var submit=element('button','',text('finish_orders'));submit.type='submit';submit.dataset.phoneBatchSubmit='';form.appendChild(submit);content.replaceChildren(form);
         method.addEventListener('change',function(){cashLabel.hidden=method.value!=='cash';referenceLabel.hidden=method.value==='cash';check.checked=false;});
-        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=scaled(cash.value,2);if(method.value==='cash'&&(received===null||received<total)){notify(text('cash_insufficient'));return;}
+        form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!check.checked){notify(text('confirm_payment'));return;}var received=validCash(cash,total);if(received===null)return;
             execute({type:'batch',url:urls['finish-batch'],payload:{branch:tickets[0].branch.value,idempotency_key:uuid(),items:tickets.map(function(t){return{id:t.id,revision:t.revision,quote_hash:t.quote_hash};}),courier_name:courier.value.trim(),total:decimal(total,2),payment_method:method.value,cash_received:method.value==='cash'?decimal(received,2):null,payment_reference:reference.value.trim(),payment_confirmed:true}});
-        });lock();
+        });cashKeyboard(form,cash,check,submit,total);lock();cash.focus();
     }
     function validateWriteResult(result, operation, recovered) {
         if (!validTicket(result.ticket, operation.ticketId, false, operation.payload.branch) || operation.payload.expected_revision !== undefined && Number(result.ticket.revision) <= Number(operation.payload.expected_revision) || operation.type === 'save' && !recovered && result.ticket.payment_status !== 'unpaid' || operation.type === 'settle' && result.ticket.payment_status !== 'paid') throw new Error(text('uncertain'));
@@ -452,8 +653,8 @@
         if (operation.type === 'save' && !recovered && !result.replayed && result.ticket.quote_hash !== operation.payload.quote_hash) throw new Error(text('uncertain'));
         if (operation.type === 'save' && ticketDeliveryOrigin(result.ticket)!==(operation.payload.delivery_origin_branch||'')) throw new Error(text('uncertain'));
         if ((operation.type === 'save' && operation.payload.send_to_kitchen || operation.type === 'action' && operation.payload.action === 'send_kitchen') && !result.ticket.kitchen_sent) throw new Error(text('uncertain'));
-        var receiptPath = operation.type === 'settle' && result.receipt_url && new URL(endpoint(result.receipt_url)).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
-        if (operation.type === 'settle' && (!receiptPath || !result.receipt || Number(receiptPath[1]) !== Number(result.receipt.id) || !Number.isSafeInteger(Number(result.receipt.id)) || !result.receipt_url || !result.receipt.branch || result.receipt.branch.value !== operation.payload.branch || result.receipt.idempotency_key !== operation.payload.idempotency_key || scaled(result.receipt.total, 2) !== scaled(operation.total, 2))) throw new Error(text('uncertain'));
+        var receiptURL = result.first_print_url || result.receipt_url, receiptPath = operation.type === 'settle' && receiptURL && new URL(endpoint(receiptURL)).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
+        if (operation.type === 'settle' && (!result.receipt || receiptURL && (!receiptPath || Number(receiptPath[1]) !== Number(result.receipt.id)) || !Number.isSafeInteger(Number(result.receipt.id)) || Number(result.receipt.id) < 1 || !result.receipt.branch || result.receipt.branch.value !== operation.payload.branch || result.receipt.idempotency_key !== operation.payload.idempotency_key || scaled(result.receipt.total, 2) !== scaled(operation.total, 2))) throw new Error(text('uncertain'));
         if (operation.type === 'action' && operation.payload.action === 'send_kitchen' && !result.kitchen_print_url && !(result.kitchen && (result.kitchen.print_url || result.kitchen.kitchen_print_url)) && !result.ticket.kitchen_print_url) throw new Error(text('uncertain'));
     }
     function applyWrite(result, operation, recovered) {
@@ -465,7 +666,9 @@
                 var batch=result.batch,ids=function(items,key){return items.map(function(t){return Number(t[key]);}).sort(function(a,b){return a-b;}).join(',');};
                 if(!batch||!batch.branch||batch.branch.value!==operation.payload.branch||batch.idempotency_key!==operation.payload.idempotency_key||scaled(batch.total,2)!==scaled(operation.payload.total,2)||!Array.isArray(batch.items)||ids(batch.items,'ticket_id')!==ids(operation.payload.items,'id')||!Number.isSafeInteger(batch.id)||!new URL(endpoint(batch.print_url)).pathname.endsWith('/phone-orders/batches/'+batch.id+'/print'))throw Error(text('uncertain'));
             }
-            writing=false;uncertain=false;frozen=null;modal.hidden=true;selectedOrders.clear();updateBatchTotal();notify(text(operation.type==='batch'?'batch_completed':'company_dispatched'),true);loadOrders();
+            writing=false;uncertain=false;frozen=null;modal.hidden=true;
+            if (operation.type === 'batch' && editing && result.batch.items.some(function (item) { return Number(item.ticket_id) === Number(editing.id); })) clearClosedEditing(Object.assign({}, editing, { payment_status: 'paid', status: 'finished' }));
+            selectedOrders.clear();updateBatchTotal();notify(text(operation.type==='batch'?'batch_completed':'company_dispatched'),true);loadOrders();
             if(operation.type==='batch'){if(branch)loadCatalog(catalogPage);print(result.batch.print_url);}return;
         }
         if(operation.type==='customer'){
@@ -480,7 +683,8 @@
         if (operation.type === 'save' || editing && Number(editing.id) === Number(result.ticket.id)) resetDraft();
         var savedLabel = operation.type === 'save' ? operation.ticketId ? 'saved_edit' : 'saved' : operation.type === 'settle' ? 'collected' : operation.payload.action === 'cancel' ? 'cancelled_message' : 'ticket_updated';
         notify(text(savedLabel) + ' #' + (result.ticket.number || result.ticket.id), true); lock();
-        if (view === 'orders') loadOrders(); else if (step === 'number') fields.customer_phone.focus();
+        loadOrders();
+        if (operation.type === 'save' && step === 'number') fields.customer_phone.focus();
         if (branch && (operation.type === 'settle' || !loaded)) loadCatalog(catalogPage);
         else if (cart.length && !quote) calculate();
         if (operation.type === 'action' && operation.payload.action === 'request_bill') print(result.ticket.receipt_url || result.ticket.bill_print_url);
@@ -509,13 +713,15 @@
     function save() {
         if (step !== 'products') return;
         if (locked()) { if (uncertain && frozen) execute(frozen); return; }
-        if (!branch || !cart.length || !canWrite()) return;
+        if (!branch || !cart.length || !canWrite() || closedEditing()) return;
+        if (!commitPendingLineQuantity()) return;
+        if (!customerConsent || !customerConsent.checked) { notify(text('consent_required')); if (customerConsent) customerConsent.focus(); return; }
         if (!quote) { notify(text('quote_required'), false, true); return; }
         if (!fields.customer_name.value.trim() || !fields.customer_phone.value.trim() || !fields.address.value.trim()) { notify(text('required_customer')); return; }
         if (scaled(fields.delivery_fee.value, 2) === null || policy.can_discount && scaled(fields.discount.value, 2) === null) { notify(text('invalid_money')); return; }
         if (policy.can_discount && scaled(fields.discount.value, 2) > 0n && !fields.discount_reason.value.trim()) { notify(text('invalid_discount')); return; }
         if (cart.some(function (line) { return !quantity(line.quantity, line.mode); })) { notify(text('invalid_quantity')); return; }
-        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim() });
+        var values = Object.assign(payload(), { send_to_kitchen: true, idempotency_key: requestKey, quote_hash: quote.quote_hash, customer_name: fields.customer_name.value.trim(), customer_phone: fields.customer_phone.value.trim(), address: fields.address.value.trim(), area: fields.area.value.trim(), delivery_notes: fields.delivery_notes.value.trim(), notes: fields.notes.value.trim(), service_consent: true, marketing_consent: false });
         if (editing) { values.ticket_id = editing.id; values.expected_revision = editing.revision; }
         execute({ type: 'save', url: endpoint(urls.save), payload: values, ticketId: editing ? editing.id : undefined });
     }
@@ -528,12 +734,12 @@
         var controller = begin('edit'), requestedBranch = branch, generation = ++editGeneration;
         try {
             var ticket = await fetchTicket(id, controller.signal); if (disposed || generation !== editGeneration || requestedBranch !== branch || locked()) return;
-            if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled' || ticket.bill_locked || !canWrite()) { notify(text('forbidden')); return; }
+            if (!editableTicket(ticket) || !canWrite()) { notify(text('forbidden')); return; }
             var origin=ticketDeliveryOrigin(ticket);
             if(ticket.branch.value!==branch){branchSelect.value=ticket.branch.value;if(branchSelect.selectize)branchSelect.selectize.setValue(ticket.branch.value,true);changeBranch(true);}
             resetDraft(false); editing = ticket;setDeliveryOrigin(origin,ticket.delivery_location); fields.customer_name.value = ticket.customer_name || ''; fields.customer_phone.value = ticket.customer_phone || ''; fields.address.value = ticket.address || ''; fields.area.value = ticket.area || ''; fields.delivery_notes.value = ticket.delivery_notes || ''; fields.notes.value = ticket.notes || ''; fields.delivery_fee.value = ticket.delivery_fee || ticket.delivery || '0.00'; fields.discount.value = ticket.discount || '0.00'; fields.discount_reason.value = ticket.discount_reason || '';
             customerRef=ticket.customer_id&&ticket.customer_revision?{id:ticket.customer_id,revision:ticket.customer_revision}:null;setCustomerLocation(ticket.delivery_location||{});deliveryLocation=ticket.delivery_location||null;manualDeliveryFee=!!(deliveryLocation&&deliveryLocation.fee_mode==='manual');fields.delivery_fee.value=ticket.delivery_fee||ticket.delivery||'0.00';loadDeliveryContext(String(ticket.delivery_company&&ticket.delivery_company.id||''),ticket.delivery_company&&ticket.delivery_company.name);
-            var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], available: true, quantity_mode: 'select' }; var choice = line.option_id ? (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id, label: line.option_label, price: line.unit_price } : null; return { product: product, option: choice, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
+            var quotedItems = ticket.items; cart = quotedItems.map(function (line) { var product = products.get(String(line.product_id)); if (!product) product = { id: line.product_id, name: line.name, price: line.unit_price, unit_price: line.unit_price, options: [], options_known: false, available: true, quantity_mode: 'select' }; var choice = productChoices(product).find(function (option) { return String(option.id || '') === String(line.option_id || ''); }); if (!choice && (line.option_id || line.option_label)) choice = (product.options || []).find(function (option) { return String(option.id) === String(line.option_id); }) || { id: line.option_id || '', label: line.option_label, price: line.unit_price }; if (!line.option_id && !line.option_label && !Array.isArray(product.preparation_options)) choice = null; return { product: product, option: choice || null, quantity: line.quantity_mode === 'piece' ? String(scaled(line.quantity, 3) / 1000n) : line.quantity, mode: line.quantity_mode }; });
             root.querySelector('[data-phone-edit-number]').textContent = '#' + (ticket.number || ticket.id); root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(ticket.discount, 2) > 0n); modal.hidden = true; modalGeneration++; abort('modal'); switchView('compose'); flow(deliveryLocation?'products':'details', false); dirty = false; quote = ticket; renderLines(); totals(quote); lock(); notify('');
         } catch (error) { if (disposed || requestedBranch !== branch || error.name === 'AbortError') return; notify(error.message || text('list_error')); }
     }
@@ -546,20 +752,20 @@
             var response = await post(urls.quote, { branch: ticket.branch.value, ticket_id: ticket.id }, controller.signal), result = await read(response, 'quote_error'); if (disposed || generation !== modalGeneration) return; var value = result.quote || result; if (!value.quote_hash || scaled(value.total, 2) === null) throw new Error(text('quote_error'));
             content.replaceChildren(); var form = element('form', 'ph-settle-form'); form.appendChild(element('strong', 'ph-settle-total', money(value.total) + ' ' + text('currency'))); form.appendChild(element('p', 'ph-payment-note', text('payment_note')));
             var methodLabel = element('label', 'ph-field'); methodLabel.appendChild(element('span', '', text('payment_method'))); var method = element('select'); method.dataset.phoneSettleMethod = ''; ['cash'].forEach(function (key) { var option = element('option', '', text(key)); option.value = key; method.appendChild(option); }); methodLabel.appendChild(method); form.appendChild(methodLabel);
-            var cashLabel = element('label', 'ph-field'); cashLabel.appendChild(element('span', '', text('cash_received'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
+            var cashLabel = element('label', 'ph-field ph-cash-paid'); cashLabel.appendChild(element('span', '', text('cash_paid'))); var cash = element('input'); cash.inputMode = 'decimal'; cash.maxLength = 14; cash.value = value.total; cash.dataset.phoneSettleCash = ''; cashLabel.appendChild(cash); form.appendChild(cashLabel);
             var referenceLabel = element('label', 'ph-field'); referenceLabel.hidden = true; referenceLabel.appendChild(element('span', '', text('payment_reference'))); var reference = element('input'); reference.maxLength = 100; reference.dataset.phoneSettleReference = ''; referenceLabel.appendChild(reference); form.appendChild(referenceLabel);
             var confirmation = element('label', 'ph-settle-confirm'), confirmed = element('input'); confirmed.type = 'checkbox'; confirmed.dataset.phoneSettleConfirmed = ''; confirmation.appendChild(confirmed); confirmation.appendChild(element('span', '', text('payment_confirmed'))); form.appendChild(confirmation); var submit = element('button', '', text('collect')); submit.type = 'submit'; submit.dataset.phoneSettleSubmit = ''; form.appendChild(submit); content.appendChild(form);
             method.addEventListener('change', function () { cashLabel.hidden = method.value !== 'cash'; referenceLabel.hidden = method.value === 'cash'; confirmed.checked = false; });
-            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = scaled(cash.value, 2); if (method.value === 'cash' && (received === null || received < scaled(value.total, 2))) { notify(text('cash_insufficient')); return; }
+            form.addEventListener('submit', function (event) { event.preventDefault(); if (locked() || generation !== modalGeneration) return; if (!confirmed.checked) { notify(text('confirm_payment')); return; } var received = validCash(cash, scaled(value.total, 2)); if (received === null) return;
                 execute({ type: 'settle', url: endpoint(urls.settle, null, ticket.id), ticketId: ticket.id, total: value.total, payload: { branch: ticket.branch.value, expected_revision: ticket.revision, idempotency_key: uuid(), quote_hash: value.quote_hash, payment_method: method.value, cash_received: method.value === 'cash' ? decimal(received, 2) : null, payment_confirmed: true, payment_reference: reference.value.trim() } });
-            }); lock();
+            }); cashKeyboard(form, cash, confirmed, submit, scaled(value.total, 2)); lock(); cash.focus();
         } catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('quote_error'))); }
     }
     function mayLeave() { if (locked()) { notify(text('locked'), false, true); return false; } return !dirty || window.confirm(text('unsaved')); }
 
     listen(root, 'click', function (event) {
         var control = event.target.closest('button'); if (!control || !root.contains(control)) return;
-        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); if (view === 'orders') return loadOrders(); if (!loaded) return loadCatalog(catalogPage); return calculate(); }
+        if (control.hasAttribute('data-phone-retry')) { if (uncertain && frozen) return execute(frozen); loadOrders(); if (!loaded && branch) return loadCatalog(catalogPage); if (cart.length) return calculate(); return; }
         if (locked()) return;
         if (control.hasAttribute('data-phone-batch-finish')) return finishBatch();
         if (control.hasAttribute('data-phone-save')) return save();
@@ -570,21 +776,23 @@
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
-        if (control.dataset.phoneView) { if (control.dataset.phoneView === 'compose' && view === 'compose') { if (!dirty || window.confirm(text('new_warning'))) resetDraft(); } return switchView(control.dataset.phoneView); }
-        if (control.dataset.phoneProduct !== undefined) return addProduct(products.get(control.dataset.phoneProduct));
-        if (control.dataset.phoneRemove !== undefined) { if (editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
+        if (control.hasAttribute('data-phone-new-order')) { if (dirty && !window.confirm(text('new_warning'))) return; resetDraft(); notify(''); return switchView('compose'); }
+        if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
+        if (control.dataset.phoneRemove !== undefined) { if (closedEditing() || editing && editing.kitchen_sent && cart.length <= 1) return; cart.splice(Number(control.dataset.phoneRemove), 1); return changed(true); }
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.hasAttribute('data-phone-refresh')) return loadOrders();
-        if (control.dataset.phoneMode) { mode = control.dataset.phoneMode; root.querySelectorAll('[data-phone-mode]').forEach(function (tab) { tab.setAttribute('aria-pressed', String(tab.dataset.phoneMode === mode)); }); root.querySelector('[data-phone-quantity]').value = mode === 'piece' ? '1' : '1.000'; }
+        if (control.dataset.phoneKey !== undefined) return quantityKey(control.dataset.phoneKey);
     });
     listen(root, 'change', function (event) {
         var input = event.target;
-        if (locked()) return;
-        if (input.dataset.phoneLineQuantity !== undefined) { var line = cart[Number(input.dataset.phoneLineQuantity)], amount = line && quantity(input.value, line.mode); if (!amount) { if (line) input.value = line.quantity; notify(text('invalid_quantity')); return; } line.quantity = amount.value; return changed(true); }
-        if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option; selectedLine.option = input.value ? (selectedLine.product.options || []).find(function (option) { return String(option.id) === input.value; }) || selectedLine.option : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
+        if (input.dataset.phoneLineQuantity !== undefined) { commitLineQuantity(input); return; }
+        if (locked() || !canWrite() || closedEditing()) { var unchanged = input.dataset.phoneLineOption !== undefined && cart[Number(input.dataset.phoneLineOption)]; if (unchanged) input.value = String(unchanged.option && unchanged.option.id || ''); return; }
+        if (input.dataset.phoneLineOption !== undefined) { var selectedLine = cart[Number(input.dataset.phoneLineOption)]; if (!selectedLine) return; var previousOption = selectedLine.option, selectedOption = productChoices(selectedLine.product).find(function (option) { return String(option.id || '') === input.value; }); if (!selectedOption) { input.value = String(previousOption && previousOption.id || ''); return; } selectedLine.option = selectedOption.id || Array.isArray(selectedLine.product.preparation_options) ? selectedOption : null; var duplicate = cart.find(function (line) { return line !== selectedLine && lineKey(line) === lineKey(selectedLine); }); if (duplicate) { var combined = quantity(decimal(scaled(duplicate.quantity, 3) + scaled(selectedLine.quantity, 3), 3), duplicate.mode); if (!combined) { selectedLine.option = previousOption; input.value = String(previousOption && previousOption.id || ''); notify(text('invalid_quantity')); return; } duplicate.quantity = combined.value; cart.splice(cart.indexOf(selectedLine), 1); } return changed(true); }
     });
-    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone')customerRef=null; if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    Object.keys(fields).forEach(function (key) { listen(fields[key], 'input', function () { if(key==='delivery_fee')manualDeliveryFee=true; if(['customer_name','address','area','delivery_notes'].includes(key)){customerGeneration++;abort('customer');}if(key==='address')addressChanged();if(key==='customer_phone'){customerRef=null;if(customerConsent)customerConsent.checked=false;} if (key === 'customer_phone') { customerGeneration++; abort('customer'); clearTimeout(customerTimer); suggestionIndex = -1; root.querySelector('[data-phone-lookup-result]').hidden = true; if (inputPhoneDigits().length >= 3) customerTimer = setTimeout(function () { lookupCustomer(true); }, 250); } if (key === 'discount') root.querySelector('[data-phone-discount-reason-wrap]').hidden = !(policy.can_discount && scaled(fields.discount.value, 2) > 0n); changed(['discount', 'discount_reason', 'delivery_fee'].includes(key)); }); });
+    if (customerConsent) listen(customerConsent, 'change', function () { changed(false); });
+    listen(quantityInput, 'input', function () { replaceQuantity = false; });
     listen(fields.customer_phone, 'keydown', function (event) {
         var box = root.querySelector('[data-phone-lookup-result]'), suggestions = box.querySelectorAll('[data-phone-suggestion]');
         if (event.key === 'Escape') { clearTimeout(customerTimer); customerGeneration++; abort('customer'); box.hidden = true; return; }
@@ -594,24 +802,79 @@
             suggestions.forEach(function (button, index) { button.classList.toggle('is-highlighted', index === suggestionIndex); }); suggestions[suggestionIndex].scrollIntoView({ block: 'nearest' });
         } else if (event.key === 'Enter' && suggestionIndex >= 0) { event.preventDefault(); event.stopPropagation(); suggestions[suggestionIndex].click(); }
     });
-    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(root.querySelector('[data-phone-confirm-location]'),'click',function(){confirmLocation(false);});
+    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(confirmLocationButton,'click',function(){confirmLocation(false);});
     [latInput,lngInput].forEach(function(input){listen(input,'input',function(){invalidateLocation();previewLocation();});});listen(companySelect,'change',function(){changed(false);});
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
     listen(modal, 'click', function (event) { if (event.target === modal) closeModal(); });
-    listen(document, 'keydown', function (event) { if (disposed) return; if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && modal.hidden && view === 'compose' && step !== 'products' && root.contains(event.target) && !event.target.matches('button')) { event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return; } if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; } if (!modal.hidden && event.key === 'Tab') { var controls = modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)'); if (!controls.length) { event.preventDefault(); return; } var first = controls[0], last = controls[controls.length - 1]; if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } if (event.key === 'F9' && modal.hidden && view === 'compose') { event.preventDefault(); save(); } });
+    listen(document, 'keydown', function (event) {
+        if (disposed || event.defaultPrevented) return;
+        if (event.key === 'Escape' && modal.hidden && view === 'compose' && step === 'products'
+            && (quantityShortcutContext(event.target) || event.target === root.querySelector('[data-phone-quantity]'))
+            && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+            event.preventDefault(); if (!locked() && canWrite()) { quantityKey('clear'); quantityInput.select(); } return;
+        }
+        var physicalKey = event.key === 'Backspace' ? 'backspace' : /^[0-9.]$/.test(event.key) ? event.key : '';
+        if (physicalKey && modal.hidden && view === 'compose' && step === 'products' && quantityShortcutContext(event.target)
+            && !event.repeat && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+            event.preventDefault(); if (!locked() && canWrite()) quantityKey(physicalKey); return;
+        }
+        if (event.key === 'Enter' && root.contains(event.target) && (event.repeat || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey && event.target.matches('button'))) {
+            event.preventDefault(); return;
+        }
+        var composeKeyboard=root.querySelector('[data-phone-compose]').contains(event.target)||event.target===document.body||event.target===document.documentElement;
+        if (plainEnter(event) && modal.hidden && view === 'compose'
+            && composeKeyboard) {
+            if (step === 'details' && event.target === fields.customer_name) {
+                event.preventDefault(); if (!locked() && canWrite()) confirmLocationButton.focus(); return;
+            }
+            if (step === 'details' && event.target === confirmLocationButton) {
+                event.preventDefault(); confirmLocationAndNext(); return;
+            }
+            if (step !== 'products' && !event.target.matches('button')) {
+                event.preventDefault(); if (step === 'number') nextNumber(); else nextDetails(); return;
+            }
+            if (step === 'products' && cart.length) {
+                if (event.target.matches('select')) return;
+                event.preventDefault();
+                if (locked() || !canWrite() || closedEditing()) return;
+                if (event.target.hasAttribute('data-phone-line-quantity') && !commitLineQuantity(event.target)) return;
+                if (event.target === saveButton) { if (!saveButton.disabled) save(); return; }
+                if (event.target === customerConsent) {
+                    if (!customerConsent.checked) { customerConsent.checked = true; changed(false); return; }
+                    if (!saveButton.disabled) saveButton.focus();
+                    else notify(text('quote_required'), false, true);
+                    return;
+                }
+                focusConsent(); return;
+            }
+        }
+        if (event.key === 'Escape' && !modal.hidden) { closeModal(); return; }
+        if (!modal.hidden && event.key === 'Tab') {
+            var controls = Array.from(modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')).filter(function (control) { return control.getClientRects().length && !control.closest('[hidden]'); });
+            if (!controls.length) { event.preventDefault(); return; }
+            var first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.querySelector('[role="dialog"]'))) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+        if (event.key === 'F9' && modal.hidden && view === 'compose' && composeKeyboard) { event.preventDefault(); if (!event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) save(); }
+    });
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;clearInterval(preparationTimer);if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     if(window.ResizeObserver){
         var mapResizeObserver=new ResizeObserver(function(){if(!disposed&&step==='details'&&view==='compose'&&locationPicker)locationPicker.resize();});
         mapResizeObserver.observe(root.querySelector('[data-phone-map]'));
         if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){mapResizeObserver.disconnect();});
     }
-    renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
+    automaticQuantity(null); renderLines(); totals(null); flow('number'); if (branch) {loadCatalog(1);loadDeliveryContext();}
+    var emptyBranchOption = branchSelect.querySelector('option[value=""]');
+    if (emptyBranchOption) emptyBranchOption.textContent = text(boot.can_view_all_branches?'all_branches':'select_branch');
+    if(boardScope())loadOrders();
     receiverTimer = setTimeout(pollReceiver, 1000);
-    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (view === 'orders' && !locked()) loadOrders(undefined, true); } });
+    listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
+    preparationTimer = setInterval(updatePreparationTimers, 1000);
 }());

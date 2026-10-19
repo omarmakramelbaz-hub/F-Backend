@@ -16,8 +16,13 @@
         if (!data.modules.inventory) return empty(body, labels.unavailable_inventory);
         data.inventory.items.filter(function (item) { return item.name.toLocaleLowerCase().includes(query); }).forEach(function (item) {
             var row = el('tr', ''), value = item.tracked_branches ? item.quantity + ' ' + labels[item.unit === 'kg' ? 'kg' : 'unit'] : labels.untracked;
-            row.append(el('td', item.name), el('td', value));
-            if (item.quantity_units < 0) row.className = 'bh-negative';
+            var balance = el('td', value);
+            if (item.is_low === true) {
+                row.classList.add('bh-low-stock'); balance.title = labels.stock_minimum_note;
+                var note = el('span', ' · ' + labels.stock_minimum_note); note.className = 'sr-only'; balance.appendChild(note);
+            }
+            row.append(el('td', item.name), balance);
+            if (item.quantity_units < 0) row.classList.add('bh-negative');
             body.appendChild(row);
         });
         if (!body.children.length) empty(body, labels.no_stock);

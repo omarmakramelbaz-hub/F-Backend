@@ -21,9 +21,21 @@ class PhoneMapProvider
             $this->authorizeSavedSuggestions($actor);
             return $this->savedSuggestions($policy['branch']['value'],$query);
         }
+        return $this->searchSuggestions($v['query'],$policy['latitude'],$policy['longitude']);
+    }
+    /** Address discovery precedes branch selection; no dashboard actor is impersonated. */
+    public function publicSuggestions(string $query): array
+    {
+        $v=Validator::make(['query'=>$query],['query'=>'required|string|min:3|max:240'])->validate();
+        return $this->searchSuggestions($v['query'],30.0444,31.2357);
+    }
+    private function searchSuggestions(string $input,?float $latitude,?float $longitude): array
+    {
+        abort_if(config('desktop_dashboard.local'),503,'البحث الخارجي غير متاح دون اتصال.');
         abort_unless($this->enabled(),503,'البحث بالعناوين من الخدمة البديلة لم يُفعّل بعد.');
+        $query=trim(preg_replace('/\s+/u',' ',$input));
         $params=['q'=>$query,'limit'=>6,'countrycode'=>'EG','bbox'=>'24,22,37,32'];
-        if($policy['latitude']!==null){$params['lat']=$policy['latitude'];$params['lon']=$policy['longitude'];}
+        if($latitude!==null){$params['lat']=$latitude;$params['lon']=$longitude;}
         $json=$this->request('search',(string)config('services.maps.photon_url'),$params,86400);
         abort_unless(isset($json['features'])&&is_array($json['features']),503,'تعذر قراءة اقتراحات العناوين.');
         $items=[];$seen=[];

@@ -27,18 +27,18 @@ class MeasuredBaselineTests(unittest.TestCase):
 
     def test_fixture_matches_the_exact_measured_production_evidence(self):
         self.assertEqual(self.fixture['expected_head'],'ee52f1798a542d2c5625c863112315a8aaba02cf')
-        self.assertEqual(self.fixture['source'],{'format':1,'files':1027,
-            'sha256':'13ee9a3f712646d9d1b2e1c850142929e1c137d68fc7d451fc7ea83cfd63eca2','framework':'8.83.29'})
+        self.assertEqual(self.fixture['source'],{'format':1,'files':1157,
+            'sha256':'2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f','framework':'8.83.29'})
         self.assertEqual(refresh.digest(self.fixture['files']),self.fixture['source'])
-        self.assertEqual(len(self.fixture['measured_source_differences']),32)
-        self.assertEqual(len(self.fixture['gui']),10)
+        self.assertEqual(len(self.fixture['measured_source_differences']),282)
+        self.assertEqual(len(self.fixture['gui']),25)
         for name,pin in self.fixture['measured_source_differences'].items():
             self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
         self.assertEqual(self.fixture['files']['config/whatsapp_cart.php']['blob'],'a40fd3c834734ebbf5f52410e1b0641657605750')
 
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
-        self.assertEqual(self.manifest['after_source']['files'],1155)
+        self.assertEqual(self.manifest['after_source']['files'],1285)
         reversed_map=copy.deepcopy(self.target)
         for row in self.manifest['sources']:
             name=row['path']
@@ -87,8 +87,10 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(mixed[name]['sha256'],self.target[name]['sha256'])
         mixed[name]=self.target[name]
         self.assertEqual(refresh.digest(mixed),self.fixture['source'])
+        diagnosis=copy.deepcopy(self.diagnosis)
+        diagnosis['source_differences'].append({'path':name,'actual':self.fixture['files'][name]['blob']})
         with self.assertRaisesRegex(ValueError,'raw source blob disagrees'):
-            refresh.generate(ROOT,mixed,self.diagnosis)
+            refresh.generate(ROOT,mixed,diagnosis)
 
     def test_prior_measurement_is_preserved_and_new_runtime_changes_do_not_publish_hardlinked_evidence(self):
         prior=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261012.json').read_text())
@@ -96,7 +98,7 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(prior['source']['sha256'],'dc731529de802c50bdb266fd52c6361d8e460587143a894b077539da811cc47e')
         for name in ['bootstrap/app.php','config/whatsapp_cart.php']:self.assertEqual(self.fixture['files'][name],prior['files'][name])
         name='app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php'
-        self.assertEqual(self.fixture['provenance']['reported_hardlinks'],{name:2})
+        self.assertEqual(json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261019-1323.json').read_text())['provenance']['reported_hardlinks'],{name:2})
         self.assertEqual(self.fixture['files'][name],self.target[name])
         self.assertNotIn(name,{row['path']for row in self.manifest['sources']})
 

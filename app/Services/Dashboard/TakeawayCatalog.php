@@ -13,7 +13,7 @@ class TakeawayCatalog
 {
     private TakeawayAccess $access;
     private ?array $listingFeatures = null;
-    private const CLEAN = ['extra_clear'=>'تنظيف إضافي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'تغليف مفرغ'];
+    private const CLEAN = ['extra_clear'=>'مخلي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'تغليف مفرغ'];
     private const FEATURES = ['half'=>'نصف', 'quarter'=>'ربع', 'combo'=>'كومبو', 'large'=>'كبير', 'medium'=>'وسط'];
 
     public function __construct(TakeawayAccess $access) { $this->access = $access; }
@@ -33,12 +33,19 @@ class TakeawayCatalog
         $perPage = (int) ($values['per_page'] ?? 40);
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min($lastPage, (int) ($values['page'] ?? 1));
-        $rows = $query->orderBy($this->nameColumn($branch))->orderBy('id')->offset(($page - 1) * $perPage)->limit($perPage)->get();
+        // The application-order editor requests current reads while holding its order lock.
+        // Normal browsing remains an unlocked, paginated catalog read.
+        $lockCatalog = ($values['lock_catalog'] ?? false) === true;
+        $rowsQuery = $query->orderBy($this->nameColumn($branch))->orderBy('id')->offset(($page - 1) * $perPage)->limit($perPage);
+        if ($lockCatalog) $rowsQuery->lockForUpdate();
+        $rows = $rowsQuery->get();
         $images = $branch['kind'] === 'f' ? $this->images($rows->pluck('id')->all()) : [];
         $this->listingFeatures = [];
         if ($branch['kind'] === 'f' && $this->access->has('product_features', 'product_id')) {
             $productIds = $rows->pluck('product_id')->filter()->unique()->all();
-            foreach (DB::table('product_features')->whereIn('product_id', $productIds)->whereIn('name', array_keys(self::FEATURES))->orderBy('id')->get() as $feature) {
+            $featuresQuery = DB::table('product_features')->whereIn('product_id', $productIds)->whereIn('name', array_keys(self::FEATURES))->orderBy('id');
+            if ($lockCatalog) $featuresQuery->lockForUpdate();
+            foreach ($featuresQuery->get() as $feature) {
                 $this->listingFeatures[(int) $feature->id] = $feature;
             }
         }
@@ -139,9 +146,23 @@ class TakeawayCatalog
                 abort_unless(array_key_exists($key, $extras) && $extras[$key] !== null && $extras[$key] !== '', 422, 'سعر الخيار غير مضبوط.');
                 $extra = Money::minor($extras[$key]); $this->validPrice($extra); $price += $extra;
             }
-            array_unshift($labels, self::FEATURES[$name]);
+            array_unshift($labels, $name === 'combo' && app()->getLocale() !== 'ar' ? 'Combo' : self::FEATURES[$name]);
         }
         $this->validPrice($price);
+        // Named base choices keep the existing empty option identity and full price.
+        if (!$featureId && $clean === '') {
+            if ($this->configuredCombo($branch, $row, $lock) !== null) {
+                $labels[] = app()->getLocale() === 'ar' ? 'عادي' : 'Normal';
+            } else foreach (['extra_clean', 'extra_clear'] as $preparation) {
+                if (!array_key_exists($preparation, $extras) || $extras[$preparation] === null || $extras[$preparation] === '') continue;
+                try {
+                    $extra = Money::minor($extras[$preparation]);
+                    $this->validPrice($extra); $this->validPrice($price + $extra);
+                    $labels[] = app()->getLocale() === 'ar' ? 'كامل' : 'Whole';
+                    break;
+                } catch (\InvalidArgumentException $error) { /* Unconfigured preparation. */ }
+            }
+        }
         return [$price, $featureId || $clean ? 'f:'.$featureId.':'.($clean ?: 'base') : '', implode(' / ', $labels)];
     }
 
@@ -167,10 +188,53 @@ class TakeawayCatalog
                 } catch (\Throwable $error) { /* Unconfigured choices are not offered for sale. */ }
             }
         }
-        return ['id'=>(int) $row->id, 'name'=>(string) $row->{$this->nameColumn($branch)}, 'price'=>$price, 'unit_price'=>$price,
+        $product = ['id'=>(int) $row->id, 'name'=>(string) $row->{$this->nameColumn($branch)}, 'price'=>$price, 'unit_price'=>$price,
             'available'=>$available, 'image_url'=>$branch['kind'] === 'gs' && !empty($row->image_path) ? Storage::disk('public')->url($row->image_path) : $image,
             'unit'=>$branch['kind'] === 'gs' ? (string) ($row->unit ?? '') : '', 'quantity_mode'=>'select',
             'category_id'=>$row->category_id ?? null, 'options'=>$options, 'revision'=>$row->revision ?? null];
+        if ($branch['kind'] === 'f') {
+            $product['preparation_options'] = [];
+            $labels = app()->getLocale() === 'ar'
+                ? [''=>'كامل', 'extra_clean'=>'تنظيف', 'extra_clear'=>'مخلي']
+                : [''=>'Whole', 'extra_clean'=>'Cleaned', 'extra_clear'=>'Filleted'];
+            foreach ($price === null ? [] : $labels as $clean => $label) {
+                try {
+                    [$cents, $id] = $this->price($branch, $row, ['feature_id'=>0, 'product_clean'=>$clean], false);
+                    $product['preparation_options'][] = ['id'=>$id, 'label'=>$label, 'price'=>Money::decimal($cents),
+                        'feature_id'=>0, 'product_clean'=>$clean];
+                } catch (\Throwable $error) { /* Only configured, valid preparations are offered. */ }
+            }
+            if ($price !== null && ($combo = $this->configuredCombo($branch, $row, false)) !== null) {
+                $product['preparation_options'] = [
+                    ['id'=>'', 'label'=>app()->getLocale() === 'ar' ? 'عادي' : 'Normal', 'price'=>$price, 'feature_id'=>0, 'product_clean'=>''],
+                    $combo,
+                ];
+            }
+        }
+        return $product;
+    }
+
+    /** A surcharge alone cannot invent a combo: its feature must belong to this product. */
+    private function configuredCombo(array $branch, object $row, bool $lock): ?array
+    {
+        if ($branch['kind'] !== 'f' || empty($row->product_id) || !$this->access->has('product_features', 'product_id')) return null;
+        $extras = json_decode((string) ($row->price ?? '{}'), true);
+        if (!is_array($extras) || !array_key_exists('extra_combo', $extras) || $extras['extra_combo'] === null || $extras['extra_combo'] === '') return null;
+        if (!$lock && $this->listingFeatures !== null) $features = $this->listingFeatures;
+        else {
+            $query = DB::table('product_features')->where('product_id', $row->product_id)->where('name', 'combo')->orderBy('id');
+            if ($lock) $query->lockForUpdate();
+            $features = $query->get();
+        }
+        foreach ($features as $feature) {
+            if ((int) $feature->id < 1 || (int) $feature->product_id !== (int) $row->product_id || $feature->name !== 'combo') continue;
+            try {
+                [$cents, $id] = $this->price($branch, $row, ['feature_id'=>(int) $feature->id, 'product_clean'=>''], $lock);
+                return ['id'=>$id, 'label'=>app()->getLocale() === 'ar' ? 'كومبو' : 'Combo', 'price'=>Money::decimal($cents),
+                    'feature_id'=>(int) $feature->id, 'product_clean'=>''];
+            } catch (\Throwable $error) { /* Missing or invalid combo prices are not choices. */ }
+        }
+        return null;
     }
 
     private function goOptions(object $row): array

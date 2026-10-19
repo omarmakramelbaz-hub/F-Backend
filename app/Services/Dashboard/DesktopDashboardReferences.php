@@ -97,6 +97,7 @@ class DesktopDashboardReferences
                 $source=DB::table('branch_employee_entries')->where('id',$value)->value('source_key');
                 if($source&&str_starts_with($source,'attendance.'))$entity='employee_entry_'.substr($source,strlen('attendance.'));
             }
+            if($field==='stock_item_id'&&$route==='branch-stock.minimum-save'&&($payload['values']['stock_type']??null)==='product')$entity='menu_restaurant_product';
             if($field==='id'&&$route==='dining.table-save')$entity='table';
             if($field==='batch_id'&&$route==='phone-orders.finish-batch')$entity='delivery_batch';
             if($entity && !is_array($value))$payload['values'][$field]=$reference($entity,$value);
