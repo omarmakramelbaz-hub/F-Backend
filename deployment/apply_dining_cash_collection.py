@@ -40,6 +40,52 @@ def load_common(root):
     return common
 
 
+def collection_context_patch(c, relative, patch):
+    """Keep exact reset/hydrate edits without adjacent table-display context."""
+    if relative != 'public/dashboard/js/dining-pos.js':
+        return patch, None
+    lines = patch.splitlines(keepends=True)
+    output = []
+    anchors = None
+    index = 0
+    while index < len(lines):
+        header = lines[index]
+        if not header.startswith(b'@@ '):
+            output.append(header)
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and not lines[end].startswith(b'@@ '):
+            end += 1
+        body = lines[index + 1:end]
+        if not any(line.startswith(b'-    function resetInvoice()') for line in body):
+            output.extend(lines[index:end])
+            index = end
+            continue
+        expected = (
+            b'     function renderTables()', b'     function renderDetail()',
+            b'     async function loadTables()', b'-    function resetInvoice()',
+            b'+    function resetInvoice()', b'     function validTicket(',
+            b'-    function hydrate(', b'+    function hydrate(',
+            b'     function mayDiscard()', b'     async function openTable(',
+            b'     function openCustomer()',
+        )
+        match = re.fullmatch(rb'@@ -(\d+),9 \+(\d+),9 @@([^\n]*)\n', header)
+        c.require(anchors is None and match is not None and len(body) == len(expected)
+                  and all(line.startswith(prefix) for line, prefix in zip(body, expected)),
+                  'COLLECTION_RESET_PATCH_SHAPE_NEEDS_REVIEW')
+        # The retained old and new full function blocks must be unique in live
+        # source. No changed line is removed, and ordinary git apply is retained.
+        retained = body[3:9]
+        anchors = tuple(b''.join(line[1:] for line in retained if line[:1] in kinds)
+                        for kinds in ((b' ', b'-'), (b' ', b'+')))
+        output.append(b'@@ -' + str(int(match[1]) + 3).encode() + b',4 +'
+                      + str(int(match[2]) + 3).encode() + b',4 @@' + match[3] + b'\n')
+        output.extend(retained)
+        index = end
+    return b''.join(output), anchors
+
+
 def build_plan(c, root, revision):
     plan = {}
     with tempfile.TemporaryDirectory(prefix='dining-cash-collection-plan-') as temporary:
@@ -48,7 +94,9 @@ def build_plan(c, root, revision):
             c.require((before is None) == (status == 'A'), 'SOURCE_STATUS_INVALID: ' + relative)
             after = c.source(root, revision, relative)
             c.require(before != after, 'RELEASE_CHANGE_MISSING: ' + relative)
-            plan[relative] = {'status': status, 'patch': c.make_patch(Path(temporary), relative, before, after)}
+            patch, anchors = collection_context_patch(
+                c, relative, c.make_patch(Path(temporary), relative, before, after))
+            plan[relative] = {'status': status, 'patch': patch, 'reset_anchors': anchors}
     return plan
 
 
@@ -89,6 +137,10 @@ def apply_update(c, root, revision, plan, check_only=False):
                 if before is not None:
                     staged.write_bytes(before)
                 originals[relative] = (before, mode)
+                anchors = entry.get('reset_anchors')
+                if anchors is not None:
+                    c.require(tuple(before.count(anchor) for anchor in anchors) in ((1, 0), (0, 1)),
+                              'LIVE_CHANGE_NEEDS_REVIEW: ' + relative)
                 patch_path = stage / ('patch-' + str(index) + '.diff')
                 patch_path.write_bytes(entry['patch'])
                 if c.patch_check(stage, patch_path, reverse=True):

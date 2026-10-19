@@ -35,7 +35,7 @@ class DiningCashCollectionDeploymentTests(unittest.TestCase):
         self.path.parent.mkdir(parents=True)
         self.view = self.root / list(installer.SOURCE_MANIFEST)[1]
         self.view.parent.mkdir(parents=True)
-        self.before = b''.join(b'// stable prefix %d\n' % n for n in range(15)) + b'// Before kitchen Enter\n' + b''.join(b'// stable suffix %d\n' % n for n in range(15))
+        self.before = self.baseline()
         self.after = self.before.replace(b'Before kitchen Enter', b'After kitchen Enter')
         self.path.write_bytes(self.before)
         self.view.write_bytes(self.before)
@@ -53,6 +53,9 @@ class DiningCashCollectionDeploymentTests(unittest.TestCase):
         mock.patch.object(installer, 'BASE_REVISION', base).start()
         mock.patch.object(installer, 'UTILITY_REVISION', base).start()
         mock.patch.object(installer, 'load_common', return_value=self.common).start()
+
+    def baseline(self):
+        return b''.join(b'// stable prefix %d\n' % n for n in range(15)) + b'// Before kitchen Enter\n' + b''.join(b'// stable suffix %d\n' % n for n in range(15))
 
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.root), *args], text=True)
@@ -132,6 +135,52 @@ class DiningCashCollectionDeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'SYMLINK_REJECTED'):
             self.install()
         self.assertEqual(destination.read_bytes(), self.before)
+
+
+class DiningCashContextCompatibilityTests(DiningCashCollectionDeploymentTests):
+    def baseline(self):
+        return (b''.join(b'// stable prefix %d\n' % n for n in range(15))
+                + b"    function renderTables() { return 'old display'; }\n"
+                + b"    function renderDetail() { return 'old detail'; }\n"
+                + b"    async function loadTables() { return 'old load'; }\n"
+                + b"    function resetInvoice() { return 'Before kitchen Enter reset'; }\n"
+                + b"    function validTicket(value) { return !!value; }\n"
+                + b"    function hydrate(value) { return 'Before kitchen Enter hydrate'; }\n"
+                + b"    function mayDiscard() { return true; }\n"
+                + b"    async function openTable(table) { return 'old open'; }\n"
+                + b"    function openCustomer() {\n"
+                + b"        return 'old customer';\n    }\n"
+                + b''.join(b'// stable suffix %d\n' % n for n in range(15)))
+
+    def test_adjacent_live_layout_changes_survive_install_and_repeat(self):
+        replacements = {b'old display': b'live all-branches display',
+                        b'old detail': b'live compact table detail',
+                        b'old load': b'live all-branches load',
+                        b'old open': b'live branch-aware open',
+                        b'old customer': b'live customer dialog'}
+        before, after = self.before, self.after
+        for old, new in replacements.items():
+            before, after = before.replace(old, new), after.replace(old, new)
+        self.path.write_bytes(before)
+        self.install(check_only=True)
+        self.assertEqual(self.path.read_bytes(), before)
+        backup = self.install()
+        self.assertEqual(self.path.read_bytes(), after)
+        self.assertEqual(self.view.read_bytes(), self.after)
+        self.assertEqual((backup / self.path.relative_to(self.root)).read_bytes(), before)
+        self.assertIsNone(self.install())
+        self.assertEqual(self.path.read_bytes(), after)
+
+    def test_duplicate_old_or_new_reset_blocks_are_rejected(self):
+        plan = installer.build_plan(self.common, self.root, self.revision)
+        anchors = plan[next(iter(installer.SOURCE_MANIFEST))]['reset_anchors']
+        self.assertIsNotNone(anchors)
+        for content in (self.before + anchors[0], self.after + anchors[1], self.before + anchors[1]):
+            self.path.write_bytes(content)
+            with self.assertRaisesRegex(RuntimeError, 'LIVE_CHANGE_NEEDS_REVIEW'):
+                self.install()
+            self.assertEqual(self.path.read_bytes(), content)
+            self.assertEqual(self.view.read_bytes(), self.before)
 
 
 if __name__ == '__main__':
