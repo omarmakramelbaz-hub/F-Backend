@@ -44,7 +44,7 @@
                         <fieldset class="dp-payments dp-payments-compact"><legend class="dp-sr-only">{{ __('dining.payment_method') }}</legend><div data-dining-payments></div></fieldset>
                         <label class="dp-payment-confirmation dp-customer-consent"><input type="checkbox" required aria-required="true" data-dining-customer-consent><span>{{ __('dining.customer_consent_required') }}</span></label>
                     </div>
-                    <label class="dp-payment-reference dp-cash-received" data-dining-cash-wrap><span class="dp-cash-title">{{ __('dining.cash_paid') }}</span><input data-dining-cash-received type="text" inputmode="decimal" maxlength="14" autocomplete="off" aria-label="{{ __('dining.cash_paid') }}" placeholder=" "></label>
+                    <label class="dp-payment-reference dp-cash-received" id="dining-cash-collection" data-dining-cash-wrap hidden><span class="dp-cash-title">{{ __('dining.cash_paid') }}</span><input data-dining-cash-received type="text" inputmode="decimal" maxlength="14" autocomplete="off" aria-label="{{ __('dining.cash_paid') }}" placeholder=" " disabled></label>
                     <label class="dp-payment-confirmation" data-dining-payment-confirm-wrap hidden><input type="checkbox" data-dining-payment-confirmed><span>{{ __('dining.payment_confirmed') }}</span></label>
                     <label class="dp-payment-reference" data-dining-reference-wrap hidden><span>{{ __('dining.payment_reference') }}</span><input data-dining-payment-reference type="text" maxlength="100" autocomplete="off" placeholder="{{ __('dining.payment_reference_placeholder') }}"></label>
                 </div>
@@ -53,7 +53,7 @@
             <div class="dp-actions">
                 <button type="button" class="dp-finish" data-dining-save disabled><i class="fas fa-utensils" aria-hidden="true"></i><span>{{ __('dining.send_kitchen') }}</span><kbd>F9</kbd></button>
                 <button type="button" data-dining-request-bill disabled>{{ __('dining.request_bill') }}</button>
-                <button type="button" class="dp-settle" data-dining-settle disabled>{{ __('dining.settle') }}</button>
+                <button type="button" class="dp-settle" data-dining-settle aria-controls="dining-cash-collection" aria-expanded="false" disabled>{{ __('dining.settle') }}</button>
             </div>
         </section>
         <section class="dp-catalog" aria-labelledby="catalog-title">
