@@ -10,7 +10,7 @@
   "after_source": {
     "format": 1,
     "files": 1285,
-    "sha256": "0c8a356c734b1000a9d5bb0fca99f876644a9d660e89bb7dd1ffdb2002b0d365",
+    "sha256": "e3d4226e2f3b0fff70f7f69d245f355abac52a88e3908059c7c628a90e664ae6",
     "framework": "8.83.29"
   },
   "sources": [
@@ -851,7 +851,7 @@
     {
       "path": "public/dashboard/css/branch-operations.css",
       "before_blob": "1e1f201071fecbc9c464bc095e0e3155852a9422",
-      "after_blob": "db587bda4254f946cf646ffd842fd3dd560563c2",
+      "after_blob": "30fc86c263e34129db4905dc7d1f5e8b2e536094",
       "phase": 2
     },
     {

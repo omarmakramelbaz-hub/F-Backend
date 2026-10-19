@@ -1,4 +1,7 @@
 <?php
+require_once $application.'/database/migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php';
+(new \CreateShiftReportPrintingAndNumbers)->up();
+
 use Illuminate\Support\Facades\{DB,Crypt};
 use Illuminate\Support\Str;
 
@@ -27,7 +30,7 @@ try{
     preg_match('/name="_token" value="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&isset($serverCsrf[1]),'the real original server session prepares catalog outcome tests');
     verify($http('/admin/signin',['_token'=>$serverCsrf[1],'email'=>'owner@test.invalid','password'=>'Fixture123'])[0]===302,'the outcome fixture signs into the original owner account');
-    [$status,$page]=$http('/admin/categorys');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$serverCsrf);
+    [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$serverCsrf);
     verify($status===200&&!empty($serverCsrf[1]),'server outcome forms refresh CSRF after the original login rotates its session');
     require __DIR__.'/category-order-remote.php';
     require __DIR__.'/menu-availability-remote.php';
@@ -90,6 +93,8 @@ try{
     verify($decide($rollback,'settle')[1]['status']==='cancelled','recovery safely cancels a server write rolled back by outcome persistence failure');
     $ownerCookies=$cookies;$cookies=[];[$status,$page]=$http('/admin/login');preg_match('/name="_token" value="([^"]+)"/',$page,$foreignCsrf);
     $http('/admin/signin',['_token'=>$foreignCsrf[1],'email'=>'branch@test.invalid','password'=>'Fixture123']);
+    [$status,$page]=$http('/admin/takeaway');preg_match('/name="csrf-token" content="([^"]+)"/',$page,$foreignCsrf);
+    verify($status===200&&!empty($foreignCsrf[1]),'the foreign account also uses its current authenticated CSRF token');
     $foreignForm=$form;$foreignForm['_token']=$foreignCsrf[1];
     verify($http('/admin/products',$foreignForm,$proof($reserved))[0]===403,'another original browser account cannot replay an enrolled owner outcome');$cookies=$ownerCookies;
     DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['enabled'=>false]);
@@ -242,7 +247,7 @@ require __DIR__.'/restaurant-menu-copy-remote.php';
     verify($http($contactBulk['path'],$contactBulkForm,$proof($contactBulkProof),'DELETE')[0]===200&&DB::table('contacts')->whereIn('id',[86002,86003])->count()===0&&$decide($contactBulk,'settle')[1]['status']==='committed','the protected original contact bulk deletion stores its complete terminal result');
     $contactBulkForm['ids']='86002,86003';verify($http($contactBulk['path'],$contactBulkForm,$proof($contactBulkProof),'DELETE')[0]===200,'a reordered original contact bulk retry returns its stored result after all messages disappear');
     verify($decide($attempt('/admin/contacts'))[0]===422,'a contact listing path cannot reserve an unimplemented contact creation');
-    $cart=['_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
+    $cart=['customer_phone'=>'01012345678','service_consent'=>true,'_token'=>$serverCsrf[1],'branch'=>'f:100','items'=>[['product_id'=>1,'quantity_mode'=>'weight','quantity'=>'0.250']],'discount'=>'0.00','payment_method'=>'cash'];
     [$quoteStatus,$quoteBody]=$http('/admin/takeaway/quote',$cart,['Accept: application/json']);$quote=json_decode($quoteBody,true);
     verify($quoteStatus===200&&isset($quote['quote_hash'],$quote['total']),'the original server quote prepares a real cash checkout outcome test');
     $checkout=$cart+['idempotency_key'=>(string)Str::uuid(),'quote_hash'=>$quote['quote_hash'],'cash_received'=>$quote['total'],'payment_confirmed'=>true];
@@ -350,12 +355,12 @@ require __DIR__.'/restaurant-menu-copy-remote.php';
         &&$apply('/admin/branch-expenses/'.$expenseAttachmentId.'/review',$reviewForm)[1]===$reviewBody
         &&(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===$beforeExpense-1000,
         'a lost original expense approval reply deducts cash once and replays the exact signed-in result');
-    $categoryForm=['_token'=>$serverCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'create','name'=>'تصنيف اختبار نتيجة السيرفر'];
+    $categoryForm=['branch'=>'f:100','_token'=>$serverCsrf[1],'idempotency_key'=>(string)Str::uuid(),'action'=>'create','name'=>'تصنيف اختبار نتيجة السيرفر'];
     [$categoryStatus,$categoryBody,$categoryAttempt]=$apply('/admin/branch-expenses/categories',$categoryForm);
     verify($categoryStatus===200&&$decide($categoryAttempt,'settle')[1]['status']==='committed'
         &&$apply('/admin/branch-expenses/categories',$categoryForm)[1]===$categoryBody
         &&DB::table('branch_expense_categories')->where('name',$categoryForm['name'])->count()===1,
-        'the original shared expense category commits and retries without requiring a fictitious branch');
+        'the current expense category commits and retries only in its selected branch');
     $ownerScope=DB::table('users')->where('id',1)->value('owner_resturant_id');DB::table('users')->where('id',1)->update(['owner_resturant_id'=>100]);
     try{verify($apply('/admin/branch-expenses/categories',$categoryForm)[0]===403,
         'a stored shared expense category reply still requires the current original primary-owner authority');}

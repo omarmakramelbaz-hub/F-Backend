@@ -52,7 +52,7 @@
  #branch-operations.op-employees .op-daily-table th:nth-child(10){width:12%}
  #branch-operations.op-employees .op-attendance-cell label>span{white-space:nowrap}
  #branch-operations.op-employees .op-daily-table th{padding:6px 4px;font-size:10px}
- #branch-operations.op-employees .op-daily-table tbody td{padding:3px 4px}
+ #branch-operations.op-employees .op-daily-table tbody td{padding:1px 4px}
  #branch-operations.op-employees .op-attendance-cell{gap:3px}
  #branch-operations.op-employees .op-attendance-cell label{grid-template-columns:36px minmax(0,1fr);align-items:center;gap:3px;font-size:9px}
  #branch-operations.op-employees .op-attendance-cell .op-attendance{min-height:24px;padding:2px 3px;font-size:10px}
