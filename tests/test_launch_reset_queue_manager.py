@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shlex
 import sys
 import tempfile
 import unittest
@@ -51,6 +52,9 @@ class QueueManagerTests(unittest.TestCase):
             'cwd': str(self.stage), 'exe': '/usr/bin/python3',
             'argv': ['/usr/bin/python3', '/usr/bin/supervisord', '-c', str(self.main)], 'sig_caught': 0}
         self.commands = []
+        self.probe_targets = {}
+        self.messages = []
+        self.test_php_paths = set()
         self.statuses = {}
         self.templates = {}
         self.nextpid = 300
@@ -81,8 +85,14 @@ class QueueManagerTests(unittest.TestCase):
         (self.include / (program + '.conf')).write_text(config)
         return name
 
-    def runner(self, args, timeout=15):
+    def runner(self, args, timeout=15, cwd=None):
         self.commands.append(list(args))
+        if args[0] == 'runuser':
+            self.assertEqual(cwd, str(self.root))
+            self.assertEqual(args[5:7], ['--no-php-ini', '-r'])
+            self.assertIn("readlink('/proc/self/exe')", args[7])
+            target = self.probe_targets.get(args[4], args[4])
+            return 0, json.dumps({'version': 80306, 'binary': args[4], 'executable': target}).encode()
         self.assertEqual(args[:3], [str(self.ctl), '-c', str(self.main)])
         command = args[3]
         if command == 'pid':
@@ -114,11 +124,14 @@ class QueueManagerTests(unittest.TestCase):
         self.fail('Unexpected command')
 
     def instance(self):
-        return QueueQuiescer(root=self.root, uid=self.uid, php=self.php, runner=self.runner,
-                              proc=self.proc, supervisorctl=str(self.ctl), progress=lambda text: None)
+        manager = QueueQuiescer(root=self.root, uid=self.uid, php=self.php, runner=self.runner,
+                              proc=self.proc, supervisorctl=str(self.ctl), progress=self.messages.append)
+        original_classify = manager._php_class
+        manager._php_class = lambda path: 'test_php' if path in self.test_php_paths else original_classify(path)
+        return manager
 
     def mutations(self):
-        return [args[3:] for args in self.commands if args[3] in ('stop', 'start')]
+        return [args[3:] for args in self.commands if args[0] == str(self.ctl) and args[3] in ('stop', 'start')]
 
     def test_read_only_prepare_and_durable_restart_receipt(self):
         manager = self.instance()
@@ -226,6 +239,115 @@ class QueueManagerTests(unittest.TestCase):
         self.proc.values[201]['pgrp'] = 100
         with self.assertRaisesRegex(QueueSafetyError, 'QUEUE_MANAGER_WORKER_GROUP_NOT_ISOLATED'):
             self.instance().prepare()
+        self.assertFalse(self.mutations())
+
+    def set_arguments(self, arguments, executable=None, launcher=None):
+        name = 'appqueue:appqueue_00'
+        for value in (self.proc.values[201], self.templates[name]):
+            value['argv'] = list(arguments)
+            if executable is not None:
+                value['exe'] = str(executable)
+        command = list(arguments)
+        if launcher is not None:
+            command[0] = str(launcher)
+        path = self.include / 'appqueue.conf'
+        content = path.read_text().splitlines()
+        path.write_text('\n'.join('command=' + ' '.join(shlex.quote(value) for value in command) if line.startswith('command=') else line for line in content) + '\n')
+
+    def test_common_php_prefixes_and_script_selectors_preserve_exact_command(self):
+        variants = [
+            ['-q', '-n', '-d', 'memory_limit=512M', '-c', '/etc/php.ini', 'artisan', 'queue:work'],
+            ['-dmemory_limit=512M', '-c/etc/php.ini', 'artisan', 'queue:work'],
+            ['-f', 'artisan', '--', 'queue:work'], ['--file', 'artisan', 'queue:work'],
+            ['-fartisan', 'queue:work'], ['--file=artisan', 'queue:work'],
+            ['--no-php-ini', '--define=memory_limit=512M', '--php-ini', '/etc/php.ini', 'artisan', 'queue:work']]
+        hashes = set()
+        for variant in variants:
+            with self.subTest(prefix=variant):
+                self.set_arguments([str(self.php)] + variant)
+                receipt = self.instance().prepare()
+                worker = receipt['managers'][0]['programs'][0]['worker']
+                hashes.add(worker['command_sha256'])
+                self.assertGreaterEqual(worker['minimum_stopwait'], 120)
+                self.assertNotIn('memory_limit=512M', json.dumps(receipt))
+        self.assertEqual(len(hashes), len(variants))
+        self.assertFalse(self.mutations())
+
+    def test_actual_interpreter_can_differ_from_reset_php_and_exceed_one_megabyte(self):
+        actual = self.stage / 'php83'
+        actual.write_bytes(b'root-owned-test-binary' * 60000)
+        actual.chmod(0o755)
+        self.test_php_paths.add(str(actual))
+        self.set_arguments([str(actual), 'artisan', 'queue:work'], executable=actual)
+        manager = self.instance()
+        receipt = manager.prepare()
+        self.assertEqual(receipt['php'], str(self.php))
+        self.assertEqual(receipt['interpreters'][0]['path'], str(actual))
+        self.assertGreater(receipt['interpreters'][0]['fingerprint']['size'], 1048576)
+        manager.pause(self.journal.append)
+        manager.restore()
+        self.assertEqual(self.statuses['appqueue:appqueue_00']['state'], 'RUNNING')
+
+    def test_cpanel_selector_probe_uses_actual_executable_even_with_aliased_php_binary(self):
+        selector = self.stage / 'ea-php-cli'
+        selector.write_text('#!/bin/sh\nroot-owned selector fixture\n')
+        selector.chmod(0o755)
+        self.test_php_paths.add(str(selector))
+        self.probe_targets[str(selector)] = str(self.php)
+        self.set_arguments([str(self.php), '-q', 'artisan', 'queue:work'], launcher=selector)
+        receipt = self.instance().prepare()
+        self.assertEqual(receipt['launchers'][0]['path'], str(selector))
+        self.assertEqual(receipt['launchers'][0]['interpreter'], str(self.php))
+
+    def test_php_launcher_alias_drift_is_rejected_before_any_stop(self):
+        alias = self.stage / 'php-alias'
+        alias.symlink_to(self.php)
+        other = self.stage / 'php83'
+        other.write_text('#!/bin/sh\nroot-owned other PHP fixture\n')
+        other.chmod(0o755)
+        self.test_php_paths.add(str(other))
+        self.probe_targets[str(alias)] = str(self.php)
+        self.set_arguments([str(self.php), 'artisan', 'queue:work'], launcher=alias)
+        manager = self.instance()
+        manager.prepare()
+        alias.unlink()
+        alias.symlink_to(other)
+        self.probe_targets[str(alias)] = str(other)
+        with self.assertRaisesRegex(QueueSafetyError, 'QUEUE_WORKER_PHP_LAUNCHER_CHANGED'):
+            manager.pause(self.journal.append)
+        self.assertFalse(self.mutations())
+
+    def test_prefix_execution_modes_missing_operands_and_consumed_artisan_rejected(self):
+        manager = self.instance()
+        for arguments in ([str(self.php), '-r', 'PRIVATE_SCRIPT_VALUE', 'artisan', 'queue:work'],
+                          [str(self.php), '-d', 'artisan', 'artisan', 'queue:work'],
+                          [str(self.php), '-c', 'artisan', 'artisan', 'queue:work']):
+            self.set_arguments(arguments)
+            with self.assertRaises(QueueSafetyError):
+                self.instance().prepare()
+        for arguments in ([str(self.php), '-d'], [str(self.php), '-c'], [str(self.php), '-f']):
+            with self.assertRaisesRegex(QueueSafetyError, 'QUEUE_PHP_PREFIX_OPERAND_MISSING'):
+                manager._php_script(arguments, str(self.root))
+        self.assertNotIn('PRIVATE_SCRIPT_VALUE', '\n'.join(self.messages))
+        self.assertFalse(self.mutations())
+
+    def test_later_artisan_argument_does_not_misclassify_another_php_script(self):
+        self.set_arguments([str(self.php), 'other.php', 'artisan', 'queue:work'])
+        self.assertEqual(self.instance().prepare()['managers'], [])
+        self.assertFalse(self.mutations())
+
+    def test_sanitized_profile_reports_uids_deleted_flag_and_parent_unit(self):
+        value = self.proc.values[201]
+        value['uids'][2] = self.uid + 1
+        value['cgroups'] = ['/system.slice/supervisord.service']
+        with self.assertRaisesRegex(QueueSafetyError, 'QUEUE_WORKER_PROFILE_UNSUPPORTED'):
+            self.instance().prepare()
+        detail = json.loads(next(message.partition('=')[2] for message in self.messages if message.startswith('QUEUE_WORKER_PROFILE=')))
+        self.assertEqual(detail['parent_manager'], 'supervisord')
+        self.assertEqual(detail['systemd_unit'], 'supervisord.service')
+        self.assertFalse(detail['uids_match']['saved'])
+        self.assertFalse(detail['interpreter_deleted'])
+        self.assertNotIn('PRIVATE_ARGUMENT_VALUE', '\n'.join(self.messages))
         self.assertFalse(self.mutations())
 
     def test_no_workers_is_read_only_and_restores_nothing(self):

@@ -60,12 +60,13 @@ class LinuxProc:
                 'uids': [int(value) for value in status['Uid'].split()],
                 'exe': os.readlink(directory / 'exe'), 'cwd': os.readlink(directory / 'cwd'),
                 'argv': [part.decode('utf-8') for part in arguments.rstrip(b'\0').split(b'\0')],
-                'sig_caught': int(status.get('SigCgt', '0'), 16)}
+                'sig_caught': int(status.get('SigCgt', '0'), 16),
+                'cgroups': [line.split(':', 2)[2] for line in (directory / 'cgroup').read_text().splitlines() if line.count(':') >= 2]}
 
 
-def default_runner(arguments, timeout=15):
+def default_runner(arguments, timeout=15, cwd=None):
     return subprocess.run(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          timeout=timeout, check=False)
+                          timeout=timeout, check=False, cwd=cwd)
 
 
 class QueueQuiescer:
@@ -80,11 +81,13 @@ class QueueQuiescer:
         self.clock = clock or time.monotonic
         self.sleep = sleep or time.sleep
         self.data = None
+        self._interpreters = {}
+        self._launchers = {}
         self.progress = progress or (lambda message: None)
 
-    def _command(self, arguments, timeout=15, accepted=(0,)):
+    def _command(self, arguments, timeout=15, accepted=(0,), cwd=None):
         try:
-            result = self.runner(arguments, timeout=timeout)
+            result = self.runner(arguments, timeout=timeout, cwd=cwd)
         except (OSError, subprocess.TimeoutExpired):
             fail('QUEUE_MANAGER_COMMAND_FAILED')
         code, output = result if isinstance(result, tuple) else (result.returncode, result.stdout)
@@ -133,29 +136,231 @@ class QueueQuiescer:
         except (OSError, ValueError, KeyError, UnicodeError):
             fail('QUEUE_PROCESS_DISAPPEARED_OR_CHANGED')
 
+    def _php_class(self, path):
+        if path == self.php:
+            return 'reset_php'
+        if re.fullmatch(r'/opt/cpanel/ea-php[0-9]{2}/root/usr/bin/php', path):
+            return 'cpanel_php'
+        if re.fullmatch(r'/opt/alt/php[0-9]{2}/usr/bin/php', path):
+            return 'cloudlinux_php'
+        if re.fullmatch(r'/usr/(?:local/)?bin/php(?:[0-9]+(?:\.[0-9]+)?)?', path):
+            return 'system_php'
+        if re.fullmatch(r'/usr/(?:local/)?bin/ea-php-cli', path):
+            return 'cpanel_selector'
+        return 'other'
+
+    def _binary_fingerprint(self, path):
+        original = Path(path)
+        if not original.is_absolute():
+            fail('QUEUE_PHP_LAUNCHER_RELATIVE_REQUIRES_REVIEW')
+        resolved = original.resolve()
+        if self._php_class(str(resolved)) == 'other':
+            fail('QUEUE_WORKER_PHP_PATH_UNSUPPORTED')
+        try:
+            # Validate both the launcher alias and canonical target ancestry.
+            # Root-owned symlinks are allowed; their parent directories remain trusted.
+            for candidate in (original, resolved):
+                link = candidate.lstat()
+                if link.st_uid != 0 or (not stat.S_ISLNK(link.st_mode) and link.st_mode & 0o022):
+                    fail('QUEUE_WORKER_PHP_FILE_UNTRUSTED')
+                for parent in candidate.parents:
+                    info = parent.stat()
+                    if info.st_uid != 0 or (info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX):
+                        fail('QUEUE_WORKER_PHP_FILE_UNTRUSTED')
+            descriptor = os.open(str(resolved), os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, 'rb') as stream:
+                before = os.fstat(stream.fileno())
+                if not stat.S_ISREG(before.st_mode) or not before.st_mode & 0o111 or before.st_size > 67108864:
+                    fail('QUEUE_WORKER_PHP_FILE_UNSUPPORTED')
+                digest = hashlib.sha256()
+                total = 0
+                while True:
+                    chunk = stream.read(1048576)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > 67108864:
+                        fail('QUEUE_WORKER_PHP_FILE_UNSUPPORTED')
+                    digest.update(chunk)
+                after = os.fstat(stream.fileno())
+            if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                    != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                    or str(original.resolve()) != str(resolved)):
+                fail('QUEUE_WORKER_PHP_FILE_CHANGED')
+            return {'path': str(original), 'resolved': str(resolved), 'sha256': digest.hexdigest(),
+                    'uid': before.st_uid, 'mode': stat.S_IMODE(before.st_mode),
+                    'device': before.st_dev, 'inode': before.st_ino, 'size': before.st_size}
+        except OSError:
+            fail('QUEUE_WORKER_PHP_FILE_UNREADABLE')
+
+    def _probe_php(self, launcher, expected):
+        # -n disables all php.ini/autoprepend loading. No application bootstrap,
+        # PHP prefix flags or environment values are executed by this probe.
+        username = pwd.getpwuid(self.uid).pw_name
+        code = "echo json_encode(['version'=>PHP_VERSION_ID,'binary'=>PHP_BINARY,'executable'=>readlink('/proc/self/exe')]);"
+        output = self._command(['runuser', '-u', username, '--', launcher,
+                                '--no-php-ini', '-r', code], timeout=15, cwd=self.root)
+        try:
+            value = json.loads(output)
+            if (set(value) != {'version', 'binary', 'executable'} or type(value['version']) is not int
+                    or value['version'] < 80000 or not isinstance(value['binary'], str)
+                    or not isinstance(value['executable'], str)
+                    or str(Path(value['executable']).resolve()) != expected):
+                fail('QUEUE_WORKER_PHP_PROBE_MISMATCH')
+            return value['version']
+        except (TypeError, ValueError, KeyError):
+            fail('QUEUE_WORKER_PHP_PROBE_INVALID')
+
+    def _interpreter(self, path):
+        fingerprint = self._binary_fingerprint(path)
+        if fingerprint['resolved'] != path or self._php_class(path) == 'cpanel_selector':
+            fail('QUEUE_WORKER_PHP_EXECUTABLE_NOT_CANONICAL')
+        old = self._interpreters.get(path)
+        if old and old['fingerprint'] != fingerprint:
+            fail('QUEUE_WORKER_PHP_FILE_CHANGED')
+        if not old:
+            old = {'path': path, 'fingerprint': fingerprint, 'version': self._probe_php(path, path)}
+            self._interpreters[path] = old
+        return old
+
+    def _launcher(self, path, interpreter):
+        fingerprint = self._binary_fingerprint(path)
+        version = self._probe_php(path, interpreter)
+        record = {'path': path, 'fingerprint': fingerprint, 'interpreter': interpreter, 'version': version}
+        key = (path, interpreter)
+        if key in self._launchers and self._launchers[key] != record:
+            fail('QUEUE_WORKER_PHP_LAUNCHER_CHANGED')
+        self._launchers[key] = record
+        return record
+
+    def _php_script(self, arguments, cwd):
+        """Parse PHP's prefix once; never search past a different selected script."""
+        index = 1
+        while index < len(arguments):
+            argument = arguments[index]
+            if argument in ('-q', '-n', '--no-php-ini'):
+                index += 1
+                continue
+            if argument in ('-d', '-c', '--define', '--php-ini'):
+                if index + 1 >= len(arguments) or not arguments[index + 1]:
+                    fail('QUEUE_PHP_PREFIX_OPERAND_MISSING')
+                # An artisan token consumed as an ini option is not the script.
+                if arguments[index + 1] in ('artisan', './artisan', self.root + '/artisan'):
+                    fail('QUEUE_PHP_ARTISAN_CONSUMED_AS_OPTION')
+                index += 2
+                continue
+            if argument.startswith('--define=') or argument.startswith('--php-ini='):
+                if not argument.partition('=')[2]:
+                    fail('QUEUE_PHP_PREFIX_OPERAND_MISSING')
+                index += 1
+                continue
+            if (argument.startswith('-d') or argument.startswith('-c')) and len(argument) > 2:
+                index += 1
+                continue
+            style = ''
+            if argument in ('-f', '--file'):
+                index += 1
+                if index >= len(arguments) or not arguments[index]:
+                    fail('QUEUE_PHP_PREFIX_OPERAND_MISSING')
+                argument = arguments[index]
+            elif argument.startswith('--file='):
+                style, argument = '--file=', argument.partition('=')[2]
+            elif argument.startswith('-f') and len(argument) > 2:
+                style, argument = '-f', argument[2:]
+            elif argument.startswith('-'):
+                fail('QUEUE_PHP_PREFIX_UNSUPPORTED')
+            if not argument or argument == '-':
+                fail('QUEUE_PHP_STDIN_UNSUPPORTED')
+            artisan = argument == self.root + '/artisan' or (argument in ('artisan', './artisan') and cwd == self.root)
+            if not artisan:
+                return None
+            task_index = index + 1
+            if task_index < len(arguments) and arguments[task_index] == '--':
+                task_index += 1
+            if task_index >= len(arguments):
+                return None
+            return {'script_index': index, 'script_style': style,
+                    'task_index': task_index, 'task': arguments[task_index]}
+        return None
+
+    def _normalized_arguments(self, arguments, parsed, interpreter):
+        normalized = list(arguments)
+        normalized[0] = interpreter
+        normalized[parsed['script_index']] = parsed['script_style'] + self.root + '/artisan'
+        return normalized
+
+    def _profile(self, value, parsed=None, code=None):
+        parent_kind = 'unavailable'
+        unit = None
+        try:
+            parent = self.proc.read(value['ppid'])
+            if self._manager(parent):
+                parent_kind = 'supervisord'
+            elif Path(parent.get('exe', '')).name == 'systemd':
+                parent_kind = 'systemd'
+            elif Path(parent.get('exe', '')).name in ('bash', 'sh', 'dash', 'zsh'):
+                parent_kind = 'shell'
+            else:
+                parent_kind = 'other'
+            for group in value.get('cgroups', []):
+                for part in group.split('/'):
+                    if re.fullmatch(r'[A-Za-z0-9_.@-]{1,120}\.service', part):
+                        unit = part
+        except (OSError, ValueError, KeyError, UnicodeError):
+            pass
+        classification = self._php_class(value.get('exe', ''))
+        details = {'pid': value['pid'], 'task': parsed['task'] if parsed else 'unparsed',
+                   'artisan_arg_index': parsed['script_index'] if parsed else None,
+                   'cwd_match': value.get('cwd') == self.root,
+                   'uids_match': {name: number == self.uid for name, number in zip(('real', 'effective', 'saved', 'filesystem'), value.get('uids', []))},
+                   'launch_php_match': value.get('exe') == self.php, 'php_class': classification,
+                   'interpreter_deleted': value.get('exe', '').endswith(' (deleted)'),
+                   'term_handler_caught': bool(value.get('sig_caught', 0) & (1 << (signal.SIGTERM - 1))),
+                   'parent_manager': parent_kind, 'systemd_unit': unit}
+        if classification != 'other':
+            try:
+                fingerprint = self._binary_fingerprint(value['exe'])
+                details['php_path'] = fingerprint['resolved']
+            except QueueSafetyError:
+                details['php_class'] = 'untrusted_or_unavailable'
+        if code:
+            details['code'] = code
+        self.progress('QUEUE_WORKER_PROFILE=' + json.dumps(details, sort_keys=True))
+
     def _worker(self, value):
         if not value['uids'] or value['uids'][0] != self.uid:
             return None
         arguments = value['argv']
-        for position, argument in enumerate(arguments[:-1]):
-            artisan = (argument == self.root + '/artisan'
-                       or (argument in ('artisan', './artisan') and value['cwd'] == self.root))
-            if not artisan or arguments[position + 1] not in ('queue:work', 'queue:listen', 'horizon', 'horizon:work'):
-                continue
-            if (arguments[position + 1] != 'queue:work' or position != 1
-                    or value['cwd'] != self.root or value['exe'] != self.php
-                    or value['uids'] != [self.uid] * 4):
-                fail('QUEUE_WORKER_PROFILE_UNSUPPORTED')
-            if not value.get('sig_caught', 0) & (1 << (signal.SIGTERM - 1)):
-                fail('QUEUE_WORKER_GRACEFUL_TERM_UNAVAILABLE')
-            normalized = [self.php, self.root + '/artisan'] + arguments[position + 1:]
-            timeout, sleep, rest = self._worker_limits(arguments[position + 2:])
-            return {'pid': int(value['pid']), 'ppid': int(value['ppid']),
-                    'pgrp': int(value['pgrp']), 'session': int(value['session']),
-                    'starttime': str(value['starttime']),
-                    'command_sha256': self._command_hash(normalized),
-                    'minimum_stopwait': max(120, timeout + sleep + rest + 30)}
-        return None
+        # This is only a diagnostic candidacy check. Actual recognition is the
+        # prefix parser below; later artisan-like application arguments cannot
+        # turn a different PHP script into a worker.
+        candidate = any((argument in ('artisan', './artisan', self.root + '/artisan')
+                         or argument in ('-fartisan', '--file=artisan', '-f' + self.root + '/artisan', '--file=' + self.root + '/artisan'))
+                        and index + 1 < len(arguments) and arguments[index + 1] in ('queue:work', 'queue:listen', 'horizon', 'horizon:work', '--')
+                        for index, argument in enumerate(arguments))
+        try:
+            parsed = self._php_script(arguments, value['cwd'])
+        except QueueSafetyError as error:
+            if not candidate:
+                return None
+            self._profile(value, code=str(error))
+            raise
+        if parsed is None or parsed['task'] not in ('queue:work', 'queue:listen', 'horizon', 'horizon:work'):
+            return None
+        self._profile(value, parsed)
+        if (parsed['task'] != 'queue:work' or value['cwd'] != self.root
+                or value['uids'] != [self.uid] * 4):
+            fail('QUEUE_WORKER_PROFILE_UNSUPPORTED')
+        if not value.get('sig_caught', 0) & (1 << (signal.SIGTERM - 1)):
+            fail('QUEUE_WORKER_GRACEFUL_TERM_UNAVAILABLE')
+        interpreter = self._interpreter(value['exe'])
+        normalized = self._normalized_arguments(arguments, parsed, interpreter['path'])
+        timeout, sleep, rest = self._worker_limits(arguments[parsed['task_index'] + 1:])
+        return {'pid': int(value['pid']), 'ppid': int(value['ppid']),
+                'pgrp': int(value['pgrp']), 'session': int(value['session']),
+                'starttime': str(value['starttime']), 'interpreter': interpreter['path'],
+                'command_sha256': self._command_hash(normalized),
+                'minimum_stopwait': max(120, timeout + sleep + rest + 30)}
 
     @staticmethod
     def _command_hash(arguments):
@@ -323,13 +528,14 @@ class QueueQuiescer:
                     arguments = shlex.split(self._expand(config.get(section, 'command'), context))
                 except ValueError:
                     fail('QUEUE_MANAGER_PROGRAM_COMMAND_INVALID')
-                if len(arguments) < 3 or str(Path(arguments[0]).resolve()) != self.php:
+                if len(arguments) < 3:
                     fail('QUEUE_MANAGER_PROGRAM_COMMAND_INVALID')
-                if arguments[1] in ('artisan', './artisan', self.root + '/artisan'):
-                    arguments[0], arguments[1] = self.php, self.root + '/artisan'
-                else:
+                parsed = self._php_script(arguments, self.root)
+                if parsed is None or parsed['task'] != 'queue:work':
                     fail('QUEUE_MANAGER_PROGRAM_COMMAND_INVALID')
-                if arguments[2] != 'queue:work' or self._command_hash(arguments) != worker['command_sha256']:
+                launcher = self._launcher(arguments[0], worker['interpreter'])
+                normalized = self._normalized_arguments(arguments, parsed, launcher['interpreter'])
+                if self._command_hash(normalized) != worker['command_sha256']:
                     fail('QUEUE_MANAGER_PROGRAM_COMMAND_INVALID')
                 stop_signal = config.get(section, 'stopsignal', fallback='TERM').upper()
                 try:
@@ -422,6 +628,7 @@ class QueueQuiescer:
                 managers.append(manager)
         self.data = {'version': 1, 'root': self.root, 'uid': self.uid, 'php': self.php,
                      'supervisorctl': self.supervisorctl, 'sources': sources,
+                     'interpreters': list(self._interpreters.values()), 'launchers': list(self._launchers.values()),
                      'managers': managers, 'phase': 'prepared', 'requested': []}
         self._validate_saved()
         return self.receipt()
@@ -438,10 +645,13 @@ class QueueQuiescer:
             if (data['version'] != 1 or data['root'] != self.root or data['uid'] != self.uid
                     or data['php'] != self.php or not isinstance(data['managers'], list)
                     or len(data['managers']) > 16 or not isinstance(data['sources'], list)
+                    or not isinstance(data['interpreters'], list) or not isinstance(data['launchers'], list)
                     or data['phase'] not in ('prepared', 'pause-intent', 'pausing', 'paused', 'restoring', 'restored')):
                 fail('QUEUE_MANAGER_RECEIPT_INVALID')
             self.supervisorctl = data['supervisorctl']
             self.data = json.loads(json.dumps(data))
+            self._interpreters = {item['path']: item for item in self.data['interpreters']}
+            self._launchers = {(item['path'], item['interpreter']): item for item in self.data['launchers']}
             for manager in self.data['managers']:
                 if (not isinstance(manager['pid'], int) or manager['pid'] < 1
                         or not str(manager['starttime']).isdecimal()
@@ -461,6 +671,16 @@ class QueueQuiescer:
     def _validate_saved(self):
         if self.data is None:
             fail('QUEUE_MANAGER_NOT_PREPARED')
+        for interpreter in self.data['interpreters']:
+            if self._binary_fingerprint(interpreter['path']) != interpreter['fingerprint']:
+                fail('QUEUE_WORKER_PHP_FILE_CHANGED')
+            if self._probe_php(interpreter['path'], interpreter['path']) != interpreter['version']:
+                fail('QUEUE_WORKER_PHP_VERSION_CHANGED')
+        for launcher in self.data['launchers']:
+            if self._binary_fingerprint(launcher['path']) != launcher['fingerprint']:
+                fail('QUEUE_WORKER_PHP_LAUNCHER_CHANGED')
+            if self._probe_php(launcher['path'], launcher['interpreter']) != launcher['version']:
+                fail('QUEUE_WORKER_PHP_LAUNCHER_CHANGED')
         for meta in self.data['sources']:
             _, current = self._trusted_file(meta['path'], root_owned=False)
             if current != meta:
@@ -543,6 +763,7 @@ class QueueQuiescer:
                     fail('QUEUE_WORKER_RESTORE_FAILED')
                 worker = self._worker(self._read(status['pid']))
                 if (worker is None or worker['ppid'] != manager['pid']
+                        or worker['interpreter'] != program['worker']['interpreter']
                         or worker['command_sha256'] != program['worker']['command_sha256']):
                     fail('QUEUE_WORKER_RESTORE_PROFILE_CHANGED')
                 if program['group_signals']:
