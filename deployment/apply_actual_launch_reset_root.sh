@@ -69,7 +69,7 @@ trap launch_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py worker_control.py quiesce_workers.py queue_manager.py; do
+for launch_name in reset.php inspected_schema.json bonus_owner_patch.py customer_global_patch.py employee_profile_patch.py worker_control.py quiesce_workers.py queue_manager.py systemd_queue.py; do
   launch_source="deployment/launch_reset/$launch_name"
   launch_blob=$(runuser -u fasakha -- git -C "$launch_root" rev-parse "$launch_revision:$launch_source")
   [[ "$launch_blob" =~ ^[0-9a-f]{40}$ ]]

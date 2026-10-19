@@ -9,7 +9,7 @@ import re
 import stat
 
 from quiesce_workers import TimerQuiescer
-from queue_manager import QueueQuiescer
+from systemd_queue import SystemdQueueQuiescer as QueueQuiescer
 
 APPLICATION_ROOT = Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
@@ -118,8 +118,11 @@ class WorkerControl:
         for group in (queue, timers):
             try:
                 group.restore()
-            except Exception:
+            except Exception as error:
                 failed = True
+                code = str(error)
+                if re.fullmatch(r'[A-Z][A-Z0-9_]{0,119}', code):
+                    self.progress('WORKER_GROUP_RESTORE_FAILED code=' + code)
         if failed:
             raise WorkerControlError('APPLICATION_WORKER_RESTORE_FAILED')
         self.progress('APPLICATION_WORKERS_RESTORED')
