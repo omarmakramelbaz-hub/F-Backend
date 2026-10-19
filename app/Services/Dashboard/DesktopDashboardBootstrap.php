@@ -76,10 +76,10 @@ class DesktopDashboardBootstrap
             $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
             abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             $coverage=['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
-                'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'media'=>$media['complete']];
+                'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'print_protocol'=>1,'media'=>$media['complete']];
             $eligibility=$this->data->pendingEligibility($queries,$dataset);if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
             return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
-                'actor_id'=>(int)$actor->id,'branches'=>$branches,'generated_at'=>now('UTC')->toIso8601String(),
+                'actor_id'=>(int)$actor->id,'branches'=>$branches,'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at],'generated_at'=>now('UTC')->toIso8601String(),
                 'source'=>$source,
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.

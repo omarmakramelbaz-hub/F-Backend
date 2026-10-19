@@ -1,7 +1,6 @@
-# Offline receipts, kitchen and shift printing: proposed durable protocol
+# Offline receipts, kitchen and shift printing: durable protocol design record
 
-Status: design with bounded executable state exploration. **This document does not
-enable offline printing.** The application, deployed preview, route coverage,
+Status: historical design and bounded executable state exploration. The implemented lifecycle and its actual integration are documented in `desktop-print-ledger-internal.md` and `desktop-offline-print-native.md`. The design record below predates that implementation. **This document by itself does not enable offline printing.** The application, deployed preview, route coverage,
 provider restrictions, source manifest and `full_dashboard=false` are unchanged.
 Source inspection baseline: `7a67016f660bcf49cc9e8c0e49f87efc80f60fe5`.
 

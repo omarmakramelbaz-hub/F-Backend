@@ -15,8 +15,10 @@ try {
     elseif($database==='fasakhansta_dashboard'){$pdo->exec('CREATE DATABASE IF NOT EXISTS `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');}
     else{$exists=$pdo->prepare('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');$exists->execute([$database]);
         if(!$exists->fetchColumn())throw new RuntimeException('Active database is missing.');}
+    $pdo->exec('CREATE DATABASE IF NOT EXISTS `fasakhansta_dashboard_effects` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin');
     $pdo->exec("CREATE USER IF NOT EXISTS 'dashboard'@'127.0.0.1' IDENTIFIED BY ".$pdo->quote($input['appPassword']));
     $pdo->exec("GRANT ALL PRIVILEGES ON `".$database."`.* TO 'dashboard'@'127.0.0.1'");
+    $pdo->exec("GRANT ALL PRIVILEGES ON `fasakhansta_dashboard_effects`.* TO 'dashboard'@'127.0.0.1'");
 } catch (Throwable $error) {
     fwrite(STDERR, "تعذر تهيئة قاعدة الداشبورد المحلية.\n");
     exit(1);

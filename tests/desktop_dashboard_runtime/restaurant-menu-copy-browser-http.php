@@ -7,7 +7,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     $fixture=__DIR__;$artifact=$argv[3];$script=$fixture.'/restaurant-menu-copy-browser.cjs';$application=realpath($argv[1]);
     if(!preg_match('/^[a-f0-9]{40}$/D',$argv[4]??''))throw new RuntimeException('A frozen restaurant menu copy fixture SHA is required.');
     if(!is_dir($artifact)&&!mkdir($artifact,0700,true))throw new RuntimeException('Restaurant menu copy artifact directory unavailable.');
-    $fixtureFiles=['restaurant-menu-copy-browser-http.php','restaurant-menu-copy-browser.cjs','browser-sound.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
+    $fixtureFiles=['restaurant-menu-copy-browser-http.php','restaurant-menu-copy-browser.cjs','browser-sound.cjs','runtime-engine.php','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
     $repository=dirname($fixture,2);$fixtureBindings=[];
     $verifyFixtures=function()use($fixtureFiles,$repository,$fixture,$argv,&$fixtureBindings){
         foreach($fixtureFiles as $file){
@@ -63,8 +63,9 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
         file_put_contents($artifact.'/receipt.json',json_encode($receipt,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE).PHP_EOL);
         if(!$receipt['completed']){fwrite(STDERR,'Original restaurant menu copy browser fixture or cleanup did not complete.'.PHP_EOL);exit(1);}
     });
-    $receipt['phpVersion']=PHP_VERSION;$receipt['laravel']=\Illuminate\Foundation\Application::VERSION;$receipt['mariaVersion']=$pdo->query('SELECT VERSION()')->fetchColumn();
-    verify($receipt['laravel']==='8.83.29','actual menu-copy browser uses original Laravel8.83.29');
+    $receipt['phpVersion']=PHP_VERSION;require_once __DIR__.'/runtime-engine.php';
+$receipt['laravel']=\Illuminate\Foundation\Application::VERSION;$receipt['mariaVersion']=$pdo->query('SELECT VERSION()')->fetchColumn();
+    verify($receipt['laravel']===DesktopRuntimeEngineProof::expected($application),'actual menu-copy browser uses its independently locked installed engine');
     $classes=['App\\Models\\ResturantProduct'=>'app/Models/ResturantProduct.php','App\\Models\\Resturant'=>'app/Models/Resturant.php',
         'App\\Http\\Controllers\\Api\\V1\\Vendor\\ResturantProductController'=>'app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php',
         'App\\Http\\Requests\\Api\\Vendor\\CopyMenuRequest'=>'app/Http/Requests/Api/Vendor/CopyMenuRequest.php',

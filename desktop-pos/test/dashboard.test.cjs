@@ -16,7 +16,7 @@ function fixture(t, options = {}){
     static getFocusedWindow(){return windows.find(w=>w.visible);}
   }
   const electron={BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},Menu:{buildFromTemplate:template=>template,setApplicationMenu:menu=>{electron.menu=menu;}},shell:{openExternal:url=>external.push(url)},dialog:{showMessageBox:async()=>({response:1})}};
-  const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard.cjs'),'utf8'),{module,__dirname:path.join(__dirname,'../src'),require:name=>name==='electron'?electron:require(name==='./dashboard-policy.cjs'?'../src/dashboard-policy.cjs':name),URL,AbortSignal,Set,Error,Promise});
+  const module={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard.cjs'),'utf8'),{module,__dirname:path.join(__dirname,'../src'),require:name=>name==='electron'?electron:require(name.startsWith('./')?path.join(__dirname,'../src',name):name),URL,AbortSignal,Set,Error,Promise,setTimeout,clearTimeout});
   const dashboard=module.exports({origin:policy.DEFAULT_ORIGIN,offline:message=>notices.push(message),offlineWindow:()=>windows[0],quitting:()=>closing,quit:()=>{},printer:()=> 'BranchPrinter',...options});
   return {dashboard,windows,handlers,external,notices,session,electron,html:value=>{pageHTML=value;},close:()=>{closing=true;}};
 }
@@ -117,7 +117,7 @@ test('native printing rejects foreign pages, unowned frames and non-receipts bef
 });
 test('remote dashboard exposes bounded preparation, status and receipt actions without the offline store or device token',()=>{
   let api,name;vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard-preload.cjs'),'utf8'),{require:()=>({contextBridge:{exposeInMainWorld:(n,a)=>{name=n;api=a;}},ipcRenderer:{invoke:async()=>({ok:true,value:true})}})});
-  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','status','prepare','synchronize','onState']);
+  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','printEffect','printPending','status','prepare','synchronize','reviewSync','onState']);
   assert.ok(policy.sameOrigin('https://fasakhaninja.com/admin/customers'));assert.equal(policy.sameOrigin('https://fasakhaninja.com.evil.test/admin'),false);
   assert.equal(policy.sameOrigin('https://user:password@fasakhaninja.com/admin'),false);assert.equal(policy.externalURL('file:///x'),false);
 });
@@ -130,6 +130,15 @@ test('preparation and status reject foreign frames and use only the original sig
   assert.equal((await f.handlers.get('dashboard:prepare')(event,{csrf:'token',origin:'https://foreign.test'})).ok,true);
   assert.deepEqual(accepted,{origin:policy.DEFAULT_ORIGIN,csrf:'token'});
   f.dashboard.publish({pending:2});assert.equal(sender.lastMessage.name,'dashboard:state');
+});
+
+test('sync review uses the native dialog callback and rejects foreign or child frames',async t=>{
+  const calls=[],f=fixture(t,{reviewSync:async window=>{calls.push(window);return {retried:false};}});await f.dashboard.open();
+  const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:review-sync');
+  assert.equal((await handler(event)).ok,true);assert.deepEqual(calls,[f.windows[0]]);
+  assert.equal((await handler({...event,senderFrame:{url:'https://foreign.test/admin/dashboard'}})).ok,false);
+  assert.equal((await handler({...event,sender:{id:999}})).ok,false);assert.equal(calls.length,1);
+  assert.ok(f.electron.menu[0].submenu.some(value=>value.label==='مراجعة المزامنة'));
 });
 
 test('switching between original remote and local pages keeps one window and prevents stale forms or local header forwarding',async t=>{
@@ -228,4 +237,50 @@ test('prepared local pages cannot submit absolute production requests outside sc
   assert.equal(decision.cancel,true);
   f.session.webRequest.headers({url:origin+'/admin/employees/save',method:'POST',webContentsId:sender.id,requestHeaders:{}},value=>decision=value);
   assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private');
+});
+
+test('prepared local receipts resolve to a typed durable effect and never fetch the consuming legacy GET',async t=>{
+  const {sha256,receiptHash}=require('../src/dashboard-print-effects.cjs'),records=new Map(),calls=[];
+  const effect='a'.repeat(64),html='<html data-dashboard-receipt="takeaway"><head></head><body>فاتورة</body></html>';
+  const control=async value=>{
+    calls.push(value);
+    if(value.action==='print-resolve')return {effect_id:effect};
+    if(value.action==='print-prepare')return {effect_id:effect,device_id:'00000000-0000-4000-8000-000000000001',
+      enrollment_id:'b'.repeat(64),origin_command_id:'00000000-0000-4000-8000-000000000002',kind:'sale_receipt',
+      actor_id:10,branch:'f:100',revision:1,snapshot_sha256:'c'.repeat(64),html,render_sha256:sha256(html)};
+    if(value.action==='print-burn')return {effect_id:effect,invocation_id:value.invocation_id,permit:'d'.repeat(64),render_sha256:sha256(html)};
+    if(value.action==='print-outcome'){const{action,...receipt}=value;return {effect_id:effect,invocation_id:value.invocation_id,state:value.state,receipt_sha256:receiptHash(receipt)};}
+    throw Error('Unexpected control operation');
+  };
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private',printControl:control,
+    printMetadata:{read:async key=>records.get(key)||null,write:async(key,value)=>records.set(key,value)}});
+  await f.dashboard.open();f.session.fetch=()=>{throw Error('Legacy consuming GET must not be fetched.');};
+  const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:print-receipt');
+  assert.equal((await handler(event,origin+'/admin/takeaway/receipts/1/print?initial_print=original-grant')).ok,true);
+  assert.equal(calls[0].action,'print-resolve');assert.equal(calls[0].path,'/admin/takeaway/receipts/1/print');assert.equal(calls[0].query.initial_print,'original-grant');
+  assert.equal(f.windows[1].printOptions.silent,true);assert.ok(f.windows[1].destroyed);
+  const printed=await handler(event,origin+'/admin/takeaway/receipts/1/print?initial_print=original-grant');
+  assert.equal(printed.ok,true);assert.equal(printed.value.already_recorded,true);assert.equal(f.windows.length,2);
+  assert.equal(calls.filter(value=>value.action==='print-burn').length,1);
+});
+test('local legacy URLs cannot bypass a missing print protocol; remote polling retains the original receiver',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
+  const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}};
+  const result=await f.handlers.get('dashboard:print-receipt')(event,origin+'/admin/takeaway/receipts/1/print');
+  assert.equal(result.ok,false);assert.match(result.error,/تحديث البرنامج/);assert.equal(f.windows.length,1);
+  const remote=fixture(t);await remote.dashboard.open();const contents=remote.windows[0].webContents;
+  const state=await remote.handlers.get('dashboard:print-pending')({sender:contents,senderFrame:{url:contents.getURL()}});
+  assert.equal(state.ok,true);assert.equal(state.value.local,false);
+});
+test('effect printing rejects unowned or foreign frames and raw effect identities on the remote dashboard',async t=>{
+  const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents,handler=f.handlers.get('dashboard:print-effect');
+  assert.equal((await handler({sender,senderFrame:{url:sender.getURL()}},'a'.repeat(64))).ok,false);
+  assert.equal((await handler({sender:{id:999},senderFrame:{url:sender.getURL()}},'a'.repeat(64))).ok,false);
+  assert.equal((await handler({sender,senderFrame:{url:'https://foreign.test/admin/'}},'a'.repeat(64))).ok,false);
+  assert.equal(f.windows.length,1);
+});
+test('local generic print menu directs users to the audited receipt action',async t=>{
+  const f=fixture(t,{origin:'http://127.0.0.1:43123',localToken:'private'});await f.dashboard.open();
+  const item=f.electron.menu.find(value=>value.label==='طباعة').submenu[0];item.click();
+  assert.equal(f.windows[0].printOptions,undefined);
 });

@@ -12,6 +12,8 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'wallets.transfer','wallets.withdraw.store',
+        'resturantControl',
         'resturants.changeStatus','resturants.changeUnderContract','update_sorting_is_featured',
         'resturant_products.update.status','resturant_products.update.highest_rated',
         'resturant_products.store','resturant_products.update','resturant_products.destroy',

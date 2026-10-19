@@ -70,7 +70,7 @@ class DesktopDashboardJournal
             }
             if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
-            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route));
+            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route)||DesktopDashboardWalletCash::handles($route));
             $previousClock=\Carbon\Carbon::getTestNow();
             if($customerClock)\Carbon\Carbon::setTestNow($started);
             try{$result=$work();}finally{if($customerClock)\Carbon\Carbon::setTestNow($previousClock);}
@@ -98,6 +98,8 @@ class DesktopDashboardJournal
                 'local_result_cipher'=>Crypt::encryptString($this->json(['format'=>1,'result'=>$result,'references'=>$references])),
                 'dependencies'=>$this->json($dependencies),'status'=>'pending','attempts'=>0,'created_at'=>$occurred,'updated_at'=>$now,
             ]);
+            if(app(DesktopDashboardPrintLedger::class)->active($device)&&in_array($route,DesktopDashboardPrintLedger::ROUTES,true)&&!isset($payload['envelope']))
+                app(DesktopDashboardPrintLedger::class)->captureJournal($device,$command,$actor,(string)($payload['values']['branch']??''));
             return $result;
         });
     }
@@ -117,6 +119,7 @@ class DesktopDashboardJournal
             $ready[]=['sequence'=>(int)$row->sequence,'command_id'=>$row->command_id,'actor_id'=>(int)$row->actor_id,'route_name'=>$row->route_name,
                 'payload'=>json_decode(Crypt::decryptString($row->command_cipher),true,512,JSON_THROW_ON_ERROR),
                 'local_result'=>$saved['result'],'local_references'=>$saved['references'],
+                'print_ownership'=>app(DesktopDashboardPrintLedger::class)->active($device)?app(DesktopDashboardPrintLedger::class)->ownership($device,$row->command_id):[],
                 'dependencies'=>$dependencies,'occurred_at'=>\Carbon\Carbon::parse($row->created_at,'UTC')->toIso8601String()];
             // Apply and confirm one command at a time. The next query sees acknowledged dependencies.
             break;

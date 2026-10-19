@@ -44,21 +44,23 @@ class DesktopDashboardRemoteAttempts
             ||($v['method']==='DELETE'&&$v['path']==='/admin/contactsDeleteAll');
         $review=in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/resturant_reviews/[1-9][0-9]{0,18}$#D',$v['path']);
         $wishlist=in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/userWishlistsDelete/[1-9][0-9]{0,18}$#D',$v['path']);
+        $restaurantControl=$v['method']==='GET'&&$v['path']==='/admin/resturantControl';
         $restaurantFlags=$v['method']==='POST'&&preg_match('#^/admin/(?:resturantchange(?:Status|UnderContract)|update_sorting_is_featured)/[1-9][0-9]{0,18}$#D',$v['path']);
         $restaurantProducts=$v['method']==='GET'&&preg_match('#^/admin/resturant_products/[1-9][0-9]{0,18}/update/(?:status|highest_rated)$#D',$v['path']);
         $productCrud=($v['method']==='POST'&&$v['path']==='/admin/resturant_products')
             ||(in_array($v['method'],['POST','PUT'],true)&&$v['path']==='/admin/resturant_products/update')
             ||(in_array($v['method'],['POST','DELETE'],true)&&preg_match('#^/admin/resturant_products/[1-9][0-9]{0,18}$#D',$v['path']));
         $menuCopy=$v['method']==='POST'&&$v['path']==='/admin/resturant/copy/items';
-        // GET is permitted only for these two original mutation links; ordinary reads are not reservations.
-        abort_if($v['method']==='GET'&&!$restaurantProducts,422);
+        $wallet=$v['method']==='POST'&&in_array($v['path'],['/admin/wallets/transfer','/admin/wallets/withdraw/store'],true);
+        // Only the exact reviewed original GET mutation links may reserve a write; ordinary reads cannot.
+        abort_if($v['method']==='GET'&&!$restaurantProducts&&!$restaurantControl,422);
         $history=in_array($v['method'],['POST','PUT'],true)&&preg_match('#^/admin/read/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$#iD',$v['path']);
         $core=false;
         if($v['method']==='POST'&&str_starts_with($v['path'],'/admin/')){
             try{$route=app('router')->getRoutes()->match(Request::create($v['path'],'POST'));$core=isset(self::CORE[$route->getName()??'']);}
             catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$core=false;}
         }
-        abort_unless($single||$roles||$bulk||$ordering||$availability||$store||$contact||$review||$wishlist||$restaurantFlags||$restaurantProducts||$productCrud||$menuCopy||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
+        abort_unless($wallet||$single||$roles||$bulk||$ordering||$availability||$store||$contact||$review||$wishlist||$restaurantFlags||$restaurantControl||$restaurantProducts||$productCrud||$menuCopy||$core||$history,422,'تأكيد نتيجة هذا القسم لم يُجهّز بعد.');
         abort_unless(Schema::hasTable('desktop_dashboard_remote_attempts'),503,'سجل نتائج السيرفر لم يُجهّز بعد.');
         foreach(['desktop_dashboard_devices','desktop_dashboard_remote_attempts','categories','products','product_features'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
@@ -77,7 +79,11 @@ class DesktopDashboardRemoteAttempts
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$wishlistTable]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد حذف المفضلة يحتاج جداول تدعم المعاملات.');
         }
-        if($restaurantFlags)foreach(['resturants','users','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'] as $flagTable){
+        if($wallet)foreach(['wallets','users','notifications','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'] as $walletTable){
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$walletTable]);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد المحفظة يحتاج جداول تدعم المعاملات.');
+        }
+        if($restaurantFlags||$restaurantControl)foreach(['resturants','users','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions'] as $flagTable){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$flagTable]);
             abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,503,'تأكيد علامة المطعم يحتاج جداول تدعم المعاملات.');
         }
@@ -142,6 +148,8 @@ class DesktopDashboardRemoteAttempts
                 abort_unless(is_array($saved)&&isset($saved['status'],$saved['operation'])&&$saved['status']>=200&&$saved['status']<400,503);
                 if($row->method==='POST'&&in_array($row->path,['/admin/customers/directory-save','/admin/customers/consent'],true))
                     $this->customerReply($row->path==='/admin/customers/directory-save'?'customers.directory-save':'customers.consent',$saved,$this->devices->actor($fresh),$fresh);
+                if($row->method==='POST'&&in_array($row->path,['/admin/wallets/transfer','/admin/wallets/withdraw/store'],true))
+                    $this->walletReply($row->path==='/admin/wallets/transfer'?'wallets.transfer':'wallets.withdraw.store',$saved,$this->devices->actor($fresh),$fresh);
                 if(isset($saved['restaurant_product_crud_payload'],$saved['restaurant_product_crud_result'])){
                     $adapter=app(DesktopDashboardRestaurantProductCrud::class);
                     abort_unless(DesktopDashboardRestaurantProductCrud::handles($saved['restaurant_product_crud_route']??null),503);
@@ -165,6 +173,12 @@ class DesktopDashboardRemoteAttempts
                     abort_unless(is_array($saved['wishlist_facts']??null),503);
                     app(DesktopDashboardWishlistDeletion::class)->authorize(['parameters'=>['id'=>(int)$wishlistPath[1]],
                         'values'=>['idempotency_key'=>$saved['operation']],'files'=>[],'facts'=>$saved['wishlist_facts']],$this->devices->actor($fresh),$fresh);
+                }
+                if($row->method==='GET'&&$row->path==='/admin/resturantControl'){
+                    abort_unless(is_array($saved['restaurant_control_facts']??null),503);
+                    app(DesktopDashboardRestaurantControl::class)->authorize(DesktopDashboardRestaurantControl::ROUTE,
+                        ['parameters'=>[],'values'=>['idempotency_key'=>$saved['operation']],'files'=>[],'facts'=>$saved['restaurant_control_facts']],
+                        $this->devices->actor($fresh),$fresh);
                 }
                 if($row->method==='POST'&&preg_match('#^/admin/(resturantchangeStatus|resturantchangeUnderContract|update_sorting_is_featured)/([1-9][0-9]{0,18})$#D',$row->path,$flagPath)){
                     abort_unless(is_array($saved['restaurant_flag_facts']??null),503);
@@ -192,29 +206,41 @@ class DesktopDashboardRemoteAttempts
         $availability=DesktopDashboardMenuAvailability::handles($name);
         $review=DesktopDashboardReviewDeletion::handles($name);
         $wishlist=DesktopDashboardWishlistDeletion::handles($name);
-        $restaurantFlags=DesktopDashboardRestaurantFlags::handles($name);$restaurantProducts=DesktopDashboardRestaurantProducts::handles($name);
+        $restaurantControl=DesktopDashboardRestaurantControl::handles($name);$restaurantFlags=$restaurantControl||DesktopDashboardRestaurantFlags::handles($name);$restaurantProducts=DesktopDashboardRestaurantProducts::handles($name);
         $productCrud=DesktopDashboardRestaurantProductCrud::handles($name);
         $menuCopy=DesktopDashboardRestaurantMenuCopy::handles($name);
-        abort_unless($catalog||$availability||$review||$wishlist||$restaurantFlags||$restaurantProducts||$productCrud||$menuCopy||isset(self::CORE[$name??'']),501);
+        $wallet=DesktopDashboardWalletCash::handles($name);
+        abort_unless($wallet||$catalog||$availability||$review||$wishlist||$restaurantFlags||$restaurantProducts||$productCrud||$menuCopy||isset(self::CORE[$name??'']),501);
         $files=$productCrud?app(DesktopDashboardProductImages::class)->files($request):app(DesktopDashboardExpenseAttachments::class)->files($request,$name);
         $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
-        $work=function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantProducts,$productCrud,$menuCopy,$name,$files){return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantProducts,$productCrud,$menuCopy,$name,$files){
+        $work=function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantControl,$restaurantProducts,$productCrud,$menuCopy,$wallet,$name,$files){return DB::transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantControl,$restaurantProducts,$productCrud,$menuCopy,$wallet,$name,$files){
             $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device);
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row&&(int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
                 &&hash_equals($this->capability($row),$capability),403);
             $actor=$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
-            $reviewPayload=null;$wishlistPayload=null;$flagPayload=null;
-            if($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){
-                $adapter=app(match(true){$menuCopy=>DesktopDashboardRestaurantMenuCopy::class,$productCrud=>DesktopDashboardRestaurantProductCrud::class,$restaurantProducts=>DesktopDashboardRestaurantProducts::class,default=>DesktopDashboardRestaurantFlags::class});$operation=$adapter->command($request);
+            $reviewPayload=null;$wishlistPayload=null;$flagPayload=null;$walletPayload=null;
+            if($wallet){
+                $adapter=app(DesktopDashboardWalletCash::class);$operation=$adapter->command($request);
+                $savedRow=$row->status==='committed'?$row:DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
+                $savedFacts=null;
+                if($savedRow){
+                    abort_unless($savedRow->status==='committed',409);$savedResult=json_decode(Crypt::decryptString($savedRow->response_cipher),true,512,JSON_THROW_ON_ERROR);
+                    abort_unless(is_array($savedResult['wallet_cash_payload']['facts']??null),503);$savedFacts=$savedResult['wallet_cash_payload']['facts'];
+                }
+                $walletPayload=$adapter->payload($name,$request,$operation,$actor,$device,$savedFacts);
+                $actor=$adapter->authorize($name,$walletPayload,$actor,$device);
+            }
+            elseif($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){
+                $adapter=app(match(true){$restaurantControl=>DesktopDashboardRestaurantControl::class,$menuCopy=>DesktopDashboardRestaurantMenuCopy::class,$productCrud=>DesktopDashboardRestaurantProductCrud::class,$restaurantProducts=>DesktopDashboardRestaurantProducts::class,default=>DesktopDashboardRestaurantFlags::class});$operation=$adapter->command($request);
                 $savedRow=$row->status==='committed'?$row:DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
                 $savedFacts=null;
                 if($savedRow){
                     abort_unless($savedRow->status==='committed',409);
                     $savedResult=json_decode(Crypt::decryptString($savedRow->response_cipher),true,512,JSON_THROW_ON_ERROR);
-                    $factsKey=$menuCopy?'restaurant_menu_copy_facts':($productCrud?'restaurant_product_crud_facts':($restaurantProducts?'restaurant_product_facts':'restaurant_flag_facts'));
+                    $factsKey=$restaurantControl?'restaurant_control_facts':($menuCopy?'restaurant_menu_copy_facts':($productCrud?'restaurant_product_crud_facts':($restaurantProducts?'restaurant_product_facts':'restaurant_flag_facts')));
                     abort_unless(is_array($savedResult[$factsKey]??null),503);$savedFacts=$savedResult[$factsKey];
                 }
                 $flagPayload=$adapter->remotePayload($name,$request,$operation,$actor,$device,$savedFacts);
@@ -277,8 +303,10 @@ class DesktopDashboardRemoteAttempts
             (new Pipeline(app()))->send($request)->through($middleware)->then(fn()=>true);
             abort_if($row->status==='cancelled',409,'الطلب السابق أُلغي قبل تنفيذه؛ أعد المحاولة كعملية جديدة.');
             $operation=match(true){
+                $wallet=>app(DesktopDashboardWalletCash::class)->command($request),
                 $menuCopy=>app(DesktopDashboardRestaurantMenuCopy::class)->command($request),
                 $productCrud=>app(DesktopDashboardRestaurantProductCrud::class)->command($request),
+                $restaurantControl=>app(DesktopDashboardRestaurantControl::class)->command($request),
                 $restaurantFlags=>app(DesktopDashboardRestaurantFlags::class)->command($request),
                 $restaurantProducts=>app(DesktopDashboardRestaurantProducts::class)->command($request),
                 $review=>app(DesktopDashboardReviewDeletion::class)->command($request),
@@ -302,7 +330,7 @@ class DesktopDashboardRemoteAttempts
                 abort_unless(hash_equals($row->request_hash,$fingerprint),409,'محتوى الطلب يختلف عن العملية المحفوظة.');
                 $saved=json_decode(Crypt::decryptString($row->response_cipher),true,512,JSON_THROW_ON_ERROR);
                 abort_unless(($saved['operation']??null)===$operation,409);
-                $this->customerReply($name,$saved,$actor,$device);return $this->response($saved,$files);
+                $this->customerReply($name,$saved,$actor,$device);if($wallet)$this->walletReply($name,$saved,$actor,$device);return $this->response($saved,$files);
             }
             abort_unless($row->status==='ready',409);
             $previous=DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
@@ -310,17 +338,22 @@ class DesktopDashboardRemoteAttempts
                 abort_unless($previous->status==='committed'&&hash_equals($previous->request_hash,$fingerprint),409,'محتوى العملية يختلف عن طلبها المحفوظ.');
                 $saved=json_decode(Crypt::decryptString($previous->response_cipher),true,512,JSON_THROW_ON_ERROR);
                 $this->customerReply($name,$saved,$actor,$device);
+                if($wallet)$this->walletReply($name,$saved,$actor,$device);
                 DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'committed','request_hash'=>$fingerprint,'response_cipher'=>$previous->response_cipher,'updated_at'=>now('UTC')]);
                 return $this->response($saved,$files);
             }
             $request->request->remove('_desktop_command');$request->query->remove('_desktop_command');
             if($productCrud){$request->request->remove('_method');$request->query->remove('_method');}
             $flagResult=null;
-            if($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){
+            if($wallet){
+                $request->request->set('idempotency_key',$operation);$response=null;
+                app(DesktopDashboardWalletCash::class)->capture($name,$request,function()use($request,$next,&$response){return $response=$next($request);});
+            }
+            elseif($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){
                 $guard=auth('admin');$previousActor=$guard->getUser();$response=null;
                 try{
                     $guard->setUser($actor);
-                    $flagResult=app(match(true){$menuCopy=>DesktopDashboardRestaurantMenuCopy::class,$productCrud=>DesktopDashboardRestaurantProductCrud::class,$restaurantProducts=>DesktopDashboardRestaurantProducts::class,default=>DesktopDashboardRestaurantFlags::class})->capture($name,$flagPayload,function()use($request,$next,&$response){return $response=$next($request);});
+                    $flagResult=app(match(true){$restaurantControl=>DesktopDashboardRestaurantControl::class,$menuCopy=>DesktopDashboardRestaurantMenuCopy::class,$productCrud=>DesktopDashboardRestaurantProductCrud::class,$restaurantProducts=>DesktopDashboardRestaurantProducts::class,default=>DesktopDashboardRestaurantFlags::class})->capture($name,$flagPayload,function()use($request,$next,&$response){return $response=$next($request);});
                 }finally{if($previousActor)$guard->setUser($previousActor);else (function(){$this->user=null;})->call($guard);}
             }else $response=$next($request);
             if($response->getStatusCode()>=400||($request->hasSession()&&in_array('errors',$request->session()->get('_flash.new',[]),true)))
@@ -331,13 +364,14 @@ class DesktopDashboardRemoteAttempts
             elseif($productCrud)app(DesktopDashboardProductImages::class)->verifyResult($flagResult,$files);
             elseif($files)app(DesktopDashboardExpenseAttachments::class)->verifyResult(json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR),$files);
             $saved=['operation'=>$operation,'status'=>$response->getStatusCode(),'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$response->headers->get('Location')];
+            if($wallet){$saved['wallet_cash_route']=$name;$saved['wallet_cash_payload']=$walletPayload;$saved['wallet_cash_success']=session('success');}
             if(DesktopDashboardCustomerDirectory::handles($name)){
                 $result=json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR);abort_unless(is_array($result),503);
                 $saved['customer_directory_binding']=app(DesktopDashboardCustomerDirectory::class)->remoteBinding($name,$values,$operation,$result,$actor,$device);
             }
             if($review){$saved['review_facts']=$reviewPayload['facts'];$saved['review_success']=session('success');}
             if($wishlist){$saved['wishlist_facts']=$wishlistPayload['facts'];$saved['wishlist_success']=session('success');}
-            if($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){$prefix=$menuCopy?'restaurant_menu_copy':($productCrud?'restaurant_product_crud':($restaurantProducts?'restaurant_product':'restaurant_flag'));$saved[$prefix.'_facts']=$flagPayload['facts'];$saved[$prefix.'_after']=$flagResult['after'];$saved[$prefix.'_success']=$flagResult['success'];}
+            if($restaurantFlags||$restaurantProducts||$productCrud||$menuCopy){$prefix=$restaurantControl?'restaurant_control':($menuCopy?'restaurant_menu_copy':($productCrud?'restaurant_product_crud':($restaurantProducts?'restaurant_product':'restaurant_flag')));$saved[$prefix.'_facts']=$flagPayload['facts'];$saved[$prefix.'_after']=$flagResult['after'];$saved[$prefix.'_success']=$flagResult['success'];}
             if($productCrud){$saved['restaurant_product_crud_route']=$name;$saved['restaurant_product_crud_payload']=$flagPayload;$saved['restaurant_product_crud_result']=$flagResult;}
             if($menuCopy){$saved['restaurant_menu_copy_route']=$name;$saved['restaurant_menu_copy_payload']=$flagPayload;$saved['restaurant_menu_copy_result']=$flagResult;}
             DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'committed','request_hash'=>$fingerprint,
@@ -354,6 +388,12 @@ class DesktopDashboardRemoteAttempts
             'هوية نتيجة العميل المحفوظة غير مكتملة؛ الطلب يحتاج مراجعة.');
         app(DesktopDashboardCustomerDirectory::class)->authorizeRemoteBinding($route,$binding,$actor,$device);
     }
+    private function walletReply(string $route,array $saved,\App\Models\User $actor,object $device): void
+    {
+        abort_unless(DesktopDashboardWalletCash::handles($route)&&($saved['wallet_cash_route']??null)===$route
+            &&is_array($saved['wallet_cash_payload']??null)&&($saved['wallet_cash_payload']['values']['idempotency_key']??null)===($saved['operation']??null),503);
+        app(DesktopDashboardWalletCash::class)->authorize($route,$saved['wallet_cash_payload'],$actor,$device);
+    }
     private function response(array $saved,array $files=[])
     {
         if(isset($saved['restaurant_menu_copy_result']))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($saved['restaurant_menu_copy_result']);
@@ -362,6 +402,8 @@ class DesktopDashboardRemoteAttempts
         // A lost Review redirect must retain its original success flash for the following page.
         if(isset($saved['review_facts'],$saved['review_success']))session()->flash('success',$saved['review_success']);
         if(isset($saved['wishlist_facts'],$saved['wishlist_success']))session()->flash('success',$saved['wishlist_success']);
+        if(isset($saved['wallet_cash_payload'],$saved['wallet_cash_success']))session()->flash('success',$saved['wallet_cash_success']);
+        if(isset($saved['restaurant_control_facts'],$saved['restaurant_control_success']))session()->flash('success',$saved['restaurant_control_success']);
         if(isset($saved['restaurant_flag_facts'],$saved['restaurant_flag_success']))session()->flash('success',$saved['restaurant_flag_success']);
         if(isset($saved['restaurant_product_facts'],$saved['restaurant_product_success']))session()->flash('success',$saved['restaurant_product_success']);
         if(isset($saved['restaurant_product_crud_facts'],$saved['restaurant_product_crud_success']))session()->flash('success',$saved['restaurant_product_crud_success']);

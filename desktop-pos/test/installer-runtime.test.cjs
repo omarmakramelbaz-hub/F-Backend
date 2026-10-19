@@ -24,13 +24,14 @@ async function fixture(t){
   const revision=commit();
   const lock=JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]});
   await write(prefix+'application/composer.lock',lock);await write(prefix+'application/composer.json','{}');await write(prefix+'application/vendor/autoload.php','<?php');
+  await write(prefix+'application/vendor/composer/installed.json',JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]}));
   await write(prefix+'php/php.ini','extension=php_pdo_mysql.dll\n');
   await write(prefix+'php/ssl/cacert.pem',await fs.readFile(path.join(__dirname,'fixtures/synthetic-ca.pem')));
   // Synthetic PE headers test the package validator, not executable process behavior.
   const exe=Buffer.alloc(128);exe.write('MZ');exe.writeUInt32LE(64,60);exe.write('PE\0\0',64);exe.writeUInt16LE(0x8664,68);exe.writeUInt16LE(0x20b,88);
   for(const name of ['php/php.exe','mariadb/bin/mariadbd.exe','mariadb/bin/mariadb-install-db.exe'])await write(prefix+name,exe);
   for(const name of ['pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl'])await write(prefix+'php/ext/php_'+name+'.dll','synthetic fixture DLL');
-  const manifest={format:1,platform:'win32-x64',sourceRevision:revision,sourceHashes:Object.fromEntries(Object.entries(original).map(([name,bytes])=>[name,sha(bytes)])),sourceFingerprint:await source.fingerprint(path.join(bundle,'application'))};
+  const manifest={format:1,platform:'win32-x64',sourceRevision:revision,runtimeFramework:'8.83.29',sourceHashes:Object.fromEntries(Object.entries(original).map(([name,bytes])=>[name,sha(bytes)])),sourceFingerprint:await source.fingerprint(path.join(bundle,'application'))};
   await write(prefix+'manifest.json',JSON.stringify(manifest));
   const audit={format:1,lockSha256:sha(lock),result:{advisories:{'laravel/framework':[{advisoryId:'synthetic-test-advisory'}]}}};
   await write('desktop-pos/dist/runtime-audit.json',JSON.stringify(audit));
@@ -42,8 +43,17 @@ test('the preview installer retains every verified runtime file and records its 
   await packaging.afterPack(f.context);
   const receipt=JSON.parse(await fs.readFile(path.join(f.out,'resources/desktop-build.json'),'utf8'));
   assert.equal(receipt.channel,'preview');assert.equal(receipt.fullDashboard,false);assert.equal(receipt.advisoryCount,1);assert.equal(receipt.sourceRevision,f.manifest.sourceRevision);
+  assert.equal(receipt.runtimeFramework,'8.83.29');
   assert.ok(receipt.files['application/desktop/router.php']);assert.ok(receipt.files['php/php.exe']);assert.ok(receipt.files['mariadb/bin/mariadbd.exe']);
   assert.match(await fs.readFile(path.join(f.project,'dist/installer-version.nsh'),'utf8'),/0\.3\.0-preview\.1/);
+});
+test('the installed framework must agree with the exact lock and actual engine metadata',async t=>{
+  const f=await fixture(t);
+  await f.write('desktop-pos/runtime-bundle/application/vendor/composer/installed.json',JSON.stringify({packages:[{name:'laravel/framework',version:'v12.70.0'}]}));
+  await assert.rejects(packaging(f.context),/installed and locked engine/);
+  await f.write('desktop-pos/runtime-bundle/application/vendor/composer/installed.json',JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]}));
+  f.manifest.runtimeFramework='12.70.0';await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
+  await assert.rejects(packaging(f.context),/installed and locked engine/);
 });
 test('a lost native DLL during resource copying cannot produce an accepted installer',async t=>{
   const f=await fixture(t);await packaging(f.context);await fs.mkdir(path.join(f.out,'resources'),{recursive:true});await fs.cp(f.bundle,path.join(f.out,'resources/dashboard-runtime'),{recursive:true});

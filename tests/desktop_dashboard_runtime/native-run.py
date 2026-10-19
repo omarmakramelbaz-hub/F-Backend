@@ -1,6 +1,6 @@
 """Run the original Laravel/MariaDB integration fixture in one process network namespace.
 
-Usage: python3 native-run.py mariadb-extracted-root php-executable generated-application
+Usage: python3 native-run.py mariadb-extracted-root php-executable generated-application [--print-ledger]
 The extracted MariaDB root contains usr/sbin/mariadbd and usr/share/mysql.
 """
 import os
@@ -13,6 +13,9 @@ import tempfile
 import time
 
 root, php, application = map(Path, sys.argv[1:4])
+if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != "--print-ledger"):
+    raise SystemExit("Expected MariaDB root, PHP, application and optional --print-ledger.")
+fixtures = ["print-ledger.php"] if len(sys.argv) == 5 else ["run.php", "legacy.php", "wallet-cash.php", "outbox-review.php"]
 root, php, application = root.resolve(), php.resolve(), application.resolve()
 data = Path(tempfile.mkdtemp(prefix="fasakhansta-mariadb-test-"))
 (data / "tmp").mkdir(mode=0o700)
@@ -47,7 +50,7 @@ try:
                 time.sleep(.05)
         else:
             raise RuntimeError("Disposable test database did not become ready.")
-        for fixture in ["run.php", "legacy.php"]:
+        for fixture in fixtures:
             if not Path(__file__).with_name(fixture).exists():
                 continue
             result = subprocess.run([str(php), str(Path(__file__).with_name(fixture)), str(application), str(port)])

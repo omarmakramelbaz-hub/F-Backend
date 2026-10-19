@@ -100,7 +100,7 @@ async function originalHeaderHook(attempts) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/dashboard.cjs'), 'utf8'), {
     module, __dirname: path.join(__dirname, '../src'), URL, AbortSignal,
-    require: name => name === 'electron' ? electron : require(name === './dashboard-policy.cjs' ? '../src/dashboard-policy.cjs' : name)
+    require: name => name === 'electron' ? electron : require(name.startsWith('./') ? path.join(__dirname, '../src', name) : name)
   });
   const dashboard = module.exports({ origin, remoteAttempts: attempts, quitting: () => false,
     offline() {}, offlineWindow: () => window, quit() {}, printer: () => '' });

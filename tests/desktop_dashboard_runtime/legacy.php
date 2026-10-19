@@ -128,7 +128,7 @@ try{
     verify($http('/admin/categorys',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'added_by'=>10,'name_ar'=>'قسم ممنوع','name_en'=>'Forbidden','status'=>'show'])[0]===403&&DB::table('desktop_dashboard_commands')->count()===0,'a branch account cannot acquire global catalog administration offline');
     verify($http('/admin/post-sortable',['_token'=>$csrf[1],'_desktop_command'=>(string)\Illuminate\Support\Str::uuid(),'order'=>[['id'=>1,'position'=>2]]])[0]===403&&DB::table('categories')->where('id',1)->value('order')===1,'an ordinary branch account cannot reorder shared categories offline');
     $control=DB::table('resturants')->where('id',100)->value('control');
-    verify($http('/admin/resturantControl')[0]===501&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'an original legacy GET mutation is blocked by a real read-only transaction');
+    verify($http('/admin/resturantControl',null,['Accept: application/json'])[0]===422&&DB::table('resturants')->where('id',100)->value('control')===$control&&DB::table('desktop_dashboard_commands')->count()===0,'the original global GET mutation requires its explicit UUID before changing control');
     require __DIR__.'/expense-local-http.php';
 }finally{fclose($pipes[0]);proc_terminate($web);proc_close($web);}
 
@@ -293,6 +293,7 @@ require __DIR__.'/wishlist-deletion.php';
 require __DIR__.'/remote-attempts.php';
 require __DIR__.'/go-store-profile.php';
 require __DIR__.'/restaurant-flags.php';
+require __DIR__.'/restaurant-control.php';
 require __DIR__.'/restaurant-products.php';
 require __DIR__.'/restaurant-menu-copy.php';
 require __DIR__.'/restaurant-product-crud.php';

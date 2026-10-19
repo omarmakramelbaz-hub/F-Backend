@@ -4,12 +4,14 @@ const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require(
 const Shutdown=require('./shutdown.cjs');
 const LocalRuntime=require('./local-runtime.cjs');
 const DashboardSync=require('./dashboard-sync.cjs');
+const synchronizePrintOutcomes=require('./dashboard-print-sync.cjs');
 const SyncSchedule=require('./sync-schedule.cjs');
 const {DashboardGeneration}=require('./dashboard-generation.cjs');
 const {DashboardPreparation}=require('./dashboard-preparation.cjs');
 const DashboardMode=require('./dashboard-mode.cjs');
 const DashboardRemoteState=require('./dashboard-remote-state.cjs');
 const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
+const DashboardOutboxReview=require('./dashboard-outbox-review.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
@@ -17,7 +19,7 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,outboxReview,quitting=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{quitting=true;syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
@@ -109,7 +111,14 @@ function connectDashboardSync() {
     allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
   dashboardMode=new DashboardMode({runtime:localRuntime,generations,view:dashboard,probe:dashboardSession,remoteState,remoteAttempts,
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
-  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,refresh:async()=>{
+  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,
+    effects:async({printProtocol})=>{
+      if(!synchronizePrintOutcomes.activeProtocol(printProtocol))return {pending:0,deferred:false};
+      if(!localRuntime.supportsPrintEffects())throw Error('سجل الطباعة لا يطابق مصدر البرنامج؛ العمليات محفوظة.');
+      if(dashboard?.current().local)await dashboard.recoverPrintEffects();
+      return synchronizePrintOutcomes({local:value=>localRuntime.control(value),
+        remote:value=>dashboardRequest(value,false,undefined,'print-outcomes'),stopped:()=>quitting});
+    },refresh:async()=>{
     const old=store.counts();if(old.pending)throw Error('توجد عمليات محفوظة من النسخة السابقة؛ يلزم تأكيدها قبل تحديث بيانات الجهاز.');
     return dashboardMode.refresh({stayLocal:true});},
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
@@ -185,6 +194,7 @@ app.whenReady().then(async()=>{
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
     localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
+    outboxReview=new DashboardOutboxReview({runtime:localRuntime,dialog,synchronize:async()=>{syncSchedule.request().catch(()=>{});}});
     remoteAttempts=new DashboardRemoteAttempts({state:remoteState,metadata:localRuntime.metadata,
       credential:async()=>{if(!(await localRuntime.isPrepared()))return null;return localRuntime.connection();},
       request:(value,credential)=>dashboardRequest(value,false,credential,'remote-attempts')});
@@ -208,8 +218,16 @@ app.whenReady().then(async()=>{
       if(ready.prepared)await dashboardMode.local({method:'GET'});
       return ready;
     }:undefined,status:dashboardState,remoteState,remoteAttempts,
+    printControl:localRuntime?value=>{
+      if(!localRuntime.supportsPrintEffects())throw Error('الطباعة المحلية تحتاج اكتمال تحديث نسخة بيانات الجهاز.');
+      return localRuntime.control(value);
+    }:undefined,printMetadata:localRuntime?.metadata,
     synchronize:()=>{syncSchedule.request({refresh:true}).catch(()=>{});return dashboardState();},
     archive:localRuntime?()=>localOrders():undefined,
+    reviewSync:outboxReview?async window=>{
+      if(!(await localRuntime.isPrepared()))throw Error('جهّز الجهاز أولًا لمراجعة سجل المزامنة.');
+      return outboxReview.open(window);
+    }:undefined,
     selectPrinter:async window=>{
       const printers=await window.webContents.getPrintersAsync();
       if(!printers.length)throw Error('لا توجد طابعة متاحة على الجهاز.');

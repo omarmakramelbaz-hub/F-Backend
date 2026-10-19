@@ -3,6 +3,25 @@ const fs = require('node:fs/promises'), path = require('node:path'), crypto = re
 const roots = ['app','bootstrap','config','database','desktop','resources','routes','public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external'];
 const excluded = /(?:^|\/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$/i;
 const digest = bytes => crypto.createHash('sha256').update(Buffer.from(bytes.toString('latin1').replace(/\r\n/g, '\n'), 'latin1')).digest('hex');
+async function frameworks(application) {
+  const lock=JSON.parse(await fs.readFile(path.join(application,'composer.lock'),'utf8'));
+  const runtimeFramework=(lock.packages||[]).find(item=>item.name==='laravel/framework')?.version?.replace(/^v/,'');
+  let contract;
+  try {
+    const file=path.join(application,'desktop/source-contract.json'),stat=await fs.lstat(file);
+    if(!stat.isFile()||stat.isSymbolicLink())throw Error('The source engine contract is invalid.');
+    contract=JSON.parse(await fs.readFile(file,'utf8'));
+  }catch(error){if(error.code!=='ENOENT')throw error;return {runtimeFramework,contractFramework:runtimeFramework};}
+  if(contract.format!==1||Object.keys(contract).length!==3
+      ||Object.keys(contract).some(key=>!['format','framework','supportedRuntimeFrameworks'].includes(key))
+      ||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(contract.framework||'')
+      ||!Array.isArray(contract.supportedRuntimeFrameworks)||!contract.supportedRuntimeFrameworks.length||contract.supportedRuntimeFrameworks.length>4
+      ||contract.supportedRuntimeFrameworks.some(value=>typeof value!=='string'||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(value))
+      ||new Set(contract.supportedRuntimeFrameworks).size!==contract.supportedRuntimeFrameworks.length
+      ||!contract.supportedRuntimeFrameworks.includes(contract.framework)||!contract.supportedRuntimeFrameworks.includes(runtimeFramework))
+    throw Error('The runtime engine has not passed its source compatibility contract.');
+  return {runtimeFramework,contractFramework:contract.framework};
+}
 function valid(value) {
   return value?.format===1&&Number.isSafeInteger(value.files)&&value.files>0&&value.files<=20000
     &&/^[a-f0-9]{64}$/.test(value.sha256||'')&&typeof value.framework==='string'&&value.framework.length>0&&value.framework.length<=100
@@ -34,8 +53,7 @@ async function fingerprint(application) {
     await walk(root);
   }
   try{await fs.access(path.join(application,'artisan'));await add('artisan');}catch(error){if(error.code!=='ENOENT')throw error;}
-  const lock=JSON.parse(await fs.readFile(path.join(application,'composer.lock'),'utf8'));
-  const framework=(lock.packages||[]).find(item=>item.name==='laravel/framework')?.version?.replace(/^v/,'');
+  const {contractFramework:framework}=await frameworks(application);
   const hash=crypto.createHash('sha256').update('desktop-dashboard-source:1\n');
   for(const name of [...files.keys()].sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b))))hash.update(name+'\0'+files.get(name)+'\n');
   const value={format:1,files:files.size,sha256:hash.digest('hex'),framework};
@@ -44,4 +62,4 @@ async function fingerprint(application) {
 function same(left,right) {
   return valid(left)&&valid(right)&&left.files===right.files&&left.sha256===right.sha256&&left.framework===right.framework;
 }
-module.exports={fingerprint,valid,same};
+module.exports={fingerprint,valid,same,frameworks};

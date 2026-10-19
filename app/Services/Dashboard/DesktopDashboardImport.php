@@ -70,6 +70,16 @@ class DesktopDashboardImport
         (new \CreateDesktopDashboardMediaManifest)->up();
         require_once database_path('migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php');
         (new \CreateDesktopDashboardSourceManifest)->up();
+        if(($snapshot['coverage']['print_protocol']??null)===1){
+            Validator::make($snapshot,['enrollment.enrollment_hash'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment.enrolled_at'=>'required|date'])->validate();
+            DB::table('desktop_dashboard_devices')->insert(['id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'name'=>'Local dashboard',
+                'enrollment_hash'=>$snapshot['enrollment']['enrollment_hash'],'enrolled_at'=>$snapshot['enrollment']['enrolled_at'],
+                // This is not a server bearer credential and is never used for server authentication.
+                'token_hash'=>hash('sha256',random_bytes(32)),'branches'=>DesktopDashboardBootstrap::json($snapshot['branches']),
+                'enabled'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            app(DesktopDashboardPrintLedgerSchema::class)->install();
+            app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
+        }
         $sourceJson=DesktopDashboardBootstrap::json($snapshot['source']);
         DB::table('desktop_dashboard_source_manifest')->insert(['device_id'=>$snapshot['device_id'],'snapshot_id'=>$snapshot['snapshot_id'],
             'sha256'=>hash('sha256',$sourceJson),'source'=>$sourceJson]);
@@ -100,11 +110,13 @@ class DesktopDashboardImport
         abort_unless($receipt['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($receipt['source']??null),409,'مصدر برنامج التجهيز لا يطابق النسخة المعتمدة.');
         return DB::transaction(function()use($receipt){
+            app(DesktopDashboardPrintLedger::class)->fence($receipt['device_id']);
             $state=DB::table('desktop_dashboard_local_state')->where('device_id',$receipt['device_id'])->lockForUpdate()->first();
             abort_unless($state&&$state->state==='ready'&&$state->snapshot_id===$receipt['snapshot_id']
                 &&(int)$state->actor_id===(int)$receipt['actor_id']&&$state->schema_hash===$receipt['schema_hash']
                 &&json_decode($state->branches,true)===$receipt['branches']
                 &&json_decode($state->coverage,true)===$receipt['coverage'],409,'قاعدة التجهيز لا تطابق النسخة المعتمدة.');
+            if(($receipt['coverage']['print_protocol']??null)===1)app(DesktopDashboardPrintLedger::class)->verifyEnrollment($receipt['device_id']);
             $source=DB::table('desktop_dashboard_source_manifest')->where('device_id',$receipt['device_id'])->first();
             abort_unless($source&&$source->snapshot_id===$receipt['snapshot_id']
                 &&hash_equals($source->sha256,hash('sha256',DesktopDashboardBootstrap::json($receipt['source'])))

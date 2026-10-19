@@ -278,7 +278,7 @@ class BranchPayroll
         $start=Carbon::createFromFormat('!Y-m',$month,'Africa/Cairo')->startOfMonth();$end=$start->copy()->endOfMonth();$days=$start->daysInMonth;
         $ledgerTo=min($end->toDateString(),OperatingDay::date());
         $from=max($start->toDateString(),$employee->hired_on);$to=min($ledgerTo,$employee->left_on??$ledgerTo);
-        $worked=$to<$from?0:Carbon::parse($from)->diffInDays(Carbon::parse($to))+1;
+        $worked=$to<$from?0:(int)Carbon::parse($from)->diffInDays(Carbon::parse($to),true)+1;
         $salary=DB::table('branch_employee_salaries')->where('employee_id',$employee->id)->where('effective_month','<=',$month)->orderByDesc('effective_month')->first();
         $base=$salary?(int)$salary->amount_cents:0;$earned=intdiv($base*$worked+intdiv($days,2),$days);
         $entries=DB::table('branch_employee_entries')->where('employee_id',$employee->id)->whereBetween('day',[$start->toDateString(),$ledgerTo])->orderBy('day')->orderBy('id')->get();$totals=['bonus'=>0,'deduction'=>0,'advance'=>0];

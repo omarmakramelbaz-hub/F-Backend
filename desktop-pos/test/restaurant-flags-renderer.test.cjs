@@ -189,7 +189,7 @@ test('native checkbox and featured-ordering support uses exact POST paths and ex
   }
   for (const url of ['/admin/updateStatus/27', '/admin/resturantControl', '/admin/resturantControl/27', '/admin/resturants/27'])
     assert.equal(attempts.supported({ url: origin + url, method: 'POST' }), false);
-  assert.equal(attempts.supported({url:origin+'/admin/resturantControl',method:'GET'}),false);
+  assert.equal(attempts.supported({url:origin+'/admin/resturantControl',method:'GET'}),true);
 });
 
 test('native checkbox and ordering writes reserve their actual method/path and settle with the same operation', async () => {

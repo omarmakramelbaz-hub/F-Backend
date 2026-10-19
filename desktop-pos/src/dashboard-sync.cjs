@@ -2,9 +2,9 @@
 
 /** The native bridge reads the PHP outbox and confirms one original business command at a time. */
 class DashboardSync {
-  constructor({ local, remote, refresh, refreshInterval = 60000, now = Date.now, onState = () => {} }) {
+  constructor({ local, remote, refresh, effects, refreshInterval = 60000, now = Date.now, onState = () => {} }) {
     this.local = local; this.remote = remote; this.onState = onState; this.stopped = false;
-    this.refresh = refresh; this.refreshInterval = refreshInterval; this.now = now; this.nextRefresh = 0;
+    this.refresh = refresh; this.effects = effects; this.refreshInterval = refreshInterval; this.now = now; this.nextRefresh = 0;
     this.state = { online: false, pending: 0, conflicts: 0, acknowledged: 0, error: '', refresh_deferred: false };
   }
   stop() { this.stopped = true; }
@@ -28,6 +28,10 @@ class DashboardSync {
           batchSize = Math.min(outbox.counts.pending, 1000);
         }
         if (!outbox.commands.length) {
+          if(this.effects) {
+            const effects=await this.effects({printProtocol:Object.hasOwn(outbox,'print_protocol')?outbox.print_protocol:0});this.report({print_pending:effects.pending});
+            if(effects.deferred){this.report({refresh_deferred:true});return this.state;}
+          }
           if (this.refresh && outbox.counts.pending === 0 && outbox.counts.conflicts === 0 && this.now() >= this.nextRefresh) {
             const result = await this.refresh();
             // An active local form defers replacement, not the next scheduled

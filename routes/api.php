@@ -1,4 +1,5 @@
 <?php
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/print-outcomes',[\App\Http\Controllers\Api\DesktopDashboardController::class,'printOutcome'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::get('desktop-dashboard/bootstrap',[\App\Http\Controllers\Api\DesktopDashboardController::class,'bootstrap'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::post('desktop-dashboard/commands',[\App\Http\Controllers\Api\DesktopDashboardController::class,'ingest'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::post('desktop-dashboard/remote-attempts',[\App\Http\Controllers\Api\DesktopDashboardController::class,'remoteAttempt'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');

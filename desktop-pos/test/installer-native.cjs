@@ -22,11 +22,24 @@ async function residualPaths(directory){
 (async()=>{
   assert.equal(process.platform,'win32','Actual installer checks require Windows.');
   const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/Fasakhansta-Dashboard-Preview-Setup.exe'));
+  const prerequisiteFailureBeforeExtraction=await require('./installer-prerequisite-native.cjs')(project);
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-installer-')),installed=path.join(root,'تجربة البرنامج'),profile=path.join(root,'retained-user-data');
   try {
     await fs.mkdir(installed);await fs.mkdir(profile);await fs.writeFile(path.join(installed,'KEEP-MY-FILE.txt'),'unrelated existing file');
     // NSIS documents /D= as the last, unquoted argument; no command shell is involved.
-    execFileSync(setup,['/S','/D='+installed],{windowsHide:true,windowsVerbatimArguments:true,timeout:300000});
+    let setupRebootRequired=false;
+    try{execFileSync(setup,['/S','/D='+installed],{windowsHide:true,windowsVerbatimArguments:true,timeout:300000});}
+    catch(error){if(error.status!==3010)throw error;setupRebootRequired=true;}
+    const vcPolicy=JSON.parse(await fs.readFile(path.join(project,'windows-vcredist.json'),'utf8'));
+    const vcPayload=JSON.parse((await fs.readFile(path.join(project,'dist/prerequisites/vcredist-package.json'),'utf8')).replace(/^\uFEFF/,''));
+    assert.equal(vcPayload.sha256,vcPolicy.sha256);assert.equal(vcPayload.signerSha256,vcPolicy.signerSha256);
+    assert.equal(vcPayload.version,vcPolicy.version);assert.equal(vcPayload.signatureValid,true);
+    const vcVersion=execFileSync(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),
+      ['-NoProfile','-NonInteractive','-Command',
+        '. (Join-Path $env:FASAKHANSTA_VC_PROJECT "windows-vcredist.ps1"); $v = Get-DesktopVcInstalledVersion; '
+        +'if ($null -eq $v -or $v -lt [version]$env:FASAKHANSTA_VC_MINIMUM) { exit 1 }; $v.ToString()'],
+      {encoding:'utf8',windowsHide:true,timeout:60000,env:{...process.env,FASAKHANSTA_VC_PROJECT:project,FASAKHANSTA_VC_MINIMUM:vcPolicy.version}}).trim();
+    process.stdout.write('PASS installed dashboard has the registered Microsoft Visual C++ x64 prerequisite, with its bundled signed payload independently verified\n');
     const receipt=JSON.parse(await fs.readFile(path.join(installed,'resources/desktop-build.json'),'utf8'));
     const runtime=await packaging.verifyBundle(path.join(installed,'resources/dashboard-runtime'));
     assert.equal(receipt.sourceRevision,runtime.manifest.sourceRevision);assert.equal(receipt.channel,'preview');assert.equal(receipt.fullDashboard,false);
@@ -91,6 +104,9 @@ async function residualPaths(directory){
       assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');}finally{db.close();}
     process.stdout.write('PASS actual Windows uninstallation removes only packaged files and retains unrelated files plus the paid unsynced order\n');
     await fs.writeFile(path.join(project,'dist/installer-checks.json'),JSON.stringify({format:1,sourceRevision:receipt.sourceRevision,version:receipt.version,
-      channel:receipt.channel,fullDashboard:false,installation:true,installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
+      channel:receipt.channel,fullDashboard:false,installation:true,
+      prerequisite:{registered:true,installedVersion:vcVersion,bundledVersion:vcPolicy.version,bundledSha256:vcPayload.sha256,signatureValid:true,
+        rebootRequired:setupRebootRequired,failureBeforeExtraction:prerequisiteFailureBeforeExtraction},
+      installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
   } finally {await fs.rm(root,{recursive:true,force:true});}
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});

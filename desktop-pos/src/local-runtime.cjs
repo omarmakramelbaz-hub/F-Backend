@@ -161,6 +161,12 @@ class LocalRuntime {
     if (!(await this.isPrepared())) throw Error('بيانات الداشبورد المحلية لم تُجهّز بالكامل.');
     return this.metadata.read('prepared');
   }
+  supportsPrintEffects() {
+    // A new executable may still be serving its retained pre-upgrade runtime.
+    // Negotiate from the already verified active source manifest, never by
+    // catching an arbitrary control failure and treating it as permission.
+    return /^[a-f0-9]{64}$/.test(this.manifest?.sourceHashes?.['app/Services/Dashboard/DesktopDashboardPrintEffects.php']||'');
+  }
   async control(value) {
     if (!this.origin || this.stopping) throw Error('خدمة الداشبورد المحلية غير متاحة.');
     const response = await fetch(this.origin + '/_desktop/control', { method: 'POST',

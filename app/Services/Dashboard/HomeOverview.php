@@ -25,7 +25,7 @@ class HomeOverview
         if ($period === 'week') $start->subDays(6);
         elseif ($period === 'month') $start->startOfMonth();
         elseif ($period === 'custom') { $start = Carbon::parse($v['from'], 'Africa/Cairo'); $end = Carbon::parse($v['to'], 'Africa/Cairo'); }
-        abort_if($start->diffInDays($end) > 365 || $end->toDateString()>OperatingDay::date(), 422, __('home_overview.invalid_range'));
+        abort_if((int)$start->diffInDays($end,true) > 365 || $end->toDateString()>OperatingDay::date(), 422, __('home_overview.invalid_range'));
         return ['branch'=>$v['branch'] ?? '', 'period'=>$period, 'from'=>$start->toDateString(), 'to'=>$end->toDateString()];
     }
     private function emptySales(): array
@@ -53,7 +53,7 @@ class HomeOverview
         foreach($selected as $b)foreach(FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$b['id']) as $source)$appSalesBranches[$source]=$b['value'];
         $appSalesIds=array_keys($appSalesBranches);
         $from = OperatingDay::start($filters['from']); $until = OperatingDay::end($filters['to']);
-        $previousFrom = $from->copy()->subDays($from->diffInDays($until));
+        $previousFrom = $from->copy()->subDays((int)$from->diffInDays($until,true));
         $modules = ['app'=>$this->has('orders', ['resturant_id','type','status','created_at','updated_at']),
             'pos'=>$this->has('takeaway_orders', ['branch','business_date','channel','total_cents','delivery_cents','created_at']),
             'expenses'=>$this->has('branch_expenses', ['branch','occurred_on','status','amount_cents']),
@@ -203,7 +203,7 @@ class HomeOverview
     }
     private function trend(Carbon $from,Carbon $until): array
     {
-        $days=$from->diffInDays($until);$mode=$days===1?'hour':($days>62?'month':'day');$points=[];$at=$from->copy();
+        $days=(int)$from->diffInDays($until,true);$mode=$days===1?'hour':($days>62?'month':'day');$points=[];$at=$from->copy();
         while($at->lt($until)){$key=$at->format($mode==='hour'?'Y-m-d H':($mode==='month'?'Y-m':'Y-m-d'));$points[$key]=['key'=>$key,'label'=>$at->format($mode==='hour'?'H:00':($mode==='month'?'m/Y':'d/m')),'count'=>0,'amount_cents'=>0];if($mode==='hour')$at->addHour();elseif($mode==='month')$at->startOfMonth()->addMonth();else $at->addDay();}
         return ['mode'=>$mode,'points'=>$points];
     }

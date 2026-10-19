@@ -85,8 +85,16 @@ jobs:
         working-directory: b
         shell: pwsh
         run: |
+          & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
+          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
+          $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
+          if ($printProof.sourceRevision -ne $env:GITHUB_SHA -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
           node ../current-source/.github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
           if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           # The preview preserves long installation paths and every verified runtime byte.
@@ -117,5 +125,7 @@ jobs:
             b/desktop-pos/dist/installer-checks.json
             b/desktop-pos/dist/runtime-package.json
             b/desktop-pos/dist/runtime-audit.json
+            b/desktop-pos/dist/prerequisites/vcredist-package.json
+            b/desktop-pos/dist/offline-print-native.json
           if-no-files-found: error
           retention-days: 30

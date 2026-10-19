@@ -3,10 +3,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const policy = require('./dashboard-policy.cjs');
+const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, remoteState, remoteAttempts, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0;
@@ -14,6 +15,44 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   const children = new Set();
   const remoteWrites = new Map();
   const activeRequests = new Set();
+  const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
+    available:()=>Boolean(localToken) && !refreshing && !quitting(),prepareDocument:prepareEffectDocument}) : null;
+  async function prepareEffectDocument(prepared) {
+    const html=prepared.html;
+    const protection='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src data: '+origin+'; style-src \'unsafe-inline\' '+origin+'; font-src '+origin+'; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
+    const printWindow=new BrowserWindow({show:false,width:480,height:800,
+      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+    const contents=printWindow.webContents;owned.add(contents.id);let closed=false;
+    const close=()=>{if(closed)return;closed=true;owned.delete(contents.id);printWindow.destroy();};
+    contents.on('will-navigate',event=>event.preventDefault());contents.setWindowOpenHandler(()=>({action:'deny'}));
+    let timer;
+    try {
+      await Promise.race([(async()=>{
+        await printWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html.replace(/<head\b[^>]*>/i,match=>match+protection)));
+        await contents.executeJavaScript('Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?(i.naturalWidth?Promise.resolve():Promise.reject(Error("Receipt image unavailable"))):new Promise((r,j)=>{i.onload=r;i.onerror=()=>j(Error("Receipt image unavailable"));}))]).then(()=>true)');
+      })(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('تعذر تحميل مستند الطباعة كاملًا.')),25000);})]);
+      const deviceName=printer()||'',printers=await window.webContents.getPrintersAsync();
+      if(!printers.length || deviceName && !printers.some(value=>value.name===deviceName))throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
+      return {close,invoke:callback=>{
+        if(closed)throw Error('Print document closed.');
+        contents.print({silent:true,printBackground:true,deviceName,margins:{marginType:'none'}},(ok)=>callback(ok));
+      }};
+    }catch(error){close();throw error;}finally{clearTimeout(timer);}
+  }
+  function ownedPrint(event) {
+    return !quitting() && !refreshing && owned.has(event.sender.id) && policy.sameOrigin(event.senderFrame.url,origin)
+      && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
+  }
+  for(const [name,work] of Object.entries({
+    'print-effect':value=>{if(!localToken || !effects)throw Error('الطباعة المحلية تحتاج تجهيز الجهاز.');return effects.print(value);},
+    'print-pending':()=>localToken?(effects?effects.pending():Promise.reject(Error('الطباعة المحلية تحتاج تحديث البرنامج.'))):{local:false}
+  }))ipcMain.handle('dashboard:'+name,async(event,value)=>{
+    try{return await accepted(async()=>{
+      if(!ownedPrint(event))throw Error('مصدر الطباعة غير مسموح.');printing++;
+      try{return {ok:true,value:await work(value)};}finally{printing--;}
+    });}catch(error){return {ok:false,error:error.message};}
+  });
+
   const readPosts = new Set(['/admin/takeaway/quote', '/admin/dining/quote', '/admin/phone-orders/quote', '/admin/phone-orders/delivery-quote',
     '/admin/phone-orders/address-suggestions',
     '/admin/fetch-subcategory', '/admin/fetch-product', '/admin/fetch-feature']);
@@ -39,7 +78,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (!prepare || localToken || !origin.startsWith('https://')) throw Error('تجهيز الجهاز يحتاج حساب السيرفر المتصل.');
       return prepare(origin, typeof value?.csrf === 'string' ? value.csrf : '');
     },
-    synchronize: () => synchronize()
+    synchronize: () => synchronize(),
+    'review-sync': () => {
+      if(!reviewSync)throw Error('جهّز الجهاز أولًا لمراجعة سجل المزامنة.');
+      return reviewSync(window);
+    }
   })) ipcMain.handle('dashboard:' + name, async (event, value) => {
     try {
       if (!trusted(event)) throw Error('مصدر الداشبورد غير مسموح.');
@@ -51,10 +94,15 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (refreshing) throw Error('يجري تحديث بيانات الداشبورد؛ أعد المحاولة بعد اكتماله.');
+      const printUrl=typeof value==='string'?value:value?.url;
       if (!owned.has(event.sender.id) || !policy.sameOrigin(event.senderFrame.url, origin)
-          || !policy.sameOrigin(value, origin)) throw Error('مصدر الطباعة غير مسموح.');
-      const url = new URL(value);
+          || !policy.sameOrigin(printUrl, origin)) throw Error('مصدر الطباعة غير مسموح.');
+      const url = new URL(printUrl);
       if (!url.pathname.startsWith('/admin/')) throw Error('رابط الفاتورة غير صحيح.');
+      if(localToken){
+        if(!effects)throw Error('الطباعة المحلية تحتاج تحديث البرنامج.');
+        return {ok:true,value:await effects.receipt(url.pathname,Object.fromEntries(url.searchParams),typeof value==='object'?value.request_id:undefined)};
+      }
       url.searchParams.set('dashboard_print', '1');
       const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html', ...(localToken ? { 'X-Fasakhansta-Desktop': localToken } : {}) }, redirect: 'error', signal: AbortSignal.timeout(25000) });
       if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) throw Error('تعذر تحميل الفاتورة.');
@@ -223,6 +271,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message }));
       } }] : []),
       { label: archive ? 'سجل النسخة السابقة' : 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => archive ? archive() : offline('') },
+      ...(reviewSync?[{label:'مراجعة المزامنة',click:()=>accepted(()=>reviewSync(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       { label: 'اختيار الطابعة', click: () => {
         if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message })); return; }
         offline('');
@@ -235,7 +284,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     { label: 'عرض', submenu: [{ label: 'تحديث الصفحة', accelerator: 'CmdOrCtrl+R', click: () => focused()?.reload() },
       { label: 'تكبير', role: 'zoomIn' }, { label: 'تصغير', role: 'zoomOut' }, { label: 'الحجم الطبيعي', role: 'resetZoom' },
       { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
-    { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => focused()?.webContents.print({ printBackground: true }) }] }
+    { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => {
+      if(localToken){dialog.showMessageBox(window,{type:'info',title:'فسخانستا',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}
+      focused()?.webContents.print({ printBackground: true });
+    } }] }
   ]));
   async function canRefresh() {
     if (loading || refreshing || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
@@ -265,7 +317,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return switchTo({ origin, localToken }, work, { preserveCurrent: true });
   }
   async function switchTo(target, work = async () => {}, { preserveCurrent = false } = {}) {
-    if (refreshing || quitting()) throw Error('الداشبورد تنتقل بين نسختي الجهاز والسيرفر.');
+    if (refreshing || quitting() || printing || effects?.active) throw Error('انتظر انتهاء الطباعة أو انتقال الداشبورد بين الجهاز والسيرفر.');
     const destination = new URL(target.origin);
     const local = destination.protocol === 'http:' && destination.hostname === '127.0.0.1' && destination.port && target.localToken;
     const remote = destination.protocol === 'https:' && target.origin === serverOrigin && !target.localToken;
@@ -295,6 +347,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (window && !window.isDestroyed() && !quitting() && policy.sameOrigin(window.webContents.getURL(), origin))
       window.webContents.send('dashboard:state', value);
   }
-  return { open, refresh, canRefresh, switchTo, publish, reveal, session: () => window?.webContents.session,
+  async function recoverPrintEffects() {
+    if(!localToken || !effects)return {local:false};
+    printing++;try{await effects.inspect();return {local:true};}finally{printing--;}
+  }
+  return { open, refresh, canRefresh, switchTo, publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };

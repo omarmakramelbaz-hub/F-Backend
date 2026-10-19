@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "architecture": "x64",
+  "version": "14.51.36247.0",
+  "bytes": 18731856,
+  "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c",
+  "signerSha256": "c30b441672c82883d92eddac6d24cb57e9960bda4486c7fb5865e74157f35850",
+  "url": "https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",
+  "documentation": "https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files"
+}

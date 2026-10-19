@@ -22,6 +22,7 @@
             && (/^\/admin\/(?:areas|categorys|products|question_answers|features|contracts)(?:\/\d+)?\/?$/.test(url.pathname)
                 || (form.method.toUpperCase() === 'POST' && productRoute(url.pathname, method))
                 ||(method==='POST'&&url.pathname==='/admin/roles')
+                ||(method==='POST'&&['/admin/wallets/transfer','/admin/wallets/withdraw/store'].includes(url.pathname))
                 ||(['POST','PUT','PATCH','DELETE'].includes(method)&&/^\/admin\/roles\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(url.pathname))
@@ -59,7 +60,8 @@
     };
     const prepareProductLink = link => {
         const url = new URL(link.href, location.href);
-        if (url.origin !== location.origin || !/^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname)) return;
+        if (url.origin !== location.origin || url.username || url.password
+            || !(url.pathname === '/admin/resturantControl' || /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname))) return;
         // Keep the operation on the original link until an accepted navigation creates a new page.
         // A lost reply then retries its original UUID, just like the original checkbox forms.
         const command = link.dataset.desktopProductCommand || crypto.randomUUID();

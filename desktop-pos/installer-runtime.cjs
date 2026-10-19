@@ -26,6 +26,13 @@ async function verifyBundle(bundle) {
     if (files['application/'+name]!==value) throw Error('The packaged original source changed: '+name);
   const actual = await sourceCode.fingerprint(path.join(bundle,'application'));
   if (!sourceCode.same(actual,manifest.sourceFingerprint)) throw Error('The packaged original business code does not match its source binding.');
+  const {runtimeFramework}=await sourceCode.frameworks(path.join(bundle,'application'));
+  if(manifest.runtimeFramework){
+    const installed=JSON.parse(await fs.readFile(path.join(bundle,'application/vendor/composer/installed.json'),'utf8'));
+    const installedFramework=(Array.isArray(installed)?installed:installed.packages||[]).find(item=>item.name==='laravel/framework')?.version?.replace(/^v/,'');
+    if(runtimeFramework!==manifest.runtimeFramework||installedFramework!==runtimeFramework)
+      throw Error('The bundled framework metadata does not match its installed and locked engine.');
+  }else if(files['application/desktop/source-contract.json'])throw Error('The source contract requires actual runtime framework metadata.');
   return {manifest,files,lockSha256:hash(await fs.readFile(path.join(bundle,'application/composer.lock')))};
 }
 async function beforePack(context) {
@@ -62,7 +69,7 @@ async function beforePack(context) {
       throw Error('The complete original dashboard release has not passed its release checks.');
   }
   const receipt={format:1,version:packageInfo.version,channel:preview?'preview':'release',fullDashboard:!preview,
-    sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,lockSha256:verified.lockSha256,advisoryCount,
+    sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,runtimeFramework:verified.manifest.runtimeFramework||verified.manifest.sourceFingerprint.framework,lockSha256:verified.lockSha256,advisoryCount,
     pdfRuntime:verified.manifest.pdfRuntime||null,files:verified.files};
   await fs.mkdir(path.join(project,'dist'),{recursive:true});
   await fs.writeFile(path.join(project,'dist/runtime-package.json'),JSON.stringify(receipt,null,2)+'\n');

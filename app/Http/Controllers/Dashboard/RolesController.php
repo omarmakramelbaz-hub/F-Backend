@@ -70,7 +70,7 @@ class RolesController extends Controller
         ]);
 // dd($request->all());
         $role = Role::create(['name' => $request->input('name')]);
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->permissionSelections($request->input('permission')));
         $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
@@ -127,7 +127,7 @@ class RolesController extends Controller
         $role->name = $request->input('name');
         $role->save();
 
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->permissionSelections($request->input('permission')));
         $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
@@ -149,6 +149,13 @@ class RolesController extends Controller
                         ->with('success',trans('messages.DeleteSuccessfully'));
     }
     
+    private function permissionSelections(array $permissions): array
+    {
+        // The original checkboxes submit database IDs as strings. Spatie 6
+        // distinguishes names from integer IDs; retain the original ID meaning.
+        return array_map(fn(string $permission)=>is_numeric($permission)?(int)$permission:$permission,$permissions);
+    }
+
     private function invalidateCommittedPermissions(): void
     {
         // A concurrent request may cache the previous committed grants after the

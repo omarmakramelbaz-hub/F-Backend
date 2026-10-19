@@ -6,7 +6,7 @@
     const labels = { idle: 'الجهاز يحتاج تجهيزًا للعمل بدون إنترنت', enrolling: 'ربط الجهاز بحسابك', downloading: 'تنزيل بيانات الحساب',
         starting: 'تجهيز التشغيل على الجهاز', verifying: 'تنزيل الصور وفحص البيانات', activating: 'حفظ النسخة المحلية',
         ready: 'الجهاز مجهّز للعمل بدون إنترنت', failed: 'تعذر إكمال تجهيز الجهاز' };
-    let state = {}, button, panel, description, progress, error, action, timer, unsubscribe;
+    let state = {}, button, panel, description, progress, error, action, review, timer, unsubscribe;
     function render(value) {
         state = value;
         if (!button) return;
@@ -21,6 +21,7 @@
         error.textContent = state.error || '';
         action.disabled = !['idle', 'failed', 'ready'].includes(state.phase) || Boolean(state.sync_queued || state.sync_running);
         action.textContent = state.prepared ? (state.sync_running ? 'جارٍ المزامنة' : state.sync_queued ? 'بانتظار الدورة القادمة' : 'طلب مزامنة') : 'تجهيز الجهاز';
+        review.hidden = !state.prepared || typeof native.reviewSync !== 'function';
     }
     async function update() { try { render(await native.status()); } catch { /* A transition/closed page cannot reopen another window. */ } }
     function mount() {
@@ -34,9 +35,11 @@
         panel.innerHTML = '<h5>العمل بدون إنترنت</h5><p data-description></p><progress max="100" style="width:100%"></progress>'
             + '<p data-error class="text-danger" role="alert"></p><div class="d-flex justify-content-between mt-3">'
             + '<button type="button" class="btn btn-warning" data-action>تجهيز الجهاز</button>'
+            + '<button type="button" class="btn btn-outline-warning" data-review hidden>مراجعة المزامنة</button>'
             + '<button type="button" class="btn btn-outline-secondary" data-close>إغلاق</button></div>';
         document.body.append(panel); description = panel.querySelector('[data-description]'); progress = panel.querySelector('progress');
         error = panel.querySelector('[data-error]'); action = panel.querySelector('[data-action]');
+        review = panel.querySelector('[data-review]');
         panel.querySelector('[data-close]').addEventListener('click', () => panel.close());
         button.addEventListener('click', () => { panel.showModal(); update(); });
         action.addEventListener('click', async () => {
@@ -44,6 +47,12 @@
             try {
                 render(state.prepared ? await native.synchronize() : await native.prepare(document.querySelector('meta[name="csrf-token"]')?.content || ''));
             } catch (failure) { error.textContent = failure.message; action.disabled = false; }
+        });
+        review.addEventListener('click', async () => {
+            review.disabled = true; error.textContent = '';
+            try { await native.reviewSync(); await update(); }
+            catch (failure) { error.textContent = failure.message; }
+            finally { review.disabled = false; }
         });
         unsubscribe = native.onState(render); update(); timer = setInterval(update, 5000);
     }

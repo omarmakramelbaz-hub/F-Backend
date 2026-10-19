@@ -20,13 +20,16 @@ foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile
     'APP_KEY'=>'base64:'.base64_encode(random_bytes(32)),'DB_CONNECTION'=>'mysql','DB_HOST'=>'127.0.0.1','DB_PORT'=>(string)$port,'DB_DATABASE'=>$database,'DB_USERNAME'=>'root','DB_PASSWORD'=>'',
     'CACHE_DRIVER'=>'file','SESSION_DRIVER'=>'file','APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php',
     'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $key=>$value)putenv($key.'='.$value);
-$app=require $application.'/desktop/bootstrap.php';
+set_exception_handler(function(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);});
+try{$app=require $application.'/desktop/bootstrap.php';}
+catch(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);}
 set_exception_handler(function(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);});
 \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-08T12:00:00Z'));
 $count=0;
 function check($condition,$message){global $count;if(!$condition)throw new RuntimeException($message);$count++;echo 'PASS '.$message.PHP_EOL;}
 function denied(callable $fn,int $status,string $message){try{$fn();}catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){check($e->getStatusCode()===$status,$message);return;}catch(\Illuminate\Validation\ValidationException $e){check($status===422,$message);return;}throw new RuntimeException('Expected rejection: '.$message);}
-check($app->version()==='8.83.29' && count($app['router']->getRoutes())>=565,'the original complete Laravel application boots with its original routes');
+require_once __DIR__.'/runtime-engine.php';
+check($app->version()===DesktopRuntimeEngineProof::expected($application) && count($app['router']->getRoutes())>=565,'the complete captured application boots its locked supported engine and original routes');
 Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->string('account_type');$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->string('password')->nullable();$t->string('remember_token')->nullable();$t->string('email')->nullable();$t->string('mobile')->nullable();});
 Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->string('phone')->default('01000000000');$t->string('address')->default('المنصورة');});
 Schema::create('categories',function(Blueprint $t){$t->id();$t->string('name_ar');$t->string('name_en');});
@@ -54,6 +57,7 @@ foreach([
     '2026_10_18_230000_create_branch_stock_minimum_alerts.php'=>'CreateBranchStockMinimumAlerts',
     '2026_10_18_210000_create_shift_report_printing_and_numbers.php'=>'CreateShiftReportPrintingAndNumbers',
     '2026_10_08_130000_create_desktop_dashboard_journal.php'=>'CreateDesktopDashboardJournal',
+    '2026_10_20_000001_create_desktop_dashboard_print_ownership.php'=>'CreateDesktopDashboardPrintOwnership',
 ] as $file=>$class){require $application.'/database/migrations/'.$file;(new $class)->up();}
 DB::table('users')->insert([['id'=>1,'name'=>'الأونر','account_type'=>'admin'],['id'=>10,'name'=>'كاشير','account_type'=>'vendor'],['id'=>11,'name'=>'فرع آخر','account_type'=>'vendor']]);
 DB::table('users')->where('id',10)->update(['password'=>password_hash('LocalTest123',PASSWORD_BCRYPT),'remember_token'=>'test-private-session-token']);
@@ -223,7 +227,7 @@ $wrongReceipt=$imported;$wrongReceipt['table_rows']['users']++;
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'a changed table count cannot pass independent staging verification');
 $wrongReceipt=$imported;$wrongReceipt['actor_id']=11;
 denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardImport::class)->verify($wrongReceipt),409,'another account cannot pass independent staging verification');
-$nativeEnv=getenv();$nativeEnv['DB_DATABASE']=$staging;$nativeEnv['DESKTOP_DASHBOARD_DEVICE_ID']=$branchEnrollment['device_id'];
+$nativeEnv=getenv();$nativeEnv['APP_KEY']=(string)config('app.key');$nativeEnv['DB_DATABASE']=$staging;$nativeEnv['DESKTOP_DASHBOARD_DEVICE_ID']=$branchEnrollment['device_id'];
 $cliStaging='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$pdo->exec('CREATE DATABASE `'.$cliStaging.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 register_shutdown_function(function()use($pdo,$cliStaging){$pdo->exec('DROP DATABASE IF EXISTS `'.$cliStaging.'`');});
 $importEnv=$nativeEnv;$importEnv['DB_DATABASE']=$cliStaging;

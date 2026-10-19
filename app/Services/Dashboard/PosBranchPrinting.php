@@ -13,7 +13,7 @@ class PosBranchPrinting
     {
         abort_unless(Schema::hasTable('pos_branch_print_jobs'),503,'طباعة الفرع لم تُجهز بعد.');
         DB::table('pos_branch_print_jobs')->insertOrIgnore(['branch'=>$branch,'ticket_id'=>$ticketId,'kitchen_id'=>$kitchenId,
-            'status'=>'pending','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            'status'=>DesktopDashboardPrintOwnership::owns('phone_kitchen')?'device_owned':'pending','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     public function listing(array $values, $actor): array
     {

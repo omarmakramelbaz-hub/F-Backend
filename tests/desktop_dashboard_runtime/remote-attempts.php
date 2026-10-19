@@ -229,6 +229,7 @@ try{
     require __DIR__.'/roles-remote.php';
     require __DIR__.'/review-deletion-remote.php';
     require __DIR__.'/restaurant-flags-remote.php';
+    require __DIR__.'/restaurant-control-remote.php';
 require __DIR__.'/restaurant-products-remote.php';
 require __DIR__.'/restaurant-product-crud-remote.php';
 require __DIR__.'/restaurant-menu-copy-remote.php';

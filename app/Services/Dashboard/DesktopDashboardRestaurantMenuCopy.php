@@ -373,7 +373,7 @@ class DesktopDashboardRestaurantMenuCopy
             abort_unless($actualMembership===$acceptedMembership,409,'عضوية المنيو تغيّرت خارج الاختيارات.');
             foreach($before['sources'] as $i=>$source){abort_unless($this->same($source,$this->support()->menuCopyState($this->id($source['row']['id']))),409,'النسخ غيّر صنفًا من المطعم الرئيسي.');$this->images()->verifyFacts($before['source_images'][$i]);}
             $completed=self::$replay['result']['after']['completed_at']??now('UTC')->toIso8601String();$start=$this->utc($started);$end=$this->utc($completed);
-            abort_unless($end->gte($start)&&$end->diffInSeconds($start)<=600,409,'نسخ المنيو تجاوز فترة المعاينة؛ انسخ مجموعة أصغر.');
+            abort_unless($end->gte($start)&&$end->diffInSeconds($start,true)<=600,409,'نسخ المنيو تجاوز فترة المعاينة؛ انسخ مجموعة أصغر.');
             $after=['target'=>$this->target($this->id($before['target']['row']['id'])),'products'=>$products,'images'=>$images,'steps'=>$steps,'started_at'=>$started,'completed_at'=>$completed];
             $this->assertAfter($before,$plan,$after);$result=['http'=>['status'=>$status,'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$location],
                 'success'=>session('success'),'after'=>$after,'references'=>$this->resultReferences($after)];$this->verifyResult($result);return $result;
@@ -409,7 +409,7 @@ class DesktopDashboardRestaurantMenuCopy
             else {$this->id($step['source_media']);$id=$this->id($step['new_media']);abort_unless($step['mode']==='create'&&!isset($copied[$id])&&isset($media[$id])
                     &&$this->id($media[$id]['model_id'])===$this->id($step['target_product'])&&$media[$id]['collection_name']==='product_image',409);$copied[$id]=true;}
         }
-        $start=$this->utc($after['started_at']);$end=$this->utc($after['completed_at']);abort_unless($end->gte($start)&&$end->diffInSeconds($start)<=600,409);
+        $start=$this->utc($after['started_at']);$end=$this->utc($after['completed_at']);abort_unless($end->gte($start)&&$end->diffInSeconds($start,true)<=600,409);
         $expected=$this->resultReferences($after);abort_unless(($result['references']??null)===$expected,409,'مراجع نتيجة نسخ المنيو غير متطابقة.');return $expected;
     }
     public function verifyResult(array $result): void

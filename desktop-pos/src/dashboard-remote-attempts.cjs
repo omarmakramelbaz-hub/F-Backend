@@ -9,8 +9,10 @@ class DashboardRemoteAttempts {
   }
   supported(details) {
     const path = new URL(details.url).pathname, method = String(details.method).toUpperCase();
+    if(method==='POST'&&['/admin/wallets/transfer','/admin/wallets/withdraw/store'].includes(path))return true;
     if(['POST','DELETE'].includes(method)&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(['POST','DELETE'].includes(method)&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(method==='GET'&&path==='/admin/resturantControl')return true;
     if(method==='POST'&&path==='/admin/post-sortable')return true;
     if(method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(path))return true;
@@ -54,7 +56,8 @@ class DashboardRemoteAttempts {
   }
   async begin(id, details) {
     if (String(details.method).toUpperCase() === 'HEAD'
-        && /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(new URL(details.url).pathname))
+        && (new URL(details.url).pathname === '/admin/resturantControl'
+          || /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(new URL(details.url).pathname)))
       throw Error('فحص رابط الصنف لا يمكنه تنفيذ تعديل؛ استخدم زر الصنف الأصلي.');
     this.active.add(id);
     try {

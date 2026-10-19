@@ -32,6 +32,7 @@ function verifyDateSource(string $file, string $hash): void { if (hash_file('sha
 $receipt['sourceRevision']=$manifest['sourceRevision']; $receipt['sourceFilesVerified']=count($manifest['sourceHashes']);
 $receipt['sourceManifestSha256']=hash_file('sha256', dirname($application).'/manifest.json');
 $receipt['fixtureSha256']=hash_file('sha256', __FILE__);
+$receipt['runtimeEngineHelperSha256']=hash_file('sha256', __DIR__.'/runtime-engine.php');
 $receipt['schemaHelperSha256']=hash_file('sha256', __DIR__.'/full-schema.php');
 $receipt['schemaReportSha256']=hash_file('sha256', __DIR__.'/fixtures/deployed-schema-20261008.json');
 $receipt['dependencyLockSha256']=hash_file('sha256', $application.'/composer.lock');
@@ -52,8 +53,9 @@ require $application.'/vendor/autoload.php';
 $app=require $application.'/bootstrap/app.php'; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 // Restore an explicit nonzero failure boundary after Laravel installs its exception handler.
 set_exception_handler(function(Throwable $error) use (&$receipt) { $receipt['failure']=['class'=>get_class($error),'message'=>$error->getMessage()]; fwrite(STDERR, $error.PHP_EOL); exit(1); });
+require_once __DIR__.'/runtime-engine.php';
 $receipt['laravel']=Illuminate\Foundation\Application::VERSION;
-verifyDateProof($receipt['laravel']==='8.83.29', 'actual original Laravel8 dependency runtime is used');
+verifyDateProof($receipt['laravel']===DesktopRuntimeEngineProof::expected($application), 'the actual captured application uses its independently locked installed engine');
 require __DIR__.'/full-schema.php';
 $report=json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'), true, 512, JSON_THROW_ON_ERROR);
 DesktopFullSchemaFixture::create($report['tables']);

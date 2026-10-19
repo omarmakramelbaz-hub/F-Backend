@@ -23,6 +23,11 @@ class DesktopDashboardController extends Controller
         $device=$devices->device((string)$request->bearerToken());
         return response()->json($reconciliation->ingest($device,$request->all()))->header('Cache-Control','private, no-store');
     }
+    public function printOutcome(Request $request,DesktopDashboardDevices $devices,\App\Services\Dashboard\DesktopDashboardPrintOwnership $printing)
+    {
+        $device=$devices->device((string)$request->bearerToken());
+        return response()->json($printing->outcome($device,$request->all()))->header('Cache-Control','private, no-store');
+    }
     public function media(Request $request,DesktopDashboardDevices $devices,DesktopDashboardMedia $media)
     {
         $device=$devices->device((string)$request->bearerToken());
