@@ -205,23 +205,32 @@
     }
     function fitNavigation() {
         removeScrollbar();
+        const area = sidebar.querySelector('.sidebar');
+        const previousScroll = area ? area.scrollTop : 0;
+        if (area) area.scrollTop = 0;
+        sidebar.removeAttribute('data-navigation-scroll');
+        sidebar.classList.remove('dashboard-sidebar-compact');
         if (navigation.children.length > 14) groupNavigation();
         let navBox = navigation.getBoundingClientRect();
-        if (navBox.height && navBox.bottom > innerHeight - 12 && navigation.dataset.grouped !== 'true') groupNavigation();
+        // The flex area ends above the brand footer; reserve that space at every size.
+        const areaBottom = () => Math.min(innerHeight, (area || sidebar).getBoundingClientRect().bottom) - 8;
+        if (navBox.height && navBox.bottom > areaBottom() && navigation.dataset.grouped !== 'true') groupNavigation();
         const count = navigation.children.length;
         if (count && sidebar.getBoundingClientRect().width) {
-            const viewportBottom = Math.min(innerHeight, sidebar.getBoundingClientRect().bottom);
-            sidebar.classList.remove('dashboard-sidebar-compact');
             navBox = navigation.getBoundingClientRect();
-            if ((viewportBottom - navBox.top - 10) / count < 34) {
+            if ((areaBottom() - navBox.top) / count < 34) {
                 sidebar.classList.add('dashboard-sidebar-compact');
                 navBox = navigation.getBoundingClientRect();
             }
-            const available = Math.max(0, viewportBottom - navBox.top - 10);
-            const rowHeight = Math.min(40, Math.floor(available / count));
+            const available = Math.max(0, areaBottom() - navBox.top);
+            const minimum = innerWidth < 992 ? 40 : 28;
+            const rowHeight = Math.max(minimum, Math.min(42, Math.floor(available / count)));
+            // Very short windows keep every link reachable without shrinking the text.
+            if (rowHeight * count > available) sidebar.setAttribute('data-navigation-scroll', 'true');
             sidebar.style.setProperty('--dashboard-nav-row-height', rowHeight + 'px');
-            sidebar.style.setProperty('--dashboard-nav-font-size', rowHeight < 28 ? '12px' : '13px');
+            sidebar.style.setProperty('--dashboard-nav-font-size', rowHeight < 32 ? '12px' : '13px');
         }
+        if (area && sidebar.hasAttribute('data-navigation-scroll')) area.scrollTop = previousScroll;
         prepareLinks();
         document.querySelectorAll('[data-widget="pushmenu"]').forEach(toggle => {
             toggle.setAttribute('aria-controls', sidebar.id);

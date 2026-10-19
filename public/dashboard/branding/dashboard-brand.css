@@ -816,3 +816,162 @@ html:has(.app-order-board-page) {
 .dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-stage { display: none; }
 .dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-compact { display: inline; }
 /* go-erp-logo-stamp:end */
+
+/* dashboard-sidebar-footer:start */
+/* Shared by every account: navigation above a compact, fixed brand footer. */
+.dashboard-theme #dashboard-sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    padding-top: 8px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #101f30 0%, #0b1724 60%, #0a1522 100%) !important;
+}
+.dashboard-theme #dashboard-sidebar > hr { display: none; }
+.dashboard-theme #dashboard-sidebar > .sidebar {
+    order: 1;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+    margin: 0;
+    padding: 0 10px 8px !important;
+    overflow: hidden !important;
+}
+.dashboard-theme #dashboard-sidebar .user-panel {
+    flex: 0 0 auto;
+    align-items: center;
+    min-height: 36px;
+    width: 100%;
+    margin: 0 0 8px !important;
+    padding: 6px 10px;
+    border: 1px solid #ffffff0d;
+    border-radius: 10px;
+    background: #ffffff04;
+}
+.dashboard-theme #dashboard-sidebar .user-panel > div,
+.dashboard-theme #dashboard-sidebar .user-panel > div > div { min-width: 0; width: 100%; }
+.dashboard-theme #dashboard-sidebar .welcome {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 22px !important;
+    font-size: 11px;
+    font-weight: 400;
+    color: #c3cedb !important;
+}
+.dashboard-theme #dashboard-sidebar .sidebar > hr { display: none; }
+.dashboard-theme #dashboard-sidebar .sidebar > nav {
+    flex: 0 0 auto;
+    width: 100%;
+    margin-top: 0 !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item { margin: 0 0 2px; }
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: calc(var(--dashboard-nav-row-height, 42px) - 2px);
+    margin: 0;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 10px !important;
+    color: #cbd5e1 !important;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link p {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    gap: 6px;
+    font-size: var(--dashboard-nav-font-size, 13px);
+    font-weight: 400;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link .nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    margin: 0;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    color: #9caec2;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link .left {
+    position: static;
+    margin-inline-start: auto;
+    font-size: 11px;
+    color: #91a3b7;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link:hover,
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item.menu-open > .nav-link {
+    background: #ffffff09 !important;
+    border-color: #ffffff12;
+    color: #fff !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active {
+    background: linear-gradient(100deg, #ed6b00, #ff8a14) !important;
+    border-color: #ff9b3c;
+    box-shadow: 0 3px 12px #fd72011a;
+    color: #fff !important;
+}
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active p { font-weight: 700; }
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active .nav-icon,
+.dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link.active .left { color: #fff; }
+.dashboard-theme #dashboard-sidebar a:focus-visible {
+    outline: 2px solid #ffb46c;
+    outline-offset: -2px;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand {
+    order: 2;
+    flex: 0 0 auto;
+    width: calc(100% - 24px) !important;
+    box-sizing: border-box;
+    min-height: 80px;
+    height: 80px;
+    margin: 6px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 8px 10px;
+    border: 1px solid #ffffff12;
+    border-radius: 14px;
+    background: #ffffff03;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-logo.go-erp-platform-logo {
+    flex: 0 1 184px;
+    width: 184px;
+    height: 64px;
+    max-width: 100%;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-logo:not(.go-erp-platform-logo) {
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
+}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand .dashboard-brand-copy strong { font-size: 18px; }
+.dashboard-theme #dashboard-sidebar.dashboard-sidebar-compact > .dashboard-brand { min-height: 64px; height: 64px; padding-block: 5px; }
+.dashboard-theme #dashboard-sidebar.dashboard-sidebar-compact > .dashboard-brand .dashboard-brand-logo.go-erp-platform-logo { height: 52px; }
+.dashboard-theme #dashboard-sidebar[data-navigation-scroll="true"] > .sidebar {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #405268 transparent;
+}
+@media (max-width: 991.98px) {
+    .dashboard-theme #dashboard-sidebar { display: none; }
+    .dashboard-theme.sidebar-open #dashboard-sidebar { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-theme #dashboard-sidebar .nav-sidebar > .nav-item > .nav-link { transition: none; }
+}
+/* dashboard-sidebar-footer:end */
