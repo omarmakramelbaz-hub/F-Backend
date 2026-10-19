@@ -20,10 +20,10 @@ test('the original existing GO profile form retains its UUID when a response is 
     f.submit();f.submit();assert.equal(f.command(),command);assert.equal(f.form.fields.length,1);
   }
 });
-test('GO owner creation, products, foreign forms and other methods remain outside UUID and reservation coverage',async()=>{
+test('GO owner creation, foreign forms and other methods remain outside UUID and reservation coverage',async()=>{
   const attempts=new Attempts({});
   assert.equal(attempts.supported({url:'https://dashboard.test/admin/go-stores/60',method:'POST'}),true);
-  for(const [url,method] of [['https://dashboard.test/admin/go-stores','POST'],['https://dashboard.test/admin/go-stores/60/products','POST'],['https://dashboard.test/admin/go-stores/60/products/1','POST'],...['GET','PUT','PATCH','DELETE'].map(method=>['https://dashboard.test/admin/go-stores/60',method])]){
+  for(const [url,method] of [['https://dashboard.test/admin/go-stores','POST'],...['GET','PUT','PATCH','DELETE'].map(method=>['https://dashboard.test/admin/go-stores/60',method])]){
     assert.equal((await formFixture(url,method)).command(),undefined);assert.equal(attempts.supported({url,method}),false);
   }
   assert.equal((await formFixture('https://foreign.test/admin/go-stores/60')).command(),undefined);
@@ -50,5 +50,23 @@ test('a committed GO status rejected for current grants or enrollment preserves 
     assert.equal(records.get('remote-attempts/'+id).receipt.status,'committed');
     assert.deepEqual(calls.map(value=>[value.action,value.id,value.method,value.path]),
       [['reserve',id,'POST','/admin/go-stores/60'],['settle',id,'POST','/admin/go-stores/60'],['settle',id,'POST','/admin/go-stores/60']]);
+  }
+});
+
+
+test('original GO product/options multipart forms preserve one UUID and exact native paths on retry',async()=>{
+  const attempts=new Attempts({});
+  for(const suffix of ['/products','/products/900']){
+    const url='https://dashboard.test/admin/go-stores/60'+suffix;
+    for(const dataset of [{dashboardLocal:'1'},{dashboardLocal:'0',dashboardRemoteAttempts:'1'}]){
+      const f=await formFixture(url,'POST',dataset),command=f.command();assert.match(command,/^[a-f0-9-]{36}$/i);
+      f.submit();f.submit();assert.equal(f.command(),command);assert.equal(f.form.fields.length,1);
+    }
+    assert.equal(attempts.supported({url,method:'POST'}),true);
+    for(const method of ['GET','HEAD','PUT','PATCH','DELETE'])assert.equal(attempts.supported({url,method}),false);
+  }
+  for(const path of ['/admin/go-stores/0/products','/admin/go-stores/60/products/0','/admin/go-stores/60/products/900/edit','/admin/go-stores/60/products/','/admin/go-stores/60/products/01']){
+    assert.equal((await formFixture('https://dashboard.test'+path)).command(),undefined);
+    assert.equal(attempts.supported({url:'https://dashboard.test'+path,method:'POST'}),false);
   }
 });

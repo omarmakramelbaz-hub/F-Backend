@@ -45,6 +45,21 @@ try{
     require_once $application.'/database/migrations/2022_08_05_174522_create_permission_tables.php';(new CreatePermissionTables)->up();
     foreach(['permissions','roles','model_has_permissions','model_has_roles','role_has_permissions'] as $table)$check(\Illuminate\Support\Facades\Schema::hasTable($table),'original permission migration creates '.$table.' with the actual installed permission engine');
     $check(\Illuminate\Support\Facades\Schema::hasColumn('role_has_permissions','permission_id')&&\Illuminate\Support\Facades\Schema::hasColumn('role_has_permissions','role_id'),'permission migration retains the original pivot column names');
+    $role=\Spatie\Permission\Models\Role::create(['name'=>'engine-proof','guard_name'=>'admin']);
+    $permissions=[];foreach(['ordinary-permission','7.5','7e0'] as $name)$permissions[]=\Spatie\Permission\Models\Permission::create(['name'=>$name,'guard_name'=>'admin']);
+    $selections=new ReflectionMethod(\App\Http\Controllers\Dashboard\RolesController::class,'permissionSelections');$selections->setAccessible(true);
+    $mapped=$selections->invoke(app(\App\Http\Controllers\Dashboard\RolesController::class),[(string)$permissions[0]->id,'ordinary-permission','7.5','7e0'],$role);
+    $check($mapped[0]===$permissions[0]->id,'canonical string checkbox selections retain their exact integer permission identity');
+    $check($mapped[1] instanceof \Spatie\Permission\Models\Permission&&$mapped[1]->id===$permissions[0]->id,'named selections resolve the actual permission within the original role guard');
+    $check($mapped[2]->name==='7.5'&&$mapped[3]->name==='7e0','decimal and exponent permission names cannot be truncated into unrelated integer IDs');
+    $role->syncPermissions($mapped);$names=$role->permissions()->pluck('name')->all();sort($names,SORT_STRING);
+    $check($names===['7.5','7e0','ordinary-permission'],'the actual installed permission engine assigns the exact intended permission set once');
+    $locale=$app->getLocale();$app->setLocale('ar');
+    try{
+        $check(is_string(trans('validation.array')),'the original Arabic array-validation message remains a string on both engines');
+        try{app(\App\Services\Dashboard\CategoryOrdering::class)->values(['order'=>[['id'=>1,'position'=>1,'other'=>'unreviewed']]]);throw new RuntimeException('Unreviewed ordering fields were accepted.');}
+        catch(\Illuminate\Validation\ValidationException $error){$check(isset($error->errors()['order.0']),'unreviewed category-order array fields retain original validation rejection rather than a framework formatting error');}
+    }finally{$app->setLocale($locale);}
     (new CreatePermissionTables)->down();$completed=true;
     echo 'ENGINE_COMPATIBILITY_COMPLETE '.json_encode(['checks'=>$checks,'runtimeFramework'=>$engine,'sourceFramework'=>$source['framework'],'privateDatabase'=>true,'productionEnvironmentLoaded'=>false],JSON_UNESCAPED_SLASHES).PHP_EOL;
 }catch(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);}

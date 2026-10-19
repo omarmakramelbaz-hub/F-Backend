@@ -71,7 +71,11 @@
                
                 <div class="form-group col-sm-10">
                   <label for="advertise_image">@lang('main.advertise_image')</label>
+                  @if(config('desktop_dashboard.local'))
+                    <p class="text-muted">تغيير صورة الإعلان متاح من النسخة المتصلة فقط؛ اختيار المطعم محفوظ في هذه النسخة.</p>
+                  @else
                   <input type="file" name="advertise_image"  class="form-control" id="advertise_image" >
+                  @endif
                   <img src="{{url('/storage/'.$settings->advertise_image)}}" width="120px">
                 </div>
                 

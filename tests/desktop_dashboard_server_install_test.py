@@ -117,7 +117,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.f.root/'.env').read_bytes(),self.f.env)
         self.assertEqual((self.f.root/'bootstrap/cache/config.php').read_bytes(),self.f.original_config)
         self.assertEqual((self.f.root/'bootstrap/cache/routes-v7.php').read_bytes(),self.f.original_routes)
-    def test_additive_success_backup_before_mutation_and_only_six_migrations(self):
+    def test_additive_success_backup_before_mutation_and_only_approved_additive_migrations(self):
         backup,result=self.f.install()
         self.assertEqual(self.f.migrations,list(installer.MIGRATIONS))
         self.assertEqual(result['source'],self.f.manifest['after_source'])
@@ -196,6 +196,21 @@ class InstallTests(unittest.TestCase):
     def test_manifest_rejects_unreviewed_business_migration(self):
         self.f.manifest['sources'].append({'path':'database/migrations/2026_10_12_delete_orders.php','before_blob':None,'after_blob':'b'*40,'phase':2});self.f.save_manifest()
         with self.assertRaisesRegex(installer.SafeError,'MIGRATION_SCOPE_INVALID'):self.f.install()
+        self.assertEqual(self.f.calls,[])
+    def test_historical_permission_compatibility_is_exactly_pinned_source_only(self):
+        path='database/migrations/2022_08_05_174522_create_permission_tables.php'
+        row={'path':path,'before_blob':'04c3278b9bc78231d95405a82ddef546f7a2f5ce',
+            'after_blob':'6e8e4aa5d2057966e3a518ac65071f4ae7ef756e','phase':2}
+        self.f.manifest['sources'].append(row);self.f.save_manifest()
+        reviewed=installer.read_manifest(self.f.manifest_path,self.f.pin)
+        self.assertNotIn(path,reviewed['migrations'])
+        for change in ({'before_blob':None},{'before_blob':'a'*40},{'after_blob':'b'*40},{'phase':0},
+                       {'path':'database/migrations/2022_08_05_174523_create_permission_tables.php'}):
+            with self.subTest(change=change):
+                original=dict(row);row.update(change);self.f.save_manifest()
+                with self.assertRaisesRegex(installer.SafeError,'MIGRATION_SCOPE_INVALID'):
+                    installer.read_manifest(self.f.manifest_path,self.f.pin)
+                row.clear();row.update(original)
         self.assertEqual(self.f.calls,[])
     def test_manifest_requires_dependency_first_publication(self):
         self.f.manifest['sources'].reverse();self.f.save_manifest()

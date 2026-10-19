@@ -21,13 +21,15 @@
         return url.origin === location.origin && !url.username && !url.password && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
             && (/^\/admin\/(?:areas|categorys|products|question_answers|features|contracts)(?:\/\d+)?\/?$/.test(url.pathname)
                 || (form.method.toUpperCase() === 'POST' && productRoute(url.pathname, method))
+                ||(['PUT','PATCH'].includes(method)&&/^\/admin\/users\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                ||(method==='PUT'&&['/admin/settings/update','/admin/advertising/update'].includes(url.pathname))
                 ||(method==='POST'&&url.pathname==='/admin/roles')
                 ||(method==='POST'&&['/admin/wallets/transfer','/admin/wallets/withdraw/store'].includes(url.pathname))
                 ||(['POST','PUT','PATCH','DELETE'].includes(method)&&/^\/admin\/roles\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(url.pathname))
-                || (method==='DELETE'&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='DELETE'&&/^\/admin\/(?:userWishlistsDelete|userAddressDelete)\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname))
-                || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}(?:\/products(?:\/[1-9][0-9]{0,18})?)?$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(url.pathname)));
     };
@@ -57,11 +59,16 @@
         if (!(form instanceof HTMLFormElement) || !eligible(form) || ownedControl(form, '_desktop_command')) return;
         const field = document.createElement('input');
         field.type = 'hidden'; field.name = '_desktop_command'; field.value = crypto.randomUUID(); form.append(field);
+        if (/^\/admin\/users\/[1-9][0-9]{0,18}$/.test(new URL(form.action, location.href).pathname)) {
+            const note=document.createElement('p');note.className='alert alert-info';note.setAttribute?.('role','note');
+            note.textContent='يمكن حفظ تعديل الاسم من نسخة الكمبيوتر. تعديلات كلمة المرور والأدوار وبيانات الحساب الأخرى تتم من الداشبورد المتصل.';
+            if(form.prepend)form.prepend(note);else form.append(note);
+        }
     };
     const prepareProductLink = link => {
         const url = new URL(link.href, location.href);
         if (url.origin !== location.origin || url.username || url.password
-            || !(url.pathname === '/admin/resturantControl' || /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname))) return;
+            || !(url.pathname === '/admin/resturantControl' || /^\/admin\/change-status\/[1-9][0-9]{0,18}$/.test(url.pathname) || /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(url.pathname))) return;
         // Keep the operation on the original link until an accepted navigation creates a new page.
         // A lost reply then retries its original UUID, just like the original checkbox forms.
         const command = link.dataset.desktopProductCommand || crypto.randomUUID();

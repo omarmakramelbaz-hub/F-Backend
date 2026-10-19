@@ -203,3 +203,5 @@ foreach($pdo->query('SHOW TABLES FROM `'.$other.'`')->fetchAll(PDO::FETCH_COLUMN
 config(['database.connections.mysql.database'=>$nextGeneration]);DB::purge();DB::table('desktop_dashboard_local_state')->where('device_id',$device)->update(['snapshot_id'=>(string)Str::uuid()]);$pdo->exec('DROP DATABASE `'.$other.'`');
 $afterAudit=collect($effects->audit($device)['audit'])->firstWhere('effect_id',$manualKitchen['effect_id']);check($afterAudit===$manualAudit,'manual reprint audit and uncertain outcome survive generation replacement and deletion of the original business database');
 denied(fn()=>$effects->burn($device,$manualInvoke),409,'retained manual reprint burn never becomes usable again after dataset replacement');
+
+require __DIR__.'/print-authority.php';

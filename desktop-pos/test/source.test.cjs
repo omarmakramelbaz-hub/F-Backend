@@ -27,6 +27,9 @@ test('unknown framework packages and malformed code descriptors cannot become ve
 });
 test('an explicit captured contract binds the supported engine without claiming that the engine is Laravel 8',async t=>{
   const root=await fixture(t);await fs.mkdir(path.join(root,'desktop'));
+  await fs.writeFile(path.join(root,'composer.lock'),JSON.stringify({packages:[{name:'laravel/framework',version:'v12.70.0'}]}));
+  await assert.rejects(source.fingerprint(root),/requires its reviewed source/);
+  await fs.writeFile(path.join(root,'composer.lock'),JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]}));
   const contract={format:1,framework:'8.83.29',supportedRuntimeFrameworks:['8.83.29','12.70.0']};
   await fs.writeFile(path.join(root,'desktop/source-contract.json'),JSON.stringify(contract));
   const server=await source.fingerprint(root);

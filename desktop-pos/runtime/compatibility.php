@@ -13,3 +13,15 @@ foreach ([
         class_alias($current, $legacy);
     }
 }
+
+/** The captured settings table intentionally has no unique (group,name) index. */
+final class FasakhanstaDesktopLegacySettingsRepository extends \Spatie\LaravelSettings\SettingsRepositories\DatabaseSettingsRepository
+{
+    public function updatePropertiesPayload(string $group,array $properties): void
+    {
+        // Match the original package's UPDATE-only behavior. MySQL ignores an
+        // upsert uniqueBy argument without a real matching unique index.
+        foreach($properties as $name=>$payload)$this->getBuilder()->where('group',$group)->where('name',$name)
+            ->update(['payload'=>$this->encode($payload)]);
+    }
+}

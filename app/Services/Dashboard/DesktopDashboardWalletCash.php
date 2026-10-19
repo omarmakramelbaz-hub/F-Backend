@@ -109,7 +109,8 @@ class DesktopDashboardWalletCash
     public function validateReferences(array $payload): void
     {
         foreach($this->referencePaths($payload) as $path=>$entity){$value=data_get($payload,$path);if(is_array($value))
-            abort_unless(count($value)===1&&is_array($value['$desktop_ref']??null)&&($value['$desktop_ref']['entity']??null)===$entity,422,'نوع مرجع المحفظة غير متطابق.');}
+            abort_unless(count($value)===1&&is_array($value['$desktop_ref']??null)
+                &&preg_match('/^'.preg_quote($entity,'/').'(?:\.[0-9]{1,3})?$/D',$value['$desktop_ref']['entity']??''),422,'نوع مرجع المحفظة غير متطابق.');}
     }
     public function outputs(array $result): array
     {

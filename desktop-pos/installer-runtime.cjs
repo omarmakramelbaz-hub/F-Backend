@@ -26,6 +26,11 @@ async function verifyBundle(bundle) {
     if (files['application/'+name]!==value) throw Error('The packaged original source changed: '+name);
   const actual = await sourceCode.fingerprint(path.join(bundle,'application'));
   if (!sourceCode.same(actual,manifest.sourceFingerprint)) throw Error('The packaged original business code does not match its source binding.');
+  const composer=JSON.parse(await fs.readFile(path.join(bundle,'application/composer.json'),'utf8'));
+  if((composer.autoload?.files||[]).includes('compatibility.php')||manifest.runtimeCompatibilitySha256){
+    if(!/^[a-f0-9]{64}$/.test(manifest.runtimeCompatibilitySha256||'')||files['application/compatibility.php']!==manifest.runtimeCompatibilitySha256)
+      throw Error('The bundled runtime compatibility source is missing or changed.');
+  }
   const {runtimeFramework}=await sourceCode.frameworks(path.join(bundle,'application'));
   if(manifest.runtimeFramework){
     const installed=JSON.parse(await fs.readFile(path.join(bundle,'application/vendor/composer/installed.json'),'utf8'));
@@ -44,6 +49,9 @@ async function beforePack(context) {
   const revision = execFileSync('git',['rev-parse','HEAD'],{cwd:checkout,encoding:'utf8'}).trim();
   execFileSync('git',['diff-index','--quiet','HEAD','--'],{cwd:checkout});
   if(verified.manifest.sourceRevision!==revision) throw Error('The installer runtime was built from a different source revision.');
+  if(verified.manifest.runtimeCompatibilitySha256
+      &&hash(await fs.readFile(path.join(checkout,'desktop-pos/runtime/compatibility.php')))!==verified.manifest.runtimeCompatibilitySha256)
+    throw Error('The runtime compatibility source does not match the independently verified Git checkout.');
   const roots = new Set(['app','bootstrap','config','database','desktop','public','resources','routes']), expected = {};
   const tracked = execFileSync('git',['ls-files','-z'],{cwd:checkout,encoding:'utf8'}).split('\0').filter(Boolean);
   for (const name of tracked) {
@@ -70,7 +78,7 @@ async function beforePack(context) {
   }
   const receipt={format:1,version:packageInfo.version,channel:preview?'preview':'release',fullDashboard:!preview,
     sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,runtimeFramework:verified.manifest.runtimeFramework||verified.manifest.sourceFingerprint.framework,lockSha256:verified.lockSha256,advisoryCount,
-    pdfRuntime:verified.manifest.pdfRuntime||null,files:verified.files};
+    runtimeCompatibilitySha256:verified.manifest.runtimeCompatibilitySha256||null,pdfRuntime:verified.manifest.pdfRuntime||null,files:verified.files};
   await fs.mkdir(path.join(project,'dist'),{recursive:true});
   await fs.writeFile(path.join(project,'dist/runtime-package.json'),JSON.stringify(receipt,null,2)+'\n');
   if(!/^[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[1-9][0-9]*)?$/.test(packageInfo.version)) throw Error('Invalid installer version.');

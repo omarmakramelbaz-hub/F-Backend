@@ -391,12 +391,16 @@ require __DIR__.'/restaurant-menu-copy-remote.php';
         $code='$context=stream_context_create(["http"=>["method"=>"POST","header"=>"Content-Type: application/x-www-form-urlencoded\\r\\nAccept: application/json\\r\\nAuthorization: Bearer ".$argv[2],"content"=>$argv[3],"ignore_errors"=>true,"timeout"=>15]]);$body=file_get_contents($argv[1],false,$context);echo $body;';
         $client=proc_open([PHP_BINARY,'-r',$code,$origin.'/api/desktop-dashboard/remote-attempts',$ownerLink['token'],$body],
             [['pipe','r'],['file',$profile.'/remote-concurrent.json','w'],['file',$profile.'/remote-concurrent-error.log','w']],$clientPipes,$application,$remoteEnv);
-        $waiting=false;
-        for($n=0;$n<100;$n++){
+        // A cold real application request can take more than one second to
+        // reach SQL on the supported engine. Bound startup independently from
+        // the unchanged assertion that the actual InnoDB lock is observed.
+        $waiting=false;$lockStarted=microtime(true);$lockDeadline=$lockStarted+10;
+        do{
             foreach($pdo->query('SHOW PROCESSLIST')->fetchAll(PDO::FETCH_ASSOC) as $process)if(str_contains($process['Info']??'','desktop_dashboard_devices')&&stripos($process['Info']??'','for update')!==false&&$process['Command']!=='Sleep')$waiting=true;
-            if($waiting)break;usleep(10000);
-        }
+            if($waiting||!proc_get_status($client)['running'])break;usleep(10000);
+        }while(microtime(true)<$lockDeadline);
         verify($waiting&&proc_get_status($client)['running'],'an actual concurrent API settlement waits for the accepted InnoDB write rather than cancelling ahead of it');
+        echo 'DESKTOP_SETTLEMENT_LOCK_OBSERVED '.json_encode(['elapsedSeconds'=>microtime(true)-$lockStarted,'deadlineSeconds'=>10]).PHP_EOL;
         DB::table('products')->insert(['added_by'=>1,'category_id'=>1,'name_ar'=>'نتيجة معاملة متزامنة','status'=>'show']);
         $operation=(string)Str::uuid();$saved=['operation'=>$operation,'status'=>302,'content'=>'','type'=>'text/html','location'=>'/admin/products'];
         DB::table('desktop_dashboard_remote_attempts')->where('id',$concurrent['id'])->update(['status'=>'committed','operation_id'=>$operation,

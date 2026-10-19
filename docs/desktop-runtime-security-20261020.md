@@ -51,10 +51,15 @@ Validation performed locally against the actual original application:
   durable recovery, attachments and native reply loss.
 - Unchanged HomeOverview feature tests: 16 tests / 413 assertions on each engine.
 - Unchanged BranchExpenses feature tests: 26 tests / 234 assertions on each engine.
-- 273 native Node tests, zero skips, with the actual official Windows PDF payload.
-- The new engine proof passes 18 checks on each engine: independent lock/installed
+- 276 native Node tests, zero skips, with the actual official Windows PDF payload.
+- The new engine proof passes 24 checks on each engine: independent lock/installed
   identity, captured class binding, source contract, original permission middleware,
-  proxy mask, calendar buckets, and the original five-table permission migration.
+  proxy mask, calendar buckets, the original five-table permission migration, and
+  canonical ID/named permission selection without numeric-name truncation, and
+  Arabic malformed-array validation without a framework formatting error.
+- All 22 strict frozen original delete-form DOM contracts (48 checks) on each engine.
+- Actual native profile environment/restart/refresh secret tests and an actual
+  Node-to-PHP 12 JWT guard proof, including rejection of a missing-secret control.
 
 CI keeps the production Laravel 8 financial feature suite and adds that engine
 proof to it. The Windows original-runtime job independently runs the same proof
@@ -67,3 +72,21 @@ Primary references:
 - [Laravel debug-page security advisory and fixed versions](https://github.com/laravel/framework/security/advisories/GHSA-jh5r-qr3c-85q8)
 - [Laravel 12.70 published dependency metadata](https://packagist.org/packages/laravel/framework#v12.70.0)
 - [Spatie Media Library published releases](https://packagist.org/packages/spatie/laravel-medialibrary)
+
+The native runtime derives its local JWT signing secret from the encrypted
+per-profile APP_KEY with the domain-separated HMAC purpose
+`fasakhansta-desktop-local-jwt:v1`. It validates the key, never inherits a central
+JWT secret, never uses APP_KEY itself as the JWT secret, and keeps the same private
+signing identity across restart, generation refresh, and retained code changes.
+The actual API guard can resolve its ordinary anonymous state without importing
+a central authentication key or inventing an API login.
+
+The bundled Settings 3 repository uses a small runtime-only UPDATE bridge for
+the captured nonunique settings schema. The server keeps the original Settings 2
+repository. Real original-migration InnoDB tests pass 60 checks on the bundled
+engine and 58 on the server engine: all 48 GeneralSettings properties keep their
+49 original row identities (including a separate private sentinel), locked values,
+unchanged payloads, missing-property UPDATE-only semantics, rollback and refresh.
+The unchanged newer upstream repository is also tested as a negative control and
+reproduces duplicate insertion inside a rolled-back private transaction. No new
+unique index or production schema rewrite is introduced.

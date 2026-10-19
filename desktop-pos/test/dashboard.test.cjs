@@ -79,6 +79,18 @@ test('original address suggestions remain a read without a remote command reserv
   f.session.webRequest.error({...request,error:'net::ERR_CONNECTION_RESET'});
   assert.equal(failures.at(-1).method,'GET');assert.deepEqual(reservations,[]);
 });
+test('an original account status GET is retained as an uncertain write after a lost native reply',async t=>{
+  const begun=[],failures=[],f=fixture(t,{remoteState:{begin:async id=>begun.push(id)},offline:(_message,details)=>failures.push(details)});
+  await f.dashboard.open();const request={id:15,url:policy.DEFAULT_ORIGIN+'/admin/change-status/20?status=declined',method:'GET',webContentsId:f.windows[0].webContents.id,requestHeaders:{}};
+  f.session.webRequest.headers(request,()=>{});await new Promise(r=>setImmediate(r));assert.equal(begun.length,1);
+  f.session.webRequest.error({...request,error:'net::ERR_CONNECTION_RESET'});assert.equal(failures.at(-1).method,'UNKNOWN');
+});
+test('a HEAD account-status probe is cancelled before the original server mutation route can execute',async t=>{
+  const Attempts=require('../src/dashboard-remote-attempts.cjs'),attempts=new Attempts({});
+  const f=fixture(t,{remoteAttempts:{begin:(...args)=>attempts.begin(...args)}});await f.dashboard.open();let decision;
+  f.session.webRequest.headers({id:16,url:policy.DEFAULT_ORIGIN+'/admin/change-status/20?status=accepted',method:'HEAD',webContentsId:f.windows[0].webContents.id,requestHeaders:{}},value=>decision=value);
+  await new Promise(r=>setImmediate(r));assert.equal(decision.cancel,true);
+});
 test('native remote proofs wait for reservation and cannot leak through foreign requests or be forged by a page',async t=>{
   let release;const finished=[],failed=[],f=fixture(t,{remoteAttempts:{begin:async id=>{await new Promise(r=>release=r);return {'X-Fasakhansta-Remote-Attempt':id,'X-Fasakhansta-Remote-Capability':'a'.repeat(64)};},
     complete:async id=>finished.push(id),failed:id=>failed.push(id)}});

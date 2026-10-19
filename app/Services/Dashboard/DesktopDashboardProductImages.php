@@ -297,6 +297,8 @@ class DesktopDashboardProductImages
         }
     }
 
+    public function handlesMedia(Media $media): bool {return $media->model_type===self::MODEL;}
+
     public function preserves(Media $media): bool
     {
         $row=$this->protected[(string)$media->getKey()]??null;

@@ -37,7 +37,7 @@ concurrency:
 jobs:
   original-runtime:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -146,10 +146,23 @@ jobs:
             foreach ($field in @('create','edit','explicitConsent','scopedWithdrawal','recordedWithdrawalReopenRejected','committedResponseLost','recoveredSameUuid')) {
               if ($customerDirectoryProof.$field -ne $true) { throw "Original customer directory browser proof did not exercise: $field" }
             }
-            foreach ($fixture in @('run.php', 'legacy.php', 'wallet-cash.php', 'outbox-review.php')) {
+            & php tests/desktop_dashboard_runtime/settings-engine-compatibility.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsEngineOutput
+            if ($LASTEXITCODE -ne 0 -or !(($settingsEngineOutput -join "`n") -match '(?m)^SETTINGS_ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows settings engine changed original row identities, locks, payloads or transaction behavior.' }
+            & php tests/desktop_dashboard_runtime/settings.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($settingsProofOutput -join "`n") -match '(?m)^DESKTOP_SETTINGS_COMPLETE (?:3[8-9]|[4-9][0-9]|[1-9][0-9]{2,})$')) { throw 'Original nonsecret settings controller, protected balance, rollback, journal, replay and native outcomes did not complete.' }
+            foreach ($fixture in @('run.php', 'legacy.php', 'wallet-cash.php', 'outbox-review.php', 'print-ledger.php', 'user-accounts.php', 'order-board-component-run.php')) {
               & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
               $fixtureExit = $LASTEXITCODE
-              $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } elseif ($fixture -eq 'legacy.php') { '\d+ legacy schema checks passed' } else { 'DESKTOP_OUTBOX_REVIEW_COMPLETE \d+' }
+              $summary = switch ($fixture) {
+                'run.php' { '\d+ checks passed using the original Laravel application and real MariaDB' }
+                'legacy.php' { '\d+ legacy schema checks passed' }
+                'wallet-cash.php' { '(?m)^WALLET_CASH_CHECKS=\d+$' }
+                'outbox-review.php' { '(?m)^DESKTOP_OUTBOX_REVIEW_COMPLETE \d+$' }
+                'print-ledger.php' { '(?m)^\d+ private print-ledger checks passed using original Laravel and disposable MariaDB$' }
+                'user-accounts.php' { '(?m)^USER_ACCOUNT_CHECKS_COMPLETE (?:9[1-9]|[1-9][0-9]{2,})$' }
+                'order-board-component-run.php' { '(?m)^ORDER_BOARD_RECONCILIATION_CHECKS=(?:29|[3-9][0-9]|[1-9][0-9]{2,})$' }
+                default { throw 'An application fixture has no required completion receipt.' }
+              }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
               if ($fixture -eq 'run.php') {
                 $waLine = @(($fixtureOutput -join "`n") -split "`n" | Where-Object { $_ -match '^WHATSAPP_NATIVE_UNPREPARED_COMPLETE ' })
@@ -163,6 +176,11 @@ jobs:
               }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
               if ($fixture -eq 'wallet-cash.php' -and !(($fixtureOutput -join "`n") -match '(?m)^WALLET_CASH_CHECKS=(?:6[7-9]|[7-9][0-9]|[1-9][0-9]{2,})$')) { throw 'Original cash controller, contention, reconciliation and native outcome checks did not complete.' }
+              if ($fixture -eq 'order-board-component-run.php') {
+                foreach ($required in @('(?m)^WALLET_CASH_CHECKS=(?:7[0-9]|[89][0-9]|[1-9][0-9]{2,})$', '(?m)^ORDER_BOARD_COMPONENT_CHECKS=(?:4[1-9]|[5-9][0-9]|[1-9][0-9]{2,})$')) {
+                  if (!(($fixtureOutput -join "`n") -match $required)) { throw 'The board fixture must complete its original cash, lifecycle and separate-database reconciliation cohorts.' }
+                }
+              }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_COMPLETE ') -or !(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '))) { throw 'Both original product CRUD acceptance modules must complete.' }
@@ -395,6 +413,8 @@ jobs:
           if ($printProof.sourceRevision -ne $env:GITHUB_SHA -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
           & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
+          $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
+          if ($reviewProof.sourceRevision -ne $env:GITHUB_SHA -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
           node .github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
           if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs

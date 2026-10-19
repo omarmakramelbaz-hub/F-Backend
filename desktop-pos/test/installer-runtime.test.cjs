@@ -55,6 +55,21 @@ test('the installed framework must agree with the exact lock and actual engine m
   f.manifest.runtimeFramework='12.70.0';await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
   await assert.rejects(packaging(f.context),/installed and locked engine/);
 });
+test('runtime compatibility code is bound to its exact Git source independently of the application contract',async t=>{
+  const f=await fixture(t),original='<?php /* reviewed runtime compatibility */';
+  await f.write('desktop-pos/runtime/compatibility.php',original);
+  await f.write('desktop-pos/runtime-bundle/application/compatibility.php',original);
+  await f.write('desktop-pos/runtime-bundle/application/composer.json',JSON.stringify({autoload:{files:['compatibility.php']}}));
+  f.manifest.runtimeCompatibilitySha256=sha(original);f.manifest.sourceRevision=f.commit();
+  await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));await packaging(f.context);
+  await f.write('desktop-pos/runtime-bundle/application/compatibility.php','<?php /* modified compatibility behavior */');
+  await assert.rejects(packaging(f.context),/compatibility source is missing or changed/);
+  f.manifest.runtimeCompatibilitySha256=sha('<?php /* modified compatibility behavior */');
+  await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
+  await assert.rejects(packaging(f.context),/compatibility source does not match the independently verified Git checkout/);
+  delete f.manifest.runtimeCompatibilitySha256;await f.write('desktop-pos/runtime-bundle/manifest.json',JSON.stringify(f.manifest));
+  await assert.rejects(packaging(f.context),/compatibility source is missing or changed/);
+});
 test('a lost native DLL during resource copying cannot produce an accepted installer',async t=>{
   const f=await fixture(t);await packaging(f.context);await fs.mkdir(path.join(f.out,'resources'),{recursive:true});await fs.cp(f.bundle,path.join(f.out,'resources/dashboard-runtime'),{recursive:true});
   await fs.rm(path.join(f.out,'resources/dashboard-runtime/php/ext/php_sodium.dll'));

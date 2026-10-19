@@ -60,7 +60,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
     const pathname = new URL(details.url).pathname;
     if (readPosts.has(pathname)) return false;
-    return pathname.startsWith('/admin/') && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
+    return pathname.startsWith('/admin/') && ((['GET','HEAD'].includes(String(details.method).toUpperCase())&&/^\/admin\/change-status\/[1-9][0-9]{0,18}$/.test(pathname)) || !['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
       || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname));
   }
   function failure(details = {}) {

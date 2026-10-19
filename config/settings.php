@@ -7,7 +7,7 @@ return [
      * put them (manually) here.
      */
     'settings' => [
-        GeneralSettings::class
+        \App\Models\GeneralSettings::class
 
     ],
 
@@ -31,7 +31,10 @@ return [
      */
     'repositories' => [
         'database' => [
-            'type' => Spatie\LaravelSettings\SettingsRepositories\DatabaseSettingsRepository::class,
+            // Only the isolated bundled graph defines this compatibility class.
+            'type' => class_exists('FasakhanstaDesktopLegacySettingsRepository')
+                ? FasakhanstaDesktopLegacySettingsRepository::class
+                : Spatie\LaravelSettings\SettingsRepositories\DatabaseSettingsRepository::class,
             'model' => null,
             'table' => null,
             'connection' => null,

@@ -25,12 +25,36 @@ class DesktopDashboardReconciliation
             // Serialize a device's imports and deduplicate before running any business service.
             $locked=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($locked&&$locked->enabled,401);
             $actor=$this->devices->actor($locked);
+            if(DesktopDashboardOrderBoard::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
+                $adapter=app(DesktopDashboardOrderBoard::class);$adapter->validateReferences($v['payload']);
+                abort_unless($v['local_references']===$adapter->outputs($v['local_result']),409,'مراجع نتيجة الطلب المحلية غير متطابقة.');
+                $boardPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($boardPayload,$actor,$locked);
+            }
+            if(DesktopDashboardSettings::handles($v['route_name'])){
+                $adapter=app(DesktopDashboardSettings::class);$adapter->validateReferences($v['payload']);
+                abort_unless($v['local_references']===[],409);
+                $settingsPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($v['route_name'],$settingsPayload,$actor,$locked);
+            }
             if(DesktopDashboardWalletCash::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
                 $adapter=app(DesktopDashboardWalletCash::class);$adapter->validateReferences($v['payload']);
                 abort_unless($v['local_references']===$adapter->outputs($v['local_result']),409,'مراجع نتيجة المحفظة المحلية غير متطابقة.');
                 $walletPayload=$this->references->resolve($device->id,$v['payload']);
                 $actor=$adapter->authorize($v['route_name'],$walletPayload,$actor,$locked);
+            }
+            if(DesktopDashboardUserProfiles::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);$adapter=app(DesktopDashboardUserProfiles::class);$adapter->validateReferences($v['payload']);$adapter->verifyLocal($v['payload'],$v['local_result'],$v['local_references']);
+                $profilePayload=$this->references->resolve($device->id,$v['payload']);$actor=$adapter->authorize($profilePayload,$actor,$locked);
+            }
+            if(DesktopDashboardUserAccounts::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
+                $adapter=app(DesktopDashboardUserAccounts::class);$adapter->validateReferences($v['route_name'],$v['payload']);
+                $adapter->verifyLocal($v['payload'],$v['local_result'],$v['local_references']);
+                $accountPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($v['route_name'],$accountPayload,$actor,$locked);
             }
             if(DesktopDashboardCustomerDirectory::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
@@ -43,6 +67,11 @@ class DesktopDashboardReconciliation
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);
                 app(DesktopDashboardCustomerFacts::class)->validateReferences($v['payload']);
                 $this->devices->branch($locked,(string)($v['payload']['values']['branch']??''),$actor);
+            }
+            if(DesktopDashboardGoProducts::handles($v['route_name'])){
+                abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403);$adapter=app(DesktopDashboardGoProducts::class);$adapter->validateReferences($v['payload']);
+                abort_unless($v['local_references']===$adapter->outputs($v['local_result']),409);$goPayload=$this->references->resolve($device->id,$v['payload']);
+                $actor=$adapter->authorize($v['route_name'],$goPayload,$actor,$locked);
             }
             if(DesktopDashboardRestaurantControl::handles($v['route_name'])||DesktopDashboardRestaurantFlags::handles($v['route_name'])||DesktopDashboardRestaurantProducts::handles($v['route_name'])||DesktopDashboardRestaurantProductCrud::handles($v['route_name'])||DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])){
                 abort_unless((int)$locked->actor_id===(int)$v['actor_id'],403,'حساب الجهاز تغيّر قبل تنفيذ العملية المحلية.');
@@ -74,7 +103,7 @@ class DesktopDashboardReconciliation
                 $actor=app(DesktopDashboardMenuAvailability::class)->authorize($menuPayload['parameters']??[],$actor)['actor'];
                 app(DesktopDashboardMenuAvailability::class)->enrolledBranch($locked,$menuPayload['parameters']);
             }
-            $receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor,$locked){
+            try{$receipt=$this->journal->execute($device->id,$v['command_id'],(int)$actor->id,$v['route_name'],['envelope'=>$v],$v['dependencies'],function()use($device,$v,$when,$actor,$locked){
                 foreach($v['dependencies'] as $id)abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$id)->where('status','acknowledged')->exists(),409,'العملية السابقة لم تصل للسيرفر بعد.');
                 $payload=$this->references->resolve($device->id,$v['payload']);
                 if(DesktopDashboardCustomerFacts::handles($v['route_name'])){
@@ -87,7 +116,7 @@ class DesktopDashboardReconciliation
                 if($v['route_name']==='branch-expenses.categorySave'&&!empty($payload['values']['branch']))
                     $this->devices->branch($locked,(string)$payload['values']['branch'],$actor);
                 if(DesktopDashboardLegacy::handles($v['route_name']))app(DesktopDashboardLegacy::class)->authorize($actor,$v['route_name']);
-                elseif(!DesktopDashboardRestaurantControl::handles($v['route_name'])&&!DesktopDashboardWalletCash::handles($v['route_name'])&&!DesktopDashboardCustomerDirectory::handles($v['route_name'])&&!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
+                elseif(!DesktopDashboardSettings::handles($v['route_name'])&&!DesktopDashboardOrderBoard::handles($v['route_name'])&&!DesktopDashboardUserProfiles::handles($v['route_name'])&&!DesktopDashboardUserAccounts::handles($v['route_name'])&&!DesktopDashboardGoProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantControl::handles($v['route_name'])&&!DesktopDashboardWalletCash::handles($v['route_name'])&&!DesktopDashboardCustomerDirectory::handles($v['route_name'])&&!DesktopDashboardRestaurantFlags::handles($v['route_name'])&&!DesktopDashboardRestaurantProducts::handles($v['route_name'])&&!DesktopDashboardRestaurantProductCrud::handles($v['route_name'])&&!DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])&&!DesktopDashboardReviewDeletion::handles($v['route_name'])&&!DesktopDashboardWishlistDeletion::handles($v['route_name'])&&!DesktopDashboardMenuAvailability::handles($v['route_name'])&&!DesktopDashboardNotificationReads::handles($v['route_name'])&&!in_array($v['route_name'],['branch-expenses.categorySave','dashboard-inbox.notifications.read'],true))
                     $this->devices->branch(DesktopDashboardCustomerFacts::handles($v['route_name'])?$locked:$device,(string)($payload['values']['branch']??''),$actor);
                 // Authorization above uses CURRENT persisted roles. Business dates below use the original occurrence.
                 $clock=Carbon::getTestNow();
@@ -102,9 +131,12 @@ class DesktopDashboardReconciliation
                     $execute=function()use($locked,$v,$payload,$actor,$when){
                     $run=fn()=>app(DesktopDashboardPrintOwnership::class)->replay($locked,$v,fn()=>$this->commands->execute($v['route_name'],$payload,$actor),$payload);
                     $result=DesktopDashboardCustomerFacts::handles($v['route_name'])?app(DesktopDashboardCustomerFacts::class)->replay($payload,$run):$run();
+                    if(DesktopDashboardOrderBoard::handles($v['route_name']))app(DesktopDashboardOrderBoard::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
+                    if(DesktopDashboardSettings::handles($v['route_name']))app(DesktopDashboardSettings::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardWalletCash::handles($v['route_name']))app(DesktopDashboardWalletCash::class)->verifyAfter($result,$v['local_result']);
                     if(DesktopDashboardCustomerDirectory::handles($v['route_name']))
                         app(DesktopDashboardCustomerDirectory::class)->verifyAfter($v['route_name'],$result,$v['local_result']);
+                    if(DesktopDashboardGoProducts::handles($v['route_name']))app(DesktopDashboardGoProducts::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardRestaurantControl::handles($v['route_name']))
                         app(DesktopDashboardRestaurantControl::class)->verifyAfter($result,$v['local_result'],$payload,$v['payload']);
                     if(DesktopDashboardRestaurantFlags::handles($v['route_name']))
@@ -123,6 +155,8 @@ class DesktopDashboardReconciliation
                     return [$result,$server];
                     };
                     [$result,$server]=match(true){
+                        DesktopDashboardGoProducts::handles($v['route_name'])=>app(DesktopDashboardGoProducts::class)->replayContext($v['route_name'],$v['local_result'],$v['payload'],$when,$execute),
+                        DesktopDashboardOrderBoard::handles($v['route_name'])=>app(DesktopDashboardOrderBoard::class)->replayContext($v['local_result'],$v['payload'],$execute),
                         DesktopDashboardRestaurantMenuCopy::handles($v['route_name'])=>app(DesktopDashboardRestaurantMenuCopy::class)->replayContext($v['route_name'],$v['local_result'],$v['payload'],$when,$execute),
                         DesktopDashboardRestaurantProductCrud::handles($v['route_name'])=>app(DesktopDashboardRestaurantProductCrud::class)->replayContext($v['route_name'],$v['local_result'],$v['payload'],$when,$execute),
                         default=>$execute(),
@@ -133,9 +167,9 @@ class DesktopDashboardReconciliation
                 return ['device_id'=>$device->id,'command_id'=>$v['command_id'],'committed'=>true,'result'=>$result,'references'=>$mapping];
             });
             $this->journal->acknowledge($device->id,$v['command_id'],$receipt);
-            return $receipt;
+            return $receipt;}catch(\Throwable $error){if(DesktopDashboardGoProducts::handles($v['route_name']))app(DesktopDashboardGoProductImages::class)->rollbackKnown();throw $error;}
         });};
-        try{return (DesktopDashboardRestaurantProductCrud::handles($v['route_name'])||DesktopDashboardRestaurantMenuCopy::handles($v['route_name']))?app(DesktopDashboardProductImages::class)->guard(fn()=>app(DesktopDashboardProductEffects::class)->guard($work)):$work();}
+        try{if(DesktopDashboardSettings::handles($v['route_name']))return app(DesktopDashboardSettings::class)->guard($work);if(DesktopDashboardGoProducts::handles($v['route_name']))return app(DesktopDashboardGoProductImages::class)->guard($work);return (DesktopDashboardRestaurantProductCrud::handles($v['route_name'])||DesktopDashboardRestaurantMenuCopy::handles($v['route_name']))?app(DesktopDashboardProductImages::class)->guard(fn()=>app(DesktopDashboardProductEffects::class)->guard($work)):$work();}
         finally{Carbon::setTestNow($previous);}
     }
 }

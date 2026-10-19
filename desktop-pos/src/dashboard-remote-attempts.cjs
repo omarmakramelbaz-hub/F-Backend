@@ -9,12 +9,17 @@ class DashboardRemoteAttempts {
   }
   supported(details) {
     const path = new URL(details.url).pathname, method = String(details.method).toUpperCase();
+    if(['POST','PUT','PATCH'].includes(method)&&/^\/admin\/users\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(method==='GET'&&/^\/admin\/change-status\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(['POST','DELETE'].includes(method)&&/^\/admin\/userAddressDelete\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(method==='POST'&&/^\/admin\/order-board\/(?:legacy|store|service|partner_service)\/[1-9][0-9]{0,18}\/action$/.test(path))return true;
+    if(['POST','PUT'].includes(method)&&['/admin/settings/update','/admin/advertising/update'].includes(path))return true;
     if(method==='POST'&&['/admin/wallets/transfer','/admin/wallets/withdraw/store'].includes(path))return true;
     if(['POST','DELETE'].includes(method)&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(['POST','DELETE'].includes(method)&&/^\/admin\/userWishlistsDelete\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='GET'&&path==='/admin/resturantControl')return true;
     if(method==='POST'&&path==='/admin/post-sortable')return true;
-    if(method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}$/.test(path))return true;
+    if(method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}(?:\/products(?:\/[1-9][0-9]{0,18})?)?$/.test(path))return true;
     if(method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(path))return true;
     if(method==='GET'&&/^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(path))return true;
@@ -57,6 +62,7 @@ class DashboardRemoteAttempts {
   async begin(id, details) {
     if (String(details.method).toUpperCase() === 'HEAD'
         && (new URL(details.url).pathname === '/admin/resturantControl'
+          || /^\/admin\/change-status\/[1-9][0-9]{0,18}$/.test(new URL(details.url).pathname)
           || /^\/admin\/resturant_products\/[1-9][0-9]{0,18}\/update\/(?:status|highest_rated)$/.test(new URL(details.url).pathname)))
       throw Error('فحص رابط الصنف لا يمكنه تنفيذ تعديل؛ استخدم زر الصنف الأصلي.');
     this.active.add(id);

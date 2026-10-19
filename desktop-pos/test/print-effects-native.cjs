@@ -4,6 +4,7 @@
 const {app,BrowserWindow,safeStorage}=require('electron');
 const fs=require('node:fs/promises'),fsSync=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http');
 const assert=require('node:assert/strict'),crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
 assert.equal(process.platform,'win32','Run this fixture in actual Windows Electron.');
 const root=fsSync.mkdtempSync(path.join(os.tmpdir(),'fasakhansta-native-print-'));
 app.setPath('userData',path.join(root,'isolated-windows-profile'));
@@ -98,7 +99,8 @@ async function run(){
   assert.equal(invocations.length,7);
   const raw=await fs.readFile(path.join(root,'durable-ledger','print-effects',id(1)+'.enc'));
   assert.equal(raw.includes(Buffer.from('d'.repeat(64))),false);assert.equal(raw.includes(Buffer.from('spooler_accepted')),false);
-  const result={format:1,sourceRevision:process.env.GITHUB_SHA||null,platform:process.platform,
+  const sourceRevision=execFileSync('git',['rev-parse','HEAD'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8'}).trim();
+  const result={format:1,sourceRevision,platform:process.platform,
     electron:process.versions.electron,adapter:'intercepted Electron webContents.print',hardware:false,
     realPreloadIpc:true,immutableReceiptResolve:true,legacyReceiptRequests:loadedReceipts,invocations:invocations.length,
     accepted:receipts.filter(value=>value.state==='invoked').length,review:receipts.filter(value=>value.state==='review').length,

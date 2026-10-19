@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\{Crypt,DB,Validator};
 final class DesktopDashboardPrintEffects
 {
     public function __construct(private DesktopDashboardPrintLedger $ledger,private DesktopDashboardPrintLedgerSchema $schema,
-        private DesktopDashboardDevices $devices,private TakeawayAccess $access) {}
+        private DesktopDashboardPrintAuthority $authority) {}
 
     public function listing(string $device,array $values=[]): array
     {
@@ -164,14 +164,14 @@ final class DesktopDashboardPrintEffects
                 }
                 return $this->reprint($device,$v['request_id'],$intent,$actor);
             }
-            abort_unless(!isset($v['query']['initial_print'])&&($kind==='sale_receipt'||($v['explicit_reprint']??false)===true)&&$this->access->canReprintReceipts($actor),403);
+            abort_unless(!isset($v['query']['initial_print'])&&($kind==='sale_receipt'||($v['explicit_reprint']??false)===true)&&$this->authority->canReprint($actor),403);
             $refs=match($kind){'sale_receipt'=>['receipt'=>$id],'shift_report'=>['shift'=>$id],'bill_receipt'=>['ticket'=>$id],'delivery_batch'=>['delivery_batch'=>$id],default=>['kitchen.primary'=>$id]};
             if($kind==='sale_receipt'){$receipt=app(TakeawayService::class)->receipt($id,$actor);$snapshot=['presentation'=>$receipt];$branch=$receipt['branch']['value'];}
             elseif($kind==='shift_report'){$report=app(BranchShiftClosing::class)->receipt($id,$actor);$snapshot=$report;$branch=$report['branch']['value'];}
             elseif($kind==='delivery_batch'){$snapshot=app(PhoneDeliveryBoard::class)->receipt($id,$actor);$branch=$snapshot['branch']['value'];}
             elseif($kind==='bill_receipt'){$row=DB::table('pos_service_tickets')->where('id',$id)->first();abort_unless($row,404);$ticket=app(PosServiceTicket::class)->show($row->channel,$id,$actor)['ticket'];abort_unless($ticket['bill_locked']&&$ticket['status']!=='cancelled',409);$snapshot=['ticket'=>$ticket];$branch=$ticket['branch']['value'];}
             else{$snapshot=app(PosServiceTicket::class)->kitchen($kind==='dining_kitchen'?'dine':'phone',$id,$actor);$branch=$snapshot['ticket']['branch']['value'];}
-            $this->devices->branch($this->device($device),$branch,$actor);
+            $this->enrolledBranch($this->device($device),$branch,$actor);
             $scope=DB::table($this->schema->table('print_ledger_scopes'))->where('device_id',$device)->first();
             $intent=['protocol'=>1,'device_id'=>$device,'enrollment_id'=>$scope->enrollment_id,'origin_command_id'=>$v['request_id'],'actor_id'=>(int)$actor->id,'branch'=>$branch,
                 'kind'=>$kind,'revision'=>(int)($snapshot['revision']??$snapshot['ticket']['revision']??1),'origin_database'=>DB::connection()->getDatabaseName(),'local_references'=>$refs,
@@ -182,7 +182,7 @@ final class DesktopDashboardPrintEffects
 
     private function reprint(string $device,string $request,array $intent,$actor): array
     {
-        abort_unless($this->access->canReprintReceipts($actor),403,'إعادة الطباعة متاحة للإدارة فقط.');
+        abort_unless($this->authority->canReprint($actor),403,'إعادة الطباعة متاحة للإدارة فقط.');
         $effect=hash('sha256',$this->canonical([$device,$intent['enrollment_id'],'reprint',$request]));$intent['effect_id']=$effect;$intent['actor_id']=(int)$actor->id;
         $intent['reprint']=true;$intent['reprint_request_id']=$request;$cipher=$this->canonical($intent);$table=DB::table($this->schema->table('print_ledger_reprints'));
         $old=(clone $table)->where('effect_id',$effect)->first();if($old)abort_unless(hash_equals($old->descriptor_hash,hash('sha256',$cipher)),409);
@@ -231,7 +231,7 @@ final class DesktopDashboardPrintEffects
         return DB::transaction(function()use($device,$work,$write){
             $this->ledger->fence($device);$state=app(DesktopDashboardRefresh::class)->lock($device);abort_unless($state,403);
             if($write)abort_unless($state->state==='ready',409);
-            $device=$this->device($device);$actor=$this->devices->actor($device);
+            $device=$this->device($device);$actor=$this->authority->actor((int)$device->actor_id);
             $facts=['device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'enrollment_hash'=>$device->enrollment_hash,'enrolled_at'=>(string)$device->enrolled_at,'branches'=>json_decode($device->branches,true)];sort($facts['branches'],SORT_STRING);
             $scope=DB::table($this->schema->table('print_ledger_scopes'))->where('device_id',$device->id)->first();
             // Same encoding as immutable enrollment binding.
@@ -250,15 +250,20 @@ final class DesktopDashboardPrintEffects
     private function eligible(array $intent,$actor): bool
     {
         if((int)$intent['actor_id']!==(int)$actor->id)return false;
-        if(!empty($intent['reprint']))return $this->access->canReprintReceipts($actor);
-        return in_array($intent['kind'],['sale_receipt','bill_receipt','dining_kitchen','delivery_batch'],true)?$this->access->permissions($actor)['can_checkout']
-            :($intent['kind']==='shift_report'?app(BranchShiftClosing::class)->canClose($actor):$this->access->receiverBranch($actor)===$intent['branch']);
+        if(!empty($intent['reprint']))return $this->authority->canReprint($actor);
+        return in_array($intent['kind'],['sale_receipt','bill_receipt','dining_kitchen','delivery_batch'],true)?$this->authority->canCheckout($actor)
+            :($intent['kind']==='shift_report'?$this->authority->canClose($actor):$this->authority->receiverBranch($actor)===$intent['branch']);
     }
     private function authorize(array $intent,$actor): void
     {
-        $this->devices->branch($this->device($intent['device_id']),$intent['branch'],$actor);abort_unless($this->eligible($intent,$actor),403);
-        if(!empty($intent['reprint']))abort_unless($this->access->canReprintReceipts($actor),403);
-        elseif($intent['kind']==='sale_receipt')abort_unless($this->access->permissions($actor)['can_checkout']&&($intent['snapshot']['grant']['expires_at']??0)>now('UTC')->getTimestamp(),403);
+        $this->enrolledBranch($this->device($intent['device_id']),$intent['branch'],$actor);abort_unless($this->eligible($intent,$actor),403);
+        if(!empty($intent['reprint']))abort_unless($this->authority->canReprint($actor),403);
+        elseif($intent['kind']==='sale_receipt')abort_unless($this->authority->canCheckout($actor)&&($intent['snapshot']['grant']['expires_at']??0)>now('UTC')->getTimestamp(),403);
+    }
+    private function enrolledBranch(object $device,string $branch,$actor): void
+    {
+        abort_unless(in_array($branch,json_decode($device->branches,true,512,JSON_THROW_ON_ERROR),true),403);
+        $this->authority->branch($branch,$actor);
     }
     private function binding(array $intent,array $value): void
     {

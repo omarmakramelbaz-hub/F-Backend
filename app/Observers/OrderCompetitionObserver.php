@@ -66,10 +66,11 @@ class OrderCompetitionObserver
 
     private function generateUniqueCode($length = 10)
     {
-        do {
-            $code = Str::upper(Str::random($length));
-        } while (CouponSubscripe::where('user_coupon_code', $code)->exists());
-
-        return $code;
+        return \App\Services\Dashboard\DesktopDashboardOrderBoard::competitionCode($length, function () use ($length) {
+            do {
+                $code = Str::upper(Str::random($length));
+            } while (CouponSubscripe::where('user_coupon_code', $code)->exists());
+            return $code;
+        });
     }
 }

@@ -220,24 +220,7 @@ class LocalRuntime {
     const database = startChild(path.join(maria, 'mariadbd.exe'), [`--defaults-file=${config}`, '--console'], { cwd: this.bundle });
     database.stdin.end(); this.children.push(database);
     // Database authentication and schema creation happen through PHP stdin, never shell interpolation.
-    const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
-      /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA|HOMEDRIVE|HOMEPATH)$/i.test(name)));
-    const runtimeEnvironment = {
-      ...inherited, APP_ENV: 'desktop', APP_DEBUG: 'false', APP_URL: this.origin, ASSET_URL: this.origin,
-      APP_KEY: settings.appKey, DB_CONNECTION: 'mysql', DB_HOST: '127.0.0.1', DB_PORT: String(this.dbPort),
-      DB_DATABASE: active?.database || 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
-      CACHE_DRIVER: 'file', SESSION_DRIVER: 'file', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
-      QUEUE_CONNECTION: 'database', MAIL_MAILER: 'log', BROADCAST_DRIVER: 'log',
-      DESKTOP_DASHBOARD_LOCAL: 'true', DESKTOP_DASHBOARD_STORAGE: storage,
-      DESKTOP_DASHBOARD_DEVICE_ID: settings.deviceId,
-      DESKTOP_DASHBOARD_ORIGIN: this.origin, DESKTOP_DASHBOARD_TOKEN: this.token,
-      DESKTOP_DASHBOARD_CONTROL_TOKEN: this.controlToken,
-      APP_CONFIG_CACHE: path.join(storage, 'bootstrap/cache/config.php'),
-      APP_ROUTES_CACHE: path.join(storage, 'bootstrap/cache/routes.php'),
-      APP_SERVICES_CACHE: path.join(storage, 'bootstrap/cache/services.php'),
-      APP_PACKAGES_CACHE: path.join(storage, 'bootstrap/cache/packages.php'),
-      PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
-    };
+    const runtimeEnvironment = { ...this.nativeEnvironment(settings,storage), DB_DATABASE: active?.database || 'fasakhansta_dashboard' };
     this.environment = runtimeEnvironment; this.php = php; this.application = application;
     const phpArgs = LocalRuntime.phpArguments(this);
     const deadline = Date.now() + 30000;
@@ -256,6 +239,33 @@ class LocalRuntime {
     await this.startWeb();
     database.failure.then(error => { if (!this.stopping) this.onFailure(error); });
     return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
+  }
+  nativeEnvironment(settings,storage) {
+    // The encrypted native profile owns this key. Never import a server JWT
+    // secret, and never reuse the encryption key itself as a signing secret.
+    const appKey=settings?.appKey;
+    if(typeof appKey!=='string'||!/^base64:[A-Za-z0-9+/]{43}=$/.test(appKey))throw Error('مفتاح بيانات الجهاز غير صالح؛ احتفظ بملفاته للاسترجاع.');
+    const decoded=Buffer.from(appKey.slice(7),'base64');
+    if(decoded.length!==32||decoded.toString('base64')!==appKey.slice(7))throw Error('مفتاح بيانات الجهاز غير صالح؛ احتفظ بملفاته للاسترجاع.');
+    const jwtSecret=crypto.createHmac('sha256',decoded).update('fasakhansta-desktop-local-jwt:v1').digest('hex');
+    const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+      /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA|HOMEDRIVE|HOMEPATH)$/i.test(name)));
+    return {
+      ...inherited, APP_ENV: 'desktop', APP_DEBUG: 'false', APP_URL: this.origin, ASSET_URL: this.origin,
+      APP_KEY: settings.appKey, JWT_SECRET: jwtSecret, DB_CONNECTION: 'mysql', DB_HOST: '127.0.0.1', DB_PORT: String(this.dbPort),
+      DB_DATABASE: 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
+      CACHE_DRIVER: 'file', SESSION_DRIVER: 'file', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
+      QUEUE_CONNECTION: 'database', MAIL_MAILER: 'log', BROADCAST_DRIVER: 'log',
+      DESKTOP_DASHBOARD_LOCAL: 'true', DESKTOP_DASHBOARD_STORAGE: storage,
+      DESKTOP_DASHBOARD_DEVICE_ID: settings.deviceId,
+      DESKTOP_DASHBOARD_ORIGIN: this.origin, DESKTOP_DASHBOARD_TOKEN: this.token,
+      DESKTOP_DASHBOARD_CONTROL_TOKEN: this.controlToken,
+      APP_CONFIG_CACHE: path.join(storage, 'bootstrap/cache/config.php'),
+      APP_ROUTES_CACHE: path.join(storage, 'bootstrap/cache/routes.php'),
+      APP_SERVICES_CACHE: path.join(storage, 'bootstrap/cache/services.php'),
+      APP_PACKAGES_CACHE: path.join(storage, 'bootstrap/cache/packages.php'),
+      PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
+    };
   }
   storageFor(value) {
     if (!value?.generation) return path.join(this.profile, 'storage');

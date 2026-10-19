@@ -102,6 +102,8 @@ $mapped=$adapter->inputs($wp,fn($entity,$id)=>['$desktop_ref'=>['entity'=>$entit
 $adapter->validateReferences($mapped);verify($mapped['values']['from_user']['$desktop_ref']['entity']==='wallet_account'
     &&$mapped['facts']['wallet_cash_before']['ledger'][0]['id']['$desktop_ref']['entity']==='wallet_cash_movement','cash accounts and ledger rows have distinct explicit reference kinds');
 $wrong=$mapped;$wrong['values']['from_user']['$desktop_ref']['entity']='legacy_order';rejectWallet(fn()=>$adapter->validateReferences($wrong),422,'a colliding order ID cannot be used as a wallet account reference');
+$batched=$mapped;$batched['facts']['wallet_cash_before']['ledger'][0]['id']['$desktop_ref']['entity']='wallet_cash_movement.0';$adapter->validateReferences($batched);
+verify(true,'an explicitly typed movement slot from another reviewed wallet-producing operation retains its wallet table identity');
 verify($adapter->outputs($withdrawResult)===['wallet_cash_movement'=>$withdrawResult['wallet']['wallet_id'],'wallet_account'=>20],'cash results expose their actual saved ledger identity and account');
 $adapter->verifyAfter($withdrawResult,$withdrawResult);$tampered=$withdrawResult;$tampered['wallet']['balance_after']='51.00';
 rejectWallet(fn()=>$adapter->verifyAfter($tampered,$withdrawResult),409,'a mismatching server financial result cannot acknowledge the local cash command');
@@ -156,3 +158,4 @@ verify(DB::table('wallets')->count()===$ledgerCount+1&&DB::table('notifications'
     'the losing concurrent withdrawal creates neither a completed row nor a notification');
 require __DIR__.'/wallet-cash-reconciliation.php';
 echo 'WALLET_CASH_CHECKS='.$count.PHP_EOL;
+if(getenv('DESKTOP_TEST_BOARD_COMPONENT')==='1')require __DIR__.'/order-board-transitions.php';

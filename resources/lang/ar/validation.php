@@ -140,9 +140,6 @@ return [
 		'string' => ' :attribute يجب أن يكون أكبر من أو يساوي :value الأحرف.',
 		'array' => ' :attribute يجب ان يملك :value من العناصر أو أكثر.',
 	],
-	'array' => [
-		'numeric' => ':attribute :value',
-	],
 	/*
 		|--------------------------------------------------------------------------
 		| Custom Validation Language Lines

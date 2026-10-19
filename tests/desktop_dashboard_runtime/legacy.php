@@ -292,6 +292,7 @@ require __DIR__.'/review-deletion.php';
 require __DIR__.'/wishlist-deletion.php';
 require __DIR__.'/remote-attempts.php';
 require __DIR__.'/go-store-profile.php';
+require __DIR__.'/go-products.php';
 require __DIR__.'/restaurant-flags.php';
 require __DIR__.'/restaurant-control.php';
 require __DIR__.'/restaurant-products.php';

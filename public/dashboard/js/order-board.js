@@ -27,6 +27,26 @@
 
     function translated(key) { return copy[key] || key; }
 
+    function journalCommand(actionForm, data) {
+        var local = document.body.dataset.dashboardLocal === '1';
+        if (!local && !(window.FasakhanstaDesktop && document.body.dataset.dashboardRemoteAttempts === '1')) return;
+        var epoch = actionForm.dataset.desktopBoardGeneration;
+        var uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+        if (local ? !uuid.test(epoch || '') : epoch !== 'server') throw new Error(translated('error'));
+        var endpoint = new URL(actionForm.getAttribute('action'), window.location.href);
+        if (endpoint.origin !== window.location.origin || !/^\/admin\/order-board\/(?:legacy|store|service|partner_service)\/[1-9][0-9]{0,18}\/action$/.test(endpoint.pathname)) throw new Error(translated('error'));
+        var fields = Array.from(data.entries()).filter(function (field) { return !['_token', '_desktop_command', 'idempotency_key'].includes(field[0]); });
+        if (fields.some(function (field) { return typeof field[1] !== 'string'; })) throw new Error(translated('error'));
+        fields.sort(function (a, b) { return a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]); });
+        var key = 'fasakhansta.board.command.' + JSON.stringify([document.body.dataset.dashboardActor, epoch, endpoint.pathname, fields]);
+        // Keep this intent across a lost response, polling replacement and reload.
+        // A different account, snapshot, state or selected action gets another UUID.
+        var command = sessionStorage.getItem(key);
+        if (!command) { command = crypto.randomUUID(); sessionStorage.setItem(key, command); }
+        if (!uuid.test(command)) throw new Error(translated('error'));
+        data.set('_desktop_command', command); data.set('idempotency_key', command);
+    }
+
     function setLive(state) {
         live.classList.toggle('is-updating', state === 'updating');
         live.classList.toggle('is-offline', state === 'offline');
@@ -355,6 +375,8 @@
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);
+        try { journalCommand(actionForm, data); }
+        catch (error) { notify(error.message || translated('error'), false, false); return; }
         var query = filters().toString();
         pendingKeys.add(key); pendingAction++;
         clearTimeout(reconcileTimer); reconcileTimer = null;

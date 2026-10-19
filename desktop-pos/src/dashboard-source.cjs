@@ -11,7 +11,11 @@ async function frameworks(application) {
     const file=path.join(application,'desktop/source-contract.json'),stat=await fs.lstat(file);
     if(!stat.isFile()||stat.isSymbolicLink())throw Error('The source engine contract is invalid.');
     contract=JSON.parse(await fs.readFile(file,'utf8'));
-  }catch(error){if(error.code!=='ENOENT')throw error;return {runtimeFramework,contractFramework:runtimeFramework};}
+  }catch(error){
+    if(error.code!=='ENOENT')throw error;
+    if(runtimeFramework!=='8.83.29')throw Error('The runtime engine requires its reviewed source compatibility contract.');
+    return {runtimeFramework,contractFramework:runtimeFramework};
+  }
   if(contract.format!==1||Object.keys(contract).length!==3
       ||Object.keys(contract).some(key=>!['format','framework','supportedRuntimeFrameworks'].includes(key))
       ||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(contract.framework||'')

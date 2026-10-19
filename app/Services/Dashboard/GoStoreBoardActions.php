@@ -84,11 +84,7 @@ class GoStoreBoardActions
                 } elseif ($payment === 'paid') {
                     // Retained gateway settlement credits the store before acceptance.
                     // Require that real credit before reversing it; never debit invented gross.
-                    $gross = DB::table('wallets')->where('transfer_reference', 'gs:'.$order->id.':gross')->lockForUpdate()->first();
-                    abort_unless($gross && $gross->status === 'completed' && $gross->payment === 'wallet'
-                        && $gross->type === 'transfer' && $gross->from_user === null
-                        && (int) $gross->to_user === (int) $order->store_id
-                        && $this->minor($gross->amount) === (int) $order->total_cents, 409, 'قيد الدفع الإلكتروني للمتجر يحتاج مراجعة.');
+                    $this->requireGross($order);
                     $this->move($order, 'reversal', (int) $order->store_id, null, (int) $order->total_cents, true);
                     $payment = 'refund_pending';
                 } else {
@@ -100,6 +96,7 @@ class GoStoreBoardActions
                     $this->move($order, 'refund', null, (int) $order->customer_id, (int) $order->total_cents);
                     $payment = 'refunded';
                 } elseif ($payment === 'paid') {
+                    $this->requireGross($order);
                     $this->move($order, 'reversal', (int) $order->store_id, null, (int) $order->total_cents, true);
                     $payment = 'refund_pending';
                 } else {
@@ -136,6 +133,15 @@ class GoStoreBoardActions
         return ($owner->account_type ?? '') === 'delegate' && !empty($owner->pending_vendor_id)
             && Schema::hasTable('pending_vendors') && Schema::hasColumns('pending_vendors', ['id', 'profession_key'])
             && DB::table('pending_vendors')->where('id', $owner->pending_vendor_id)->where('profession_key', 'store_owner')->exists();
+    }
+
+    private function requireGross(object $order): void
+    {
+        $gross = DB::table('wallets')->where('transfer_reference', 'gs:'.$order->id.':gross')->lockForUpdate()->get();
+        abort_unless($gross->count() === 1 && $gross[0]->status === 'completed' && $gross[0]->payment === 'wallet'
+            && $gross[0]->type === 'transfer' && $gross[0]->from_user === null
+            && (int) $gross[0]->to_user === (int) $order->store_id
+            && $this->minor($gross[0]->amount) === (int) $order->total_cents, 409, 'قيد الدفع الإلكتروني للمتجر يحتاج مراجعة.');
     }
 
     /** Acceptance and later item edits share this ledger; return its actual net fee once. */
