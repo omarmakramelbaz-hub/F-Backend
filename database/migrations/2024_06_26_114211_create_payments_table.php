@@ -18,7 +18,7 @@ class CreatePaymentsTable extends Migration
             $table->foreignId("user_id")->constrained("users")->onUpdate("
                 cascade")->onDelete("cascade");
             $table->foreignId("order_id")->constrained("orders")->onUpdate("cascade")->onDelete("cascade");
-            $table->decimal('total_price',15,2)->unsigned()->default(0)->change();
+            $table->decimal('total_price',15,2)->unsigned()->default(0);
             $table->string('status');
             $table->timestamps();
         });
