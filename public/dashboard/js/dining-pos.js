@@ -72,6 +72,14 @@
         if (!cart.length && keypad) { key('confirm'); return true; }
         if (!selectedTable || !cart.length || !!ticket && !openTicket()) return true;
         if (saveField) { if (!billLocked() && !saveButton.disabled && !saveButton.hidden) saveAndSend(); return true; }
+        if (cashField && !billLocked()) {
+            if (kitchenSent() && !dirty) return true;
+            if (!quote || scaled(quote.total, 2) === null) { notify(label('quote_required'), false, true); return true; }
+            var kitchenReceived = scaled(cashInput.value, 2), kitchenTotal = scaled(quote.total, 2);
+            if (kitchenReceived === null || kitchenReceived < kitchenTotal) { notify(label(kitchenReceived === null ? 'invalid_money' : 'cash_insufficient')); cashInput.focus(); return true; }
+            saveAndSend();
+            return true;
+        }
         if (cashField || settleField) {
             if (!billLocked()) { notify(label('request_bill_first')); return true; }
             if (cashField) {
