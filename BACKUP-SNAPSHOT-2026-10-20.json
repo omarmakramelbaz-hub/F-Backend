@@ -1,0 +1,1287 @@
+{
+  "schema_version": 1,
+  "user_local_snapshot_date": "2026-10-20",
+  "capture_recorded_at": "2026-10-19T23:41:21.815Z",
+  "repository": "omarmakramelbaz-hub/F-Backend",
+  "backup_branch": "backup/2026-10-20-all-apps",
+  "default_branch": "main",
+  "default_branch_commit": "c77fa6beee1cce9e2219c86a218ff9c2ffe90d73",
+  "default_tree_sha": "ad7f83bc24a59fe051e8ee41c289e486a8c26980",
+  "branches": [
+    {
+      "ref": "refs/heads/backup/dashboard-pre-restore-20260928-20261003",
+      "commit_sha": "7f34909e446f718d83ee1d05fb92bcaaac97cc42"
+    },
+    {
+      "ref": "refs/heads/backup/pre-admin-account-fix-20261003",
+      "commit_sha": "c8d38d1b9aff570a4f5d48bc5f3e527191a731f6"
+    },
+    {
+      "ref": "refs/heads/backup/pre-checkout-performance-20261003",
+      "commit_sha": "4c95aeb32c0c8b1b8bde383a1570bfc3f8ed82f6"
+    },
+    {
+      "ref": "refs/heads/backup/pre-full-rollback-20260928-20261003",
+      "commit_sha": "d06489f100ba838e7928041095642e419da5f588"
+    },
+    {
+      "ref": "refs/heads/backup/pre-live-orders-fix-20261003",
+      "commit_sha": "0368b28f9aedf07f8912f8ee835935da1d922fd6"
+    },
+    {
+      "ref": "refs/heads/backup/pre-notifications-open-speed-20261003",
+      "commit_sha": "adb63feca2b21ae8c4cd69d26c86234ae420324b"
+    },
+    {
+      "ref": "refs/heads/backup/pre-notifications-performance-20261003",
+      "commit_sha": "46b55578342d5aabb0a8d9ba652c1e3add28c5c4"
+    },
+    {
+      "ref": "refs/heads/backup/pre-orders-list-performance-20261003",
+      "commit_sha": "cedfa279bc6b372a5f2bd54c18d722e1f5666246"
+    },
+    {
+      "ref": "refs/heads/backup/pre-restaurant-hours-20261003",
+      "commit_sha": "2322d736822492b56a982e0c66923d0dfeb2de0c"
+    },
+    {
+      "ref": "refs/heads/backup/pre-rollback-20261003-0303",
+      "commit_sha": "1f330ab3a39209377c857a49dd6efe102709cc62"
+    },
+    {
+      "ref": "refs/heads/backup/stable-2026-08-28-social-auth",
+      "commit_sha": "d36f157f5bf607b1bb2b05850232909e5af74376"
+    },
+    {
+      "ref": "refs/heads/backup/2026-08-29-before-social-login-id-token-fix",
+      "commit_sha": "26cfc89c832fd3f43b58be19adf410d023a08f9b"
+    },
+    {
+      "ref": "refs/heads/codex/actual-launch-reset-20261019",
+      "commit_sha": "5e2696012b1e4fb50ec8a08b2b818b5554b021be"
+    },
+    {
+      "ref": "refs/heads/codex/admin-create-go-store-20260927",
+      "commit_sha": "e47a7af538b02c85cd422d913f8baf5a08690f50"
+    },
+    {
+      "ref": "refs/heads/codex/admin-session-419-stability-20261003",
+      "commit_sha": "645839610b401b3d7b5de4eca4fe2086b0e70ed5"
+    },
+    {
+      "ref": "refs/heads/codex/all-apps-server-backup-20261020",
+      "commit_sha": "b1469ab704318ff3c90a5032b3745d33ef9461bb"
+    },
+    {
+      "ref": "refs/heads/codex/app-order-item-editor-20261014",
+      "commit_sha": "74a0070907d9ffbaa0f3b5aa7b6082bc1c345878"
+    },
+    {
+      "ref": "refs/heads/codex/app-payment-schema-repair-20261019",
+      "commit_sha": "d5f84c7bf2b5d6163e5551eedd9dee99aa7a7899"
+    },
+    {
+      "ref": "refs/heads/codex/basic-expense-categories-20261018",
+      "commit_sha": "c63d40490aedf9400e0e971b0abcb0874a3b4cb8"
+    },
+    {
+      "ref": "refs/heads/codex/branch-local-expense-categories-20261018",
+      "commit_sha": "754bf038af50dcade0d43f2f6b537a5b155de4d0"
+    },
+    {
+      "ref": "refs/heads/codex/branch-pos-stock-expenses-20261007",
+      "commit_sha": "56d579e0a07d1e19e2b75c5f86f0faf5c543bd9c"
+    },
+    {
+      "ref": "refs/heads/codex/branch-stock-compact-20261018",
+      "commit_sha": "41fe5cb2252e708ff544c05e8d48eb0df3ad6b87"
+    },
+    {
+      "ref": "refs/heads/codex/branch-stock-minimum-alerts-20261018",
+      "commit_sha": "d7b0f1cb122251adc34fb62f9a0be7a203660ffc"
+    },
+    {
+      "ref": "refs/heads/codex/branch-treasury-notice-20261018",
+      "commit_sha": "c15094916fee7aefb123de069547111310f17afb"
+    },
+    {
+      "ref": "refs/heads/codex/call-center-delivery-sound-20261009",
+      "commit_sha": "72ed556344e21a131432498372e784f31a499f37"
+    },
+    {
+      "ref": "refs/heads/codex/code-quality-review-20261018",
+      "commit_sha": "3c039cbc670ba72d52390a19ca7f4b42ada65397"
+    },
+    {
+      "ref": "refs/heads/codex/collapsed-header-shortcuts-20261019",
+      "commit_sha": "4b0787f418a4faac000466eabc6680f0bacfc065"
+    },
+    {
+      "ref": "refs/heads/codex/customer-crm-feedback-20261017",
+      "commit_sha": "a1c50bd9871aa88a1bf37a840358a6185b1fe580"
+    },
+    {
+      "ref": "refs/heads/codex/customer-directory-import-lookup-20261019",
+      "commit_sha": "67fa11ffd8223ffcd10f9c884e1b4b863aeb9bc4"
+    },
+    {
+      "ref": "refs/heads/codex/customer-encrypted-import-20261019",
+      "commit_sha": "bbc6682b30c630ee358795e6bf9fdfd5c4849819"
+    },
+    {
+      "ref": "refs/heads/codex/customer-followup-template-diagnostic-20261019",
+      "commit_sha": "73a1aadce4e514ddead96b45c576657e7fc363d8"
+    },
+    {
+      "ref": "refs/heads/codex/customer-followup-template-setup-20261019",
+      "commit_sha": "3232f1ec6d6e62ddcd0baaffd0d3cbbe3ac40167"
+    },
+    {
+      "ref": "refs/heads/codex/customer-followup-template-status-20261019",
+      "commit_sha": "61c3f4c0cce00ed5e4e30d8f40e5852db3bdad02"
+    },
+    {
+      "ref": "refs/heads/codex/customer-followup-template-trailing-text-20261019",
+      "commit_sha": "cba1f9feda124573bc961aaa4d2dce63d2dd5a59"
+    },
+    {
+      "ref": "refs/heads/codex/customer-marketing-template-setup-20261019",
+      "commit_sha": "afe99597789ff0c37f5b8f5443d15a6f4bff1923"
+    },
+    {
+      "ref": "refs/heads/codex/customer-whatsapp-directory-20261019",
+      "commit_sha": "fa3b7247c49dac2fe1860006d1cdcd874036d68a"
+    },
+    {
+      "ref": "refs/heads/codex/customer-whatsapp-directory-compat-20261019",
+      "commit_sha": "0b835c19b202985bc070f97521c94cfbbaeec1d4"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-all-branches-default-20261018",
+      "commit_sha": "fe1bce0209b8e56390557522dfa63e94ef9735b3"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-baseline-diagnosis-20261012",
+      "commit_sha": "29e112c746068addca205f6fddfb761717f53d6b"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-baseline-diagnosis-20261013",
+      "commit_sha": "a0d9205cc2b5e5ed7a246a29bed2bae1b74cdf10"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-completion-integration-20261010",
+      "commit_sha": "4617adc73a5c5feea830dd52c60cdc03fbd82033"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-data-diag-v2-20261003",
+      "commit_sha": "8af55d32cda1f16f7bc2a01d349ef3071195ec61"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-direct-print-download-20261018",
+      "commit_sha": "4eed0240fef1d752d3347a6aa46064fca69f3a67"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-local-first-20261011",
+      "commit_sha": "30bf648da1bcfed774d80f1b712a1e0fd4ebf3ca"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-login-session-20261017",
+      "commit_sha": "e45603b4a2fff87f9015a799acaf9ee63ca30beb"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-menu-copy-20261012",
+      "commit_sha": "86f943397bc74d13aa8f172ad3f88de1186bc60e"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-next-module-20261009",
+      "commit_sha": "6fda48232c1bc5f5da5907547d3ad187484e89f8"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-next-writes-integration-20261010",
+      "commit_sha": "3802b22b3b86ece0908f5c4d72266b6b5dd93b1c"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-owner-repair-20261013",
+      "commit_sha": "72f3c4ae383f55fd7b39776c0d47ab72d374780c"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-performance-safe-20261018",
+      "commit_sha": "99ff9b4ea70c8b4266d571a30cde2d443948bca8"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-product-crud-20261012",
+      "commit_sha": "acd12299af57b06de27668734c765a47b79e304b"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-professional-design-20261017",
+      "commit_sha": "5a1fab680c5fc9e1e58faf1756cd5ea18ecdfc90"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-restaurant-flags-20261011",
+      "commit_sha": "04ba1ef8bac792cf76c9cfd0a890d5344a26eae5"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-server-integration-20261012",
+      "commit_sha": "e88c9e373cc6f51a313ea89590c0e322d72cbdaf"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-server-preflight-20261012",
+      "commit_sha": "f5784e9f81a93f730b5882ae643a28fbe587474b"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-500-hotfix-20261003",
+      "commit_sha": "e10e09465ab82c7bf3470dc6b28cfd06c04e38ba"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-account-probe-20261003",
+      "commit_sha": "1232046b70160fc0474d3a5d5bce76ca8c815961"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-blade-parse-hotfix-20261003",
+      "commit_sha": "6cfa3854900ea7c70c2d2f042758dac27abf4853"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-compact-full-sidebar-20261003",
+      "commit_sha": "c6ba99c0b05c77c06d1b9829fc11c38751a5ef59"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-http-diagnostic-20261003",
+      "commit_sha": "5245a3a7bb603e2f8f9eb598e71dda0be12ecc20"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-http-probe-20261003",
+      "commit_sha": "f927bcceed4f461524135af1d69c3f4d50bfc50f"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-live-error-2-20261003",
+      "commit_sha": "6a052ed72d452ee89f756ccc769679770f5e2c10"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-live-error-20261003",
+      "commit_sha": "59e5d2c95071ca1009f17619614448be3c1b97f8"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-navbar-str-hotfix-20261003",
+      "commit_sha": "660e5286b47d64c06c7fddd03102192df1fe9fad"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-prod-diagnostic-20261003",
+      "commit_sha": "c89273e7cfc422e239e341af8d42924174ebbe1e"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-redesign-20261003",
+      "commit_sha": "b5d4afe9e5c3ec79b011e480ce27ee50f10f76e8"
+    },
+    {
+      "ref": "refs/heads/codex/dashboard-v3-reference-redesign-20261003",
+      "commit_sha": "19a39baa0384c2ced9e73961f439a9bba7c402f9"
+    },
+    {
+      "ref": "refs/heads/codex/dependency-lock-diagnostic-20261009",
+      "commit_sha": "65deb1db91bee9e68af4721df94562d60e96b1e2"
+    },
+    {
+      "ref": "refs/heads/codex/dependency-upgrade-planning-20261009",
+      "commit_sha": "e52c7856f380a416bdbe8d9a98d93c46ce944350"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-current-dashboard-20261019",
+      "commit_sha": "71417053231b16a94888231d3e25507dccfa4269"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-dashboard-resume-20261019",
+      "commit_sha": "ec0df375e8db93cf85bf4e2337d6ad552063643b"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-expense-attachments-20261009",
+      "commit_sha": "f54e04d70260c22cce45f43f99f3b2da76f3a8ca"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-full-activation-20261020",
+      "commit_sha": "cfa24a9aaecf49c57d9ef0d308bd0f0b38b6371f"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-offline-pos-20261007",
+      "commit_sha": "e0873b76679f86bfeeabda1fbb7566d251e32679"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-resume-20261009",
+      "commit_sha": "581383aa0f6ce31f6f70ae11e8173d4d1c2133c7"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-saved-address-ui-scroll-20261010",
+      "commit_sha": "2c562d5538fd3ff9d386dca175849dadb35e8af0"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-source-bundle-20261019",
+      "commit_sha": "a6ec72834adff7757683ee5a46046f6e5e9931a6"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-tab-above-print-20261017",
+      "commit_sha": "41385318b3c9f3fabf2cbf1022a08260a1c8a165"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-upload-review-base-20261009",
+      "commit_sha": "f4b97ba6f286d5b37c30a7f6d2c9c57fbbdcae6f"
+    },
+    {
+      "ref": "refs/heads/codex/desktop-windows-dpapi-20261010",
+      "commit_sha": "c491f28e06bda80e1686017118b3f1e33df19022"
+    },
+    {
+      "ref": "refs/heads/codex/dining-cash-enter-kitchen-20261019",
+      "commit_sha": "e1f65ec1b1066ddaf4bc228595c61b1b74749006"
+    },
+    {
+      "ref": "refs/heads/codex/dining-cash-only-on-collection-20261019",
+      "commit_sha": "e4adbb74ffb383ab8ce91f661537bc0c31193100"
+    },
+    {
+      "ref": "refs/heads/codex/edge-bulk-dialog-probe-20261010",
+      "commit_sha": "fd68940b7c52eca6f690505d5be47588ff28fb47"
+    },
+    {
+      "ref": "refs/heads/codex/embed-app-orders-in-dashboard-20261002",
+      "commit_sha": "423011f06ac58779ce1b63d7dd925f1031356741"
+    },
+    {
+      "ref": "refs/heads/codex/employee-attendance-live-20261008",
+      "commit_sha": "e4faf4558f0828c9e227959651047cd2478f3e16"
+    },
+    {
+      "ref": "refs/heads/codex/employee-attendance-rules-20261008",
+      "commit_sha": "38f2e14da46b0535842cc4e5a9be954a540ea420"
+    },
+    {
+      "ref": "refs/heads/codex/employee-auto-absence-20261018",
+      "commit_sha": "ca5f0911620bdd440ead4edf2bc44f0285b67414"
+    },
+    {
+      "ref": "refs/heads/codex/employee-net-total-20261019",
+      "commit_sha": "89b290cf089580958e4c53053adbedefbb1c397b"
+    },
+    {
+      "ref": "refs/heads/codex/employee-part-time-20261018",
+      "commit_sha": "14f030e50de11fb83c4bed4a4ee3d2353492f4d5"
+    },
+    {
+      "ref": "refs/heads/codex/employee-part-time-salary-20261018",
+      "commit_sha": "9bf6ddc80d3bbb1a23042f29f9cea338ce7e4816"
+    },
+    {
+      "ref": "refs/heads/codex/employee-wallet-branch-entry-20261019",
+      "commit_sha": "d3b8c555207347af07b24ca179a984fc9e39d48b"
+    },
+    {
+      "ref": "refs/heads/codex/erp-admin-orders-and-branches-20261002",
+      "commit_sha": "03957311669b57a389c4ae67f8f05d2a786f9789"
+    },
+    {
+      "ref": "refs/heads/codex/erp-admin-review-app-orders-20261002",
+      "commit_sha": "b7824685603f399771e80dbcd504b229d88c06c2"
+    },
+    {
+      "ref": "refs/heads/codex/erp-admin-sso-fix-20261002",
+      "commit_sha": "ee16416f4dfa79e748aa371aaef7812692a08fc4"
+    },
+    {
+      "ref": "refs/heads/codex/expense-approval-toast-20261007",
+      "commit_sha": "c53be8dc60c277b0d4de47e8e2c12fe2731d958a"
+    },
+    {
+      "ref": "refs/heads/codex/expense-branch-labels-edit-20261018",
+      "commit_sha": "c9014fb6a050e8b469e0a8368f509116fc8eaec9"
+    },
+    {
+      "ref": "refs/heads/codex/expense-category-submit-fix-20261018",
+      "commit_sha": "00e4f1f7df6a9eede836600f834cef6c33d55e26"
+    },
+    {
+      "ref": "refs/heads/codex/expense-inventory-page-open-20261018",
+      "commit_sha": "4be03588093776c33fa66289a8ca33d248b49457"
+    },
+    {
+      "ref": "refs/heads/codex/expense-reject-button-20261019",
+      "commit_sha": "18748810da33f42fed264540200b25328efe7688"
+    },
+    {
+      "ref": "refs/heads/codex/expense-stock-purchases-20261018",
+      "commit_sha": "24b22fed1c1a0bf06eea88a4c26f8fac00ce1535"
+    },
+    {
+      "ref": "refs/heads/codex/fasakhansta-erp-foundation-20260930",
+      "commit_sha": "7cf4a5859b5daa823d95b366a66df77af020f29b"
+    },
+    {
+      "ref": "refs/heads/codex/fasakhansta-erp-orders-ui-20261002",
+      "commit_sha": "dda407a7a8990e62d616a0f1f358c5ebaf3f44b5"
+    },
+    {
+      "ref": "refs/heads/codex/fasakhansta-erp-role-rollout-20261002",
+      "commit_sha": "35f606774ce2a85470bf9ca7a1fcd43bd3511c17"
+    },
+    {
+      "ref": "refs/heads/codex/fix-dashboard-data-logo-sidebar-customer-20261003",
+      "commit_sha": "0a5eb47c18dcbe293657e6fe1d8fba9b174f8f6b"
+    },
+    {
+      "ref": "refs/heads/codex/fix-dashboard-reports-brand-sidebar-customer-20261003",
+      "commit_sha": "f60f3cc3f07f97e58b5f6ae29201a1be344e48d3"
+    },
+    {
+      "ref": "refs/heads/codex/fix-erp-branch-linking-20261002",
+      "commit_sha": "fb79360ffe0c109becc9f543f5098704e6fb0b3d"
+    },
+    {
+      "ref": "refs/heads/codex/fix-go-launch-permissions-20260927",
+      "commit_sha": "bce4876e77aac00e99cded29453cd1fb50ce5429"
+    },
+    {
+      "ref": "refs/heads/codex/fix-go-launch-route-check-20260927",
+      "commit_sha": "ca6251b21965f0e0c0027abeb45298f13f3bca59"
+    },
+    {
+      "ref": "refs/heads/codex/fix-go-scheduler-20260927",
+      "commit_sha": "952b96ca5345c134e55d61e0448a570f48972fd3"
+    },
+    {
+      "ref": "refs/heads/codex/full-dashboard-refresh-20261008",
+      "commit_sha": "7825376f6312f81042f6247e6f17fd84ed5ab91d"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-dynamic-logo-20261017",
+      "commit_sha": "a443821acdfebb080c5e9f2dd2df227dc3290fb7"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-inline-logo-20261017",
+      "commit_sha": "147f6720ecb47c42521f967c162b76190a5f7c6c"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-integrated-sidebar-20261017",
+      "commit_sha": "1a311e18a39b4656d6b44276322e307e333ad8da"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-logo-explosion-20261017",
+      "commit_sha": "ff93c12ef3d43b8a4f45a803e9e61a75758dedac"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-logo-only-20261017",
+      "commit_sha": "e80a2da0966e7aa60b2c34dbc9d48f52b30e8887"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-logo-rest-fix-20261017",
+      "commit_sha": "c0b17da186d03632712cc78674d52988a56d4f7b"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-logo-stamp-20261017",
+      "commit_sha": "b90e25ba31b2ca9929fca43ac13130db6a36f78d"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-natural-leather-20261017",
+      "commit_sha": "9e00d5f0d224aef5c87a76822f9567e25c6826e5"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-orange-leather-20261017",
+      "commit_sha": "2893f9baffce4e0485467f74894b01e66c253ec1"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-sidebar-solar-20261017",
+      "commit_sha": "d9f9ff3d8a05f4994d70c7f08cd44684fa59e7b9"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-slogan-spelling-20261017",
+      "commit_sha": "4d20f13dc3dd2b64d63660d09ad88553c7f3affe"
+    },
+    {
+      "ref": "refs/heads/codex/go-erp-solar-logo-20261017",
+      "commit_sha": "25e727dc5455f52cfa7dcdaba9e31fc545a80b0f"
+    },
+    {
+      "ref": "refs/heads/codex/go-opening-balance-20260929",
+      "commit_sha": "396f981999a2b23295eb5eef79b70684f8e35db4"
+    },
+    {
+      "ref": "refs/heads/codex/go-order-payments-20260929",
+      "commit_sha": "bac90ed35881f8e6c66ae18491d3ff51d34efde8"
+    },
+    {
+      "ref": "refs/heads/codex/go-partner-email",
+      "commit_sha": "1c8b54370c8401f2c927a928447961745cd7e430"
+    },
+    {
+      "ref": "refs/heads/codex/go-partner-fees-cancellation-20260927",
+      "commit_sha": "1e09e8bb3ded6227470edcdb0869096ccde8e68e"
+    },
+    {
+      "ref": "refs/heads/codex/go-payment-schema-20260929",
+      "commit_sha": "fe0a659801469d1d0e775a01e6d26ed3e39033a9"
+    },
+    {
+      "ref": "refs/heads/codex/go-request-contact-privacy-20260927",
+      "commit_sha": "713aadfb5cf8362923e48b612cc9199690a3a1ce"
+    },
+    {
+      "ref": "refs/heads/codex/go-store-ai-images-20261007",
+      "commit_sha": "d1ff091c2a324242d278764d75c9f16859f94fe3"
+    },
+    {
+      "ref": "refs/heads/codex/go-store-catalog",
+      "commit_sha": "9fe970baab891c441bc942854912e2dbfeed6a8f"
+    },
+    {
+      "ref": "refs/heads/codex/go-store-checkout-20260930",
+      "commit_sha": "d920187c8089ad915ad3a1193cb5a6f9df02147f"
+    },
+    {
+      "ref": "refs/heads/codex/go-store-products-button-20260927",
+      "commit_sha": "8fcedbb49480cf219251526a54f9d31fd29497b7"
+    },
+    {
+      "ref": "refs/heads/codex/go-wallet-destinations-20260928",
+      "commit_sha": "23f6063a839cef786d479cde14be1bb39f17e0b4"
+    },
+    {
+      "ref": "refs/heads/codex/header-employees-shortcut-20261019",
+      "commit_sha": "689397e993b695ec317b631715dd3b8b261fe365"
+    },
+    {
+      "ref": "refs/heads/codex/home-stock-minimum-highlight-20261019",
+      "commit_sha": "559d687c8bf9b3d5c7dadf0d4d7bed3aa2a83041"
+    },
+    {
+      "ref": "refs/heads/codex/imported-service-followup-20261019",
+      "commit_sha": "0409601892a960335e60fb48642f148c3082311b"
+    },
+    {
+      "ref": "refs/heads/codex/laravel12-windows-diagnostic-20261010",
+      "commit_sha": "a5af2b44a9ee6303902ee5cdb353143e73057e26"
+    },
+    {
+      "ref": "refs/heads/codex/laravel12-windows-full-suite-20261010",
+      "commit_sha": "c1dcbd27933ce86ceb2d96fa6151d81df6d5aaf1"
+    },
+    {
+      "ref": "refs/heads/codex/launch-reset-connections-20261019",
+      "commit_sha": "9aaaf9e26aac29c994bc1658dde3abf73f352615"
+    },
+    {
+      "ref": "refs/heads/codex/mahalla-basic-recipes-20261018",
+      "commit_sha": "5617979f658ff79e416b9600f099b72cd48e8836"
+    },
+    {
+      "ref": "refs/heads/codex/menu-prices-20260923",
+      "commit_sha": "d3bb21542a029e7d009fdede719cad87d40985f3"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-analysis-only-20261015",
+      "commit_sha": "5249c4bc3a4200f197bdad6f6625ea129c62b143"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-analysis-schedules-20261016",
+      "commit_sha": "b7a8d959ad03fec7e61b2b77d6eccd3b19afb2c5"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-catalog-compat-20261015",
+      "commit_sha": "952432201a5e3d38304586e3315a1cbf04a101c4"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-coded-probe-episode-20261015",
+      "commit_sha": "37d3c53f9a73d56128820de53c3d1d4dc03ee6bb"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-control-20261015",
+      "commit_sha": "a9f5f2acfadbb0ed3462609bf491a2d1db5bccf9"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-conversation-answers-20261015",
+      "commit_sha": "97e490099988e31194301397a941af59c8b068b6"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-inbox-repair-20261015",
+      "commit_sha": "c2bda3b0c4f6d5aaa19c647db748fea9df08a365"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-probe-boundary-readonly-20261015",
+      "commit_sha": "a44473f1fd81a58a03e16f12e27ceebedbc935bf"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-save-button-20261015",
+      "commit_sha": "c8d7adcc3de95a58ed5b7994b2571b9a8894d3b6"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-unanswered-hours-20261015",
+      "commit_sha": "c3c5108d01bccbf565a6e3b50f20502d091378ea"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-worker-readonly-20261015-c3b057b",
+      "commit_sha": "c3b057bbea85e89389a6b8dba3fafff93372dccf"
+    },
+    {
+      "ref": "refs/heads/codex/meta-ai-worker-readonly-20261015",
+      "commit_sha": "c3b057bbea85e89389a6b8dba3fafff93372dccf"
+    },
+    {
+      "ref": "refs/heads/codex/meta-all-inbox-20261014",
+      "commit_sha": "a1c3391c9b36d418d12bc7334be0d79cb01b3c54"
+    },
+    {
+      "ref": "refs/heads/codex/meta-chat-media-diagnostics-20261018",
+      "commit_sha": "94e8631d99caa1a2991ef900d2bb81101e1b2874"
+    },
+    {
+      "ref": "refs/heads/codex/meta-inbound-names-20261013",
+      "commit_sha": "f2fd82d95db532c4e814cf207c07317c620c34c4"
+    },
+    {
+      "ref": "refs/heads/codex/meta-inbox-full-height-20261018",
+      "commit_sha": "35b7fc701f61f567dbc69e59089e1c8fd93ea50a"
+    },
+    {
+      "ref": "refs/heads/codex/meta-instagram-image-user-agent-20261018",
+      "commit_sha": "2542b91ffc2aef3f842043d9fe4e36576a2aec14"
+    },
+    {
+      "ref": "refs/heads/codex/meta-live-messages-20261014",
+      "commit_sha": "a291901740d99a7b0bfaa8d70e6d88ba1214c14b"
+    },
+    {
+      "ref": "refs/heads/codex/meta-messages-20261011",
+      "commit_sha": "da5b2d04583c531f2f56a43f7d2212bc6fdd0010"
+    },
+    {
+      "ref": "refs/heads/codex/meta-owned-oauth-20261014-1345",
+      "commit_sha": "ec75184cee6d69c25f32ad83f7bd2ddbd1f117e9"
+    },
+    {
+      "ref": "refs/heads/codex/meta-owned-oauth-20261014-1733",
+      "commit_sha": "52732969275df21d3d7e1379251348ffc1b27fa1"
+    },
+    {
+      "ref": "refs/heads/codex/meta-standby-subscriptions-20261014-095246",
+      "commit_sha": "2552c2064d3243d16891db073edbe2db2b163dab"
+    },
+    {
+      "ref": "refs/heads/codex/meta-unified-messages-20261014-2052",
+      "commit_sha": "9e8a48b744e1e3380db604d36eefff5031429093"
+    },
+    {
+      "ref": "refs/heads/codex/notification-throughput-20261007",
+      "commit_sha": "fbd51924e0a312fbbd882b76121a78095dab9330"
+    },
+    {
+      "ref": "refs/heads/codex/orange-order-buttons-20261007",
+      "commit_sha": "47a0d4de5b4fc27d96953dc03a5f0838f03848bc"
+    },
+    {
+      "ref": "refs/heads/codex/order-alert-menu-fix-20261014",
+      "commit_sha": "6df7fecf05555c9f88ddf85013bd7aa887f3dbb0"
+    },
+    {
+      "ref": "refs/heads/codex/order-board-server-fix-20261003",
+      "commit_sha": "cfd84c09ca9f0f92d51968d3c68b8f144e610270"
+    },
+    {
+      "ref": "refs/heads/codex/order-live-activity-sync-20261018",
+      "commit_sha": "d7d31b72b45931abbee610f60603318410e4be92"
+    },
+    {
+      "ref": "refs/heads/codex/partner-brevo-api-20260929",
+      "commit_sha": "9c99f2698decb8edff0ba939fa71c38ea0f05758"
+    },
+    {
+      "ref": "refs/heads/codex/partner-dispatch-fixes-20260929",
+      "commit_sha": "d69b7fd657cfb7a8e22f3380baad86123b167573"
+    },
+    {
+      "ref": "refs/heads/codex/partner-email-cache-permissions-20261008",
+      "commit_sha": "a8b43d08ef478e3c61aa2c93e620a1f91276b5b0"
+    },
+    {
+      "ref": "refs/heads/codex/partner-email-delivery-20260929",
+      "commit_sha": "4df81e0e9666c340a9f3f98cb99bf13c83ffb36e"
+    },
+    {
+      "ref": "refs/heads/codex/partner-list-stores-20260929",
+      "commit_sha": "f9fff1c76fead3d21b5326b1c1557b293041ccb0"
+    },
+    {
+      "ref": "refs/heads/codex/partner-mail-rejection-20260929",
+      "commit_sha": "9a97f57f17383ef533b8a3e39cad73ce432eb2fe"
+    },
+    {
+      "ref": "refs/heads/codex/phone-courier-timing-layout-20261018",
+      "commit_sha": "c27278519f923a2fe351523ff3a149f14a38c04d"
+    },
+    {
+      "ref": "refs/heads/codex/phone-customer-auto-branch-20261018",
+      "commit_sha": "43116701fc72fd1f8694cbac2bb656bf140181fb"
+    },
+    {
+      "ref": "refs/heads/codex/phone-customer-enter-flow-20261017",
+      "commit_sha": "de5d2f5d29a1d1b031f217503151826048c60077"
+    },
+    {
+      "ref": "refs/heads/codex/phone-delivery-branch-pricing-20261017",
+      "commit_sha": "4189747822205224ced35b7980abe511af534540"
+    },
+    {
+      "ref": "refs/heads/codex/phone-delivery-enter-compat-20261017",
+      "commit_sha": "1471d8574f5b2b554ecbbc225dc43915f80f2a4b"
+    },
+    {
+      "ref": "refs/heads/codex/phone-delivery-menu-layout-20261017",
+      "commit_sha": "642dbfe4be0dc1097435bdb81e2606804b8b8955"
+    },
+    {
+      "ref": "refs/heads/codex/phone-preparation-consent-20261017",
+      "commit_sha": "fe1d8499df06d72d3d482c18dc30792c043d7840"
+    },
+    {
+      "ref": "refs/heads/codex/phone-preparation-timer-20261017",
+      "commit_sha": "15aabf297985dfdd53a62fcc137fffb903dfe11f"
+    },
+    {
+      "ref": "refs/heads/codex/phone-refresh-editor-compat-20261017",
+      "commit_sha": "a7d7b5572390bff8ca4b2503172cc63470370dae"
+    },
+    {
+      "ref": "refs/heads/codex/php-ca-unicode-probe-20261010",
+      "commit_sha": "ea01138ee4009ce6032e6be8ac1b2766f8d2c6a1"
+    },
+    {
+      "ref": "refs/heads/codex/php-jit-verification-20261009",
+      "commit_sha": "3409292e21c25643bea601d7c8a895067c4b982e"
+    },
+    {
+      "ref": "refs/heads/codex/pos-consent-enter-20261018",
+      "commit_sha": "56b65a57014d24b6f631fdb3297afe8d0a3f2618"
+    },
+    {
+      "ref": "refs/heads/codex/pos-first-print-policy-20261017",
+      "commit_sha": "43dd121c06c37076a086e452a21b32d151df91f9"
+    },
+    {
+      "ref": "refs/heads/codex/pos-followup-once-enter-20261019",
+      "commit_sha": "bc3de8f0314abe1aebe7fc4b14e09f31fa57a98a"
+    },
+    {
+      "ref": "refs/heads/codex/pos-inline-quantity-20261017",
+      "commit_sha": "91582ac5bf18ea83d30fdb50c179683d2dcae8fc"
+    },
+    {
+      "ref": "refs/heads/codex/pos-inline-quantity-compat-20261017",
+      "commit_sha": "c42e13876e839ef0ff96cb004b7167042a461780"
+    },
+    {
+      "ref": "refs/heads/codex/pos-inline-quantity-css-check-20261017",
+      "commit_sha": "6582750c2ef925500504a83d89141e49f0bd62a3"
+    },
+    {
+      "ref": "refs/heads/codex/pos-inline-quantity-workflow-20261017",
+      "commit_sha": "f49d509b729d53c875fbdbef68362c22391f1909"
+    },
+    {
+      "ref": "refs/heads/codex/pos-preparation-picker-20261017",
+      "commit_sha": "b105fbf79a9c698a067213f26b0edd200516cbe7"
+    },
+    {
+      "ref": "refs/heads/codex/pos-whole-label-20261017",
+      "commit_sha": "93857b2d83688ae94737b3e13295ccc08c1bde88"
+    },
+    {
+      "ref": "refs/heads/codex/product-form-save-20261007",
+      "commit_sha": "459e59651ceb7a1c2455c33a353fc10c3c009cfb"
+    },
+    {
+      "ref": "refs/heads/codex/professional-web-storefront-20261017",
+      "commit_sha": "d6d41bf29c93bbcc6ccf201e8ed842e09273dd57"
+    },
+    {
+      "ref": "refs/heads/codex/recipe-menu-completeness-20261008",
+      "commit_sha": "c037a13f4e71bba4b556b219ff6103dd8c643ec9"
+    },
+    {
+      "ref": "refs/heads/codex/remaining-customer-followup-20261019",
+      "commit_sha": "747aeefe5b4f0d0d8c7e1ad6ce303f9ff077dfdb"
+    },
+    {
+      "ref": "refs/heads/codex/remove-dashboard-data-diag-20261003",
+      "commit_sha": "872dd7f582e7fe78d2e353c308b737bf39b9792a"
+    },
+    {
+      "ref": "refs/heads/codex/remove-dashboard-v3-account-probe-20261003",
+      "commit_sha": "eeafbceb81ee83c76f936d23a376450bd5d7743e"
+    },
+    {
+      "ref": "refs/heads/codex/remove-dashboard-v3-diagnostic-20261003",
+      "commit_sha": "d422c8b0935e28fcbd9cfcbe8eb3992dc8a825c3"
+    },
+    {
+      "ref": "refs/heads/codex/repair-dashboard-diag-20261003",
+      "commit_sha": "41a198465f165383014fd2c042292b413abac283"
+    },
+    {
+      "ref": "refs/heads/codex/runtime-ca-portability-20261009",
+      "commit_sha": "889e16ed6ead38fd4b377d86b746420bf55f54a3"
+    },
+    {
+      "ref": "refs/heads/codex/service-quotes-review-20260927",
+      "commit_sha": "06248d0566c9729b21d0c846e0a5d61b754ef80d"
+    },
+    {
+      "ref": "refs/heads/codex/shift-close-compact-preview-20261018",
+      "commit_sha": "153876117cfc30680b31eb5a910cea44e6a092c7"
+    },
+    {
+      "ref": "refs/heads/codex/shift-report-preserve-drawer-20261018",
+      "commit_sha": "34ac2d26f650493662ac99dd4d22e9808af2955e"
+    },
+    {
+      "ref": "refs/heads/codex/sidebar-bottom-logo-polish-20261019",
+      "commit_sha": "3f8286c4d40b7f5014a0260db139ae269394751f"
+    },
+    {
+      "ref": "refs/heads/codex/sidebar-whatsapp-desktop-20261010",
+      "commit_sha": "1a5674fa170d6ee9b665459e8214948cdc8541b6"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-20261014-2323",
+      "commit_sha": "e07724ccdccc7fede01a44c274a78bf108484366"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-ai-20261015",
+      "commit_sha": "b6cd8463464dd02ee1646b050c16df8afbf44086"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-human-20261015",
+      "commit_sha": "991eafceffdebc0389772f14b73188c48c5deb49"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-inline-timeline-20261019",
+      "commit_sha": "b21c484e6c080b287747eec32f36cfbacc0a8883"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-original-post-20261019",
+      "commit_sha": "773ea8acdfbceeafec4493642fe6afca912a99be"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-pending-badges-20261019",
+      "commit_sha": "45c902dd03899b53a6083ffe8a1b9a7d188cbfd7"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-polish-20261015",
+      "commit_sha": "99101eccb0be057fe0fd75c1e1848e81591113f3"
+    },
+    {
+      "ref": "refs/heads/codex/social-comments-posts-layout-20261018",
+      "commit_sha": "694866f57a0bff0f96d93b7cd812931e0b61c06f"
+    },
+    {
+      "ref": "refs/heads/codex/stock-expense-badge-address-20261007",
+      "commit_sha": "7d8eaa4a4826e48142dfbf89070373f8eb8b9277"
+    },
+    {
+      "ref": "refs/heads/codex/stock-side-drawer-fixes-20261007",
+      "commit_sha": "0ed25623e5f3e68d003172aafb81da4b97049a31"
+    },
+    {
+      "ref": "refs/heads/codex/store-delivery-20260923",
+      "commit_sha": "04a65520e2f512aea1694b611f8513b642366318"
+    },
+    {
+      "ref": "refs/heads/codex/store-onboarding-20260927",
+      "commit_sha": "76e5736c52b862e3eeef1309249c4218451e7dc6"
+    },
+    {
+      "ref": "refs/heads/codex/store-shubra-stock-drawer-20261018",
+      "commit_sha": "d99f094b6c23fd198757e5e4bb663b44f688d0f8"
+    },
+    {
+      "ref": "refs/heads/codex/store-signup-60-products",
+      "commit_sha": "5bf84e02dc017c31ab7bf0e0ef43e5857b4da60e"
+    },
+    {
+      "ref": "refs/heads/codex/storefront-saved-addresses-20261017",
+      "commit_sha": "33259032f5902829988d6ed9a4e7ecb8a9c05942"
+    },
+    {
+      "ref": "refs/heads/codex/storefront-seo-saved-address-compat-20261017",
+      "commit_sha": "990056d4bb6233e4ea7adf6885f9fe7bacad7d19"
+    },
+    {
+      "ref": "refs/heads/codex/unified-app-orders-20261003",
+      "commit_sha": "4a81f073c134d762fdb31afa8e5dda99f978192e"
+    },
+    {
+      "ref": "refs/heads/codex/unified-phone-delivery-20261017",
+      "commit_sha": "9f4cce8792467d1899927066f2c951cb2fa10cb5"
+    },
+    {
+      "ref": "refs/heads/codex/wallet-destination-20260928",
+      "commit_sha": "a2d1ec091d94f4634a6b8170ccd7d4887b809162"
+    },
+    {
+      "ref": "refs/heads/codex/wallet-text-contrast-20261017",
+      "commit_sha": "1402f1411dfbcd39a8a9623c2013298109d23b69"
+    },
+    {
+      "ref": "refs/heads/codex/wallet-topup-inspection-20261019",
+      "commit_sha": "e0ac6d3e1e0eb99f216918ad625074ae0a95181e"
+    },
+    {
+      "ref": "refs/heads/codex/wallet-topup-verified-settlement-20261019",
+      "commit_sha": "916c6c862be39b9e976e4e18c6424f29dfa72333"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-ai-option-evidence-20261018",
+      "commit_sha": "b02bbbb6319ee76db0729fe7e5e354d8ace2f77f"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-ai-preparation-source-20261018",
+      "commit_sha": "0ebf09c489f607257fcf2dee65b19ad0ee8822de"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-blocker-native-kind-20261018",
+      "commit_sha": "57da635141542caeaeeb9a6df34dd20ae99aa7c7"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-branch-area-20261014",
+      "commit_sha": "fae41af87dec3450d787563ad69f249f095ba625"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-branch-summary-format-20261018",
+      "commit_sha": "230e8d92c9b6aa45376252f216b55b1c2350eafc"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-confirmation-processing-status-20261017",
+      "commit_sha": "4d015232d17e2fb7fdf196fdc45e2408c76e130e"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-confirmation-source-diagnostic-20261017",
+      "commit_sha": "d112759551c22d3ed1085dcd7714d826c01ba1f0"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-confirmed-order-location-today-20261018",
+      "commit_sha": "5057a3b1fce73093001be578346ae08aa3c95d39"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-customer-confirmation-20261017",
+      "commit_sha": "3b5457a25bf03db7d357b32abe42bd40449fd364"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-customer-confirmation-compat-20261017",
+      "commit_sha": "d6b40402496c2466222cbe6fc51f8216e522caff"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-customer-recap-footer-20261017",
+      "commit_sha": "5ed58885fed78f251a89bafb62ca8ce149ac8b22"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-customer-receipt-resume-20261017",
+      "commit_sha": "94befa10cab10c29cbeb504dc13b67256f28f102"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-flexible-customer-ai-20261018",
+      "commit_sha": "4f3d041ba9b6db50a287406f6d42f04949c88c67"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-followup-diagnostic-20261014",
+      "commit_sha": "25d06446f5a5277978af0433e6cf1245e1edd2fb"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-followup-handoff-20261014",
+      "commit_sha": "eb19430e459df1485718a39b402b5f393e893a2e"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-followup-tail-20261014",
+      "commit_sha": "40fe415c5b2dc6b8d3f7542a6d828c7bcc83d25d"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-fulfillment-policy-20261014",
+      "commit_sha": "a69d03b28219cb35e12aa034a966535b52dbb3c6"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-labeled-branch-summary-20261018",
+      "commit_sha": "c73106c12ff9e8f82615982e4f8d967d78a46886"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-location-request-20261014",
+      "commit_sha": "7edb7cc9ceec02482a424a4a0627e0e1545a1bb8"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-media-handoff-20261014",
+      "commit_sha": "e1ff9b352711e30ca27f639a23ee49f95484768e"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-messaging-cache-fix-20261012",
+      "commit_sha": "afa7898c0d82811ddb8c6fa38d3d09c6cde46c1d"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-native-deboned-phrase-20261018",
+      "commit_sha": "eb69629f1bc2f0ca7be6478cd54ea51c87e10e8d"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-order-evidence-fix-20261013",
+      "commit_sha": "e6e8ed30d2aee0828e50cdb4684a633424557ca4"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-pair-blocker-status-20261018",
+      "commit_sha": "775fe06e100ecae4113fa55fc4e7e7de8b3f3ca0"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-preparation-source-status-20261017",
+      "commit_sha": "7f6d17a1011589ad2cea95f7a0a25019c6be493b"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-preparation-tariff-compat-20261017",
+      "commit_sha": "0205b47ebfc4543181c8d5f03b6c403007eeb669"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-quarter-pack-select-20261018",
+      "commit_sha": "f5201292a32600e4e6cfeb673e183d78ab72756c"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-approved-aliases-20261018",
+      "commit_sha": "abb131bd074ef16f5c66a9553438ad3f02d9850a"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-authority-status-20261017",
+      "commit_sha": "5ae4ab102e7827acd09095ef05d35596793d0d28"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-capture-status-20261017",
+      "commit_sha": "899ea228044be8ea90f9bc59bcf58b6965a53bc4"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-catalog-status-20261017",
+      "commit_sha": "4472f067947ee17dae84c04f883c5931646faddb"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-conversation-locate-20261018",
+      "commit_sha": "608efb2a130c27b5bca1726b95595e142bedd1fe"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-format-observation-20261018",
+      "commit_sha": "ff0da2197c602eb3e0aa179a252b3c5da7dae1d5"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-pos-compat-20261017",
+      "commit_sha": "14ecb244456f74d51913d52074731a5b340b4faf"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-receipt-preparation-20261017",
+      "commit_sha": "0f7b9c141f3fb339624887aca76797e50e859ea4"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-scoped-order-choice-20261018",
+      "commit_sha": "47e574319cb97714e8d1763d86ea1551746213f2"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-two-message-order-20261018",
+      "commit_sha": "c8be651d555d23423c26cbec7ce376fce47c6867"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-unavailable-replay-20261017",
+      "commit_sha": "3806328a77d4f84911138df2d4973521e22594b9"
+    },
+    {
+      "ref": "refs/heads/codex/whatsapp-webhook-20261009",
+      "commit_sha": "31e9c364dcc572afc353612b48027aba1941c4fd"
+    },
+    {
+      "ref": "refs/heads/codex/zayed-prices-20260923",
+      "commit_sha": "e5a85ae654920e8048b0c6e776fafedbf454f010"
+    },
+    {
+      "ref": "refs/heads/debug-meta-full-response",
+      "commit_sha": "c91ea72677ce0e58bd3b922142c3cebbece12e6d"
+    },
+    {
+      "ref": "refs/heads/develop",
+      "commit_sha": "4848038a8ec26efc5b9af53b4add4ce95d32d4a5"
+    },
+    {
+      "ref": "refs/heads/feat/admin-partner-work-area-20260926",
+      "commit_sha": "a62f343cd273e592b6f7020f6bac2e6d7464cdc9"
+    },
+    {
+      "ref": "refs/heads/feat/go-service-marketplace-20260926",
+      "commit_sha": "08d3178abeed46282d435b32cf3c062157f138ba"
+    },
+    {
+      "ref": "refs/heads/feature/financial-engine-core",
+      "commit_sha": "819501bafa8cdd5b1c61890831ea9fcd49794b48"
+    },
+    {
+      "ref": "refs/heads/feature/paymob-sdk",
+      "commit_sha": "852fd71ba6de0364de5962382242b5fd58b7a50e"
+    },
+    {
+      "ref": "refs/heads/fix-meta-action-source-other",
+      "commit_sha": "4bd7efcb05b51306523cbe46c600af9fac531f75"
+    },
+    {
+      "ref": "refs/heads/fix-meta-active-laravel-paths",
+      "commit_sha": "b857215483b8cefd8032a32142786a66b583e2d3"
+    },
+    {
+      "ref": "refs/heads/fix-meta-app-extinfo",
+      "commit_sha": "e5552e8842c902e6081741d0ad266db2eb28f4d7"
+    },
+    {
+      "ref": "refs/heads/fix-meta-remove-app-data",
+      "commit_sha": "814e7f7a87ded2dfe3752b00188f31c2646347f0"
+    },
+    {
+      "ref": "refs/heads/main",
+      "commit_sha": "c77fa6beee1cce9e2219c86a218ff9c2ffe90d73"
+    },
+    {
+      "ref": "refs/heads/meta-purchase-capi",
+      "commit_sha": "52f673cbeac22067c9107e55a95be98fb96d2312"
+    },
+    {
+      "ref": "refs/heads/ops/server-restore-20261001",
+      "commit_sha": "5b85f6001c504f57afc2cd2fa78ee5dcf47437a6"
+    },
+    {
+      "ref": "refs/heads/release/go-product-images-20261008",
+      "commit_sha": "f7fa5001a8b03b63aa84c2a9cb581df99c9308a9"
+    }
+  ],
+  "tags": [
+    {
+      "ref": "refs/tags/github-backup-before-stable-2026-08-11",
+      "tag_object_sha": "2f25cb2e38f968d073b6882e0d8a7c0e7bbeb9f8",
+      "tag_object_type": "tag",
+      "commit_sha": "dbf665161b5441e3f2288daa74889a95c0d915ee",
+      "tag_metadata": {
+        "node_id": "TA_kwDOTiqPdNoAKDJmMjVjYjJlMzhmOTY4ZDA3M2I2ODgyZTBkOGE3YzBlN2JiZWI5Zjg",
+        "sha": "2f25cb2e38f968d073b6882e0d8a7c0e7bbeb9f8",
+        "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/tags/2f25cb2e38f968d073b6882e0d8a7c0e7bbeb9f8",
+        "tagger": {
+          "name": "Your Name",
+          "email": "your-email@example.com",
+          "date": "2026-08-11T16:31:47Z"
+        },
+        "object": {
+          "sha": "dbf665161b5441e3f2288daa74889a95c0d915ee",
+          "type": "commit",
+          "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/commits/dbf665161b5441e3f2288daa74889a95c0d915ee"
+        },
+        "tag": "github-backup-before-stable-2026-08-11",
+        "message": "Backup of GitHub main before replacing with stable production version\n",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned",
+          "signature": null,
+          "payload": null,
+          "verified_at": null
+        }
+      }
+    },
+    {
+      "ref": "refs/tags/v1.0-backup",
+      "tag_object_sha": "a8c38c9a1bf4a406478b3bbc6692f4e3836f4823",
+      "tag_object_type": "tag",
+      "commit_sha": "4848038a8ec26efc5b9af53b4add4ce95d32d4a5",
+      "tag_metadata": {
+        "node_id": "TA_kwDOTiqPdNoAKGE4YzM4YzlhMWJmNGE0MDY0NzhiM2JiYzY2OTJmNGUzODM2ZjQ4MjM",
+        "sha": "a8c38c9a1bf4a406478b3bbc6692f4e3836f4823",
+        "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/tags/a8c38c9a1bf4a406478b3bbc6692f4e3836f4823",
+        "tagger": {
+          "name": "Omar Albaz",
+          "email": "omarmakramelbaz@gmail.com",
+          "date": "2026-07-24T21:39:27Z"
+        },
+        "object": {
+          "sha": "4848038a8ec26efc5b9af53b4add4ce95d32d4a5",
+          "type": "commit",
+          "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/commits/4848038a8ec26efc5b9af53b4add4ce95d32d4a5"
+        },
+        "tag": "v1.0-backup",
+        "message": "Initial backup before Financial Engine\n",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned",
+          "signature": null,
+          "payload": null,
+          "verified_at": null
+        }
+      }
+    },
+    {
+      "ref": "refs/tags/v2.0-notifications",
+      "tag_object_sha": "16ea692607985321e561b3d2035f922984c8f2d7",
+      "tag_object_type": "tag",
+      "commit_sha": "319f8fb160b650205a44047f3e7913c25063e24a",
+      "tag_metadata": {
+        "node_id": "TA_kwDOTiqPdNoAKDE2ZWE2OTI2MDc5ODUzMjFlNTYxYjNkMjAzNWY5MjI5ODRjOGYyZDc",
+        "sha": "16ea692607985321e561b3d2035f922984c8f2d7",
+        "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/tags/16ea692607985321e561b3d2035f922984c8f2d7",
+        "tagger": {
+          "name": "Your Name",
+          "email": "your-email@example.com",
+          "date": "2026-07-31T19:06:24Z"
+        },
+        "object": {
+          "sha": "319f8fb160b650205a44047f3e7913c25063e24a",
+          "type": "commit",
+          "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/commits/319f8fb160b650205a44047f3e7913c25063e24a"
+        },
+        "tag": "v2.0-notifications",
+        "message": "Stable notification system refactor\n",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned",
+          "signature": null,
+          "payload": null,
+          "verified_at": null
+        }
+      }
+    },
+    {
+      "ref": "refs/tags/v2.1-stable-2026-08-11",
+      "tag_object_sha": "9865f280fbafc97d7f22ebcebb3d5b266a2623cd",
+      "tag_object_type": "tag",
+      "commit_sha": "562605f71056575dacf5962b9a07843490775fda",
+      "tag_metadata": {
+        "node_id": "TA_kwDOTiqPdNoAKDk4NjVmMjgwZmJhZmM5N2Q3ZjIyZWJjZWJiM2Q1YjI2NmEyNjIzY2Q",
+        "sha": "9865f280fbafc97d7f22ebcebb3d5b266a2623cd",
+        "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/tags/9865f280fbafc97d7f22ebcebb3d5b266a2623cd",
+        "tagger": {
+          "name": "Your Name",
+          "email": "your-email@example.com",
+          "date": "2026-08-11T16:31:15Z"
+        },
+        "object": {
+          "sha": "562605f71056575dacf5962b9a07843490775fda",
+          "type": "commit",
+          "url": "https://api.github.com/repos/omarmakramelbaz-hub/F-Backend/git/commits/562605f71056575dacf5962b9a07843490775fda"
+        },
+        "tag": "v2.1-stable-2026-08-11",
+        "message": "Stable production release - realtime orders and FCM\n",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned",
+          "signature": null,
+          "payload": null,
+          "verified_at": null
+        }
+      }
+    }
+  ],
+  "scope": {
+    "source_commit_histories": true,
+    "unmerged_branch_tips": true,
+    "live_server_working_tree": false,
+    "live_database": false,
+    "server_environment_secrets": false,
+    "server_uploads": false,
+    "external_lfs_payloads": false,
+    "external_submodule_repositories": false,
+    "github_release_assets": false
+  },
+  "preservation_method": "Archival ancestry anchor. The snapshot tree equals the captured default tree plus this manifest. Other branch tips are retained as parents, directly or through grouped archival commits. This is not a merge of their file contents. Do not merge this archival branch into development. Restore a specific source version by checking out its original commit from the branches/tags map.",
+  "verification": "Parent objects, archive tree, manifest and final branch ref are read back after creation. No production deployment or database restore performed."
+}
