@@ -58,6 +58,13 @@ namespace App\Services\Dashboard {
     class WhatsAppOrderAiProvider {
         public static $data; public static $calls=0; public static $callback; public static $failure=false; public static $lastTranscript;
         public static $failureReason='TRANSPORT_ERROR'; public static $failureDiagnostic=[];
+        public function followupVariant(array $fields): array { return ['ok'=>true,'variant'=>'SHORT']; }
+        // This harness mocks extraction; production spelling/intent policy has its own pure suite.
+        public static function followupFulfillment(array $data,array $transcript): string {
+            $mode=$data['fulfillment']??'UNKNOWN';
+            return $mode==='UNKNOWN'&&is_string($data['customer']['phone']??null)&&is_string($data['customer']['address']??null)
+                ?'DELIVERY':$mode;
+        }
         public function extract(array $transcript): array {
             self::$calls++; self::$lastTranscript=$transcript;
             \abort_unless(DB::connection()->transactionLevel()===0,500,'NETWORK_LOCK');
@@ -95,6 +102,16 @@ namespace App\Services\Dashboard {
     }
     class PhoneDelivery {
         public static $drift=0; public static $callback;
+        public function settings(string$branch,$actor,?string$origin=null,bool$lock=false):array {
+            $b=\app(TakeawayAccess::class)->branch($branch,$actor,$lock);
+            \abort_unless($origin===null,422,'PHYSICAL_SETTINGS_ONLY');
+            $query=DB::table('resturants')->where('id',$b['id']);if($lock)$query->lockForUpdate();$row=$query->first();
+            $lat=$row->lat??null;$long=$row->lng??null;
+            $valid=is_numeric($lat)&&is_numeric($long)&&is_finite((float)$lat)&&is_finite((float)$long)
+                &&abs((float)$lat)<=90&&abs((float)$long)<=180&&!((float)$lat===0.0&&(float)$long===0.0);
+            return['branch'=>$b,'latitude'=>$valid?(float)$lat:null,'longitude'=>$valid?(float)$long:null,
+                'km_price'=>$row->km_price??null,'ready'=>$valid&&is_numeric($row->km_price??null)];
+        }
         public function quote(array $v,$actor): array {
             \app(TakeawayAccess::class)->branch($v['branch'],$actor);
             \abort_unless($v['location_confirmed']&&isset($v['latitude'],$v['longitude']),422,'PIN_CONTRACT');
@@ -192,6 +209,7 @@ namespace {
     $translator=new \Illuminate\Translation\Translator(new \Illuminate\Translation\ArrayLoader,'en');
     $container->instance('validator',new \Illuminate\Validation\Factory($translator,$container)); Facade::setFacadeApplication($container);
     require dirname(__DIR__).'/app/Support/WhatsAppInboxProtocol.php';
+    require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
     require dirname(__DIR__).'/app/Support/WhatsAppOrderExtraction.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
     require dirname(__DIR__).'/database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';
@@ -213,6 +231,10 @@ namespace {
     function expectFlow($condition,$label) { global $checks; $checks++; if(!$condition)throw new \RuntimeException('FAILED:'.$label); }
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
+        // Fixed native message dates must be compared with a fixed calendar,
+        // never the wall clock of whichever machine happens to run this suite.
+        \Carbon\Carbon::setTestNow('2026-10-09 22:05:00');
+        \Carbon\CarbonImmutable::setTestNow('2026-10-09 22:05:00');
         foreach (['whatsapp_reply_projection_keys','whatsapp_reply_requests'] as $t) if (Schema::hasTable($t)) DB::table($t)->delete();
         foreach(['whatsapp_order_drafts','whatsapp_order_scans','whatsapp_inbox_messages','whatsapp_inbox_conversations','branch_customers','test_print','test_kitchen','test_tickets','pos_service_tickets','whatsapp_webhook_events']as$t)DB::table($t)->delete();
         Ai::$calls=0; Ai::$callback=null; Ai::$failure=false; Ai::$failureReason='TRANSPORT_ERROR'; Ai::$failureDiagnostic=[];
@@ -864,6 +886,7 @@ namespace {
     // Real encrypted ACCEPTED receipts and projection schema, with no fake native echo.
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxMessage.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php';
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppInboxConsumer.php';
     require dirname(__DIR__).'/database/migrations/2026_10_10_000003_create_whatsapp_reply_requests.php';
@@ -960,6 +983,130 @@ namespace {
     blocked(fn()=>$workflow->dispatch($id,$v,$actor),409,'unprojected accepted API reply invalidates existing READY quote before ERP write');
     expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
         &&DB::table('whatsapp_order_drafts')->where('id',$id)->value('status')==='READY','receipt arrival after quote leaves no partial order or customer');
+
+    // Substantive validation failures are reviewable once, not transient transport retries.
+    foreach (['INVALID_INPUT','INVALID_EVIDENCE','INVALID_EXTRACTION'] as $invalidReason) {
+        resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');Ai::$failure=true;Ai::$failureReason=$invalidReason;
+        $p=$workflow->process();$stored=DB::table('whatsapp_order_drafts')->first();$again=$workflow->process();
+        expectFlow($stored->reason==='INVALID_EXTRACTION'&&$stored->status==='REVIEW'&&$p['review_required']===1
+            &&Ai::$calls===1&&$again['dispatched']===0,'substantive '.$invalidReason.' preserves fixed reason without repeated AI request');
+        expectFlow(DB::table('test_tickets')->count()===0&&DB::table('whatsapp_order_scans')->first()->next_attempt_at===null,'substantive validation failure neither dispatches nor enters transient backoff');
+    }
+
+    function hydrationThread(): array {
+        $c=addConversation();$at=(string)strtotime('2026-10-09 22:00:01 UTC');
+        $unavailable=['id'=>'wamid.hydration-request','timestamp'=>$at,'type'=>'unsupported','from'=>'201000000001','from_user_id'=>'US.fixture',
+            'errors'=>[['code'=>131060,'title'=>'Message unavailable']]];
+        $payload=['object'=>'whatsapp_business_account','entry'=>[['id'=>'468336579702269','changes'=>[['field'=>'messages','value'=>[
+            'messaging_product'=>'whatsapp','metadata'=>['phone_number_id'=>'515388018324075'],'messages'=>[$unavailable]]]]]]];
+        $report=\App\Support\WhatsAppInboxProtocol::report($payload,'468336579702269','515388018324075');
+        expectFlow(count($report['messages'])===1,'actual native unsupported placeholder normalized');$dto=$report['messages'][0];
+        $mid=DB::table('whatsapp_inbox_messages')->insertGetId(['conversation_id'=>$c,
+            'message_key'=>hash('sha256','whatsapp-message-v1:468336579702269:515388018324075:wamid.hydration-request'),
+            'direction'=>'inbound','type'=>'unsupported','source'=>'messages','sent_at'=>$dto['sent_at'],'content'=>Crypt::encryptString(json_encode($dto)),
+            'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        insertMessage($c,'wamid.hydration-pin','inbound','',2,['lat'=>31.04,'long'=>31.37]);
+        insertMessage($c,'wamid.hydration-summary','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',3);
+        $text=$unavailable;unset($text['errors']);$text['type']='text';
+        $text['text']=['body'=>'اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.'];
+        $payload['entry'][0]['changes'][0]['value']['messages']=[$text];
+        $raw=json_encode($payload,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
+        return [$c,$mid,$raw];
+    }
+    function hydrationEvent(string $raw): int {
+        $id=DB::table('whatsapp_webhook_events')->insertGetId(['payload_hash'=>hash('sha256',$raw),'payload'=>Crypt::encryptString($raw),
+            'received_at'=>now('UTC'),'processed_at'=>null]);
+        DB::table('whatsapp_inbox_ingestion_failures')->insert(['event_id'=>$id,'reason'=>'CONFLICTING_MESSAGE','attempts'=>1,'last_attempted_at'=>now('UTC')]);
+        return $id;
+    }
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    app('config')->set('whatsapp_orders.mode','auto');Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$workflow->process();
+    $oldDraft=DB::table('whatsapp_order_drafts')->first();$oldScan=DB::table('whatsapp_order_scans')->first();
+    $oldSource=DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();$oldCeiling=(int)DB::table('whatsapp_inbox_messages')->max('id');
+    DB::table('whatsapp_order_scans')->update(['attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
+    $event=hydrationEvent($raw);$hydrated=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    $newSource=DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();$scan=DB::table('whatsapp_order_scans')->first();
+    expectFlow($hydrated['errors']===0&&$hydrated['quarantined_events']===0&&$newSource->type==='text'
+        &&$newSource->message_key===$oldSource->message_key&&(int)DB::table('whatsapp_inbox_messages')->max('id')===$oldCeiling,'proven hydration keeps original native key ID and ceiling');
+    expectFlow((int)$scan->analyzed_ceiling===0&&(int)$scan->claimed_ceiling===0&&(int)$scan->attempts===0&&$scan->next_attempt_at===null
+        &&$scan->auto_floor===$oldScan->auto_floor&&$scan->claim_nonce===$oldScan->claim_nonce&&$scan->lease_until===$oldScan->lease_until,'idle semantic revision wakes only affected scan while preserving cutoffs and lease fields');
+    Ai::$data=extractionData();$p=$workflow->process();$recovered=DB::table('whatsapp_order_drafts')->first();
+    expectFlow(Ai::$calls===2&&$p['review_required']===1&&$recovered->status==='REVIEW'&&$recovered->reason==='RECOVERED_HISTORY_REVIEW'
+        &&(int)$recovered->revision===(int)$oldDraft->revision+1,'same-ID corrected NONE is re-extracted but historical recovered order remains review');
+    expectFlow($recovered->ticket_command_key===$oldDraft->ticket_command_key&&$recovered->customer_command_key===$oldDraft->customer_command_key
+        &&$recovered->confirmation_key===null&&$recovered->sealed_payload===null&&$recovered->evidence_hash!==$oldDraft->evidence_hash,'revision clears stale authorization retains command identity and binds corrected evidence');
+    expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
+        &&app('config')->get('whatsapp_orders.activation_message_id')===0,'recovery never dispatches old confirmation or advances activation');
+    \Carbon\Carbon::setTestNow('2026-10-10 00:00:10');
+    insertMessage($c,'wamid.hydration-fresh-summary','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',7201);
+    insertMessage($c,'wamid.hydration-fresh-acceptance','inbound','تمام',7202);
+    Ai::$data=extractionData();Ai::$data['evidence']['confirmation_ids']=['m4'];Ai::$data['evidence']['customer_acceptance_ids']=['m5'];
+    DB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]);$p=$workflow->process();
+    expectFlow($p['dispatched']===1&&DB::table('test_tickets')->count()===1&&DB::table('test_print')->count()===1,'fresh full summary and customer acceptance after recovery may dispatch the same reviewed order once');
+    $again=$workflow->process();expectFlow($again['dispatched']===0&&DB::table('test_tickets')->count()===1,'fresh recovered-order confirmation remains idempotent');
+
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$workflow->analyze($c,$actor);app('config')->set('whatsapp_orders.mode','auto');
+    DB::table('whatsapp_order_scans')->update(['claim_nonce'=>str_repeat('e',64),'lease_until'=>now('UTC')->addMinutes(3),
+        'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
+    $holder=(array)DB::table('whatsapp_order_scans')->first();$original=(array)DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();
+    $event=hydrationEvent($raw);$r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    expectFlow($r['errors']===1&&(array)DB::table('whatsapp_order_scans')->first()===$holder
+        &&(array)DB::table('whatsapp_inbox_messages')->where('id',$mid)->first()===$original,'active holder rejects and rolls back the entire hydration without changing scan or source');
+    expectFlow(DB::table('whatsapp_webhook_events')->where('id',$event)->value('processed_at')===null
+        &&DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$event)->exists()&&Ai::$calls===1,'busy revision retains raw quarantine and performs no AI call');
+    \Carbon\Carbon::setTestNow('2026-10-10 00:04:00');$r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    $scan=DB::table('whatsapp_order_scans')->first();
+    expectFlow($r['errors']===0&&DB::table('whatsapp_inbox_messages')->where('id',$mid)->value('type')==='text'
+        &&$scan->claim_nonce===$holder['claim_nonce']&&$scan->lease_until===$holder['lease_until']&&(int)$scan->attempts===0,'expired holder can be corrected while nonce and lease fields are preserved for the next real claim');
+
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$workflow->analyze($c,$actor);
+    app('config')->set('whatsapp_orders.mode','auto');app('config')->set('whatsapp_orders.activation_message_id',$mid);
+    DB::table('whatsapp_order_scans')->update(['auto_floor'=>$mid,'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
+    $scanBefore=(array)DB::table('whatsapp_order_scans')->first();$event=hydrationEvent($raw);
+    $r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    expectFlow($r['errors']===0&&(array)DB::table('whatsapp_order_scans')->first()===$scanBefore
+        &&app('config')->get('whatsapp_orders.activation_message_id')===$mid,'hydrating a message at or below the activation floor never resets its scan');
+
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    [$id,$v]=prepared($workflow,$actor,$c);$workflow->dispatch($id,$v,$actor);
+    $receipt=(array)DB::table('whatsapp_order_drafts')->where('id',$id)->first();$source=(array)DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();
+    $event=hydrationEvent($raw);$r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    expectFlow($r['errors']===1&&DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$event)->exists()
+        &&(array)DB::table('whatsapp_order_drafts')->where('id',$id)->first()===$receipt
+        &&(array)DB::table('whatsapp_inbox_messages')->where('id',$mid)->first()===$source,'completed dispatch receipts and their original native evidence remain immutable');
+    expectFlow(DB::table('test_tickets')->count()===1&&DB::table('test_print')->count()===1,'recovery of a sealed completed segment cannot create another order or print');
+
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();$event=hydrationEvent($raw);
+    $r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);
+    expectFlow($r['errors']===0&&$r['quarantined_events']===0,'tamper fixture begins with proven native correction');
+    $source=DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();$dto=json_decode(Crypt::decryptString($source->content),true);
+    $originalCipher=$source->content;$dto['content']['hydration']['at_utc']='2026-10-09 23:59:59';
+    DB::table('whatsapp_inbox_messages')->where('id',$mid)->update(['content'=>Crypt::encryptString(json_encode($dto))]);
+    blocked(fn()=>$workflow->analyze($c,$actor),500,'hydration time must equal authenticated processing time');
+    expectFlow(Ai::$calls===0&&DB::table('whatsapp_order_drafts')->count()===0,'invalid hydration provenance never reaches extraction');
+    DB::table('whatsapp_inbox_messages')->where('id',$mid)->update(['content'=>$originalCipher]);
+    DB::table('whatsapp_webhook_events')->where('id',$event)->update(['payload'=>Crypt::encryptString('{"unrelated":true}')]);
+    blocked(fn()=>$workflow->analyze($c,$actor,true),500,'stored raw hash alone cannot authenticate altered hydration payload');
+    expectFlow(Ai::$calls===0&&DB::table('test_tickets')->count()===0,'raw payload tamper fails closed with no provider or ERP call');
+
+    resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$workflow->analyze($c,$actor);
+    $other=fixtureThread('revision-unrelated');$workflow->analyze($other,$actor);
+    DB::table('whatsapp_order_scans')->where('conversation_id',$other)->update(['attempts'=>3,'next_attempt_at'=>now('UTC')->addHour(),
+        'claim_nonce'=>str_repeat('f',64),'lease_until'=>now('UTC')->addMinutes(3)]);
+    $unrelated=(array)DB::table('whatsapp_order_scans')->where('conversation_id',$other)->first();
+    $unrelatedRaw=DB::table('whatsapp_webhook_events')->insertGetId(['payload_hash'=>str_repeat('0',64),'payload'=>Crypt::encryptString('{}'),
+        'received_at'=>now('UTC'),'processed_at'=>null]);
+    DB::table('whatsapp_inbox_ingestion_failures')->insert(['event_id'=>$unrelatedRaw,'reason'=>'INVALID_EVENT','attempts'=>9,'last_attempted_at'=>now('UTC')]);
+    $unrelatedFailure=(array)DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$unrelatedRaw)->first();
+    $event=hydrationEvent($raw);$r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->recoverUnavailableMessages([$event]);
+    expectFlow($r['errors']===0&&$r['messages_hydrated']===1
+        &&(array)DB::table('whatsapp_order_scans')->where('conversation_id',$other)->first()===$unrelated,'explicit event recovery changes no unrelated scan or live holder');
+    expectFlow((array)DB::table('whatsapp_inbox_ingestion_failures')->where('event_id',$unrelatedRaw)->first()===$unrelatedFailure
+        &&DB::table('whatsapp_webhook_events')->where('id',$unrelatedRaw)->value('processed_at')===null,'targeted recovery never clears or retries an unrelated quarantine');
+    \Carbon\Carbon::setTestNow();
 
     fwrite(STDOUT,'whatsapp-order-workflow: '.$checks." checks passed\n");
 }

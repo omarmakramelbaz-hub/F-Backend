@@ -31,21 +31,36 @@ final class MetaMessagingRouteCheck
         'meta-replies.forward' => ['POST', 'admin/meta/conversations/{conversation}/forward', 'Dashboard\\MetaReplyController', 'forward'],
     ];
 
+    /** Legacy installs retain their 25 routes until the complete OAuth feature is installed. */
+    public const OAUTH_CONTRACTS = [
+        'meta-connection.index' => ['GET', 'admin/meta/connection', 'Dashboard\\MetaConnectionController', 'index'],
+        'meta-connection.start' => ['POST', 'admin/meta/connection/start', 'Dashboard\\MetaConnectionController', 'start'],
+        'meta-connection.callback' => ['GET', 'admin/meta/connection/callback', 'Dashboard\\MetaConnectionController', 'callback'],
+        'meta-connection.confirm' => ['POST', 'admin/meta/connection/confirm', 'Dashboard\\MetaConnectionController', 'confirm'],
+    ];
+
     public static function verify($router): array
     {
         $routes = $router->getRoutes();
+        $contracts = self::CONTRACTS;
+        foreach (self::OAUTH_CONTRACTS as $name => $contract) {
+            if ($routes->getByName($name) !== null) {
+                $contracts += self::OAUTH_CONTRACTS;
+                break;
+            }
+        }
         // A newly added feature endpoint must declare its complete authentication and HTTP contract here.
         $seen = [];
         foreach ($routes->getRoutes() as $route) {
             $uri = trim($route->uri(), '/');
             if ($uri === 'admin/meta' || strpos($uri, 'admin/meta/') === 0 || strpos($uri, 'api/meta/messaging/') === 0) {
-                self::assertContract(is_string($route->getName()) && isset(self::CONTRACTS[$route->getName()]),
+                self::assertContract(is_string($route->getName()) && isset($contracts[$route->getName()]),
                     'UNEXPECTED_META_ROUTE', 'UNREGISTERED_META_ROUTE');
                 self::assertContract(!isset($seen[$route->getName()]), 'DUPLICATE_META_ROUTE', $route->getName());
                 $seen[$route->getName()] = true;
             }
         }
-        foreach (self::CONTRACTS as $name => [$method, $uri, $controller, $action]) {
+        foreach ($contracts as $name => [$method, $uri, $controller, $action]) {
             $route = $routes->getByName($name);
             self::assertContract($route !== null, 'MISSING_ROUTE', $name);
             self::assertContract(trim($route->uri(), '/') === $uri && in_array($method, $route->methods(), true), 'ROUTE_CONTRACT', $name);
@@ -74,14 +89,25 @@ final class MetaMessagingRouteCheck
                     && in_array('IsAdmin', $middleware, true), 'ADMIN_MIDDLEWARE', $name);
                 self::assertContract(!array_intersect($route->excludedMiddleware(), ['web', 'lang', 'IsAdmin',
                     'App\\Http\\Middleware\\IsAdmin', 'App\\Http\\Middleware\\lang',
-                    'App\\Http\\Middleware\\VerifyCsrfToken', 'Illuminate\\Session\\Middleware\\StartSession']), 'ADMIN_MIDDLEWARE_EXCLUDED', $name);
+                    'App\\Http\\Middleware\\VerifyCsrfToken', 'Illuminate\\Foundation\\Http\\Middleware\\VerifyCsrfToken',
+                    'Illuminate\\Session\\Middleware\\StartSession']), 'ADMIN_MIDDLEWARE_EXCLUDED', $name);
+                if (isset(self::OAUTH_CONTRACTS[$name])) {
+                    $privacy = 'App\\Http\\Middleware\\MetaOAuthCallbackPrivacy';
+                    self::assertContract(class_exists($privacy) && method_exists($privacy, 'handle')
+                        && (new ReflectionMethod($privacy, 'handle'))->isPublic(), 'OAUTH_PRIVACY_UNAVAILABLE', $name);
+                    $routeMiddleware = array_values(array_filter($middleware, static fn ($entry) => $entry !== 'web'));
+                    self::assertContract(($routeMiddleware[0] ?? null) === $privacy,
+                        'OAUTH_PRIVACY_MIDDLEWARE', $name);
+                    self::assertContract(!in_array($privacy, $route->excludedMiddleware(), true),
+                        'OAUTH_PRIVACY_EXCLUDED', $name);
+                }
             }
             $path = preg_replace('/\{(?:conversation|draft|message|index)\}/', '1', $uri);
             $path = str_replace('{ticket}', str_repeat('a', 48).'.'.(time()+600).'.'.str_repeat('b', 64), $path);
             $matched = $routes->match(Illuminate\Http\Request::create('/'.$path, $method));
             self::assertContract($matched->getName() === $name, 'ROUTE_SHADOWED', $name);
         }
-        return ['ok' => true, 'verified_routes' => count(self::CONTRACTS)];
+        return ['ok' => true, 'verified_routes' => count($contracts)];
     }
 
     private static function assertContract(bool $condition, string $reason, string $route): void

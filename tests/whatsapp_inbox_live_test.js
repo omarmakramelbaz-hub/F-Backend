@@ -94,7 +94,7 @@ function fixture(options = {}) {
         observe(element) { this.element = element; } disconnect() { this.disconnected = true; }
     };
     const navigator = {onLine: true, clipboard: {writeText: async value => { state.clipboard.push(value); }}};
-    bootstrap.textContent = JSON.stringify({available: true, csrf: 'csrf', conversations_url: 'https://example.test/admin/whatsapp/conversations',
+    bootstrap.textContent = JSON.stringify({available: true, poll_interval_ms: 2000, csrf: 'csrf', conversations_url: 'https://example.test/admin/whatsapp/conversations',
         messages_base_url: 'https://example.test/admin/whatsapp/conversations', actions_base_url: 'https://example.test/admin/whatsapp/conversations',
         reply_history_base_url: options.history ? 'https://example.test/admin/whatsapp/conversations' : undefined,
         message_updates_base_url: options.updates ? 'https://example.test/admin/whatsapp/conversations' : undefined,

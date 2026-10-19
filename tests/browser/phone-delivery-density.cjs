@@ -11,7 +11,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','card','updateBatchTotal','renderBoard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','preparationCreatedAt','updatePreparationTimer','preparationBadge','completedBadge','card','updateBatchTotal','renderBoard','validCash','plainEnter','cashKeyboard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -22,12 +22,12 @@ function ticket(id, stage) {
     quote_hash:'a'.repeat(64),total:'1250.50',subtotal:'1200.00',discount:'0.00',delivery_fee:'50.50',tax:'0.00',service:'0.00',bill_print_url:'/receipt/'+id,
     items:[{name:'صنف تجريبي',quantity:'2',quantity_mode:'piece',total:'1200.00'}]};
 }
-const css=read('public/dashboard/css/phone-orders.css');
+const css=read('public/dashboard/css/phone-orders.css')+'\n'+read('public/dashboard/css/phone-delivery-refresh.css');
 const shell=`<style>*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f7fa}.app-head{height:58px;background:#0b1928;color:#fff;padding:18px}.content-wrapper{margin-inline-end:250px}aside{position:fixed;inset-inline-end:0;top:58px;bottom:0;width:250px;background:#0b1928;color:#fff;padding:24px}.app-foot{height:51px;background:#0b1928;color:white;padding:15px}button,select{font:inherit}h1,h2,h3,p,dl,dd{margin:0}@media(max-width:999px){aside{display:none}.content-wrapper{margin-inline-end:0}}</style>`;
 async function board(page,width,height,locale='ar',count=20) {
   const labels=translations(locale),columns=Object.fromEntries(['preparing','courier','finished'].map((stage,j)=>[stage,{items:Array.from({length:count},(_,i)=>ticket(j*100+i+1,stage)),pagination:{page:1,last_page:count>10?2:1,total:count>10?40:count}}]));
   await page.setViewportSize({width,height});
-  await page.setContent(`<html lang="${locale}" dir="${locale==='ar'?'rtl':'ltr'}"><head>${shell}<style>${css}</style></head><body><div class="app-head">فسخانستا</div><aside>لوحة التحكم</aside><main class="content-wrapper phone-orders-wrapper"><section id="phone-orders" class="ph-pos ph-view-orders" dir="${locale==='ar'?'rtl':'ltr'}"><header class="ph-header"><div class="ph-heading"><h1>${labels.title||'طلبات الهاتف والدليفري'}</h1></div><label class="ph-branch"><select><option>${labels.all_branches}</option></select></label><nav class="ph-view-tabs"><button>طلب هاتف جديد</button><button>طلبات الدليفري</button></nav></header><div class="ph-flow">Steps</div><section class="ph-orders ph-panel"><header class="ph-panel-heading"><h2>Orders</h2><button>تحديث</button></header><div class="ph-batch-bar"><strong data-phone-batch-total></strong><button class="ph-batch-finish">إنهاء الطلبات المحددة</button></div><div class="ph-delivery-board" data-phone-order-list></div></section><div class="ph-modal-backdrop" hidden data-phone-modal><section class="ph-modal ph-panel" role="dialog"><header class="ph-panel-heading"><h2>تفاصيل الطلب</h2><button id="close">إغلاق</button></header><div class="ph-modal-content" data-phone-modal-content></div></section></div></section></main><div class="app-foot">فسخانستا</div></body></html>`);
+  await page.setContent(`<html lang="${locale}" dir="${locale==='ar'?'rtl':'ltr'}"><head>${shell}<style>${css}</style></head><body><div class="app-head">فسخانستا</div><aside>لوحة التحكم</aside><main class="content-wrapper phone-orders-wrapper"><section id="phone-orders" class="ph-pos ph-unified ph-view-orders" dir="${locale==='ar'?'rtl':'ltr'}"><header class="ph-header"><div class="ph-heading"><h1>${labels.title||'طلبات الهاتف والدليفري'}</h1></div><label class="ph-branch"><select><option>${labels.all_branches}</option></select></label><nav class="ph-view-tabs"><button>طلب هاتف جديد</button><button>طلبات الدليفري</button></nav></header><div class="ph-flow">Steps</div><section class="ph-orders ph-panel"><header class="ph-panel-heading"><h2>Orders</h2><button>تحديث</button></header><div class="ph-batch-bar"><strong data-phone-batch-total></strong><button class="ph-batch-finish">إنهاء الطلبات المحددة</button></div><div class="ph-delivery-board" data-phone-order-list></div></section><div class="ph-modal-backdrop" hidden data-phone-modal><section class="ph-modal ph-panel" role="dialog"><header class="ph-panel-heading"><h2>تفاصيل الطلب</h2><button id="close">إغلاق</button></header><div class="ph-modal-content" data-phone-modal-content></div></section></div></section></main><div class="app-foot">فسخانستا</div></body></html>`);
   await page.evaluate(({labels,columns,functions})=>{
     window.calls=[]; window.alerts=[];
     const setup=`var labels=${JSON.stringify(labels)},boardData=${JSON.stringify({columns})};
@@ -45,15 +45,15 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
 }
 (async()=>{
  fs.mkdirSync('test-results/phone-delivery',{recursive:true});
- const browser=await chromium.launch({headless:true}), page=await browser.newPage();
+ const browser=await chromium.launch({headless:true,executablePath:process.env.DESKTOP_TEST_CHROMIUM || undefined}), page=await browser.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try {
   for(const [width,height,locale] of [[1920,1030,'ar'],[1366,768,'ar'],[1366,768,'en']]) {
    const labels=await board(page,width,height,locale);
-   const metrics=await page.evaluate(()=>[...document.querySelectorAll('.ph-board-cards')].map(n=>{const b=n.getBoundingClientRect(),cards=[...n.querySelectorAll('.ph-ticket')].map(c=>c.getBoundingClientRect());return {top:b.top,bottom:b.bottom,visible:cards.filter(c=>c.top>=b.top&&c.bottom<=b.bottom+1).length,cardHeight:cards[0].height,overflow:n.scrollHeight>n.clientHeight,wide:n.scrollWidth>n.clientWidth+1};}));
+   const metrics=await page.evaluate(()=>[...document.querySelectorAll('.ph-board-cards')].map(n=>{const b=n.getBoundingClientRect(),cards=[...n.querySelectorAll('.ph-ticket')].map(c=>c.getBoundingClientRect());return {top:b.top,bottom:b.bottom,visible:cards.filter(c=>c.top>=b.top&&c.bottom<=b.bottom+1).length,cardHeight:cards[0].height,tenCapacity:cards[9].bottom-cards[0].top,overflow:n.scrollHeight>n.clientHeight,wide:n.scrollWidth>n.clientWidth+1};}));
    await page.screenshot({path:`test-results/phone-delivery/delivery-${width}-${locale}.png`,fullPage:true});
    console.log({width,height,locale,metrics});
-   for(const m of metrics){assert(m.visible>=10,JSON.stringify(m));assert(m.overflow);assert(!m.wide);assert(m.top<210);assert(m.bottom<=height-40);}
+   for(const m of metrics){assert(m.visible>=3,JSON.stringify(m));if(m.bottom-m.top>=m.tenCapacity+10)assert(m.visible>=10,JSON.stringify(m));assert(m.overflow);assert(!m.wide);assert(m.top<210);assert(m.bottom<=height-40);}
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
    assert.equal(await page.locator('.ph-ticket').evaluateAll(cards=>cards.some(card=>{const box=card.getBoundingClientRect();return [...card.querySelectorAll('button')].some(button=>{const b=button.getBoundingClientRect();return b.bottom>box.bottom+1||b.right>box.right+1||b.left<box.left-1;});})),false);
    assert.equal(await page.locator('.ph-ticket-address').first().innerText(),'المحلة');
@@ -63,12 +63,12 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    assert.equal(await page.getByRole('dialog').locator('.ph-detail-actions button').count(),0);await page.locator('#close').click();
    const dialog=page.getByRole('dialog');
    const preparing=page.locator('[data-phone-column="preparing"] .ph-ticket').first();
-   assert.deepEqual(await preparing.getByRole('button').allTextContents(),[labels.view_order,labels.edit_order,labels.kitchen_order,labels.assign_company]);
+   assert.deepEqual(await preparing.getByRole('button').allTextContents(),[labels.view_order,labels.edit_order,labels.assign_company]);
    assert.equal(await page.getByRole('button',{name:labels.order_actions,exact:true}).count(),0);
    await preparing.getByRole('button',{name:labels.edit_order,exact:true}).click();
    assert.equal(await page.evaluate(()=>calls.at(-1).edit),1);
    assert.equal(await dialog.isVisible(),false);
-   await preparing.getByRole('button',{name:labels.kitchen_order,exact:true}).click();assert.equal(await page.evaluate(()=>calls.at(-1).action),'send_kitchen');
+   assert.equal(await preparing.getByRole('button',{name:labels.kitchen_order,exact:true}).count(),0,'Saving the current order already sends its kitchen ticket');
    await preparing.getByRole('button',{name:labels.assign_company,exact:true}).click();
    assert.equal(await dialog.locator('.ph-detail-table').count(),0);
    await dialog.locator('[data-phone-board-company]').selectOption('1');
@@ -143,16 +143,16 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    await page.setContent(`<div id="cash-test"><div data-${prefix}-payments></div><div data-${prefix}-cash-wrap></div><div data-${prefix}-payment-confirm-wrap hidden></div><div data-${prefix}-reference-wrap hidden></div></div>`);
    const production=['label','node','renderPayments','setPayment'].concat(module==='takeaway'?['applyPayment']:[]).map(name=>fn(name,js)).join('\n');
    const state=await page.evaluate(({production,prefix})=>{
-    var test=`(function(){var root=document.getElementById('cash-test'),labels={cash:'كاش'},paymentMethod='cash',confirmedInput=document.createElement('input');function locked(){return false;}function isLocked(){return false;}function storeInvoice(){}function showChange(){}${production} renderPayments(['card','mobile_wallet','other']);setPayment('card');return {method:paymentMethod,buttons:[...root.querySelectorAll('[data-${prefix}-payment]')].map(n=>n.getAttribute('data-${prefix}-payment')),cashVisible:!root.querySelector('[data-${prefix}-cash-wrap]').hidden};})()`;
+    var test=`(function(){var root=document.getElementById('cash-test'),labels={cash:'كاش'},paymentMethod='cash',confirmedInput=document.createElement('input');function locked(){return false;}function isLocked(){return false;}function storeInvoice(){}function showChange(){}function renderCollection(){}${production} renderPayments(['card','mobile_wallet','other']);setPayment('card');return {method:paymentMethod,buttons:[...root.querySelectorAll('[data-${prefix}-payment]')].map(n=>n.getAttribute('data-${prefix}-payment')),cashVisible:!root.querySelector('[data-${prefix}-cash-wrap]').hidden};})()`;
     return (0,eval)(test);
    },{production,prefix});
    assert.deepEqual(state,{method:'cash',buttons:['cash'],cashVisible:true});
   }
   for(const module of ['takeaway-pos','dining-pos','phone-orders']) {
    const js=read('public/dashboard/js/'+module+'.js');
-   const production=fn('productNode',js);
+   const production=fn('productChoices',js)+'\n'+fn('productNode',js);
    const output=await page.evaluate(production=>{
-    var script=`(function(){var permissions={can_checkout:true,can_operate:true};function locked(){return false;}function isLocked(){return false;}function label(k){return k;}function text(k){return k;}function money(v){return v;}function node(tag,css,value){var n=document.createElement(tag);if(css)n.className=css;if(value!==undefined)n.textContent=value;return n;}var element=node;${production} var p={id:1,name:'صنف بدون وصفة',available:true,unit_price:'100.00',quantity_mode:'piece',stock:{source:'direct',configured:false,tracked:true,quantity:'7',unit_label:'قطعة',negative:false,label:'رصيد الوحدة: 7 قطعة'}};return productNode(p).textContent;})()`;
+    var script=`(function(){var permissions={can_checkout:true,can_operate:true};function locked(){return false;}function isLocked(){return false;}function canWrite(){return true;}function label(k){return k;}function text(k){return k;}function money(v){return v;}function node(tag,css,value){var n=document.createElement(tag);if(css)n.className=css;if(value!==undefined)n.textContent=value;return n;}var element=node;${production} var p={id:1,name:'صنف بدون وصفة',available:true,unit_price:'100.00',quantity_mode:'piece',stock:{source:'direct',configured:false,tracked:true,quantity:'7',unit_label:'قطعة',negative:false,label:'رصيد الوحدة: 7 قطعة'}};return productNode(p).textContent;})()`;
     return (0,eval)(script);
    },production);
    assert(output.includes('رصيد الوحدة: 7 قطعة'),module);

@@ -4,7 +4,7 @@ The requested continuation includes every dashboard update in the Windows applic
 
 ## Current integration
 
-The exact uploaded `desktop-source-for-pc.zip` passed SHA-256 verification (`29c4aa7daaf0a0fe80f2b122f570b3fea863917dbda34cca5c8fb7e0a7798285`). Its 17:31:56 UTC capture measures **1,157** source files, fingerprint `2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f`, and **156** production table schemas. All source bytes were recovered, including the 56 captured live composites. The older inspection below remains historical evidence.
+The exact uploaded `desktop-source-for-pc.zip` passed SHA-256 verification (`29c4aa7daaf0a0fe80f2b122f570b3fea863917dbda34cca5c8fb7e0a7798285`). Its 17:31:56 UTC capture measures **1,157** source files, fingerprint `2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f`, and **156** production table schemas. All source bytes were recovered, including the 56 captured live composites. The older inspection below remains historical evidence. Its diagnosis and metadata-repair helpers stay pinned to their earlier source cohort and refuse this release; they do not authorize new metadata repairs. The desktop installer launcher is repinned to the current reviewed source manifest.
 
 The Windows source now includes the captured dashboard changes: employee wallet details and monthly net totals, part-time schedules and branch hours, inventory purchase linkage, base recipes, stock minimums, carried shift cash and numbering, the CRM/consent interfaces, order editing, and current branding/alerts. Shared-file conflicts retain the desktop journal, offline assets, permissions and saved-address behavior. Bulk deletion retains its submitted selection during an in-flight response.
 

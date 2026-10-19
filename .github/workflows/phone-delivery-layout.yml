@@ -26,6 +26,9 @@ on:
       - 'public/dashboard/css/home-overview.css'
       - 'resources/views/admin/home_branch.blade.php'
       - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/phone-delivery-card-layout.cjs'
+      - 'tests/browser/phone-preparing-timer.cjs'
+      - 'public/dashboard/css/phone-delivery-refresh.css'
       - 'tests/browser/stock-expenses-address.cjs'
       - 'public/dashboard/js/dashboard-expense-badge.js'
       - 'public/dashboard/js/dashboard-location-picker.js'
@@ -53,6 +56,9 @@ on:
       - 'public/dashboard/css/home-overview.css'
       - 'resources/views/admin/home_branch.blade.php'
       - 'tests/browser/phone-delivery-density.cjs'
+      - 'tests/browser/phone-delivery-card-layout.cjs'
+      - 'tests/browser/phone-preparing-timer.cjs'
+      - 'public/dashboard/css/phone-delivery-refresh.css'
       - 'tests/browser/stock-expenses-address.cjs'
       - 'public/dashboard/js/dashboard-expense-badge.js'
       - 'public/dashboard/js/dashboard-location-picker.js'
@@ -73,11 +79,25 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/delivery-browser" --no-package-lock playwright@1.56.1
           "$RUNNER_TEMP/delivery-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+          tools: composer:v2
+          coverage: none
+      - name: Install isolated production-version Blade test runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/phone-layout-view"
+          composer require --working-dir="$RUNNER_TEMP/phone-layout-view" --no-interaction --no-scripts --no-security-blocking laravel/framework:8.83.29
       - name: Check queue density and preserved actions
         env:
           NODE_PATH: ${{ runner.temp }}/delivery-browser/node_modules
+          CRM_TEST_AUTOLOAD: ${{ runner.temp }}/phone-layout-view/vendor/autoload.php
+          CRM_TEST_PHP: php
         run: |
           node tests/browser/phone-delivery-density.cjs
+          node tests/browser/phone-delivery-card-layout.cjs
+          node tests/browser/phone-preparing-timer.cjs
           node tests/browser/stock-expenses-address.cjs
           node tests/browser/expense-form.cjs
           node tests/browser/dashboard-save-actions.cjs
