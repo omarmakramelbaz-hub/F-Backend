@@ -158,7 +158,19 @@ class BranchStockMinimums
         return $stock && $product ? (object)['name'=>$product->product_name, 'unit'=>$stock->unit, 'quantity_units'=>(int)$stock->quantity_units] : null;
     }
 
-    /** One consolidated report per run, irrespective of how many item episodes are pending.
+    /** The physical branch registry excludes retail-store identities and the GO namespace. */
+    private function emailBranchKeys(): array
+    {
+        return array_map(fn($id)=>'f:'.$id, FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS);
+    }
+
+    private function emailAlerts(array $branches): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('branch_stock_minimum_alerts')->whereIn('minimum_id',
+            DB::table('branch_stock_minimums')->whereIn('branch', $branches)->select('id'));
+    }
+
+    /** One consolidated physical-branch report per run, irrespective of pending item count.
      * The argument remains compatible with the existing scheduled command; it never slices a report.
      * SMTP stays outside inventory transactions, and sent/failed count reports rather than items.
      */
@@ -167,7 +179,7 @@ class BranchStockMinimums
         $result = ['sent'=>0, 'failed'=>0];
         if (!$this->installed() || config('desktop_dashboard.local', false)) return $result;
         abort_unless(DB::transactionLevel() === 0, 503, 'إرسال التنبيه يحتاج معاملة بضاعة مكتملة.');
-        if (!DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->exists()) return $result;
+        if (!$this->emailAlerts($this->emailBranchKeys())->whereNull('sent_at')->whereNull('cancelled_at')->exists()) return $result;
         $claim = $this->claimReport();
         if (!$claim) return $result;
         try {
@@ -200,11 +212,14 @@ class BranchStockMinimums
     private function claimReport(): ?array
     {
         return DB::transaction(function () {
-            $restaurants = DB::table('resturants')->orderBy('id')->lockForUpdate()->get();
+            $restaurants = DB::table('resturants')->whereIn('id', FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS)->orderBy('id')->lockForUpdate()->get();
             if ($restaurants->isEmpty()) return null;
             $now = now('UTC');
-            if (DB::table('branch_stock_minimum_alerts')->whereNotNull('lease_token')->where('lease_until', '>', $now)->exists()) return null;
-            $pending = DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->orderBy('id')->get();
+            $branches = $restaurants->map(fn($restaurant)=>'f:'.$restaurant->id)->all();
+            // Excluded stores cannot trigger, delay, or block a physical-branch report.
+            // Keep their stock, thresholds, episodes, and historical outbox rows intact.
+            if ($this->emailAlerts($branches)->whereNotNull('lease_token')->where('lease_until', '>', $now)->exists()) return null;
+            $pending = $this->emailAlerts($branches)->whereNull('sent_at')->whereNull('cancelled_at')->orderBy('id')->get();
             if ($pending->isEmpty()) return null;
             $branchIds = $restaurants->pluck('id')->map(fn($id)=>(int)$id)->all();
             $ids = [];

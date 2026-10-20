@@ -60,11 +60,11 @@ Carbon::setTestNow(Carbon::parse('2026-10-18T12:00:00Z'));
 Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->string('email')->nullable();$t->string('account_type');$t->string('status')->default('accepted');$t->unsignedBigInteger('owner_resturant_id')->nullable();});
 Schema::create('permissions',function(Blueprint $t){$t->id();$t->string('name');$t->string('guard_name');});
 DB::table('permissions')->insert(['name'=>'order-list','guard_name'=>'admin']);
-Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->string('name');});
+Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');});
 Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->string('product_name');$t->string('status')->default('show');});
-foreach ([[1,'admin',null,'owner@example.invalid'],[2,'admin',null,'admin@example.invalid'],[4,'admin',100,null],[10,'vendor',null,null],[11,'vendor',null,null]] as [$id,$type,$parent,$email]) DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'email'=>$email]);
-DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'المحلة'],['id'=>101,'user_id'=>11,'name'=>'المنصورة']]);
-DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100,'product_name'=>'سمك'],['id'=>2,'resturant_id'=>101,'product_name'=>'صنف آخر']]);
+foreach ([[1,'admin',null,'owner@example.invalid'],[2,'admin',null,'admin@example.invalid'],[4,'admin',94,null],[10,'vendor',null,null],[11,'vendor',null,null]] as [$id,$type,$parent,$email]) DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'email'=>$email]);
+DB::table('resturants')->insert([['id'=>94,'user_id'=>10,'name'=>'المحلة'],['id'=>307,'user_id'=>11,'name'=>'المنصورة']]);
+DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>94,'product_name'=>'سمك'],['id'=>2,'resturant_id'=>307,'product_name'=>'صنف آخر']]);
 Schema::create('pos_service_tickets',fn(Blueprint $t)=>$t->id());
 Schema::create('takeaway_orders',fn(Blueprint $t)=>$t->id());
 foreach ([
@@ -79,22 +79,22 @@ function check($condition,$label) { global $checks; if (!$condition) throw new R
 function denied(callable $action,int $status,string $label) { try { $action(); } catch (HttpException $e) { check($e->getStatusCode()===$status,$label); return; } throw new RuntimeException('Expected HTTP '.$status.': '.$label); }
 function actor(int $id=1) { return MinimumTestUser::findOrFail($id); }
 function keyFor(int $id): string { return sprintf('00000000-0000-4000-8000-%012d',$id); }
-function setting(int $key,array $extra=[]): array { return $extra+['branch'=>'f:100','stock_type'=>'ingredient','stock_item_id'=>1,'minimum_quantity'=>'2','expected_revision'=>0,'idempotency_key'=>keyFor($key)]; }
-function quantity(int $ingredient=1,string $branch='f:100'): int { return (int)DB::table('branch_inventory')->where('branch',$branch)->where('ingredient_id',$ingredient)->value('quantity_units'); }
-function supply(string $amount,int $key,int $ingredient=1,string $branch='f:100'): array { return app(BranchInventory::class)->receive(['branch'=>$branch,'ingredient_id'=>$ingredient,'unit'=>$ingredient===9?'piece':'kg','quantity'=>$amount,'idempotency_key'=>keyFor($key)],actor(1)); }
+function setting(int $key,array $extra=[]): array { return $extra+['branch'=>'f:94','stock_type'=>'ingredient','stock_item_id'=>1,'minimum_quantity'=>'2','expected_revision'=>0,'idempotency_key'=>keyFor($key)]; }
+function quantity(int $ingredient=1,string $branch='f:94'): int { return (int)DB::table('branch_inventory')->where('branch',$branch)->where('ingredient_id',$ingredient)->value('quantity_units'); }
+function supply(string $amount,int $key,int $ingredient=1,string $branch='f:94'): array { return app(BranchInventory::class)->receive(['branch'=>$branch,'ingredient_id'=>$ingredient,'unit'=>$ingredient===9?'piece':'kg','quantity'=>$amount,'idempotency_key'=>keyFor($key)],actor(1)); }
 function consume(int $units,int $source,int $ingredient=1): void
 {
     DB::transaction(function()use($units,$source,$ingredient){
-        $stock=DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',$ingredient)->first();
+        $stock=DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',$ingredient)->first();
         // Exercise the same recipe/expense movement routine used by actual completed sales.
         $method=new ReflectionMethod(BranchInventory::class,'move');$method->setAccessible(true);
         $i=DB::table('stock_ingredients')->where('id',$ingredient)->first();
         $method->invoke(app(BranchInventory::class),$stock,['id'=>$ingredient,'name'=>$i->name,'unit'=>$i->unit],-$units,'pos',(string)$source,1);
     });
 }
-function stockItem(int $id=1,string $branch='f:100'): array { foreach(app(BranchInventory::class)->listing(['branch'=>$branch],actor())['items'] as $item)if($item['id']===$id)return $item['stock'];throw new RuntimeException('Missing item'); }
-function reportBranch(array $report,string $branch='f:100'): array { foreach($report['branches'] as $item)if($item['value']===$branch)return $item;throw new RuntimeException('Missing report branch '.$branch); }
-function reportItem(array $report,string $name,string $branch='f:100',string $type='ingredient'): array { foreach(reportBranch($report,$branch)['items'] as $item)if($item['name']===$name&&$item['stock_type']===$type)return $item;throw new RuntimeException('Missing report item '.$name); }
+function stockItem(int $id=1,string $branch='f:94'): array { foreach(app(BranchInventory::class)->listing(['branch'=>$branch],actor())['items'] as $item)if($item['id']===$id)return $item['stock'];throw new RuntimeException('Missing item'); }
+function reportBranch(array $report,string $branch='f:94'): array { foreach($report['branches'] as $item)if($item['value']===$branch)return $item;throw new RuntimeException('Missing report branch '.$branch); }
+function reportItem(array $report,string $name,string $branch='f:94',string $type='ingredient'): array { foreach(reportBranch($report,$branch)['items'] as $item)if($item['name']===$name&&$item['stock_type']===$type)return $item;throw new RuntimeException('Missing report item '.$name); }
 
 check(DB::table('branch_stock_minimums')->count()===0&&DB::table('branch_stock_minimum_alerts')->count()===0,'migration creates no thresholds or emails');
 (new CreateBranchStockMinimumAlerts)->up(); check(DB::table('branch_stock_minimums')->count()===0,'migration retry is idempotent');
@@ -130,7 +130,7 @@ check(DB::table('branch_stock_minimum_alerts')->where('id',2)->value('cancelled_
 // An empty raw ingredient has a real zero balance even before its first receipt.
 $service->save(setting(30,['stock_item_id'=>2,'minimum_quantity'=>'0']),actor(2));
 check(stockItem(2)['low_stock']&&stockItem(2)['minimum_quantity']==='0','zero is an enabled minimum on an empty branch item');
-check(!stockItem(2,'f:101')['low_stock'],'threshold is isolated per branch');
+check(!stockItem(2,'f:307')['low_stock'],'threshold is isolated per branch');
 DB::table('users')->where('id',1)->update(['email'=>null]);
 $failed=$service->dispatch();check($failed['failed']===1&&DB::table('branch_stock_minimum_alerts')->where('id',3)->value('sent_at')===null,'missing owner email stays pending without choosing another admin');
 DB::table('users')->where('id',1)->update(['email'=>'updated-owner@example.invalid']);
@@ -150,7 +150,7 @@ $service->save(setting(40,['stock_item_id'=>3,'minimum_quantity'=>'0']),actor())
 check(DB::table('branch_stock_minimum_alerts')->where('id',4)->value('cancelled_at')!==null,'stock recovery cancels a pending alert');
 try { DB::transaction(function(){consume(1000000,42,3);throw new RuntimeException('rollback');}); } catch (RuntimeException $error) {}
 check(DB::table('branch_stock_minimum_alerts')->count()===4&&quantity(3)===1000000,'rollback restores stock and discards low episode');
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',3)->update(['quantity_units'=>0]);$service->reconcile();
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',3)->update(['quantity_units'=>0]);$service->reconcile();
 check(DB::table('branch_stock_minimum_alerts')->count()===5&&stockItem(3)['low_stock'],'scheduler catches synced balances without movement hook');
 DB::transaction(fn()=>denied(fn()=>$service->dispatch(),503,'dispatch refuses SMTP from an enclosing stock transaction'));
 $real=new BranchStockMinimums;$before=count($mail->sent);$result=$real->dispatch();
@@ -158,9 +158,9 @@ check($result['failed']===1&&count($mail->sent)===$before,'production log or arr
 config(['desktop_dashboard.local'=>true]);check($service->reconcile()===0&&$service->dispatch()===['sent'=>0,'failed'=>0],'offline desktop never sends owner email');config(['desktop_dashboard.local'=>false]);
 
 // Legacy direct product balances share the feature while retaining their existing units.
-DB::table('branch_stock')->insert(['branch'=>'f:100','product_id'=>1,'unit'=>'piece','quantity_units'=>1000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+DB::table('branch_stock')->insert(['branch'=>'f:94','product_id'=>1,'unit'=>'piece','quantity_units'=>1000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $legacy=$service->save(setting(50,['stock_type'=>'product','stock_item_id'=>1,'minimum_quantity'=>'1']),actor());
-check($legacy['stock']['low_stock']&&app(BranchStock::class)->directBalances('f:100',[1])[1]['low_stock'],'legacy product minimum is decorated on direct stock balance');
+check($legacy['stock']['low_stock']&&app(BranchStock::class)->directBalances('f:94',[1])[1]['low_stock'],'legacy product minimum is decorated on direct stock balance');
 denied(fn()=>$service->save(setting(51,['stock_type'=>'product','stock_item_id'=>2]),actor()),404,'product minimum cannot target another branch product');
 DB::table('users')->where('id',1)->update(['account_type'=>'vendor']);
 $service->save(setting(52,['stock_item_id'=>4,'minimum_quantity'=>'0']),actor(2));
@@ -183,46 +183,46 @@ check(DB::table('branch_stock_minimum_alerts')->count()===$beforeAlerts+2,'a sub
 DB::table('branch_stock_minimum_alerts')->delete();
 DB::table('branch_stock_minimums')->delete();
 for($id=1000;$id<1110;++$id)DB::table('stock_ingredients')->insert(['id'=>$id,'name'=>'صنف تجريبي '.$id,'unit'=>'kg','position'=>$id,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:100','ingredient_id'=>1],['quantity_units'=>1500000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:100','ingredient_id'=>5],['quantity_units'=>9000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:101','ingredient_id'=>3],['quantity_units'=>-1125000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-DB::table('resturant_products')->insert(['id'=>3,'resturant_id'=>101,'product_name'=>'علبة احتياطية']);
+DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:94','ingredient_id'=>1],['quantity_units'=>1500000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:94','ingredient_id'=>5],['quantity_units'=>9000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:307','ingredient_id'=>3],['quantity_units'=>-1125000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+DB::table('resturant_products')->insert(['id'=>3,'resturant_id'=>307,'product_name'=>'علبة احتياطية']);
 DB::table('branch_stock')->insert([
-    ['branch'=>'f:101','product_id'=>2,'unit'=>'kg','quantity_units'=>1250000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
-    ['branch'=>'f:101','product_id'=>3,'unit'=>'piece','quantity_units'=>7000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
-    ['branch'=>'f:100','product_id'=>999999,'unit'=>'piece','quantity_units'=>3000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
-    ['branch'=>'f:100','product_id'=>2,'unit'=>'kg','quantity_units'=>4500000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
+    ['branch'=>'f:307','product_id'=>2,'unit'=>'kg','quantity_units'=>1250000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
+    ['branch'=>'f:307','product_id'=>3,'unit'=>'piece','quantity_units'=>7000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
+    ['branch'=>'f:94','product_id'=>999999,'unit'=>'piece','quantity_units'=>3000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
+    ['branch'=>'f:94','product_id'=>2,'unit'=>'kg','quantity_units'=>4500000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')],
 ]);
 $service->save(setting(1001),actor());
-$service->save(setting(1002,['branch'=>'f:101','stock_item_id'=>2]),actor());
-$service->save(setting(1003,['branch'=>'f:101','stock_type'=>'product','stock_item_id'=>2]),actor());
+$service->save(setting(1002,['branch'=>'f:307','stock_item_id'=>2]),actor());
+$service->save(setting(1003,['branch'=>'f:307','stock_type'=>'product','stock_item_id'=>2]),actor());
 $service->save(setting(1004,['stock_item_id'=>5,'minimum_quantity'=>'1']),actor());
 $before=count($mail->sent);$outcome=$service->dispatch(1);
 check($outcome===['sent'=>1,'failed'=>0]&&count($mail->sent)===$before+1,'several low items across branches generate one consolidated email even with limit one');
 $report=$mail->sent[$before]['data'];
 check($report['branch_count']===2&&count($report['branches'])===2&&$report['total_items']===271,'report contains every ingredient for every branch plus recorded direct stock without pagination');
 check($report['generated_at']===now('UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i'),'report timestamp uses Egypt local time');
-check($report['low_count']===3&&reportBranch($report,'f:100')['low_count']===1&&reportBranch($report,'f:101')['low_count']===2,'report low counts cover all branch and product triggers');
+check($report['low_count']===3&&reportBranch($report,'f:94')['low_count']===1&&reportBranch($report,'f:307')['low_count']===2,'report low counts cover all branch and product triggers');
 check(reportItem($report,'رنجة بطارخ')['quantity']==='9'&&!reportItem($report,'رنجة بطارخ')['low_stock'],'healthy stock remains visible in the full report');
-$empty=reportItem($report,'صنف تجريبي 1109','f:101');
+$empty=reportItem($report,'صنف تجريبي 1109','f:307');
 check($empty['quantity']==='0'&&$empty['minimum_quantity']===null&&!$empty['low_stock'],'never-received stock appears as zero with no invented minimum');
-$negative=reportItem($report,'فسيخ كيلو سمكتين','f:101');
+$negative=reportItem($report,'فسيخ كيلو سمكتين','f:307');
 check($negative['quantity']==='-1.125'&&$negative['minimum_quantity']===null,'report preserves negative fractional quantities exactly');
-$directKg=reportItem($report,'صنف آخر','f:101','product');$directPiece=reportItem($report,'علبة احتياطية','f:101','product');
+$directKg=reportItem($report,'صنف آخر','f:307','product');$directPiece=reportItem($report,'علبة احتياطية','f:307','product');
 check($directKg['quantity']==='1.25'&&$directKg['unit_label']==='كجم'&&$directPiece['quantity']==='7'&&$directPiece['unit_label']==='قطعة','legacy products retain their own kilogram and piece units');
-check(reportItem($report,'صنف سابق #999999','f:100','product')['quantity']==='3','deleted menu product remains visible under its recorded legacy stock identifier');
-check(reportItem($report,'صنف سابق #2','f:100','product')['quantity']==='4.5'&&count(array_filter(reportBranch($report,'f:100')['items'],fn($item)=>$item['name']==='صنف آخر'))===0,'cross-branch legacy mismatch uses a stock identifier without another branch product name');
+check(reportItem($report,'صنف سابق #999999','f:94','product')['quantity']==='3','deleted menu product remains visible under its recorded legacy stock identifier');
+check(reportItem($report,'صنف سابق #2','f:94','product')['quantity']==='4.5'&&count(array_filter(reportBranch($report,'f:94')['items'],fn($item)=>$item['name']==='صنف آخر'))===0,'cross-branch legacy mismatch uses a stock identifier without another branch product name');
 check(reportItem($report,'فسيخ كيلو 4 سمكات')['shortage_quantity']==='0.5'&&$directKg['shortage_quantity']==='0.75','shortages use exact per-item quantities rather than a mixed-unit total');
 check(DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->count()===0&&DB::table('branch_stock_minimum_alerts')->whereNotNull('sent_at')->count()===3,'one accepted delivery marks every included item episode sent');
 $service->reconcile();$service->dispatch();
 check(count($mail->sent)===$before+1,'repeated reconciliation does not send another full report for the same low episodes');
 
 // The whole batch keeps one lease and one retry schedule; it must never split.
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);
-DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:101','ingredient_id'=>2],['quantity_units'=>3000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);
+DB::table('branch_inventory')->updateOrInsert(['branch'=>'f:307','ingredient_id'=>2],['quantity_units'=>3000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
 $service->reconcile();
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);
-DB::table('branch_inventory')->where('branch','f:101')->where('ingredient_id',2)->update(['quantity_units'=>1000000]);
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);
+DB::table('branch_inventory')->where('branch','f:307')->where('ingredient_id',2)->update(['quantity_units'=>1000000]);
 $service->reconcile();$before=count($mail->sent);$mail->throw=true;
 $outcome=$service->dispatch();
 $pending=DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->get();
@@ -239,14 +239,14 @@ $outcome=$service->dispatch();
 check($outcome===['sent'=>1,'failed'=>0]&&count($mail->sent)===$before+1&&DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->count()===0,'expired batch lease recovers all pending triggers in one report');
 
 // A stale trigger is cancelled before SMTP, even when a writer skipped observe().
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);$service->reconcile();
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);$service->reconcile();
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);$service->reconcile();
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);$service->reconcile();
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>3000000]);
 $before=count($mail->sent);$service->dispatch();
 check(count($mail->sent)===$before&&DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->count()===0,'recovered pending trigger does not send a stale full inventory report');
 
 // A second worker must not send a new episode while the first report is in flight.
-DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);$service->reconcile();
+DB::table('branch_inventory')->where('branch','f:94')->where('ingredient_id',1)->update(['quantity_units'=>1000000]);$service->reconcile();
 $nested=null;$mail->duringSend=function()use($service,&$nested){
     $service->save(setting(1100,['stock_item_id'=>9,'minimum_quantity'=>'0']),actor());
     $nested=$service->dispatch();
@@ -263,12 +263,74 @@ $before=count($mail->sent);$outcome=$service->dispatch(1);
 check($outcome===['sent'=>1,'failed'=>0]&&count($mail->sent)===$before+1&&DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')->count()===0,'more than one hundred pending item alerts are accepted in one complete report');
 
 // Missing products must rearm their minimum if the product is restored later.
-DB::table('branch_stock')->where('branch','f:101')->where('product_id',2)->update(['quantity_units'=>3000000]);$service->reconcile();
-DB::table('branch_stock')->where('branch','f:101')->where('product_id',2)->update(['quantity_units'=>1000000]);$service->reconcile();
+DB::table('branch_stock')->where('branch','f:307')->where('product_id',2)->update(['quantity_units'=>3000000]);$service->reconcile();
+DB::table('branch_stock')->where('branch','f:307')->where('product_id',2)->update(['quantity_units'=>1000000]);$service->reconcile();
 DB::table('resturant_products')->where('id',2)->delete();$before=count($mail->sent);$service->dispatch();
-check(count($mail->sent)===$before&&!DB::table('branch_stock_minimums')->where('branch','f:101')->where('stock_type','product')->where('stock_item_id',2)->value('active_low'),'deleted trigger is cancelled and its minimum rearms without SMTP');
-DB::table('resturant_products')->insert(['id'=>2,'resturant_id'=>101,'product_name'=>'صنف آخر']);$service->reconcile();$service->dispatch();
+check(count($mail->sent)===$before&&!DB::table('branch_stock_minimums')->where('branch','f:307')->where('stock_type','product')->where('stock_item_id',2)->value('active_low'),'deleted trigger is cancelled and its minimum rearms without SMTP');
+DB::table('resturant_products')->insert(['id'=>2,'resturant_id'=>307,'product_name'=>'صنف آخر']);$service->reconcile();$service->dispatch();
 check(count($mail->sent)===$before+1,'restoring a deleted low product can create a fresh report episode');
+
+// Email scope is physical branches only; catalog and threshold behavior for stores stays intact.
+DB::table('resturants')->insert([
+    ['id'=>301,'user_id'=>10,'parent_id'=>null,'name'=>'شبرا'],
+    ['id'=>363,'user_id'=>11,'parent_id'=>null,'name'=>'نبروه'],
+    ['id'=>309,'user_id'=>10,'parent_id'=>301,'name'=>'المقطم ستور'],
+    ['id'=>999,'user_id'=>11,'parent_id'=>301,'name'=>'متجر جديد خارج القائمة القديمة'],
+    ['id'=>100,'user_id'=>10,'parent_id'=>null,'name'=>'هوية قديمة ليست فرعًا فعليًا'],
+]);
+DB::table('resturant_products')->insert(['id'=>400,'resturant_id'=>309,'product_name'=>'رصيد سري للمتجر فقط']);
+DB::table('branch_stock')->insert(['branch'=>'f:309','product_id'=>400,'unit'=>'piece','quantity_units'=>1000000,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+supply('123.456',6000,1,'f:309');
+$storeSetting=$service->save(setting(6001,['branch'=>'f:309','minimum_quantity'=>'200']),actor());
+$newStore=$service->save(setting(6002,['branch'=>'f:999','minimum_quantity'=>'0']),actor());
+$oldIdentity=$service->save(setting(6003,['branch'=>'f:100','minimum_quantity'=>'0']),actor());
+$service->save(setting(6004,['branch'=>'f:309','stock_type'=>'product','stock_item_id'=>400,'minimum_quantity'=>'2']),actor());
+check($storeSetting['stock']['low_stock']&&$storeSetting['stock']['minimum_quantity']==='200'&&quantity(1,'f:309')===123456000&&stockItem(1,'f:309')['low_stock'],'excluding stores from email preserves their threshold save stock balance and low-stock decoration');
+check($newStore['stock']['low_stock']&&$oldIdentity['stock']['low_stock'],'new child stores and old nonphysical identities retain their existing minimum management');
+// Preserve pre-existing malformed or non-restaurant outbox records; they cannot trigger this mail.
+foreach(['gs:94','f:888'] as $branch){
+    $minimumId=DB::table('branch_stock_minimums')->insertGetId(['branch'=>$branch,'stock_type'=>'ingredient','stock_item_id'=>1,'unit'=>'kg','minimum_units'=>0,
+        'revision'=>1,'updated_by'=>1,'active_low'=>true,'episode'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    DB::table('branch_stock_minimum_alerts')->insert(['minimum_id'=>$minimumId,'episode'=>1,'branch_name'=>'ليس فرعًا فعليًا','item_name'=>'لا يدخل تقرير الفروع','unit'=>'kg',
+        'balance_units'=>0,'minimum_units'=>0,'next_attempt_at'=>now('UTC'),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+}
+$physical=['f:94','f:301','f:307','f:363'];
+$excludedMinimums=DB::table('branch_stock_minimums')->whereNotIn('branch',$physical)->pluck('id')->all();
+$excludedState=function()use($excludedMinimums){return json_encode([
+    DB::table('branch_stock_minimums')->whereIn('id',$excludedMinimums)->orderBy('id')->get()->all(),
+    DB::table('branch_stock_minimum_alerts')->whereIn('minimum_id',$excludedMinimums)->orderBy('id')->get()->all(),
+],JSON_UNESCAPED_UNICODE);};
+$before=count($mail->sent);$storeBefore=$excludedState();$outcome=$service->dispatch();
+check($outcome===['sent'=>0,'failed'=>0]&&count($mail->sent)===$before,'store-only low episodes and GO or nonexistent identities do not send a physical branch report');
+check($excludedState()===$storeBefore,'store-only dispatch does not alter excluded thresholds episodes or outbox records');
+$storeMinimum=DB::table('branch_stock_minimums')->where('branch','f:309')->where('stock_type','ingredient')->where('stock_item_id',1)->value('id');
+$futureMinimum=DB::table('branch_stock_minimums')->where('branch','f:999')->value('id');
+DB::table('branch_stock_minimum_alerts')->where('minimum_id',$storeMinimum)->update(['lease_token'=>'store-worker-in-flight','lease_until'=>now('UTC')->addHours(1)]);
+DB::table('branch_stock_minimum_alerts')->where('minimum_id',$futureMinimum)->update(['next_attempt_at'=>now('UTC')->addHours(1),'attempts'=>5]);
+$storeBefore=$excludedState();
+supply('3',6010);consume(3000000,6011);
+$outcome=$service->dispatch();$physicalReport=$mail->sent[count($mail->sent)-1]['data'];
+check($outcome===['sent'=>1,'failed'=>0]&&count($mail->sent)===$before+1,'an excluded store lease or retry delay cannot block a legitimate physical branch alert');
+$actualBranches=array_column($physicalReport['branches'],'value');sort($actualBranches);$expectedBranches=$physical;sort($expectedBranches);
+check($actualBranches===$expectedBranches&&$physicalReport['branch_count']===4&&$physicalReport['total_items']===537,'one full report includes exactly the four physical branches including healthy branches and all their balances');
+check(reportItem($physicalReport,'فسيخ كيلو 4 سمكات','f:94')['quantity']==='1'&&reportItem($physicalReport,'فسيخ كيلو 4 سمكات','f:301')['quantity']==='0','physical branch quantities stay separate from store balances and are not remapped or summed');
+check(strpos(json_encode($physicalReport,JSON_UNESCAPED_UNICODE),'رصيد سري للمتجر فقط')===false&&strpos(json_encode($physicalReport,JSON_UNESCAPED_UNICODE),'المقطم ستور')===false,'store names direct products and balances do not appear anywhere in the email report');
+check($excludedState()===$storeBefore&&DB::table('branch_stock_minimum_alerts')->whereIn('minimum_id',$excludedMinimums)->whereNotNull('sent_at')->count()===0,'successful physical report leaves all store GO and absent-branch alerts entirely untouched and unsent');
+check($mail->sent[count($mail->sent)-1]['to']==='updated-owner@example.invalid','physical branch report keeps the existing canonical owner recipient');
+$service->dispatch();
+check(count($mail->sent)===$before+1,'remaining store-only lows do not repeat an already accepted physical report');
+
+// Recovery can cancel a physical trigger during SMTP; its in-flight lease must still hold.
+supply('3',6020);consume(3000000,6021);
+$nested=null;$mail->duringSend=function()use($service,&$nested){
+    supply('3',6022);
+    $service->save(setting(6023,['branch'=>'f:301','stock_item_id'=>2,'minimum_quantity'=>'0']),actor());
+    $nested=$service->dispatch();
+};
+$before=count($mail->sent);$service->dispatch();
+check($nested===['sent'=>0,'failed'=>0]&&count($mail->sent)===$before+1,'cancelled physical trigger retains its in-flight lease and blocks another physical report during SMTP');
+$service->dispatch();
+check(count($mail->sent)===$before+2&&$excludedState()===$storeBefore,'new physical episode sends once after the first report finishes while excluded store state stays untouched');
 
 // Compile and render the actual HTML template: data must remain escaped in the email.
 $viewCache=sys_get_temp_dir().'/stock-minimum-blade-'.bin2hex(random_bytes(6));mkdir($viewCache,0700);
