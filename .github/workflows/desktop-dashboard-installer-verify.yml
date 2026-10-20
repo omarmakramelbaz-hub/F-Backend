@@ -20,7 +20,179 @@ permissions:
   actions: read
 
 jobs:
+  prerequisite-control:
+    # Temporary diagnostic job: never produces a release or changes product source.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 48b1d0fae8de73a97ab07b53ca0a0667830bf3d9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare the original signed payload and pinned compiler dependencies
+        shell: pwsh
+        run: |
+          $revision = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -cne '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9') { throw 'The diagnostic source changed.' }
+          git diff-index --quiet HEAD --
+          if ($LASTEXITCODE -ne 0) { throw 'The diagnostic product checkout is not clean.' }
+          & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned diagnostic compiler dependencies failed.' }
+      - name: Diagnose the original prerequisite and capture its otherwise silent child output
+        shell: pwsh
+        run: |
+          $control = @'
+          'use strict';
+          // DIAGNOSTIC ONLY. This is neither a release build nor an acceptance receipt.
+          // It embeds the reviewed prerequisite and installer with a private tiny app.
+          // It must never be run on a production machine. No repository files are written.
+          const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
+          const crypto=require('node:crypto');
+          const {execFileSync,spawnSync}=require('node:child_process');
+          const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+          const nsisString=value=>value.replaceAll('$',()=> '$$').replaceAll('"','$\\"');
+          const psString=value=>"'"+value.replaceAll("'","''")+"'";
+          const bounded=value=>String(value||'').slice(0,8192);
+          async function main(){
+            assert.equal(process.platform,'win32','This diagnostic requires a disposable Windows runner.');
+            const project=path.resolve(process.argv[2]||'desktop-pos'),choice=process.argv[3]||'original';
+            assert.ok(['original','capture','both'].includes(choice),'Choose original, capture, or both.');
+            const lock=JSON.parse(await fs.readFile(path.join(project,'package-lock.json'),'utf8'));
+            const pinned=lock.packages['node_modules/app-builder-lib'].version;
+            assert.equal(pinned,'26.15.3');
+            const resolver=require.resolve('app-builder-lib/out/toolsets/windows.js',{paths:[project]});
+            const installed=JSON.parse(await fs.readFile(path.resolve(path.dirname(resolver),'../../package.json'),'utf8'));
+            assert.equal(installed.version,pinned);
+            const build=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8')).build||{};
+            const compiler=await require(resolver).getMakeNsisPath(build.toolsets?.nsis,build.nsis?.customNsisBinary);
+            assert.ok((await fs.stat(compiler.path)).isFile());
+            const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+            const script=path.join(project,'windows-vcredist.ps1'),policyPath=path.join(project,'windows-vcredist.json');
+            const payloadPath=path.join(project,'dist/prerequisites/vc_redist.x64.exe');
+            const policy=JSON.parse(await fs.readFile(policyPath,'utf8')),payload=await fs.readFile(payloadPath);
+            assert.equal(payload.length,policy.bytes);assert.equal(digest(payload),policy.sha256);
+            // Dot sourcing never invokes Initialize-DesktopVcRuntime. Refuse the control
+            // unless the original helper already observes its registered minimum runtime.
+            const preflightCommand="$ErrorActionPreference='Stop'; . "+psString(script)+" -Action ValidatePayload; "
+              +"$p=Read-DesktopVcPolicy -Path "+psString(policyPath)+"; "
+              +"$v=Get-DesktopVcInstalledVersion; if(-not [Environment]::Is64BitOperatingSystem -or $null -eq $v -or $v -lt [version]$p.version){throw 'Control refused: the required runtime is not already registered.'}; "
+              +"$null=Test-DesktopVcPayload -Path "+psString(payloadPath)+" -Policy $p; "
+              +"[pscustomobject]@{installedVersion=$v.ToString();minimumVersion=[string]$p.version;desktop=[Environment]::GetFolderPath('DesktopDirectory');programs=[Environment]::GetFolderPath('Programs')} | ConvertTo-Json -Compress";
+            const preflight=()=>JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',preflightCommand],
+              {windowsHide:true,encoding:'utf8',timeout:30000}));
+            const before=preflight();assert.ok(before.desktop&&before.programs);
+            const original=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
+            const reviewed=original.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'))
+              .replace('SetCompressor /SOLID lzma','SetCompressor /SOLID zlib');
+            assert.equal(reviewed.match(/nsExec::ExecToLog /g)?.length,1);
+            const reports=[];
+            for(const mode of choice==='both'?['original','capture']:[choice]){
+              // Recheck immediately before each execution. No helper install is performed
+              // by this preflight, and the already-installed path cannot request UAC.
+              const guarded=preflight();assert.equal(guarded.installedVersion,before.installedVersion);
+              const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-vc-control-'));
+              const fixture=path.join(root,'fixture'),target=path.join(root,'installed'),setup=path.join(root,'control.exe');
+              const childLog=path.join(root,'diagnostic-child.log');
+              const key='FasakhanstaVcControl-'+path.basename(root),product='Fasakhansta VC Control '+path.basename(root);
+              const registrationPath='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\'+key;
+              const shortcut=path.join(before.desktop,product+'.lnk'),menu=path.join(before.programs,product);
+              const report={format:1,diagnosticOnly:true,mode,sourceSha256:digest(original),reviewedSha256:digest(reviewed),
+                prerequisiteSha256:digest(payload),registeredBefore:guarded.installedVersion};
+              try{
+                await fs.mkdir(path.join(fixture,'dist/win-unpacked/resources'),{recursive:true});
+                await fs.mkdir(path.join(fixture,'dist/prerequisites'),{recursive:true});
+                await fs.mkdir(path.join(fixture,'src/assets'),{recursive:true});
+                await fs.mkdir(target);await fs.writeFile(path.join(target,'KEEP.txt'),'unrelated original file');
+                await fs.copyFile(path.join(project,'src/assets/app.ico'),path.join(fixture,'src/assets/app.ico'));
+                await fs.copyFile(path.join(project,'src/assets/app.ico'),path.join(fixture,'dist/win-unpacked/resources/app.ico'));
+                for(const name of ['windows-vcredist.json','windows-vcredist.ps1'])await fs.copyFile(path.join(project,name),path.join(fixture,name));
+                await fs.writeFile(path.join(fixture,'dist/prerequisites/vc_redist.x64.exe'),payload);
+                await fs.writeFile(path.join(fixture,'dist/win-unpacked/CONTROL-PAYLOAD.txt'),'untampered prerequisite control');
+                await fs.writeFile(path.join(fixture,'dist/installer-version.nsh'),
+                  '!define FASAKHANSTA_VERSION "0.0.0"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
+                  +'!define FASAKHANSTA_UNINSTALL_KEY "'+key+'"\n');
+                await fs.writeFile(path.join(fixture,'dist/uninstall-files.nsh'),
+                  'Delete "$INSTDIR\\CONTROL-PAYLOAD.txt"\nDelete "$INSTDIR\\resources\\app.ico"\nRMDir "$INSTDIR\\resources"\n');
+                let source=reviewed;
+                if(mode==='capture'){
+                  // The diagnostic variant changes only the plugin's output destination
+                  // and drains its extra output stack entry into a private temporary log.
+                  // $0 still contains the original return code; every branch is unchanged.
+                  source=source.replace('nsExec::ExecToLog ','nsExec::ExecToStack ');
+                  assert.equal(source.match(/  Pop \$0\r?\n/g)?.length,1);
+                  source=source.replace(/  Pop \$0\r?\n/,'  Pop $0\n  Pop $2\n  FileOpen $3 "'+nsisString(childLog)+'" w\n  FileWriteUTF16LE $3 "$0$\\r$\\n$2"\n  FileClose $3\n');
+                }
+                report.compiledSourceSha256=digest(source);
+                const sourcePath=path.join(fixture,'installer-reviewed-windows.nsi');await fs.writeFile(sourcePath,source);
+                const wrapper=path.join(root,'control.nsi');
+                const wrapperText='Unicode true\nOutFile "'+nsisString(setup)+'"\n!define PROJECT_DIR "'+nsisString(fixture)+'"\n'
+                  +'!macro addLangs\n!insertmacro MUI_LANGUAGE "English"\n!macroend\n!include "'+nsisString(sourcePath)+'"\n';
+                report.wrapperSha256=digest(wrapperText);await fs.writeFile(wrapper,wrapperText);
+                execFileSync(compiler.path,['/V2',wrapper],{windowsHide:true,timeout:300000,maxBuffer:1024*1024,env:{...process.env,...(compiler.env||{})}});
+                report.exeSha256=digest(await fs.readFile(setup));
+                const started=Date.now();
+                const run=spawnSync(setup,['/S','/D='+target],{windowsHide:true,windowsVerbatimArguments:true,encoding:'utf8',timeout:120000,maxBuffer:1024*1024});
+                report.durationMs=Date.now()-started;report.status=run.status;report.signal=run.signal||null;
+                report.spawnError=run.error?{name:run.error.name,code:run.error.code||null,errno:run.error.errno||null}:null;
+                report.stdout=bounded(run.stdout);report.stderr=bounded(run.stderr);
+                if(mode==='capture'){
+                  try{const log=await fs.readFile(childLog),decoded=log.toString('utf16le').replace(/^\uFEFF/,''),newline=decoded.indexOf('\n');report.childOutputBytes=log.length;report.pluginStatus=newline<0?bounded(decoded):decoded.slice(0,newline).trim();report.childOutput=bounded(newline<0?'':decoded.slice(newline+1));}
+                  catch(error){if(error.code!=='ENOENT')throw error;report.childOutputBytes=0;report.childOutput=null;}
+                }
+                report.targetTopLevel=(await fs.readdir(target)).sort().slice(0,16);
+                report.keepPreserved=await fs.readFile(path.join(target,'KEEP.txt'),'utf8')==='unrelated original file';
+                try{report.applicationExtracted=await fs.readFile(path.join(target,'CONTROL-PAYLOAD.txt'),'utf8')==='untampered prerequisite control';}
+                catch(error){if(error.code!=='ENOENT')throw error;report.applicationExtracted=false;}
+                report.registrationStatus=spawnSync('reg.exe',['query',registrationPath],{windowsHide:true}).status;
+                const after=preflight();report.registeredAfter=after.installedVersion;
+                assert.equal(after.installedVersion,before.installedVersion,'The control unexpectedly changed runtime registration.');
+                assert.ok(report.keepPreserved,'The control changed an unrelated fixture file.');
+                const uninstaller=path.join(target,'Uninstall.exe');
+                try{
+                  await fs.access(uninstaller);
+                  // NSIS _?= runs in-place so its process remains waitable; root is later
+                  // removed explicitly and includes only this uniquely named test fixture.
+                  const uninstall=spawnSync(uninstaller,['/S','_?='+target],{windowsHide:true,windowsVerbatimArguments:true,encoding:'utf8',timeout:120000,maxBuffer:1024*1024});
+                  report.uninstallStatus=uninstall.status;report.uninstallError=uninstall.error?uninstall.error.code||uninstall.error.name:null;
+                }catch(error){if(error.code!=='ENOENT')throw error;report.uninstallStatus=null;}
+              }finally{
+                spawnSync('reg.exe',['delete',registrationPath,'/f'],{windowsHide:true});
+                await fs.rm(shortcut,{force:true});await fs.rm(menu,{recursive:true,force:true});
+                await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+                report.cleanupComplete=true;reports.push(report);
+                process.stdout.write(JSON.stringify(report)+'\n');
+              }
+            }
+            return reports;
+          }
+          main().catch(error=>{process.stderr.write('CONTROL_DIAGNOSTIC_FAILED '+bounded(error.stack)+'\n');process.exitCode=1;});
+          '@
+          $controlPath = Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control.cjs'
+          [IO.File]::WriteAllText($controlPath, $control, (New-Object Text.UTF8Encoding($false)))
+          $output = @(node $controlPath desktop-pos both 2>&1)
+          $code = $LASTEXITCODE
+          $raw = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+          $raw | Set-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-output.txt') -Encoding utf8NoBOM
+          Write-Output $raw
+          [ordered]@{ format = 1; diagnosticOnly = $true; sourceRevision = '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9'; harnessExitCode = $code; releaseVerified = $false } | ConvertTo-Json | Set-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-state.json') -Encoding utf8NoBOM
+      - name: Retain the diagnostic control reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-prerequisite-control-DIAGNOSTIC-ONLY
+          path: |
+            ${{ runner.temp }}/desktop-prerequisite-control-output.txt
+            ${{ runner.temp }}/desktop-prerequisite-control-state.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop after the diagnostic without rebuilding or publishing a release
+        shell: pwsh
+        run: throw 'Diagnostic-only run complete. Review the original and captured prerequisite results before rebuilding the product.'
   windows-installer:
+    needs: prerequisite-control
     runs-on: windows-latest
     timeout-minutes: 45
     env:
