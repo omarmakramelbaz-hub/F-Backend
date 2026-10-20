@@ -93,7 +93,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
           node desktop-pos/node_modules/electron/install.js
           if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
-          $lockedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json).packages.'node_modules/electron'.version
+          $lockedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           $electronVersion = & ./desktop-pos/node_modules/electron/dist/electron.exe --version
           if ($LASTEXITCODE -ne 0 -or (($electronVersion -join "`n").Trim() -ne "v$lockedElectron")) { throw 'The actual Electron executable differs from its locked package.' }
           & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
