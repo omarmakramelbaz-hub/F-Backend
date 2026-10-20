@@ -111,7 +111,7 @@ class PosServiceTicket
                 'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>$when];
             if($channel==='phone')$data+=['customer_id'=>$v['customer_id']??null,'delivery_company_id'=>$company['id']??null,'delivery_company_snapshot'=>$company?json_encode($company,JSON_UNESCAPED_UNICODE):null,'delivery_snapshot'=>json_encode($deliveryData['snapshot'])];
             if($row){$id=(int)$row->id;DB::table('pos_service_tickets')->where('id',$id)->update($data);}
-            else{$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
+            else{$data+=app(BranchOrderSequence::class)->next($v['branch'],$channel);$id=DB::table('pos_service_tickets')->insertGetId($data+['actor_id'=>$actor->id,'status'=>$channel==='dine'?'open':'new','payment_status'=>'unpaid','business_date'=>OperatingDay::date($when),'created_at'=>$when]);}
             $directory=app(CustomerDirectory::class);
             $customer=$directory->capture($v,$channel==='phone'?'delivery':'dine',$v['branch']);
             if($customer&&(!empty($v['service_consent'])||!empty($v['marketing_consent']))) {
@@ -137,6 +137,9 @@ class PosServiceTicket
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
             if($requireServiceConsent&&$channel==='phone'&&$v['action']==='send_kitchen')$this->requirePhoneServiceConsent($v);
             $row=$this->locked($channel,$id,$v['branch']);$this->mutable($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
+            if($channel==='dine'&&$v['action']==='send_kitchen'){
+                abort_unless(!$row->last_kitchen_id,409,'تم إرسال الأوردر للمطبخ بالفعل. تُحفظ التعديلات عند طباعة طلب الحساب.');
+            }
             $cart=json_decode($row->cart_snapshot,true);if($v['action']!=='cancel')abort_unless(count($cart['items']),422,'الفاتورة فارغة.');
             $status=$row->status;$revision=(int)$row->revision+1;$when=now('UTC');$changes=['revision'=>$revision,'updated_at'=>$when];$meta=[];
             if($v['action']==='cancel'){abort_unless(!$row->last_kitchen_id,409,'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');$status='cancelled';$changes['cancel_reason']=trim($v['reason']);}
@@ -177,7 +180,7 @@ class PosServiceTicket
         return DB::transaction(function()use($channel,$id,$v,$actor,$hash,$requireServiceConsent){
             $actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor,true);abort_unless($this->access->permissions($actor)['can_checkout'],403);
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
-            if($requireServiceConsent&&!in_array($v['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
+            if($requireServiceConsent&&$channel==='dine'&&!in_array($v['service_consent']??null,[true,1,'1'],true))throw ValidationException::withMessages([
                 'service_consent'=>'يجب تأكيد موافقة العميل على متابعة الخدمة قبل إنهاء الفاتورة.']);
             abort_unless($v['payment_method']==='cash'&&empty($v['tenders']),422,'الدفع متاح كاش فقط.');
             $row=$this->locked($channel,$id,$v['branch']);$this->collectible($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
@@ -189,7 +192,10 @@ class PosServiceTicket
             $q=json_decode($row->quote_snapshot,true);abort_unless(!empty($q['quote_hash'])&&hash_equals($q['quote_hash'],$v['quote_hash']),409,'راجع الفاتورة المحفوظة.');
             $cart=json_decode($row->cart_snapshot,true);$snapshot=$this->contextSnapshot($row);$context=['channel'=>$channel,'ticket_id'=>$id,'saved_quote'=>$q,
                 'branch_snapshot'=>$q['branch'],'snapshot'=>$snapshot];
-            $payment=$this->sales->checkout($cart+$v+['notes'=>$row->notes??''],$actor,$context);$when=now('UTC');
+            // Phone permission was recorded when the order was composed. Collection never renews it,
+            // including old clients that still submit consent or a customer who later opted out.
+            $paymentValues=$v;if($channel==='phone')unset($paymentValues['service_consent'],$paymentValues['marketing_consent']);
+            $payment=$this->sales->checkout($cart+$paymentValues+['notes'=>$row->notes??''],$actor,$context);$when=now('UTC');
             DB::table('pos_service_tickets')->where('id',$id)->update(['status'=>$channel==='dine'?'paid':'finished','payment_status'=>'paid','paid_order_id'=>$payment['receipt']['id'],'revision'=>(int)$row->revision+1,'updated_at'=>$when]);
             $this->release($row,$when);$op=$this->record($v,$actor,$hash,'settle',$id,(int)$row->revision+1,['order_id'=>$payment['receipt']['id']]);
             return $this->result($op,$actor,false)+['register'=>$payment['register'],'today'=>$payment['today']];
@@ -208,17 +214,67 @@ class PosServiceTicket
         $snapshot=json_decode($row->snapshot,true);abort_unless($snapshot['channel']===$channel,404);
         return ['id'=>(int)$row->id,'ticket_id'=>(int)$row->ticket_id,'revision'=>(int)$row->revision,'created_at'=>$this->iso($row->created_at),'ticket'=>$snapshot];
     }
-    public function present(object $row,bool $full=true,$viewer=null): array
+    public function present(object $row, bool $full = true, $viewer = null): array
     {
-        $q=json_decode($row->quote_snapshot,true);$cart=json_decode($row->cart_snapshot,true);$actor=DB::table('users')->where('id',$row->actor_id)->first();
-        $prefix=$row->channel==='dine'?'dining':'phone-orders';
-        $paid=$row->payment_status==='paid';$canReprint=$paid&&$viewer!==null&&$this->access->canReprintReceipts($viewer);
+        $actor = DB::table('users')->where('id', $row->actor_id)->first();
+        $customerRevision = !empty($row->customer_id)
+            ? (int) DB::table('branch_customers')->where('branch', $row->branch)->where('id', $row->customer_id)->value('revision')
+            : null;
+        $canReprint = $row->payment_status === 'paid' && $viewer !== null
+            && $this->access->canReprintReceipts($viewer);
+
+        return $this->presentation($row, $full, $actor->name ?? '', $customerRevision, $canReprint);
+    }
+
+    /** Batch only the supplied response rows; the next poll always reads live data. */
+    public function presentMany(array $rows, bool $full = true, $viewer = null): array
+    {
+        if (!$rows) {
+            return [];
+        }
+        $actorIds = [];
+        $customerIds = [];
+        $branches = [];
+        $hasPaid = false;
+        foreach ($rows as $row) {
+            $actorIds[] = $row->actor_id;
+            if (!empty($row->customer_id)) {
+                $customerIds[] = $row->customer_id;
+                $branches[] = $row->branch;
+            }
+            $hasPaid = $hasPaid || $row->payment_status === 'paid';
+        }
+        $names = DB::table('users')->whereIn('id', array_unique($actorIds))->pluck('name', 'id');
+        $revisions = [];
+        if ($customerIds) {
+            $customers = DB::table('branch_customers')->whereIn('id', array_unique($customerIds))
+                ->whereIn('branch', array_unique($branches))->get(['id', 'branch', 'revision']);
+            foreach ($customers as $customer) {
+                $revisions[$customer->branch.':'.$customer->id] = (int) $customer->revision;
+            }
+        }
+        $canReprint = $hasPaid && $viewer !== null && $this->access->canReprintReceipts($viewer);
+
+        return array_map(function ($row) use ($full, $names, $revisions, $canReprint) {
+            $revision = !empty($row->customer_id) ? ($revisions[$row->branch.':'.$row->customer_id] ?? 0) : null;
+
+            return $this->presentation($row, $full, $names[$row->actor_id] ?? '', $revision,
+                $row->payment_status === 'paid' && $canReprint);
+        }, $rows);
+    }
+
+    private function presentation(object $row, bool $full, string $cashierName, ?int $customerRevision, bool $canReprint): array
+    {
+        $q = json_decode($row->quote_snapshot, true);
+        $cart = json_decode($row->cart_snapshot, true);
+        $prefix = $row->channel === 'dine' ? 'dining' : 'phone-orders';
+        $paid = $row->payment_status === 'paid';
         $data=['id'=>(int)$row->id,'channel'=>$row->channel,'branch'=>$q['branch'],'revision'=>(int)$row->revision,'status'=>$row->status,'payment_status'=>$row->payment_status,
             'table'=>json_decode($row->table_snapshot??'null',true),'waiter_name'=>$row->waiter_name??'','guest_count'=>$row->guest_count?(int)$row->guest_count:null,
             'customer_name'=>$row->customer_name??'','customer_phone'=>$row->customer_phone??'','address'=>$row->address??'','area'=>$row->area??'','delivery_notes'=>$row->delivery_notes??'',
-            'customer_id'=>isset($row->customer_id)?(int)$row->customer_id:null,'customer_revision'=>!empty($row->customer_id)?(int)DB::table('branch_customers')->where('branch',$row->branch)->where('id',$row->customer_id)->value('revision'):null,'delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),
+            'customer_id'=>isset($row->customer_id)?(int)$row->customer_id:null,'customer_revision'=>$customerRevision,'delivery_company'=>json_decode($row->delivery_company_snapshot??'null',true),'delivery_location'=>json_decode($row->delivery_snapshot??'null',true),
             'delivery_fee'=>Money::decimal((int)$row->delivery_cents),'notes'=>$row->notes??'','cancel_reason'=>$row->cancel_reason??'',
-            'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$actor->name??''],
+            'created_at'=>$this->iso($row->created_at),'updated_at'=>$this->iso($row->updated_at),'cashier'=>['id'=>(int)$row->actor_id,'name'=>$cashierName],
             'kitchen_sent'=>(bool)$row->last_kitchen_id,'bill_locked'=>$this->billLocked($row),
             'bill_issued_at'=>!empty($row->bill_issued_at)?$this->iso($row->bill_issued_at):null,'bill_issued_by'=>isset($row->bill_issued_by)?(int)$row->bill_issued_by:null,
             'bill_issued_revision'=>isset($row->bill_issued_revision)?(int)$row->bill_issued_revision:null,
@@ -226,6 +282,7 @@ class PosServiceTicket
             'quote_hash'=>$q['quote_hash']??null,'discount_reason'=>$cart['discount_reason']??'','bill_print_url'=>!$paid||$canReprint?route($prefix.'.print',['id'=>$row->id]):null,
             'kitchen_print_url'=>$row->last_kitchen_id?route($prefix.'.kitchen',['id'=>$row->last_kitchen_id]):null,
             'can_reprint'=>$canReprint,'receipt_url'=>$row->paid_order_id&&$canReprint?route('takeaway.print',['id'=>$row->paid_order_id]):null];
+        if(!empty($row->shift_order_number))$data['number']=BranchOrderSequence::display($row,$row->branch,$row->channel,(string)$row->id);
         foreach(['subtotal','discount','tax','tax_rate','service','service_rate','delivery','total'] as $key)$data[$key]=$q[$key]??'0.00';
         if($full){$data['items']=$q['items'];$data['cart']=$cart+['delivery_fee'=>Money::decimal((int)$row->delivery_cents)];}
         return $data;

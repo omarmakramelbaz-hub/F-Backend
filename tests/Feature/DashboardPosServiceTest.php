@@ -363,6 +363,8 @@ class DashboardPosServiceTest extends TestCase
         $sent=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
         $this->assertTrue($sent['kitchen_sent']);$this->assertFalse($sent['bill_locked']);
         $snapshot=DB::table('pos_service_kitchen_tickets')->first()->snapshot;
+        $this->assertTrue($this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['replayed']);
+        $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
         $cancel=['branch'=>'f:100','idempotency_key'=>$this->key(101),'expected_revision'=>2,'action'=>'cancel','reason'=>'Customer left'];
         $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
         $v['ticket_id']=$ticket['id'];$v['expected_revision']=2;$v['idempotency_key']=$this->key(102);$v['items']=[];
@@ -375,10 +377,61 @@ class DashboardPosServiceTest extends TestCase
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];
         $reduced=$this->tickets()->save($channel,$v,$this->actor())['ticket'];
         $command['idempotency_key']=$this->key(104);$command['expected_revision']=$reduced['revision'];
-        $resent=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
-        $this->assertSame('1.000',$resent['items'][0]['quantity']);$this->assertSame(2,DB::table('pos_service_kitchen_tickets')->count());
+        if($channel==='dine'){
+            $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$command,$this->actor()));
+            $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
+            $this->assertSame($reduced['revision'],$this->tickets()->show($channel,$ticket['id'],$this->actor())['ticket']['revision']);
+        }else{
+            $resent=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
+            $this->assertSame('1.000',$resent['items'][0]['quantity']);$this->assertSame(2,DB::table('pos_service_kitchen_tickets')->count());
+        }
         $this->assertSame($snapshot,DB::table('pos_service_kitchen_tickets')->orderBy('id')->first()->snapshot);
         $this->assertSame(0,DB::table('takeaway_orders')->count());
+    }
+
+    public function test_dine_kitchen_sends_once_while_bill_collects_the_latest_saved_edits(): void
+    {
+        $v=$this->savePayload();$ticket=$this->tickets()->save('dine',$v,$this->actor())['ticket'];
+        $send=['branch'=>'f:100','idempotency_key'=>$this->key(1500),'expected_revision'=>$ticket['revision'],'action'=>'send_kitchen'];
+        $first=$this->tickets()->action('dine',$ticket['id'],$send,$this->actor());
+        $kitchenId=(int)DB::table('pos_service_kitchen_tickets')->value('id');
+        $snapshot=DB::table('pos_service_kitchen_tickets')->value('snapshot');
+        $this->assertSame('100.00',json_decode($snapshot,true)['total']);
+        // Two clients starting from the same revision cannot both create a kitchen order.
+        $this->denied(fn()=>$this->tickets()->action('dine',$ticket['id'],array_replace($send,['idempotency_key'=>$this->key(1501)]),$this->actor()));
+        $this->assertTrue($this->tickets()->action('dine',$ticket['id'],$send,$this->actor())['replayed']);
+        // A fresh revision and a new request key still cannot resend the same dining ticket.
+        $this->denied(fn()=>$this->tickets()->action('dine',$ticket['id'],array_replace($send,['expected_revision'=>$first['ticket']['revision'],'idempotency_key'=>$this->key(1502)]),$this->actor()));
+        $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
+
+        DB::table('resturant_products')->insert(['id'=>3,'resturant_id'=>100,'product_name'=>'Side dish','product_price'=>'50.00','price'=>'{}','status'=>'show']);
+        $v=array_replace($v,['ticket_id'=>$ticket['id'],'expected_revision'=>$first['ticket']['revision'],'idempotency_key'=>$this->key(1503),
+            'items'=>[['product_id'=>1,'quantity'=>'2.000','quantity_mode'=>'piece'],['product_id'=>3,'quantity'=>'1.000','quantity_mode'=>'piece']]]);
+        $v['quote_hash']=$this->tickets()->quote('dine',$v,$this->actor())['quote_hash'];
+        $edited=$this->tickets()->save('dine',$v,$this->actor())['ticket'];
+        $this->assertSame('250.00',$edited['total']);$this->assertCount(2,$edited['items']);
+        $this->assertSame($kitchenId,(int)DB::table('pos_service_tickets')->value('last_kitchen_id'));
+        $this->denied(fn()=>$this->tickets()->action('dine',$ticket['id'],array_replace($send,['expected_revision'=>$edited['revision'],'idempotency_key'=>$this->key(1504)]),$this->actor()));
+        $this->assertSame($snapshot,DB::table('pos_service_kitchen_tickets')->value('snapshot'));
+        $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
+
+        $bill=['branch'=>'f:100','expected_revision'=>$edited['revision'],'idempotency_key'=>$this->key(1505),'action'=>'request_bill'];
+        $billed=$this->tickets()->action('dine',$ticket['id'],$bill,$this->actor())['ticket'];
+        $this->assertSame('250.00',$billed['total']);$this->assertSame($edited['items'],$billed['items']);
+        $this->assertTrue($billed['bill_locked']);$this->assertSame('awaiting_bill',$billed['status']);
+        $this->assertTrue($this->tickets()->action('dine',$ticket['id'],$bill,$this->actor())['replayed']);
+        $this->assertTrue($this->tickets()->action('dine',$ticket['id'],$send,$this->actor())['replayed']);
+        $v=array_replace($v,['expected_revision'=>$billed['revision'],'idempotency_key'=>$this->key(1506),'notes'=>'Blocked after bill']);
+        $this->denied(fn()=>$this->tickets()->save('dine',$v,$this->actor()));
+        $this->denied(fn()=>$this->tickets()->save('dine',array_replace($v,['items'=>[]]),$this->actor()));
+        foreach(['send_kitchen','cancel','request_bill'] as $offset=>$action)$this->denied(fn()=>$this->tickets()->action('dine',$ticket['id'],[
+            'branch'=>'f:100','expected_revision'=>$billed['revision'],'idempotency_key'=>$this->key(1510+$offset),'action'=>$action,'reason'=>'Blocked'], $this->actor()));
+        $payment=$this->settlePayload($billed,1520)+['customer_phone'=>'01012345678'];
+        $paid=$this->tickets()->settle('dine',$ticket['id'],$payment,$this->actor());
+        $this->assertSame('250.00',$paid['receipt']['total']);$this->assertSame('paid',$paid['ticket']['payment_status']);
+        $this->assertSame(1,DB::table('takeaway_orders')->count());$this->assertSame(1,DB::table('takeaway_till_entries')->count());
+        $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());$this->assertSame($snapshot,DB::table('pos_service_kitchen_tickets')->value('snapshot'));
+        $this->assertTrue($this->tickets()->settle('dine',$ticket['id'],$payment,$this->actor())['replayed']);
     }
 
     /** @dataProvider serviceChannels */
