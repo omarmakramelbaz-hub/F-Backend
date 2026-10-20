@@ -50,6 +50,11 @@ jobs:
         run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron test dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+          $lockedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json).packages.'node_modules/electron'.version
+          $electronVersion = & ./desktop-pos/node_modules/electron/dist/electron.exe --version
+          if ($LASTEXITCODE -ne 0 -or (($electronVersion -join "`n").Trim() -ne "v$lockedElectron")) { throw 'The actual Electron executable differs from its locked package.' }
       - name: Verify actual connected Electron requests and encrypted recovery
         shell: pwsh
         run: |
@@ -493,6 +498,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+          $lockedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json).packages.'node_modules/electron'.version
+          $electronVersion = & ./desktop-pos/node_modules/electron/dist/electron.exe --version
+          if ($LASTEXITCODE -ne 0 -or (($electronVersion -join "`n").Trim() -ne "v$lockedElectron")) { throw 'The actual Electron executable differs from its locked package.' }
           & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
           $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
