@@ -1,0 +1,29 @@
+name: Native Windows Unicode registry transport
+
+on:
+  push:
+    branches: ['codex/go-erp-windows-unicode-proof-20261021']
+
+permissions:
+  contents: read
+
+jobs:
+  windows-powershell-unicode:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Preserve the exact reviewed helper bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot preserve exact release helper bytes.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot preserve exact release helper line endings.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify actual PowerShell 5.1 registry Unicode and JSON transport
+        run: node desktop-pos/test/windows-registry-native.cjs
