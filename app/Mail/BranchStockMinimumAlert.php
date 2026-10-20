@@ -12,7 +12,7 @@ class BranchStockMinimumAlert extends Mailable
 
     public function build()
     {
-        return $this->subject('تنبيه الحد الأدنى للبضاعة - '.$this->alert['branch_name'])
+        return $this->subject('تقرير رصيد البضاعة — تنبيه الحد الأدنى')
             ->view('emails.branch_stock_minimum');
     }
 }
