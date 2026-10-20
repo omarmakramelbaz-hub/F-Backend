@@ -11,7 +11,12 @@ $database='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));$other='fasakh
 $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 if($pdo->query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='fasakhansta_dashboard_effects'")->fetchColumn())throw new RuntimeException('Requires a brand-new disposable MariaDB instance.');
 $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-register_shutdown_function(function()use($pdo,$database,$other){foreach([$database,$other,'fasakhansta_dashboard_effects'] as $name)$pdo->exec('DROP DATABASE IF EXISTS `'.$name.'`');});
+$workers=[];$fixtureConnection=null;$beforeDatabaseDrop=static fn()=>true;
+register_shutdown_function(function()use($pdo,$database,$other,&$beforeDatabaseDrop){
+    // Release application/worker transactions before DROP can wait on their metadata locks.
+    if(!$beforeDatabaseDrop()){fwrite(STDERR,'Private worker cleanup failed before database removal.'.PHP_EOL);exit(1);}
+    foreach([$database,$other,'fasakhansta_dashboard_effects'] as $name)$pdo->exec('DROP DATABASE IF EXISTS `'.$name.'`');
+});
 $profile=sys_get_temp_dir().'/print-ledger-'.bin2hex(random_bytes(8));
 foreach(['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'] as $dir)mkdir($profile.'/'.$dir,0700,true);
 $loader=require $application.'/vendor/autoload.php';$loader->setPsr4('App\\',$application.'/app');
@@ -21,6 +26,25 @@ foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_DEVICE_ID'=>$devic
     'CACHE_DRIVER'=>'file','SESSION_DRIVER'=>'file','APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php',
     'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $key=>$value)putenv($key.'='.$value);
 $app=require $application.'/desktop/bootstrap.php';
+$fixtureConnection=DB::connection();$fixturePdo=$fixtureConnection->getPdo();
+$beforeDatabaseDrop=function()use(&$workers,$fixtureConnection,$fixturePdo): bool {
+    $clean=true;
+    // Also release raw PDO transactions, which Laravel's transaction counter cannot see.
+    foreach(array_merge([$fixtureConnection],array_values(DB::getConnections())) as $connection){
+        try{$physical=$connection->getRawPdo();if(!$physical instanceof PDO)continue;if($connection->transactionLevel()>0)$connection->rollBack(0);if($physical->inTransaction())$physical->rollBack();}
+        catch(Throwable $error){$clean=false;}
+    }
+    try{if($fixturePdo->inTransaction())$fixturePdo->rollBack();}catch(Throwable $error){$clean=false;}
+    foreach($workers as $job){
+        if(!is_resource($job->process))continue;
+        $status=proc_get_status($job->process);
+        if($status['running']){proc_terminate($job->process);$deadline=microtime(true)+2;do{usleep(20000);$status=proc_get_status($job->process);}while($status['running']&&microtime(true)<$deadline);}
+        if($status['running']){proc_terminate($job->process,9);$deadline=microtime(true)+2;do{usleep(20000);$status=proc_get_status($job->process);}while($status['running']&&microtime(true)<$deadline);}
+        if($status['running']){$clean=false;continue;}
+        proc_close($job->process);$job->process=null;
+    }
+    return $clean;
+};
 set_exception_handler(function(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);});
 $count=0;
 function check($value,string $label): void {global $count;if(!$value)throw new RuntimeException($label);$count++;echo 'PASS '.$label.PHP_EOL;}
@@ -90,21 +114,67 @@ denied(fn()=>$write($historical),409,'ordinary unwired business writes remain va
 check(!DB::table('fasakhansta_dashboard_effects.print_ledger_commands')->where('command_id',$historical['idempotency_key'])->exists(),'historical receipt receives no fabricated pending effect');
 
 // Independent native PHP processes wait on the real fixed scope row.
-$concurrent=$sale();$spawn=function(array $values)use($application){
-    $process=proc_open([PHP_BINARY,__DIR__.'/print-ledger-worker.php',$application],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,null,null,['bypass_shell'=>true]);
+// proc_open pipes cannot be selected on Windows; atomic files carry only test rendezvous/results.
+$concurrent=$sale();
+$workerJson=static function(string $path): ?array {clearstatcache(true,$path);return is_file($path)?json_decode(file_get_contents($path),true,32,JSON_THROW_ON_ERROR):null;};
+$spawn=function(array $values)use($application,$profile,&$workers,$workerJson){
+    $root=$profile.'/private/worker-'.bin2hex(random_bytes(8));mkdir($root,0700,true);
+    $process=proc_open([PHP_BINARY,__DIR__.'/print-ledger-worker.php',$application],[0=>['pipe','r'],1=>['file',$root.'/stdout.log','a'],2=>['file',$root.'/stderr.log','a']],$pipes,null,null,['bypass_shell'=>true]);
     if(!is_resource($process))throw new RuntimeException('Could not start local test worker.');
-    fwrite($pipes[0],json_encode(['values'=>$values],JSON_THROW_ON_ERROR));fclose($pipes[0]);stream_set_timeout($pipes[1],10);
-    if(trim((string)fgets($pipes[1]))!=='READY')throw new RuntimeException('Worker did not reach its transaction boundary.');
-    return [$process,$pipes];
+    $job=(object)['process'=>$process,'root'=>$root,'connectionId'=>null,'exitCode'=>null];$workers[]=$job;
+    try{fwrite($pipes[0],json_encode(['values'=>$values,'ready_path'=>$root.'/ready.json','result_path'=>$root.'/result.json'],JSON_THROW_ON_ERROR));}finally{fclose($pipes[0]);}
+    $deadline=microtime(true)+10;
+    do{
+        if(($ready=$workerJson($root.'/ready.json'))!==null){
+            if(($ready['format']??null)!==1||!is_int($ready['connection_id']??null)||$ready['connection_id']<1)throw new RuntimeException('Worker identity is invalid.');
+            $job->connectionId=$ready['connection_id'];return $job;
+        }
+        $status=proc_get_status($process);if(!$status['running']){$job->exitCode=$status['exitcode'];break;}usleep(20000);
+    }while(microtime(true)<$deadline);
+    throw new RuntimeException('Worker did not reach its transaction boundary: '.substr((string)@file_get_contents($root.'/stderr.log'),-2000));
 };
-$collect=function(array $job): array {[$process,$pipes]=$job;$out=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$code=proc_close($process);if($code!==0)throw new RuntimeException('Private worker failed: '.$error.' '.$out);return json_decode(trim($out),true,512,JSON_THROW_ON_ERROR);};
-DB::beginTransaction();DB::table('fasakhansta_dashboard_effects.print_ledger_scopes')->where('device_id',$device)->lockForUpdate()->first();
-$one=$spawn($concurrent);$two=$spawn($concurrent);usleep(100000);$readable=[$one[1][1],$two[1][1]];$writeSet=null;$exceptSet=null;
-check(stream_select($readable,$writeSet,$exceptSet,0)===0,'independent workers cannot bypass the held fixed scope lock');DB::commit();
-$first=$collect($one);$second=$collect($two);
+$collect=function(object $job)use($workerJson): array {
+    $deadline=microtime(true)+15;$reply=null;
+    do{
+        $reply=$workerJson($job->root.'/result.json');$status=proc_get_status($job->process);
+        if(!$status['running']){$job->exitCode=$status['exitcode'];break;}usleep(20000);
+    }while(microtime(true)<$deadline);
+    if($status['running'])throw new RuntimeException('Private worker exceeded its result deadline.');
+    $code=proc_close($job->process);$job->process=null;if($job->exitCode>=0)$code=$job->exitCode;
+    $reply=$workerJson($job->root.'/result.json');
+    if($code!==0||!is_array($reply))throw new RuntimeException('Private worker failed: '.substr((string)@file_get_contents($job->root.'/stderr.log'),-2000));
+    return $reply;
+};
+$concurrentFacts=fn()=>[DB::table('takeaway_orders')->count(),DB::table('desktop_dashboard_commands')->count(),DB::table('crm_purchases')->count(),DB::table('takeaway_tills')->value('balance_cents'),DB::table('fasakhansta_dashboard_effects.print_ledger_commands')->count(),DB::table('fasakhansta_dashboard_effects.print_ledger_intents')->count()];
+$beforeConcurrent=$concurrentFacts();
+try{
+    DB::beginTransaction();DB::table('fasakhansta_dashboard_effects.print_ledger_scopes')->where('device_id',$device)->lockForUpdate()->first();
+    $parentId=(int)DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
+    $one=$spawn($concurrent);$two=$spawn($concurrent);$workerIds=[$one->connectionId,$two->connectionId];
+    check(count(array_unique([$parentId,...$workerIds]))===3,'the parent and both native workers use distinct real database connections');
+    $deadline=microtime(true)+10;$blocked=false;
+    do{
+        $edges=[];
+        $waits=$pdo->query('SELECT r.trx_mysql_thread_id AS waiter,b.trx_mysql_thread_id AS blocker,l.lock_table,l.lock_index,l.lock_data FROM information_schema.INNODB_LOCK_WAITS w JOIN information_schema.INNODB_TRX r ON r.trx_id=w.requesting_trx_id JOIN information_schema.INNODB_TRX b ON b.trx_id=w.blocking_trx_id JOIN information_schema.INNODB_LOCKS l ON l.lock_id=w.requested_lock_id')->fetchAll(PDO::FETCH_ASSOC);
+        foreach($waits as $wait)if($wait['lock_table']==='`fasakhansta_dashboard_effects`.`print_ledger_scopes`'&&$wait['lock_index']==='PRIMARY'&&str_contains((string)$wait['lock_data'],$device))$edges[(int)$wait['waiter']][]=(int)$wait['blocker'];
+        $reachesParent=function(int $id)use($edges,$parentId): bool {$pending=[$id];$seen=[];while($pending){$current=array_pop($pending);if($current===$parentId)return true;if(isset($seen[$current]))continue;$seen[$current]=true;foreach($edges[$current]??[] as $blocker)$pending[]=$blocker;}return false;};
+        $blocked=isset($edges[$workerIds[0]],$edges[$workerIds[1]])&&$reachesParent($workerIds[0])&&$reachesParent($workerIds[1]);
+        // InnoDB's shared lock-information snapshot refreshes only after 100 ms without a read.
+        if($blocked||$workerJson($one->root.'/result.json')!==null||$workerJson($two->root.'/result.json')!==null)break;usleep(200000);
+    }while(microtime(true)<$deadline);
+    if(!$blocked)fwrite(STDERR,'PRINT_LEDGER_SCOPE_WAIT_DIAGNOSTIC '.json_encode(['parent'=>$parentId,'workers'=>$workerIds,'waits'=>$waits,'results'=>[$workerJson($one->root.'/result.json'),$workerJson($two->root.'/result.json')],'parent_transaction'=>DB::connection()->getPdo()->inTransaction(),'parent_level'=>DB::transactionLevel()],JSON_THROW_ON_ERROR).PHP_EOL);
+    check($blocked,'independent workers cannot bypass the held fixed scope lock');
+    check($beforeConcurrent===$concurrentFacts()&&$workerJson($one->root.'/result.json')===null&&$workerJson($two->root.'/result.json')===null,'both blocked workers leave all financial, journal and private effect facts unchanged before release');
+    echo 'PRINT_LEDGER_SCOPE_LOCK_PROOF '.json_encode(['parent'=>$parentId,'workers'=>$workerIds,'scope'=>$device,'both_waiting'=>true,'business_unchanged'=>true],JSON_THROW_ON_ERROR).PHP_EOL;
+    DB::commit();
+    $first=$collect($one);$second=$collect($two);
+}finally{
+    // A failed assertion must not enter shutdown DROP DATABASE while still owning this lock.
+    if(!$beforeDatabaseDrop())throw new RuntimeException('Private worker cleanup did not complete.');
+}
 check($first['status']===200&&$first===$second,'two contending processes return the same original business result and immutable intent');
 check(DB::table('takeaway_orders')->where('request_key',$concurrent['idempotency_key'])->count()===1&&DB::table('fasakhansta_dashboard_effects.print_ledger_intents')->where('command_id',$concurrent['idempotency_key'])->count()===1,'concurrent retries persist one financial sale and one effect slot');
-$conflict=$concurrent;$conflict['cash_received']='500.00';check($collect($spawn($conflict))['status']===409,'a separate process cannot overwrite the accepted tuple with changed facts');
+$conflict=$concurrent;$conflict['cash_received']='500.00';try{check($collect($spawn($conflict))['status']===409,'a separate process cannot overwrite the accepted tuple with changed facts');}finally{if(!$beforeDatabaseDrop())throw new RuntimeException('Private worker cleanup did not complete.');}
 $target=DB::table('fasakhansta_dashboard_effects.print_ledger_intents')->where('command_id',$concurrent['idempotency_key'])->first();
 $targetCommand=DB::table('fasakhansta_dashboard_effects.print_ledger_commands')->where('command_id',$concurrent['idempotency_key'])->first();$sourceCommand=DB::table('fasakhansta_dashboard_effects.print_ledger_commands')->where('command_id',$v['idempotency_key'])->first();
 DB::table('fasakhansta_dashboard_effects.print_ledger_intents')->where('effect_id',$target->effect_id)->update(['descriptor_cipher'=>$row->descriptor_cipher,'descriptor_hash'=>$row->descriptor_hash]);
