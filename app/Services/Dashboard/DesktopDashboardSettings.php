@@ -26,6 +26,14 @@ class DesktopDashboardSettings
     /** Includes the ROOT transaction's outcome/journal writes, never only controller work. */
     public function guard(callable $work)
     {
+        return app(DesktopDashboardSettingsImages::class)->guard(fn()=>$this->settingsGuard($work));
+    }
+    public function transaction(callable $work)
+    {
+        return $this->guard(fn()=>DB::transaction(function()use($work){try{return $work();}catch(\Throwable $error){app(DesktopDashboardSettingsImages::class)->rolledBack();throw $error;}}));
+    }
+    private function settingsGuard(callable $work)
+    {
         if($this->guarded)return $work();abort_unless(DB::transactionLevel()===0,409);
         $app=app();$original=$app['events'];$events=new DesktopDashboardSettingsEvents($original);
         $cache=app(\Spatie\LaravelSettings\Support\SettingsCacheFactory::class)->build(GeneralSettings::repository());
@@ -100,10 +108,11 @@ class DesktopDashboardSettings
     }
     private function facts(string $name,array $payload): array
     {
-        abort_unless(array_diff(array_keys($payload),['parameters','values','files','facts'])===[]&&($payload['parameters']??[])===[]&&($payload['files']??[])===[],422);
+        abort_unless(array_diff(array_keys($payload),['parameters','values','files','facts'])===[]&&($payload['parameters']??[])===[]&&is_array($payload['files']??null),422);
         $this->values($name,$payload['values']??[]);$facts=$payload['facts']??[];
-        abort_unless(array_keys($facts)===['settings_before']&&is_array($facts['settings_before'])&&!isset($facts['settings_before']['app_balance']),409);
-        $this->validateState($facts['settings_before']);
+        abort_unless(array_keys($facts)===['settings_before','settings_images_before']&&is_array($facts['settings_before'])&&!isset($facts['settings_before']['app_balance']),409);
+        $this->validateState($facts['settings_before']);abort_unless(is_array($facts['settings_images_before']??null),409);app(DesktopDashboardSettingsImages::class)->verifyBefore($name,$facts['settings_images_before'],$payload['files']);
+        foreach($facts['settings_images_before'] as $slot=>$image)abort_unless(($image['path']??null)===($facts['settings_before'][$slot]['value']??null),409);
         return $facts['settings_before'];
     }
     public function authorize(string $name,array $payload,User $actor,object $scope): User
@@ -123,7 +132,9 @@ class DesktopDashboardSettings
         $has=function(string $permission)use($permissionRows,$direct,$roleGrants){$id=$permissionRows->firstWhere('name',$permission)->id??null;return $id!==null&&($direct->contains('permission_id',$id)||$roleGrants->contains('permission_id',$id));};
         abort_unless((int)$fresh->id===1||$roles->contains(fn($role)=>$role->guard_name==='admin'&&$role->name==='Super Admin')||$has('order-list'),403);
         if($name==='updateSetting')abort_unless($has('setting-list'),403);
-        $branches=json_decode($device->branches,true,512,JSON_THROW_ON_ERROR);abort_unless(is_array($branches)&&count($branches)>0,403);
+        $branches=app(DesktopDashboardDevices::class)->baseBranches($device,true);abort_unless(is_array($branches)&&count($branches)>0,403);
+        $cohort=app(DesktopDashboardCreatedScopes::class)->available()?app(DesktopDashboardCreatedScopes::class)->structural($device,$fresh):$branches;
+        if(config('desktop_dashboard.local')===true&&app(DesktopDashboardCreatedScopes::class)->active())app(DesktopDashboardCreatedScopes::class)->assertStructural($scope,$fresh);
         $required=[];
         foreach(DB::table('resturants')->orderBy('id')->lockForUpdate()->get() as $branch)$required[]='f:'.$branch->id;
         // Enrollment is structural: temporarily declined GO owners still own administrative rows.
@@ -137,7 +148,7 @@ class DesktopDashboardSettings
                 if($eligible)$required[]='gs:'.$store->user_id;
             }
         }
-        foreach($required as $branch)abort_unless(in_array($branch,$branches,true),403,'الإعدادات العامة تحتاج ربط الإدارة بكل الفروع الحالية.');
+        foreach($required as $branch)abort_unless(in_array($branch,$cohort,true),403,'الإعدادات العامة تحتاج ربط الإدارة بكل الفروع الحالية.');
         if($name==='updateAdvertising')abort_unless(in_array('f:'.$payload['values']['advertise_resturant_id'],$required,true)&&in_array('f:'.$payload['values']['advertise_resturant_id'],$branches,true),403);
         $guard=auth('admin');$previous=$guard->getUser();$default=auth()->getDefaultDriver();
         try{$guard->setUser($fresh);auth()->shouldUse('admin');$probe=Request::create(url(self::ROUTES[$name]['path']),'PUT');
@@ -149,12 +160,12 @@ class DesktopDashboardSettings
     }
     public function payload(string $name,Request $request,string $command,User $actor,object $scope,?array $saved=null): array
     {
-        abort_if($request->allFiles(),501,'مزامنة صور الإعدادات لم تُجهّز بعد؛ لم تُنفّذ العملية.');abort_unless($request->route()->parameters()===[],422);
+        $files=app(DesktopDashboardSettingsImages::class)->files($name,$request);abort_unless($request->route()->parameters()===[],422);
         abort_if($request->has('idempotency_key')&&$request->input('idempotency_key')!==$command,409,'رقم عملية الإعدادات مختلف عن سجلها.');
         // The original read-only financial display is not an editable setting command.
-        $values=$request->except('_token','_method','_desktop_command','app_balance');$values['idempotency_key']=$command;$values=$this->values($name,$values);
+        $values=$request->except('_token','_method','_desktop_command','app_balance',...array_keys($request->allFiles()));$values['idempotency_key']=$command;$values=$this->values($name,$values);
         $saved=$saved??app(DesktopDashboardJournal::class)->savedFacts((string)config('desktop_dashboard.device_id'),$command,(int)$actor->id,$name);
-        $payload=['parameters'=>[],'values'=>$values,'files'=>[],'facts'=>$saved??['settings_before'=>$this->state()]];
+        $before=$saved['settings_before']??$this->state();$payload=['parameters'=>[],'values'=>$values,'files'=>$files,'facts'=>$saved??['settings_before'=>$before,'settings_images_before'=>app(DesktopDashboardSettingsImages::class)->before($before,$files)]];
         $this->authorize($name,$payload,$actor,$scope);return $payload;
     }
     public function inputs(array $payload,callable $reference): array
@@ -174,12 +185,13 @@ class DesktopDashboardSettings
             }});self::$listening=true;}
         self::$protectedBalance=$balance;$request->merge(['app_balance'=>$balance]);
         try{
-            app(GeneralSettings::class)->refresh();$response=$work();$status=$response->getStatusCode();
+            app(GeneralSettings::class)->refresh();$response=app(DesktopDashboardSettingsImages::class)->bind($name,$request,$payload['values']['idempotency_key'],$payload['files'],$work);$status=$response->getStatusCode();
             if($status>=400||($request->hasSession()&&in_array('errors',$request->session()->get('_flash.new',[]),true)))throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
             abort_unless(in_array($status,[302,303],true)&&$this->balance()===$balance,409,'رصيد التطبيق لا يدخل في تعديل الإعدادات المحلية.');
             $parts=parse_url($response->headers->get('Location')??'');abort_unless(($parts['path']??'')===self::ROUTES[$name]['return']&&!isset($parts['query']),409);
+            $after=$this->state();$images=app(DesktopDashboardSettingsImages::class);$images->verifyBefore($name,$payload['facts']['settings_images_before'],$payload['files']);$afterImages=$images->result($name,$after,$payload['files'],$payload['values']['idempotency_key']);
             return ['http'=>['status'=>$status,'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>self::ROUTES[$name]['return']],
-                'success'=>session('success'),'after'=>$this->state(),'references'=>[]];
+                'success'=>session('success'),'after'=>$after,'after_images'=>$afterImages,'references'=>[]];
         }finally{self::$protectedBalance=null;}
     }
     public function response(array $result)
@@ -191,6 +203,7 @@ class DesktopDashboardSettings
     public function verifyAfter(array $server,array $local,array $resolved,array $original): void
     {
         abort_unless(is_array($server['after']??null)&&is_array($local['after']??null),409);$this->validateState($server['after']);$this->validateState($local['after']);
+        abort_unless(($server['after_images']??null)===($local['after_images']??null),409);
         $path='after.advertise_resturant_id.value';$old=data_get($original,'facts.settings_before.advertise_resturant_id.value');
         $id=is_array($old)?($old['$desktop_ref']['local_id']??null):$old;
         if(isset($local['after']['advertise_resturant_id'])){

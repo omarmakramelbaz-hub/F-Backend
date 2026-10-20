@@ -102,4 +102,6 @@ $check(!str_contains($localProvider,'name="PAYMOB_API_KEY"')&&!str_contains($loc
 config(['desktop_dashboard.local'=>false]);$onlineWidget=$render($widget);$onlineProvider=$render($provider);
 $check(str_contains($onlineWidget,'name="app_balance"')&&str_contains($onlineWidget,'98765.43')&&str_contains($onlineProvider,'name="PAYMOB_API_KEY"')&&str_contains($onlineProvider,'name="payment_card_activate"'),'the original connected settings and payment controls retain their existing values and forms');
 require __DIR__.'/settings-sync.php';
+require __DIR__.'/settings-images.php';
+require __DIR__.'/settings-legacy-images.php';
 echo 'DESKTOP_SETTINGS_COMPLETE '.$checks.PHP_EOL;

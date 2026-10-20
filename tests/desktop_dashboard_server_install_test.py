@@ -3,6 +3,8 @@
 import hashlib
 import ast
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -19,6 +21,16 @@ from unittest.mock import patch
 HERE=Path(__file__).resolve().parent.parent
 spec=importlib.util.spec_from_file_location('desktop_install_test_subject',HERE/'deployment/apply_desktop_dashboard_server.py')
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
+
+class ReleaseRosterTests(unittest.TestCase):
+    def test_generation_and_execution_share_eight_additive_migrations_without_historical_execution(self):
+        spec=importlib.util.spec_from_file_location('desktop_install_roster_refresh',HERE/'deployment/refresh_desktop_dashboard_server_manifest.py')
+        refresh=importlib.util.module_from_spec(spec);spec.loader.exec_module(refresh)
+        self.assertEqual(installer.MIGRATIONS,refresh.MIGRATIONS)
+        self.assertEqual(len(installer.MIGRATIONS),8)
+        self.assertEqual(installer.MIGRATIONS[-1],'database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php')
+        self.assertEqual(installer.SOURCE_ONLY_MIGRATIONS,refresh.SOURCE_ONLY_MIGRATIONS)
+        self.assertFalse(set(installer.MIGRATIONS)&set(installer.SOURCE_ONLY_MIGRATIONS))
 
 class Fixture:
     def __init__(self):
@@ -419,6 +431,41 @@ class PairedRootStagingTests(unittest.TestCase):
             with self.assertRaisesRegex(ns['SafeError'],'ALTERNATIVE_SOURCE_CONFLICT'):ns['stage'](folder,'a'*40)
             self.assertEqual(set(calls),{primary,alternative});self.assertEqual(list(folder.iterdir()),[])
         finally:shutil.rmtree(folder)
+
+class PayloadPinRefreshTests(unittest.TestCase):
+    def setUp(self):
+        self.folder=Path(tempfile.mkdtemp(prefix='desktop-payload-pins-'))
+        self.names=['deployment/desktop_dashboard_server_manifest.json',
+            'deployment/desktop_dashboard_server_manifest_expense_rejection.json',
+            'deployment/apply_desktop_dashboard_server.py','deployment/desktop_dashboard_release.php',
+            'deployment/install_whatsapp_inbox.py']
+        for name in self.names:
+            path=self.folder/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(('reviewed '+name+'\n').encode())
+        self.launcher=self.folder/'deployment/apply_desktop_dashboard_server_root.sh'
+        self.write_launcher(dict.fromkeys(self.names,'0'*40))
+        spec=importlib.util.spec_from_file_location('desktop_pin_refresh_test',HERE/'deployment/pin_desktop_dashboard_installer.py')
+        self.subject=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.subject)
+    def tearDown(self):shutil.rmtree(self.folder)
+    def write_launcher(self,pins):
+        self.launcher.write_text("#!/usr/bin/env bash\n# retained prefix\nHELPER_PINS = "+repr(pins)+"\n# retained suffix\n")
+        # The real launcher's explicit map uses its own closing line.
+        value=self.launcher.read_text().replace('HELPER_PINS = {','HELPER_PINS = {\n').replace("}\n# retained suffix","\n}\n# retained suffix")
+        self.launcher.write_text(value)
+    def refresh(self):
+        with contextlib.redirect_stdout(io.StringIO()):self.subject.main(self.folder)
+    def test_refresh_rebinds_both_complete_cohorts_and_is_idempotent(self):
+        self.refresh();first=self.launcher.read_bytes();self.refresh();self.assertEqual(first,self.launcher.read_bytes())
+        text=first.decode();self.assertTrue(text.startswith('#!/usr/bin/env bash\n# retained prefix\n'));self.assertTrue(text.endswith('# retained suffix\n'))
+        pins=ast.literal_eval(text.split('HELPER_PINS = ',1)[1].split('\n# retained suffix',1)[0])
+        self.assertEqual(pins,{name:installer.blob((self.folder/name).read_bytes())for name in self.names})
+    def test_unknown_payload_scope_stops_without_rewriting_the_launcher(self):
+        self.write_launcher(dict.fromkeys(self.names+['deployment/unreviewed.py'],'0'*40));before=self.launcher.read_bytes()
+        with self.assertRaisesRegex(ValueError,'payload scope differs'):self.refresh()
+        self.assertEqual(self.launcher.read_bytes(),before)
+    def test_a_linked_payload_cannot_be_pinned_as_reviewed_bytes(self):
+        payload=self.folder/self.names[0];payload.unlink();payload.symlink_to(self.folder/self.names[1]);before=self.launcher.read_bytes()
+        with self.assertRaisesRegex(ValueError,'regular reviewed file'):self.refresh()
+        self.assertEqual(self.launcher.read_bytes(),before)
 
 class CompatibilityBridgeTests(unittest.TestCase):
     def setUp(self):

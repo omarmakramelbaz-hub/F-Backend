@@ -48,6 +48,11 @@ class DesktopDashboardJournal
 
             if(app(DesktopDashboardPrintLedger::class)->active($device)&&in_array($route,DesktopDashboardPrintLedger::ROUTES,true)&&!isset($payload['envelope']))
                 app(DesktopDashboardPrintLedger::class)->guardJournal($device,$actor,(string)($payload['values']['branch']??''),$route);
+            if(config('desktop_dashboard.local')&&(string)config('desktop_dashboard.device_id')!==''&&DesktopDashboardCoreAuthority::handles($route)&&!isset($payload['envelope'])){
+                $scope=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();
+                abort_unless($scope&&$scope->enabled&&(int)$scope->actor_id===$actor,403);
+                app(DesktopDashboardCoreAuthority::class)->authorize($route,$payload['values']??[],$scope);
+            }
             if(config('desktop_dashboard.local')&&DesktopDashboardCustomerFacts::handles($route)&&!isset($payload['envelope'])){
                 $scope=app(DesktopDashboardRefresh::class)->lock($device);
                 if($scope){$current=app(DesktopDashboardDevices::class)->actor($scope);
@@ -73,6 +78,8 @@ class DesktopDashboardJournal
                 if(DesktopDashboardCustomerDirectory::handles($route))app(DesktopDashboardCustomerDirectory::class)->authorizeSaved($route,$result,$payload,$device,$actor);
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
                 if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
+                if(DesktopDashboardRestaurantManagement::handles($route))app(DesktopDashboardRestaurantManagement::class)->verifyResult($result);
+                if(DesktopDashboardGoStoreCreation::handles($route))app(DesktopDashboardGoStoreCreation::class)->verifyResult($result);
                 if(DesktopDashboardGoProducts::handles($route))app(DesktopDashboardGoProducts::class)->verifyResult($result);
                 if(DesktopDashboardRestaurantMenuCopy::handles($route))app(DesktopDashboardRestaurantMenuCopy::class)->verifyResult($result);
                 return $result;
@@ -82,13 +89,15 @@ class DesktopDashboardJournal
             }
             if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
-            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardGoProducts::handles($route)||DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route)||DesktopDashboardWalletCash::handles($route)||DesktopDashboardUserAccounts::handles($route)||DesktopDashboardUserProfiles::handles($route)||DesktopDashboardOrderBoard::handles($route)||DesktopDashboardSettings::handles($route));
+            $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardGoStoreCreation::handles($route)||DesktopDashboardRestaurantManagement::handles($route)||DesktopDashboardGoProducts::handles($route)||DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route)||DesktopDashboardWalletCash::handles($route)||DesktopDashboardUserAccounts::handles($route)||DesktopDashboardUserProfiles::handles($route)||DesktopDashboardOrderBoard::handles($route)||DesktopDashboardSettings::handles($route));
             $previousClock=\Carbon\Carbon::getTestNow();
             if($customerClock)\Carbon\Carbon::setTestNow($started);
             try{$result=$work();}finally{if($customerClock)\Carbon\Carbon::setTestNow($previousClock);}
             if (!is_array($result)) throw new \LogicException('A journaled business operation must return its persisted result.');
             // Collections and date objects must have the same JSON representation on first reply and replay.
             $result=json_decode($this->json($result),true,512,JSON_THROW_ON_ERROR);
+            if(DesktopDashboardRestaurantManagement::handles($route))app(DesktopDashboardRestaurantManagement::class)->verifyResult($result);
+            if(DesktopDashboardGoStoreCreation::handles($route))app(DesktopDashboardGoStoreCreation::class)->verifyResult($result);
             if(DesktopDashboardGoProducts::handles($route))app(DesktopDashboardGoProducts::class)->verifyResult($result);
             if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
             if(DesktopDashboardRestaurantProductCrud::handles($route))app(DesktopDashboardProductImages::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
@@ -111,6 +120,8 @@ class DesktopDashboardJournal
                 'local_result_cipher'=>Crypt::encryptString($this->json(['format'=>1,'result'=>$result,'references'=>$references])),
                 'dependencies'=>$this->json($dependencies),'status'=>'pending','attempts'=>0,'created_at'=>$occurred,'updated_at'=>$now,
             ]);
+            if(config('desktop_dashboard.local')===true&&$route===DesktopDashboardCreatedScopes::ROUTE)
+                app(DesktopDashboardCreatedScopes::class)->captureLocal($device,$command,$actor,$route,$payload,$result,$references);
             if(app(DesktopDashboardPrintLedger::class)->active($device)&&in_array($route,DesktopDashboardPrintLedger::ROUTES,true)&&!isset($payload['envelope']))
                 app(DesktopDashboardPrintLedger::class)->captureJournal($device,$command,$actor,(string)($payload['values']['branch']??''));
             return $result;

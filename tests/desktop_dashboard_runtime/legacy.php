@@ -23,6 +23,7 @@ require __DIR__.'/full-schema.php';
 $report=json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'),true,512,JSON_THROW_ON_ERROR);
 DesktopFullSchemaFixture::create($report['tables']);
 require $application.'/database/migrations/2026_10_08_130000_create_desktop_dashboard_journal.php';(new CreateDesktopDashboardJournal)->up();
+require $application.'/database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php';(new CreateDesktopDashboardCreatedScopes)->up();
 DB::statement('SET FOREIGN_KEY_CHECKS=0');
 DB::table('users')->insert([
     ['id'=>1,'name'=>'الأونر','email'=>'owner@test.invalid','mobile'=>'1000000000','password'=>password_hash('Fixture123',PASSWORD_BCRYPT),'account_type'=>'admin','status'=>'accepted','app_scope'=>'fasakhansta','balance'=>0],
@@ -298,5 +299,7 @@ require __DIR__.'/restaurant-control.php';
 require __DIR__.'/restaurant-products.php';
 require __DIR__.'/restaurant-menu-copy.php';
 require __DIR__.'/restaurant-product-crud.php';
+require __DIR__.'/restaurant-management.php';
+require __DIR__.'/go-creation.php';
 echo $count.' legacy schema checks passed'.PHP_EOL;
 $fixtureCompleted=true;

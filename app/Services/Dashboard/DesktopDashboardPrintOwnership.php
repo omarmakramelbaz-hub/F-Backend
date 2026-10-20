@@ -1,7 +1,7 @@
 <?php
 namespace App\Services\Dashboard;
 
-use Illuminate\Support\Facades\{DB,Schema,Validator};
+use Illuminate\Support\Facades\{DB,Schema,Validator,Crypt};
 
 /** Central ownership is committed with replay; device-owned work never enters pending queues. */
 final class DesktopDashboardPrintOwnership
@@ -66,14 +66,32 @@ final class DesktopDashboardPrintOwnership
         }
         return $result;
     }
+    /** Keep the durable local print identity, and separately bind its real central command's authenticated epoch. */
+    private function originatingEnrollment(object $device,string $command): void
+    {
+        $review='هوية ربط أمر الطباعة الأصلي تحتاج مراجعة؛ نتيجة الطباعة وسجل العملية محفوظان دون إعادة تنفيذ.';
+        abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,$review);
+        $row=DB::table('desktop_dashboard_commands')->where('device_id',$device->id)->where('command_id',$command)->lockForUpdate()->first();
+        abort_unless($row,503,$review);
+        try{$payload=json_decode(Crypt::decryptString($row->command_cipher),true,512,JSON_THROW_ON_ERROR);}
+        catch(\Throwable $error){abort(503,$review);}
+        $binding=$payload['enrollment_binding']??null;$origin=$payload['envelope']??null;
+        abort_unless(is_array($binding)&&array_keys($binding)===['format','fingerprint']&&$binding['format']===1
+            &&is_string($binding['fingerprint'])&&preg_match('/^[a-f0-9]{64}$/D',$binding['fingerprint'])
+            &&is_array($origin)&&($origin['command_id']??null)===$command&&(int)($origin['actor_id']??0)===(int)$device->actor_id
+            &&(int)$row->actor_id===(int)$device->actor_id,503,$review);
+        abort_unless(hash_equals(app(DesktopDashboardDevices::class)->enrollmentFingerprint($device),$binding['fingerprint']),401,
+            'أمر الطباعة الأصلي يخص ربطًا سابقًا للجهاز؛ راجع نتيجته المحفوظة قبل استكمال المزامنة.');
+    }
     public function outcome(object $device,array $receipt): array
     {
         $keys=array_keys($receipt);sort($keys,SORT_STRING);$allowed=['effect_id','enrollment_id','origin_command_id','actor_id','branch','revision','claim_token','native_session_id','invocation_id','permit_hash','state','reason'];sort($allowed,SORT_STRING);abort_unless($keys===$allowed,422);
         Validator::make($receipt,['revision'=>'required|integer|min:1','claim_token'=>'required|uuid','native_session_id'=>'required|uuid','permit_hash'=>'required|regex:/^[a-f0-9]{64}$/D','reason'=>'present|string|max:200','effect_id'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment_id'=>'required|regex:/^[a-f0-9]{64}$/D','origin_command_id'=>'required|uuid',
             'actor_id'=>'required|integer|min:1','branch'=>'required|string|max:40','invocation_id'=>'required|uuid','state'=>'required|in:invoked,review'])->validate();
         return DB::transaction(function()use($device,$receipt){
-            $fresh=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($fresh&&$fresh->enabled,401);
+            $fresh=app(DesktopDashboardDevices::class)->lockAuthenticated($device);
             $actor=app(DesktopDashboardDevices::class)->actor($fresh);app(DesktopDashboardDevices::class)->branch($fresh,$receipt['branch'],$actor);
+            $this->originatingEnrollment($fresh,$receipt['origin_command_id']);
             $row=DB::table('desktop_dashboard_print_ownership')->where('effect_id',$receipt['effect_id'])->lockForUpdate()->first();abort_unless($row,409);
             abort_unless($row->device_id===$device->id&&$row->command_id===$receipt['origin_command_id']&&$row->enrollment_id===$receipt['enrollment_id']
                 &&(int)$row->actor_id===(int)$receipt['actor_id']&&$row->branch===$receipt['branch']&&(int)$row->revision===(int)$receipt['revision']&&(int)$fresh->actor_id===(int)$receipt['actor_id'],403);

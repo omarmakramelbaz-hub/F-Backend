@@ -9,6 +9,8 @@ const SyncSchedule=require('./sync-schedule.cjs');
 const {DashboardGeneration}=require('./dashboard-generation.cjs');
 const {DashboardPreparation}=require('./dashboard-preparation.cjs');
 const DashboardMode=require('./dashboard-mode.cjs');
+const {DashboardConnected}=require('./dashboard-connected.cjs');
+const DashboardConnectedReview=require('./dashboard-connected-review.cjs');
 const DashboardRemoteState=require('./dashboard-remote-state.cjs');
 const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
 const DashboardOutboxReview=require('./dashboard-outbox-review.cjs');
@@ -19,7 +21,7 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,remoteState,remoteAttempts,outboxReview,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,quitting=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{quitting=true;syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
@@ -83,7 +85,8 @@ async function dashboardEnrollment(serverOrigin, input, csrf) {
 }
 async function dashboardState() {
   if(!preparation)return {available:false};
-  return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',...(localSync?.state||{}),
+  const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
+  return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',full_central:connectedAccess?await connectedAccess.selected():false,remote_pending:remote.pending.length,remote_dirty:remote.dirty,...(localSync?.state||{}),
     pending:(localSync?.state.pending||0)+(store?.counts().pending||0),sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
 async function dashboardSession(credential) {
@@ -99,6 +102,7 @@ async function dashboardSession(credential) {
 async function dashboardOffline(message, failure) {
   if(!localRuntime)return localOrders(message);
   try {
+    if(connectedAccess&&await connectedAccess.selected())throw Error('الداشبورد المتصلة تحتاج الإنترنت. استخدم العودة لنسخة الجهاز بعد اكتمال التحديث؛ سجلاتك محفوظة.');
     if(!dashboardMode)throw Error('جهّز الجهاز من حساب السيرفر قبل العمل بدون إنترنت.');
     await shutdown.run(()=>dashboardMode.local(failure));
   } catch(error) {if(!quitting)dialog.showErrorBox('فسخانستا',error.message);}
@@ -119,6 +123,7 @@ function connectDashboardSync() {
       return synchronizePrintOutcomes({local:value=>localRuntime.control(value),
         remote:value=>dashboardRequest(value,false,undefined,'print-outcomes'),stopped:()=>quitting});
     },refresh:async()=>{
+    if(connectedAccess&&await connectedAccess.deferRefresh())return {deferred:true};
     const old=store.counts();if(old.pending)throw Error('توجد عمليات محفوظة من النسخة السابقة؛ يلزم تأكيدها قبل تحديث بيانات الجهاز.');
     return dashboardMode.refresh({stayLocal:true});},
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
@@ -194,10 +199,15 @@ app.whenReady().then(async()=>{
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
     localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
+    connectedAccess=new DashboardConnected({runtime:localRuntime,view:()=>dashboard,mode:()=>dashboardMode,generations:()=>generations,remoteState,
+      remoteAttempts:{recover:()=>remoteAttempts.recover()},probe:dashboardSession,
+      synchronize:async()=>{await syncSchedule.request();const counts=await localRuntime.control({action:'pending'});if(counts.counts.pending||counts.counts.conflicts)throw Error('توجد عمليات محلية معلقة أو متعارضة؛ أكمل مراجعتها ومزامنتها قبل الداشبورد المتصلة.');},
+      onState:()=>dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{})});
     outboxReview=new DashboardOutboxReview({runtime:localRuntime,dialog,synchronize:async()=>{syncSchedule.request().catch(()=>{});}});
     remoteAttempts=new DashboardRemoteAttempts({state:remoteState,metadata:localRuntime.metadata,
       credential:async()=>{if(!(await localRuntime.isPrepared()))return null;return localRuntime.connection();},
-      request:(value,credential)=>dashboardRequest(value,false,credential,'remote-attempts')});
+      request:(value,credential)=>dashboardRequest(value,false,credential,'remote-attempts'),direct:details=>connectedAccess.authorizeDirect(details)});
+    connectedReview=new DashboardConnectedReview({attempts:remoteAttempts,connected:connectedAccess,runtime:localRuntime,dialog});
     preparation=new DashboardPreparation({runtime:localRuntime,enroll:dashboardEnrollment,download:value=>dashboardRequest(null,true,value),
       allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
       beforePrepare:async()=>{if(store.get('connection'))await syncSchedule.request();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
@@ -205,7 +215,8 @@ app.whenReady().then(async()=>{
     if(await localRuntime.isPrepared()) {
       const local=await shutdown.run(()=>localRuntime.start());
       const remote=await remoteState.read();
-      if(remote.dirty||remote.pending.length)dashboardOrigin=(await localRuntime.connection()).serverOrigin;
+      const centralSelected=await connectedAccess.selected({recover:true});
+      if(remote.dirty||remote.pending.length||centralSelected)dashboardOrigin=(await localRuntime.connection()).serverOrigin;
       else {dashboardOrigin=local.origin;localToken=local.token;}
     }
   }
@@ -218,6 +229,10 @@ app.whenReady().then(async()=>{
       if(ready.prepared)await dashboardMode.local({method:'GET'});
       return ready;
     }:undefined,status:dashboardState,remoteState,remoteAttempts,
+    connected:connectedAccess?async()=>{if(!(await localRuntime.isPrepared()))return dashboard.open();return connectedAccess.open();}:undefined,
+    localMode:connectedAccess?()=>connectedAccess.local():undefined,
+    reviewCentral:connectedReview?window=>connectedReview.open(window):undefined,
+    browse:connectedAccess?()=>connectedAccess.browse():undefined,
     printControl:localRuntime?value=>{
       if(!localRuntime.supportsPrintEffects())throw Error('الطباعة المحلية تحتاج اكتمال تحديث نسخة بيانات الجهاز.');
       return localRuntime.control(value);

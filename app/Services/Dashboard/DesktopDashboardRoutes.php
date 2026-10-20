@@ -12,6 +12,8 @@ class DesktopDashboardRoutes
         'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
     ];
     public const WRITES=[
+        'go-stores.store',
+        'resturants.update','resturants.updateStatus',
         'order-board.action',
         'updateSetting','updateAdvertising',
         'wallets.transfer','wallets.withdraw.store',

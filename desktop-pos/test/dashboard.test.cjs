@@ -296,3 +296,121 @@ test('local generic print menu directs users to the audited receipt action',asyn
   const item=f.electron.menu.find(value=>value.label==='طباعة').submenu[0];item.click();
   assert.equal(f.windows[0].printOptions,undefined);
 });
+test('full-central native menu actions keep human review outside renderer IPC and preserve captured cookies while awaiting durable writes',async t=>{
+  const menu=[],requests=[];let release;
+  const f=fixture(t,{connected:async()=>menu.push('connected'),localMode:async()=>menu.push('local'),reviewCentral:async()=>menu.push('review'),
+    remoteAttempts:{begin:async(id,details)=>{requests.push({id,details});await new Promise(resolve=>release=resolve);return {};}}});
+  await f.dashboard.open();const submenu=f.electron.menu[0].submenu;
+  for(const name of ['الداشبورد المتصلة كاملة','العودة لنسخة الجهاز بعد التحديث','مراجعة نتائج العمليات المتصلة'])await submenu.find(item=>item.label===name).click();
+  assert.deepEqual(menu,['connected','local','review']);for(const name of ['dashboard:connected','dashboard:local','dashboard:review-central'])assert.equal(f.handlers.has(name),false);
+  const request={id:800,url:policy.DEFAULT_ORIGIN+'/%61dmin/users/20',method:'POST',webContentsId:f.windows[0].webContents.id,
+    requestHeaders:{Cookie:'original-session','X-Fasakhansta-Remote-Attempt':'forged','X-Fasakhansta-Remote-Capability':'forged'}};let decision;
+  f.session.webRequest.headers(request,value=>decision=value);await Promise.resolve();assert.equal(requests.length,1);assert.equal(decision,undefined);
+  request.requestHeaders.Cookie='later-session';release();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.requestHeaders.Cookie,'original-session');assert.equal(Object.keys(decision.requestHeaders).some(key=>/^x-fasakhansta-/i.test(key)),false);
+});
+test('full-central browse records precede transmission and known aliased GET mutations reach the guarded native attempt path',async t=>{
+  let release;const attempts=[],f=fixture(t,{browse:async()=>new Promise(resolve=>release=resolve),remoteAttempts:{begin:async(id,details)=>{
+    attempts.push(details);if(details.method==='HEAD')throw Error('HEAD mutation denied');return {};}}});await f.dashboard.open();const contents=f.windows[0].webContents;
+  const base={id:801,method:'GET',webContentsId:contents.id,requestHeaders:{}};let decision;
+  f.session.webRequest.headers({...base,url:policy.DEFAULT_ORIGIN+'/%61dmin/dashboard'},value=>decision=value);await Promise.resolve();assert.equal(decision,undefined);release();await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);
+  for(const pathname of ['/admin/change-status/020','/admin/change-status/20/','/admin/change-status/%32%30','/test-test/']){
+    decision=undefined;f.session.webRequest.headers({...base,id:802,url:policy.DEFAULT_ORIGIN+pathname,method:'HEAD'},value=>decision=value);
+    await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);assert.equal(attempts.at(-1).url,policy.DEFAULT_ORIGIN+pathname);
+  }
+});
+test('native central print fetch flushes uncertainty before the consuming GET and retains a lost response without invoking the printer',async t=>{
+  const operations=[];let release,lost=false;
+  const f=fixture(t,{remoteAttempts:{begin:async(id,details)=>{operations.push(['begin',id,details]);await new Promise(resolve=>release=resolve);return {};},
+    complete:async id=>operations.push(['complete',id]),failed:id=>operations.push(['failed',id])}});await f.dashboard.open();const sender=f.windows[0].webContents;
+  f.session.fetch=async(url,options)=>{operations.push(['fetch',url,options]);if(lost)throw Error('lost receipt reply');
+    return new Response('<html data-dashboard-receipt="takeaway"><head></head><body>فاتورة</body></html>',{headers:{'content-type':'text/html'}});};
+  const event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:print-receipt'),url=policy.DEFAULT_ORIGIN+'/admin/takeaway/receipts/20/print?initial_print=original';
+  const first=handler(event,url);await Promise.resolve();assert.equal(operations.length,1);assert.equal(operations[0][0],'begin');assert.equal(f.windows.length,1);release();assert.equal((await first).ok,true);
+  assert.deepEqual(operations.map(item=>item[0]),['begin','fetch','complete']);assert.equal(operations[0][2].method,'GET');assert.match(operations[0][2].url,/dashboard_print=1/);
+  assert.deepEqual(Object.keys(operations[1][2].headers),['Accept']);assert.equal(f.windows.length,2);
+  lost=true;operations.length=0;const second=handler(event,url);await Promise.resolve();release();const failure=await second;assert.equal(failure.ok,false);assert.match(failure.error,/lost receipt reply/);
+  assert.deepEqual(operations.map(item=>item[0]),['begin','fetch','failed']);assert.equal(f.windows.length,2,'No print invocation is allowed after an unknown receipt response.');
+});
+test('original board print routes and their aliases reach native GET reservations while HEAD never reaches the server',async t=>{
+  const getPolicy=require('../src/dashboard-get-policy.cjs'),attempts=[],f=fixture(t,{remoteAttempts:{begin:async(id,details)=>{
+    attempts.push(details);if(details.method==='HEAD'&&getPolicy.mutation(new URL(details.url).pathname))throw Error('Consuming HEAD denied');return {};}}});
+  await f.dashboard.open();const base={webContentsId:f.windows[0].webContents.id,requestHeaders:{}};let networkId=900;
+  for(const source of ['legacy','store','service','partner_service'])for(const pathname of ['/admin/order-board/'+source+'/20/print',
+    '/admin/order-board/'+source+'/020/print/','/%61dmin/order-board/'+source+'/%32%30/print']){
+    let decision;const request={...base,id:networkId++,url:policy.DEFAULT_ORIGIN+pathname,method:'GET'};
+    f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);assert.equal(attempts.at(-1).url,request.url);
+    decision=undefined;f.session.webRequest.headers({...request,id:networkId++,method:'HEAD'},value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);
+  }
+});
+test('native board-print IPC persists real direct pending state before fetch and retains lost replies for every original source',async t=>{
+  const crypto=require('node:crypto'),RemoteState=require('../src/dashboard-remote-state.cjs'),RemoteAttempts=require('../src/dashboard-remote-attempts.cjs'),{binding}=require('../src/dashboard-connected.cjs');
+  for(const source of ['legacy','store','service','partner_service']){
+    const records=new Map(),metadata={read:async key=>structuredClone(records.get(key)||null),write:async(key,value)=>records.set(key,structuredClone(value))},state=new RemoteState(metadata);
+    const credential={deviceId:crypto.randomUUID(),actorId:1,token:'a'.repeat(64),serverOrigin:policy.DEFAULT_ORIGIN,sourceRevision:'b'.repeat(40),
+      sourceFingerprint:{format:1,sha256:'c'.repeat(64),framework:'8.83.29',files:100},snapshotId:crypto.randomUUID(),refreshId:crypto.randomUUID(),schemaHash:'d'.repeat(64),database:'fasakhansta_dashboard_stage_'+'e'.repeat(16)};
+    const options={state,metadata,credential:async()=>credential,direct:async()=>binding(credential),request:async()=>{throw Error('No bounded capability may be sent for original board printing.');}};
+    const attempts=new RemoteAttempts(options),f=fixture(t,{remoteAttempts:attempts});await f.dashboard.open();let lost=false,identity;
+    const pathname='/admin/order-board/'+source+'/020/print/';
+    f.session.fetch=async(url,request)=>{
+      assert.equal(new URL(url).pathname,pathname);assert.equal(new URL(url).hash,'');assert.equal(request.redirect,'error');let outgoing;
+      f.session.webRequest.headers({id:989,url:'https://foreign.test/admin/print',method:'GET',webContentsId:-1,requestHeaders:request.headers},value=>outgoing=value);
+      assert.equal(Object.keys(outgoing.requestHeaders).some(name=>/^x-fasakhansta-/i.test(name)),false);
+      f.session.webRequest.headers({id:992,url:url.replace('/020/','/21/'),method:'GET',webContentsId:-1,requestHeaders:request.headers},value=>outgoing=value);
+      assert.equal(outgoing.cancel,true,'A mismatched native URL cannot fall through without the actor proof.');
+      const withoutMarker={...request.headers};delete withoutMarker['X-Fasakhansta-Connected-Request'];
+      f.session.webRequest.headers({id:993,url,method:'GET',webContentsId:-1,requestHeaders:withoutMarker},value=>outgoing=value);
+      assert.equal(outgoing.cancel,true,'A missing native marker cannot downgrade a paired request into an unguarded request.');
+      f.session.webRequest.headers({id:994,url,method:'POST',webContentsId:-1,requestHeaders:request.headers},value=>outgoing=value);
+      assert.equal(outgoing.cancel,true,'A native print marker cannot authorize a different HTTP method.');
+      f.session.webRequest.headers({id:990,url,method:'GET',webContentsId:-1,requestHeaders:request.headers},value=>outgoing=value);
+      assert.equal(outgoing.requestHeaders['X-Fasakhansta-Connected-Device'],credential.deviceId);assert.equal(outgoing.requestHeaders['X-Fasakhansta-Connected-Token'],credential.token);
+      assert.equal('X-Fasakhansta-Connected-Request' in outgoing.requestHeaders,false);
+      f.session.webRequest.headers({id:991,url,method:'GET',webContentsId:-1,requestHeaders:request.headers},value=>outgoing=value);
+      assert.equal(outgoing.cancel,true,'A consumed native print marker cannot fall through as an unguarded server request.');
+      const remote=await state.read();assert.equal(remote.dirty,true);assert.equal(remote.pending.length,1);identity=remote.pending[0];
+      assert.equal(records.get('remote-central/'+identity).path,pathname);assert.equal(records.get('remote-central/'+identity).method,'GET');
+      if(lost)throw Error('lost original board print reply');return new Response('<html data-dashboard-receipt="order-board"><head></head><body>فاتورة</body></html>',{headers:{'content-type':'text/html'}});
+    };
+    const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:print-receipt');
+    assert.equal((await handler(event,policy.DEFAULT_ORIGIN+pathname+'#receipt')).ok,true);assert.deepEqual((await state.read()).pending,[]);assert.equal((await state.read()).dirty,true);
+    assert.equal(records.get('remote-central-responses/'+identity).observation,'response-received');assert.equal(f.windows.length,2);
+    lost=true;const result=await handler(event,policy.DEFAULT_ORIGIN+pathname+'#receipt');assert.equal(result.ok,false);assert.match(result.error,/lost original board print reply/);
+    assert.deepEqual((await state.read()).pending,[identity]);assert.equal(records.has('remote-central-responses/'+identity),false);assert.equal(f.windows.length,2);
+    await assert.rejects(new RemoteAttempts(options).recover(),/لم يتأكد رد/);await assert.rejects(state.snapshot(async()=>{}),/غير مؤكدة/);
+    assert.equal(JSON.stringify([...records]).includes(credential.token),false);
+  }
+});
+test('connected actor proof replaces renderer forgeries only after native authorization, strips foreign copies and cancels unowned proof forgeries',async t=>{
+  const device='00000000-0000-4000-8000-000000000001',token='a'.repeat(64),proof={'X-Fasakhansta-Connected-Device':device,'X-Fasakhansta-Connected-Token':token};
+  let release;const f=fixture(t,{remoteAttempts:{begin:async()=>{await new Promise(resolve=>release=resolve);return proof;}}});await f.dashboard.open();
+  const request={id:1000,url:policy.DEFAULT_ORIGIN+'/admin/users',method:'POST',webContentsId:f.windows[0].webContents.id,
+    requestHeaders:{Cookie:'captured-other-actor-cookie','x-fasakhansta-connected-device':'forged','X-Fasakhansta-Connected-Token':'forged',
+      'x-fasakhansta-connected-request':'forged-marker','X-Fasakhansta-Remote-Attempt':'forged','X-Fasakhansta-Remote-Capability':'forged'}};let outgoing;
+  f.session.webRequest.headers(request,value=>outgoing=value);await Promise.resolve();assert.equal(outgoing,undefined);release();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(outgoing.requestHeaders.Cookie,'captured-other-actor-cookie');assert.equal(outgoing.requestHeaders['X-Fasakhansta-Connected-Device'],device);assert.equal(outgoing.requestHeaders['X-Fasakhansta-Connected-Token'],token);
+  assert.equal(Object.keys(outgoing.requestHeaders).some(name=>/Remote-(?:Attempt|Capability)|Connected-Request/i.test(name)),false);
+  for(const value of [{...request,id:1001,url:'https://foreign.test/admin/users'},
+    {...request,id:1002,webContentsId:-1},{...request,id:1003,webContentsId:9999}]){
+    f.session.webRequest.headers({...value,requestHeaders:{...outgoing.requestHeaders,'X-Fasakhansta-Connected-Request':'invented-marker'}},result=>outgoing=result);
+    if(value.webContentsId===-1)assert.equal(outgoing.cancel,true);
+    else assert.equal(Object.keys(outgoing.requestHeaders).some(name=>/^x-fasakhansta-/i.test(name)),false);
+  }
+});
+test('native print IPC cannot bypass a matching actor whose retained server lacks the exact connected request guard protocol',async t=>{
+  const crypto=require('node:crypto'),RemoteState=require('../src/dashboard-remote-state.cjs'),RemoteAttempts=require('../src/dashboard-remote-attempts.cjs'),{DashboardConnected,binding}=require('../src/dashboard-connected.cjs');
+  for(const protocol of [undefined,0,2,'1',null,true]){
+    const credential={deviceId:crypto.randomUUID(),actorId:1,token:'a'.repeat(64),serverOrigin:policy.DEFAULT_ORIGIN,sourceRevision:'b'.repeat(40),
+      sourceFingerprint:{format:1,sha256:'c'.repeat(64),framework:'8.83.29',files:100},snapshotId:crypto.randomUUID(),refreshId:crypto.randomUUID(),schemaHash:'d'.repeat(64),database:'fasakhansta_dashboard_stage_'+'e'.repeat(16)};
+    const records=new Map([['central-mode',{format:1,phase:'central',binding:binding(credential)}]]),metadata={read:async key=>structuredClone(records.get(key)||null),write:async(key,value)=>records.set(key,structuredClone(value))};
+    const state=new RemoteState(metadata),runtime={metadata,connection:async()=>credential},access=new DashboardConnected({runtime,
+      probe:async()=>({actor_id:1,device_id:credential.deviceId,...(protocol===undefined?{}:{connected_request_protocol:protocol})})});
+    const attempts=new RemoteAttempts({state,metadata,credential:async()=>credential,direct:details=>access.authorizeDirect(details),request:async()=>{throw Error('No bounded fallback is permitted.');}});
+    const f=fixture(t,{remoteAttempts:attempts});await f.dashboard.open();let fetched=0;f.session.fetch=async()=>{fetched++;throw Error('Old server must not receive a consuming print GET.');};
+    const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:print-receipt');
+    for(const source of ['legacy','store','service','partner_service']){
+      const result=await handler(event,policy.DEFAULT_ORIGIN+'/admin/order-board/'+source+'/20/print');assert.equal(result.ok,false);assert.match(result.error,/لم يؤكد حماية/);
+    }
+    assert.equal(fetched,0);assert.equal(f.windows.length,1);await state.assertClean();assert.equal([...records.keys()].some(key=>key.startsWith('remote-central')),false);
+  }
+});

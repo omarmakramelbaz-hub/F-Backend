@@ -229,29 +229,19 @@
                 </div>--}}
                 {{--<div class="form-group col-sm-6">
                   <label for="base_logo">@lang('main.base_logo')</label>
-                  @if(config('desktop_dashboard.local'))
-                    <p class="text-muted">تغيير الصور متاح من النسخة المتصلة فقط.</p>
-                  @else
                   <input type="file" name="base_logo"  class="form-control" id="base_logo" >
-                  @endif
                   <img src="{{url('/storage/'.$settings->base_logo)}}" width="120px">
                 </div>--}}
                 <div class="form-group col-sm-6">
                   <label for="logo">@lang('main.logo')</label>
-                  @if(config('desktop_dashboard.local'))
-                    <p class="text-muted">تغيير الصور متاح من النسخة المتصلة فقط.</p>
-                  @else
                   <input type="file" name="logo"  class="form-control" id="logo" >
-                  @endif
+                  @if(config('desktop_dashboard.local'))<small class="text-muted">PNG، JPG، WEBP فقط؛ مجموع الصور حتى 5 ميجابايت، وأبعاد كل صورة حتى 4096 × 4096.</small>@endif
                   <img src="{{url('/storage/'.$settings->logo)}}" width="120px">
                 </div>
                 <div class="form-group col-sm-6">
                   <label for="favicon">@lang('main.favicon')</label>
-                  @if(config('desktop_dashboard.local'))
-                    <p class="text-muted">تغيير الصور متاح من النسخة المتصلة فقط.</p>
-                  @else
                   <input type="file" name="favicon"  class="form-control" id="favicon" >
-                  @endif
+                  @if(config('desktop_dashboard.local'))<small class="text-muted">PNG، JPG، WEBP فقط؛ مجموع الصور حتى 5 ميجابايت، وأبعاد كل صورة حتى 4096 × 4096.</small>@endif
                   <img src="{{url('/storage/'.$settings->favicon)}}" width="120px">
                 </div>
               </div>

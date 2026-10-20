@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\{DB,Crypt};
 use Illuminate\Support\Str;
 use App\Services\Dashboard\{DesktopDashboardPrintEffects,DesktopDashboardPrintOwnership,DesktopDashboardReconciliation,TakeawayService};
 $effects=app(DesktopDashboardPrintEffects::class);
+foreach([DesktopDashboardPrintOwnership::class,\App\Services\Dashboard\DesktopDashboardJournal::class,\App\Services\Dashboard\DesktopDashboardPrintLedger::class] as $sourceClass)
+    check(realpath((new ReflectionClass($sourceClass))->getFileName())===realpath($application.'/app/Services/Dashboard/'.class_basename($sourceClass).'.php'),'the print outcome regression loads its exact generated source: '.class_basename($sourceClass));
 DB::table('desktop_dashboard_local_state')->where('device_id',$device)->update(['coverage'=>'{"print_protocol":1}']);
 $central='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
 $pdo->exec('CREATE DATABASE `'.$central.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
@@ -65,6 +67,28 @@ $mapping=json_decode($ownership->server_references,true);check($mapping['receipt
 $metadata=json_decode(DB::table('takeaway_till_entries')->where('id',$mapping['sale_till_entry.primary'])->value('metadata'),true);
 check($metadata['receipt_print']['consumed_at']!==null&&$receipt['result']['first_print_url']===null,'central replay creates no second usable first receipt grant');
 check(app(DesktopDashboardReconciliation::class)->ingest($centralDevice,$envelope)===$receipt&&DB::table('desktop_dashboard_print_ownership')->where('effect_id',$effect['effect_id'])->count()===1,'lost central replay response returns the exact saved result without another ownership row or sale');
+// Ownership must retain the exact authenticated epoch of its actual central business journal.
+$centralJournal=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$envelope['command_id'])->first();
+$printEpochEnabled=config('desktop_dashboard.enabled');config(['desktop_dashboard.enabled'=>true]);
+$originalTokenHash=$centralDevice->token_hash;$rotatedToken=bin2hex(random_bytes(32));
+$centralFacts=fn()=>[DB::table('takeaway_orders')->count(),DB::table('takeaway_till_entries')->count(),DB::table('takeaway_tills')->value('balance_cents'),
+    (array)DB::table('desktop_dashboard_print_ownership')->where('effect_id',$effect['effect_id'])->first(),DB::table('desktop_dashboard_commands')->count()];
+$beforeEpoch=$centralFacts();DB::table('desktop_dashboard_devices')->where('id',$device)->update(['token_hash'=>hash('sha256',$rotatedToken)]);
+$rotatedDevice=app(\App\Services\Dashboard\DesktopDashboardDevices::class)->device($rotatedToken);
+check($rotatedDevice->enrollment_hash===$centralDevice->enrollment_hash&&$rotatedDevice->enrolled_at===$centralDevice->enrolled_at,'actual new token authentication retains the earlier print nonce and enrollment time during token-only rotation');
+denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($rotatedDevice,$outcome),401,'newly authenticated token-only rotation cannot record a first outcome for the earlier central business command');
+check($centralFacts()===$beforeEpoch,'token epoch denial preserves the original sale, till, journal and unacknowledged ownership row');
+DB::table('desktop_dashboard_devices')->where('id',$device)->update(['token_hash'=>$originalTokenHash]);
+$legacyPayload=json_decode(Crypt::decryptString($centralJournal->command_cipher),true,512,JSON_THROW_ON_ERROR);unset($legacyPayload['enrollment_binding']);$legacyCipher=Crypt::encryptString(json_encode($legacyPayload,JSON_THROW_ON_ERROR));
+DB::table('desktop_dashboard_commands')->where('sequence',$centralJournal->sequence)->update(['command_cipher'=>$legacyCipher]);
+denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$outcome),503,'an actual central print command with an unknown legacy enrollment binding requires review before recording an outcome');
+check($centralFacts()===$beforeEpoch&&DB::table('desktop_dashboard_commands')->where('sequence',$centralJournal->sequence)->value('command_cipher')===$legacyCipher,'unknown legacy print binding preserves the original business and encrypted journal for review');
+DB::table('desktop_dashboard_commands')->where('sequence',$centralJournal->sequence)->update(['command_cipher'=>$centralJournal->command_cipher]);
+DB::beginTransaction();try{
+    DB::table('desktop_dashboard_commands')->where('sequence',$centralJournal->sequence)->delete();
+    denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$outcome),503,'an ownership row without its actual originating central journal requires review');
+    check(DB::table('desktop_dashboard_print_ownership')->where('effect_id',$effect['effect_id'])->value('outcome')===null,'missing journal proof cannot occupy the first immutable ownership outcome');
+}finally{DB::rollBack();}
 foreach(['revision','claim_token','native_session_id','permit_hash','reason'] as $field){$bad=$outcome;unset($bad[$field]);
     try{app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$bad);throw new RuntimeException('Expected missing print receipt field.');}
     catch(\Illuminate\Validation\ValidationException $error){check(true,'central outcome requires native receipt field '.$field);}
@@ -75,6 +99,11 @@ $bad=$outcome;$bad['revision']=2;denied(fn()=>app(DesktopDashboardPrintOwnership
 $bad=$outcome;$bad['unreviewed']='extra';denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$bad),422,'central outcome rejects unreviewed extra receipt fields');
 $centralAck=app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$outcome);check($centralAck===$serverAck,'central immutable outcome acknowledgement matches native canonical receipt hash');
 check(app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$outcome)===$centralAck,'central outcome exact retries remain idempotent');
+$committedEpoch=$centralFacts();DB::table('desktop_dashboard_devices')->where('id',$device)->update(['token_hash'=>hash('sha256',$rotatedToken)]);$rotatedDevice=app(\App\Services\Dashboard\DesktopDashboardDevices::class)->device($rotatedToken);
+denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($rotatedDevice,$outcome),401,'a new token epoch cannot disclose an already committed earlier ownership acknowledgement');
+check($centralFacts()===$committedEpoch,'cross-epoch saved outcome rejection preserves its exact immutable acknowledged ownership and financial rows');
+DB::table('desktop_dashboard_devices')->where('id',$device)->update(['token_hash'=>$originalTokenHash]);
+config(['desktop_dashboard.enabled'=>$printEpochEnabled]);
 $changed=$outcome;$changed['state']='review';denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($centralDevice,$changed),409,'central outcome cannot overwrite an acknowledged invocation');
 $changed=$envelope;$changed['print_ownership'][0]['effect_id']=str_repeat('0',64);denied(fn()=>app(DesktopDashboardReconciliation::class)->ingest($centralDevice,$changed),409,'replay envelope cannot replace device print ownership after commit');
 config(['database.connections.mysql.database'=>$other,'desktop_dashboard.local'=>true]);DB::purge();
@@ -168,7 +197,7 @@ check(app(DesktopDashboardReconciliation::class)->ingest($batchDevice,$batchEnve
 // Fresh persisted enrollment/actor facts override an earlier accepted print ownership receipt.
 DB::table('desktop_dashboard_devices')->where('id',$device)->update(['enrollment_hash'=>str_repeat('e',64)]);
 $oldOutcome=$outcome;$oldOutcome['effect_id']=$batchIntent['effect_id'];$oldOutcome['origin_command_id']=$batchValues['idempotency_key'];
-denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($batchDevice,$oldOutcome),409,'central print outcome rejects changed persisted enrollment even for a previously valid ownership tuple');
+denied(fn()=>app(DesktopDashboardPrintOwnership::class)->outcome($batchDevice,$oldOutcome),401,'central print outcome rejects stale authenticated enrollment before a previously valid ownership tuple');
 config(['database.connections.mysql.database'=>$other,'desktop_dashboard.local'=>true]);DB::purge();
 
 // Real native HTTP outbox advertises print capability separately from financial counts.

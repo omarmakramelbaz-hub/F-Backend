@@ -41,10 +41,11 @@ jobs:
           blob = lambda d: hashlib.sha1(b'blob ' + str(len(d)).encode() + b'\0' + d).hexdigest()
           source = (root / 'deployment/apply_desktop_dashboard_server_root.sh').read_text()
           pins = re.findall(r"'(deployment/[^']+)': '([a-f0-9]{40})'", source)
-          assert len(pins) == 4
+          assert len(pins) == 5
           for name, pin in pins:
               assert blob((root / name).read_bytes()) == pin, name
-          for name in ['desktop_dashboard_server_manifest.json']:
+          profiles = []
+          for name in ['desktop_dashboard_server_manifest.json', 'desktop_dashboard_server_manifest_expense_rejection.json']:
               manifest = json.loads((root / 'deployment' / name).read_text())
               profile = {}
               for row in manifest['sources']:
@@ -53,7 +54,9 @@ jobs:
               for row in manifest['protected']:
                   assert blob((root / row['path']).read_bytes()) == row['blob'], row['path']
                   profile[row['path']] = row['blob']
+              profiles.append(profile)
               print('VERIFIED_INSTALLER_PAYLOAD', name, len(manifest['sources']))
+          assert profiles[0] == profiles[1]
           assert not (root / 'deployment/desktop_dashboard_server_manifest_attachments.json').exists()
           assert 'deployment/desktop_dashboard_server_manifest_attachments.json' not in dict(pins)
           scope_path = root / 'deployment/desktop_dashboard_publication_metadata_scope.json'

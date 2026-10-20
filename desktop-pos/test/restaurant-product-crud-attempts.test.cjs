@@ -45,7 +45,7 @@ test('product CRUD reserves only original physical POST and direct PUT/DELETE tr
     '/admin/resturant_products/0', '/admin/resturant_products/01', '/admin/resturant_products/-1',
     '/admin/resturant_products/99999999999999999999', '/admin/resturant_products/20/edit',
     '/admin/resturant_products/20/update', '/admin/resturant_productsDeleteAll', '/admin/resturant/copy/items/',
-    '/admin/resturants/20', '/admin/media/20', '/admin/product_image'
+    '/admin/resturants/20/edit', '/admin/media/20', '/admin/product_image'
   ]) {
     for (const method of ['POST', 'PUT', 'DELETE'])
       assert.equal(f.attempts.supported({ url: origin + pathname, method }), false);

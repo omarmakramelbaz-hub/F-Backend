@@ -104,12 +104,12 @@ use Illuminate\Support\Str;
             verify($complete,'failure on the second original copied image rolls back every clone/media row and preserves all source image bytes');}
         finally{DB::unprepared('DROP TRIGGER reject_native_menu_second_image');}
         verify($decide($secondImage,'settle')[1]['status']==='cancelled','a fully rolled-back copied-image batch can be terminally cancelled');
-        $outer=$reserve();[, $outerReady]=$decide($outer);$failureForm['_desktop_command']=$uuid();
+        $outer=$reserve();[, $outerReady]=$decide($outer);$outerCipher=DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('response_cipher');$failureForm['_desktop_command']=$uuid();
         DB::unprepared("CREATE TRIGGER reject_native_menu_outcome BEFORE UPDATE ON desktop_dashboard_remote_attempts FOR EACH ROW BEGIN IF NEW.operation_id='".$failureForm['_desktop_command']."' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture native menu outcome failure'; END IF; END");
         try{$offset=$logOffset();$reply=$request($failureForm,$proof($outerReady));$delta=$logDelta($offset);$marker='fixture native menu outcome failure';
             $complete=$reply[0]===500&&str_contains($delta,$marker)&&$targetRows()===$beforeRows&&$targetMedia()===$beforeMedia&&$sourcesIntact()
                 &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('status')==='ready'
-                &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('response_cipher')===null;
+                &&DB::table('desktop_dashboard_remote_attempts')->where('id',$outer['id'])->value('response_cipher')===$outerCipher;
             if(!$complete)$reportFailure('forced-outer-outcome',$reply,['expectedExceptionMarker'=>$marker,'exceptionMarkerObserved'=>str_contains($delta,$marker),
                 'targetRowsRestored'=>$targetRows()===$beforeRows,'targetMediaRestored'=>$targetMedia()===$beforeMedia,'sourceBytesPreserved'=>$sourcesIntact()],$delta,[$outerReady['capability']??'']);
             verify($complete,'failure saving the outer native outcome rolls back the complete original copy batch without damaging its source files');}

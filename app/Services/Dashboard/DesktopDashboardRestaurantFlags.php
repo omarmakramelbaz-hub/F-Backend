@@ -76,6 +76,9 @@ class DesktopDashboardRestaurantFlags
         abort_unless($added&&$owner&&(!isset($row['parent_id'])||$parent),409,'روابط المطعم المحفوظة غير مكتملة.');
         return ['row'=>$row,'added_by'=>(array)$added,'owner'=>(array)$owner,'parent'=>$parent?(array)$parent:null,'branch'=>['kind'=>'f','id'=>$id]];
     }
+    public function managementState(int $id): array {return $this->state($id);}
+    public function managementValidate(array $state): void {$this->facts('resturants.changeStatus',['parameters'=>['resturant'=>$state['row']['id']??null],'values'=>['idempotency_key'=>'11111111-1111-4111-8111-111111111111'],'files'=>[],'facts'=>['restaurant_flag_before'=>$state]]);}
+
     private function facts(string $name,array $payload): array
     {
         abort_unless(is_array($payload['values']??null)&&is_array($payload['parameters']??null)&&is_array($payload['facts']??null),422);

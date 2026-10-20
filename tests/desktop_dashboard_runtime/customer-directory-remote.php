@@ -76,7 +76,7 @@
             (new \CreateDesktopDashboardRemoteAttempts)->up();
         }
         \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-19T15:00:00Z'));
-        $actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);$guard->setUser($actor);
+        $actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);$guard->setUser($actor);$ownerInitialStatus=$actor->status;
         $id=$uuid();config(['desktop_dashboard.device_id'=>$id]);
         $link=app(\App\Services\Dashboard\DesktopDashboardDevices::class)->enroll([
             'device_id'=>$id,'name'=>'Original native CRM fixture','nonce'=>bin2hex(random_bytes(32))],$actor);
@@ -177,7 +177,7 @@
             ['enrollment',403,fn()=>$db()->table('desktop_dashboard_devices')->where('id',$id)->update(['branches'=>json_encode(['f:101'])]),
                 fn()=>$db()->table('desktop_dashboard_devices')->where('id',$id)->update(['branches'=>json_encode($link['branches'])])],
             ['disabled actor',403,fn()=>$db()->table('users')->where('id',1)->update(['status'=>'disabled']),
-                fn()=>$db()->table('users')->where('id',1)->update(['status'=>null])],
+                fn()=>$db()->table('users')->where('id',1)->update(['status'=>$ownerInitialStatus])],
             ['revoked account',403,fn()=>$db()->table('users')->where('id',1)->update(['account_type'=>'user']),
                 fn()=>$db()->table('users')->where('id',1)->update(['account_type'=>'admin'])],
             ['revoked device',401,fn()=>$db()->table('desktop_dashboard_devices')->where('id',$id)->update(['enabled'=>false]),
@@ -219,10 +219,10 @@
         $unassignedProfile['phone']=$unassigned->phone;$unassignedProfile['name']='تعديل مركزي غير مدعوم';
         $unassignedConsent=$consent;$unassignedConsent['idempotency_key']=$uuid();$unassignedConsent['directory_id']=(int)$unassigned->id;
         foreach([['customers.directory-save',$unassignedProfile],['customers.consent',$unassignedConsent]] as [$route,$values]){
-            $attempt=$reserve($device,$route);$before=$business();
+            $attempt=$reserve($device,$route);$before=$business();$reservationCipher=$db()->table('desktop_dashboard_remote_attempts')->where('id',$attempt['values']['id'])->value('response_cipher');
             denied(fn()=>$handle($route,$values,$attempt),409,'an unassigned central CRM identity cannot commit a native branch-scoped '.$route.' receipt');
             $row=$db()->table('desktop_dashboard_remote_attempts')->where('id',$attempt['values']['id'])->first();
-            check($business()===$before&&$row->status==='ready'&&$row->operation_id===null&&$row->response_cipher===null,
+            check($business()===$before&&$row->status==='ready'&&$row->operation_id===null&&$row->response_cipher===$reservationCipher,
                 'unsupported central '.$route.' scope rolls back original profile or consent effects and leaves recovery ready');
         }
 
@@ -230,14 +230,14 @@
         $rollbackConsent=$consent;$rollbackConsent['idempotency_key']=$uuid();
         foreach([['customers.directory-save',$rollbackProfile],['customers.consent',$rollbackConsent]] as [$route,$values]){
             if($route==='customers.consent')$values['directory_id']=(int)$db()->table('crm_customers')->where('phone','+201092000003')->value('id');
-            $attempt=$reserve($device,$route);$before=$business();
+            $attempt=$reserve($device,$route);$before=$business();$reservationCipher=$db()->table('desktop_dashboard_remote_attempts')->where('id',$attempt['values']['id'])->value('response_cipher');
             $db()->unprepared("CREATE TRIGGER fixture_customer_native_outcome BEFORE UPDATE ON desktop_dashboard_remote_attempts FOR EACH ROW BEGIN IF NEW.operation_id='".$values['idempotency_key']."' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture CRM native outcome rollback'; END IF; END");
             $failed=false;
             try{$handle($route,$values,$attempt);}catch(\Illuminate\Database\QueryException $error){
                 $failed=str_contains($error->getMessage(),'fixture CRM native outcome rollback');
             }finally{$db()->unprepared('DROP TRIGGER fixture_customer_native_outcome');}
             $row=$db()->table('desktop_dashboard_remote_attempts')->where('id',$attempt['values']['id'])->first();
-            check($failed&&$business()===$before&&$row->status==='ready'&&$row->operation_id===null&&$row->response_cipher===null,
+            check($failed&&$business()===$before&&$row->status==='ready'&&$row->operation_id===null&&$row->response_cipher===$reservationCipher,
                 'failure to persist a native '.$route.' terminal receipt rolls back its original customer, source, evidence and branch receipt');
             $result=$handle($route,$values,$attempt);$after=$business();$beforeCalls=$calls;
             check($result['status']===200&&$handle($route,$values,$attempt)===$result&&$business()===$after&&$calls===$beforeCalls,
@@ -304,10 +304,10 @@
         }
         $db()->beginTransaction();
         try{
-            check($db()->table('users')->where('id',1)->value('status')===null,
+            check($db()->table('users')->where('id',1)->value('status')===$ownerInitialStatus,
                 'the native CRM owner-status race warms an enabled persisted actor in a repeatable-read snapshot');
             $externalDisable=$pdo->prepare('UPDATE `'.$server.'`.users SET status=? WHERE id=?');$externalDisable->execute(['disabled',1]);
-            check($db()->table('users')->where('id',1)->value('status')===null,
+            check($db()->table('users')->where('id',1)->value('status')===$ownerInitialStatus,
                 'ordinary owner reads still see the older enabled status after independent account disablement');
             foreach(['customers.directory-save','customers.consent'] as $route){
                 $currentBinding=$binding;$currentBinding['route']=$route;
@@ -315,7 +315,7 @@
                     'a current locking owner-status read rejects '.$route.' receipt authority despite an older actor snapshot');
             }
         }finally{
-            $db()->rollBack();$db()->table('users')->where('id',1)->update(['status'=>null]);
+            $db()->rollBack();$db()->table('users')->where('id',1)->update(['status'=>$ownerInitialStatus]);
         }
         check($financial()===$moneyBefore,'all native CRM receipt, denial, STOP and rollback cases leave money, inventory and purchase records unchanged');
     }finally{

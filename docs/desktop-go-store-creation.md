@@ -1,0 +1,11 @@
+# Original GO owner and store creation
+
+The desktop adapter invokes the existing `go-stores.store` route, `CreateStoreRequest`, `StoreController::store` and `AccountCreator`. It accepts only the original owner/contact/password/profile/commission form fields and a command UUID. Explicit IDs, balances, account scope, activation fields, roles and uploads are rejected. Original phone/email normalization, password confirmation and password hashing remain in the original application.
+
+Creation records immutable creator identity and the explicit absence of matching GO accounts and pending/accepted partner applications. Current SQL actor status and original list/create grants are checked before work, cached replies and native settlement. Original successful redirects retain their UUID and success message. Credentials are stored only inside encrypted command/outcome payloads as required for original replay; public results contain no password or hash.
+
+The account, zero balance, store profile and durable journal/native outcome share one transaction. Reconciliation executes the original creator, checks the complete selected public owner/profile state, and emits typed `menu_store_owner`, `dashboard_user` and `wallet_account` aliases through actual account ID drift. Changed identity absence or extra result changes become retained conflicts. A same-integer owner replacement with a different creation timestamp cannot recover the old result or settle its creation claim.
+
+The command-bound `created_scope` result is evidence for the separate catalog-only created-scope protocol. Creation never appends a branch to immutable device enrollment. A claim alone grants no POS, cash, printing or general User authority. Existing enrolled GO profile/products and catalog grants remain separate contracts. This module creates no media; original product image handling is reviewed in `desktop-go-store-products.md`.
+
+`tests/desktop_dashboard_runtime/go-creation.php` uses separate original Laravel/MariaDB databases and real local/server HTTP forms for validation, rollback, retry, collision, account ID drift and native cancellation/recovery. Renderer tests execute the real form preparation script and native route matcher.

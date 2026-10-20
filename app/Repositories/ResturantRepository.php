@@ -91,7 +91,7 @@ class ResturantRepository implements ResturantRepositoryInterface
 
         $get_updated =$get_user->update(['status' => $request]);
         
-        broadcast(new ResturantUpdated($get_user,$ResturantId))->toOthers();
+        app(\App\Services\Dashboard\DesktopDashboardRestaurantEffects::class)->updated($get_user,$ResturantId);
 
         // if($request == 'closed'){
         //     $to_email = $get_user->user?->email;
@@ -128,7 +128,7 @@ class ResturantRepository implements ResturantRepositoryInterface
             $Resturant->addMediaFromRequest('bg_image')->toMediaCollection('bg_image','resturants');
         }
         if ($Resturant->status != $newDetails['status']){
-            broadcast(new ResturantUpdated($Resturant,$ResturantId))->toOthers();
+            app(\App\Services\Dashboard\DesktopDashboardRestaurantEffects::class)->updated($Resturant,$ResturantId);
         }
         if(auth('admin')->check()){
         if(request('area_id')){

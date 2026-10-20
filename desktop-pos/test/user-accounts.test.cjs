@@ -13,7 +13,7 @@ test('only exact original status links and address removal transmission methods 
   }
   for(const path of ['/admin/change-status/0','/admin/change-status/01','/admin/change-status/20/','/admin/change-status/20/edit','/admin/change-status/10000000000000000000','/admin/users/20/go_drive_activation','/admin/users/0','/admin/users/20/','/admin/users'])
     for(const method of ['GET','POST','DELETE'])assert.equal(attempts.supported({url:origin+path,method}),false,path+' '+method);
-  await assert.rejects(attempts.begin(crypto.randomUUID(),{url:origin+'/admin/change-status/20',method:'HEAD'}),/لا يمكنه تنفيذ تعديل/);
+  await assert.rejects(attempts.begin(crypto.randomUUID(),{url:origin+'/admin/change-status/20',method:'HEAD'}),/فحص رابط التعديل لا يمكنه تنفيذ عملية/);
 });
 
 test('original status links and address forms retain immutable distinct UUIDs through repeated scans and lost navigation',async()=>{

@@ -34,13 +34,22 @@ class DesktopDashboardBootstrap
         $source=app(DesktopDashboardSource::class)->fingerprint();
         DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         return DB::transaction(function()use($device,$source){
-            $fresh=DB::table('desktop_dashboard_devices')->where('id',$device->id)->lockForUpdate()->first();abort_unless($fresh&&$fresh->enabled,401);
+            $fresh=$this->devices->lockAuthenticated($device);
             $actor=$this->devices->actor($fresh);$branches=[];
             foreach(json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR) as $branch){
                 $this->devices->branch($fresh,$branch,$actor);$branches[]=$branch;
             }
             abort_unless(count($branches),403);
-            $queries=$this->data->queries($fresh,$actor,$branches);
+            $baseBranches=$branches;$scopeGrants=app(DesktopDashboardCreatedScopes::class);
+            $created=$scopeGrants->available()?$scopeGrants->export($fresh,$actor):[];
+            $branches=$scopeGrants->available()?$scopeGrants->effective($fresh,$actor):$baseBranches;
+            // Catalog creation does not extend branch ledgers, orders, stock, tills or quotes.
+            $queries=$this->data->queries($fresh,$actor,$baseBranches);
+            $createdOwners=[];foreach($created as $item)if(in_array($item['descriptor']['branch'],$branches,true))$createdOwners[]=$item['descriptor']['entity_id'];
+            if($createdOwners){
+                foreach(['users'=>'id','go_stores'=>'user_id','go_store_products'=>'user_id'] as $table=>$column)
+                    if(isset($queries[$table])&&!empty($queries[$table]->wheres))$queries[$table]->orWhereIn($column,$createdOwners);
+            }
             $dataset=$this->data->rows($queries);
             $tables=[];$schema=[];$rows=0;$bytes=0;
             foreach($queries as $table=>$query){
@@ -76,10 +85,11 @@ class DesktopDashboardBootstrap
             $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
             abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             $coverage=['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
-                'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'print_protocol'=>1,'media'=>$media['complete']];
+                'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'print_protocol'=>1,'catalog_scopes'=>$scopeGrants->available()?1:0,'media'=>$media['complete']];
+            if($scopeGrants->available()){$coverage['catalog_grants_sha256']=hash('sha256',self::json($created));$coverage['catalog_structural_branches']=$scopeGrants->structural($fresh,$actor);$coverage['base_branches_sha256']=hash('sha256',self::json($baseBranches));$coverage['catalog_branches_sha256']=hash('sha256',self::json($branches));}
             $eligibility=$this->data->pendingEligibility($queries,$dataset);if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
             return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
-                'actor_id'=>(int)$actor->id,'branches'=>$branches,'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at],'generated_at'=>now('UTC')->toIso8601String(),
+                'actor_id'=>(int)$actor->id,'branches'=>$branches,'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'base_branches'=>$baseBranches],'created_scopes'=>$created,'generated_at'=>now('UTC')->toIso8601String(),
                 'source'=>$source,
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.

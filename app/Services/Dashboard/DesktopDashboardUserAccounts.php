@@ -107,7 +107,8 @@ class DesktopDashboardUserAccounts
         if(config('desktop_dashboard.local')&&(string)config('desktop_dashboard.device_id')!==''){
             $enrolled=DB::table('desktop_dashboard_devices')->where('id',(string)config('desktop_dashboard.device_id'))->lockForUpdate()->first();
             abort_unless($enrolled&&$enrolled->enabled&&(int)$enrolled->actor_id===(int)$fresh->id,403,'ربط حساب الجهاز المحلي غير مفعّل.');
-            abort_unless(json_decode($enrolled->branches,true)===json_decode($scope->branches,true),409);
+            if(app(DesktopDashboardCreatedScopes::class)->active())app(DesktopDashboardCreatedScopes::class)->assertStructural($scope,$fresh);
+            else abort_unless(app(DesktopDashboardDevices::class)->baseBranches($enrolled)===json_decode($scope->branches,true),409);
         }
         // Only this original full-administration cohort imports complete account/role rows.
         // Lock current memberships, bypassing cached Spatie permissions and older RR reads.
@@ -116,7 +117,7 @@ class DesktopDashboardUserAccounts
             $ids=DB::table(config('permission.table_names.roles'))->whereIn('id',$ids)->where('guard_name','admin')->lockForUpdate()->pluck('id');
             abort_unless(DB::table(config('permission.table_names.roles'))->whereIn('id',$ids)->where('name','Super Admin')->lockForUpdate()->first(),403,'تعديل الحسابات محليًا يحتاج نسخة الإدارة الشاملة.');
         }
-        $branches=json_decode($scope->branches,true,512,JSON_THROW_ON_ERROR);abort_unless(is_array($branches)&&count($branches)>0,403);
+        $branches=app(DesktopDashboardDevices::class)->baseBranches($scope,DB::transactionLevel()>0);abort_unless(is_array($branches)&&count($branches)>0,403);
         foreach($branches as $branch){
             abort_unless(is_string($branch)&&preg_match('/^(f|gs):([1-9][0-9]{0,18})$/D',$branch,$parts),403);
             // Administration retains a declined GO account's structural scope, so it can

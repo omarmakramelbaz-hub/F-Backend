@@ -149,9 +149,13 @@ jobs:
             & php tests/desktop_dashboard_runtime/settings-engine-compatibility.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsEngineOutput
             if ($LASTEXITCODE -ne 0 -or !(($settingsEngineOutput -join "`n") -match '(?m)^SETTINGS_ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows settings engine changed original row identities, locks, payloads or transaction behavior.' }
             & php tests/desktop_dashboard_runtime/settings.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsProofOutput
-            if ($LASTEXITCODE -ne 0 -or !(($settingsProofOutput -join "`n") -match '(?m)^DESKTOP_SETTINGS_COMPLETE (?:3[8-9]|[4-9][0-9]|[1-9][0-9]{2,})$')) { throw 'Original nonsecret settings controller, protected balance, rollback, journal, replay and native outcomes did not complete.' }
-            foreach ($fixture in @('run.php', 'legacy.php', 'wallet-cash.php', 'outbox-review.php', 'print-ledger.php', 'user-accounts.php', 'order-board-component-run.php')) {
-              & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
+            if ($LASTEXITCODE -ne 0 -or !(($settingsProofOutput -join "`n") -match '(?m)^DESKTOP_SETTINGS_COMPLETE (?:11[2-9]|1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})$')) { throw 'Original nonsecret settings controller, protected balance, rollback, journal, replay, native outcomes and legacy image import did not complete.' }
+            foreach ($fixture in @('run.php', 'legacy.php', 'wallet-cash.php', 'outbox-review.php', 'print-ledger.php', 'user-accounts.php', 'order-board-component-run.php', 'enrollment-run.php', 'connected-request-actor.php', 'core-authority.php', 'created-scopes.php')) {
+              if ($fixture -eq 'print-ledger.php') {
+                & ./tests/desktop_dashboard_runtime/isolated-print-ledger.ps1 -MariaDbBin $bin -Application "$bundle/application" -Php (Get-Command php).Source 2>&1 | Tee-Object -Variable fixtureOutput
+              } else {
+                & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
+              }
               $fixtureExit = $LASTEXITCODE
               $summary = switch ($fixture) {
                 'run.php' { '\d+ checks passed using the original Laravel application and real MariaDB' }
@@ -161,6 +165,10 @@ jobs:
                 'print-ledger.php' { '(?m)^\d+ private print-ledger checks passed using original Laravel and disposable MariaDB$' }
                 'user-accounts.php' { '(?m)^USER_ACCOUNT_CHECKS_COMPLETE (?:9[1-9]|[1-9][0-9]{2,})$' }
                 'order-board-component-run.php' { '(?m)^ORDER_BOARD_RECONCILIATION_CHECKS=(?:29|[3-9][0-9]|[1-9][0-9]{2,})$' }
+                'enrollment-run.php' { '(?m)^ENROLLMENT_BINDING_CHECKS=\d+$' }
+                'connected-request-actor.php' { '(?m)^CONNECTED_REQUEST_ACTOR_COMPLETE \{[^\r\n]+\}$' }
+                'core-authority.php' { '(?m)^CORE_CURRENT_AUTHORITY_CHECKS_COMPLETE \d+$' }
+                'created-scopes.php' { '(?m)^CREATED_CATALOG_SCOPE_CHECKS=\d+$' }
                 default { throw 'An application fixture has no required completion receipt.' }
               }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
@@ -175,10 +183,38 @@ jobs:
                 if ($metaReceipt.checks -ne 45 -or $metaReceipt.routes -ne 15 -or $metaReceipt.httpKernelRoutes -ne 5 -or !$metaReceipt.local404 -or !$metaReceipt.authorizationRetained -or !$metaReceipt.serverOnlyTablesExcluded -or $metaReceipt.queries -ne 0 -or $metaReceipt.providerCalls -ne 0 -or $metaReceipt.callbacks -ne 0 -or !$metaReceipt.outboxUnchanged -or !$metaReceipt.privateStorageUnchanged -or !$metaReceipt.profileWorkerUnavailable -or $metaReceipt.fullDashboard -ne $false) { throw 'The original unprepared Meta boundary receipt differs.' }
               }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
-              if ($fixture -eq 'wallet-cash.php' -and !(($fixtureOutput -join "`n") -match '(?m)^WALLET_CASH_CHECKS=(?:6[7-9]|[7-9][0-9]|[1-9][0-9]{2,})$')) { throw 'Original cash controller, contention, reconciliation and native outcome checks did not complete.' }
-              if ($fixture -eq 'order-board-component-run.php') {
-                foreach ($required in @('(?m)^WALLET_CASH_CHECKS=(?:7[0-9]|[89][0-9]|[1-9][0-9]{2,})$', '(?m)^ORDER_BOARD_COMPONENT_CHECKS=(?:4[1-9]|[5-9][0-9]|[1-9][0-9]{2,})$')) {
-                  if (!(($fixtureOutput -join "`n") -match $required)) { throw 'The board fixture must complete its original cash, lifecycle and separate-database reconciliation cohorts.' }
+              $requiredCounts = switch ($fixture) {
+                'wallet-cash.php' { @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 } }
+                'print-ledger.php' { @{ pattern = '(?m)^([0-9]+) private print-ledger checks passed using original Laravel and disposable MariaDB$'; minimum = 205 } }
+                'user-accounts.php' { @{ pattern = '(?m)^USER_ACCOUNT_CHECKS_COMPLETE ([0-9]+)$'; minimum = 91 } }
+                'order-board-component-run.php' {
+                  @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 }
+                  @{ pattern = '(?m)^ORDER_BOARD_COMPONENT_CHECKS=([0-9]+)$'; minimum = 41 }
+                  @{ pattern = '(?m)^ORDER_BOARD_RECONCILIATION_CHECKS=([0-9]+)$'; minimum = 29 }
+                }
+                'enrollment-run.php' {
+                  @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 }
+                  @{ pattern = '(?m)^ENROLLMENT_BINDING_CHECKS=([0-9]+)$'; minimum = 45 }
+                }
+                'core-authority.php' { @{ pattern = '(?m)^CORE_CURRENT_AUTHORITY_CHECKS_COMPLETE ([0-9]+)$'; minimum = 166 } }
+                'created-scopes.php' { @{ pattern = '(?m)^CREATED_CATALOG_SCOPE_CHECKS=([0-9]+)$'; minimum = 45 } }
+              }
+              foreach ($required in $requiredCounts) {
+                $countMatches = [regex]::Matches(($fixtureOutput -join "`n"), $required.pattern)
+                if ($countMatches.Count -ne 1 -or [long]$countMatches[0].Groups[1].Value -lt $required.minimum) { throw "Original fixture count is missing, incomplete or duplicated: $fixture" }
+              }
+              if ($fixture -eq 'connected-request-actor.php') {
+                $actorMatches = [regex]::Matches(($fixtureOutput -join "`n"), '(?m)^CONNECTED_REQUEST_ACTOR_COMPLETE (\{[^\r\n]+\})$')
+                if ($actorMatches.Count -ne 1) { throw 'The connected request actor fixture must complete exactly once.' }
+                $actorReceipt = $actorMatches[0].Groups[1].Value | ConvertFrom-Json
+                foreach ($entry in @{ checks = 35; probeActor = 1; originalRequestActor = 10 }.GetEnumerator()) {
+                  if (($actorReceipt.($entry.Key) -isnot [int] -and $actorReceipt.($entry.Key) -isnot [long]) -or $actorReceipt.($entry.Key) -ne $entry.Value) { throw 'The connected request actor receipt count or actual session identities differ.' }
+                }
+                foreach ($field in @('sameRequestGuard','actualOriginalController','separateHttpSessions')) {
+                  if ($actorReceipt.$field -isnot [bool] -or $actorReceipt.$field -ne $true) { throw "The connected request actor boundary did not complete: $field" }
+                }
+                foreach ($field in @('businessTransactionWrapped','productionEnvironmentLoaded')) {
+                  if ($actorReceipt.$field -isnot [bool] -or $actorReceipt.$field -ne $false) { throw "The connected request actor boundary scope differs: $field" }
                 }
               }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }

@@ -20,14 +20,34 @@ test('the original existing GO profile form retains its UUID when a response is 
     f.submit();f.submit();assert.equal(f.command(),command);assert.equal(f.form.fields.length,1);
   }
 });
-test('GO owner creation, foreign forms and other methods remain outside UUID and reservation coverage',async()=>{
+test('foreign GO profile forms and other methods remain outside UUID and reservation coverage',async()=>{
   const attempts=new Attempts({});
   assert.equal(attempts.supported({url:'https://dashboard.test/admin/go-stores/60',method:'POST'}),true);
-  for(const [url,method] of [['https://dashboard.test/admin/go-stores','POST'],...['GET','PUT','PATCH','DELETE'].map(method=>['https://dashboard.test/admin/go-stores/60',method])]){
+  for(const [url,method] of ['GET','PUT','PATCH','DELETE'].map(method=>['https://dashboard.test/admin/go-stores/60',method])){
     assert.equal((await formFixture(url,method)).command(),undefined);assert.equal(attempts.supported({url,method}),false);
   }
   assert.equal((await formFixture('https://foreign.test/admin/go-stores/60')).command(),undefined);
   assert.equal((await formFixture(undefined,undefined,{dashboardLocal:'0'})).command(),undefined);
+});
+test('the original GO creation form keeps its credential inputs and command UUID across local and native retries',async()=>{
+  const attempts=new Attempts({});
+  for(const dataset of [{dashboardLocal:'1'},{dashboardLocal:'0',dashboardRemoteAttempts:'1'}]){
+    const f=await formFixture('https://dashboard.test/admin/go-stores','POST',dataset);
+    f.form.fields.push({name:'password',value:'fixture-original-password'},{name:'password_confirmation',value:'fixture-original-password'});
+    const command=f.command();assert.match(command,/^[a-f0-9-]{36}$/i);f.submit();f.submit();
+    assert.equal(f.command(),command);assert.equal(f.form.fields.filter(field=>field.name==='_desktop_command').length,1);
+    assert.deepEqual(f.form.fields.filter(field=>field.name.startsWith('password')),[{name:'password',value:'fixture-original-password'},{name:'password_confirmation',value:'fixture-original-password'}]);
+  }
+  assert.equal(attempts.supported({url:'https://dashboard.test/admin/go-stores',method:'POST'}),true);
+  for(const path of ['/admin/go-stores/','/admin/go-stores/create','/admin/go-stores/0','/admin/go-stores/01']){
+    assert.equal((await formFixture('https://dashboard.test'+path)).command(),undefined);
+    assert.equal(attempts.supported({url:'https://dashboard.test'+path,method:'POST'}),false);
+  }
+  for(const method of ['GET','HEAD','PUT','PATCH','DELETE']){
+    assert.equal((await formFixture('https://dashboard.test/admin/go-stores',method)).command(),undefined);
+    assert.equal(attempts.supported({url:'https://dashboard.test/admin/go-stores',method}),false);
+  }
+  assert.equal((await formFixture('https://foreign.test/admin/go-stores')).command(),undefined);
 });
 test('a committed GO status rejected for current grants or enrollment preserves the actual native pending attempt until authority is restored',async()=>{
   for(const reason of ['revoked grant','unenrolled gs owner']){

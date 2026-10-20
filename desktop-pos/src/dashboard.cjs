@@ -2,18 +2,20 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
+const getPolicy=require('./dashboard-get-policy.cjs');
 const policy = require('./dashboard-policy.cjs');
 const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
+  const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
   const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
     available:()=>Boolean(localToken) && !refreshing && !quitting(),prepareDocument:prepareEffectDocument}) : null;
@@ -60,8 +62,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
     const pathname = new URL(details.url).pathname;
     if (readPosts.has(pathname)) return false;
-    return pathname.startsWith('/admin/') && ((['GET','HEAD'].includes(String(details.method).toUpperCase())&&/^\/admin\/change-status\/[1-9][0-9]{0,18}$/.test(pathname)) || !['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
-      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname));
+    return getPolicy.mutation(pathname)||(getPolicy.admin(pathname) && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
+      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname)));
   }
   function failure(details = {}) {
     if (remoteWrites.size) return { ...details, method: 'UNKNOWN' };
@@ -99,14 +101,29 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           || !policy.sameOrigin(printUrl, origin)) throw Error('مصدر الطباعة غير مسموح.');
       const url = new URL(printUrl);
       if (!url.pathname.startsWith('/admin/')) throw Error('رابط الفاتورة غير صحيح.');
+      // Fragments never reach HTTP. Bind the native proof to the actual wire URL.
+      url.hash='';
       if(localToken){
         if(!effects)throw Error('الطباعة المحلية تحتاج تحديث البرنامج.');
         return {ok:true,value:await effects.receipt(url.pathname,Object.fromEntries(url.searchParams),typeof value==='object'?value.request_id:undefined)};
       }
       url.searchParams.set('dashboard_print', '1');
-      const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html', ...(localToken ? { 'X-Fasakhansta-Desktop': localToken } : {}) }, redirect: 'error', signal: AbortSignal.timeout(25000) });
+      const attempt=remoteAttempts?crypto.randomUUID():null;let response,html,nativeMarker;
+      const proof=attempt?await remoteAttempts.begin(attempt,{url:url.href,method:'GET'}):{};
+      const printHeaders={Accept:'text/html',...proof};
+      if(proof['X-Fasakhansta-Connected-Device']&&proof['X-Fasakhansta-Connected-Token']){
+        // Only this native fetch can retain its paired actor proof through the
+        // shared interceptor. The one-use marker never leaves this process.
+        nativeMarker=crypto.randomBytes(32).toString('hex');
+        nativeConnectedPrints.set(nativeMarker,{url:url.href,proof});
+        printHeaders['X-Fasakhansta-Connected-Request']=nativeMarker;
+      }
+      try{
+        response=await event.sender.session.fetch(url.href,{credentials:'include',headers:printHeaders,redirect:'error',signal:AbortSignal.timeout(25000)});
+        html=await response.text();if(attempt)await remoteAttempts.complete(attempt);
+      }catch(error){if(attempt)remoteAttempts.failed(attempt);throw error;}
+      finally{if(nativeMarker)nativeConnectedPrints.delete(nativeMarker);}
       if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) throw Error('تعذر تحميل الفاتورة.');
-      const html = await response.text();
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (html.length > 3 * 1024 * 1024 || !/\bdata-dashboard-receipt\s*=/.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
       const localSource = localToken ? ' ' + origin : '';
@@ -149,7 +166,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
-            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability)$/i.test(name)) delete headers[name];
+            const nativeMarker=Object.entries(headers).find(([name])=>name.toLowerCase()==='x-fasakhansta-connected-request')?.[1];
+            const connectedSupplied=Object.keys(headers).some(name=>/^x-fasakhansta-connected-(?:device|token|request)$/i.test(name));
+            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability|connected-device|connected-token|connected-request)$/i.test(name)) delete headers[name];
             if (!policy.sameOrigin(details.url, origin)) {
               // An absolute legacy URL must not send a prepared local form or
               // dashboard poll directly to production outside the shared cycle.
@@ -161,7 +180,19 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if (details.id != null && owned.has(details.webContentsId)) activeRequests.add(details.id);
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
-              if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
+              const nativePrint=nativeConnectedPrints.get(nativeMarker);
+              if((details.webContentsId==null||details.webContentsId<=0)&&String(details.method).toUpperCase()==='GET'&&nativePrint?.url===details.url){
+                nativeConnectedPrints.delete(nativeMarker);callback({requestHeaders:{...headers,...nativePrint.proof}});return;
+              }
+              // A failed native binding must never become an unguarded original
+              // server action after its proof was stripped.
+              if((details.webContentsId==null||details.webContentsId<=0)&&connectedSupplied){callback({cancel:true});return;}
+              if (!remoteWrite(details)) {
+                if(browse&&owned.has(details.webContentsId)&&getPolicy.admin(new URL(details.url).pathname)&&['GET','HEAD'].includes(String(details.method||'GET').toUpperCase())){
+                  accepted(()=>browse()).then(()=>callback({requestHeaders:headers}),error=>{callback({cancel:true});dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message});});return;
+                }
+                callback({ requestHeaders: headers }); return;
+              }
               const attempt = crypto.randomUUID(); remoteWrites.set(details.id, attempt);
               // Persist uncertainty before a request can leave the machine.
               accepted(() => remoteAttempts ? remoteAttempts.begin(attempt, details) : remoteState?.begin(attempt)).then(proof => callback({ requestHeaders: { ...headers, ...proof } }), error => {
@@ -264,6 +295,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
+      ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(reviewCentral?[{label:'مراجعة نتائج العمليات المتصلة',click:()=>accepted(()=>reviewCentral(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       ...(prepare ? [{ label: 'تجهيز للعمل بدون إنترنت', click: () => {
         if (!window || localToken || quitting()) return;
         window.webContents.executeJavaScript('document.querySelector(\'meta[name="csrf-token"]\')?.content || ""')

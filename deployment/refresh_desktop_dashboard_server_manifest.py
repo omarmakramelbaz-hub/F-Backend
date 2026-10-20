@@ -20,6 +20,7 @@ MIGRATIONS=(
     'database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php',
     'database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php',
     'database/migrations/2026_10_20_000001_create_desktop_dashboard_print_ownership.php',
+    'database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php',
 )
 # Source compatibility for fresh Laravel 8/12 installations. This historical
 # migration is never in the additive execution roster and is never rerun here.

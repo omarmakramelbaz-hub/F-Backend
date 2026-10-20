@@ -35,6 +35,8 @@ class DesktopDashboardReferences
         if(DesktopDashboardSettings::handles($route))return [];
         if(DesktopDashboardWalletCash::handles($route))return isset($result['wallet'])?app(DesktopDashboardWalletCash::class)->outputs($result):[];
         if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->outputs($route,$result);
+        if(DesktopDashboardRestaurantManagement::handles($route))return app(DesktopDashboardRestaurantManagement::class)->outputs($result);
+        if(DesktopDashboardGoStoreCreation::handles($route))return app(DesktopDashboardGoStoreCreation::class)->outputs($result);
         if(DesktopDashboardGoProducts::handles($route))return app(DesktopDashboardGoProducts::class)->outputs($result);
         if(DesktopDashboardRestaurantControl::handles($route))return app(DesktopDashboardRestaurantControl::class)->outputs($result);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->outputs($result);
@@ -96,6 +98,8 @@ class DesktopDashboardReferences
         if(DesktopDashboardSettings::handles($route))return ['payload'=>app(DesktopDashboardSettings::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardWalletCash::handles($route))return ['payload'=>app(DesktopDashboardWalletCash::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardCustomerDirectory::handles($route))return ['payload'=>app(DesktopDashboardCustomerDirectory::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantManagement::handles($route))return ['payload'=>app(DesktopDashboardRestaurantManagement::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardGoStoreCreation::handles($route))return ['payload'=>app(DesktopDashboardGoStoreCreation::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardGoProducts::handles($route))return ['payload'=>app(DesktopDashboardGoProducts::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantControl::handles($route))return ['payload'=>app(DesktopDashboardRestaurantControl::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
         if(DesktopDashboardRestaurantFlags::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantFlags::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];

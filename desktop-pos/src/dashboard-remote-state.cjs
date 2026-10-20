@@ -22,6 +22,12 @@ class DashboardRemoteState {
       await this.metadata.write('remote-writes', value);
     });
   }
+  browse(){
+    return this.serialize(async()=>{
+      if(this.blocked)throw Error('يجري تحديث بيانات الجهاز؛ انتظر اكتماله.');
+      const value=await this.read();value.dirty=true;await this.metadata.write('remote-writes',value);
+    });
+  }
   complete(id) {
     return this.serialize(async () => {
       const value = await this.read();

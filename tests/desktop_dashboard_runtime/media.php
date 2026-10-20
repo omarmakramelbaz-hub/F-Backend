@@ -96,7 +96,7 @@ try{
     verify($loginStatus===200&&isset($loginCsrf[1]),'the original server login exposes its own session CSRF token');
     verify($serverHttp('/admin/signin',['_token'=>$loginCsrf[1],'email'=>'branch@test.invalid','password'=>'Fixture123'])[0]===302,'the original server session authenticates the enrolled account');
     [$sessionStatus,$session]=$serverHttp('/admin/desktop-dashboard/session',null,$link['token']);
-    verify($sessionStatus===200&&json_decode($session,true)===['device_id'=>$device->id,'actor_id'=>10],
+    verify($sessionStatus===200&&json_decode($session,true)===['device_id'=>$device->id,'actor_id'=>10,'connected_request_protocol'=>1],
         'server return verifies the current browser account and device without exposing its bearer credential');
     verify($serverHttp('/admin/desktop-dashboard/session',null,$other['token'])[0]===403,'another device account cannot authorize switching the signed-in browser');
     verify($serverHttp('/admin/desktop-dashboard/session')[0]===401,'the signed-in browser alone cannot authorize a desktop server return');

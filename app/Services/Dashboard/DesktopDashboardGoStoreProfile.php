@@ -49,7 +49,10 @@ class DesktopDashboardGoStoreProfile
     public function enrolledBranch(object $device,array $parameters): void
     {
         $p=$this->parameters($parameters);
-        abort_unless(in_array('gs:'.$p['owner'],json_decode($device->branches,true,512,JSON_THROW_ON_ERROR),true),403,'المتجر خارج نطاق ربط الجهاز.');
+        if(isset($device->device_id)&&in_array('gs:'.$p['owner'],app(DesktopDashboardDevices::class)->baseBranches($device),true))
+            abort_unless(in_array('gs:'.$p['owner'],json_decode($device->branches,true,512,JSON_THROW_ON_ERROR),true),403);
+        if(app(DesktopDashboardCreatedScopes::class)->available()){app(DesktopDashboardCreatedScopes::class)->catalog($device,'gs:'.$p['owner'],\App\Models\User::withoutGlobalScopes()->whereKey($device->actor_id)->lockForUpdate()->firstOrFail());return;}
+        abort_unless(in_array('gs:'.$p['owner'],app(DesktopDashboardDevices::class)->baseBranches($device),true),403,'المتجر خارج نطاق ربط الجهاز.');
     }
     public function state(int $owner): array
     {

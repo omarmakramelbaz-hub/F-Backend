@@ -2,7 +2,7 @@
 (async () => {
     if (document.body?.dataset.dashboardLocal !== '1') {
         if (!window.FasakhanstaDesktop || document.body?.dataset.dashboardRemoteAttempts !== '1') return;
-        try { if (!(await window.FasakhanstaDesktop.status()).prepared) return; } catch { return; }
+        try { const state=await window.FasakhanstaDesktop.status();if(!state.prepared||state.full_central===true)return; } catch { return; }
     }
     const ownedControl = (form, name) => {
         if (form.elements) return Array.from(form.elements).find(control => control.form === form
@@ -29,6 +29,9 @@
                 || (method==='DELETE'&&/^\/admin\/resturant_reviews\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/(?:userWishlistsDelete|userAddressDelete)\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='DELETE'&&/^\/admin\/contacts\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (['PUT','PATCH'].includes(method)&&/^\/admin\/resturants\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&/^\/admin\/updateStatus\/[1-9][0-9]{0,18}$/.test(url.pathname))
+                || (method==='POST'&&url.pathname==='/admin/go-stores')
                 || (method==='POST'&&/^\/admin\/go-stores\/[1-9][0-9]{0,18}(?:\/products(?:\/[1-9][0-9]{0,18})?)?$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/resturantchange(?:Status|UnderContract)\/[1-9][0-9]{0,18}$/.test(url.pathname))
                 || (method==='POST'&&/^\/admin\/update_sorting_is_featured\/[1-9][0-9]{0,18}$/.test(url.pathname)));

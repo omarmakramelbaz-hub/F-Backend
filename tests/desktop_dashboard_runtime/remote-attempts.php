@@ -402,7 +402,7 @@ require __DIR__.'/restaurant-menu-copy-remote.php';
         verify($waiting&&proc_get_status($client)['running'],'an actual concurrent API settlement waits for the accepted InnoDB write rather than cancelling ahead of it');
         echo 'DESKTOP_SETTLEMENT_LOCK_OBSERVED '.json_encode(['elapsedSeconds'=>microtime(true)-$lockStarted,'deadlineSeconds'=>10]).PHP_EOL;
         DB::table('products')->insert(['added_by'=>1,'category_id'=>1,'name_ar'=>'نتيجة معاملة متزامنة','status'=>'show']);
-        $operation=(string)Str::uuid();$saved=['operation'=>$operation,'status'=>302,'content'=>'','type'=>'text/html','location'=>'/admin/products'];
+        $operation=(string)Str::uuid();$saved=['enrollment_binding'=>json_decode(Crypt::decryptString(DB::table('desktop_dashboard_remote_attempts')->where('id',$concurrent['id'])->value('response_cipher')),true)['enrollment_binding'],'operation'=>$operation,'status'=>302,'content'=>'','type'=>'text/html','location'=>'/admin/products'];
         DB::table('desktop_dashboard_remote_attempts')->where('id',$concurrent['id'])->update(['status'=>'committed','operation_id'=>$operation,
             'request_hash'=>str_repeat('a',64),'response_cipher'=>Crypt::encryptString(json_encode($saved))]);DB::commit();
         fclose($clientPipes[0]);$clientExit=proc_close($client);$client=null;

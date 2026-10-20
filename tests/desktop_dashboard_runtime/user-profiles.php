@@ -1,6 +1,6 @@
 <?php
 // Included by user-accounts.php: the original FormRequest/controller/repository/model path.
-(function()use($actor,$scope,$device,$application){
+(function()use($actor,$scope,$device,$application,$accountScope){
     $profiles=app(\App\Services\Dashboard\DesktopDashboardUserProfiles::class);$journal=app(\App\Services\Dashboard\DesktopDashboardJournal::class);
     $permission=\Spatie\Permission\Models\Permission::findByName('delegate-edit','admin');$actor->givePermissionTo($permission);$role=\Spatie\Permission\Models\Role::create(['name'=>'delegate','guard_name'=>'admin']);$target=\App\Models\User::withoutGlobalScopes()->findOrFail(40);$target->assignRole($role);
     $secret=(array)\Illuminate\Support\Facades\DB::table('users')->where('id',40)->first(['password','remember_token']);
@@ -28,7 +28,7 @@
     verified(\Illuminate\Support\Facades\DB::table('users')->where('id',40)->value('name')===$users&&\Illuminate\Support\Facades\DB::table('desktop_dashboard_commands')->count()===$count,'observer failure rolls back the name and operation and does not leak trusted context');
     $super=\Spatie\Permission\Models\Role::findByName('Super Admin','admin');$admin=\App\Models\User::withoutGlobalScopes()->findOrFail(30);$admin->assignRole($super);\Illuminate\Support\Facades\DB::table('role_has_permissions')->where('role_id',$super->id)->where('permission_id',$permission->id)->delete();
     $web=\Spatie\Permission\Models\Role::create(['name'=>'Cross guard role','guard_name'=>'web']);\Illuminate\Support\Facades\DB::table('model_has_roles')->insert(['role_id'=>$web->id,'model_type'=>\App\Models\User::class,'model_id'=>30]);\Illuminate\Support\Facades\DB::table('role_has_permissions')->insert(['role_id'=>$web->id,'permission_id'=>$permission->id]);
-    deniedAccount(fn()=>\Illuminate\Support\Facades\DB::transaction(fn()=>$profiles->authorize($np,$admin,(object)['actor_id'=>30,'branches'=>'["f:100"]','enabled'=>true])),403,'a cross-guard role cannot supply an admin account edit grant');
+    deniedAccount(fn()=>\Illuminate\Support\Facades\DB::transaction(fn()=>$profiles->authorize($np,$admin,$accountScope(30,['f:100']))),403,'a cross-guard role cannot supply an admin account edit grant');
     \Illuminate\Support\Facades\DB::table('role_has_permissions')->where('role_id',$web->id)->delete();\Illuminate\Support\Facades\DB::table('model_has_roles')->where('model_id',30)->delete();$super->givePermissionTo($permission);
     // A changed central password is deliberately preserved because this operation never writes credentials.
     $newHash=password_hash('NewCentralSecret123',PASSWORD_BCRYPT);\Illuminate\Support\Facades\DB::table('users')->where('id',40)->update(['password'=>$newHash]);$run($np);verified(\Illuminate\Support\Facades\DB::table('users')->where('id',40)->value('password')===$newHash,'a noncredential profile save never overwrites a separately changed password');

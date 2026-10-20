@@ -33,6 +33,7 @@ trait UploadImageTrait {
            $public_path     = public_path($this->storage_path.$file_name);
            // $img             = Image::make($public_path);
            $url             = preg_replace( "/public/", "", $url );
+           if($file instanceof \App\Services\Dashboard\DesktopDashboardSettingsUpload)$url=ltrim($url,'/');
            return  $url ;
        }
     }

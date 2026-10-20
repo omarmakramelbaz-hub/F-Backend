@@ -74,7 +74,7 @@ test('native product reservations include only the two reviewed GET writes and p
     for (const field of ['status', 'highest_rated']) {
       await assert.rejects(instance.begin(crypto.randomUUID(), {
         url: origin + '/admin/resturant_products/20/update/' + field + '?' + field + '=hide', method: 'HEAD'
-      }), /فحص رابط الصنف/);
+      }), /فحص رابط التعديل/);
     }
   }
   assert.equal(pending.size, 0); assert.equal(records.size, 0); assert.equal(calls.length, 0);

@@ -32,6 +32,7 @@ MIGRATIONS = (
     'database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php',
     'database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php',
     'database/migrations/2026_10_20_000001_create_desktop_dashboard_print_ownership.php',
+    'database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php',
 )
 # Exact historical source replacement only. It must never be executed by this
 # release: production keeps its already-applied permission schema and vendor.

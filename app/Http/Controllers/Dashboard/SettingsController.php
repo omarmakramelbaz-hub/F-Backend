@@ -12,6 +12,8 @@ class SettingsController extends Controller
     use UploadImageTrait;
     function __construct()
     {
+        // storeAs joins its own separator; keep this controller's exact folder free of a trailing slash.
+        $this->public_path='/public/uploadedImages';
         $this->middleware('permission:setting-list', ['only' => ['index','update']]);
         $this->middleware('permission:paymob-list', ['only' => ['enviroSetting']]);
 

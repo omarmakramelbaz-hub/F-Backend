@@ -15,6 +15,8 @@ class DesktopDashboardCommands
         if(DesktopDashboardUserProfiles::handles($route))return app(DesktopDashboardUserProfiles::class)->execute($payload,$actor);
         if(DesktopDashboardUserAccounts::handles($route))return app(DesktopDashboardUserAccounts::class)->execute($route,$payload,$actor);
         if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->execute($route,$payload,$actor);
+        if(DesktopDashboardRestaurantManagement::handles($route))return app(DesktopDashboardRestaurantManagement::class)->execute($route,$payload,$actor);
+        if(DesktopDashboardGoStoreCreation::handles($route))return app(DesktopDashboardGoStoreCreation::class)->execute($route,$payload,$actor);
         if(DesktopDashboardGoProducts::handles($route))return app(DesktopDashboardGoProducts::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantControl::handles($route))return app(DesktopDashboardRestaurantControl::class)->execute($route,$payload,$actor);
         if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->execute($route,$payload,$actor);
