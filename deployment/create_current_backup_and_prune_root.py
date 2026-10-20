@@ -33,8 +33,53 @@ RUNTIME_DIRS = ('public_html/storage/logs', 'public_html/storage/debugbar',
                 'public_html/storage/framework/views',
                 'public_html/storage/framework/sessions')
 RESERVE = 3 * 1024 ** 3
+DATABASE_MAP = Path('/var/cpanel/databases/fasakha.json')
 need = core.need
 run = core.run
+
+
+def database_inventory_from_map():
+    # Read cPanel's account ownership registry directly. The uapi launcher is
+    # unavailable on this server; neither permissions nor the registry change.
+    need(DATABASE_MAP.is_file() and not DATABASE_MAP.is_symlink(),
+         'Missing regular cPanel account database ownership map.')
+    try:
+        document = json.loads(DATABASE_MAP.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise core.BackupError('Cannot read/parse the cPanel database ownership map.')
+    mysql = document.get('MYSQL')
+    need(isinstance(mysql, dict) and mysql.get('owner') == core.ACCOUNT,
+         'cPanel database map has an unexpected account owner.')
+    databases = mysql.get('dbs')
+    need(isinstance(databases, dict) and databases,
+         'cPanel ownership map has no account MySQL databases.')
+    names = sorted(databases)
+    need(all(isinstance(name, str) and name and
+             not any(char.isspace() or char in '/\\\0' for char in name)
+             for name in names), 'Unexpected database name in cPanel ownership map.')
+    postgres = document.get('PGSQL') or {}
+    need(isinstance(postgres, dict) and not postgres.get('dbs'),
+         'PostgreSQL databases require an additional archive verification step.')
+    environment = HOME / 'public_html' / '.env'
+    need(environment.is_file(), 'Missing primary application environment file.')
+    text = environment.read_text(encoding='utf-8')
+    match = re.search(r'^\s*(?:export\s+)?DB_DATABASE\s*=\s*([^\r\n]*)', text, re.M)
+    need(match is not None, 'Cannot establish the primary application database name.')
+    value = match.group(1).strip()
+    if value.startswith(('\x22', "'")):
+        quoted = re.fullmatch(r'([\x22\x27])(.*?)\1\s*(?:#.*)?', value)
+        need(quoted is not None, 'Unsupported quoted primary database name.')
+        primary = quoted.group(2)
+    else:
+        primary = value.split(' #', 1)[0].strip()
+    need(primary in names, 'The primary application database is absent from the ownership map.')
+    # The owner supplied an inventory showing these two local databases.
+    for observed in ('fasakha_db', 'fasakha_dev_db'):
+        if (Path('/var/lib/mysql') / observed).is_dir():
+            need(observed in names, 'An observed account database is absent from the ownership map.')
+    return {'source': 'cpanel_account_ownership_map', 'account': core.ACCOUNT,
+            'map_path': str(DATABASE_MAP), 'map_sha256': core.sha256(DATABASE_MAP),
+            'databases': names, 'primary_application_database': primary}
 
 
 def inside(path, parent):
@@ -429,7 +474,7 @@ def main():
     os.chdir('/')
     need(HOME.is_dir() and HOME.resolve() == HOME, 'Unexpected account home.')
     need(Path('/var/cpanel/users/fasakha').is_file(), 'Missing cPanel account.')
-    for tool in (core.PKGACCT, core.UAPI, 'git', 'tar', 'du', 'sha256sum', 'systemctl', 'runuser'):
+    for tool in (core.PKGACCT, 'git', 'tar', 'du', 'sha256sum', 'systemctl', 'runuser'):
         need(shutil.which(tool), 'Missing required executable: ' + tool)
     need(not BASE.is_symlink(), 'Unexpected backup parent symlink.')
     BASE.mkdir(mode=0o700, exist_ok=True)
@@ -439,6 +484,9 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise core.BackupError('Another complete backup is running.')
+        database_report = database_inventory_from_map()
+        databases = database_report['databases']
+        print('DATABASES_FROM_CPANEL_OWNERSHIP_MAP=' + str(len(databases)), flush=True)
         candidates = candidate_paths()
         need(candidates, 'No expected old directories found; review inventory.')
         print('CHECKING_OLD_TREE_DEPENDENCIES', flush=True)
@@ -455,20 +503,21 @@ def main():
             for script in (__file__, core.__file__):
                 shutil.copyfile(script, str(destination / Path(script).name))
             (destination / 'home-inventory.json').write_text(json.dumps(inventory, indent=2))
-            raw = run([core.UAPI, '--user=' + core.ACCOUNT, '--output=json', 'Mysql', 'list_databases'])
-            (destination / 'database-inventory.json').write_text(raw)
-            databases = core.database_names(json.loads(raw))
+            (destination / 'database-inventory.json').write_text(json.dumps(database_report, indent=2))
             started = utc_now()
-            sources = core.copy_sources(destination / 'sources', destination / 'logs')
-            check_space(destination, candidates)
             print('BACKING_UP_ACCOUNT_AND_ALL_DATABASES', flush=True)
             package = package_account(destination)
             sql = verify_sql_package(package, databases)
+            print('VERIFYING_SOURCE_MIRRORS', flush=True)
+            sources = core.copy_sources(destination / 'sources', destination / 'logs')
+            check_space(destination, candidates)
             print('STREAMING_CURRENT_HOME', flush=True)
             home, warnings = stream_home(destination, candidates)
             print('VERIFYING_COMPLETE_HOME_COVERAGE', flush=True)
             home_check = verify_home(home, inventory, candidates)
             configs = core.copy_system_config(destination)
+            need(database_inventory_from_map()['databases'] == databases,
+                 'Account database ownership changed during backup; old backups retained.')
             manifest = {'layout': 'split-home', 'account': core.ACCOUNT,
                         'started_utc': started, 'finished_utc': utc_now(),
                         'excluded_old_trees': planned,
