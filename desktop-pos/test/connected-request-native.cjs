@@ -79,7 +79,7 @@ async function run(){
   await browserSession.cookies.set({url:credential.serverOrigin,name:'connected_fixture_actor',value:'1',secure:true,httpOnly:true,sameSite:'lax'});
   await metadata.write('central-mode',{format:1,phase:'central',binding:binding(credential)});
   const runtime={metadata,isPrepared:async()=>true,connection:async()=>credential};
-  const access=new DashboardConnected({runtime,probe:async current=>{
+  const access=new DashboardConnected({runtime,remoteState:state,probe:async current=>{
     const response=await dashboard.session().fetch(current.serverOrigin+'/admin/desktop-dashboard/session',{credentials:'include',
       headers:{Accept:'application/json',Authorization:'Bearer '+current.token},redirect:'error',signal:AbortSignal.timeout(10000)});
     assert.equal(response.ok,true);return response.json();

@@ -93,15 +93,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
           node desktop-pos/node_modules/electron/install.js
           if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
-          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
           $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
           if ($printProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
-          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
           $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
           if ($reviewProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
-          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron connected request acceptance failed.' }
           $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
           $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
