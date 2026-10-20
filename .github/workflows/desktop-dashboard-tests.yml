@@ -89,6 +89,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify bounded fixture recovery from repeated API rate limits
+        shell: pwsh
+        run: |
+          & php tests/desktop_dashboard_runtime/remote-attempts.php --retry-helper-self-test 2>&1 | Tee-Object -Variable rateRetryOutput
+          $rateRetryExit = $LASTEXITCODE
+          $rateRetryMatches = [regex]::Matches(($rateRetryOutput -join "`n"), '(?m)^REMOTE_ATTEMPT_RATE_RETRY_SELF_TEST_COMPLETE (\{[^\r\n]+\})$')
+          if ($rateRetryExit -ne 0 -or $rateRetryMatches.Count -ne 1) { throw 'Bounded fixture rate-limit recovery did not complete exactly once.' }
+          $rateRetryReceipt = $rateRetryMatches[0].Groups[1].Value | ConvertFrom-Json
+          foreach ($entry in @{ checks = 30; max_retries = 3; total_budget_seconds = 125; http_timeout_reserved_seconds = 15; boundary_slack_seconds = 1 }.GetEnumerator()) {
+            $actual = $rateRetryReceipt.($entry.Key)
+            if (($actual -isnot [int] -and $actual -isnot [long]) -or $actual -ne $entry.Value) { throw "Bounded fixture rate-limit policy differs: $($entry.Key)" }
+          }
+          if ($rateRetryReceipt.exact_request_identity -isnot [bool] -or $rateRetryReceipt.exact_request_identity -ne $true -or $rateRetryReceipt.production_limiter_changed -isnot [bool] -or $rateRetryReceipt.production_limiter_changed -ne $false) { throw 'Fixture recovery changed its exact request identity or production limiter boundary.' }
       - name: Install pinned test application dependencies
         # A reviewed supported lock is required; dependency security blocking stays enabled.
         run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist
