@@ -299,6 +299,11 @@ jobs:
           New-Item -ItemType Directory -Path b/desktop-pos/dist -Force | Out-Null
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/runtime-audit.json" b/desktop-pos/dist/runtime-audit.json
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/dashboard-synthetic-snapshot.json" b/desktop-pos/dist/dashboard-synthetic-snapshot.json
+          # This independent shallow checkout also needs the reviewed origin object.
+          git -C b fetch --depth=1 --no-tags origin 48b1d0fae8de73a97ab07b53ca0a0667830bf3d9
+          if ($LASTEXITCODE -ne 0) { throw 'The assembly checkout could not fetch its exact inherited source.' }
+          $inheritedRevision = (& git -C b rev-parse FETCH_HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $inheritedRevision -cne '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9') { throw 'The inherited source object differs in the actual assembly checkout.' }
       - name: Assemble the current manifest from byte-identical tested runtime inputs
         working-directory: b
         shell: pwsh
