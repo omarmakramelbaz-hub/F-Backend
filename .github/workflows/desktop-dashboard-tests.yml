@@ -61,10 +61,10 @@ jobs:
           $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
           if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
-          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite')) {
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked')) {
             if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
           }
-          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 5 -or $connectedProof.reauthOriginalSignins -ne 4 -or $connectedProof.reauthSuccesses -ne 2) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
       - name: Retain the exact connected native acceptance receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -487,10 +487,10 @@ jobs:
           $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
           if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
-          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite')) {
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked')) {
             if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
           }
-          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 5 -or $connectedProof.reauthOriginalSignins -ne 4 -or $connectedProof.reauthSuccesses -ne 2) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |

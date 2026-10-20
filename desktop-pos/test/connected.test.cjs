@@ -213,3 +213,36 @@ test('native review cancellation preserves uncertainty and actor change during c
   const review=new Review({attempts:f.attempts,connected:f.access,runtime:f.runtime,dialog:{showMessageBox:async()=>{if(step++===1)f.setActor(2);return {response:0};}}});
   await assert.rejects(review.open({}),/لا يطابق/);assert.deepEqual((await f.state.read()).pending,[id]);assert.equal(f.records.has('remote-central-reviews/'+id),false);
 });
+
+test('native renewal restores an expired local server session without selecting central or modifying its generation',async()=>{
+  const f=fixture(),probe=f.access.probe;f.access.probe=async()=>{throw Error('expired cookie401');};
+  await assert.rejects(f.access.open(),/expired cookie401/);assert.equal(f.view.current().local,true);assert.equal(f.held(),null);
+  const before=structuredClone([...f.records]),generation=f.calls.filter(row=>row[0]==='generation').length;
+  f.view.reauthenticate=async(origin,verify)=>{assert.equal(origin,f.current().serverOrigin);assert.equal(await f.access.deferRefresh(),true);f.access.probe=probe;await verify();};
+  assert.deepEqual(await f.access.reauthenticate(),{authenticated:true});assert.equal(f.view.current().local,true);assert.deepEqual([...f.records],before);
+  assert.equal(f.calls.filter(row=>row[0]==='generation').length,generation);assert.equal(f.held(),null);assert.equal(await f.access.selected(),false);
+  await f.access.open();assert.equal(await f.access.selected(),true);assert.equal(f.view.current().local,false);
+});
+test('wrong actor, unknown protocol, cancellation and binding drift during native renewal preserve an existing central fence and uncertain request',async()=>{
+  for(const scenario of ['actor','protocol','cancel','binding','probe-drift']){
+    const f=fixture();await f.access.open();const id=crypto.randomUUID();await f.attempts.begin(id,details(f));f.attempts.failed(id);
+    const before=structuredClone([...f.records]),held=f.held();
+    f.view.reauthenticate=async(_origin,verify)=>{
+      if(scenario==='actor')f.setActor(2);
+      if(scenario==='protocol')f.setProtocol(2);
+      if(scenario==='cancel')throw Error('cancel renewal');
+      if(scenario==='binding')f.replace({token:'f'.repeat(64)});
+      if(scenario==='probe-drift')f.access.probe=async()=>{f.replace({sourceRevision:'f'.repeat(40)});return {actor_id:1,device_id:f.current().deviceId,connected_request_protocol:1};};
+      await verify();
+    };
+    await assert.rejects(f.access.reauthenticate(),/لا يطابق|لم يؤكد حماية|cancel renewal|تغير ربط/);
+    assert.deepEqual([...f.records],before);assert.equal(f.held(),held);assert.equal(f.view.current().local,false);assert.deepEqual((await f.state.read()).pending,[id]);assert.equal(f.access.transitioning,false);
+  }
+});
+test('native renewal refuses an unprepared or editing device before opening a cookie-changing window',async()=>{
+  for(const scenario of ['unprepared','editing']){
+    const f=fixture();let called=false;f.view.reauthenticate=async()=>{called=true;};
+    if(scenario==='unprepared')f.setPrepared(false);else f.setIdle(false);
+    await assert.rejects(f.access.reauthenticate(),/جهّز الجهاز|للصفحة الرئيسية/);assert.equal(called,false);assert.equal(f.records.size,0);
+  }
+});

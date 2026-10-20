@@ -11,7 +11,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,dashboardOpens=0,runtimeReady=prepared,localSwitches=0;
+  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0;
   class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;}
@@ -39,15 +39,15 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:runtimeReady};}
     async prepare(){runtimeReady=true;await preparationOptions.onPrepared();return {available:true,prepared:true};}
   }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.ok(delay > 29900 && delay <= 30000);timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get dashboardOpens(){return dashboardOpens;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.ok(delay > 29900 && delay <= 30000);timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
 
 test('closing the last app window does not re-enter quit or close SQLite twice, and the ledger reopens intact',async t=>{
   const f=await fixture(t);f.windows[0].close();await settle();
-  assert.ok(f.app.exited);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+  assert.ok(f.app.exited);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);assert.equal(f.dashboardCancels,1);
   const reopened=new Store(f.file);try{assert.equal(reopened.order(f.order.id).status,'paid');assert.equal(reopened.pending()[0].id,f.sale.id);}finally{reopened.close();}
 });
 

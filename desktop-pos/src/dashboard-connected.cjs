@@ -50,6 +50,19 @@ class DashboardConnected {
     if(session.connected_request_protocol!==1)throw Error('السيرفر لم يؤكد حماية حساب العمليات المتصلة؛ أكمل تحديث السيرفر قبل فتح الداشبورد المتصلة.');
   }
   async idle(){if(this.view().canRefresh&&!(await this.view().canRefresh()))throw Error('انتقل للصفحة الرئيسية وأكمل أي تعديل أو طباعة قبل تغيير وضع الداشبورد.');}
+  reauthenticate(){return this.mode().serialize('server-login',async()=>{
+    if(!(await this.runtime.isPrepared()))throw Error('جهّز الجهاز من حساب السيرفر أولًا.');
+    await this.idle();await this.selected();const original=binding(await this.runtime.connection());this.transitioning=true;
+    try{
+      await this.view().reauthenticate(original.serverOrigin,async()=>{
+        const current=await this.runtime.connection();
+        if(!same(original,binding(current)))throw Error('تغير ربط الجهاز أثناء تسجيل الدخول؛ احتفظ بسجلاته وأعد المحاولة.');
+        await this.sameActor(current);
+        if(!same(original,binding(await this.runtime.connection())))throw Error('تغير ربط الجهاز أثناء تسجيل الدخول؛ احتفظ بسجلاته وأعد المحاولة.');
+      });
+      return {authenticated:true};
+    }finally{this.transitioning=false;}
+  });}
   open(){return this.mode().serialize('full-central',async()=>{
     if(!(await this.runtime.isPrepared())){await this.view().open();return {prepared:false};}
     if(await this.selected()&&!this.view().current().local){await this.sameActor(await this.runtime.connection());this.view().reveal?.();return {central:true};}

@@ -8,10 +8,10 @@ const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, connected, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
-  let window, loading = false, refreshing = false, printing = 0;
+  let window, loading = false, refreshing = false, printing = 0, authentication = null;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
@@ -42,7 +42,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     }catch(error){close();throw error;}finally{clearTimeout(timer);}
   }
   function ownedPrint(event) {
-    return !quitting() && !refreshing && owned.has(event.sender.id) && policy.sameOrigin(event.senderFrame.url,origin)
+    return !quitting() && !refreshing && !authentication && owned.has(event.sender.id) && policy.sameOrigin(event.senderFrame.url,origin)
       && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
   }
   for(const [name,work] of Object.entries({
@@ -71,7 +71,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return details;
   }
   function trusted(event) {
-    return !quitting() && !refreshing && window && event.sender.id === window.webContents.id
+    return !quitting() && !refreshing && !authentication && window && event.sender.id === window.webContents.id
       && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
   }
   for (const [name, work] of Object.entries({
@@ -95,6 +95,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     printing++;
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
+      if (authentication) throw Error('أكمل تسجيل دخول السيرفر أو أغلق نافذته قبل الطباعة.');
       if (refreshing) throw Error('يجري تحديث بيانات الداشبورد؛ أعد المحاولة بعد اكتماله.');
       const printUrl=typeof value==='string'?value:value?.url;
       if (!owned.has(event.sender.id) || !policy.sameOrigin(event.senderFrame.url, origin)
@@ -151,7 +152,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
   }
   async function open(url = home) {
-    if (loading || refreshing || quitting()) return;
+    if (loading || refreshing || authentication || quitting()) return;
     if (!policy.sameOrigin(url, origin)) throw Error('رابط الداشبورد غير صحيح.');
     loading = true;
     try {
@@ -169,6 +170,15 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             const nativeMarker=Object.entries(headers).find(([name])=>name.toLowerCase()==='x-fasakhansta-connected-request')?.[1];
             const connectedSupplied=Object.keys(headers).some(name=>/^x-fasakhansta-connected-(?:device|token|request)$/i.test(name));
             for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability|connected-device|connected-token|connected-request)$/i.test(name)) delete headers[name];
+            if(authentication&&authentication.contentsId===details.webContentsId){
+              if(!authentication.finishing&&!authentication.checking&&authentication.allowed(details.url,details.method)
+                &&!(authentication.submitted&&String(details.method).toUpperCase()==='POST')){
+                if(String(details.method).toUpperCase()==='POST')authentication.submitted=true;
+                callback({requestHeaders:headers});
+              }else callback({cancel:true});
+              return;
+            }
+            if(authentication&&owned.has(details.webContentsId)){callback({cancel:true});return;}
             if (!policy.sameOrigin(details.url, origin)) {
               // An absolute legacy URL must not send a prepared local form or
               // dashboard poll directly to production outside the shared cycle.
@@ -250,13 +260,14 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
           activeRequests.delete(details.id);
           if(remoteAttempts&&remoteWrites.has(details.id)){remoteAttempts.failed(remoteWrites.get(details.id));remoteWrites.delete(details.id);}
-          if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
+          if (!refreshing && !authentication && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
             offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
         });
         const grants = new Set(['notifications']);
-        contents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
-          policy.sameOrigin(requestingOrigin, origin) && grants.has(permission));
+        contents.session.setPermissionCheckHandler((sender, permission, requestingOrigin) =>
+          (!authentication||authentication.contentsId!==sender?.id) && policy.sameOrigin(requestingOrigin, origin) && grants.has(permission));
         contents.session.setPermissionRequestHandler(async (sender, permission, callback, details) => {
+          if(authentication?.contentsId===sender.id){callback(false);return;}
           if (!policy.sameOrigin(sender.getURL(), origin) || !policy.sameOrigin(details.requestingUrl || sender.getURL(), origin)) { callback(false); return; }
           if (grants.has(permission)) { callback(true); return; }
           if (!['geolocation', 'media'].includes(permission)) { callback(false); return; }
@@ -286,7 +297,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } finally { loading = false; }
   }
   function navigate(event, url) {
-    if (refreshing) { event.preventDefault(); return; }
+    if (refreshing || authentication) { event.preventDefault(); return; }
     if (policy.sameOrigin(url, origin)) return;
     event.preventDefault();
     if (policy.externalURL(url)) shell.openExternal(url);
@@ -296,6 +307,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
       ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(reauthenticate?[{label:'تجديد تسجيل دخول السيرفر',click:()=>accepted(()=>reauthenticate()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       ...(reviewCentral?[{label:'مراجعة نتائج العمليات المتصلة',click:()=>accepted(()=>reviewCentral(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       ...(prepare ? [{ label: 'تجهيز للعمل بدون إنترنت', click: () => {
@@ -324,7 +336,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } }] }
   ]));
   async function canRefresh() {
-    if (loading || refreshing || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
+    if (loading || refreshing || authentication || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
     if (!window || window.isDestroyed()) return true;
     const current = window.webContents.getURL();
     if (!policy.sameOrigin(current, origin) || new URL(current).pathname !== '/admin/dashboard') return false;
@@ -351,7 +363,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return switchTo({ origin, localToken }, work, { preserveCurrent: true });
   }
   async function switchTo(target, work = async () => {}, { preserveCurrent = false } = {}) {
-    if (refreshing || quitting() || printing || effects?.active) throw Error('انتظر انتهاء الطباعة أو انتقال الداشبورد بين الجهاز والسيرفر.');
+    if (refreshing || authentication || quitting() || printing || effects?.active) throw Error('انتظر انتهاء الطباعة أو تسجيل الدخول أو انتقال الداشبورد بين الجهاز والسيرفر.');
     const destination = new URL(target.origin);
     const local = destination.protocol === 'http:' && destination.hostname === '127.0.0.1' && destination.port && target.localToken;
     const remote = destination.protocol === 'https:' && target.origin === serverOrigin && !target.localToken;
@@ -377,6 +389,78 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (window && !window.isDestroyed() && !quitting()) await open(policy.sameOrigin(returnURL, origin) ? returnURL : home);
     }
   }
+  async function renewServerLogin(destination,verify){
+    if(destination!==serverOrigin||!destination.startsWith('https://')||typeof verify!=='function'||!(await canRefresh()))
+      throw Error('انتقل للصفحة الرئيسية وأكمل أي تعديل أو طباعة قبل تجديد تسجيل الدخول.');
+    if(authentication||quitting())throw Error('نافذة تسجيل الدخول غير متاحة الآن.');
+    const authWindow=new BrowserWindow({parent:window,modal:true,show:false,width:980,height:760,title:'فسخانستا — تسجيل دخول السيرفر',
+      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+    const staticPaths=new Set(['/dashboard/plugins/fontawesome-free/css/all.min.css','/dashboard/dist/css/adminlte.min.css',
+      '/dashboard/branding/dashboard-brand.css','/dashboard/branding/fasakhansta-logo-transparent.png']);
+    const allowed=(value,method)=>{
+      if(!policy.sameOrigin(value,destination))return false;
+      const pathname=new URL(value).pathname,verb=String(method||'GET').toUpperCase();
+      return verb==='POST'?pathname==='/admin/signin':['GET','HEAD'].includes(verb)&&(pathname==='/admin/login'||staticPaths.has(pathname)
+        ||/^\/dashboard\/plugins\/fontawesome-free\/webfonts\/fa-(?:brands-400|regular-400|solid-900)\.(?:eot|svg|ttf|woff|woff2)$/.test(pathname));
+    };
+    return new Promise((resolve,reject)=>{
+      const cookieSession=authWindow.webContents.session;
+      const clearCookies=async()=>{
+        const cookies=await cookieSession.cookies.get({url:destination+'/admin/login'});
+        for(const cookie of cookies)await cookieSession.cookies.remove(destination+(cookie.path||'/'),cookie.name);
+      };
+      const record={window:authWindow,contentsId:authWindow.webContents.id,allowed,submitted:false,checking:false,finishing:false};authentication=record;
+      const finish=async error=>{
+        if(authentication!==record||record.finishing)return;
+        record.finishing=true;if(!authWindow.isDestroyed())authWindow.webContents.stop();
+        if(error){
+          try{await clearCookies();}
+          catch(cleanupError){
+            if(!quitting()){
+              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'فسخانستا',message:'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',buttons:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:1});
+              record.finishing=false;
+              if(choice.response===0)return finish(error);
+              reject(cleanupError);quit();return;
+            }
+          }
+        }
+        if(authentication!==record)return;
+        authentication=null;if(!authWindow.isDestroyed())authWindow.destroy();
+        error?reject(error):resolve({authenticated:true});
+      };
+      record.cancel=()=>{
+        if(quitting()&&record.finishing){
+          authentication=null;if(!authWindow.isDestroyed())authWindow.destroy();reject(Error('تم إلغاء تسجيل دخول السيرفر.'));return;
+        }
+        return finish(Error('تم إلغاء تسجيل دخول السيرفر.'));
+      };
+      const navigateAuth=(event,url,redirect=false)=>{
+        if(policy.sameOrigin(url,destination)&&new URL(url).pathname==='/admin/login'){
+          if(redirect&&!record.checking)record.submitted=false;
+          return;
+        }
+        if(policy.sameOrigin(url,destination)&&new URL(url).pathname==='/admin/signin')return;
+        event.preventDefault();
+        if(record.submitted&&policy.sameOrigin(url,destination)&&!record.checking){
+          record.checking=true;Promise.resolve().then(verify).then(()=>finish(),finish);
+        }
+      };
+      authWindow.webContents.on('will-navigate',navigateAuth);authWindow.webContents.on('will-redirect',(event,url)=>navigateAuth(event,url,true));
+      authWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+      authWindow.on('close',event=>{event.preventDefault();record.cancel();});
+      authWindow.on('closed',()=>record.cancel());
+      authWindow.webContents.on('did-fail-load',(_event,code,message,_url,main)=>{
+        if(main&&!(code===-3&&record.checking))finish(Error('تعذر تحميل تسجيل دخول السيرفر: '+message));
+      });
+      // Explicit native renewal clears only this app's cookies for the pinned
+      // server login URL. Passwords remain in the original server form.
+      (async()=>{
+        await clearCookies();
+        if(authentication!==record||record.finishing||quitting())return record.cancel();
+        authWindow.show();await authWindow.loadURL(destination+'/admin/login');
+      })().catch(error=>{if(!record.checking)finish(error);});
+    });
+  }
   function publish(value) {
     if (window && !window.isDestroyed() && !quitting() && policy.sameOrigin(window.webContents.getURL(), origin))
       window.webContents.send('dashboard:state', value);
@@ -385,6 +469,6 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if(!localToken || !effects)return {local:false};
     printing++;try{await effects.inspect();return {local:true};}finally{printing--;}
   }
-  return { open, refresh, canRefresh, switchTo, publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
+  return { open, refresh, canRefresh, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };

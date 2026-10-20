@@ -4,7 +4,7 @@ const policy=require('../src/dashboard-policy.cjs');
 
 function fixture(t, options = {}){
   let next=0,closing=false;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
-  const session={fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
+  const session={cookies:{get:async()=>[],remove:async()=>{}},fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
     webRequest:{onCompleted(_filter,handler){this.completed=handler;},onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
@@ -413,4 +413,73 @@ test('native print IPC cannot bypass a matching actor whose retained server lack
     }
     assert.equal(fetched,0);assert.equal(f.windows.length,1);await state.assertClean();assert.equal([...records.keys()].some(key=>key.startsWith('remote-central')),false);
   }
+});
+
+test('native server renewal shares only the login cookie partition and blocks every business request until verified',async t=>{
+  const local='http://127.0.0.1:43219',f=fixture(t,{origin:local,serverOrigin:policy.DEFAULT_ORIGIN,localToken:'local-private',reauthenticate:async()=>{}});
+  await f.dashboard.open();let verified=0,release;const removals=[];
+  f.session.cookies.get=async filter=>{assert.equal(filter.url,policy.DEFAULT_ORIGIN+'/admin/login');return [{name:'server-session',path:'/'}];};
+  f.session.cookies.remove=async(...args)=>removals.push(args);
+  const renewing=f.dashboard.reauthenticate(policy.DEFAULT_ORIGIN,async()=>{verified++;await new Promise(resolve=>release=resolve);});
+  await new Promise(resolve=>setImmediate(resolve));const auth=f.windows[1],main=f.windows[0];
+  assert.equal(auth.url,policy.DEFAULT_ORIGIN+'/admin/login');assert.equal(auth.options.modal,true);assert.equal(auth.options.parent,main);
+  assert.equal(auth.options.webPreferences.partition,'persist:fasakhansta-dashboard');assert.equal(auth.options.webPreferences.preload,undefined);
+  assert.equal(auth.options.webPreferences.nodeIntegration,false);assert.equal(auth.options.webPreferences.contextIsolation,true);
+  assert.deepEqual(removals,[[policy.DEFAULT_ORIGIN+'/','server-session']]);
+  const headers=(url,method='GET',id=auth.webContents.id)=>{let result;f.session.webRequest.headers({url,method,webContentsId:id,requestHeaders:{'X-Fasakhansta-Desktop':'stolen','X-Fasakhansta-Connected-Token':'stolen'}},value=>result=value);return result;};
+  for(const pathname of ['/admin/login','/dashboard/dist/css/adminlte.min.css','/dashboard/branding/dashboard-brand.css?v=1','/dashboard/plugins/fontawesome-free/webfonts/fa-solid-900.woff2'])
+    assert.deepEqual(Object.keys(headers(policy.DEFAULT_ORIGIN+pathname).requestHeaders),[]);
+  for(const [url,method] of [[policy.DEFAULT_ORIGIN+'/admin/resturantControl','GET'],[policy.DEFAULT_ORIGIN+'/admin/users/20','POST'],
+    ...['legacy','store','service','partner_service'].map(source=>[policy.DEFAULT_ORIGIN+'/admin/order-board/'+source+'/20/print','GET']),
+    [policy.DEFAULT_ORIGIN+'/admin/login/','GET'],[policy.DEFAULT_ORIGIN+'/%61dmin/signin','POST'],[policy.DEFAULT_ORIGIN+'/dashboard/../admin/resturantControl','GET'],
+    [policy.DEFAULT_ORIGIN+'/admin/route.css','GET'],['https://user:pass@fasakhaninja.com/admin/login','GET'],['https://foreign.test/asset.css','GET'],
+    [policy.DEFAULT_ORIGIN+'/admin/signin','GET'],[policy.DEFAULT_ORIGIN+'/admin/login','POST']])assert.equal(headers(url,method).cancel,true,url);
+  assert.equal(headers(local+'/admin/employees/save','POST',main.webContents.id).cancel,true);
+  assert.equal(auth.webContents.popup({url:policy.DEFAULT_ORIGIN+'/admin/dashboard'}).action,'deny');
+  let prevented=false;auth.webContents.emit('will-navigate',{preventDefault(){prevented=true;}},policy.DEFAULT_ORIGIN+'/admin/signin');assert.equal(prevented,false,'Original POST navigation must reach the verb guard.');
+  assert.deepEqual(Object.keys(headers(policy.DEFAULT_ORIGIN+'/admin/signin','POST').requestHeaders),[]);
+  assert.equal(headers(policy.DEFAULT_ORIGIN+'/admin/signin','POST').cancel,true,'A second signin cannot race the first actor probe.');
+  auth.webContents.emit('will-redirect',{preventDefault(){prevented=true;}},policy.DEFAULT_ORIGIN+'/admin/applies-orders');
+  await Promise.resolve();assert.equal(prevented,true);assert.equal(verified,1);assert.equal(await f.dashboard.canRefresh(),false);
+  assert.equal(headers(policy.DEFAULT_ORIGIN+'/admin/signin','POST').cancel,true);
+  f.session.webRequest.error({url:policy.DEFAULT_ORIGIN+'/admin/login',error:'net::ERR_CONNECTION_RESET'});assert.equal(f.notices.length,0);
+  const sender=main.webContents,event={sender,senderFrame:{url:sender.getURL()}};
+  assert.equal((await f.handlers.get('dashboard:status')(event)).ok,false);
+  assert.equal((await f.handlers.get('dashboard:print-receipt')(event,local+'/admin/takeaway/1/print')).ok,false);
+  await assert.rejects(f.dashboard.switchTo({origin:policy.DEFAULT_ORIGIN,localToken:''}),/تسجيل الدخول/);
+  release();assert.equal((await renewing).authenticated,true);assert.equal(auth.destroyed,true);assert.equal(f.dashboard.current().origin,local);assert.equal(f.dashboard.current().local,true);
+  assert.equal(headers(local+'/admin/dashboard','GET',main.webContents.id).requestHeaders['X-Fasakhansta-Desktop'],'local-private');
+  assert.ok(f.electron.menu[0].submenu.some(value=>value.label==='تجديد تسجيل دخول السيرفر'));
+  assert.equal([...f.handlers.keys()].some(name=>/reauth|login/.test(name)),false);
+});
+
+test('failed or cancelled renewal clears new cookies before resuming the old view and shutdown settles pending login',async t=>{
+  for(const failure of ['wrong-actor','cancel','shutdown','load','destroyed']){
+    const f=fixture(t),removed=[];await f.dashboard.open();let reads=0,release;
+    f.session.cookies.get=async()=>[{name:'server-session',path:'/'}];
+    f.session.cookies.remove=async(url,name)=>{removed.push([url,name]);if(++reads===2&&failure==='wrong-actor')await new Promise(resolve=>release=resolve);};
+    const renewal=f.dashboard.reauthenticate(policy.DEFAULT_ORIGIN,async()=>{throw Error('wrong actor');});
+    const rejected=assert.rejects(renewal,/wrong actor|إلغاء|تعذر تحميل/);await new Promise(resolve=>setImmediate(resolve));const auth=f.windows[1];
+    if(failure==='wrong-actor'){
+      f.session.webRequest.headers({url:policy.DEFAULT_ORIGIN+'/admin/signin',method:'POST',webContentsId:auth.webContents.id,requestHeaders:{}},()=>{});
+      auth.webContents.emit('will-redirect',{preventDefault(){}},policy.DEFAULT_ORIGIN+'/admin/dashboard');
+      await new Promise(resolve=>setImmediate(resolve));assert.equal(auth.destroyed,false);assert.equal(await f.dashboard.canRefresh(),false);
+      let result;f.session.webRequest.headers({url:policy.DEFAULT_ORIGIN+'/admin/users/20',method:'POST',webContentsId:f.windows[0].webContents.id,requestHeaders:{}},value=>result=value);assert.equal(result.cancel,true);release();
+    }else if(failure==='cancel')auth.emit('close',{preventDefault(){}});
+    else if(failure==='shutdown'){f.close();await f.dashboard.cancelAuthentication();}
+    else if(failure==='load')auth.webContents.emit('did-fail-load',{},-106,'net::ERR_INTERNET_DISCONNECTED',auth.url,true);
+    else {auth.destroy();auth.emit('closed');}
+    await rejected;assert.equal(removed.length,2);assert.equal(auth.destroyed,true);assert.equal(f.dashboard.current().origin,policy.DEFAULT_ORIGIN);
+    if(failure!=='shutdown')assert.equal(await f.dashboard.canRefresh(),true);
+  }
+});
+
+test('actual Shutdown drains an accepted native login cancellation before final quit',async t=>{
+  const Shutdown=require('../src/shutdown.cjs'),f=fixture(t),app=new EventEmitter();let quitCount=0,drained=false;
+  app.quit=()=>{quitCount++;app.emit('before-quit',{preventDefault(){}});};
+  const shutdown=new Shutdown(app,()=>{f.close();f.dashboard.cancelAuthentication();},()=>{},async()=>{drained=true;});
+  await f.dashboard.open();const renewal=shutdown.run(()=>f.dashboard.reauthenticate(policy.DEFAULT_ORIGIN,async()=>{}));
+  const rejected=assert.rejects(renewal,/إلغاء/);await new Promise(resolve=>setImmediate(resolve));assert.equal(shutdown.pending.size,1);
+  app.quit();await rejected;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(shutdown.pending.size,0);assert.equal(shutdown.ready,true);assert.equal(drained,true);assert.equal(quitCount,2);assert.equal(f.windows[1].destroyed,true);
 });

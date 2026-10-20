@@ -24,7 +24,7 @@ if(!primaryInstance)app.quit();
 let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,quitting=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
-const shutdown=new Shutdown(app,()=>{quitting=true;syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
+const shutdown=new Shutdown(app,()=>{quitting=true;dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -230,6 +230,7 @@ app.whenReady().then(async()=>{
       return ready;
     }:undefined,status:dashboardState,remoteState,remoteAttempts,
     connected:connectedAccess?async()=>{if(!(await localRuntime.isPrepared()))return dashboard.open();return connectedAccess.open();}:undefined,
+    reauthenticate:connectedAccess?()=>connectedAccess.reauthenticate():undefined,
     localMode:connectedAccess?()=>connectedAccess.local():undefined,
     reviewCentral:connectedReview?window=>connectedReview.open(window):undefined,
     browse:connectedAccess?()=>connectedAccess.browse():undefined,
