@@ -18,45 +18,70 @@ timeout --signal=TERM --kill-after=5s 90s \
   runuser -u fasakha -- /usr/bin/python3 -B - "$capture_tmp/reader.py" <<'PY'
 import base64,gzip,hashlib,importlib.util,json,os,pwd,stat,sys
 from pathlib import Path
-try:
-    assert os.geteuid()==pwd.getpwnam('fasakha').pw_uid
-    spec=importlib.util.spec_from_file_location('pinned_reader',sys.argv[1])
-    reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
-    rows=[
-        ('app/Console/Kernel.php','4cb562144eb1f9e6fc5857aa56ce8221be2974e3','1426ee83cbcc26b8664515397dcf2eca49559c8776a0bc7e62ec7efd190eb05a'),
-        ('app/Services/Dashboard/MetaCommentAiProvider.php','1896cc2f107336cf6bf94505276600b6fbf46975','86a8daaad64d0885dba6ffdb2470bd8ab32eac11f3a47af9c6c8a737120ca2bb'),
-        ('database/migrations/2026_10_20_045322_create_cache_table.php','88cd44590c029964801da3f058d89413f728ceb1','1166af1eaec2164cc869ad41d6c622b7c8aadda5d8009bdb05519c1438ffd197'),
-    ]
-    def read(relative):
-        fd=reader.open_root(Path('/home/fasakha/public_html'))
-        try:
-            for part in Path(relative).parts[:-1]:
-                child=reader.open_directory(fd,part);os.close(fd);fd=child
-            data,item=reader.read_file(fd,Path(relative).name,2*1024*1024)
-            assert item.st_uid==os.geteuid() and item.st_nlink==1
-            assert stat.S_IMODE(item.st_mode)==0o644
-            return data,reader.identity(item)
-        finally:os.close(fd)
+class CaptureStopped(Exception):
+    def __init__(self,stage,relative=None,metadata=None):
+        self.stage=stage;self.relative=relative;self.metadata=metadata
+
+def read(root,relative,expected_uid,expected_gid,reader):
+    fd=None
+    try:
+        fd=reader.open_root(root)
+        for part in Path(relative).parts[:-1]:
+            child=reader.open_directory(fd,part);os.close(fd);fd=child
+        data,item=reader.read_file(fd,Path(relative).name,2*1024*1024)
+        metadata=reader.public_metadata(item)
+        if (item.st_uid!=expected_uid or item.st_gid!=expected_gid
+                or item.st_nlink!=1 or stat.S_IMODE(item.st_mode)!=0o644):
+            raise CaptureStopped('METADATA',relative,metadata)
+        return data,reader.identity(item)
+    except CaptureStopped:raise
+    except BaseException:raise CaptureStopped('READ',relative) from None
+    finally:
+        if fd is not None:os.close(fd)
+
+def capture_files(root,rows,reader):
     first={};files=[]
-    for relative,pin,normalized_pin in rows:
-        data,identity=read(relative)
+    for relative,pin,normalized_pin,uid,gid in rows:
+        data,identity=read(root,relative,uid,gid,reader)
         actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-        assert actual==pin
-        assert hashlib.sha256(data.replace(b'\r\n',b'\n')).hexdigest()==normalized_pin
+        if actual!=pin or hashlib.sha256(data.replace(b'\r\n',b'\n')).hexdigest()!=normalized_pin:
+            raise CaptureStopped('SOURCE_CHANGED',relative)
         first[relative]=(data,identity)
         files.append({'path':relative,'blob':actual,'normalizedSha256':normalized_pin,
                       'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data),
                       'base64':base64.b64encode(data).decode('ascii')})
-    for relative,_,_ in rows:assert read(relative)==first[relative]
+    for relative,_,_,uid,gid in rows:
+        if read(root,relative,uid,gid,reader)!=first[relative]:
+            raise CaptureStopped('REREAD_CHANGED',relative)
+    return files
+
+stage='READER'
+try:
+    assert os.geteuid()==pwd.getpwnam('fasakha').pw_uid==1001
+    spec=importlib.util.spec_from_file_location('pinned_reader',sys.argv[1])
+    reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
+    rows=[
+        ('app/Console/Kernel.php','4cb562144eb1f9e6fc5857aa56ce8221be2974e3','1426ee83cbcc26b8664515397dcf2eca49559c8776a0bc7e62ec7efd190eb05a',1001,1003),
+        ('app/Services/Dashboard/MetaCommentAiProvider.php','1896cc2f107336cf6bf94505276600b6fbf46975','86a8daaad64d0885dba6ffdb2470bd8ab32eac11f3a47af9c6c8a737120ca2bb',1001,1003),
+        ('database/migrations/2026_10_20_045322_create_cache_table.php','88cd44590c029964801da3f058d89413f728ceb1','1166af1eaec2164cc869ad41d6c622b7c8aadda5d8009bdb05519c1438ffd197',0,0),
+    ]
+    stage='CAPTURE'
+    files=capture_files(Path('/home/fasakha/public_html'),rows,reader)
     payload={'format':1,'kind':'desktop-missing-source-bytes','files':files,
              'matchesReportedBlobs':True,'fullSourceRechecked':False,
              'applicationChanged':False,'databaseRead':False}
+    stage='PACK'
     packed=gzip.compress(json.dumps(payload,separators=(',',':')).encode(),mtime=0)
     print('DESKTOP_SOURCE_BYTES_BEGIN')
     print(base64.b64encode(packed).decode('ascii'))
     print('DESKTOP_SOURCE_BYTES_END; APPLICATION_CHANGED=false')
-except BaseException:
-    print('DESKTOP_SOURCE_CAPTURE_STOPPED_NO_APPLICATION_CHANGES',file=sys.stderr)
+except CaptureStopped as error:
+    print('DESKTOP_SOURCE_CAPTURE_STOPPED '+json.dumps({'stage':error.stage,
+          'file':error.relative,'metadata':error.metadata,'applicationChanged':False},separators=(',',':')),file=sys.stderr)
+    sys.exit(1)
+except BaseException as error:
+    print('DESKTOP_SOURCE_CAPTURE_STOPPED '+json.dumps({'stage':stage,
+          'class':type(error).__name__,'applicationChanged':False},separators=(',',':')),file=sys.stderr)
     sys.exit(1)
 PY
 SH
