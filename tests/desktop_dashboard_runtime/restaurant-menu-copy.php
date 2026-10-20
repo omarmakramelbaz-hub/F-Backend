@@ -121,6 +121,7 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
             'a fresh actual HTML copy rejects a selected child product outside its original parent source and changes no original106-table business row');
         $command=(string)Str::uuid();$commands[]=$command;$selection=[$sourceIds[1],$sourceIds[2],$sourceIds[1],$sourceIds[0],$sourceIds[3]];
         $form=['_token'=>$csrf[1],'_desktop_command'=>$command,'resturant_id'=>'100','restraunt_product'=>array_map('strval',$selection)];
+        $globalOrderBefore=(int)DB::table('media')->max('order_column');
         DB::unprepared("CREATE TRIGGER reject_second_menu_image BEFORE INSERT ON media FOR EACH ROW BEGIN IF NEW.model_type='App\\\\Models\\\\ResturantProduct' AND NEW.name='صورة مصدر النسخ 3' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture second menu image failure'; END IF; END");
         try{verify($request($form)[0]===500&&DB::table('resturant_products')->where('resturant_id',100)->count()===1&&$product(1)===$baselineProduct&&$media(1)===$targetMedia
             &&!DB::table('desktop_dashboard_commands')->where('command_id',$command)->exists(),'a real failure while adding the second copied image atomically rolls back the whole ordered batch and success receipt');}
@@ -140,6 +141,8 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
                 'actual FileAdder copies the complete source PNG and its canonical Arabic name/extension for selected slot '.$slot);}
         verify(count(array_unique(array_column($duplicateImages,'uuid')))===3&&$duplicateImages[0]['uuid']!==$duplicateImages[2]['uuid'],
             'duplicate selections receive distinct deterministic media UUID slots instead of reusing one source identity');
+        verify(array_column($duplicateImages,'order_column')===range($globalOrderBefore+1,$globalOrderBefore+3),
+            'each real copied image retains the deployed global next-order allocation across old and new media packages');
         verify($media(1)===$targetMedia&&$product(1)['price']===$baselineProduct['price']&&$product(1)['product_price']==='111.00',
             'the existing target changes only price/timestamp and retains its complete old addon JSON and image rows');
         foreach(['source'=>['f:100'],'target'=>['f:101']] as $kind=>$branches){$oldBranches=DB::table('desktop_dashboard_local_state')->where('device_id',$ownerDevice)->value('branches');DB::table('desktop_dashboard_local_state')->where('device_id',$ownerDevice)->update(['branches'=>json_encode($branches)]);
@@ -155,6 +158,11 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardCommands,Des
         try{$reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$bad),409,'changed parent source product fields conflict before replay');}finally{DB::table('resturant_products')->where('id',$sourceIds[1])->update(['product_price'=>$sourcePrice]);}
         $sourcePath=\Spatie\MediaLibrary\MediaCollections\Models\Media::findOrFail(982302)->getPath();$sourceBytes=file_get_contents($sourcePath);file_put_contents($sourcePath,$pngB);
         try{$reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$first),409,'changed complete source PNG bytes conflict before replay');}finally{file_put_contents($sourcePath,$sourceBytes);}
+        foreach([1,(string)($globalOrderBefore+1)] as $invalidOrder){$bad=$first;
+            foreach($bad['local_result']['after']['products'] as &$state)foreach($state['media'] as &$row)if(in_array($row['id'],$createdMedia[true],true))$row['order_column']=$invalidOrder;unset($state,$row);
+            foreach($bad['local_result']['after']['images'] as &$image)if(in_array($image['row']['id'],$createdMedia[true],true))$image['row']['order_column']=$invalidOrder;unset($image);
+            $reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$bad),409,
+                is_int($invalidOrder)?'forged per-model order1 remains invalid for copied menu image replay':'numeric-string copied media order remains invalid without a broad scalar coercion');}
         $receipt=app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$first);$server=$receipt['result']['after'];$created[false]=array_values(array_unique(array_column(array_filter($server['steps'],fn($step)=>$step['mode']==='create'),'target_product')));$createdMedia[false]=array_values(array_filter(array_column($server['steps'],'new_media')));
         verify($receipt===app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$first)&&array_column($server['steps'],'mode')===array_column($steps,'mode')&&min($created[false])>=200000000,
             'actual reconciliation maps every duplicate clone into independent server IDs and returns the same immutable server receipt on retry');

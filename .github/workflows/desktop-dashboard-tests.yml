@@ -260,7 +260,7 @@ jobs:
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_COMPLETE ') -or !(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '))) { throw 'Both original product CRUD acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php') {
-                foreach ($module in @(@{ marker = 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE'; checks = 42 }, @{ marker = 'RESTAURANT_MENU_COPY_REMOTE_COMPLETE'; checks = 42 })) {
+                foreach ($module in @(@{ marker = 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE'; checks = 45 }, @{ marker = 'RESTAURANT_MENU_COPY_REMOTE_COMPLETE'; checks = 42 })) {
                   $match = [regex]::Matches(($fixtureOutput -join "`n"), ('(?m)^' + $module.marker + ' (\{[^\r\n]+\})$'))
                   if ($match.Count -ne 1) { throw "Original menu-copy acceptance must complete exactly once: $($module.marker)" }
                   $copyModule = $match[0].Groups[1].Value | ConvertFrom-Json
