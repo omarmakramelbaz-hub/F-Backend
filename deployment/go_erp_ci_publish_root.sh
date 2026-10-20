@@ -161,7 +161,8 @@ def main():
         finally:shutil.rmtree(folder)
     finally:os.close(lock)
 if __name__=='__main__':
-    try:sys.exit(main())
-    except Stop as error:print(str(error),file=sys.stderr);sys.exit(1)
-    except BaseException:print('GO_ERP_CI_STOPPED_WITHOUT_PRIVATE_OUTPUT',file=sys.stderr);sys.exit(1)
+    try:result=main()
+    except Stop as error:print(str(error),file=sys.stderr);result=1
+    except BaseException:print('GO_ERP_CI_STOPPED_WITHOUT_PRIVATE_OUTPUT',file=sys.stderr);result=1
+    sys.exit(result)
 PY

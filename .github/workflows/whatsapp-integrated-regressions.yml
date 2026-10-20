@@ -2,7 +2,7 @@ name: Integrated messaging regressions
 
 on:
   push:
-    branches: ['codex/dashboard-server-integration-20261012', 'codex/go-erp-minute-updates-20261020']
+    branches: ['codex/dashboard-server-integration-20261012', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021']
   pull_request:
     paths:
       - 'app/Services/Dashboard/WhatsApp*'

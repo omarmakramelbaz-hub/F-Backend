@@ -88,9 +88,11 @@ publisher after its actual GO ERP server-ready receipt and the matching Windows
 acceptance; it must not announce success just because a GitHub push succeeded.
 The existing deployment-only SSH identity cannot provide the operator-console
 capability required here. Do not reuse it to attempt activation or publication.
-The current implementation checks and installs published releases automatically;
-it does not yet watch live server edits, commit a new desktop version, or publish
-the resulting CI artifact unattended.
+The server watcher and its one-time root setup are described in
+[go-erp-live-source-watcher.md](go-erp-live-source-watcher.md). Once configured,
+it captures live edits, commits a higher preview version, waits for fresh
+acceptance and invokes the source-guarded publisher. Adding its code does not
+enable the production timer or configure GitHub authorization.
 
 ## Activation status
 

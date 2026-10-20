@@ -1,7 +1,7 @@
 name: GO ERP minute update contracts
 on:
   push:
-    branches: [main, codex/go-erp-minute-updates-20261020]
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021]
   pull_request:
     paths:
       - 'desktop-pos/**'
@@ -11,6 +11,7 @@ on:
       - 'tests/*go_erp*'
       - 'tests/desktop_dashboard_updates_test.php'
       - '.github/scripts/desktop-update-receipt.cjs'
+      - '.github/scripts/desktop-live-source-acceptance.cjs'
       - '.github/workflows/go-erp-update-tests.yml'
 permissions:
   contents: read
@@ -20,6 +21,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -33,7 +36,11 @@ jobs:
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_update_publication.py
       - name: Verify the pinned root console publication entry
         run: python3 -B -m unittest discover -s tests -p test_go_erp_ci_publish_root.py
+      - name: Verify source capture, accepted build publication, and private timer setup
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_live*.py'
       - name: Verify authenticated release feed and immutable installer transport
         run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
       - name: Check the read-only production diagnostic
-        run: bash -n deployment/diagnose_go_erp_current_root.sh
+        run: |
+          bash -n deployment/diagnose_go_erp_current_root.sh
+          bash -n deployment/install_go_erp_live_updates_root.sh
