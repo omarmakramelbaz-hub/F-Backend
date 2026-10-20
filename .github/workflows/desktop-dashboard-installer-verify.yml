@@ -106,7 +106,7 @@ jobs:
           New-Item -ItemType Directory -Path b/desktop-pos/dist -Force | Out-Null
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/runtime-audit.json" b/desktop-pos/dist/runtime-audit.json
           Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/dashboard-synthetic-snapshot.json" b/desktop-pos/dist/dashboard-synthetic-snapshot.json
-      - name: Build the installer with exact source and dependency verification
+      - name: Verify the signed prerequisite with both tested PowerShell versions
         working-directory: b
         shell: pwsh
         run: |
@@ -114,6 +114,182 @@ jobs:
           & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
+      - name: Diagnose the actual prerequisite without changing the machine
+        shell: pwsh
+        run: |
+          $probe = @'
+          # Diagnostic only: never calls EnsureInstalled, Initialize-DesktopVcRuntime or an installer.
+          [CmdletBinding()]
+          param([Parameter(Mandatory = $true)][string] $Project)
+          $ErrorActionPreference = 'Stop'
+
+          function Get-ProbeFailure {
+              param($Record)
+              $exception = $Record.Exception
+              $current = $exception
+              $traversals = 0
+              $nativeErrorCode = $null
+              $reason = 'unclassified'
+              # Inspect the outer exception plus at most four inner links; never emit messages or paths.
+              for ($index = 0; $index -le 4; $index++) {
+                  if ($current.HResult -eq -2147024864) { $reason = 'sharing-violation' }
+                  elseif ($current.HResult -eq -2147024891) { $reason = 'access-denied' }
+                  if ($current -is [ComponentModel.Win32Exception]) { $nativeErrorCode = [int]$current.NativeErrorCode }
+                  if ($index -eq 4 -or $null -eq $current.InnerException) { break }
+                  $current = $current.InnerException
+                  $traversals++
+              }
+              return [ordered]@{
+                  type = [string]$exception.GetType().FullName
+                  hresult = [int]$exception.HResult
+                  innermostType = [string]$current.GetType().FullName
+                  innermostHresult = [int]$current.HResult
+                  innerTraversals = [int]$traversals
+                  nativeErrorCode = $nativeErrorCode
+                  reason = [string]$reason
+              }
+          }
+
+          function Read-ProbeRegistry {
+              param([Microsoft.Win32.RegistryView] $View)
+              $hive = $null; $key = $null
+              try {
+                  $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $View)
+                  $key = $hive.OpenSubKey('SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64')
+                  $fields = [ordered]@{}
+                  if ($null -ne $key) {
+                      foreach ($name in @('Installed', 'Major', 'Minor', 'Bld', 'Rbld', 'Version')) {
+                          $value = $key.GetValue($name)
+                          if ($null -eq $value) { $fields[$name] = [ordered]@{ present = $false; value = $null }; continue }
+                          $safeValue = $null
+                          if ($value -is [int] -or $value -is [long] -or $value -is [uint32]) { $safeValue = [long]$value }
+                          elseif ($value -is [string] -and $value -match '^[vV]?[0-9.]{1,64}$') { $safeValue = [string]$value }
+                          $fields[$name] = [ordered]@{
+                              present = $true
+                              kind = [string]$key.GetValueKind($name).ToString()
+                              type = [string]$value.GetType().FullName
+                              value = $safeValue
+                              recognized = [bool]($null -ne $safeValue)
+                          }
+                      }
+                  }
+                  return [ordered]@{ success = $true; keyExists = [bool]($null -ne $key); fields = $fields }
+              } catch {
+                  return [ordered]@{ success = $false; keyExists = $null; error = (Get-ProbeFailure $_) }
+              } finally {
+                  if ($null -ne $key) { $key.Dispose() }
+                  if ($null -ne $hive) { $hive.Dispose() }
+              }
+          }
+
+          function Test-ProbePayload {
+              param([string] $Path, $Policy, [bool] $Locked)
+              $handle = $null
+              try {
+                  if ($Locked) { $handle = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+                  $result = Test-DesktopVcPayload -Path $Path -Policy $Policy
+                  return [ordered]@{
+                      success = $true
+                      readSharingLock = $Locked
+                      payload = [ordered]@{
+                          architecture = [string]$result.architecture
+                          version = [string]$result.version
+                          bytes = [long]$result.bytes
+                          sha256 = [string]$result.sha256
+                          signerSha256 = [string]$result.signerSha256
+                          signatureValid = [bool]$result.signatureValid
+                      }
+                  }
+              } catch {
+                  return [ordered]@{ success = $false; readSharingLock = $Locked; error = (Get-ProbeFailure $_) }
+              } finally {
+                  if ($null -ne $handle) { $handle.Dispose() }
+              }
+          }
+
+          $report = [ordered]@{
+              format = 1
+              readOnly = $true
+              is64BitOperatingSystem = [bool][Environment]::Is64BitOperatingSystem
+              is64BitProcess = [bool][Environment]::Is64BitProcess
+              pointerBytes = [int][IntPtr]::Size
+              powershellVersion = [string]$PSVersionTable.PSVersion.ToString()
+              sourceLoaded = $false
+          }
+          $failed = $false
+          try {
+              $projectRoot = [IO.Path]::GetFullPath($Project)
+              $payloadPath = Join-Path $projectRoot 'dist/prerequisites/vc_redist.x64.exe'
+              $policyPath = Join-Path $projectRoot 'windows-vcredist.json'
+              # Dot-sourcing defines functions only; the source's executable entry point is not entered.
+              . (Join-Path $projectRoot 'windows-vcredist.ps1') -Action ValidatePayload -PayloadPath $payloadPath -PolicyPath $policyPath
+              $report.sourceLoaded = $true
+              $policy = Read-DesktopVcPolicy -Path $policyPath
+              $report.policy = [ordered]@{
+                  architecture = [string]$policy.architecture; minimumVersion = [string]$policy.version
+                  bytes = [long]$policy.bytes; sha256 = [string]$policy.sha256; signerSha256 = [string]$policy.signerSha256
+              }
+              $report.unlocked = Test-ProbePayload -Path $payloadPath -Policy $policy -Locked $false
+              $report.locked = Test-ProbePayload -Path $payloadPath -Policy $policy -Locked $true
+              if (-not $report.unlocked.success -or -not $report.locked.success) { $failed = $true }
+              try {
+                  $installed = Get-DesktopVcInstalledVersion
+                  $report.sourceInstalledVersion = [ordered]@{
+                      success = $true
+                      version = $(if ($null -eq $installed) { $null } else { [string]$installed.ToString() })
+                      minimumSatisfied = [bool]($null -ne $installed -and $installed -ge [version]$policy.version)
+                  }
+              } catch {
+                  $report.sourceInstalledVersion = [ordered]@{ success = $false; error = (Get-ProbeFailure $_) }
+                  $failed = $true
+              }
+          } catch {
+              $report.sourceError = Get-ProbeFailure $_
+              $failed = $true
+          }
+          $report.registry32 = Read-ProbeRegistry -View ([Microsoft.Win32.RegistryView]::Registry32)
+          $report.registry64 = Read-ProbeRegistry -View ([Microsoft.Win32.RegistryView]::Registry64)
+          if (-not $report.registry32.success -or -not $report.registry64.success) { $failed = $true }
+          $report.validationPassed = [bool](-not $failed)
+          [Console]::Out.WriteLine(($report | ConvertTo-Json -Depth 12 -Compress))
+          if ($failed) { exit 1 }
+          exit 0
+          '@
+          $probeFile = Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-probe.ps1'
+          [IO.File]::WriteAllText($probeFile, $probe, (New-Object Text.UTF8Encoding($false)))
+          $project = (Resolve-Path b/desktop-pos).Path
+          $results = @()
+          foreach ($entry in @(@{ label = '64'; directory = 'System32'; expected64 = $true }, @{ label = '32'; directory = 'SysWOW64'; expected64 = $false })) {
+            $executable = Join-Path $env:SystemRoot ($entry.directory + '\WindowsPowerShell\v1.0\powershell.exe')
+            $output = @(& $executable -NoProfile -NonInteractive -File $probeFile -Project $project 2>&1)
+            $code = $LASTEXITCODE
+            $raw = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+            [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP ('desktop-vc-readonly-' + $entry.label + '.json')), $raw, (New-Object Text.UTF8Encoding($false)))
+            $valid = $false
+            try {
+              $proof = $raw | ConvertFrom-Json -ErrorAction Stop
+              $valid = ($code -eq 0 -and $proof.readOnly -is [bool] -and $proof.readOnly -eq $true -and $proof.validationPassed -is [bool] -and $proof.validationPassed -eq $true -and $proof.is64BitProcess -is [bool] -and $proof.is64BitProcess -eq $entry.expected64)
+              Write-Output ('DESKTOP_PREREQUISITE_READONLY_' + $entry.label + ' ' + ($proof | ConvertTo-Json -Depth 12 -Compress))
+            } catch { Write-Output ('DESKTOP_PREREQUISITE_READONLY_' + $entry.label + ' invalid JSON; exit=' + $code) }
+            $results += [ordered]@{ processBits = [int]$entry.label; exitCode = $code; validationPassed = [bool]$valid }
+          }
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-results.json'), (ConvertTo-Json -InputObject $results -Depth 4), (New-Object Text.UTF8Encoding($false)))
+      - name: Retain both read-only prerequisite diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-prerequisite-readonly-diagnostics
+          path: ${{ runner.temp }}/desktop-vc-readonly-*.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require both real locked payload validations before building
+        shell: pwsh
+        run: |
+          $results = @(Get-Content (Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-results.json') -Raw | ConvertFrom-Json)
+          if ($results.Count -ne 2 -or @($results | Where-Object { $_.validationPassed -isnot [bool] -or $_.validationPassed -ne $true -or $_.exitCode -ne 0 }).Count -ne 0) { throw 'Read-only prerequisite validation failed; both architecture diagnostics were retained.' }
+      - name: Build the installer with exact source and dependency verification
+        working-directory: b
+        shell: pwsh
+        run: |
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
           node desktop-pos/node_modules/electron/install.js
@@ -151,6 +327,33 @@ jobs:
             }
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
+      - name: Record the compiled candidate identity before acceptance
+        working-directory: b
+        shell: pwsh
+        env:
+          DESKTOP_PRODUCT_SOURCE: ${{ steps.source.outputs.revision }}
+          DESKTOP_ACCEPTANCE_REVISION: ${{ steps.source.outputs.acceptance }}
+        run: |
+          $candidate = Get-Item desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+          $proof = [ordered]@{ format = 1; verifiedRelease = $false; sourceRevision = $env:DESKTOP_PRODUCT_SOURCE; acceptanceRevision = $env:DESKTOP_ACCEPTANCE_REVISION; productChanged = $false; bytes = $candidate.Length; sha256 = (Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+          $proof | ConvertTo-Json | Set-Content desktop-pos/dist/UNVERIFIED-compiled-candidate.json -Encoding utf8NoBOM
+          Write-Output ('DESKTOP_UNVERIFIED_COMPILED_CANDIDATE ' + ($proof | ConvertTo-Json -Compress))
+      - name: Preserve the UNVERIFIED candidate for diagnosis only
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNVERIFIED-compiled-installer-for-diagnostics
+          path: |
+            b/desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+            b/desktop-pos/dist/UNVERIFIED-compiled-candidate.json
+            b/desktop-pos/dist/runtime-package.json
+            b/desktop-pos/dist/runtime-audit.json
+            b/desktop-pos/dist/prerequisites/vcredist-package.json
+            b/desktop-pos/dist/offline-print-native.json
+            b/desktop-pos/dist/outbox-review-native.json
+            b/desktop-pos/dist/connected-request-native.json
+            b/desktop-pos/dist/dashboard-synthetic-snapshot.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Apply only the pinned acceptance fixture after the clean product build
         shell: pwsh
         env:
@@ -167,7 +370,24 @@ jobs:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
         working-directory: b
-        run: node desktop-pos/test/installer-native.cjs
+        shell: pwsh
+        run: |
+          $diagnosedAcceptance = @'
+          'use strict';
+          const cp = require('node:child_process');
+          const original = cp.execFileSync;
+          cp.execFileSync = function (...args) {
+            try { return Reflect.apply(original, this, args); }
+            catch (error) {
+              const bounded = value => value == null ? null : String(value).slice(0, 8192);
+              process.stderr.write('DESKTOP_ACTUAL_CHILD_FAILURE ' + JSON.stringify({ executable: require('node:path').basename(String(args[0])), status: error.status ?? null, code: error.code ?? null, signal: error.signal ?? null, killed: error.killed ?? null, stdout: bounded(error.stdout), stderr: bounded(error.stderr) }) + '\n');
+              throw error;
+            }
+          };
+          require('./desktop-pos/test/installer-native.cjs');
+          '@
+          node -e $diagnosedAcceptance
+          if ($LASTEXITCODE -ne 0) { throw 'Actual installed dashboard acceptance failed; original child failure metadata was logged.' }
       - name: Retain only the verified installer and receipts
         uses: actions/upload-artifact@v4
         with:
